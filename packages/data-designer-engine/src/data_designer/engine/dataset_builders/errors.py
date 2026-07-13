@@ -12,6 +12,16 @@ class ArtifactStorageError(DataDesignerError): ...
 class DatasetGenerationError(DataDesignerError): ...
 
 
+class RecordSelectionEarlyShutdownError(DatasetGenerationError):
+    """Raised when record selection stops at the scheduler's early-shutdown gate."""
+
+    def __init__(self, *, candidate_budget_remaining: bool = True) -> None:
+        message = "🛑 Record selection stopped after the scheduler triggered early shutdown."
+        if candidate_budget_remaining:
+            message += " Committed accepted batches can be continued with resume=ResumeMode.ALWAYS."
+        super().__init__(message)
+
+
 class RecordSelectionExhaustedError(DatasetGenerationError):
     """Raised when record selection consumes its candidate budget before reaching the target."""
 

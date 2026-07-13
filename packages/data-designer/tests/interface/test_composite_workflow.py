@@ -18,6 +18,7 @@ from data_designer.config.dataset_metadata import DatasetMetadata
 from data_designer.config.models import ModelConfig, ModelProvider
 from data_designer.config.preview_results import PreviewResults
 from data_designer.config.processors import DropColumnsProcessorConfig, SchemaTransformProcessorConfig
+from data_designer.config.record_selection import RecordSelectionConfig, RecordSelectionExhaustion
 from data_designer.config.seed_source import LocalFileSeedSource
 from data_designer.config.seed_source_dataframe import DataFrameSeedSource
 from data_designer.engine.secret_resolver import PlaintextResolver
@@ -112,6 +113,19 @@ def _seeded_builder(model_configs: list[ModelConfig], rows: list[dict]) -> DataD
     builder = DataDesignerConfigBuilder(model_configs=model_configs)
     builder.with_seed_dataset(DataFrameSeedSource(df=lazy.pd.DataFrame(rows)))
     return builder
+
+
+def _empty_record_selection_builder(model_configs: list[ModelConfig]) -> DataDesignerConfigBuilder:
+    builder = _seeded_builder(model_configs, [{"name": "Ada", "secret": "hidden"}])
+    builder.add_column(ExpressionColumnConfig(name="public_name", expr="{{ name }}"))
+    builder.add_column(ExpressionColumnConfig(name="keep", expr="{{ false }}", dtype="bool", drop=True))
+    return builder.with_record_selection(
+        RecordSelectionConfig(
+            predicate_column="keep",
+            max_candidate_records=1,
+            on_exhausted=RecordSelectionExhaustion.RETURN_PARTIAL,
+        )
+    )
 
 
 def _load_workflow_metadata(artifact_path: Path, workflow_name: str) -> dict:
@@ -957,6 +971,115 @@ def test_composite_workflow_resume_always_rejects_changed_stage(
         resumed.run(resume=ResumeMode.ALWAYS)
 
     assert create_mock.call_count == 0
+
+
+def test_composite_workflow_empty_record_selection_skips_output_processors_and_downstream(
+    tmp_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_model_configs: list[ModelConfig],
+) -> None:
+    data_designer = _real_data_designer(tmp_path / "artifacts", stub_model_providers)
+    real_create = data_designer.create
+    create_mock = MagicMock(wraps=real_create)
+    data_designer.create = create_mock
+    workflow = data_designer.compose_workflow(name="empty-selection-output-processors")
+    workflow.add_stage(
+        "base",
+        _empty_record_selection_builder(stub_model_configs),
+        num_records=1,
+        output_processors=[DropColumnsProcessorConfig(name="drop_secret", column_names=["secret"])],
+        allow_empty=True,
+    )
+    workflow.add_stage("final", _expression_builder(stub_model_configs, "final", "{{ name }} final"))
+
+    results = workflow.run()
+
+    base_result = results["base"]
+    assert isinstance(base_result, DatasetCreationResults)
+    assert base_result.count_records() == 0
+    assert results.load_stage_output("base").columns.tolist() == ["name", "secret", "public_name"]
+    assert isinstance(results["final"], SkippedStageResult)
+    assert results["final"].status == SkippedStageStatus.SKIPPED_EMPTY_UPSTREAM
+    assert [call.kwargs["num_records"] for call in create_mock.call_args_list] == [1]
+    stage_path = tmp_path / "artifacts" / "empty-selection-output-processors" / "stage-0-base"
+    assert base_result.artifact_storage.base_dataset_path == stage_path
+    assert not (stage_path / "output-processors").exists()
+    assert not (tmp_path / "artifacts" / "empty-selection-output-processors" / "stage-1-final").exists()
+    metadata = _load_workflow_metadata(tmp_path / "artifacts", "empty-selection-output-processors")
+    assert metadata["stages"][0]["status"] == "completed_empty"
+    assert metadata["stages"][0]["output_records"] == 0
+    assert metadata["stages"][0]["output_processor_output_path"] is None
+    assert metadata["stages"][0]["output_processors_skipped_empty_input"] is True
+
+
+def test_composite_workflow_empty_record_selection_fails_before_output_processors_by_default(
+    tmp_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_model_configs: list[ModelConfig],
+) -> None:
+    data_designer = _real_data_designer(tmp_path / "artifacts", stub_model_providers)
+    real_create = data_designer.create
+    create_mock = MagicMock(wraps=real_create)
+    data_designer.create = create_mock
+    workflow = data_designer.compose_workflow(name="empty-selection-output-processors-default")
+    workflow.add_stage(
+        "base",
+        _empty_record_selection_builder(stub_model_configs),
+        num_records=1,
+        output_processors=[DropColumnsProcessorConfig(name="drop_secret", column_names=["secret"])],
+    )
+
+    with pytest.raises(DataDesignerWorkflowError, match="Stage 'base' produced an empty output"):
+        workflow.run()
+
+    assert [call.kwargs["num_records"] for call in create_mock.call_args_list] == [1]
+    stage_path = tmp_path / "artifacts" / "empty-selection-output-processors-default" / "stage-0-base"
+    assert not (stage_path / "output-processors").exists()
+    metadata = _load_workflow_metadata(tmp_path / "artifacts", "empty-selection-output-processors-default")
+    assert metadata["stages"][0]["status"] == "failed"
+
+
+def test_composite_workflow_empty_record_selection_falls_back_from_output_processor_selection(
+    tmp_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_model_configs: list[ModelConfig],
+) -> None:
+    data_designer = _real_data_designer(tmp_path / "artifacts", stub_model_providers)
+    workflow = data_designer.compose_workflow(name="empty-selection-processor-output")
+    workflow.add_stage(
+        "base",
+        _empty_record_selection_builder(stub_model_configs),
+        num_records=1,
+        output_processors=[SchemaTransformProcessorConfig(name="compact", template={"name": "{{ name }}"})],
+        output="processor:compact",
+        allow_empty=True,
+    )
+
+    results = workflow.run()
+
+    base_result = results["base"]
+    assert isinstance(base_result, DatasetCreationResults)
+    assert results.get_stage_output_path("base") == base_result.artifact_storage.final_dataset_path
+    assert results.load_dataset().columns.tolist() == ["name", "secret", "public_name"]
+    metadata = _load_workflow_metadata(tmp_path / "artifacts", "empty-selection-processor-output")
+    assert metadata["stages"][0]["output"] == "processor:compact"
+    assert metadata["stages"][0]["output_processor_output_path"] is None
+    assert metadata["stages"][0]["output_processors_skipped_empty_input"] is True
+
+    resumed = data_designer.compose_workflow(name="empty-selection-processor-output")
+    resumed.add_stage(
+        "base",
+        _empty_record_selection_builder(stub_model_configs),
+        num_records=1,
+        output_processors=[SchemaTransformProcessorConfig(name="compact", template={"name": "{{ name }}"})],
+        output="processor:compact",
+        allow_empty=True,
+    )
+    resumed_results = resumed.run(resume=ResumeMode.IF_POSSIBLE)
+    resumed_base_result = resumed_results["base"]
+    assert isinstance(resumed_base_result, DatasetCreationResults)
+    assert resumed_base_result.artifact_storage.base_dataset_path == base_result.artifact_storage.base_dataset_path
+    assert resumed_results.get_stage_output_path("base") == resumed_base_result.artifact_storage.final_dataset_path
 
 
 def test_composite_workflow_runs_three_real_async_stages(

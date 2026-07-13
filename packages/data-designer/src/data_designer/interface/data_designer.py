@@ -40,7 +40,10 @@ from data_designer.config.utils.info import InfoType, InterfaceInfo
 from data_designer.engine.analysis.dataset_profiler import DataDesignerDatasetProfiler, DatasetProfilerConfig
 from data_designer.engine.compiler import compile_data_designer_config
 from data_designer.engine.dataset_builders.dataset_builder import DatasetBuilder
-from data_designer.engine.dataset_builders.errors import RecordSelectionExhaustedError
+from data_designer.engine.dataset_builders.errors import (
+    RecordSelectionEarlyShutdownError,
+    RecordSelectionExhaustedError,
+)
 from data_designer.engine.mcp.io import list_tool_names
 from data_designer.engine.model_provider import ModelProviderRegistry, resolve_model_provider_registry
 from data_designer.engine.models.clients.adapters.http_model_client import ClientConcurrencyMode
@@ -319,6 +322,8 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             builder.build(num_records=num_records, on_batch_complete=on_batch_complete, resume=resume)
         except DeprecationWarning:
             raise
+        except RecordSelectionEarlyShutdownError as e:
+            raise DataDesignerEarlyShutdownError(str(e)) from e
         except RecordSelectionExhaustedError as e:
             raise DataDesignerRecordSelectionExhaustedError(
                 target_records=e.target_records,
@@ -327,11 +332,6 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
                 max_candidate_records=e.max_candidate_records,
             ) from e
         except Exception as e:
-            if builder.data_designer_config.record_selection is not None and builder.early_shutdown is True:
-                raise DataDesignerEarlyShutdownError(
-                    "🛑 Record selection stopped after the scheduler triggered early shutdown. "
-                    "Committed accepted batches can be continued with resume=ResumeMode.ALWAYS."
-                ) from e
             raise DataDesignerGenerationError(f"🛑 Error generating dataset: {e}") from e
 
         task_traces = builder.task_traces

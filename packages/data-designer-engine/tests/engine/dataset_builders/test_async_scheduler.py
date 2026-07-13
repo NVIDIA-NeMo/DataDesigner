@@ -45,6 +45,7 @@ from data_designer.engine.dataset_builders.scheduling.task_model import Task
 from data_designer.engine.dataset_builders.scheduling.task_policies import BoundedBorrowTaskAdmissionPolicyConfig
 from data_designer.engine.dataset_builders.utils.execution_graph import ExecutionGraph
 from data_designer.engine.dataset_builders.utils.row_group_buffer import RowGroupBufferManager
+from data_designer.engine.errors import DataDesignerRuntimeError
 from data_designer.engine.models.errors import (
     RETRYABLE_MODEL_ERRORS,
     ModelInternalServerError,
@@ -176,6 +177,63 @@ class MockFailingSeedGenerator(FromScratchColumnGenerator[ExpressionColumnConfig
 
     async def agenerate_from_scratch(self, num_records: int) -> lazy.pd.DataFrame:
         raise ValueError("permanent seed failure")
+
+
+class MockCoordinatedFailingRootGenerator(FromScratchColumnGenerator[ExpressionColumnConfig]):
+    """Root generator that fails after an independent root enters generation."""
+
+    def __init__(
+        self,
+        *args: Any,
+        independent_started: asyncio.Event,
+        failure_released: asyncio.Event,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self._independent_started = independent_started
+        self._failure_released = failure_released
+
+    @staticmethod
+    def get_generation_strategy() -> GenerationStrategy:
+        return GenerationStrategy.FULL_COLUMN
+
+    def generate(self, data: lazy.pd.DataFrame) -> lazy.pd.DataFrame:
+        return data
+
+    def generate_from_scratch(self, num_records: int) -> lazy.pd.DataFrame:
+        raise AssertionError("the scheduler must use the native async implementation")
+
+    async def agenerate_from_scratch(self, num_records: int) -> lazy.pd.DataFrame:
+        await self._independent_started.wait()
+        self._failure_released.set()
+        raise DataDesignerRuntimeError("coordinated root failure")
+
+
+class MockCoordinatedIndependentRootGenerator(ColumnGeneratorFullColumn[ExpressionColumnConfig]):
+    """Independent root that stays in flight until the failing root drops every row."""
+
+    def __init__(
+        self,
+        *args: Any,
+        independent_started: asyncio.Event,
+        failure_released: asyncio.Event,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self._independent_started = independent_started
+        self._failure_released = failure_released
+
+    def generate(self, data: lazy.pd.DataFrame) -> lazy.pd.DataFrame:
+        raise AssertionError("the scheduler must use the native async implementation")
+
+    async def agenerate(self, data: lazy.pd.DataFrame) -> lazy.pd.DataFrame:
+        self._independent_started.set()
+        await self._failure_released.wait()
+        # Let the failed worker publish its drop and wake the dispatch loop while
+        # this worker still owns a reference to the row-group buffer.
+        await asyncio.sleep(0)
+        data[self.config.name] = False
+        return data
 
 
 class MockFailingGenerator(ColumnGenerator[ExpressionColumnConfig]):
@@ -1296,6 +1354,62 @@ async def test_scheduler_non_retryable_seed_failure_no_keyerror_on_downstream() 
     assert scheduler._reporter is not None
     assert scheduler._reporter._trackers["cell_out"].skipped == 3
     assert scheduler._reporter._trackers["cell_out"].completed == 3
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_scheduler_does_not_free_row_group_with_independent_root_in_flight() -> None:
+    """An all-row drop waits for independently dispatched root workers before freeing the buffer."""
+    provider = _mock_provider()
+    storage = MagicMock()
+    storage.dataset_name = "test"
+    storage.get_file_paths.return_value = {}
+    independent_started = asyncio.Event()
+    failure_released = asyncio.Event()
+
+    configs = [
+        ExpressionColumnConfig(name="failed_root", expr="{{ false }}", dtype="bool"),
+        ExpressionColumnConfig(name="independent_root", expr="{{ false }}", dtype="bool"),
+    ]
+    strategies = {
+        "failed_root": GenerationStrategy.FULL_COLUMN,
+        "independent_root": GenerationStrategy.FULL_COLUMN,
+    }
+    generators: dict[str, ColumnGenerator] = {
+        "failed_root": MockCoordinatedFailingRootGenerator(
+            config=configs[0],
+            resource_provider=provider,
+            independent_started=independent_started,
+            failure_released=failure_released,
+        ),
+        "independent_root": MockCoordinatedIndependentRootGenerator(
+            config=configs[1],
+            resource_provider=provider,
+            independent_started=independent_started,
+            failure_released=failure_released,
+        ),
+    }
+    graph = ExecutionGraph.create(configs, strategies)
+    row_groups = [(0, 1)]
+    tracker = CompletionTracker.with_graph(graph, row_groups)
+    buffer_mgr = RowGroupBufferManager(storage)
+
+    scheduler = AsyncTaskScheduler(
+        generators=generators,
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        buffer_manager=buffer_mgr,
+        trace=True,
+        num_records=1,
+        buffer_size=1,
+    )
+
+    await scheduler.run()
+
+    assert tracker.is_dropped(0, 0)
+    assert not buffer_mgr.has_row_group(0)
+    independent_trace = next(trace for trace in scheduler.traces if trace.column == "independent_root")
+    assert independent_trace.status == "ok"
 
 
 @pytest.mark.asyncio(loop_scope="session")

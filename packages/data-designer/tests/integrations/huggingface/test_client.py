@@ -4,10 +4,13 @@
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 from pathlib import Path
+from typing import cast
 from unittest.mock import MagicMock, patch
 
 import pytest
+from huggingface_hub import CommitOperationAdd
 from huggingface_hub.errors import RemoteEntryNotFoundError
 from huggingface_hub.utils import HfHubHTTPError
 
@@ -19,6 +22,7 @@ def mock_hf_api() -> MagicMock:
     """Mock HfApi for testing."""
     with patch("data_designer.integrations.huggingface.client.HfApi") as mock:
         api_instance = MagicMock()
+        api_instance.repo_info.return_value.sha = "a" * 40
         mock.return_value = api_instance
         yield api_instance
 
@@ -115,6 +119,26 @@ def sample_dataset_path(tmp_path: Path) -> Path:
     return base_path
 
 
+def _make_record_selection_publishable(dataset_path: Path, *, publication_id: str) -> dict:
+    metadata_path = dataset_path / "metadata.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata.update(
+        {
+            "actual_num_records": metadata.get("target_num_records", 0),
+            "post_generation_state": "complete",
+            "record_selection": {
+                "publication_id": publication_id,
+                "selection_satisfied": True,
+                "selection_exhausted": False,
+                "on_exhausted": "raise",
+            },
+            "publication": {"managed_hub_prefixes": ["data", "images"]},
+        }
+    )
+    metadata_path.write_text(json.dumps(metadata))
+    return metadata
+
+
 def test_client_initialization() -> None:
     """Test HuggingFaceHubClient initialization."""
     with patch("data_designer.integrations.huggingface.client.HfApi"):
@@ -178,6 +202,49 @@ def test_upload_dataset_uploads_processor_outputs(
     # Check that upload_folder was called for processor outputs
     calls = [call for call in mock_hf_api.upload_folder.call_args_list if "processor1" in call.kwargs["path_in_repo"]]
     assert len(calls) >= 1
+
+
+def test_ordinary_upload_includes_single_file_processor_and_rewrites_metadata(
+    mock_hf_api: MagicMock,
+    mock_dataset_card: MagicMock,
+    sample_dataset_path: Path,
+) -> None:
+    processor_path = sample_dataset_path / "processors-files" / "summary.parquet"
+    processor_path.write_bytes(b"single-file processor output")
+    metadata_path = sample_dataset_path / "metadata.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata["file_paths"]["processor-files"]["summary"] = ["processors-files/summary.parquet"]
+    metadata_path.write_text(json.dumps(metadata))
+    uploaded_files: dict[str, bytes] = {}
+
+    def capture_upload(*, path_or_fileobj: str, path_in_repo: str, **_: object) -> None:
+        uploaded_files[path_in_repo] = Path(path_or_fileobj).read_bytes()
+
+    mock_hf_api.upload_file.side_effect = capture_upload
+    client = HuggingFaceHubClient(token="test-token")
+    client.upload_dataset("test/dataset", sample_dataset_path, "Test dataset")
+
+    assert uploaded_files["summary/summary.parquet"] == b"single-file processor output"
+    uploaded_metadata = json.loads(uploaded_files["metadata.json"])
+    assert uploaded_metadata["file_paths"]["processor-files"]["summary"] == ["summary/summary.parquet"]
+
+
+def test_ordinary_upload_prefers_processor_directory_over_same_stem_file(
+    mock_hf_api: MagicMock,
+    mock_dataset_card: MagicMock,
+    sample_dataset_path: Path,
+) -> None:
+    (sample_dataset_path / "processors-files" / "processor1.parquet").write_bytes(b"shadowed single file")
+
+    client = HuggingFaceHubClient(token="test-token")
+    client.upload_dataset("test/dataset", sample_dataset_path, "Test dataset")
+
+    single_file_paths = [call.kwargs["path_in_repo"] for call in mock_hf_api.upload_file.call_args_list]
+    assert "processor1/processor1.parquet" not in single_file_paths
+    directory_calls = [
+        call for call in mock_hf_api.upload_folder.call_args_list if call.kwargs["path_in_repo"] == "processor1"
+    ]
+    assert len(directory_calls) == 1
 
 
 def test_upload_dataset_uploads_config_files(
@@ -448,6 +515,18 @@ def test_validate_dataset_path_invalid_metadata_json(tmp_path: Path) -> None:
         client.upload_dataset("test/dataset", base_path, "Test")
 
 
+@pytest.mark.parametrize("metadata", [[], ["not", "an", "object"], None, True])
+def test_validate_dataset_path_rejects_non_object_metadata(tmp_path: Path, metadata: object) -> None:
+    base_path = tmp_path / "dataset"
+    parquet_path = base_path / "parquet-files" / "batch_00000.parquet"
+    parquet_path.parent.mkdir(parents=True)
+    parquet_path.write_text("data")
+    (base_path / "metadata.json").write_text(json.dumps(metadata))
+
+    with pytest.raises(HuggingFaceHubClientUploadError, match="metadata.json must contain a JSON object"):
+        HuggingFaceHubClient._validate_dataset_path(base_path)
+
+
 def test_validate_dataset_path_invalid_builder_config_json(tmp_path: Path) -> None:
     """Test upload fails when builder_config.json contains invalid JSON."""
     client = HuggingFaceHubClient(token="test-token")
@@ -461,6 +540,22 @@ def test_validate_dataset_path_invalid_builder_config_json(tmp_path: Path) -> No
 
     with pytest.raises(HuggingFaceHubClientUploadError, match="Invalid JSON"):
         client.upload_dataset("test/dataset", base_path, "Test")
+
+
+@pytest.mark.parametrize("builder_config", [[], ["not", "an", "object"], None, True])
+def test_validate_dataset_path_rejects_non_object_builder_config_before_network(
+    mock_hf_api: MagicMock,
+    sample_dataset_path: Path,
+    builder_config: object,
+) -> None:
+    (sample_dataset_path / "builder_config.json").write_text(json.dumps(builder_config))
+
+    client = HuggingFaceHubClient(token="test-token")
+    with pytest.raises(HuggingFaceHubClientUploadError, match="builder_config.json must contain a JSON object"):
+        client.upload_dataset("test/dataset", sample_dataset_path, "Test")
+
+    mock_hf_api.repo_exists.assert_not_called()
+    mock_hf_api.create_repo.assert_not_called()
 
 
 @pytest.mark.parametrize(
@@ -495,6 +590,236 @@ def test_validate_dataset_path_rejects_unpublishable_record_selection(tmp_path: 
         HuggingFaceHubClient._validate_dataset_path(base_path)
 
 
+@pytest.mark.parametrize("record_selection", [None, [], ["invalid"], "invalid", 0, False])
+def test_validate_dataset_path_rejects_non_object_record_selection_before_network(
+    mock_hf_api: MagicMock,
+    sample_dataset_path: Path,
+    record_selection: object,
+) -> None:
+    metadata_path = sample_dataset_path / "metadata.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata["record_selection"] = record_selection
+    metadata_path.write_text(json.dumps(metadata))
+
+    client = HuggingFaceHubClient(token="test-token")
+    with pytest.raises(HuggingFaceHubClientUploadError, match="record_selection.*JSON object"):
+        client.upload_dataset("test/dataset", sample_dataset_path, "Test")
+
+    assert mock_hf_api.method_calls == []
+
+
+@pytest.mark.parametrize("publication_id", [None, "", "   ", 123])
+def test_record_selection_upload_requires_nonempty_publication_id_before_network(
+    mock_hf_api: MagicMock,
+    sample_dataset_path: Path,
+    publication_id: object,
+) -> None:
+    metadata_path = sample_dataset_path / "metadata.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata.update(
+        {
+            "post_generation_state": "complete",
+            "record_selection": {
+                "publication_id": publication_id,
+                "selection_satisfied": True,
+                "selection_exhausted": False,
+                "on_exhausted": "raise",
+            },
+        }
+    )
+    metadata_path.write_text(json.dumps(metadata))
+
+    client = HuggingFaceHubClient(token="test-token")
+    with pytest.raises(HuggingFaceHubClientUploadError, match="non-empty publication_id"):
+        client.upload_dataset("test/dataset", sample_dataset_path, "Test")
+
+    assert mock_hf_api.method_calls == []
+
+
+@pytest.mark.parametrize("record_selection", [False, True], ids=["legacy", "record-selection"])
+@pytest.mark.parametrize(
+    "symlink_location",
+    [
+        "metadata",
+        "builder_config",
+        "final_parquet",
+        "images_file",
+        "images_directory",
+        "processor_file",
+        "processor_directory",
+    ],
+)
+def test_upload_rejects_managed_symlinks_before_network(
+    mock_hf_api: MagicMock,
+    sample_dataset_path: Path,
+    tmp_path: Path,
+    record_selection: bool,
+    symlink_location: str,
+) -> None:
+    if record_selection:
+        _make_record_selection_publishable(
+            sample_dataset_path,
+            publication_id=f"symlink-{symlink_location}",
+        )
+
+    outside_path = tmp_path / "outside"
+    outside_path.mkdir()
+    outside_file = outside_path / "private.txt"
+    outside_file.write_text("must not be uploaded")
+
+    if symlink_location == "metadata":
+        local_path = sample_dataset_path / "metadata.json"
+        target_path = outside_path / "metadata.json"
+        target_path.write_bytes(local_path.read_bytes())
+        local_path.unlink()
+        local_path.symlink_to(target_path)
+    elif symlink_location == "builder_config":
+        local_path = sample_dataset_path / "builder_config.json"
+        target_path = outside_path / "builder_config.json"
+        target_path.write_bytes(local_path.read_bytes())
+        local_path.unlink()
+        local_path.symlink_to(target_path)
+    elif symlink_location == "final_parquet":
+        local_path = sample_dataset_path / "parquet-files" / "batch_00000.parquet"
+        local_path.unlink()
+        local_path.symlink_to(outside_file)
+    elif symlink_location == "images_file":
+        images_path = sample_dataset_path / "images"
+        images_path.mkdir()
+        (images_path / "private.txt").symlink_to(outside_file)
+    elif symlink_location == "images_directory":
+        (sample_dataset_path / "images").symlink_to(outside_path, target_is_directory=True)
+    elif symlink_location == "processor_file":
+        local_path = sample_dataset_path / "processors-files" / "processor1" / "batch_00000.parquet"
+        local_path.unlink()
+        local_path.symlink_to(outside_file)
+    else:
+        (sample_dataset_path / "processors-files" / "linked").symlink_to(
+            outside_path,
+            target_is_directory=True,
+        )
+
+    client = HuggingFaceHubClient(token="test-token")
+    with pytest.raises(HuggingFaceHubClientUploadError, match="symbolic link"):
+        client.upload_dataset("test/dataset", sample_dataset_path, "Test")
+
+    assert mock_hf_api.method_calls == []
+
+
+@pytest.mark.parametrize("raced_filename", ["metadata.json", "builder_config.json"])
+def test_record_selection_staging_rejects_symlink_swapped_in_after_scan(
+    mock_hf_api: MagicMock,
+    sample_dataset_path: Path,
+    tmp_path: Path,
+    raced_filename: str,
+) -> None:
+    metadata = _make_record_selection_publishable(
+        sample_dataset_path,
+        publication_id=f"before-{raced_filename}",
+    )
+    external_path = tmp_path / f"external-{raced_filename}"
+    if raced_filename == "metadata.json":
+        external_metadata = deepcopy(metadata)
+        external_metadata["record_selection"]["publication_id"] = "external-publication"
+        external_path.write_text(json.dumps(external_metadata))
+    else:
+        external_path.write_text(json.dumps({"external": "builder config"}))
+
+    local_path = sample_dataset_path / raced_filename
+    staging_directory = tmp_path / "staging"
+    staging_directory.mkdir()
+    real_validate_symlinks = HuggingFaceHubClient._validate_managed_upload_symlinks
+    scan_count = 0
+
+    def validate_then_swap(base_dataset_path: Path) -> None:
+        nonlocal scan_count
+        real_validate_symlinks(base_dataset_path)
+        scan_count += 1
+        if scan_count == 1:
+            local_path.unlink()
+            local_path.symlink_to(external_path)
+
+    client = HuggingFaceHubClient(token="test-token")
+    with patch.object(HuggingFaceHubClient, "_validate_managed_upload_symlinks", side_effect=validate_then_swap):
+        with pytest.raises(HuggingFaceHubClientUploadError, match="symbolic link"):
+            client._stage_record_selection_dataset(
+                base_dataset_path=sample_dataset_path,
+                staging_directory=staging_directory,
+            )
+
+    assert not (staging_directory / "dataset" / raced_filename).is_file()
+    assert mock_hf_api.method_calls == []
+
+
+@pytest.mark.parametrize(
+    "processor_name",
+    ["data", "images", "README.md", "metadata.json", "builder_config.json"],
+)
+@pytest.mark.parametrize("artifact_layout", ["directory", "single_file"])
+@pytest.mark.parametrize("record_selection", [False, True], ids=["legacy", "record-selection"])
+def test_upload_rejects_reserved_processor_hub_names_before_network(
+    mock_hf_api: MagicMock,
+    sample_dataset_path: Path,
+    processor_name: str,
+    artifact_layout: str,
+    record_selection: bool,
+) -> None:
+    if record_selection:
+        metadata = _make_record_selection_publishable(
+            sample_dataset_path,
+            publication_id=f"reserved-{processor_name}-{artifact_layout}",
+        )
+    else:
+        metadata = json.loads((sample_dataset_path / "metadata.json").read_text())
+    processors_path = sample_dataset_path / "processors-files"
+    if artifact_layout == "directory":
+        (processors_path / "processor1").rename(processors_path / processor_name)
+        metadata["file_paths"]["processor-files"].pop("processor1")
+        metadata["file_paths"]["processor-files"][processor_name] = [
+            f"processors-files/{processor_name}/batch_00000.parquet"
+        ]
+    else:
+        (processors_path / f"{processor_name}.parquet").write_text("reserved processor output")
+        metadata["file_paths"]["processor-files"][processor_name] = [f"processors-files/{processor_name}.parquet"]
+    (sample_dataset_path / "metadata.json").write_text(json.dumps(metadata))
+
+    client = HuggingFaceHubClient(token="test-token")
+    with pytest.raises(HuggingFaceHubClientUploadError, match="reserved Hub dataset path"):
+        client.upload_dataset("test/selection", sample_dataset_path, "Selection dataset")
+
+    assert mock_hf_api.method_calls == []
+
+
+def test_add_hub_file_rejects_duplicate_destination() -> None:
+    additions: dict[str, Path | bytes] = {}
+    HuggingFaceHubClient._add_hub_file(additions, path_in_repo="data/batch.parquet", source=b"main")
+
+    with pytest.raises(HuggingFaceHubClientUploadError, match="same Hub path"):
+        HuggingFaceHubClient._add_hub_file(
+            additions,
+            path_in_repo="data/batch.parquet",
+            source=b"processor",
+        )
+
+    assert additions == {"data/batch.parquet": b"main"}
+
+
+@pytest.mark.parametrize(
+    "paths",
+    [
+        ["README.md", "README.md/batch.parquet"],
+        ["processor/output.parquet", "processor"],
+        ["a", "a-foo", "a/b"],
+    ],
+    ids=["descendant", "ancestor", "interleaved-sort-order"],
+)
+def test_validate_hub_path_collisions_rejects_file_tree_conflicts(paths: list[str]) -> None:
+    additions = {path: b"content" for path in paths}
+
+    with pytest.raises(HuggingFaceHubClientUploadError, match="conflicting Hub paths"):
+        HuggingFaceHubClient._validate_hub_path_collisions(additions)
+
+
 def test_record_selection_upload_atomically_replaces_managed_hub_files(
     mock_hf_api: MagicMock,
     sample_dataset_path: Path,
@@ -507,6 +832,7 @@ def test_record_selection_upload_atomically_replaces_managed_hub_files(
             "actual_num_records": 100,
             "post_generation_state": "complete",
             "record_selection": {
+                "publication_id": "publication-atomic-replace",
                 "selection_satisfied": True,
                 "selection_exhausted": False,
                 "on_exhausted": "raise",
@@ -523,7 +849,16 @@ def test_record_selection_upload_atomically_replaces_managed_hub_files(
 
     remote_metadata = tmp_path / "remote-metadata.json"
     remote_metadata.write_text(
-        json.dumps({"publication": {"managed_hub_prefixes": ["data", "images", "legacy_processor"]}})
+        json.dumps(
+            {
+                "publication": {"managed_hub_prefixes": ["data", "images", "legacy_processor"]},
+                "file_paths": {
+                    "processor-files": {
+                        "legacy_processor": ["legacy_processor/batch_00000.parquet"],
+                    }
+                },
+            }
+        )
     )
     mock_hf_api.hf_hub_download.return_value = str(remote_metadata)
     mock_hf_api.list_repo_files.return_value = [
@@ -538,6 +873,9 @@ def test_record_selection_upload_atomically_replaces_managed_hub_files(
     client.upload_dataset("test/selection", sample_dataset_path, "Selection dataset")
 
     mock_hf_api.create_commit.assert_called_once()
+    assert mock_hf_api.hf_hub_download.call_args.kwargs["revision"] == "a" * 40
+    assert mock_hf_api.list_repo_files.call_args.kwargs["revision"] == "a" * 40
+    assert mock_hf_api.create_commit.call_args.kwargs["parent_commit"] == "a" * 40
     operations = mock_hf_api.create_commit.call_args.kwargs["operations"]
     deleted = {
         operation.path_in_repo for operation in operations if type(operation).__name__ == "CommitOperationDelete"
@@ -561,7 +899,418 @@ def test_record_selection_upload_atomically_replaces_managed_hub_files(
     mock_hf_api.upload_folder.assert_not_called()
 
 
-def test_load_remote_managed_prefixes_tolerates_missing_metadata(mock_hf_api: MagicMock) -> None:
+@pytest.mark.parametrize("malicious_origin", ["local", "remote"])
+def test_record_selection_upload_does_not_trust_notes_deletion_prefix_from_metadata(
+    mock_hf_api: MagicMock,
+    mock_dataset_card: MagicMock,
+    sample_dataset_path: Path,
+    tmp_path: Path,
+    malicious_origin: str,
+) -> None:
+    metadata = _make_record_selection_publishable(
+        sample_dataset_path,
+        publication_id=f"untrusted-{malicious_origin}-prefix",
+    )
+    if malicious_origin == "local":
+        metadata["publication"]["managed_hub_prefixes"].append("notes")
+        (sample_dataset_path / "metadata.json").write_text(json.dumps(metadata))
+
+    remote_metadata: dict = {
+        "publication": {"managed_hub_prefixes": ["data", "images"]},
+        "file_paths": {"processor-files": {}},
+    }
+    if malicious_origin == "remote":
+        remote_metadata["publication"]["managed_hub_prefixes"].append("notes")
+        remote_metadata["file_paths"]["processor-files"]["notes"] = ["notes/batch_00000.parquet"]
+    remote_metadata_path = tmp_path / "remote-metadata.json"
+    remote_metadata_path.write_text(json.dumps(remote_metadata))
+    mock_hf_api.hf_hub_download.return_value = str(remote_metadata_path)
+    mock_hf_api.list_repo_files.return_value = [
+        "data/obsolete.parquet",
+        "metadata.json",
+        "README.md",
+        "notes/batch_00000.parquet",
+        "notes/user-managed.txt",
+    ]
+
+    client = HuggingFaceHubClient(token="test-token")
+    client.upload_dataset("test/selection", sample_dataset_path, "Selection dataset")
+
+    operations = mock_hf_api.create_commit.call_args.kwargs["operations"]
+    deleted = {
+        operation.path_in_repo for operation in operations if type(operation).__name__ == "CommitOperationDelete"
+    }
+    assert "data/obsolete.parquet" in deleted
+    assert "notes/user-managed.txt" not in deleted
+    if malicious_origin == "remote":
+        assert "notes/batch_00000.parquet" in deleted
+    else:
+        assert "notes/batch_00000.parquet" not in deleted
+
+    additions = {
+        operation.path_in_repo: operation for operation in operations if isinstance(operation, CommitOperationAdd)
+    }
+    hub_metadata = json.loads(additions["metadata.json"].path_or_fileobj)
+    assert set(hub_metadata["publication"]["managed_hub_prefixes"]) == {
+        "data",
+        "images",
+        "processor1",
+        "processor2",
+    }
+    card_metadata = mock_dataset_card.from_metadata.call_args.kwargs["metadata"]
+    assert set(card_metadata["publication"]["managed_hub_prefixes"]) == {
+        "data",
+        "images",
+        "processor1",
+        "processor2",
+    }
+
+
+def test_record_selection_upload_deletes_stale_builder_config_only_when_current_snapshot_omits_it(
+    mock_hf_api: MagicMock,
+    mock_dataset_card: MagicMock,
+    sample_dataset_path: Path,
+    tmp_path: Path,
+) -> None:
+    _make_record_selection_publishable(sample_dataset_path, publication_id="without-builder-config")
+    (sample_dataset_path / "builder_config.json").unlink()
+    remote_metadata_path = tmp_path / "remote-metadata.json"
+    remote_metadata_path.write_text(json.dumps({"file_paths": {"processor-files": {}}}))
+    mock_hf_api.hf_hub_download.return_value = str(remote_metadata_path)
+    mock_hf_api.list_repo_files.return_value = [
+        "builder_config.json",
+        "metadata.json",
+        "README.md",
+        "notes/user-managed.txt",
+    ]
+
+    client = HuggingFaceHubClient(token="test-token")
+    client.upload_dataset("test/selection", sample_dataset_path, "Selection dataset")
+
+    operations = mock_hf_api.create_commit.call_args.kwargs["operations"]
+    deleted = {
+        operation.path_in_repo for operation in operations if type(operation).__name__ == "CommitOperationDelete"
+    }
+    added = {operation.path_in_repo for operation in operations if isinstance(operation, CommitOperationAdd)}
+    assert deleted == {"builder_config.json"}
+    assert "builder_config.json" not in added
+    assert {"metadata.json", "README.md"} <= added
+    assert "notes/user-managed.txt" not in deleted
+
+
+def test_record_selection_upload_stages_validated_snapshot_before_repo_setup(
+    mock_hf_api: MagicMock,
+    mock_dataset_card: MagicMock,
+    sample_dataset_path: Path,
+) -> None:
+    metadata_path = sample_dataset_path / "metadata.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata.update(
+        {
+            "actual_num_records": 100,
+            "post_generation_state": "complete",
+            "record_selection": {
+                "publication_id": "publication-staged-snapshot",
+                "selection_satisfied": True,
+                "selection_exhausted": False,
+                "on_exhausted": "raise",
+            },
+            "publication": {"managed_hub_prefixes": ["data", "processor1", "processor2"]},
+        }
+    )
+    metadata_path.write_text(json.dumps(metadata))
+    parquet_path = sample_dataset_path / "parquet-files" / "batch_00000.parquet"
+    parquet_path.write_text("validated snapshot")
+    mock_hf_api.hf_hub_download.side_effect = RemoteEntryNotFoundError(
+        "metadata not found",
+        response=MagicMock(),
+    )
+    mock_hf_api.list_repo_files.return_value = []
+    published_files: dict[str, str] = {}
+
+    def mutate_live_metadata(**_: object) -> None:
+        mutated_metadata = deepcopy(metadata)
+        mutated_metadata["post_generation_state"] = "pending"
+        metadata_path.write_text(json.dumps(mutated_metadata))
+        parquet_path.write_text("mutated during repo setup")
+
+    def capture_staged_files(*, operations: list[object], **_: object) -> None:
+        for operation in operations:
+            if isinstance(operation, CommitOperationAdd) and operation.path_in_repo == "data/batch_00000.parquet":
+                published_files[operation.path_in_repo] = Path(cast(str, operation.path_or_fileobj)).read_text()
+
+    mock_hf_api.create_repo.side_effect = mutate_live_metadata
+    mock_hf_api.create_commit.side_effect = capture_staged_files
+
+    client = HuggingFaceHubClient(token="test-token")
+    client.upload_dataset("test/selection", sample_dataset_path, "Selection dataset")
+
+    assert json.loads(metadata_path.read_text())["post_generation_state"] == "pending"
+    assert mock_dataset_card.from_metadata.call_args.kwargs["metadata"]["post_generation_state"] == "complete"
+    assert published_files == {"data/batch_00000.parquet": "validated snapshot"}
+    operations = mock_hf_api.create_commit.call_args.kwargs["operations"]
+    metadata_operation = next(operation for operation in operations if operation.path_in_repo == "metadata.json")
+    assert json.loads(metadata_operation.path_or_fileobj)["post_generation_state"] == "complete"
+
+
+def test_record_selection_upload_rejects_metadata_mutation_during_staging(
+    mock_hf_api: MagicMock,
+    sample_dataset_path: Path,
+) -> None:
+    metadata_path = sample_dataset_path / "metadata.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata.update(
+        {
+            "actual_num_records": 100,
+            "post_generation_state": "complete",
+            "record_selection": {
+                "publication_id": "publication-metadata-mutation",
+                "selection_satisfied": True,
+                "selection_exhausted": False,
+                "on_exhausted": "raise",
+            },
+            "publication": {"managed_hub_prefixes": ["data", "processor1", "processor2"]},
+        }
+    )
+    metadata_path.write_text(json.dumps(metadata))
+    real_read_file = HuggingFaceHubClient._read_managed_regular_file
+    metadata_read_count = 0
+
+    def read_and_mutate_metadata(path: Path) -> bytes:
+        nonlocal metadata_read_count
+        if path == metadata_path:
+            metadata_read_count += 1
+            if metadata_read_count == 3:
+                mutated_metadata = deepcopy(metadata)
+                mutated_metadata["post_generation_state"] = "pending"
+                metadata_path.write_text(json.dumps(mutated_metadata))
+        return real_read_file(path)
+
+    client = HuggingFaceHubClient(token="test-token")
+    with patch.object(HuggingFaceHubClient, "_read_managed_regular_file", side_effect=read_and_mutate_metadata):
+        with pytest.raises(HuggingFaceHubClientUploadError, match="metadata changed while staging"):
+            client.upload_dataset("test/selection", sample_dataset_path, "Selection dataset")
+
+    mock_hf_api.repo_exists.assert_not_called()
+    mock_hf_api.create_repo.assert_not_called()
+    mock_hf_api.repo_info.assert_not_called()
+
+
+def test_record_selection_upload_rejects_complete_republication_during_staging(
+    mock_hf_api: MagicMock,
+    sample_dataset_path: Path,
+) -> None:
+    metadata_path = sample_dataset_path / "metadata.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata.update(
+        {
+            "actual_num_records": 100,
+            "post_generation_state": "complete",
+            "record_selection": {
+                "publication_id": "publication-before",
+                "selection_satisfied": True,
+                "selection_exhausted": False,
+                "on_exhausted": "raise",
+            },
+            "publication": {"managed_hub_prefixes": ["data", "processor1", "processor2"]},
+        }
+    )
+    metadata_path.write_text(json.dumps(metadata))
+    real_read_file = HuggingFaceHubClient._read_managed_regular_file
+    metadata_read_count = 0
+
+    def read_and_republish(path: Path) -> bytes:
+        nonlocal metadata_read_count
+        if path == metadata_path:
+            metadata_read_count += 1
+            if metadata_read_count == 3:
+                republished_metadata = deepcopy(metadata)
+                republished_metadata["record_selection"]["publication_id"] = "publication-after"
+                metadata_path.write_text(json.dumps(republished_metadata))
+        return real_read_file(path)
+
+    client = HuggingFaceHubClient(token="test-token")
+    with patch.object(HuggingFaceHubClient, "_read_managed_regular_file", side_effect=read_and_republish):
+        with pytest.raises(HuggingFaceHubClientUploadError, match="metadata changed while staging"):
+            client.upload_dataset("test/selection", sample_dataset_path, "Selection dataset")
+
+    mock_hf_api.repo_exists.assert_not_called()
+    mock_hf_api.create_repo.assert_not_called()
+    mock_hf_api.repo_info.assert_not_called()
+
+
+def test_record_selection_upload_normalizes_local_card_failure_before_network(
+    mock_hf_api: MagicMock,
+    mock_dataset_card: MagicMock,
+    sample_dataset_path: Path,
+) -> None:
+    metadata_path = sample_dataset_path / "metadata.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata.update(
+        {
+            "actual_num_records": 100,
+            "post_generation_state": "complete",
+            "record_selection": {
+                "publication_id": "publication-card-failure",
+                "selection_satisfied": True,
+                "selection_exhausted": False,
+                "on_exhausted": "raise",
+            },
+            "publication": {"managed_hub_prefixes": ["data", "processor1", "processor2"]},
+        }
+    )
+    metadata_path.write_text(json.dumps(metadata))
+    mock_dataset_card.from_metadata.side_effect = TypeError("invalid nested card metadata")
+
+    client = HuggingFaceHubClient(token="test-token")
+    with pytest.raises(
+        HuggingFaceHubClientUploadError,
+        match="Failed to prepare the record-selection dataset.*invalid nested card metadata",
+    ):
+        client.upload_dataset("test/selection", sample_dataset_path, "Selection dataset")
+
+    mock_hf_api.repo_exists.assert_not_called()
+    mock_hf_api.create_repo.assert_not_called()
+
+
+def test_record_selection_upload_includes_single_file_processor(
+    mock_hf_api: MagicMock,
+    mock_dataset_card: MagicMock,
+    sample_dataset_path: Path,
+) -> None:
+    metadata_path = sample_dataset_path / "metadata.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata.update(
+        {
+            "actual_num_records": 100,
+            "post_generation_state": "complete",
+            "record_selection": {
+                "publication_id": "publication-single-file",
+                "selection_satisfied": True,
+                "selection_exhausted": False,
+                "on_exhausted": "raise",
+            },
+            "publication": {"managed_hub_prefixes": ["data", "summary"]},
+        }
+    )
+    metadata["file_paths"]["processor-files"] = {
+        "summary": ["processors-files/summary.parquet"],
+    }
+    metadata_path.write_text(json.dumps(metadata))
+    (sample_dataset_path / "processors-files" / "summary.parquet").write_text("single-file output")
+    mock_hf_api.hf_hub_download.side_effect = RemoteEntryNotFoundError(
+        "metadata not found",
+        response=MagicMock(),
+    )
+    mock_hf_api.list_repo_files.return_value = []
+
+    client = HuggingFaceHubClient(token="test-token")
+    client.upload_dataset("test/selection", sample_dataset_path, "Selection dataset")
+
+    operations = mock_hf_api.create_commit.call_args.kwargs["operations"]
+    additions = {operation.path_in_repo: operation for operation in operations if hasattr(operation, "path_or_fileobj")}
+    assert "summary/summary.parquet" in additions
+    hub_metadata = json.loads(additions["metadata.json"].path_or_fileobj)
+    assert hub_metadata["file_paths"]["processor-files"]["summary"] == ["summary/summary.parquet"]
+
+
+def test_record_selection_upload_preserves_fixed_width_processor_order_at_six_digits(
+    mock_hf_api: MagicMock,
+    mock_dataset_card: MagicMock,
+    sample_dataset_path: Path,
+) -> None:
+    processor_path = sample_dataset_path / "processors-files" / "processor1"
+    for path in processor_path.glob("*.parquet"):
+        path.unlink()
+    (processor_path / "batch_099999.parquet").write_text("candidate 99999")
+    (processor_path / "batch_100000.parquet").write_text("candidate 100000")
+
+    metadata_path = sample_dataset_path / "metadata.json"
+    metadata = json.loads(metadata_path.read_text())
+    processor_paths = [
+        "processors-files/processor1/batch_099999.parquet",
+        "processors-files/processor1/batch_100000.parquet",
+    ]
+    metadata.update(
+        {
+            "actual_num_records": 100,
+            "post_generation_state": "complete",
+            "record_selection": {
+                "publication_id": "publication-six-digit-boundary",
+                "selection_satisfied": True,
+                "selection_exhausted": False,
+                "on_exhausted": "raise",
+            },
+            "publication": {"managed_hub_prefixes": ["data", "processor1", "processor2"]},
+        }
+    )
+    metadata["file_paths"]["processor-files"]["processor1"] = processor_paths
+    metadata_path.write_text(json.dumps(metadata))
+    mock_hf_api.hf_hub_download.side_effect = RemoteEntryNotFoundError(
+        "metadata not found",
+        response=MagicMock(),
+    )
+    mock_hf_api.list_repo_files.return_value = []
+
+    client = HuggingFaceHubClient(token="test-token")
+    client.upload_dataset("test/selection", sample_dataset_path, "Selection dataset")
+
+    operations = mock_hf_api.create_commit.call_args.kwargs["operations"]
+    processor_additions = [
+        operation.path_in_repo
+        for operation in operations
+        if isinstance(operation, CommitOperationAdd) and operation.path_in_repo.startswith("processor1/")
+    ]
+    assert processor_additions == [
+        "processor1/batch_099999.parquet",
+        "processor1/batch_100000.parquet",
+    ]
+    metadata_operation = next(operation for operation in operations if operation.path_in_repo == "metadata.json")
+    hub_metadata = json.loads(metadata_operation.path_or_fileobj)
+    assert hub_metadata["file_paths"]["processor-files"]["processor1"] == processor_additions
+    assert (
+        mock_dataset_card.from_metadata.call_args.kwargs["metadata"]["file_paths"]["processor-files"]["processor1"]
+        == processor_paths
+    )
+
+
+@pytest.mark.parametrize("status_code", [409, 412])
+def test_record_selection_upload_reports_concurrent_hub_update(
+    mock_hf_api: MagicMock,
+    mock_dataset_card: MagicMock,
+    sample_dataset_path: Path,
+    status_code: int,
+) -> None:
+    metadata_path = sample_dataset_path / "metadata.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata.update(
+        {
+            "actual_num_records": 100,
+            "post_generation_state": "complete",
+            "record_selection": {
+                "publication_id": "publication-concurrent-hub-update",
+                "selection_satisfied": True,
+                "selection_exhausted": False,
+                "on_exhausted": "raise",
+            },
+            "publication": {"managed_hub_prefixes": ["data"]},
+        }
+    )
+    metadata_path.write_text(json.dumps(metadata))
+    mock_hf_api.hf_hub_download.side_effect = RemoteEntryNotFoundError(
+        "metadata not found",
+        response=MagicMock(),
+    )
+    mock_hf_api.list_repo_files.return_value = []
+    response = MagicMock(status_code=status_code)
+    mock_hf_api.create_commit.side_effect = HfHubHTTPError("parent commit changed", response=response)
+
+    client = HuggingFaceHubClient(token="test-token")
+    with pytest.raises(HuggingFaceHubClientUploadError, match="changed while.*retry"):
+        client.upload_dataset("test/selection", sample_dataset_path, "Selection dataset")
+
+
+def test_load_remote_managed_processor_paths_tolerates_missing_metadata(mock_hf_api: MagicMock) -> None:
     mock_hf_api.hf_hub_download.side_effect = RemoteEntryNotFoundError(
         "metadata not found",
         response=MagicMock(),
@@ -569,20 +1318,23 @@ def test_load_remote_managed_prefixes_tolerates_missing_metadata(mock_hf_api: Ma
 
     client = HuggingFaceHubClient(token="test-token")
 
-    assert client._load_remote_managed_prefixes("test/new-or-legacy") == set()
+    assert client._load_remote_managed_processor_paths("test/new-or-legacy", remote_files=set()) == set()
 
 
-def test_load_remote_managed_prefixes_surfaces_download_failure(mock_hf_api: MagicMock) -> None:
+def test_load_remote_managed_processor_paths_surfaces_download_failure(mock_hf_api: MagicMock) -> None:
     mock_hf_api.hf_hub_download.side_effect = RuntimeError("service unavailable")
 
     client = HuggingFaceHubClient(token="test-token")
 
     with pytest.raises(HuggingFaceHubClientUploadError, match="Failed to download existing Hub metadata"):
-        client._load_remote_managed_prefixes("test/dataset")
+        client._load_remote_managed_processor_paths("test/dataset", remote_files=set())
 
 
-@pytest.mark.parametrize("remote_contents", ["not-json", "[]", None])
-def test_load_remote_managed_prefixes_surfaces_read_failure(
+@pytest.mark.parametrize(
+    "remote_contents",
+    ["not-json", "[]", json.dumps({"file_paths": {"processor-files": 3}}), None],
+)
+def test_load_remote_managed_processor_paths_surfaces_read_failure(
     mock_hf_api: MagicMock,
     tmp_path: Path,
     remote_contents: str | None,
@@ -595,7 +1347,7 @@ def test_load_remote_managed_prefixes_surfaces_read_failure(
     client = HuggingFaceHubClient(token="test-token")
 
     with pytest.raises(HuggingFaceHubClientUploadError, match="Failed to read existing Hub metadata"):
-        client._load_remote_managed_prefixes("test/dataset")
+        client._load_remote_managed_processor_paths("test/dataset", remote_files=set())
 
 
 def test_upload_dataset_uploads_images_folder(

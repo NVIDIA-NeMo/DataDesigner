@@ -100,6 +100,8 @@ def test_marker_sequence_hydrates_progress() -> None:
         failed_generation_records=0,
         trimmed_accepted_records=0,
         accepted_partition="selection-accepted/batch_00000.parquet",
+        non_retryable_error_type="CustomColumnGenerationError",
+        non_retryable_error_message="predicate failed",
     )
     controller = AcceptanceController(
         config=RecordSelectionConfig(predicate_column="keep", max_candidate_records=6),
@@ -109,7 +111,64 @@ def test_marker_sequence_hydrates_progress() -> None:
     )
     assert controller.candidate_records == 3
     assert controller.accepted_records == 1
+    assert controller.rejected_records == 1
+    assert controller.null_predicate_records == 1
+    assert controller.failed_generation_records == 0
+    assert controller.trimmed_accepted_records == 0
+    assert controller.accepted_partitions == 1
+    assert controller.first_non_retryable_error == {
+        "type": "CustomColumnGenerationError",
+        "message": "predicate failed",
+    }
     assert controller.next_candidate_batch().start_offset == 3
+
+    class _MarkersMustNotBeScanned(list[SelectionBatchMarker]):
+        def __iter__(self):
+            raise AssertionError("aggregate properties must use cumulative counters")
+
+    controller._markers = _MarkersMustNotBeScanned(controller._markers)
+    assert controller.candidate_records == 3
+    assert controller.accepted_records == 1
+    assert controller.first_non_retryable_error == {
+        "type": "CustomColumnGenerationError",
+        "message": "predicate failed",
+    }
+    assert controller.summary()["candidate_records_generated"] == 3
+
+
+def test_marker_sequence_rejects_markers_after_candidate_budget_is_exhausted() -> None:
+    exhausted_marker = SelectionBatchMarker(
+        candidate_batch_id=0,
+        row_group_id=0,
+        candidate_start_offset=0,
+        candidate_records=1,
+        accepted_records=0,
+        rejected_records=1,
+        null_predicate_records=0,
+        failed_generation_records=0,
+        trimmed_accepted_records=0,
+        accepted_partition=None,
+    )
+    impossible_marker = SelectionBatchMarker(
+        candidate_batch_id=1,
+        row_group_id=1,
+        candidate_start_offset=1,
+        candidate_records=0,
+        accepted_records=0,
+        rejected_records=0,
+        null_predicate_records=0,
+        failed_generation_records=0,
+        trimmed_accepted_records=0,
+        accepted_partition=None,
+    )
+
+    with pytest.raises(ValueError, match="continue after the candidate budget was exhausted"):
+        AcceptanceController(
+            config=RecordSelectionConfig(predicate_column="keep", max_candidate_records=1),
+            target_records=1,
+            buffer_size=1,
+            markers=(exhausted_marker, impossible_marker),
+        )
 
 
 def test_zero_acceptance_marker_has_no_partition() -> None:
@@ -126,3 +185,20 @@ def test_zero_acceptance_marker_has_no_partition() -> None:
         accepted_partition=None,
     )
     assert SelectionBatchMarker.from_dict(marker.to_dict()) == marker
+
+    legacy_marker = marker.to_dict()
+    for optional_field in (
+        "schema_materialized",
+        "non_retryable_error_type",
+        "non_retryable_error_message",
+        "terminal_error_kind",
+        "terminal_error_message",
+    ):
+        legacy_marker.pop(optional_field)
+    assert SelectionBatchMarker.from_dict(legacy_marker) == marker
+
+
+def test_summary_normalizes_default_exhaustion_value() -> None:
+    controller = _controller(target=1, cap=1, buffer_size=1)
+
+    assert controller.summary()["on_exhausted"] == "raise"

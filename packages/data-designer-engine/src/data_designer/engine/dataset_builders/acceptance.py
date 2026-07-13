@@ -3,11 +3,11 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from typing import TYPE_CHECKING, Any
 
 import data_designer.lazy_heavy_imports as lazy
-from data_designer.config.record_selection import RecordSelectionConfig
+from data_designer.config.record_selection import RecordSelectionConfig, RecordSelectionExhaustion
 from data_designer.engine.dataset_builders.errors import DatasetGenerationError
 
 if TYPE_CHECKING:
@@ -62,6 +62,11 @@ class SelectionBatchMarker:
     failed_generation_records: int
     trimmed_accepted_records: int
     accepted_partition: str | None
+    schema_materialized: bool = False
+    non_retryable_error_type: str | None = None
+    non_retryable_error_message: str | None = None
+    terminal_error_kind: str | None = None
+    terminal_error_message: str | None = None
 
     def __post_init__(self) -> None:
         nonnegative_fields = (
@@ -88,8 +93,12 @@ class SelectionBatchMarker:
             raise ValueError(f"Selection marker accounts for {accounted} records, expected {self.candidate_records}.")
         if (self.accepted_partition is None) != (self.accepted_records == 0):
             raise ValueError("accepted_partition must be present exactly when accepted_records is non-zero.")
+        if (self.non_retryable_error_type is None) != (self.non_retryable_error_message is None):
+            raise ValueError("non_retryable_error_type and non_retryable_error_message must be present together.")
+        if (self.terminal_error_kind is None) != (self.terminal_error_message is None):
+            raise ValueError("terminal_error_kind and terminal_error_message must be present together.")
 
-    def to_dict(self) -> dict[str, int | str | None]:
+    def to_dict(self) -> dict[str, int | bool | str | None]:
         return asdict(self)
 
     @classmethod
@@ -106,6 +115,11 @@ class SelectionBatchMarker:
                 failed_generation_records=_strict_int(value, "failed_generation_records"),
                 trimmed_accepted_records=_strict_int(value, "trimmed_accepted_records"),
                 accepted_partition=_optional_string(value, "accepted_partition"),
+                schema_materialized=_optional_bool(value, "schema_materialized", required=False),
+                non_retryable_error_type=_optional_string(value, "non_retryable_error_type", required=False),
+                non_retryable_error_message=_optional_string(value, "non_retryable_error_message", required=False),
+                terminal_error_kind=_optional_string(value, "terminal_error_kind", required=False),
+                terminal_error_message=_optional_string(value, "terminal_error_message", required=False),
             )
         except (KeyError, TypeError, ValueError) as exc:
             raise ValueError(f"Invalid selection batch marker: {exc}") from exc
@@ -135,6 +149,14 @@ class AcceptanceController:
         self.target_records = target_records
         self.buffer_size = buffer_size
         self._markers = list(markers)
+        self._candidate_records = 0
+        self._accepted_records = 0
+        self._rejected_records = 0
+        self._null_predicate_records = 0
+        self._failed_generation_records = 0
+        self._trimmed_accepted_records = 0
+        self._accepted_partitions = 0
+        self._first_non_retryable_error: dict[str, str] | None = None
         self._validate_marker_sequence()
 
     @property
@@ -143,27 +165,50 @@ class AcceptanceController:
 
     @property
     def candidate_records(self) -> int:
-        return sum(marker.candidate_records for marker in self._markers)
+        return self._candidate_records
 
     @property
     def accepted_records(self) -> int:
-        return sum(marker.accepted_records for marker in self._markers)
+        return self._accepted_records
 
     @property
     def rejected_records(self) -> int:
-        return sum(marker.rejected_records for marker in self._markers)
+        return self._rejected_records
 
     @property
     def null_predicate_records(self) -> int:
-        return sum(marker.null_predicate_records for marker in self._markers)
+        return self._null_predicate_records
 
     @property
     def failed_generation_records(self) -> int:
-        return sum(marker.failed_generation_records for marker in self._markers)
+        return self._failed_generation_records
 
     @property
     def trimmed_accepted_records(self) -> int:
-        return sum(marker.trimmed_accepted_records for marker in self._markers)
+        return self._trimmed_accepted_records
+
+    @property
+    def accepted_partitions(self) -> int:
+        return self._accepted_partitions
+
+    @property
+    def first_non_retryable_error(self) -> dict[str, str] | None:
+        if self._first_non_retryable_error is None:
+            return None
+        return dict(self._first_non_retryable_error)
+
+    @property
+    def terminal_error(self) -> dict[str, str] | None:
+        if not self._markers:
+            return None
+        marker = self._markers[-1]
+        kind = marker.terminal_error_kind
+        message = marker.terminal_error_message
+        if kind is None:
+            return None
+        if message is None:
+            raise RuntimeError("Selection marker terminal-error fields are inconsistent.")
+        return {"kind": kind, "message": message}
 
     @property
     def candidate_batches_completed(self) -> int:
@@ -267,6 +312,9 @@ class AcceptanceController:
         batch: CandidateBatch,
         decision: SelectionDecision,
         accepted_partition: str | None,
+        schema_materialized: bool = False,
+        non_retryable_error: dict[str, str] | None = None,
+        terminal_error: dict[str, str] | None = None,
     ) -> SelectionBatchMarker:
         expected = self.next_candidate_batch()
         if batch != expected:
@@ -282,8 +330,25 @@ class AcceptanceController:
             failed_generation_records=decision.failed_generation_records,
             trimmed_accepted_records=decision.trimmed_accepted_records,
             accepted_partition=accepted_partition,
+            schema_materialized=schema_materialized,
+            non_retryable_error_type=(non_retryable_error["type"] if non_retryable_error is not None else None),
+            non_retryable_error_message=(non_retryable_error["message"] if non_retryable_error is not None else None),
+            terminal_error_kind=terminal_error["kind"] if terminal_error is not None else None,
+            terminal_error_message=terminal_error["message"] if terminal_error is not None else None,
         )
         self._markers.append(marker)
+        self._accumulate_marker(marker)
+        return marker
+
+    def replace_last_marker_terminal_error(self, terminal_error: dict[str, str]) -> SelectionBatchMarker:
+        if not self._markers:
+            raise RuntimeError("Cannot attach a terminal error without a completed candidate batch.")
+        marker = replace(
+            self._markers[-1],
+            terminal_error_kind=terminal_error["kind"],
+            terminal_error_message=terminal_error["message"],
+        )
+        self._markers[-1] = marker
         return marker
 
     def summary(self) -> dict[str, int | float | bool | str]:
@@ -291,7 +356,7 @@ class AcceptanceController:
         return {
             "predicate_column": self.config.predicate_column,
             "max_candidate_records": self.config.max_candidate_records,
-            "on_exhausted": str(self.config.on_exhausted),
+            "on_exhausted": RecordSelectionExhaustion(self.config.on_exhausted).value,
             "run_buffer_size": self.buffer_size,
             "candidate_records_generated": candidate_records,
             "candidate_batches_completed": self.candidate_batches_completed,
@@ -309,24 +374,42 @@ class AcceptanceController:
 
     def _validate_marker_sequence(self) -> None:
         expected_offset = 0
-        accepted_records = 0
         for expected_id, marker in enumerate(self._markers):
             if marker.candidate_batch_id != expected_id or marker.row_group_id != expected_id:
                 raise ValueError("Selection batch markers must have contiguous batch and row-group IDs.")
             if marker.candidate_start_offset != expected_offset:
                 raise ValueError("Selection batch marker candidate offsets must be contiguous.")
             remaining_budget = self.config.max_candidate_records - expected_offset
+            if remaining_budget <= 0:
+                raise ValueError("Selection batch markers continue after the candidate budget was exhausted.")
             expected_size = min(self.buffer_size, self.target_records, remaining_budget)
             if marker.candidate_records != expected_size:
                 raise ValueError(
                     f"Selection batch {expected_id} has size {marker.candidate_records}, expected {expected_size}."
                 )
-            expected_offset += marker.candidate_records
-            accepted_records += marker.accepted_records
-            if accepted_records > self.target_records:
+            self._accumulate_marker(marker)
+            expected_offset = self.candidate_records
+            if self.accepted_records > self.target_records:
                 raise ValueError("Selection batch markers exceed the accepted-record target.")
-            if accepted_records == self.target_records and expected_id != len(self._markers) - 1:
+            if self.accepted_records == self.target_records and expected_id != len(self._markers) - 1:
                 raise ValueError("Selection batch markers continue after the accepted-record target was reached.")
+
+    def _accumulate_marker(self, marker: SelectionBatchMarker) -> None:
+        self._candidate_records += marker.candidate_records
+        self._accepted_records += marker.accepted_records
+        self._rejected_records += marker.rejected_records
+        self._null_predicate_records += marker.null_predicate_records
+        self._failed_generation_records += marker.failed_generation_records
+        self._trimmed_accepted_records += marker.trimmed_accepted_records
+        self._accepted_partitions += marker.accepted_partition is not None
+        if self._first_non_retryable_error is None and marker.non_retryable_error_type is not None:
+            message = marker.non_retryable_error_message
+            if message is None:
+                raise RuntimeError("Selection marker non-retryable-error fields are inconsistent.")
+            self._first_non_retryable_error = {
+                "type": marker.non_retryable_error_type,
+                "message": message,
+            }
 
 
 def _strict_int(value: dict[str, Any], key: str) -> int:
@@ -336,8 +419,15 @@ def _strict_int(value: dict[str, Any], key: str) -> int:
     return field
 
 
-def _optional_string(value: dict[str, Any], key: str) -> str | None:
-    field = value[key]
+def _optional_string(value: dict[str, Any], key: str, *, required: bool = True) -> str | None:
+    field = value[key] if required else value.get(key)
     if field is not None and not isinstance(field, str):
         raise TypeError(f"{key} must be a string or null")
+    return field
+
+
+def _optional_bool(value: dict[str, Any], key: str, *, required: bool = True) -> bool:
+    field = value[key] if required else value.get(key, False)
+    if not isinstance(field, bool):
+        raise TypeError(f"{key} must be a boolean")
     return field
