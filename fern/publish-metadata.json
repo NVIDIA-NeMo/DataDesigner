@@ -5,7 +5,7 @@
   "source": {
     "repository": "NVIDIA-NeMo/DataDesigner",
     "ref": "refs/heads/main",
-    "sha": "b859a2327e8f7dd089d91fd020eee93fde7464f9"
+    "sha": "1e8c220c7585ddfc84676eab1ea6f023a45c505f"
   },
   "published_branch": "docs-website"
 }
