@@ -11,7 +11,7 @@ Recipes are a collection of code examples that demonstrate how to leverage Data 
 </Tip>
 
 <Note title="Prerequisites">
-  Most recipes use the OpenAI model provider by default. Image-generation recipes use OpenRouter and Gemini image models by default, so set `OPENROUTER_API_KEY` before running them unless you override the model provider and model ID.
+  Most recipes use the OpenAI model provider by default. Ensure your OpenAI provider is set up via the Data Designer CLI before running model-backed recipes. Image-generation recipes use OpenRouter and Gemini image models by default, so set `OPENROUTER_API_KEY` before running them unless you override the model provider and model ID. Headless recipes, such as Document Review Gate, do not call a model provider.
 </Note>
 
 ## Image Generation
@@ -106,6 +106,16 @@ Recipes are a collection of code examples that demonstrate how to leverage Data 
     Read agent rollout traces from disk and turn each one into a structured workflow record inside a Data Designer pipeline. See the [ingestion guide](/concepts/agent-rollout-ingestion) for the trace format.
 
     *`AgentRolloutSeedSource` · ATIF, Claude Code, Codex, Hermes formats · trace-aware prompts*
+  </Card>
+</CardGroup>
+
+## Workflow Chaining
+
+<CardGroup cols={2}>
+  <Card title="Document Review Gate" icon="diagram-project" href="/recipes/workflow-chaining/document-review-gate">
+    Run a workflow to a named review stage, export that intermediate dataset, and resume downstream from a reviewed artifact.
+
+    *Workflow chaining · stage export · stage output override*
   </Card>
 </CardGroup>
 
