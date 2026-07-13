@@ -9,6 +9,7 @@ from data_designer.config.sampler_params import (
     DatetimeSamplerParams,
     PersonSamplerParams,
     SamplerType,
+    SubcategorySamplerParams,
     TimeDeltaSamplerParams,
     UUIDSamplerParams,
     is_numerical_sampler_type,
@@ -27,6 +28,20 @@ def test_category_sampler_params():
 
     with pytest.raises(ValueError, match="'categories' and 'weights' must have the same length"):
         CategorySamplerParams(values=["a", "b", "c"], weights=[10, 1])
+
+
+def test_category_sampler_params_preserve_boolean_values() -> None:
+    params = CategorySamplerParams(values=[True, False])
+
+    assert params.values == [True, False]
+    assert all(isinstance(value, bool) for value in params.values)
+
+
+def test_subcategory_sampler_params_preserve_boolean_values() -> None:
+    params = SubcategorySamplerParams(category="parent", values={"group": [True, False]})
+
+    assert params.values == {"group": [True, False]}
+    assert all(isinstance(value, bool) for value in params.values["group"])
 
 
 @pytest.mark.parametrize("weights", ([0, 0], [1, -1]))

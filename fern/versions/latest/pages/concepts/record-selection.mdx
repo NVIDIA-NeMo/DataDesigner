@@ -39,7 +39,7 @@ builder.add_column(
 builder.with_record_selection(
     dd.RecordSelectionConfig(
         predicate_column="meets_criteria",
-        max_candidate_records=5_000,
+        max_candidate_records=10_000,
         on_exhausted="raise",
     )
 )
@@ -60,8 +60,10 @@ if the final candidate batch contains more passing rows than needed, Data Design
 
 ## Predicate behavior
 
-The predicate column must exist in the dataset configuration. An expression predicate must use `dtype="bool"`;
-plugin columns with unknown output types are validated at runtime.
+The predicate column must exist in the dataset configuration. An expression predicate must use `dtype="bool"`.
+Category and subcategory sampler predicates are accepted only when every configured value, including conditional
+values, is boolean and no output conversion is configured. Other built-in non-boolean column types are rejected
+before generation. Seed, custom, and plugin columns with unknown output types are validated at runtime.
 
 | Predicate value | Result |
 | --- | --- |
@@ -72,6 +74,16 @@ plugin columns with unknown output types are validated at runtime.
 
 Selection runs after the complete candidate-row DAG and before post-batch processors. A predicate with `drop=True`
 still participates in selection, then follows the normal dropped-column artifact policy.
+
+## Selection limitations
+
+Selection predicates must be row-local: they can depend on columns in the current candidate record, but not on the
+current batch, previously generated candidates, or previously accepted records. Global ranking, top-N selection,
+quotas, cross-batch deduplication, and stateful plugin predicates are not supported.
+
+Data Designer tracks and stages media produced by engine-managed image generators. Custom and plugin code should be
+side-effect-free: external files or media that it creates are not tracked by record selection, so artifacts associated
+with rejected candidates may remain.
 
 ## Choose exhaustion behavior
 
@@ -89,6 +101,8 @@ except DataDesignerRecordSelectionExhaustedError as error:
 
 Use `on_exhausted="return_partial"` when a smaller accepted-only dataset is useful. A valid all-rejected result is
 a schema-bearing zero-row dataset. In that case, profiling is skipped and `results.load_analysis()` returns `None`.
+Early shutdown remains an error. A zero-row run with a non-retryable generation failure is also an error rather than
+an empty partial result; resume replays its durable terminal state.
 
 ## Resume an interrupted selection run
 

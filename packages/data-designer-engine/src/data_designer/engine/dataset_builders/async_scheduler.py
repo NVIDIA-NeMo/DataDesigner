@@ -1622,6 +1622,7 @@ class AsyncTaskScheduler:
         completed = [
             (rg_id, state.size)
             for rg_id, state in self._rg_states.items()
+            # Dropped rows make tracker completion vacuously true, but live workers may still own the buffer.
             if state.in_flight_count == 0 and self._tracker.is_row_group_complete(rg_id, state.size, all_columns)
         ]
         for rg_id, rg_size in completed:

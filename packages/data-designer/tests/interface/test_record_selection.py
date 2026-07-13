@@ -9,8 +9,9 @@ from unittest.mock import patch
 import pytest
 
 import data_designer.lazy_heavy_imports as lazy
-from data_designer.config.column_configs import ExpressionColumnConfig, SamplerColumnConfig
+from data_designer.config.column_configs import CustomColumnConfig, ExpressionColumnConfig, SamplerColumnConfig
 from data_designer.config.config_builder import DataDesignerConfigBuilder
+from data_designer.config.custom_column import custom_column_generator
 from data_designer.config.record_selection import RecordSelectionConfig, RecordSelectionExhaustion
 from data_designer.config.run_config import RunConfig
 from data_designer.config.sampler_params import CategorySamplerParams, SamplerType
@@ -18,7 +19,7 @@ from data_designer.config.seed_source_dataframe import DataFrameSeedSource
 from data_designer.engine.column_generators.generators.expression import ExpressionColumnGenerator
 from data_designer.engine.column_generators.generators.samplers import SamplerColumnGenerator
 from data_designer.engine.dataset_builders.dataset_builder import DatasetBuilder
-from data_designer.engine.dataset_builders.errors import DatasetGenerationError
+from data_designer.engine.dataset_builders.errors import DatasetGenerationError, RecordSelectionEarlyShutdownError
 from data_designer.engine.storage.artifact_storage import ResumeMode
 from data_designer.interface.data_designer import DataDesigner
 from data_designer.interface.errors import (
@@ -26,6 +27,18 @@ from data_designer.interface.errors import (
     DataDesignerGenerationError,
     DataDesignerRecordSelectionExhaustedError,
 )
+
+
+@custom_column_generator(required_columns=["value"])
+def _raise_predicate_generation_error(row: dict) -> dict:
+    raise ValueError("deterministic predicate failure")
+
+
+@custom_column_generator(required_columns=["value"])
+def _select_good_value_or_raise(row: dict) -> dict:
+    if row["value"] == "bad":
+        raise ValueError("bad candidate")
+    return {**row, "keep": row["value"] == "good"}
 
 
 def _designer(tmp_path) -> DataDesigner:
@@ -211,9 +224,8 @@ def test_create_raises_structured_exhaustion_error(tmp_path) -> None:
 def test_selection_early_shutdown_remains_a_typed_public_error(tmp_path) -> None:
     designer = _designer(tmp_path)
 
-    def stop_after_checkpoint(builder: DatasetBuilder, **_kwargs) -> None:
-        builder._early_shutdown = True
-        raise DatasetGenerationError("scheduler early shutdown")
+    def stop_after_checkpoint(_builder: DatasetBuilder, **_kwargs) -> None:
+        raise RecordSelectionEarlyShutdownError()
 
     with (
         patch.object(DatasetBuilder, "build", autospec=True, side_effect=stop_after_checkpoint),
@@ -223,6 +235,127 @@ def test_selection_early_shutdown_remains_a_typed_public_error(tmp_path) -> None
             _builder(predicate="{{ true }}", cap=3, on_exhausted=RecordSelectionExhaustion.RAISE),
             num_records=2,
         )
+
+
+def test_selection_prior_early_shutdown_does_not_mask_later_generation_error(tmp_path) -> None:
+    designer = _designer(tmp_path)
+
+    def fail_after_prior_early_shutdown(builder: DatasetBuilder, **_kwargs) -> None:
+        builder._early_shutdown = True
+        raise DatasetGenerationError("publication failed")
+
+    with (
+        patch.object(DatasetBuilder, "build", autospec=True, side_effect=fail_after_prior_early_shutdown),
+        pytest.raises(DataDesignerGenerationError, match="publication failed") as exc_info,
+    ):
+        designer.create(
+            _builder(predicate="{{ true }}", cap=3, on_exhausted=RecordSelectionExhaustion.RAISE),
+            num_records=2,
+        )
+
+    assert not isinstance(exc_info.value, DataDesignerEarlyShutdownError)
+
+
+def test_selection_nonretryable_empty_partial_remains_failure_across_fresh_resume(tmp_path) -> None:
+    designer = _designer(tmp_path)
+    run_config = RunConfig(buffer_size=1, disable_early_shutdown=True, display_tui=False)
+    designer.set_run_config(run_config)
+    builder = DataDesignerConfigBuilder()
+    builder.add_column(
+        SamplerColumnConfig(
+            name="value",
+            sampler_type=SamplerType.CATEGORY,
+            params=CategorySamplerParams(values=["constant"]),
+        )
+    )
+    builder.add_column(
+        CustomColumnConfig(
+            name="keep",
+            generator_function=_raise_predicate_generation_error,
+            drop=True,
+        )
+    )
+    builder.with_record_selection(
+        RecordSelectionConfig(
+            predicate_column="keep",
+            max_candidate_records=1,
+            on_exhausted=RecordSelectionExhaustion.RETURN_PARTIAL,
+        )
+    )
+
+    with pytest.raises(DataDesignerGenerationError, match="deterministic predicate failure"):
+        designer.create(builder, num_records=1, dataset_name="nonretryable-empty-selection")
+
+    marker_path = tmp_path / "nonretryable-empty-selection" / "selection-checkpoints" / "batch_00000.json"
+    marker = json.loads(marker_path.read_text())
+    assert marker["non_retryable_error_type"] == "CustomColumnGenerationError"
+    assert marker["terminal_error_kind"] == "generation_error"
+
+    # Simulate a crash after the candidate checkpoint committed but before the
+    # derived terminal outcome was mirrored into the marker and metadata.
+    marker["terminal_error_kind"] = None
+    marker["terminal_error_message"] = None
+    marker_path.write_text(json.dumps(marker))
+    metadata_path = tmp_path / "nonretryable-empty-selection" / "metadata.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata["record_selection"].pop("terminal_error")
+    metadata_path.write_text(json.dumps(metadata))
+
+    resumed_designer = DataDesigner(
+        artifact_path=tmp_path,
+        managed_assets_path=tmp_path / "managed-assets",
+        auto_configure_logging=False,
+    )
+    resumed_designer.set_run_config(run_config)
+    with pytest.raises(DataDesignerGenerationError, match="deterministic predicate failure"):
+        resumed_designer.create(
+            builder,
+            num_records=1,
+            dataset_name="nonretryable-empty-selection",
+            resume=ResumeMode.ALWAYS,
+        )
+
+
+def test_selection_nonretryable_failure_does_not_override_structured_exhaustion(tmp_path) -> None:
+    designer = _designer(tmp_path)
+    designer.set_run_config(RunConfig(buffer_size=1, disable_early_shutdown=True, display_tui=False))
+    builder = DataDesignerConfigBuilder().with_seed_dataset(
+        DataFrameSeedSource(df=lazy.pd.DataFrame({"value": ["bad"]}))
+    )
+    builder.add_column(ExpressionColumnConfig(name="value_copy", expr="{{ value }}", dtype="str"))
+    builder.add_column(CustomColumnConfig(name="keep", generator_function=_select_good_value_or_raise, drop=True))
+    builder.with_record_selection(
+        RecordSelectionConfig(
+            predicate_column="keep",
+            max_candidate_records=1,
+            on_exhausted=RecordSelectionExhaustion.RAISE,
+        )
+    )
+
+    with pytest.raises(DataDesignerRecordSelectionExhaustedError):
+        designer.create(builder, num_records=1)
+
+
+def test_selection_nonretryable_failure_allows_nonempty_partial(tmp_path) -> None:
+    designer = _designer(tmp_path)
+    designer.set_run_config(RunConfig(buffer_size=2, disable_early_shutdown=True, display_tui=False))
+    builder = DataDesignerConfigBuilder().with_seed_dataset(
+        DataFrameSeedSource(df=lazy.pd.DataFrame({"value": ["bad", "good"]}))
+    )
+    builder.add_column(ExpressionColumnConfig(name="value_copy", expr="{{ value }}", dtype="str"))
+    builder.add_column(CustomColumnConfig(name="keep", generator_function=_select_good_value_or_raise, drop=True))
+    builder.with_record_selection(
+        RecordSelectionConfig(
+            predicate_column="keep",
+            max_candidate_records=2,
+            on_exhausted=RecordSelectionExhaustion.RETURN_PARTIAL,
+        )
+    )
+
+    results = designer.create(builder, num_records=2)
+
+    assert results.load_dataset()["value_copy"].tolist() == ["good"]
+    assert results.artifact_storage.read_metadata()["record_selection"]["accepted_records"] == 1
 
 
 def test_preview_rejects_record_selection_before_generation(tmp_path) -> None:

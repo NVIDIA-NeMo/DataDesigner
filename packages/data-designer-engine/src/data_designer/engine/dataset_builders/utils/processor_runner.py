@@ -104,12 +104,13 @@ class ProcessorRunner:
         """Run process_after_generation() on a DataFrame (for preview mode)."""
         return self._run_stage(df, ProcessorStage.AFTER_GENERATION)
 
-    def run_after_generation(self, batch_size: int) -> None:
+    def run_after_generation(self, batch_size: int, *, selection_publication: bool = False) -> None:
         """Load final dataset, run process_after_generation(), rewrite in chunks.
 
         Re-chunks the processed dataset using the given batch_size so that output
         files stay consistently sized regardless of how many rows the processor
-        adds or removes.
+        adds or removes. Record-selection publications opt into names whose width
+        depends on the final partition count rather than the candidate-batch budget.
         """
         if not self.has_processors_for(ProcessorStage.AFTER_GENERATION):
             return
@@ -119,10 +120,20 @@ class ProcessorRunner:
         df = self._run_stage(df, ProcessorStage.AFTER_GENERATION)
 
         shutil.rmtree(self._artifact_storage.final_dataset_path)
+        num_partitions = len(range(0, max(len(df), 1), batch_size))
         for i in range(0, max(len(df), 1), batch_size):
-            self._artifact_storage.write_batch_to_parquet_file(
-                batch_number=i // batch_size,
-                dataframe=df.iloc[i : i + batch_size],
-                batch_stage=BatchStage.FINAL_RESULT,
-            )
+            batch_number = i // batch_size
+            batch = df.iloc[i : i + batch_size]
+            if selection_publication:
+                self._artifact_storage.write_selection_publication_batch(
+                    batch_number,
+                    batch,
+                    num_partitions=num_partitions,
+                )
+            else:
+                self._artifact_storage.write_batch_to_parquet_file(
+                    batch_number=batch_number,
+                    dataframe=batch,
+                    batch_stage=BatchStage.FINAL_RESULT,
+                )
         logger.info(f"✅ process_after_generation complete. Final dataset has {len(df)} rows.")

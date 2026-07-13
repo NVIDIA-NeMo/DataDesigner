@@ -9,7 +9,7 @@ from unittest.mock import Mock
 import pytest
 
 import data_designer.lazy_heavy_imports as lazy
-from data_designer.config.column_configs import ImageColumnConfig, SamplerColumnConfig
+from data_designer.config.column_configs import ExpressionColumnConfig, ImageColumnConfig, SamplerColumnConfig
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.processors import DropColumnsProcessorConfig, SchemaTransformProcessorConfig
 from data_designer.config.record_selection import RecordSelectionConfig
@@ -33,11 +33,12 @@ def test_selection_promotes_media_before_writing_post_batch_side_artifacts(
     config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
     config_builder.add_column(
         SamplerColumnConfig(
-            name="keep",
+            name="value",
             sampler_type=SamplerType.CATEGORY,
             params=CategorySamplerParams(values=[1]),
         )
     )
+    config_builder.add_column(ExpressionColumnConfig(name="keep", expr="{{ true }}", dtype="bool"))
     config_builder.add_column(ImageColumnConfig(name="image", prompt="test image", model_alias="stub-image"))
     selection_config = RecordSelectionConfig(predicate_column="keep", max_candidate_records=1)
     config_builder.with_record_selection(selection_config)
@@ -71,7 +72,9 @@ def test_selection_promotes_media_before_writing_post_batch_side_artifacts(
 
     class StubScheduler:
         traces: list[Any] = []
-        early_shutdown = False
+        # The target is reached by this committed decision, so simultaneous
+        # scheduler shutdown must not leave a durable terminal failure.
+        early_shutdown = True
         partial_row_groups: tuple[int, ...] = ()
         first_non_retryable_error: Exception | None = None
 
@@ -141,3 +144,9 @@ def test_selection_promotes_media_before_writing_post_batch_side_artifacts(
     assert dropped.loc[0, "image"] == committed_image
     accepted = lazy.pd.read_parquet(builder.artifact_storage.selection_partition_path(0))
     assert accepted.columns.tolist() == ["keep"]
+    assert controller.has_reached_target
+    assert controller.terminal_error is None
+    marker = builder.artifact_storage.read_selection_checkpoints()[0]
+    assert marker["terminal_error_kind"] is None
+    assert marker["terminal_error_message"] is None
+    assert "terminal_error" not in builder.artifact_storage.read_metadata()["record_selection"]
