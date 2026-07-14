@@ -639,16 +639,21 @@ Example batch marker:
   "null_predicate_records": 2,
   "failed_generation_records": 0,
   "trimmed_accepted_records": 0,
-  "accepted_partition": "selection-accepted/batch_00001.parquet"
+  "accepted_partition": "selection-accepted/batch_00001.parquet",
+  "schema_materialized": true,
+  "non_retryable_error": null,
+  "stopped_early": false
 }
 ```
 
 `accepted_records` is the **post-trim persisted count** and must equal the row count of `accepted_partition`.
 `trimmed_accepted_records` is diagnostic: it counts predicate-true rows discarded from the final overshooting batch
 and is never added to accepted progress. Resume sums `accepted_records` to decide whether the target is satisfied.
-`schema.parquet` is written from the first post-selection, post-batch DataFrame even if it has no rows. It preserves
-the published output schema across process restarts when every candidate batch accepts zero rows; it is not included
-in accepted counts and is not referenced by an individual batch marker.
+`schema.parquet` is a rebuildable cache written from the first post-selection, post-batch DataFrame even
+if it has no rows. It preserves the published output schema when every candidate batch accepts zero rows; it is not
+included in accepted counts. The marker's `schema_materialized` flag records whether its candidate produced a typed
+output schema. Resume discards an anchor not owned by any committed marker, reconstructs one from an accepted
+partition when possible, and rejects a missing committed typed schema rather than silently changing it.
 
 For every marker, the following mutually exclusive accounting invariant must hold:
 
@@ -665,6 +670,11 @@ candidate_records
 failed before predicate evaluation. For a zero-acceptance candidate batch, `accepted_partition` is null but the
 marker still commits candidate progress.
 
+`non_retryable_error` preserves the first scheduler diagnostic needed to explain an exhausted zero-row partial.
+`stopped_early` records whether that candidate ended through scheduler early shutdown before satisfying the target.
+Resume replays an exhausted early shutdown; when candidate budget remains, it continues from the next committed
+offset instead.
+
 ### Global metadata
 
 Extend `metadata.json` with a structured section:
@@ -673,12 +683,8 @@ Extend `metadata.json` with a structured section:
 {
   "target_num_records": 5000,
   "actual_num_records": 5000,
-  "post_generation_state": "pending",
-  "post_generation_processed": false,
-  "publication": {
-    "managed_local_prefixes": ["parquet-files", "images", "processors-files/chat_format"],
-    "managed_hub_prefixes": ["data", "images", "chat_format"]
-  },
+  "post_generation_state": "complete",
+  "post_generation_processed": true,
   "record_selection": {
     "predicate_column": "meets_criteria",
     "max_candidate_records": 20000,
@@ -719,26 +725,24 @@ Reuse and extend the existing top-level `post_generation_state` metadata instead
 
 | State | Meaning |
 |---|---|
-| `pending` | Selection is terminal, but the accepted published view has not been fully materialized and validated |
 | `started` | Terminal materialization or after-generation processing is rebuilding mutable published artifacts |
 | `complete` | Published parquet, allowed processor outputs, counts, and cleanup are complete and safe to expose |
 
-Selection runs write `pending` after reconstructing a terminal marker set, including when a crash occurred after the
-final batch marker but before the metadata update. They write `started` before replacing `parquet-files/` or running
-after-generation processors, and atomically write `complete` only after the final row-count check and transient-artifact
-cleanup succeed. `post_generation_processed` remains for compatibility and is true exactly when the state is
-`complete`; even a selection run with no after-generation processors must reach `complete` after materialization.
+Selection runs write `started` before replacing `parquet-files/` or running after-generation processors, and write
+`complete` only after the final row-count check and transient-artifact cleanup succeed. A missing state with terminal
+markers is also incomplete and is rebuilt on resume. `post_generation_processed` remains for compatibility and is
+true exactly when the state is `complete`; even a selection run with no after-generation processors must reach
+`complete` after materialization.
 
 Unlike the ordinary in-place after-generation path, a selection run can recover safely from `started`: immutable
-`selection-accepted/` partitions remain the source of truth. Resume deletes incomplete mutable publication artifacts,
-returns the state to `pending`, and rebuilds them without regenerating candidates.
+`selection-accepted/` partitions remain the source of truth. Resume discards incomplete publication staging, keeps
+the state incomplete, and replaces the mutable published view from clean staging without regenerating candidates.
 
 ```mermaid
 stateDiagram-v2
-    [*] --> pending: terminal selection markers reconstructed
-    pending --> started: begin terminal materialization
+    [*] --> started: begin terminal materialization
     started --> complete: output validated and cleanup committed
-    started --> pending: crash recovery discards mutable output
+    started --> started: crash recovery discards staging and rebuilds
     complete --> [*]
 ```
 
@@ -751,8 +755,9 @@ Treat the batch marker as the commit point:
 3. Promote accepted engine-managed media from candidate staging into deterministic committed paths.
 4. Write the post-trim rows to a deterministic immutable accepted-partition path when non-empty.
 5. Write accepted-only dropped-column and post-batch processor artifacts under the same candidate batch ID.
-6. Atomically write the batch marker.
-7. Update global metadata.
+6. Write the zero-row schema anchor when one does not yet exist.
+7. Atomically write the batch marker, including whether this candidate materialized a schema.
+8. Update global metadata.
 
 On resume:
 
@@ -770,9 +775,10 @@ On resume:
 - Set the next seed/candidate offset from committed candidate counts, not accepted row counts.
 - Require the persisted `target_num_records` to equal the requested target before reusing any checkpoint.
 - Rebuild missing or incomplete published output from immutable accepted partitions without regenerating candidates.
-- When `post_generation_state` is `pending`, `started`, or missing for a terminal marker set, remove incomplete
-  `selection-publication-staging/` and `parquet-files/` before rebuilding. Never delete immutable accepted partitions,
-  committed accepted media, or marker-committed post-batch processor artifacts during publication recovery.
+- When `post_generation_state` is `started` or missing for a terminal marker set, discard incomplete
+  `selection-publication-staging/`, rebuild clean staging, and replace `parquet-files/` at promotion time. Never
+  delete immutable accepted partitions, committed accepted media, or marker-committed post-batch processor artifacts
+  during publication recovery.
 
 ### Resume state machine
 
@@ -799,10 +805,10 @@ stateDiagram-v2
     CommitBatch --> Exhausted: candidate cap reached
     CommitBatch --> GenerateNext: more candidates needed
 
-    Satisfied --> PublicationPending
-    Exhausted --> PublicationPending: return_partial
+    Satisfied --> BeginPublication
+    Exhausted --> BeginPublication: return_partial
     Exhausted --> [*]: raise
-    PublicationPending --> [*]: continue with publication state machine
+    BeginPublication --> [*]: continue with publication state machine
     Incompatible --> [*]
     Corrupt --> [*]
 ```
@@ -882,7 +888,7 @@ Both result-based and folder-based upload require two independent conditions: a 
 `post_generation_state=complete`. Selection completion alone is insufficient because the final marker may commit
 before published materialization and after-generation processing finish. A stale or incomplete `parquet-files/`
 directory is not sufficient. `on_exhausted=raise` does not return a `DatasetCreationResults`, and an artifact in
-`pending` or `started` must be resumed or finalized before folder-based upload.
+`started` (or with no publication state) must be resumed or finalized before folder-based upload.
 
 Hub metadata and the generated dataset card must use `metadata.json.actual_num_records` as the authoritative output
 count, with `target_num_records` shown separately. This is required for partial output and especially for a valid
@@ -900,18 +906,12 @@ publication recovery retains them and uncommitted-batch cleanup removes only the
 that creates additional untracked side effects during `process_after_generation` is outside the V1 recovery contract;
 after-generation processors may transform the published DataFrame but must not depend on untracked terminal files.
 
-When updating an existing Hub repository after resume or re-publication, submit deletion and upload operations for
-every managed `data/`, media, and configured processor-output prefix. Delete a managed remote prefix even when the
-current local artifact has no corresponding files, so obsolete shards and processor outputs cannot survive a changed
-published layout. The Hub update should apply these deletes and uploads in one commit where the API supports it.
-
-Persist a publication manifest in `metadata.json` that lists the managed local and Hub prefixes for the completed
-artifact. Local publication recovery replaces the mutable published parquet prefix, while an incompatible
-`IF_POSSIBLE` restart clears all engine-managed selection, processor, media, and published prefixes before starting
-from candidate offset zero. Hub re-publication reads the previous remote metadata manifest and deletes stale files
-from the union of previous and current managed prefixes before uploading the current allowlist in one commit; a
-compatibility path may list known managed prefixes when publishing over an older repository with no manifest. This
-scoped manifest prevents stale processor outputs without deleting unrelated user-managed files in the Hub repository.
+Record selection deliberately reuses the existing generic Hub uploader. This feature adds the terminal-state gate,
+the metadata/card fields needed for accepted-only satisfied, partial, and empty results, and generic support for
+single-file processor outputs alongside existing processor directories. Atomic multi-prefix publication, local
+snapshot/TOCTOU protection, compare-and-swap commits, and deletion of stale remote shards are generic publishing
+concerns and belong in a separate repository-wide publishing change. Record selection must not introduce a parallel
+upload protocol or publication manifest solely for this feature.
 
 ## Failure and exhaustion behavior
 
@@ -1100,8 +1100,8 @@ Deliverables:
 Likely files:
 
 - `interface/results.py` — preserve the existing `push_to_hub()` surface.
-- `integrations/huggingface/client.py` — enforce terminal selection state, upload only published artifacts, and
-  replace managed remote prefixes.
+- `integrations/huggingface/client.py` — enforce terminal selection state and reuse the existing published-artifact
+  upload paths.
 - `integrations/huggingface/dataset_card.py` — use authoritative actual counts and selection diagnostics.
 
 Deliverables:
@@ -1113,7 +1113,7 @@ Deliverables:
 - Accepted-only Hub publication for satisfied, partial, and schema-bearing empty outputs.
 - No upload of selection checkpoints, immutable internal partitions, staging, or rejected media.
 - Folder-based upload requires `post_generation_state=complete` in addition to terminal selection metadata.
-- Re-publication replaces or deletes stale remote data, media, and configured processor-output prefixes.
+- Generic atomic publication and stale remote cleanup remain a separate repository-wide follow-up.
 
 ### Optional post-v1 optimization (not required for feature completeness)
 
@@ -1191,8 +1191,8 @@ commitment to implement a v2; benchmark evidence should justify it first.
 - Exhausted partial output is reused according to its recorded terminal state.
 - After-generation re-chunking of `parquet-files/` does not invalidate immutable accepted partitions or markers.
 - Missing/incomplete published output is rebuilt from immutable accepted partitions without candidate regeneration.
-- A crash after the terminal batch marker but before publication metadata is written reconstructs
-  `post_generation_state=pending` and finalizes without generating another candidate.
+- A crash after the terminal batch marker but before publication metadata is written finalizes without generating
+  another candidate.
 - A crash with `post_generation_state=started` and partial parquet or processor output removes mutable output and
   rebuilds it from immutable accepted partitions before marking `complete`.
 - Candidate staging left by a crash after a committed marker is swept during resume.
@@ -1216,12 +1216,10 @@ commitment to implement a v2; benchmark evidence should justify it first.
 - A non-empty partial card reports `actual_num_records`, target, exhausted state, candidate attempts, and acceptance
   rate.
 - A zero-row partial uploads its schema-bearing empty parquet and reports zero records rather than the target.
-- Folder-based upload rejects terminal selection metadata when `post_generation_state` is missing, `pending`, or
-  `started`, and accepts it only when the state is `complete`.
+- Folder-based upload rejects terminal selection metadata when `post_generation_state` is missing or `started`, and
+  accepts it only when the state is `complete`.
 - Internal accepted partitions, markers, staging, and rejected media are never uploaded.
 - Accepted images remain reachable under `images/`; supported file-backed audio/video directories are explicit.
-- Re-publishing to an existing Hub repository removes obsolete managed data, media, and processor-output shards,
-  including prefixes present only in the previous publication manifest and no longer present locally.
 
 ### Regression tests motivated by PR #773
 
@@ -1250,7 +1248,8 @@ commitment to implement a v2; benchmark evidence should justify it first.
 | Immutable and published datasets increase disk use | Document up to one extra accepted-data copy and remove both through normal artifact cleanup |
 | Hub publication leaks internal/rejected artifacts | Upload an explicit published-artifact allowlist; reject non-terminal selection state |
 | Partial or empty Hub card reports the target as actual | Use `metadata.json.actual_num_records` as the authoritative card count |
-| Re-publishing leaves stale local or remote shards | Replace/delete managed data, media, and processor prefixes locally and on the Hub |
+| Re-publishing leaves stale local shards | Replace engine-managed local publication artifacts before rebuilding |
+| Generic Hub re-publication leaves stale remote shards | Address atomic replacement and stale cleanup in a separate repository-wide publishing change |
 
 ## V1 decisions
 
@@ -1277,8 +1276,10 @@ commitment to implement a v2; benchmark evidence should justify it first.
 - Keep `push_to_hub()` API-compatible while publishing only terminal accepted output and sanitized aggregate metadata.
 - Reuse `post_generation_state` so selection completion and publication completion are distinct; only `complete` is
   publishable, and interrupted mutable output is rebuilt from immutable accepted partitions.
-- Replace stale local published data during recovery, clear all engine-managed prefixes on incompatible
-  `IF_POSSIBLE` restart, and delete stale managed Hub files during re-publication.
+- Replace stale local published data during recovery and clear all engine-managed local prefixes on incompatible
+  `IF_POSSIBLE` restart.
+- Reuse the existing generic Hub upload flow; defer atomic replacement, source snapshotting, and stale remote cleanup
+  to a separate publishing change that applies to all datasets.
 - Defer early predicate task cancellation and concurrent candidate batches.
 
 ## Definition of done
@@ -1300,7 +1301,7 @@ from one `DataDesigner.create()` call, with:
 - Explicit publication completion metadata with recovery from crashes before or during materialization and processor
   output generation.
 - Hugging Face publication that exposes only terminal accepted output, reports partial/empty counts correctly, and
-  cannot leak selection-internal or stale processor artifacts.
+  does not upload selection-internal artifacts.
 - Clear V1 rejection of preview and run-global predicate semantics.
 - Complete candidate/acceptance metadata, public exhaustion errors, and model usage accounting.
 - No dependency-layer violations.
