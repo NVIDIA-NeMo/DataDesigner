@@ -1487,10 +1487,14 @@ class DatasetBuilder:
             "total_num_batches": controller.accepted_partitions,
             "buffer_size": controller.buffer_size,
             "dataset_name": self.artifact_storage.dataset_name,
-            "file_paths": self.artifact_storage.get_file_paths(),
             "num_completed_batches": controller.candidate_batches_completed,
             "record_selection": selection_summary,
         }
+        if post_generation_state == "complete":
+            # Candidate checkpoints are already represented by their immutable marker and
+            # accepted partition. Refreshing the full processor-artifact manifest after
+            # every candidate batch makes selection quadratic as that tree grows.
+            updates["file_paths"] = self.artifact_storage.get_file_paths()
         if post_generation_state is not None:
             updates["post_generation_state"] = post_generation_state
             updates["post_generation_processed"] = post_generation_state == "complete"
