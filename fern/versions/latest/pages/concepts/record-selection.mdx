@@ -6,15 +6,16 @@ description: "Generate an exact number of rows that satisfy a declared boolean c
 # Record Selection
 
 Record selection lets one `DataDesigner.create()` call produce an exact number of rows that satisfy a declared
-boolean column. Data Designer owns candidate generation, filtering, refill, deterministic trimming, checkpoints,
-and resume.
+boolean expression, custom column, or plugin column. Data Designer owns candidate generation, filtering, refill,
+deterministic trimming, checkpoints, and resume.
 
 Use record selection when filtering after generation would leave fewer rows than you requested. For example, you
-can require a judge score, validation result, safety decision, or expression to pass before a row enters the output.
+can derive a boolean expression from a judge score, validation result, safety decision, or nested structured model
+output before a row enters the output.
 
 ## Configure an accepted-row target
 
-Declare the criterion as a normal boolean column, then attach `RecordSelectionConfig` to the builder:
+Declare the criterion as a boolean expression column, then attach `RecordSelectionConfig` to the builder:
 
 ```python
 import data_designer.config as dd
@@ -61,10 +62,24 @@ rows.
 
 ## Predicate behavior
 
-The predicate column must exist in the dataset configuration. An expression predicate must use `dtype="bool"`.
-Category and subcategory sampler predicates are accepted only when every configured value, including conditional
-values, is boolean and no output conversion is configured. Other built-in non-boolean column types are rejected
-before generation. Seed, custom, and plugin columns with unknown output types are validated at runtime.
+The predicate column must exist in the dataset configuration. A direct built-in predicate must be an
+`ExpressionColumnConfig` with `dtype="bool"`. Custom and registered plugin columns may be direct predicates; their
+values are validated at runtime. Sampler, seed, validation, and built-in model columns are not direct predicates.
+Normalize their values through a boolean expression first. For example, extract a nested structured decision with:
+
+```python
+builder.add_column(
+    dd.ExpressionColumnConfig(
+        name="meets_criteria",
+        expr="{{ judgment.accepted }}",
+        dtype="bool",
+        drop=True,
+    )
+)
+```
+
+Here, `judgment` may be an `LLMStructuredColumnConfig`; record selection still reads only the top-level
+`meets_criteria` predicate column and does not interpret JSON paths itself.
 
 | Predicate value | Result |
 | --- | --- |

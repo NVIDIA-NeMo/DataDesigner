@@ -16,7 +16,6 @@ from typing import TYPE_CHECKING, Any, Callable
 from pydantic import ValidationError
 
 import data_designer.lazy_heavy_imports as lazy
-from data_designer.config.column_configs import SamplerColumnConfig
 from data_designer.config.column_types import ColumnConfigT, DataDesignerColumnType, is_plugin_column_type
 from data_designer.config.config_builder import BuilderConfig
 from data_designer.config.data_designer_config import DataDesignerConfig
@@ -25,7 +24,6 @@ from data_designer.config.processors import (
     ProcessorConfig,
     ProcessorType,
 )
-from data_designer.config.sampler_params import CategorySamplerParams, SubcategorySamplerParams
 from data_designer.config.utils.type_helpers import StrEnum
 from data_designer.config.version import get_library_version
 from data_designer.engine.column_generators.generators.base import (
@@ -1157,34 +1155,15 @@ class DatasetBuilder:
                 f"🛑 Record-selection predicate expression {config.predicate_column!r} must use dtype='bool'."
             )
 
-        if isinstance(predicate_config, SamplerColumnConfig) and self._sampler_predicate_is_known_boolean(
-            predicate_config
-        ):
-            return
-
-        # Seed, custom, and plugin output types are intentionally runtime-defined.
-        # Their values remain subject to AcceptanceController's strict bool/null check.
-        if column_type in (DataDesignerColumnType.SEED_DATASET, DataDesignerColumnType.CUSTOM) or is_plugin_column_type(
-            column_type
-        ):
+        # Custom and plugin output types are intentionally runtime-defined. Their
+        # values remain subject to AcceptanceController's strict bool/null check.
+        if column_type == DataDesignerColumnType.CUSTOM or is_plugin_column_type(column_type):
             return
 
         raise DatasetGenerationError(
-            f"🛑 Record-selection predicate column {config.predicate_column!r} must be boolean; "
-            f"built-in column type {str(column_type)!r} does not produce boolean values."
+            f"🛑 Record-selection predicate column {config.predicate_column!r} uses unsupported built-in "
+            f"column type {str(column_type)!r}; expected a boolean expression, custom column, or plugin column."
         )
-
-    @staticmethod
-    def _sampler_predicate_is_known_boolean(config: SamplerColumnConfig) -> bool:
-        if config.convert_to is not None:
-            return False
-        params = (config.params, *config.conditional_params.values())
-        if all(isinstance(item, CategorySamplerParams) for item in params):
-            return all(isinstance(value, bool) for item in params for value in item.values)
-        if all(isinstance(item, SubcategorySamplerParams) for item in params):
-            values = [value for item in params for group in item.values.values() for value in group]
-            return bool(values) and all(isinstance(value, bool) for value in values)
-        return False
 
     def _validate_record_selection_request(self, num_records: int) -> None:
         config = self._data_designer_config.record_selection

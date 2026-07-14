@@ -932,9 +932,10 @@ def test_record_selection_exports_durable_progress_end_to_end(
     )
     config = DataDesignerConfigBuilder().with_seed_dataset(source, sampling_strategy=SamplingStrategy.ORDERED)
     config.add_column(ExpressionColumnConfig(name="output", expr="{{ payload }}"))
+    config.add_column(ExpressionColumnConfig(name="keep_predicate", expr="{{ keep }}", dtype="bool", drop=True))
     config.with_record_selection(
         RecordSelectionConfig(
-            predicate_column="keep",
+            predicate_column="keep_predicate",
             max_candidate_records=2,
             on_exhausted=RecordSelectionExhaustion.RETURN_PARTIAL,
         )
