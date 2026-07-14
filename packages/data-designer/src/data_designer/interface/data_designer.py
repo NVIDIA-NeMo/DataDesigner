@@ -92,20 +92,8 @@ logger = logging.getLogger(__name__)
 
 _CHECK_MODELS_RETRYABLE_ERRORS = RETRYABLE_MODEL_ERRORS + (TimeoutError,)
 
-_interface_runtime_initialized = False
 _P = ParamSpec("_P")
 _R = TypeVar("_R")
-
-
-def _initialize_interface_runtime(*, auto_configure_logging: bool = True) -> None:
-    """Run one-time runtime initialization for the interface package."""
-    global _interface_runtime_initialized
-    if _interface_runtime_initialized:
-        return
-    if auto_configure_logging and not is_logging_configured():
-        configure_logging()
-    resolve_seed_default_model_settings()
-    _interface_runtime_initialized = True
 
 
 def _observe_create(
@@ -166,8 +154,8 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             configuration during construction. Set to False when embedding Data
             Designer in an application that manages its own logging — Data Designer
             will then leave existing root handlers and log levels untouched.
-            Automatic configuration is also skipped when
-            `data_designer.logging.configure_logging()` was already called.
+            Automatic configuration is also skipped while a Data Designer-managed
+            handler remains attached to the root logger.
     """
 
     def __init__(
@@ -182,7 +170,9 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         mcp_providers: list[MCPProviderT] | None = None,
         auto_configure_logging: bool = True,
     ):
-        _initialize_interface_runtime(auto_configure_logging=auto_configure_logging)
+        if auto_configure_logging and not is_logging_configured():
+            configure_logging()
+        resolve_seed_default_model_settings()
         self._open_telemetry: OpenTelemetryRuntime = get_open_telemetry_runtime()
         self._secret_resolver = secret_resolver or DEFAULT_SECRET_RESOLVER
         self._artifact_path = Path(artifact_path) if artifact_path is not None else Path.cwd() / "artifacts"
