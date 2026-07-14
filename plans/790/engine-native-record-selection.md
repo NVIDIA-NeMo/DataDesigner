@@ -1,18 +1,19 @@
 ---
 date: 2026-07-01
+updated: 2026-07-14
 authors:
   - nmulepati
 issue: https://github.com/NVIDIA-NeMo/DataDesigner/issues/790
-related_pr: https://github.com/NVIDIA-NeMo/DataDesigner/pull/773
-status: proposal
+related_pr: https://github.com/NVIDIA-NeMo/DataDesigner/pull/817
+status: in-progress
 ---
 
 # Plan: Engine-native record selection for exact accepted-row targets
 
 ## Summary
 
-Add a declarative record-selection policy to a normal `DataDesigner.create()` run. Users define a boolean
-column that identifies acceptable records, then request the number of accepted records they want:
+This implementation adds a declarative record-selection policy to a normal `DataDesigner.create()` run. Users define
+a boolean column that identifies acceptable records, then request the number of accepted records they want:
 
 ```python
 results = data_designer.create(builder, num_records=5_000)
@@ -50,7 +51,7 @@ PR #773 explored workflow-level repetition. Real-run testing exposed two importa
    stop generating after the second extension.
 2. Restarting an append loop at its first requested size can ask resume to shrink below already-persisted rows.
 
-An engine-native design should therefore treat candidate batches as immutable first-class units and persist
+The engine-native design therefore treats candidate batches as immutable first-class units and persists
 candidate progress separately from accepted-output progress.
 
 ## Goals
@@ -76,9 +77,10 @@ candidate progress separately from accepted-output progress.
 
 ## User-facing API
 
-### Recommended API
+### Public API
 
-Add `RecordSelectionConfig` to `data_designer.config` and a builder convenience method:
+`RecordSelectionConfig` in `data_designer.config` and the builder's `with_record_selection()` method provide the
+public configuration surface:
 
 ```python
 import data_designer.config as dd
@@ -163,34 +165,35 @@ class RecordSelectionExhaustion(StrEnum):
 class RecordSelectionConfig(ConfigBase):
     """Select records until the requested accepted-row count is reached."""
 
-    predicate_column: str
+    predicate_column: str = Field(min_length=1)
     max_candidate_records: int = Field(gt=0, strict=True)
     on_exhausted: RecordSelectionExhaustion = RecordSelectionExhaustion.RAISE
 ```
 
-Add an optional field to `DataDesignerConfig`:
+`DataDesignerConfig` includes the optional field:
 
 ```python
 record_selection: RecordSelectionConfig | None = None
 ```
 
-Add a builder method:
+The builder exposes:
 
 ```python
 def with_record_selection(
     self,
     config: RecordSelectionConfig,
-) -> DataDesignerConfigBuilder:
+) -> Self:
     ...
 ```
 
 `RecordSelectionConfig` belongs in the config package because it changes the meaning and identity of the output
-dataset. It must be serialized and included in `DataDesignerConfig.fingerprint()`. Candidate concurrency and batch
+dataset. It is serialized and included in `DataDesignerConfig.fingerprint()`. Candidate concurrency and batch
 sizing remain operational concerns owned by `RunConfig`.
 
 `max_candidate_records` is a strict integer cost boundary. Boolean values (which are Python integer subclasses),
 integral floats, and numeric strings are rejected instead of coerced. This keeps JSON/YAML configuration mistakes
 from silently changing how much candidate generation the engine is authorized to perform.
+`predicate_column` must be non-empty and contain at least one non-whitespace character.
 
 ### Public semantics
 
@@ -217,12 +220,12 @@ from silently changing how much candidate generation the engine is authorized to
 
 At the `create()` boundary, validate:
 
+- `num_records > 0` when record selection is configured.
 - `max_candidate_records >= num_records`.
 - A resumed selection run uses the same `num_records` target recorded by the original run.
-- `predicate_column` exists.
-- The predicate is not a seed-only side artifact with no materialized output.
+- `predicate_column` exists among compiled output or side-effect columns and has an owning column config.
 - Known output types are boolean. Unknown plugin output types receive strict runtime validation.
-- v1 has no row-count-changing after-generation processor.
+- After-generation output preserves the accepted row count; a mismatch fails before publication is marked complete.
 
 ## Alternatives considered
 
@@ -230,7 +233,7 @@ At the `create()` boundary, validate:
 |---|---|---|---|
 | Generate the full candidate cap, then filter once | Smallest implementation | Always pays maximum cost; cannot stop early; large temporary output | Do not use as primary design |
 | Repeat `DataDesigner.create(..., resume=ALWAYS)` with larger targets | Reuses current public API | Couples selection to resume row-group math; difficult callback resume; repeated profiling | Rejected |
-| Engine-managed immutable candidate batches | Bounded, resumable, streams output, stops early | Requires new selection progress and candidate-batch manifest | **Recommended for v1** |
+| Engine-managed immutable candidate batches | Bounded, resumable, streams output, stops early | Requires per-batch selection markers and immutable accepted partitions | **Implemented for v1** |
 | Dynamically replace every rejected row inside one scheduler | Best theoretical efficiency | Invasive task-grid mutation, cancellation, refill, and ordering complexity | Future optimization |
 
 ### Is a v2 required?
@@ -313,15 +316,20 @@ sequenceDiagram
     B->>A: initialize(target=X, candidate_cap=M)
 
     loop while accepted < X and candidates < M
-        A->>B: next immutable candidate batch
+        B->>A: request next immutable candidate batch
+        A-->>B: batch ID, row group, offset, size
         B->>S: run(row_group_id, candidate_offset, batch_size)
         S->>G: generate normal column DAG
         G-->>S: completed candidate rows + predicate
-        S->>A: select completed rows
-        A-->>S: accepted mask + remaining output limit
-        S->>P: checkpoint immutable accepted partition
-        S->>P: commit candidate-batch marker
-        P-->>A: durable accepted/generated counts
+        S->>B: selection callback with completed DataFrame
+        B->>A: select(batch, failed_generation_records)
+        A-->>B: accepted indices and accounting decision
+        B-->>S: filtered and trimmed DataFrame
+        S->>B: finalization callback after post-batch processors
+        B->>P: write schema anchor and accepted partition
+        B->>A: record_checkpoint(batch, decision, artifacts)
+        A-->>B: SelectionBatchMarker
+        B->>P: atomically persist marker, then mirror metadata
     end
 
     alt accepted == X
@@ -367,7 +375,8 @@ report accepted output rows.
 
 ### 1. `AcceptanceController`
 
-Introduce an engine-owned controller with no interface dependency:
+The engine-owned DTOs and controller live in `engine/dataset_builders/acceptance.py` and have no interface
+dependency:
 
 ```python
 @dataclass(frozen=True, slots=True)
@@ -381,18 +390,70 @@ class CandidateBatch:
 @dataclass(frozen=True, slots=True)
 class SelectionDecision:
     accepted_indices: tuple[int, ...]
-    rejected_count: int
-    null_predicate_count: int
-    failed_generation_count: int
-    trimmed_accepted_count: int
+    candidate_records: int
+    accepted_records: int
+    rejected_records: int
+    null_predicate_records: int
+    failed_generation_records: int
+    trimmed_accepted_records: int
+
+
+@dataclass(frozen=True, slots=True)
+class SelectionBatchMarker:
+    candidate_batch_id: int
+    row_group_id: int
+    candidate_start_offset: int
+    candidate_records: int
+    accepted_records: int
+    rejected_records: int
+    null_predicate_records: int
+    failed_generation_records: int
+    trimmed_accepted_records: int
+    accepted_partition: str | None
+    schema_materialized: bool = False
+    non_retryable_error: str | None = None
+    stopped_early: bool = False
 
 
 class AcceptanceController:
+    def __init__(
+        self,
+        *,
+        config: RecordSelectionConfig,
+        target_records: int,
+        buffer_size: int,
+        markers: tuple[SelectionBatchMarker, ...] = (),
+    ) -> None: ...
+
+    @property
     def has_reached_target(self) -> bool: ...
+
+    @property
     def has_candidate_budget(self) -> bool: ...
+
+    @property
+    def is_exhausted(self) -> bool: ...
+
     def next_candidate_batch(self) -> CandidateBatch: ...
-    def select(self, dataframe: pd.DataFrame) -> SelectionDecision: ...
-    def record_checkpoint(self, batch: CandidateBatch, decision: SelectionDecision) -> None: ...
+
+    def select(
+        self,
+        dataframe: pd.DataFrame,
+        *,
+        batch: CandidateBatch,
+        failed_generation_records: int,
+    ) -> SelectionDecision: ...
+
+    def record_checkpoint(
+        self,
+        *,
+        batch: CandidateBatch,
+        decision: SelectionDecision,
+        accepted_partition: str | None,
+        schema_materialized: bool = False,
+        non_retryable_error: str | None = None,
+        stopped_early: bool = False,
+    ) -> SelectionBatchMarker: ...
 ```
 
 Responsibilities:
@@ -402,10 +463,12 @@ Responsibilities:
 - Allocate stable, monotonically increasing candidate batch IDs and offsets.
 - Strictly evaluate the predicate column.
 - Trim the last accepted candidate batch to the remaining output count.
-- Expose progress for metadata and logs.
+- Hydrate and validate committed marker sequences.
+- Expose progress and terminal properties for metadata and logs.
 - Decide satisfied vs exhausted state.
 
-The controller does not call column generators, write parquet, or own scheduler tasks.
+The controller does not call column generators, write parquet, or own scheduler tasks. `DatasetBuilder` persists the
+returned `SelectionBatchMarker` through `ArtifactStorage.write_selection_checkpoint()`.
 
 ### 2. Immutable candidate batch planning
 
@@ -423,10 +486,10 @@ candidate batch 2 -> row group 2: candidate offset 2000, size 1000
 ...
 ```
 
-Keep `CandidateBatch` as the single selection DTO and reuse the existing scheduler-facing `ExplicitRowGroupPlan`.
-That plan already survives `normalize_row_group_plan()` and exposes offsets through
-`row_group_start_offset()`, but its current offsets always begin at zero. Extend it with a backwards-compatible
-`base_offset` so a one-row-group candidate plan preserves the candidate's absolute offset:
+`CandidateBatch` is the single selection work DTO. The implementation reuses the scheduler-facing
+`ExplicitRowGroupPlan`, which survives `normalize_row_group_plan()` and exposes offsets through
+`row_group_start_offset()`. Its backwards-compatible `base_offset` preserves the absolute offset of a one-row-group
+candidate plan:
 
 ```python
 @dataclass(frozen=True, slots=True)
@@ -446,7 +509,7 @@ candidate_plan = ExplicitRowGroupPlan(
 )
 ```
 
-`scheduled_total_rows` remains the sum of scheduled sizes, not `base_offset + size`. Because the normalizer preserves
+`scheduled_total_rows` is the sum of scheduled sizes, not `base_offset + size`. Because the normalizer preserves
 an `ExplicitRowGroupPlan` instance, the scheduler's existing `current_row_group_start_offset` context receives the
 absolute candidate offset. No parallel `CandidateBatchPlan` type is introduced. This avoids both seed replay and the
 repeated-extension issue where a completed partial row group cannot grow while the next target remains inside the
@@ -492,7 +555,8 @@ all selection-owned and published artifacts before restarting from candidate off
 
 ### 4. Builder loop
 
-Add a dedicated path inside `DatasetBuilder.build()` after config compilation and before profiling:
+`DatasetBuilder.build()` initializes generators once, calls each generator's `log_pre_generation()` once, and then
+dispatches record selection to this short orchestration path:
 
 ```python
 def _build_with_record_selection(
@@ -501,68 +565,121 @@ def _build_with_record_selection(
     *,
     target_num_records: int,
     buffer_size: int,
+    on_batch_complete: Callable[[Path], None] | None,
     resume: ResumeMode,
 ) -> None:
-    controller = self._load_or_create_acceptance_controller(...)
+    config = self._data_designer_config.record_selection
+    if config is None:
+        raise RuntimeError("Record-selection build path requires a record-selection config.")
 
-    while not controller.has_reached_target() and controller.has_candidate_budget():
-        candidate_batch = controller.next_candidate_batch()
-        self._run_candidate_batch(
-            generators=generators,
-            candidate_batch=candidate_batch,
-            controller=controller,
-        )
+    self.artifact_storage.configure_selection_batch_file_width(
+        max_candidate_records=config.max_candidate_records,
+        candidate_batch_size=min(buffer_size, target_num_records),
+    )
+    controller, completed_publication = self._restore_selection_run(
+        config=config,
+        target_num_records=target_num_records,
+        buffer_size=buffer_size,
+        resume=resume,
+    )
+    if self._reuse_completed_selection_publication(
+        controller,
+        completed_publication=completed_publication,
+    ):
+        return
 
-    self._handle_selection_completion(controller)
+    self._write_selection_metadata(controller)
+    self._run_selection_candidate_batches(
+        generators,
+        controller=controller,
+        on_batch_complete=on_batch_complete,
+    )
+    self._finalize_selection_build(
+        controller,
+        target_num_records=target_num_records,
+        buffer_size=buffer_size,
+    )
 ```
 
-Initialize generator instances once and reuse them across candidate batches. In particular:
+`_run_selection_candidate_batches()` owns the bounded loop:
 
-- Move `log_pre_generation()` out of `_prepare_async_run()` and call it once before entering the candidate loop.
-  Ordinary build and preview paths must retain their existing once-per-logical-run behavior.
-- Preserve stateful generator instances across candidate batches.
-- Create new scheduler/tracker/buffer state for each immutable candidate batch.
-- Accumulate model usage over the full logical run.
-- Run after-generation processors and profiling once after selection completes.
+```python
+while not controller.has_reached_target and controller.has_candidate_budget:
+    batch = controller.next_candidate_batch()
+    self._run_candidate_batch(
+        generators,
+        controller=controller,
+        batch=batch,
+        on_batch_complete=on_batch_complete,
+    )
+    self._raise_if_selection_stopped_early(controller)
+```
+
+The implementation:
+
+- Calls `_prepare_async_run(..., log_pre_generation=False)` for every candidate batch while reusing the initialized
+  generator instances and model registry.
+- Creates new scheduler, tracker, and buffer state for each immutable candidate batch.
+- Accumulates model usage over the full logical run.
+- Handles exhaustion policy, schema creation, immutable-partition publication, and after-generation processing in
+  `_finalize_selection_build()`.
+- Profiles once in the interface after the engine returns a non-empty terminal result.
 
 ### 5. Selection checkpoint hook
 
-Selection belongs after all DAG columns for the candidate batch have completed and before post-batch processors and
-final checkpointing:
+Selection is split between a scheduler hook and a builder-owned finalizer. The scheduler-facing callbacks remain
+side-effect callbacks:
+
+```python
+on_select_before_checkpoint: Callable[[int, int], None] | None
+on_before_checkpoint: Callable[[int, int], None] | None
+on_finalize_row_group: Callable[[int], None] | None
+```
+
+`DatasetBuilder._prepare_async_run()` accepts the DataFrame transformation separately:
+
+```python
+select_dataframe: Callable[[int, int, pd.DataFrame], pd.DataFrame] | None
+```
+
+For selection, `_execute_selection_candidate_scheduler()` binds `select_dataframe` to
+`_select_selection_candidate_dataframe()` and `on_finalize_row_group` to
+`_finalize_selection_candidate_row_group()`. Per-candidate mutable state, including the `SelectionDecision`, lives in
+`_SelectionCandidateBatchRuntime`.
 
 ```mermaid
 flowchart TD
-    dag["Candidate batch DAG complete"] --> read["Read predicate column"]
-    read --> validate{"All values bool or null?"}
-    validate -->|no| error["Fail with canonical error"]
-    validate -->|yes| mask["Build accepted mask"]
-    mask --> trim["Trim accepted rows to remaining target"]
-    trim --> post["Run row-count-preserving post-batch processors"]
-    post --> write{"Any accepted rows?"}
-    write -->|yes| parquet["Write accepted parquet batch"]
-    write -->|no| no_parquet["No parquet batch"]
-    parquet --> marker["Commit candidate-batch marker"]
-    no_parquet --> marker
+    dag["Candidate DAG complete"] --> select["Select and trim rows"]
+    select --> media["Promote referenced accepted images when enabled"]
+    media --> buffer["Replace buffer and mirror dropped slots"]
+    buffer --> post["Run strict row-count-preserving post-batch processors"]
+    post --> validate["Validate selected row count"]
+    validate --> schema["Write schema anchor when materialized"]
+    schema --> write{"Any accepted rows?"}
+    write -->|yes| parquet["Write immutable accepted partition"]
+    write -->|no| marker["Create and atomically persist marker"]
+    parquet --> marker
+    marker --> mirror["Mirror metadata and notify caller"]
 ```
 
-Add a scheduler callback before the existing `on_before_checkpoint` processor callback, for example:
+The exact checkpoint order is:
 
-```python
-on_select_before_checkpoint: Callable[[int, int], SelectionDecision] | None
-```
-
-The callback should:
-
-1. Read the completed candidate batch from `RowGroupBufferManager`.
-2. Validate and apply the predicate.
-3. Mark rejected and trimmed rows as dropped in the tracker and buffer.
-4. Recompute dropped/surviving diagnostics.
-5. Run post-batch processors only over accepted survivors.
-6. Checkpoint accepted rows.
-7. Commit the batch marker even when no rows survive.
-
-The current checkpoint path computes `dropped_rows` before processor callbacks. Refactor it so selection occurs
-before that count is finalized; otherwise diagnostics and all-rows-dropped behavior will be incorrect.
+1. The candidate DAG completes or salvages its surviving rows.
+2. The scheduler invokes `on_select_before_checkpoint`, whose wrapper reads the current DataFrame and calls
+   `_select_selection_candidate_dataframe()`.
+3. That method calls `AcceptanceController.select()` with
+   `failed_generation_records=row_group_size - len(dataframe)`, filters and trims accepted rows, promotes accepted
+   image references when staging is active, and stores the decision in `_SelectionCandidateBatchRuntime`.
+4. The wrapper replaces the row-group buffer and mirrors newly dropped slots into `CompletionTracker`.
+5. The scheduler recomputes dropped-row diagnostics and runs the normal post-batch callback with
+   `strict_row_count=True`.
+6. The scheduler invokes `_finalize_selection_candidate_row_group()` even when zero rows survive.
+7. `_commit_selection_candidate_row_group()` verifies the final count, writes a schema anchor when columns were
+   materialized, writes an immutable accepted partition when non-empty, creates a `SelectionBatchMarker`, and
+   atomically writes it through `ArtifactStorage`.
+8. `_mirror_committed_selection_batch()` frees the buffer, refreshes metadata and in-memory counters, and logs
+   progress. `_finalize_selection_candidate_row_group()` then invokes `on_batch_complete` for a non-empty accepted
+   partition.
 
 ### 6. Predicate placement in the DAG
 
@@ -598,13 +715,18 @@ a candidate batch of 1,000 may checkpoint 137 accepted rows—or zero. Therefore
 
 Resume must not infer candidate progress solely from accepted parquet row counts.
 
-### Proposed artifact layout
+### Artifact layout
 
 ```text
 artifacts/<dataset>/
   parquet-files/
     batch_00000.parquet            # published only when post_generation_state=complete
+  dropped-columns-parquet-files/
+    batch_00000.parquet            # accepted-only dropped columns; optional
   processors-files/                # accepted-only, batch-addressed post-batch processor outputs
+  images/
+    selection_batch_00000/         # images referenced by accepted rows; optional
+      <column>/<uuid>.<extension>
   selection-accepted/
     schema.parquet                  # zero-row output schema anchor; never a candidate partition
     batch_00000.parquet            # immutable accepted partition for candidate batch 0; optional
@@ -612,9 +734,9 @@ artifacts/<dataset>/
   selection-checkpoints/
     batch_00000.json               # always present after candidate batch 0 commits
     batch_00001.json               # present even when candidate batch 1 accepted zero rows
-  selection-media-staging/         # transient, candidate-batch/row-scoped media
+  selection-media-staging/         # transient, candidate-batch-scoped image media
   selection-publication-staging/   # transient terminal materialization workspace
-  partial-results/
+  tmp-partial-parquet-files/        # ordinary in-flight row-group output; transient
     ...
   metadata.json
   builder_config.json
@@ -649,11 +771,14 @@ Example batch marker:
 `accepted_records` is the **post-trim persisted count** and must equal the row count of `accepted_partition`.
 `trimmed_accepted_records` is diagnostic: it counts predicate-true rows discarded from the final overshooting batch
 and is never added to accepted progress. Resume sums `accepted_records` to decide whether the target is satisfied.
-`schema.parquet` is a rebuildable cache written from the first post-selection, post-batch DataFrame even
-if it has no rows. It preserves the published output schema when every candidate batch accepts zero rows; it is not
-included in accepted counts. The marker's `schema_materialized` flag records whether its candidate produced a typed
-output schema. Resume discards an anchor not owned by any committed marker, reconstructs one from an accepted
+`schema.parquet` is a rebuildable cache written from the first post-selection, post-batch DataFrame even if it has no
+rows. It preserves the schema used as input to terminal publication when every candidate batch accepts zero rows; a
+row-count-preserving after-generation processor may still change columns or dtypes in `parquet-files/`. The anchor is
+not included in accepted counts. The marker's `schema_materialized` flag records whether its candidate produced a
+typed output schema. Resume discards an anchor not owned by any committed marker, reconstructs one from an accepted
 partition when possible, and rejects a missing committed typed schema rather than silently changing it.
+If no committed candidate ever materializes columns, terminal empty publication instead uses the name-bearing,
+generic-dtype fallback described under zero-row partial output.
 
 For every marker, the following mutually exclusive accounting invariant must hold:
 
@@ -677,7 +802,7 @@ offset instead.
 
 ### Global metadata
 
-Extend `metadata.json` with a structured section:
+`metadata.json` contains this structured selection summary:
 
 ```json
 {
@@ -720,7 +845,7 @@ accepted dataset as the cost of durable resume and deterministic publication.
 
 ### Publication completion state
 
-Reuse and extend the existing top-level `post_generation_state` metadata instead of treating
+The implementation reuses the existing top-level `post_generation_state` metadata instead of treating
 `selection_satisfied` or `selection_exhausted` as proof that the artifact is publishable:
 
 | State | Meaning |
@@ -751,33 +876,34 @@ stateDiagram-v2
 Treat the batch marker as the commit point:
 
 1. Generate into the normal row-group buffer for the candidate batch.
-2. Apply selection and processors.
-3. Promote accepted engine-managed media from candidate staging into deterministic committed paths.
-4. Write the post-trim rows to a deterministic immutable accepted-partition path when non-empty.
-5. Write accepted-only dropped-column and post-batch processor artifacts under the same candidate batch ID.
-6. Write the zero-row schema anchor when one does not yet exist.
-7. Atomically write the batch marker, including whether this candidate materialized a schema.
-8. Update global metadata.
+2. Select and trim rows, promote referenced accepted images into the batch-scoped published prefix, rewrite their
+   DataFrame values, and delete the candidate image-staging directory.
+3. Run strict row-count-preserving post-batch processors, which may write accepted-only dropped-column and processor
+   artifacts under the candidate batch ID.
+4. Validate that post-batch processing retained the selected row count.
+5. Write the zero-row schema anchor when columns were materialized and no anchor exists.
+6. Write the post-trim rows to the immutable accepted-partition path when non-empty.
+7. Create and atomically persist the batch marker, including whether this candidate materialized a schema.
+8. Mirror committed progress into global metadata and notify `on_batch_complete` for a non-empty partition.
 
 On resume:
 
 - Reconstruct accepted and candidate progress from committed batch markers.
 - Verify every marker that names an accepted partition points to a readable file whose row count equals
   `accepted_records`.
-- Delete uncommitted accepted partitions and committed-media prefixes for the next candidate batch before rerunning
+- Delete uncommitted accepted partitions and the promoted image prefix for the next candidate batch before rerunning
   that batch.
 - Delete uncommitted dropped-column and post-batch processor files for that candidate batch before rerunning it;
   committed batch-addressed processor artifacts remain valid alongside their marker.
-- Sweep candidate staging for every committed batch as well as the next uncommitted batch. Accepted media is already
-  promoted before marker commit, so leftover staging is always disposable, including after a crash between marker
-  commit and normal staging cleanup.
+- Defensively remove all selection image staging. Normal promotion deletes a candidate's staging before post-batch
+  processing and marker commit, so crash leftovers belong to an uncommitted attempt and are always disposable.
 - Clear ordinary in-flight partial results.
 - Set the next seed/candidate offset from committed candidate counts, not accepted row counts.
 - Require the persisted `target_num_records` to equal the requested target before reusing any checkpoint.
 - Rebuild missing or incomplete published output from immutable accepted partitions without regenerating candidates.
 - When `post_generation_state` is `started` or missing for a terminal marker set, discard incomplete
   `selection-publication-staging/`, rebuild clean staging, and replace `parquet-files/` at promotion time. Never
-  delete immutable accepted partitions, committed accepted media, or marker-committed post-batch processor artifacts
+  delete immutable accepted partitions, committed accepted images, or marker-committed post-batch processor artifacts
   during publication recovery.
 
 ### Resume state machine
@@ -821,15 +947,17 @@ an empty requested directory contains no stale markers to reconstruct. Therefore
 its markers with markers from an earlier run.
 
 `IF_POSSIBLE` fallback must be visible in logs and must clear checkpoints, immutable accepted partitions, published
-output, processor outputs, and staged or committed candidate media before fresh generation starts; it must never
+output, processor outputs, and staged or promoted candidate images before fresh generation starts; it must never
 silently combine incompatible runs.
 
 ## Processor interactions
 
 ### Pre-batch processors
 
-Run normally on candidate rows before generation. Rows they drop consume candidate slots because work was admitted
-for those candidate positions.
+Pre-batch processors run after seed columns complete and before non-seed DAG tasks are released. They must preserve
+row count. `ProcessorRunner._raise_if_pre_batch_resized()` raises when `process_before_batch()` returns a different
+number of rows, before selection or candidate-marker commit. Workflow chaining is the supported alternative for
+pre-generation filtering.
 
 ### Post-batch processors
 
@@ -839,17 +967,18 @@ align with the output.
 
 ### After-generation processors
 
-Row-count-changing after-generation processors can violate the exact-count guarantee after selection has finished.
-For v1:
+The implementation does not classify resizing after-generation processors during setup. Terminal publication:
 
-1. Reject known row-count-changing after-generation processors at compile/runtime setup.
-2. Materialize the published dataset from immutable accepted partitions.
-3. Run allowed after-generation processors once over the published dataset, never over
-   `selection-accepted/`.
-4. Verify the final output count still equals the selected count; raise a canonical error if a plugin violates the
-   declared contract.
+1. Writes `post_generation_state="started"`.
+2. Materializes `parquet-files/` from immutable accepted partitions.
+3. Runs `ProcessorRunner.run_after_generation(..., selection_publication=True)` once over the published dataset,
+   never over `selection-accepted/`.
+4. Counts the rewritten publication and compares it with `AcceptanceController.accepted_records`.
+5. Raises `DatasetGenerationError` if the count changed. The state remains `started`, and immutable accepted
+   partitions remain available for recovery.
+6. Clears transient artifacts and writes `post_generation_state="complete"` only when the final count matches.
 
-A future processor capability such as `preserves_row_count: bool` can make this validation explicit and reusable.
+A future processor capability such as `preserves_row_count: bool` could enable earlier validation.
 
 ### Dropped predicate column
 
@@ -858,27 +987,31 @@ using the existing `preserve_dropped_columns` behavior, aligned only to accepted
 
 ## Media and side-effect artifacts
 
-Rejected rows may already have written image, audio, video, trace, or plugin side artifacts. Filtering the parquet
-row alone can leave orphan files, so V1 commits to candidate-scoped staging for engine-managed media:
+The engine-managed selection media contract currently covers image columns written in `StorageMode.DISK`. Staging is
+candidate-batch-scoped rather than row-scoped:
 
-1. Write candidate media below `selection-media-staging/batch_<id>/row_<candidate_ordinal>/` while generating.
-2. After selection, promote only files referenced by accepted rows into a deterministic committed-media prefix and
-   rewrite those row values before writing the immutable accepted partition.
-3. Delete the entire candidate staging directory after the batch marker commits.
-4. On crash recovery, sweep staging for committed batches and delete staging plus any committed-media prefix for an
-   uncommitted batch before rerunning it.
+1. `_run_candidate_batch()` calls `ArtifactStorage.begin_selection_media_batch(candidate_batch_id)`, which points
+   `MediaStorage` at `selection-media-staging/batch_<padded-id>/`.
+2. Image generation retains its normal `images/<column>/<uuid>.<extension>` relative values. The physical staged
+   file is `selection-media-staging/batch_<padded-id>/images/<column>/<uuid>.<extension>`.
+3. After predicate filtering, `ArtifactStorage.promote_selection_media()` recursively scans accepted DataFrame
+   values. It moves referenced files to `images/selection_batch_<padded-id>/<column>/<uuid>.<extension>` and rewrites
+   those accepted values.
+4. The candidate staging directory is deleted, removing images generated for rejected and trimmed rows.
+   `_finish_selection_candidate_batch()` restores the ordinary media path in a `finally` path.
+5. Resume cleanup removes both staging and the promoted `images/selection_batch_<padded-id>/` prefix for the next
+   uncommitted candidate, while committed candidate image prefixes remain valid.
 
-Rejected media therefore cannot accumulate across committed batches. Text side-effect columns stored in the row are
-filtered with the DataFrame. Plugins that write untracked external side effects outside the engine's media-storage
-contract are not supported with record selection in V1; plugins must return tracked artifacts or remain side-effect
-free.
+Promotion happens before post-batch processors, so accepted-only processor artifacts contain committed image paths.
+Text side effects stored in the DataFrame are filtered with their rows. Plugins and media types that write untracked
+files outside the image-storage contract do not receive selection-specific cleanup guarantees.
 
 ## Hugging Face Hub publication
 
 `DatasetCreationResults.push_to_hub()` keeps its current public API and publishes the accepted-only terminal view:
 
 - Upload `parquet-files/` to the Hub `data/` config.
-- Upload accepted engine-managed media and processor outputs through their existing published directories.
+- Upload accepted images and processor outputs through their existing published directories.
 - Upload `builder_config.json` and sanitized `metadata.json`, including aggregate record-selection diagnostics.
 - Never upload `selection-accepted/`, `selection-checkpoints/`, `selection-media-staging/`, partial results, rejected
   media, or per-batch marker paths.
@@ -893,12 +1026,13 @@ directory is not sufficient. `on_exhausted=raise` does not return a `DatasetCrea
 Hub metadata and the generated dataset card must use `metadata.json.actual_num_records` as the authoritative output
 count, with `target_num_records` shown separately. This is required for partial output and especially for a valid
 zero-row partial, where profiling is skipped and `column_statistics=[]`; falling back from missing statistics to the
-target would incorrectly advertise the dataset as complete. The card should also show whether selection was
+target would incorrectly advertise the dataset as complete. The card also shows whether selection was
 satisfied or exhausted, candidate attempts, and acceptance rate when record-selection metadata is present.
 
-Accepted images must be promoted into the existing published `images/` directory because the current Hub client
-uploads that directory explicitly. If V1 supports file-backed audio or video output, their published directories
-must be added explicitly to the Hub uploader; a generic committed-media directory must not be silently omitted.
+Accepted images are promoted into the existing published `images/` directory because the current Hub client uploads
+that directory explicitly. Current V1 selection media support is image-only. Future file-backed audio or video
+support would need explicit published directories in the Hub uploader; a generic media directory must not
+be silently omitted.
 
 When rebuilding terminal output locally, replace mutable `parquet-files/` from a clean publication staging area.
 Post-batch processor outputs are accepted-only, batch-addressed artifacts committed with each candidate marker, so
@@ -926,13 +1060,14 @@ if config.on_exhausted == RecordSelectionExhaustion.RAISE:
         target_records=target,
         accepted_records=accepted,
         candidate_records=candidates,
+        max_candidate_records=config.max_candidate_records,
     )
 ```
 
 For `return_partial`, finalize the accepted output and record `selection_satisfied=false` and
 `selection_exhausted=true`.
 
-Define `RecordSelectionExhaustedError` in `data_designer.engine.dataset_builders.errors` as a
+`RecordSelectionExhaustedError` in `data_designer.engine.dataset_builders.errors` is a
 `DatasetGenerationError` carrying target, accepted, generated, and cap fields. `DataDesigner.create()` catches it
 before the generic engine wrapper and raises a public `DataDesignerRecordSelectionExhaustedError`, preserving those
 fields and the engine error as its cause. The engine never imports the interface package.
@@ -942,8 +1077,13 @@ fields and the engine error as its cause. The engine never imports the interface
 If `return_partial` reaches the candidate cap with zero accepted rows and no authoritative early-shutdown or fatal
 generation error, zero rows are a successful selection result:
 
-- Materialize a deterministic schema-bearing empty parquet file in `parquet-files/` from the compiled output schema.
-- Use the durable `selection-accepted/schema.parquet` anchor when terminal publication happens in a later process.
+- Prefer the durable zero-row `selection-accepted/schema.parquet` anchor written from the first post-selection,
+  post-batch DataFrame that materializes columns, even when it has no accepted rows.
+- If every candidate slot fails before columns materialize,
+  `_derive_empty_selection_schema()` creates a name-bearing fallback from configured single-column names and side
+  effects, then applies configured `DropColumnsProcessor` patterns. This fallback preserves column names but uses
+  pandas' generic empty-column dtypes; it is not a compiled typed schema. A preserved non-retryable scheduler
+  diagnostic is raised before this fallback can be published.
 - Bypass the interface's ordinary zero-row generation-failure guard only when terminal selection metadata records
   `selection_exhausted=true` and `on_exhausted=return_partial`.
 - Skip dataset profiling, persist `column_statistics=[]`, and return `analysis=None`. Formalize the existing runtime
@@ -962,7 +1102,7 @@ generation error, zero rows are a successful selection result:
 
 ### Invalid predicate values
 
-Runtime predicate validation should report:
+Runtime predicate validation reports:
 
 - Predicate column name.
 - Candidate batch ID.
@@ -974,29 +1114,33 @@ with `dtype="bool"` already provide the expected ergonomic conversion.
 
 ## Observability
 
-Log and persist selection progress after every committed candidate batch:
+After every committed candidate batch, `_mirror_committed_selection_batch()` writes the selection summary and logs:
 
 ```text
-Record selection: accepted 4,217 / 5,000
-Candidates generated: 12,000 / 20,000
-Acceptance rate: 35.1%
+Record selection: accepted 4,217 / 5,000; candidates generated 12,000 / 20,000; acceptance rate 35.1%.
 ```
 
-Recommended counters:
+Persisted `metadata.json.record_selection` fields are:
 
-- `record_selection_candidate_records`
-- `record_selection_accepted_records`
-- `record_selection_rejected_records`
-- `record_selection_null_predicate_records`
-- `record_selection_failed_generation_records`
-- `record_selection_trimmed_records`
-- `record_selection_candidate_batches_completed`
-- `record_selection_acceptance_rate`
-- `record_selection_satisfied`
-- `record_selection_exhausted`
+- `predicate_column`
+- `max_candidate_records`
+- `on_exhausted`
+- `run_buffer_size`
+- `candidate_records_generated`
+- `candidate_batches_completed`
+- `accepted_records`
+- `rejected_records`
+- `null_predicate_records`
+- `failed_generation_records`
+- `trimmed_accepted_records`
+- `acceptance_rate`
+- `selection_satisfied`
+- `selection_exhausted`
+- `next_candidate_batch_id`
+- `next_candidate_offset`
 
-Progress should distinguish accepted output completion from candidate work. Model usage remains the source of truth
-for inference cost across accepted and rejected candidates. `record_selection_acceptance_rate` is
+Progress distinguishes accepted output completion from candidate work. Model usage remains the source of truth
+for inference cost across accepted and rejected candidates. `acceptance_rate` is
 `accepted_records / candidate_records_generated`, so failed attempts remain visible in end-to-end yield.
 
 `DatasetCreationResults.count_records()` continues to return output records. A future structured
@@ -1004,65 +1148,65 @@ for inference cost across accepted and rejected candidates. `record_selection_ac
 
 ## Preview behavior
 
-V1 rejects `preview()` when record selection is configured, before generation starts. The error must explain that
-preview has no accepted-row retry/checkpoint contract and direct the user to `create()` or to preview the same config
+V1 rejects `preview()` when record selection is configured, before generation starts. The error explains that
+preview has no accepted-row retry/checkpoint contract and directs the user to `create()` or to preview the same config
 with record selection disabled. This prevents the default preview size from being silently reinterpreted as an
 accepted target and expanding work up to `max_candidate_records`. In-memory selection preview can be a separate,
 explicitly designed follow-up.
 
-## Implementation phases
+## Implemented components
 
-### Phase 1: Config and validation
+### Component 1: Config and validation
 
 **Package:** `data-designer-config`
 
-Likely files:
+Primary files:
 
-- `config/record_selection.py` — new models and enums.
-- `config/data_designer_config.py` — add `record_selection`.
-- `config/config_builder.py` — add `with_record_selection()`.
+- `config/record_selection.py` — public models and enums.
+- `config/data_designer_config.py` — owns `record_selection`.
+- `config/config_builder.py` — exposes `with_record_selection()`.
 - `config/__init__.py` — lazy public exports.
-- `config/fingerprint.py` — confirm selection is identity-relevant.
+- `config/fingerprint.py` — includes selection in identity-relevant fields.
 
-Deliverables:
+Implemented behavior:
 
 - Serializable public model.
 - Builder API.
 - Unit validation for strict integer bounds and enum coercion.
 - Fingerprint changes when any selection field changes.
 
-### Phase 2: Interface contract and run-boundary validation
+### Component 2: Interface contract and run-boundary validation
 
 **Package:** `data-designer`
 
-Likely files:
+Primary files:
 
-- `interface/data_designer.py` — interpret `num_records` as the accepted target, validate runtime bounds, reject
-  selection preview, normalize exhaustion errors, and allow valid empty partial output.
-- `interface/errors.py` — add the public selection-exhausted error.
-- `interface/results.py` — formalize optional analysis for schema-bearing empty partial output.
+- `interface/data_designer.py` — interprets `num_records` as the accepted target, validates runtime bounds, rejects
+  selection preview, normalizes exhaustion errors, and allows valid empty partial output.
+- `interface/errors.py` — exposes the public selection-exhausted error.
+- `interface/results.py` — formalizes optional analysis for schema-bearing empty partial output.
 
-Deliverables:
+Implemented behavior:
 
 - `create()` routes the accepted-row target into the engine without changing ordinary-run semantics.
-- Run-boundary validation covers `max_candidate_records >= num_records`, predicate existence/type, processor
-  compatibility, and resume inputs.
+- Run-boundary validation covers `max_candidate_records >= num_records`, predicate existence/type, and resume inputs;
+  terminal publication verifies that after-generation processors preserve row count.
 - Engine exhaustion errors are normalized at the interface boundary.
 - V1 preview rejection and zero-row `return_partial` behavior are explicit and tested.
 
-### Phase 3: Engine controller and one-candidate-batch execution
+### Component 3: Engine controller and one-candidate-batch execution
 
 **Package:** `data-designer-engine`
 
-Likely files:
+Primary files:
 
 - `engine/dataset_builders/acceptance.py` — `AcceptanceController` and DTOs.
-- `engine/dataset_builders/row_group_plan.py` — add `base_offset` to the existing `ExplicitRowGroupPlan`.
+- `engine/dataset_builders/row_group_plan.py` — provides `base_offset` on the existing `ExplicitRowGroupPlan`.
 - `engine/dataset_builders/dataset_builder.py` — bounded candidate-batch loop.
 - `engine/dataset_builders/async_scheduler.py` — selection callback before post-batch checkpoint.
 - `engine/dataset_builders/utils/row_group_buffer.py` — selected checkpoint support.
 
-Deliverables:
+Implemented behavior:
 
 - Exact accepted output for a fresh run.
 - Required candidate cap.
@@ -1072,16 +1216,17 @@ Deliverables:
 - `log_pre_generation()` runs once per logical build across all candidate batches.
 - Ordered seeds receive the absolute candidate offset through the existing scheduler context.
 
-### Phase 4: Durable selection checkpoints, media, publication, and resume
+### Component 4: Durable selection checkpoints, media, publication, and resume
 
-Likely files:
+Primary files:
 
 - `engine/storage/artifact_storage.py` — selection checkpoint paths and atomic marker I/O.
 - `engine/dataset_builders/dataset_builder.py` — resume reconstruction.
 - `engine/dataset_builders/acceptance.py` — controller hydration from markers.
-- Engine media-storage integration — candidate/row-scoped staging, accepted promotion, and crash cleanup.
+- Engine media-storage integration — candidate-batch-scoped image staging, accepted-reference promotion, and crash
+  cleanup.
 
-Deliverables:
+Implemented behavior:
 
 - Candidate progress reconstructed independently from accepted parquet row count.
 - Zero-acceptance candidate batches remain durably complete.
@@ -1089,22 +1234,24 @@ Deliverables:
 - Immutable accepted partitions remain valid when published output is re-chunked by after-generation processors.
 - Marker counters satisfy the complete candidate-accounting invariant.
 - Crash-window cleanup for uncommitted candidate-batch artifacts.
-- Cleanup of staging left after committed markers and deterministic rebuild of incomplete published/processor output.
+- Defensive cleanup of transient staging, deterministic rebuild of incomplete published parquet, retention (without
+  reconstruction or revalidation) of marker-committed post-batch processor output, and cleanup of the next
+  uncommitted batch's side artifacts.
 - Compatible `ResumeMode.ALWAYS` and `ResumeMode.IF_POSSIBLE` behavior for config, `buffer_size`, and target changes.
 - Explicit `post_generation_state` transitions from terminal selection through publication completion.
 
-### Phase 5: Results, Hub publication, docs, and examples
+### Component 5: Results, Hub publication, docs, and examples
 
 **Packages:** interface, Hugging Face integration, and Fern docs
 
-Likely files:
+Primary files:
 
-- `interface/results.py` — preserve the existing `push_to_hub()` surface.
-- `integrations/huggingface/client.py` — enforce terminal selection state and reuse the existing published-artifact
+- `interface/results.py` — preserves the existing `push_to_hub()` surface.
+- `integrations/huggingface/client.py` — enforces terminal selection state and reuses the existing published-artifact
   upload paths.
-- `integrations/huggingface/dataset_card.py` — use authoritative actual counts and selection diagnostics.
+- `integrations/huggingface/dataset_card.py` — uses authoritative actual counts and selection diagnostics.
 
-Deliverables:
+Implemented behavior:
 
 - User-facing example with judge score -> boolean expression -> exact target.
 - Metadata documentation.
@@ -1127,106 +1274,100 @@ Compile the predicate as a scheduler row gate. Once its value is false:
 This optimization changes cost, not output semantics. It is not part of the v1 definition of done and creates no
 commitment to implement a v2; benchmark evidence should justify it first.
 
-## Test plan
+## Implemented test coverage
 
-### Config tests
+This section records the tests present in PR #817. It distinguishes direct coverage from behavior that is currently
+covered only by smaller unit tests or remains to be exercised directly.
 
-- Predicate column is required and must exist.
-- `max_candidate_records` must be positive.
-- Run boundary rejects `max_candidate_records < num_records`.
-- Selection participates in config serialization and fingerprinting.
-- String exhaustion values normalize to enums.
+The combined Python 3.11 CI-equivalent run at implementation commit `e8e5cb14` completed with 4,056 passed and one
+skipped test. Aggregate line coverage was 91.64%, passing the 90% project gate; changed-line coverage was
+approximately 91.8% (794 of 865 executable changed lines).
 
-### Interface tests
+### Config and interface coverage
 
-- `create(num_records=X)` routes `X` as the accepted target only when selection is configured.
-- `max_candidate_records < num_records` fails before generation.
-- Engine exhaustion maps to `DataDesignerRecordSelectionExhaustedError` with structured counts.
-- `preview()` with record selection fails before generation with actionable guidance.
-- Zero-row `return_partial` bypasses only the expected selection-exhaustion guard and returns `analysis=None`.
+- Strict positive-integer validation rejects zero, negative, boolean, float, and string candidate bounds.
+- Blank predicate names and unknown exhaustion values are rejected; string exhaustion values normalize to the enum.
+- Config serialization, YAML reconstruction, public exports, builder round trips, and fingerprint changes are tested.
+- The run boundary rejects `max_candidate_records < num_records`.
+- `create(num_records=X)` returns an exact accepted target across multiple explicitly small candidate batches and
+  deterministically trims the final overshoot.
+- Built-in boolean category and subcategory predicates are accepted; known non-boolean variants are rejected.
+- Custom predicate output types defer to strict runtime validation, and predicate `drop=True`/`drop=False` behavior is
+  exercised.
+- Engine exhaustion maps to `DataDesignerRecordSelectionExhaustedError` with target, accepted, generated, and cap
+  fields.
+- `preview()` fails before generation with actionable guidance.
+- Empty `return_partial` produces a schema-bearing zero-row result with `analysis=None`; non-empty partial output is
+  profiled against the accepted count and requested target.
+- Non-retryable predicate failures and early-shutdown precedence are covered at the interface boundary.
+- Empty-selection composite workflows cover `allow_empty`, skipped downstream/output processors, default failure,
+  and processor-output fallback.
 
-### Fresh-run integration tests
+### Controller, ordering, and artifact coverage
 
-- Target reached in the first candidate batch.
-- Target reached after three or more candidate batches with default `buffer_size`.
-- Final candidate batch overshoots and trims to exact target.
-- Predicate column is removed when `drop=True`.
-- Predicate column remains when `drop=False`.
-- Null predicate values reject and increment metadata.
-- Non-boolean predicate values raise.
-- `return_partial` returns non-empty partial output.
-- `return_partial` returns a schema-bearing empty dataset when no candidates pass, skips profiling, and reports zero
-  records through `DatasetCreationResults`.
-- `raise` reports target, accepted, generated, and cap.
-- Post-batch processor output aligns with accepted rows.
-- Profiling counts accepted rows only.
-- Usage accounting includes rejected candidate calls.
-- Marker categories, including failed and trimmed rows, sum exactly to candidate attempts.
-- `log_pre_generation()` is called once when selection requires three or more candidate batches.
+- Controller tests cover Python and NumPy booleans, null rejection, invalid values, failed-generation accounting,
+  deterministic trimming, marker hydration, marker sequence validation, and zero-acceptance markers.
+- `log_pre_generation()` is called once across multiple candidate batches.
+- Ordered seeds advance in candidate-coordinate space, and `ExplicitRowGroupPlan(base_offset=...)` retains its offset
+  through normalization without changing scheduled row totals.
+- Schema tests cover orphan-anchor deletion, first-materialized-batch ownership, and failure when a committed schema
+  anchor is missing.
+- Storage tests cover marker and partition round trips, numeric ordering beyond five digits, empty publication,
+  candidate-width naming, and cleanup of uncommitted side artifacts.
+- Image tests cover accepted-reference promotion, rejected-image cleanup, duplicate references, path traversal, and
+  committed paths in post-batch and dropped-column outputs.
+- Boundary tests cover a candidate cap equal to the target, a smaller final candidate batch, and rejection of
+  non-empty zero-column post-batch or after-generation processor output.
+- Scheduler coverage includes the all-row-drop finalization race while an independent root task remains in flight.
 
-### Seed and ordering tests
+### Resume and publication coverage
 
-- Candidate batch offsets are contiguous and do not repeat seed rows unexpectedly.
-- `ExplicitRowGroupPlan(base_offset=...)` survives normalization and candidate batch 1's ordered seed starts strictly
-  after candidate batch 0 rather than replaying offset zero.
-- Ordered seed sampling preserves candidate order.
-- Shuffle sampling remains deterministic under the existing seed contract.
-- Trimming retains earliest accepted candidate ordinals.
-- Stateful generators preserve state across candidate batches.
+- Work interrupted before a durable marker reruns; a callback failure after marker commit resumes from the next
+  candidate offset without rewriting the committed marker.
+- Metadata write failure after marker commit is reconstructed from markers.
+- Completed output with the same target is reused without rewriting markers.
+- A larger target fails with `ResumeMode.ALWAYS`; `ResumeMode.IF_POSSIBLE` clears selection-owned artifacts and
+  restarts from offset zero.
+- The missing/incomplete published-parquet reconstruction path is exercised with immutable accepted partitions.
+- Unreadable accepted partitions are normalized; malformed marker/schema states are rejected; persisted
+  non-retryable diagnostics and exhausted early shutdown are replayed.
+- Publication width and `metadata.json.file_paths` refresh are covered for terminal selection output.
 
-### Resume tests
+### Hugging Face coverage
 
-- Interrupt during candidate batch 0 before checkpoint; candidate batch 0 reruns.
-- Interrupt after candidate batch 2 commits; resume starts at candidate batch 3's candidate offset.
-- Candidate batch accepting zero rows is not regenerated after resume.
-- Global metadata lag is reconstructed from batch markers.
-- Orphan uncommitted accepted partitions are removed and regenerated.
-- Missing accepted partition referenced by a committed marker raises corruption error.
-- Changed selection config with `ALWAYS` fails compatibility; with `IF_POSSIBLE` logs and restarts cleanly.
-- Changed `buffer_size` follows the same `ALWAYS`/`IF_POSSIBLE` compatibility rules.
-- Smaller and larger `target_num_records` values each fail with `ALWAYS`; with `IF_POSSIBLE`, each logs the mismatch,
-  clears all prior selection/publication artifacts, and restarts from candidate offset zero.
-- An unchanged target resumes normally and retains the earliest-accepted-candidate ordering guarantee.
-- Completed exact output is reused without re-evaluating the predicate.
-- Exhausted partial output is reused according to its recorded terminal state.
-- After-generation re-chunking of `parquet-files/` does not invalidate immutable accepted partitions or markers.
-- Missing/incomplete published output is rebuilt from immutable accepted partitions without candidate regeneration.
-- A crash after the terminal batch marker but before publication metadata is written finalizes without generating
-  another candidate.
-- A crash with `post_generation_state=started` and partial parquet or processor output removes mutable output and
-  rebuilds it from immutable accepted partitions before marking `complete`.
-- Candidate staging left by a crash after a committed marker is swept during resume.
+- Folder upload rejects `post_generation_state="started"`, non-terminal selection, and `on_exhausted="raise"`
+  exhaustion before making network calls.
+- Satisfied output and exhausted `return_partial` output are accepted only with
+  `post_generation_state="complete"`.
+- Empty and non-empty partial cards use authoritative actual counts and include selection diagnostics.
+- The generic uploader's parquet, image, processor-directory, and single-file processor paths are covered separately.
 
-### Failure and boundary tests
+### Additional direct coverage still needed
 
-- Candidate cap exactly equals target.
-- Candidate cap ends with a smaller final candidate batch.
-- Early shutdown after some accepted candidate batches preserves durable output.
-- All rows fail generation before predicate evaluation.
-- Predicate generator itself fails.
-- Row-count-changing after-generation processor is rejected or detected.
-- Accepted media is promoted, rejected media is deleted, and an interrupted uncommitted media batch is cleaned on
-  resume.
-- Uncommitted batch-addressed processor outputs are removed before that candidate batch is re-executed, while
-  marker-committed outputs survive publication recovery.
+The following intended behaviors are implemented or composed from tested primitives but do not yet have a direct
+selection-specific regression test:
 
-### Hugging Face Hub tests
-
-- A satisfied run uploads only accepted published parquet rows to `data/`.
-- A non-empty partial card reports `actual_num_records`, target, exhausted state, candidate attempts, and acceptance
-  rate.
-- A zero-row partial uploads its schema-bearing empty parquet and reports zero records rather than the target.
-- Folder-based upload rejects terminal selection metadata when `post_generation_state` is missing or `started`, and
-  accepts it only when the state is `complete`.
-- Internal accepted partitions, markers, staging, and rejected media are never uploaded.
-- Accepted images remain reachable under `images/`; supported file-backed audio/video directories are explicit.
-
-### Regression tests motivated by PR #773
-
-- `num_records` smaller than default `buffer_size`, target first reached on candidate batch 3.
-- Interrupted run after candidate batch 2 resumes without requesting a smaller target.
-- Candidate progress never derives from accepted output row count.
-- A later low-acceptance candidate batch cannot replace or erase earlier accepted output.
+- A successful target first reached after three or more candidate batches while `num_records` is smaller than the
+  default `buffer_size`, matching the exact PR #773 regression shape.
+- Rejected-candidate model-usage accounting, shuffle determinism, and stateful generator reuse across candidate
+  batches.
+- A configured predicate name that does not exist among compiled columns.
+- Changed selection-config compatibility and the smaller-target/changed-`buffer_size` `ALWAYS`/`IF_POSSIBLE` matrix.
+- A zero-acceptance committed batch proven not to regenerate by marker timestamp or predicate call count.
+- A missing committed accepted partition, plus reconstruction of a missing committed schema from a valid accepted
+  partition.
+- Complete marker accounting in one assertion and propagation of null, failed, and trimmed counters into terminal
+  `metadata.json`.
+- A mixed accepted/rejected post-batch processor case proving processor and dropped-column artifacts contain only
+  accepted rows.
+- After-generation re-chunking followed by resume and row-count-changing after-generation detection.
+- Publication reconstruction with candidate generation explicitly patched or counted to prove that it is not rerun.
+- Early shutdown after one or more accepted candidate batches and end-to-end media cleanup across a crash/resume.
+- Explicit missing-publication-state Hub rejection and an integrated assertion that selection-internal directories
+  are excluded from upload.
+- An integrated schema-bearing zero-row Hub upload; schema, card-count, and generic uploader behavior are currently
+  tested separately.
+- File-backed audio/video publication, which is outside the current engine-managed image-storage contract.
 
 ## Risks and mitigations
 
@@ -1234,11 +1375,11 @@ commitment to implement a v2; benchmark evidence should justify it first.
 |---|---|
 | Low acceptance causes runaway cost | Required hard candidate cap |
 | Candidate/output counts are conflated | Mutually exclusive marker counters with a required sum invariant |
-| Resume repeats seeds | Extend and reuse `ExplicitRowGroupPlan(base_offset=...)`; test ordered seeds across batches |
+| Resume repeats seeds | `ExplicitRowGroupPlan(base_offset=...)` carries candidate offsets; ordered seeds are tested across batches |
 | Zero-acceptance candidate batch is invisible | Always write a candidate-batch completion marker |
 | Last candidate batch overproduces | Deterministically trim before checkpoint |
-| Processor changes selected count or rewrites marker files | Immutable accepted partitions; block/verify resize; process only published output |
-| Rejected media leaks disk space | Candidate/row-scoped staging, accepted promotion, and deterministic crash cleanup |
+| Processor changes selected count | Strict post-batch row counts, immutable accepted partitions, and a terminal published-row-count check |
+| Rejected media leaks disk space | Candidate-batch-scoped image staging, accepted-reference promotion, and deterministic crash cleanup |
 | Throughput drops with sequential candidate batches | Preserve full within-row-group concurrency; add concurrent candidate batches only if benchmarks justify it |
 | Plugin predicate returns surprising types or uses global state | Strict runtime boolean/null validation and a row-local V1 predicate contract |
 | Metadata write lags parquet write | Marker-based filesystem reconstruction and orphan cleanup |
@@ -1246,7 +1387,7 @@ commitment to implement a v2; benchmark evidence should justify it first.
 | Accepted target changes during resume | Persist `target_num_records`; reject both smaller and larger targets for `ALWAYS`, visibly reset for `IF_POSSIBLE` |
 | Published output is interrupted or re-chunked | Gate publication on `post_generation_state=complete`; rebuild mutable output from immutable accepted partitions |
 | Immutable and published datasets increase disk use | Document up to one extra accepted-data copy and remove both through normal artifact cleanup |
-| Hub publication leaks internal/rejected artifacts | Upload an explicit published-artifact allowlist; reject non-terminal selection state |
+| Hub publication leaks internal/rejected artifacts | The generic uploader enumerates published parquet, images, processor outputs, metadata, and config; terminal validation rejects incomplete selection artifacts |
 | Partial or empty Hub card reports the target as actual | Use `metadata.json.actual_num_records` as the authoritative card count |
 | Re-publishing leaves stale local shards | Replace engine-managed local publication artifacts before rebuilding |
 | Generic Hub re-publication leaves stale remote shards | Address atomic replacement and stale cleanup in a separate repository-wide publishing change |
@@ -1260,15 +1401,15 @@ commitment to implement a v2; benchmark evidence should justify it first.
 - Use `num_records` as the accepted-row target; do not duplicate it in selection config.
 - Run one immutable candidate batch at a time.
 - Derive candidate batch size from `min(buffer_size, target, remaining_budget)`.
-- Extend and reuse `ExplicitRowGroupPlan` with an explicit base offset; do not add `CandidateBatchPlan`.
+- Reuse `ExplicitRowGroupPlan` with its explicit base offset; do not add `CandidateBatchPlan`.
 - Require the same `buffer_size` for resume, with `ALWAYS` failure and visible `IF_POSSIBLE` reset semantics.
 - Require the same `target_num_records` for resume; v1 does not shrink or extend an existing selection run.
 - Commit a marker for every candidate batch, including zero-acceptance candidate batches.
 - Make `accepted_records` the post-trim persisted count and account explicitly for failed-generation and trimmed rows.
 - Keep immutable accepted partitions separate from mutable published output.
 - Run selection before post-batch processors.
-- Block row-count-changing after-generation processors for v1.
-- Stage engine-managed media per candidate row and promote only accepted artifacts.
+- Detect and reject row-count-changing after-generation output before marking publication complete.
+- Stage engine-managed image media per candidate batch and promote only files referenced by accepted rows.
 - Keep rejected records out of the final dataset and expose only aggregate diagnostics.
 - Return a schema-bearing empty dataset with no profile for valid zero-row `return_partial` exhaustion.
 - Reject record selection in `preview()` for v1.
@@ -1282,10 +1423,13 @@ commitment to implement a v2; benchmark evidence should justify it first.
   to a separate publishing change that applies to all datasets.
 - Defer early predicate task cancellation and concurrent candidate batches.
 
-## Definition of done
+## Implemented acceptance criteria
 
-The feature is complete when a user can declare a boolean criterion and reliably obtain exactly `X` matching rows
-from one `DataDesigner.create()` call, with:
+The implementation lets a user declare a boolean criterion and reliably obtain exactly `X` matching rows from one
+`DataDesigner.create()` call. These are implemented runtime semantics; the direct regression-test gaps listed above
+remain.
+
+The implementation provides:
 
 - Bounded candidate generation.
 - Exact deterministic trimming.
@@ -1307,5 +1451,5 @@ from one `DataDesigner.create()` call, with:
 - No dependency-layer violations.
 - Documentation that explains cost, bounds, partial exhaustion, and resume semantics.
 
-Meeting this definition completes the feature. No v2 work is required unless measured performance warrants a
+These criteria describe the implemented V1 scope. No v2 work is required unless measured performance warrants a
 separate optimization effort.
