@@ -7,6 +7,8 @@ issue: https://github.com/NVIDIA-NeMo/DataDesigner/issues/479
 
 # Plan: Conditional column generation — `SkipConfig` / `skip.when`
 
+Historical note: this plan records the pre-#766 design. References to `allow_resize` below describe behavior that has since been removed from the config schema and engine.
+
 ## Problem
 
 DataDesigner's DAG executes every column for every row unconditionally. In multi-stage synthesis pipelines, expensive downstream generation (LLM calls, segmentation, etc.) runs even when an earlier gate column indicates the row should be filtered out.

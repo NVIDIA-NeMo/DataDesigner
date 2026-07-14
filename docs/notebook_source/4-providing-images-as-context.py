@@ -25,7 +25,7 @@
 # - 🔍 **Vision-Language Generation**: Using vision models to generate detailed summaries from images
 # - 🧩 **Media Context Pattern**: Understanding how `ImageContext`, `AudioContext`, and `VideoContext` fit into the same configuration field
 #
-# If this is your first time using Data Designer, we recommend starting with the [first notebook](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/1-the-basics/) in this tutorial series.
+# If this is your first time using Data Designer, we recommend starting with the [first notebook](https://docs.nvidia.com/nemo/datadesigner/tutorials/the-basics) in this tutorial series.
 #
 
 # %% [markdown]
@@ -40,6 +40,7 @@
 # Standard library imports
 import base64
 import io
+import os
 import uuid
 
 # Third-party imports
@@ -58,7 +59,7 @@ from data_designer.interface import DataDesigner
 #
 # - `DataDesigner` is the main object responsible for managing the data generation process.
 #
-# - When initialized without arguments, the [default model providers](https://nvidia-nemo.github.io/DataDesigner/latest/concepts/models/default-model-settings/) are used.
+# - When initialized without arguments, the [default model providers](https://docs.nvidia.com/nemo/datadesigner/concepts/models/default-model-settings) are used.
 #
 
 # %%
@@ -71,11 +72,16 @@ data_designer = DataDesigner()
 #
 # - The config builder provides an intuitive interface for building this configuration.
 #
-# - When initialized without arguments, the [default model configurations](https://nvidia-nemo.github.io/DataDesigner/latest/concepts/models/default-model-settings/) are used.
+# - When initialized without arguments, the [default model configurations](https://docs.nvidia.com/nemo/datadesigner/concepts/models/default-model-settings) are used.
 #
 
 # %%
 config_builder = dd.DataDesignerConfigBuilder()
+if os.environ.get("DATA_DESIGNER_SKIP_NVIDIA_VISION_HEALTH_CHECK"):
+    for model_config in config_builder.model_configs:
+        if model_config.alias == "nvidia-vision":
+            model_config.skip_health_check = True
+            break
 
 # %% [markdown]
 # ### 🌱 Seed Dataset Creation
@@ -293,5 +299,5 @@ analysis.to_report()
 # - Combine image, audio, or video context with other column types after confirming your selected model supports those modalities
 # - Apply this pattern to other vision tasks like image captioning, OCR validation, or visual question answering
 #
-# - [Generating images](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/5-generating-images/) with Data Designer
+# - [Generating images](https://docs.nvidia.com/nemo/datadesigner/tutorials/generating-images) with Data Designer
 #

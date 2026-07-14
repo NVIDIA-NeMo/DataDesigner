@@ -20,8 +20,12 @@ The `ModelConfig` class has the following fields:
 | `alias` | `str` | Yes | Unique identifier for this model configuration (e.g., `"my-text-model"`, `"reasoning-model"`) |
 | `model` | `str` | Yes | Model identifier as recognized by the provider (e.g., `"nvidia/nemotron-3-nano-30b-a3b"`, `"gpt-4"`) |
 | `inference_parameters` | `InferenceParamsT` | No | Controls model behavior during generation. Use `ChatCompletionInferenceParams` for text/code/structured generation or `EmbeddingInferenceParams` for embeddings. Defaults to `ChatCompletionInferenceParams()` if not provided. The generation type is automatically determined by the inference parameters type. See [Inference Parameters](/concepts/models/inference-parameters) for details. |
-| `provider` | `str` | No | Reference to the name of the Provider to use (e.g., `"nvidia"`, `"openai"`, `"openrouter"`). If not specified, one set as the default provider, which may resolve to the first provider if there are more than one |
+| `provider` | `str` | Yes | Reference to the name of the Provider to use (e.g., `"nvidia"`, `"openai"`, `"openrouter"`). |
 | `skip_health_check` | `bool` | No | Whether to skip the health check for this model. Defaults to `False`. Set to `True` to skip health checks when you know the model is accessible or want to defer validation. |
+
+<Warning title="Upgrade note">
+Every `ModelConfig` must now specify `provider`. Existing `model_configs.yaml` entries from older releases that omit `provider` or set it to `null` must be updated with an explicit provider name before loading. Agent tooling that parses `data-designer agent context` should read each model alias item's `provider` field; the top-level `default_provider` and per-item `configured_provider` / `effective_provider` fields are no longer emitted.
+</Warning>
 
 
 ## Examples
@@ -97,7 +101,7 @@ model_configs = [
     # Embedding tasks
     dd.ModelConfig(
         alias="embedding_model",
-        model="nvidia/llama-3.2-nv-embedqa-1b-v2",
+        model="nvidia/llama-nemotron-embed-1b-v2",
         provider="nvidia",
         inference_parameters=dd.EmbeddingInferenceParams(
             encoding_format="float",

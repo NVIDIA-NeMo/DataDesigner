@@ -11,7 +11,7 @@ from typing import Literal
 from data_designer.engine.dataset_builders.scheduling.task_model import Task
 from data_designer.engine.models.request_admission.resources import RequestResourceKey
 
-SchedulerResourceKey = Literal["submission", "llm_wait", "local"]
+SchedulerResourceKey = str
 
 
 @dataclass(frozen=True, order=True)
@@ -39,8 +39,8 @@ class SchedulerResourceRequest:
 
     def __post_init__(self) -> None:
         for resource, amount in self.amounts.items():
-            if resource not in {"submission", "llm_wait", "local"}:
-                raise ValueError(f"Unknown scheduler resource key: {resource!r}")
+            if not isinstance(resource, str) or not resource:
+                raise ValueError(f"Scheduler resource key must be a non-empty string, got {resource!r}.")
             if not isinstance(amount, int) or amount <= 0:
                 raise ValueError(f"Scheduler resource amount for {resource!r} must be a positive integer.")
 
@@ -61,3 +61,8 @@ def stable_task_id(task: Task) -> str:
     raw = f"{task.column}\0{task.row_group}\0{task.row_index}\0{task.task_type}".encode()
     digest = hashlib.sha1(raw).hexdigest()[:16]
     return f"task-{digest}"
+
+
+def request_scheduler_resource_key(resource: RequestResourceKey) -> SchedulerResourceKey:
+    """Return the scheduler task-stage resource for a provider/model request pool."""
+    return f"request:{resource.provider_name}/{resource.model_id}"

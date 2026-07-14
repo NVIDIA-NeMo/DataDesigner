@@ -1,6 +1,6 @@
 # 🎨✨ Contributing to NeMo Data Designer 🎨✨
 
-The skills and workflows in this repository are for **developing** DataDesigner. If you're looking to **use** DataDesigner to build datasets, see the [product documentation](https://nvidia-nemo.github.io/DataDesigner/) instead.
+The skills and workflows in this repository are for **developing** DataDesigner. If you're looking to **use** DataDesigner to build datasets, see the [product documentation](https://docs.nvidia.com/nemo/datadesigner/) instead.
 
 ---
 
@@ -32,7 +32,7 @@ Agents accelerate work; humans stay accountable. People make design decisions an
 
 - Questions about how things work — an agent can answer these from the codebase
 - Configuration problems — an agent can diagnose these
-- "How do I..." requests — try the [product documentation](https://nvidia-nemo.github.io/DataDesigner/) first
+- "How do I..." requests — try the [product documentation](https://docs.nvidia.com/nemo/datadesigner/) first
 
 ---
 
@@ -72,11 +72,11 @@ The repository includes skills for common development tasks. These are located i
 
 ## Documentation Changes
 
-Data Designer is migrating from MkDocs to Fern over several releases. Until the migration is complete, keep both docs builds working.
+Data Designer docs are Fern-first. The legacy MkDocs archive remains frozen on GitHub Pages for releases `0.5.7` and older.
 
-- Edit docs content in `docs/`.
+- Edit docs prose under `fern/`.
 - Edit tutorial notebooks in `docs/notebook_source/*.py`.
-- Use `make serve-docs-locally` to preview the legacy MkDocs site.
+- Use `make serve-fern-docs-locally` to preview the Fern site.
 - Use `make check-fern-docs` to regenerate local Fern artifacts and validate the Fern site.
 - Fern release publishing snapshots versioned docs into the CI-managed `docs-website` branch automatically.
 - Do not commit generated notebook artifacts.

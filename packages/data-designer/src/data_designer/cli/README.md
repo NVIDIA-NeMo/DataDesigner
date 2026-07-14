@@ -88,7 +88,6 @@ The CLI follows a **layered architecture** pattern, separating concerns into dis
   - Validate business rules (e.g., unique names, required fields)
   - Implement CRUD operations with validation
   - Coordinate between multiple repositories when needed
-  - Handle default management (e.g., default provider selection)
 - **Files**:
   - `mcp_provider_service.py`: MCP provider configuration business logic
   - `model_service.py`: Model configuration business logic
@@ -105,7 +104,6 @@ The CLI follows a **layered architecture** pattern, separating concerns into dis
 - `delete()`: Delete single item
 - `delete_by_aliases()`: Batch delete (models only)
 - `find_by_provider()`: Find models by provider (models only)
-- `set_default()`, `get_default()`: Manage default provider (providers only)
 
 #### 4. **Repositories** (`repositories/`)
 - **Purpose**: Handle data persistence and read-only reference metadata
@@ -191,7 +189,6 @@ providers:
     endpoint: https://api.openai.com/v1
     provider_type: openai
     api_key: OPENAI_API_KEY
-default: nvidia
 ```
 
 ### `~/.data-designer/model_configs.yaml`
@@ -297,7 +294,6 @@ data-designer config providers
 #  - Update an existing provider
 #  - Delete a provider (with associated model cleanup)
 #  - Delete all providers
-#  - Change default provider
 ```
 
 ### Configure Models

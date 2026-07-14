@@ -6,7 +6,6 @@ from __future__ import annotations
 import base64
 import json
 import tempfile
-import warnings
 from collections import Counter
 from pathlib import Path
 
@@ -647,36 +646,23 @@ def test_model_config_construction():
     assert model_config.generation_type == GenerationType.IMAGE
 
 
-def test_model_config_provider_none_emits_deprecation_warning():
-    """Regression for #589: omitting ``provider=`` (or passing ``provider=None``)
-    on a ``ModelConfig`` is deprecated; construction must emit a
-    ``DeprecationWarning`` pointing users at the explicit-provider migration.
+def test_model_config_provider_required():
+    """Regression for #590: ``provider`` is required on ``ModelConfig`` —
+    construction without it (or with ``provider=None``) must raise.
     """
-    with pytest.warns(DeprecationWarning, match="ModelConfig.provider=None is deprecated"):
-        ModelConfig(alias="legacy", model="legacy-model")
+    with pytest.raises(ValidationError, match="provider"):
+        ModelConfig(alias="legacy", model="legacy-model")  # type: ignore[call-arg]
 
-    with pytest.warns(DeprecationWarning, match="ModelConfig.provider=None is deprecated"):
-        ModelConfig(alias="legacy", model="legacy-model", provider=None)
+    with pytest.raises(ValidationError, match="provider"):
+        ModelConfig(alias="legacy", model="legacy-model", provider=None)  # type: ignore[arg-type]
 
 
-def test_model_config_provider_none_via_model_validate_emits_deprecation_warning():
-    """Regression for #589 / PR #594 review: deserialising legacy on-disk configs
-    via ``ModelConfig.model_validate(...)`` must surface the same
-    ``DeprecationWarning`` as direct construction. Both paths funnel through
-    the same validator today, so this pin protects against a future refactor
-    that, e.g., only runs the validator on construction and not on revalidation.
+def test_model_config_provider_required_via_model_validate():
+    """Regression for #590: deserialising legacy on-disk configs via
+    ``ModelConfig.model_validate(...)`` without ``provider:`` must raise.
     """
-    with pytest.warns(DeprecationWarning, match="ModelConfig.provider=None is deprecated"):
+    with pytest.raises(ValidationError, match="provider"):
         ModelConfig.model_validate({"alias": "legacy", "model": "legacy-model"})
-
-
-def test_model_config_with_provider_does_not_warn():
-    """Pin the post-deprecation happy path: specifying ``provider=`` must not
-    emit any deprecation warning.
-    """
-    with warnings.catch_warnings():
-        warnings.simplefilter("error", DeprecationWarning)
-        ModelConfig(alias="modern", model="modern-model", provider="some-provider")
 
 
 def test_model_config_generation_type_from_dict():

@@ -41,7 +41,6 @@ class ViolationType(str, Enum):
     PROMPT_WITHOUT_REFERENCES = "prompt_without_references"
     SKIP_REFERENCE_MISSING = "skip_reference_missing"
     SKIP_ON_SAMPLER_SEED = "skip_on_sampler_seed"
-    SKIP_WITH_ALLOW_RESIZE = "skip_with_allow_resize"
 
 
 class ViolationLevel(str, Enum):
@@ -414,7 +413,7 @@ def validate_skip_references(
     columns: list[ColumnConfigT],
     allowed_references: list[str],
 ) -> list[Violation]:
-    """Validate ``skip.when`` expressions: reference existence, type scope, and ``allow_resize`` conflicts."""
+    """Validate ``skip.when`` expressions for reference existence and type scope."""
     violations: list[Violation] = []
     for column in columns:
         if column.skip is None:
@@ -430,16 +429,6 @@ def validate_skip_references(
                         "Sampler/seed columns are collapsed into shared multi-column generators "
                         "and cannot be skipped individually."
                     ),
-                    level=ViolationLevel.ERROR,
-                )
-            )
-
-        if getattr(column, "allow_resize", False):
-            violations.append(
-                Violation(
-                    column=column.name,
-                    type=ViolationType.SKIP_WITH_ALLOW_RESIZE,
-                    message="skip and allow_resize cannot be used together on the same column.",
                     level=ViolationLevel.ERROR,
                 )
             )

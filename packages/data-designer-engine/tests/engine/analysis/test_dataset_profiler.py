@@ -1,18 +1,26 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from __future__ import annotations
+
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
+import data_designer.lazy_heavy_imports as lazy
+from data_designer.config.analysis.column_statistics import MissingValue
 from data_designer.config.analysis.dataset_profiler import DatasetProfilerResults
-from data_designer.config.column_configs import SamplerColumnConfig
+from data_designer.config.column_configs import LLMTextColumnConfig, SamplerColumnConfig
+from data_designer.config.run_config import JinjaRenderingEngine, RunConfig
 from data_designer.config.sampler_params import CategorySamplerParams, SamplerType
 from data_designer.engine.analysis.column_profilers.judge_score_profiler import JudgeScoreProfilerConfig
 from data_designer.engine.analysis.dataset_profiler import DataDesignerDatasetProfiler, DatasetProfilerConfig
 from data_designer.engine.analysis.errors import DatasetProfilerConfigurationError
 from data_designer.engine.analysis.utils.judge_score_processing import JudgeScoreSample
 from data_designer.engine.dataset_builders.multi_column_configs import SamplerMultiColumnConfig
+from data_designer.engine.resources.resource_provider import ResourceProvider
+from data_designer.engine.storage.artifact_storage import ArtifactStorage
 
 
 def test_dataset_profiler_config_flattens_multi_column_configs():
@@ -86,6 +94,62 @@ def test_dataset_profiler_profile_dataset_with_column_profilers(
     mock_extract_distributions.assert_called()
     mock_sample_scores.assert_called()
     stub_model_facade.generate.assert_called()
+
+
+@pytest.mark.parametrize(
+    (
+        "jinja_rendering_engine",
+        "expected_input_tokens_mean",
+        "expected_input_tokens_median",
+        "expected_input_tokens_stddev",
+    ),
+    [
+        (JinjaRenderingEngine.NATIVE, 10.0, 10.0, 0.0),
+        (
+            JinjaRenderingEngine.SECURE,
+            MissingValue.CALCULATION_FAILED,
+            MissingValue.CALCULATION_FAILED,
+            MissingValue.CALCULATION_FAILED,
+        ),
+    ],
+)
+def test_dataset_profiler_uses_run_config_jinja_engine_for_input_token_stats(
+    tmp_path: Path,
+    jinja_rendering_engine: JinjaRenderingEngine,
+    expected_input_tokens_mean: float | MissingValue,
+    expected_input_tokens_median: float | MissingValue,
+    expected_input_tokens_stddev: float | MissingValue,
+) -> None:
+    column_config = LLMTextColumnConfig(
+        name="summary",
+        prompt="Trajectory: {{ messages }}",
+        system_prompt="System prompt",
+        model_alias="nano",
+    )
+    dataset = lazy.pd.DataFrame(
+        {
+            "summary": ["response"],
+            "messages": ["x" * 512_001],
+        }
+    )
+    profiler = DataDesignerDatasetProfiler(
+        config=DatasetProfilerConfig(column_configs=[column_config]),
+        resource_provider=ResourceProvider(
+            artifact_storage=ArtifactStorage(artifact_path=tmp_path),
+            run_config=RunConfig(jinja_rendering_engine=jinja_rendering_engine),
+        ),
+    )
+
+    with patch(
+        "data_designer.engine.analysis.utils.column_statistics_calculations.count_text_tokens",
+        return_value=10,
+    ):
+        profile = profiler.profile_dataset(target_num_records=1, dataset=dataset)
+
+    stats = profile.column_statistics[0]
+    assert stats.input_tokens_mean == expected_input_tokens_mean
+    assert stats.input_tokens_median == expected_input_tokens_median
+    assert stats.input_tokens_stddev == expected_input_tokens_stddev
 
 
 @patch(

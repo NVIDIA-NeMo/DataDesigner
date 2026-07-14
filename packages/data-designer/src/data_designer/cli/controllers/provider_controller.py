@@ -27,7 +27,6 @@ from data_designer.cli.ui import (
     print_warning,
     select_with_arrows,
 )
-from data_designer.config.utils.warning_helpers import warn_at_caller
 
 if TYPE_CHECKING:
     from data_designer.engine.model_provider import ModelProvider
@@ -70,7 +69,6 @@ class ProviderController:
             "update": self._handle_update,
             "delete": self._handle_delete,
             "delete_all": self._handle_delete_all,
-            "change_default": self._handle_change_default,
         }
 
         handler = mode_handlers.get(mode)
@@ -113,13 +111,8 @@ class ProviderController:
             "update": "Update an existing provider",
             "delete": "Delete a provider",
             "delete_all": "Delete all providers",
+            "exit": "Exit without changes",
         }
-
-        # Only show change_default if multiple providers
-        if len(self.service.list_all()) > 1:
-            options["change_default"] = "Change default provider"
-
-        options["exit"] = "Exit without changes"
 
         result = select_with_arrows(
             options,
@@ -286,42 +279,6 @@ class ProviderController:
                     print_success(f"All ({provider_count}) provider(s) deleted successfully")
                 except Exception as e:
                     print_error(f"Failed to delete all providers: {e}")
-
-    def _handle_change_default(self) -> None:
-        """Handle changing the default provider."""
-        deprecation_msg = (
-            "The 'Change default provider' workflow is deprecated and will be removed "
-            "in a future release. Specify provider= explicitly on each ModelConfig "
-            "instead of relying on a registry-level default. See issue #589."
-        )
-        print_warning(deprecation_msg)
-        # ``print_warning`` always shows the user the message in the console,
-        # but ``warnings.warn`` is what's observable to programmatic callers
-        # (``pytest.warns``, ``filterwarnings("error", ...)``). With
-        # ``stacklevel=2`` attribution lands on the menu dispatcher in this
-        # same module — a ``data_designer.cli.*`` frame — and Python's default
-        # ``ignore::DeprecationWarning`` filter silences it. ``warn_at_caller``
-        # walks past every ``data_designer.*`` frame so the warning attributes
-        # to the user's call site and stays visible. See PR #594 review.
-        warn_at_caller(deprecation_msg, DeprecationWarning)
-        console.print()
-
-        providers = self.service.list_all()
-        current_default = self.service.get_default()
-
-        print_info(f"Current default: {current_default}")
-        console.print()
-
-        # Select new default
-        selected_name = self._select_provider(providers, "Select new default provider", default=current_default)
-        if selected_name is None:
-            return
-        if selected_name and selected_name != current_default:
-            try:
-                self.service.set_default(selected_name)
-                print_success(f"Default provider changed to '{selected_name}'")
-            except ValueError as e:
-                print_error(f"Failed to change default: {e}")
 
     def _select_provider(self, providers: list[ModelProvider], prompt: str, default: str | None = None) -> str | None:
         """Helper to select a provider from list."""

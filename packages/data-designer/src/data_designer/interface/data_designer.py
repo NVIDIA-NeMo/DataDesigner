@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import warnings
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -17,7 +16,6 @@ from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.data_designer_config import DataDesignerConfig
 from data_designer.config.default_model_settings import (
     get_default_model_configs,
-    get_default_provider_name,
     get_default_providers,
     get_providers_with_missing_api_keys,
     resolve_seed_default_model_settings,
@@ -39,10 +37,11 @@ from data_designer.config.utils.constants import (
 from data_designer.config.utils.info import InfoType, InterfaceInfo
 from data_designer.engine.analysis.dataset_profiler import DataDesignerDatasetProfiler, DatasetProfilerConfig
 from data_designer.engine.compiler import compile_data_designer_config
-from data_designer.engine.dataset_builders.dataset_builder import DATA_DESIGNER_ASYNC_ENGINE, DatasetBuilder
+from data_designer.engine.dataset_builders.dataset_builder import DatasetBuilder
 from data_designer.engine.mcp.io import list_tool_names
 from data_designer.engine.model_provider import ModelProviderRegistry, resolve_model_provider_registry
 from data_designer.engine.models.clients.adapters.http_model_client import ClientConcurrencyMode
+from data_designer.engine.readiness import run_readiness_check
 from data_designer.engine.resources.person_reader import (
     PersonReader,
     create_person_reader,
@@ -159,52 +158,9 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         self._request_admission: AdaptiveRequestAdmissionController = self._create_request_admission_controller()
         self._managed_assets_path = Path(managed_assets_path or MANAGED_ASSETS_PATH)
         self._person_reader = person_reader
-        # Only consult the YAML's `default:` key when we are also falling back to
-        # the YAML's `providers:` list. A user-supplied `model_providers` list
-        # owns its own default (first wins), so the YAML default must not leak
-        # in and either (a) hard-fail validation when the YAML names a provider
-        # absent from the supplied list or (b) silently override the
-        # documented first-wins ordering. See issue #588.
-        if model_providers is None:
-            self._model_providers = self._resolve_model_providers(None)
-            default_provider_name = get_default_provider_name()
-        else:
-            self._model_providers = self._resolve_model_providers(model_providers)
-            default_provider_name = None
+        self._model_providers = self._resolve_model_providers(model_providers)
         self._mcp_providers = mcp_providers or []
-        # Suppress ``ModelProviderRegistry._warn_on_explicit_default`` whenever
-        # *we* are filling ``default=`` on the user's behalf rather than the
-        # user actively opting into the deprecated registry-level default. Two
-        # such cases:
-        #   1. ``model_providers is None`` — the caller passed nothing, so we
-        #      load the YAML's ``providers:`` list and (in the multi-provider
-        #      case) ``resolve_model_provider_registry`` synthesises
-        #      ``default=providers[0].name`` to satisfy ``check_implicit_default``.
-        #      The fresh-install YAML ships three providers and no ``default:``
-        #      key, so this fires for every default ``DataDesigner()``
-        #      construction. The user has no actionable lever here, and the
-        #      warning's "Specify provider= on each ModelConfig" remediation
-        #      doesn't apply when they haven't built a ``ModelConfig`` at all.
-        #   2. ``default_provider_name is not None`` — the YAML carried a
-        #      ``default:`` key and ``get_default_provider_name`` already
-        #      emitted the YAML-level ``DeprecationWarning``. The registry
-        #      warning would fire for the same root cause, so suppress it to
-        #      avoid double-warning. See PR #594 review.
-        # Users who hand-construct a multi-provider list in Python still see
-        # the warning (they wrote the multi-provider intent themselves), and
-        # users who hand-construct ``ModelProviderRegistry(default=...)``
-        # directly always see it — those are the entry points #589 targets.
-        library_synthesised_default = model_providers is None or default_provider_name is not None
-        with warnings.catch_warnings():
-            if library_synthesised_default:
-                warnings.filterwarnings(
-                    "ignore",
-                    message="ModelProviderRegistry.default is deprecated",
-                    category=DeprecationWarning,
-                )
-            self._model_provider_registry = resolve_model_provider_registry(
-                self._model_providers, default_provider_name
-            )
+        self._model_provider_registry = resolve_model_provider_registry(self._model_providers)
         self._seed_reader_registry = SeedReaderRegistry(readers=seed_readers or DEFAULT_SEED_READERS)
 
     @property
@@ -310,9 +266,8 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         )
 
         # ``DeprecationWarning`` is re-raised before the generic wrapper so that
-        # ``warnings.warn(..., DeprecationWarning)`` calls inside the engine — most
-        # notably ``allow_resize=True`` deprecation in ``_resolve_async_compatibility``
-        # — surface their original message under strict warning filters
+        # ``warnings.warn(..., DeprecationWarning)`` calls inside the engine
+        # surface their original message under strict warning filters
         # (``pytest.warns``, ``-W error::DeprecationWarning``, etc.) instead of being
         # swallowed and re-wrapped as a generic ``DataDesignerGenerationError``.
         try:
@@ -351,9 +306,6 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             # Surface the original task error when the run produced 0 records due to a
             # deterministic non-retryable failure (e.g. bad seed source). Without this,
             # the user sees a generic FileNotFoundError-on-parquet that obscures the cause.
-            # ``actual_num_records`` is set only on the async path; sync runs leave it at
-            # ``-1`` and ``first_non_retryable_error`` at ``None``, so this branch is
-            # async-only by construction.
             root_cause = builder.first_non_retryable_error
             if root_cause is not None and builder.actual_num_records == 0:
                 raise DataDesignerGenerationError(f"🛑 {type(root_cause).__name__}: {root_cause}") from root_cause
@@ -547,6 +499,41 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         resource_provider = self._create_resource_provider("validate-configuration", config_builder)
         compile_data_designer_config(config_builder.build(), resource_provider)
 
+    def check_models(self, config_builder: DataDesignerConfigBuilder) -> None:
+        """Probe every model and MCP tool referenced by the configuration.
+
+        Runs the same readiness checks performed at the start of ``preview`` and
+        ``create``: a tiny generation against each referenced model alias, plus a
+        connectivity probe to each referenced MCP tool. Models whose ``ModelConfig``
+        has ``skip_health_check=True`` are skipped.
+
+        This complements :meth:`validate`: ``validate`` answers "is my configuration
+        well-formed?", ``check_models`` answers "are the providers it depends on
+        actually responsive?". Together they cover internal and external readiness
+        without needing to start a workload.
+
+        Args:
+            config_builder: The DataDesignerConfigBuilder whose column configs
+                determine which model aliases and tool aliases are probed.
+
+        Returns:
+            None if every (non-skipped) probe succeeded.
+
+        Raises:
+            ModelAuthenticationError, ModelNotFoundError, ModelAPIConnectionError,
+                and other typed errors from ``data_designer.engine.models.errors``
+                for any failing model probe.
+            DatasetGenerationError: If a tool alias is referenced but no
+                ``MCPRegistry`` is configured.
+            TimeoutError: If async health-check execution exceeds 180 seconds.
+        """
+        resource_provider = self._create_resource_provider("check-models", config_builder)
+        run_readiness_check(
+            config_builder.build().columns,
+            resource_provider,
+            client_concurrency_mode=ClientConcurrencyMode.ASYNC,
+        )
+
     def get_default_model_configs(self) -> list[ModelConfig]:
         """Get the default model configurations.
 
@@ -579,11 +566,9 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         """Get the resolved model provider registry.
 
         Returns:
-            The ModelProviderRegistry containing the providers and default
-            resolved at construction time. The default is taken from the
-            first user-supplied provider when ``model_providers`` was passed
-            to the constructor; otherwise from the YAML's ``default:`` key
-            when set, falling back to the first provider in the YAML list.
+            The ModelProviderRegistry containing the providers resolved at
+            construction time, either the user-supplied ``model_providers``
+            list or the providers loaded from the YAML.
         """
         return self._model_provider_registry
 
@@ -630,7 +615,11 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             Dict mapping alias to ModelFacade instance.
         """
         config_builder = DataDesignerConfigBuilder()
-        resource_provider = self._create_resource_provider("dev", config_builder)
+        resource_provider = self._create_resource_provider(
+            "dev",
+            config_builder,
+            client_concurrency_mode=ClientConcurrencyMode.SYNC,
+        )
         return {alias: resource_provider.model_registry.get_model(model_alias=alias) for alias in model_aliases}
 
     def _resolve_model_providers(self, model_providers: list[ModelProvider] | None) -> list[ModelProvider]:
@@ -645,7 +634,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
                     "🚨 You are trying to use a default model provider but your API keys are missing."
                     "\n\t\t\tSet the API key for the default providers you intend to use and re-initialize the Data Designer object."
                     "\n\t\t\tAlternatively, you can provide your own model providers during Data Designer object initialization."
-                    "\n\t\t\tSee https://nvidia-nemo.github.io/DataDesigner/concepts/models/model-providers/ for more information."
+                    "\n\t\t\tSee https://docs.nvidia.com/nemo/datadesigner/concepts/models/model-providers for more information."
                 )
                 self._get_interface_info(model_providers).display(InfoType.MODEL_PROVIDERS)
             return model_providers
@@ -683,6 +672,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         *,
         resume: ResumeMode = ResumeMode.NEVER,
         artifact_path: Path | None = None,
+        client_concurrency_mode: ClientConcurrencyMode = ClientConcurrencyMode.ASYNC,
     ) -> ResourceProvider:
         artifact_path = artifact_path or self._artifact_path
         ArtifactStorage.mkdir_if_needed(artifact_path)
@@ -702,7 +692,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             run_config=self._run_config,
             mcp_providers=self._mcp_providers,
             tool_configs=config_builder.tool_configs,
-            client_concurrency_mode=self._resolve_client_concurrency_mode(config_builder),
+            client_concurrency_mode=client_concurrency_mode,
             request_admission=self._request_admission,
         )
 
@@ -710,37 +700,6 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         from data_designer.engine.models.factory import create_request_admission_controller
 
         return create_request_admission_controller(self._run_config)
-
-    @staticmethod
-    def _resolve_client_concurrency_mode(config_builder: DataDesignerConfigBuilder) -> ClientConcurrencyMode:
-        """Pick the model-client mode that matches the engine the run will use.
-
-        The async engine is the default, but ``allow_resize=True`` columns force
-        a sync-engine fallback (see ``DatasetBuilder._resolve_async_compatibility``).
-        Without aligning the client mode here, those runs would create async-only
-        clients and then call sync methods on them — raising ``SyncClientUnavailableError``
-        from inside the sync engine. Match the client mode to the actual engine
-        choice so the fallback path is functional.
-        """
-        if not DATA_DESIGNER_ASYNC_ENGINE:
-            # Deliberate opt-out via env var. Surface the deprecation so users
-            # know the sync path is going away. Mirror the ``allow_resize`` shape
-            # in ``_resolve_async_compatibility``: emit both a ``logger.warning``
-            # (visible in the project's logging output) and a ``DeprecationWarning``
-            # (programmatic signal callers can filter on). The ``allow_resize``
-            # auto-fallback has its own warning from the builder layer; we don't
-            # double-warn here.
-            msg = (
-                "DATA_DESIGNER_ASYNC_ENGINE=0 selects the legacy sync engine, which is "
-                "deprecated and will be removed in a future release. Unset the variable "
-                "(or set it to 1) to use the async engine."
-            )
-            logger.warning(f"⚠️ {msg}")
-            warnings.warn(msg, DeprecationWarning, stacklevel=3)
-            return ClientConcurrencyMode.SYNC
-        if any(c.allow_resize for c in config_builder.get_column_configs()):
-            return ClientConcurrencyMode.SYNC
-        return ClientConcurrencyMode.ASYNC
 
     def _get_interface_info(self, model_providers: list[ModelProvider]) -> InterfaceInfo:
         return InterfaceInfo(model_providers=model_providers)

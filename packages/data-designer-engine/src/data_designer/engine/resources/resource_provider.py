@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import os
 from typing import TYPE_CHECKING
 
 from data_designer.config.base import ConfigBase
@@ -141,17 +140,8 @@ def create_resource_provider(
             mcp_provider_registry=mcp_provider_registry,
         )
 
-    # Default the client mode from the env var when the caller hasn't decided.
-    # The interface (DataDesigner) computes the mode based on env var AND the
-    # config (e.g. allow_resize columns force a sync fallback) and passes the
-    # result explicitly. Direct callers of this factory still get the env-var
-    # default for backward compatibility.
     if client_concurrency_mode is None:
-        client_concurrency_mode = (
-            ClientConcurrencyMode.ASYNC
-            if os.environ.get("DATA_DESIGNER_ASYNC_ENGINE", "1") == "1"
-            else ClientConcurrencyMode.SYNC
-        )
+        client_concurrency_mode = ClientConcurrencyMode.ASYNC
 
     effective_run_config = run_config or RunConfig()
 

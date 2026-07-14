@@ -1,7 +1,6 @@
 instances:
 - url: datadesigner.docs.buildwithfern.com/nemo/datadesigner
   custom-domain: docs.nvidia.com/nemo/datadesigner
-  multi-source: true
 title: NVIDIA NeMo Data Designer
 
 # NVIDIA branding (logo, favicon, colors, fonts, footer, base CSS/JS, layout) is
@@ -27,10 +26,14 @@ navbar-links:
 experimental:
   mdx-components:
   - ./components
+  basepath-aware: true
 versions:
 - display-name: "Latest"
   path: versions/latest.yml
   slug: latest
+- display-name: "v0.7.0"
+  path: versions/v0.7.0.yml
+  slug: v0.7.0
 - display-name: "v0.6.1"
   path: versions/v0.6.1.yml
   slug: v0.6.1

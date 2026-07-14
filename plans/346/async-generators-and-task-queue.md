@@ -3,6 +3,8 @@
 Created: 2026-02-20
 Status: In Progress
 
+Historical note: this plan records the async-engine rollout before #766. References to `allow_resize` below describe removed pre-#766 behavior and are not current guidance.
+
 Issue: [#346](https://github.com/NVIDIA-NeMo/DataDesigner/issues/346)
 
 Related:

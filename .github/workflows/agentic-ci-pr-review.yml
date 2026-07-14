@@ -137,7 +137,7 @@ jobs:
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
 
       - name: Checkout PR branch
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           ref: ${{ steps.head.outputs.sha }}
           fetch-depth: 0
@@ -146,7 +146,7 @@ jobs:
       # with secrets in scope. Always read them from the base branch so a
       # fork PR cannot inject malicious instructions or code.
       - name: Checkout base branch agent files
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           ref: ${{ github.event.pull_request.base.sha || 'main' }}
           sparse-checkout: |

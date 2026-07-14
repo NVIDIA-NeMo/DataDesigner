@@ -363,6 +363,5 @@ class ColumnGeneratorFullColumn(ColumnGenerator[TaskConfigT], ABC):
 
         Returns:
             DataFrame containing the input columns plus the new column and any side-effect
-            columns. When ``config.allow_resize`` is ``False``, the row count must match
-            the input; when it is ``True``, the row count may change.
+            columns. The row count must match the input.
         """

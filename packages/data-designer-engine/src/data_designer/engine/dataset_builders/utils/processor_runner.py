@@ -14,7 +14,6 @@ from data_designer.engine.storage.artifact_storage import BatchStage
 if TYPE_CHECKING:
     import pandas as pd
 
-    from data_designer.engine.dataset_builders.utils.dataset_batch_manager import DatasetBatchManager
     from data_designer.engine.processing.processors.base import Processor
     from data_designer.engine.storage.artifact_storage import ArtifactStorage
 
@@ -59,36 +58,27 @@ class ProcessorRunner:
             except Exception as e:
                 raise DatasetProcessingError(f"🛑 Failed in {stage.value} for {processor.name}: {e}") from e
         if len(df) != original_len:
+            if stage == ProcessorStage.PRE_BATCH:
+                self._raise_if_pre_batch_resized(original_len, len(df))
             delta = len(df) - original_len
             logger.info(f"ℹ️ {stage.name} processors changed the record count by {delta:+d} records.")
         return df
 
-    def run_pre_batch(self, batch_manager: DatasetBatchManager) -> None:
-        """Run process_before_batch() on current batch."""
-        if not self.has_processors_for(ProcessorStage.PRE_BATCH):
-            return
+    @staticmethod
+    def _raise_if_pre_batch_resized(original_len: int, new_len: int) -> None:
+        if new_len != original_len:
+            raise DatasetProcessingError(
+                f"Pre-batch processor changed row count from {original_len} to {new_len}. "
+                "Row-count changes in pre-batch processors are not supported; use workflow chaining instead."
+            )
 
-        df = batch_manager.get_current_batch(as_dataframe=True)
-        df = self._run_stage(df, ProcessorStage.PRE_BATCH)
-        batch_manager.replace_buffer(df.to_dict(orient="records"), allow_resize=True)
-
-    def run_pre_batch_on_df(self, df: pd.DataFrame, *, strict_row_count: bool = False) -> pd.DataFrame:
+    def run_pre_batch_on_df(self, df: pd.DataFrame) -> pd.DataFrame:
         """Run PRE_BATCH processors on a DataFrame and return the result.
 
         Args:
             df: Input DataFrame.
-            strict_row_count: If True, raise ``DatasetProcessingError`` when a
-                processor changes the row count. Used by the async engine where
-                row-count changes are not supported.
         """
-        original_len = len(df)
-        df = self._run_stage(df, ProcessorStage.PRE_BATCH)
-        if strict_row_count and len(df) != original_len:
-            raise DatasetProcessingError(
-                f"Pre-batch processor changed row count from {original_len} to {len(df)}. "
-                "Row-count changes in pre-batch processors are not supported with the async engine."
-            )
-        return df
+        return self._run_stage(df, ProcessorStage.PRE_BATCH)
 
     def run_post_batch(
         self, df: pd.DataFrame, current_batch_number: int | None, *, strict_row_count: bool = False
@@ -99,15 +89,14 @@ class ProcessorRunner:
             df: Input DataFrame.
             current_batch_number: Batch index passed to processors.
             strict_row_count: If True, raise ``DatasetProcessingError`` when a
-                processor changes the row count. Used by the async engine where
-                row-count changes are not supported.
+                processor changes the row count.
         """
         original_len = len(df)
         df = self._run_stage(df, ProcessorStage.POST_BATCH, current_batch_number=current_batch_number)
         if strict_row_count and len(df) != original_len:
             raise DatasetProcessingError(
                 f"Post-batch processor changed row count from {original_len} to {len(df)}. "
-                "Row-count changes in post-batch processors are not supported with the async engine."
+                "Row-count changes in post-batch processors are not supported; use workflow chaining instead."
             )
         return df
 

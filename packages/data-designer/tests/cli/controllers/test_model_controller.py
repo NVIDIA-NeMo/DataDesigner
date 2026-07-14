@@ -16,7 +16,7 @@ from data_designer.config.models import ChatCompletionInferenceParams, ModelConf
 def controller(tmp_path: Path, stub_model_providers: list) -> ModelController:
     """Create a controller instance for testing."""
     provider_repo = ProviderRepository(tmp_path)
-    provider_repo.save(ModelProviderRegistry(providers=stub_model_providers, default=stub_model_providers[0].name))
+    provider_repo.save(ModelProviderRegistry(providers=stub_model_providers))
     return ModelController(tmp_path)
 
 

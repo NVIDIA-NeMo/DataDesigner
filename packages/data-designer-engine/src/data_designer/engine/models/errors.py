@@ -73,6 +73,9 @@ class ModelQuotaExceededError(DataDesignerError): ...
 class ModelTimeoutError(DataDesignerError): ...
 
 
+class ModelRequestAdmissionTimeoutError(ModelTimeoutError): ...
+
+
 class ModelContextWindowExceededError(DataDesignerError): ...
 
 
@@ -303,6 +306,7 @@ def _raise_from_provider_error(
     _KIND_MAP: dict[ProviderErrorKind, type[DataDesignerError]] = {
         ProviderErrorKind.RATE_LIMIT: ModelRateLimitError,
         ProviderErrorKind.QUOTA_EXCEEDED: ModelQuotaExceededError,
+        ProviderErrorKind.REQUEST_ADMISSION_TIMEOUT: ModelRequestAdmissionTimeoutError,
         ProviderErrorKind.TIMEOUT: ModelTimeoutError,
         ProviderErrorKind.NOT_FOUND: ModelNotFoundError,
         ProviderErrorKind.PERMISSION_DENIED: ModelPermissionDeniedError,
@@ -320,6 +324,10 @@ def _raise_from_provider_error(
         ProviderErrorKind.TIMEOUT: (
             f"The request to model {model_name!r} timed out while {purpose}.",
             "Check your connection and try again. You may need to increase the timeout setting for the model.",
+        ),
+        ProviderErrorKind.REQUEST_ADMISSION_TIMEOUT: (
+            f"Local request admission for model {model_name!r} timed out while {purpose}; the provider request was not sent.",
+            "Reduce request concurrency or tune the model's max_parallel_requests to match the endpoint's real capacity. For async dataset generation, also consider lowering RunConfig.max_in_flight_tasks.",
         ),
         ProviderErrorKind.NOT_FOUND: (
             f"The specified model {model_name!r} could not be found while {purpose}.",

@@ -6,17 +6,23 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import shutil
 import time
+import uuid
 from collections.abc import Callable, ItemsView, Iterator, KeysView
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from pydantic import ValidationError
+
 import data_designer.lazy_heavy_imports as lazy
+from data_designer.config.analysis.dataset_profiler import DatasetProfilerResults
 from data_designer.config.base import ProcessorConfig
 from data_designer.config.config_builder import BuilderConfig, DataDesignerConfigBuilder
 from data_designer.config.data_designer_config import DataDesignerConfig
+from data_designer.config.dataset_metadata import DatasetMetadata
 from data_designer.config.errors import InvalidFileFormatError
 from data_designer.config.seed import IndexRange, PartitionBlock, SamplingStrategy
 from data_designer.config.seed_source import LocalFileSeedSource
@@ -24,6 +30,7 @@ from data_designer.config.utils.constants import DEFAULT_NUM_RECORDS
 from data_designer.config.utils.type_helpers import StrEnum
 from data_designer.config.version import get_library_version
 from data_designer.engine.dataset_builders.errors import ArtifactStorageError
+from data_designer.engine.storage.artifact_storage import ArtifactStorage, ResumeMode
 from data_designer.interface.errors import DataDesignerWorkflowError
 from data_designer.interface.results import (
     SUPPORTED_EXPORT_FORMATS,
@@ -37,13 +44,23 @@ from data_designer.interface.results import (
 if TYPE_CHECKING:
     import pandas as pd
 
-    from data_designer.config.analysis.dataset_profiler import DatasetProfilerResults
     from data_designer.interface.data_designer import DataDesigner
 
 
 logger = logging.getLogger(__name__)
 
 OnSuccessCallback = Callable[[Path], Path | str]
+StageTargets = str | list[str] | tuple[str, ...] | set[str]
+WORKFLOW_METADATA_FILENAME = "workflow-metadata.json"
+COMPLETED_STAGE_STATUSES = {"completed", "completed_empty"}
+RESUMABLE_STAGE_STATUSES = {"running", "failed"}
+WORKFLOW_PATH_METADATA_KEYS = (
+    "seed_path",
+    "output_seed_path",
+    "callback_output_path",
+    "output_processor_output_path",
+    "stage_output_override_path",
+)
 
 
 @dataclass(frozen=True)
@@ -152,6 +169,10 @@ class CompositeWorkflowResults:
         self._require_final_result()
         return _export_parquet_dataset(self.get_stage_output_path(self.final_stage_name), Path(path), format=format)
 
+    def export_stage(self, stage_name: str, path: Path | str, *, format: ExportFormat | None = None) -> Path:
+        """Export the selected output from a workflow stage."""
+        return _export_parquet_dataset(self.get_stage_output_path(stage_name), Path(path), format=format)
+
     def push_to_hub(self, *args: Any, **kwargs: Any) -> str:
         """Push the final stage result to Hugging Face Hub when no output override is selected."""
         final_result = self.final_result
@@ -221,8 +242,15 @@ class CompositeWorkflow:
         )
         return self
 
-    def run(self) -> CompositeWorkflowResults:
-        """Run all stages from scratch.
+    def run(
+        self,
+        *,
+        resume: ResumeMode = ResumeMode.NEVER,
+        targets: StageTargets | None = None,
+        rerun_from: str | None = None,
+        stage_output_overrides: dict[str, Path | str] | None = None,
+    ) -> CompositeWorkflowResults:
+        """Run all stages, optionally reusing compatible completed stage outputs.
 
         Each stage writes a deterministic artifact directory under the parent
         Data Designer artifact path. Downstream stages are seeded from the
@@ -230,9 +258,23 @@ class CompositeWorkflow:
         """
         if not self._stages:
             raise DataDesignerWorkflowError(f"Workflow {self.name!r} has no stages.")
+        if rerun_from is not None and resume == ResumeMode.NEVER:
+            raise DataDesignerWorkflowError(
+                "rerun_from requires resume to be ResumeMode.IF_POSSIBLE or ResumeMode.ALWAYS."
+            )
+
+        stage_indices = _stage_indices_by_name(self._stages)
+        target_stage_names = _normalize_stage_names(targets, stage_indices, "target")
+        target_stage_index = max(stage_indices[name] for name in target_stage_names)
+        rerun_from_index = _stage_index_or_none(rerun_from, stage_indices, "rerun_from")
+        if rerun_from_index is not None and rerun_from_index > target_stage_index:
+            raise DataDesignerWorkflowError("rerun_from must be an ancestor of at least one target stage.")
+        stage_output_overrides = stage_output_overrides or {}
+        _validate_stage_output_overrides(stage_output_overrides, stage_indices, target_stage_index)
 
         workflow_path = self._data_designer.artifact_path / self.name
         workflow_path.mkdir(parents=True, exist_ok=True)
+        prior_metadata = _read_prior_workflow_metadata(workflow_path, self.name, resume)
         metadata: dict[str, Any] = {
             "name": self.name,
             "library_version": get_library_version(),
@@ -245,8 +287,13 @@ class CompositeWorkflow:
         previous_stage_name: str | None = None
         previous_stage_fingerprint: str | None = None
         skipped_upstream_stage: str | None = None
+        # A stage that runs or resumes may produce new data, so descendants rebuild from its current output.
+        force_rerun_downstream = False
 
         for index, stage in enumerate(self._stages):
+            if index > target_stage_index:
+                break
+
             stage_dir_name = _stage_dir_name(index, stage.name)
             stage_metadata = _base_stage_metadata(index, stage, stage_dir_name)
             metadata["stages"].append(stage_metadata)
@@ -288,7 +335,60 @@ class CompositeWorkflow:
                 upstream_fingerprint=previous_stage_fingerprint,
             )
             stage_path = workflow_path / stage_dir_name
-            if stage_path.exists():
+            prior_stage_metadata = _get_prior_stage_metadata(prior_metadata, index, stage, stage_dir_name)
+            stage_resume = ResumeMode.NEVER
+            force_rerun_current = rerun_from_index is not None and index >= rerun_from_index
+            prior_matches = (
+                not force_rerun_downstream
+                and not force_rerun_current
+                and prior_stage_metadata is not None
+                and prior_stage_metadata.get("fingerprint") == stage_fingerprint
+            )
+
+            if prior_matches and _can_skip_prior_stage(stage, prior_stage_metadata, workflow_path):
+                stage_metadata.update(prior_stage_metadata)
+                output_seed_path = _resolve_metadata_path(workflow_path, stage_metadata["output_seed_path"])
+                _normalize_stage_path_metadata(workflow_path, stage_metadata)
+                override_path = _stage_output_override(stage.name, stage_output_overrides)
+                if override_path is not None:
+                    output_seed_path = override_path
+                    stage_metadata["output_seed_path"] = _metadata_path_value(workflow_path, output_seed_path)
+                    stage_metadata["stage_output_override_path"] = _metadata_path_value(workflow_path, output_seed_path)
+                    force_rerun_downstream = True
+                output_records = _count_parquet_records(output_seed_path)
+                stage_metadata["output_records"] = output_records
+                if override_path is not None:
+                    if output_records == 0:
+                        if not stage.allow_empty:
+                            raise DataDesignerWorkflowError(f"Stage {stage.name!r} produced an empty output.")
+                        stage_metadata["status"] = "completed_empty"
+                    else:
+                        stage_metadata["status"] = "completed"
+                output_result = _stage_result_from_metadata(
+                    workflow_path=workflow_path,
+                    stage=stage,
+                    stage_dir_name=stage_dir_name,
+                    stage_builder=stage_builder,
+                )
+                stage_results[stage.name] = output_result
+                stage_output_paths[stage.name] = output_seed_path
+                previous_seed_path = output_seed_path
+                previous_output_records = None if stage_metadata["status"] == "completed_empty" else output_records
+                previous_stage_name = stage.name
+                previous_stage_fingerprint = stage_fingerprint
+                if stage_metadata["status"] == "completed_empty":
+                    skipped_upstream_stage = stage.name
+                _write_workflow_metadata(workflow_path, metadata)
+                continue
+
+            if prior_matches and prior_stage_metadata.get("status") in RESUMABLE_STAGE_STATUSES and stage_path.exists():
+                stage_resume = ResumeMode.ALWAYS
+            elif resume == ResumeMode.ALWAYS and not force_rerun_downstream and not force_rerun_current:
+                raise DataDesignerWorkflowError(
+                    f"Cannot resume workflow {self.name!r}: stage {stage.name!r} is not reusable."
+                )
+
+            if stage_resume == ResumeMode.NEVER and stage_path.exists():
                 shutil.rmtree(stage_path)
 
             stage_metadata.update(
@@ -297,7 +397,11 @@ class CompositeWorkflow:
                     "fingerprint": stage_fingerprint,
                     "num_records_requested": num_records,
                     "seeded_from_stage": previous_stage_name,
-                    "seed_path": str(previous_seed_path) if previous_seed_path is not None else None,
+                    "seed_path": (
+                        _metadata_path_value(workflow_path, previous_seed_path)
+                        if previous_seed_path is not None
+                        else None
+                    ),
                     "config": stage_config.model_dump(mode="json"),
                 }
             )
@@ -310,11 +414,15 @@ class CompositeWorkflow:
                     num_records=num_records,
                     dataset_name=stage_dir_name,
                     artifact_path=workflow_path,
+                    resume=stage_resume,
                 )
                 actual_records = result.count_records()
                 output_result = result
                 output_source_result = result
                 if stage.output_processors:
+                    output_processor_path = stage_path / "output-processors"
+                    if output_processor_path.exists():
+                        shutil.rmtree(output_processor_path)
                     output_processor_builder = _output_processor_config_builder(
                         stage_builder=stage_builder,
                         seed_path=result.artifact_storage.final_dataset_path,
@@ -334,6 +442,9 @@ class CompositeWorkflow:
                     output_seed_path = callback_output_path
                 else:
                     output_seed_path = _resolve_stage_output_path(output_source_result, stage.output)
+                override_path = _stage_output_override(stage.name, stage_output_overrides)
+                if override_path is not None:
+                    output_seed_path = override_path
                 output_records = _count_parquet_records(output_seed_path)
 
                 if output_records == 0:
@@ -349,10 +460,17 @@ class CompositeWorkflow:
                         "status": status,
                         "num_records_actual": actual_records,
                         "output_records": output_records,
-                        "output_seed_path": str(output_seed_path),
-                        "callback_output_path": str(callback_output_path) if callback_output_path else None,
+                        "output_seed_path": _metadata_path_value(workflow_path, output_seed_path),
+                        "callback_output_path": (
+                            _metadata_path_value(workflow_path, callback_output_path) if callback_output_path else None
+                        ),
+                        "stage_output_override_path": (
+                            _metadata_path_value(workflow_path, override_path) if override_path else None
+                        ),
                         "output_processor_output_path": (
-                            str(output_result.artifact_storage.base_dataset_path) if stage.output_processors else None
+                            _metadata_path_value(workflow_path, output_result.artifact_storage.base_dataset_path)
+                            if stage.output_processors
+                            else None
                         ),
                         "duration_sec": time.monotonic() - start_time,
                     }
@@ -365,17 +483,240 @@ class CompositeWorkflow:
             stage_results[stage.name] = output_result
             stage_output_paths[stage.name] = output_seed_path
             previous_seed_path = output_seed_path
-            previous_output_records = output_records
+            previous_output_records = None if status == "completed_empty" else output_records
             previous_stage_name = stage.name
             previous_stage_fingerprint = stage_fingerprint
+            force_rerun_downstream = True
             _write_workflow_metadata(workflow_path, metadata)
 
         return CompositeWorkflowResults(
             name=self.name,
             stage_results=stage_results,
-            final_stage_name=self._stages[-1].name,
+            final_stage_name=self._stages[target_stage_index].name,
             stage_output_paths=stage_output_paths,
         )
+
+
+def _stage_indices_by_name(stages: list[_WorkflowStage]) -> dict[str, int]:
+    return {stage.name: index for index, stage in enumerate(stages)}
+
+
+def _normalize_stage_names(
+    stage_names: StageTargets | None,
+    stage_indices: dict[str, int],
+    label: str,
+) -> set[str]:
+    if stage_names is None:
+        return {next(reversed(stage_indices))}
+    if isinstance(stage_names, str):
+        names = {stage_names}
+    else:
+        names = set(stage_names)
+    if not names:
+        raise DataDesignerWorkflowError(f"{label} must include at least one stage.")
+    unknown = sorted(names.difference(stage_indices))
+    if unknown:
+        raise DataDesignerWorkflowError(f"Unknown {label} stage(s): {', '.join(unknown)}.")
+    return names
+
+
+def _stage_index_or_none(stage_name: str | None, stage_indices: dict[str, int], label: str) -> int | None:
+    if stage_name is None:
+        return None
+    if stage_name not in stage_indices:
+        raise DataDesignerWorkflowError(f"Unknown {label} stage: {stage_name!r}.")
+    return stage_indices[stage_name]
+
+
+def _validate_stage_output_overrides(
+    stage_output_overrides: dict[str, Path | str],
+    stage_indices: dict[str, int],
+    target_stage_index: int,
+) -> None:
+    unknown = sorted(set(stage_output_overrides).difference(stage_indices))
+    if unknown:
+        raise DataDesignerWorkflowError(f"Unknown stage output override(s): {', '.join(unknown)}.")
+    non_ancestors = sorted(name for name in stage_output_overrides if stage_indices[name] > target_stage_index)
+    if non_ancestors:
+        raise DataDesignerWorkflowError(
+            f"Stage output override(s) must be ancestors of a target stage: {', '.join(non_ancestors)}."
+        )
+    for name in sorted(stage_output_overrides):
+        override_path = _stage_output_override(name, stage_output_overrides)
+        if override_path is not None:
+            try:
+                _count_parquet_records(override_path)
+            except DataDesignerWorkflowError as exc:
+                raise DataDesignerWorkflowError(f"Invalid stage output override for stage {name!r}: {exc}") from exc
+
+
+def _stage_output_override(
+    stage_name: str,
+    stage_output_overrides: dict[str, Path | str],
+) -> Path | None:
+    override = stage_output_overrides.get(stage_name)
+    if override is None:
+        return None
+    path = Path(override).expanduser()
+    if not path.is_absolute():
+        path = path.resolve()
+    return path
+
+
+def _read_prior_workflow_metadata(
+    workflow_path: Path,
+    workflow_name: str,
+    resume: ResumeMode,
+) -> dict[str, Any] | None:
+    if resume == ResumeMode.NEVER:
+        return None
+    metadata_path = workflow_path / WORKFLOW_METADATA_FILENAME
+    if not metadata_path.exists():
+        if resume == ResumeMode.ALWAYS:
+            raise DataDesignerWorkflowError(f"Cannot resume workflow {workflow_name!r}: no workflow metadata found.")
+        return None
+    try:
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        if resume != ResumeMode.ALWAYS:
+            logger.warning("Workflow metadata for %r is corrupt; starting fresh.", workflow_name)
+            return None
+        raise DataDesignerWorkflowError(
+            f"Cannot resume workflow {workflow_name!r}: workflow metadata is corrupt."
+        ) from exc
+    except OSError as exc:
+        if resume != ResumeMode.ALWAYS:
+            logger.warning("Workflow metadata for %r could not be read; starting fresh.", workflow_name)
+            return None
+        raise DataDesignerWorkflowError(
+            f"Cannot resume workflow {workflow_name!r}: workflow metadata could not be read."
+        ) from exc
+    if not isinstance(metadata, dict):
+        if resume != ResumeMode.ALWAYS:
+            logger.warning("Workflow metadata for %r has invalid shape; starting fresh.", workflow_name)
+            return None
+        raise DataDesignerWorkflowError(
+            f"Cannot resume workflow {workflow_name!r}: workflow metadata has invalid shape."
+        )
+    if metadata.get("name") != workflow_name:
+        if resume != ResumeMode.ALWAYS:
+            logger.warning("Workflow metadata for %r has a different name; starting fresh.", workflow_name)
+            return None
+        raise DataDesignerWorkflowError(
+            f"Cannot resume workflow {workflow_name!r}: workflow metadata name does not match."
+        )
+    return metadata
+
+
+def _get_prior_stage_metadata(
+    prior_metadata: dict[str, Any] | None,
+    index: int,
+    stage: _WorkflowStage,
+    stage_dir_name: str,
+) -> dict[str, Any] | None:
+    if prior_metadata is None:
+        return None
+    stages = prior_metadata.get("stages")
+    if not isinstance(stages, list) or index >= len(stages):
+        return None
+    prior_stage = stages[index]
+    if not isinstance(prior_stage, dict):
+        return None
+    if prior_stage.get("name") != stage.name or prior_stage.get("stage_dir") != stage_dir_name:
+        return None
+    return prior_stage
+
+
+def _can_skip_prior_stage(stage: _WorkflowStage, prior_stage_metadata: dict[str, Any], workflow_path: Path) -> bool:
+    if prior_stage_metadata.get("status") not in COMPLETED_STAGE_STATUSES:
+        return False
+    if stage.on_success is not None and stage.on_success_version is None:
+        return False
+    output_seed_path = prior_stage_metadata.get("output_seed_path")
+    if not isinstance(output_seed_path, str) or not output_seed_path:
+        return False
+    try:
+        _count_parquet_records(_resolve_metadata_path(workflow_path, output_seed_path))
+    except DataDesignerWorkflowError:
+        return False
+    return True
+
+
+def _metadata_path_value(workflow_path: Path, path: Path) -> str:
+    if path.is_absolute():
+        try:
+            return str(path.relative_to(workflow_path))
+        except ValueError:
+            return str(path)
+    return str(path)
+
+
+def _resolve_metadata_path(workflow_path: Path, path: str) -> Path:
+    metadata_path = Path(path)
+    if metadata_path.is_absolute():
+        return metadata_path
+    return workflow_path / metadata_path
+
+
+def _normalize_stage_path_metadata(workflow_path: Path, stage_metadata: dict[str, Any]) -> None:
+    for key in WORKFLOW_PATH_METADATA_KEYS:
+        value = stage_metadata.get(key)
+        if isinstance(value, str) and value:
+            stage_metadata[key] = _metadata_path_value(workflow_path, _resolve_metadata_path(workflow_path, value))
+
+
+def _stage_result_from_metadata(
+    *,
+    workflow_path: Path,
+    stage: _WorkflowStage,
+    stage_dir_name: str,
+    stage_builder: DataDesignerConfigBuilder,
+) -> DatasetCreationResults:
+    main_storage = ArtifactStorage(artifact_path=workflow_path, dataset_name=stage_dir_name, resume=ResumeMode.ALWAYS)
+    result_storage = main_storage
+    result_builder = stage_builder
+    if stage.output_processors:
+        result_storage = ArtifactStorage(
+            artifact_path=workflow_path / stage_dir_name,
+            dataset_name="output-processors",
+            resume=ResumeMode.ALWAYS,
+        )
+        result_builder = _output_processor_config_builder(
+            stage_builder=stage_builder,
+            seed_path=main_storage.final_dataset_path,
+            output_processors=stage.output_processors,
+        )
+    return DatasetCreationResults(
+        artifact_storage=result_storage,
+        analysis=_load_stage_analysis(result_storage),
+        config_builder=result_builder,
+        dataset_metadata=DatasetMetadata(),
+    )
+
+
+def _load_stage_analysis(artifact_storage: ArtifactStorage) -> Any:
+    try:
+        metadata = artifact_storage.read_metadata()
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return None
+    column_statistics = metadata.get("column_statistics")
+    if not column_statistics:
+        return None
+    num_records = metadata.get("actual_num_records")
+    if num_records is None:
+        num_records = _count_parquet_records(artifact_storage.final_dataset_path)
+    try:
+        return DatasetProfilerResults.model_validate(
+            {
+                "num_records": num_records,
+                "target_num_records": metadata.get("target_num_records", num_records),
+                "column_statistics": column_statistics,
+                "side_effect_column_names": metadata.get("side_effect_column_names"),
+                "column_profiles": metadata.get("column_profiles"),
+            }
+        )
+    except ValidationError:
+        return None
 
 
 def _clone_config_builder(config_builder: DataDesignerConfigBuilder) -> DataDesignerConfigBuilder:
@@ -527,8 +868,16 @@ def _parquet_files(path: Path) -> list[Path]:
 
 
 def _write_workflow_metadata(workflow_path: Path, metadata: dict[str, Any]) -> None:
-    path = workflow_path / "workflow-metadata.json"
-    path.write_text(json.dumps(metadata, indent=2, sort_keys=True), encoding="utf-8")
+    path = workflow_path / WORKFLOW_METADATA_FILENAME
+    tmp_path = path.with_name(f"{path.name}.tmp.{os.getpid()}.{uuid.uuid4().hex}")
+    try:
+        with tmp_path.open("w", encoding="utf-8") as f:
+            json.dump(metadata, f, indent=2, sort_keys=True)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, path)
+    finally:
+        tmp_path.unlink(missing_ok=True)
 
 
 def _validate_stage_output(output: str) -> None:
