@@ -8,7 +8,7 @@ import json
 import logging
 import tracemalloc
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any
 from unittest.mock import Mock, patch
 
 import pytest
@@ -38,12 +38,7 @@ from data_designer.config.seed_source import LocalFileSeedSource
 from data_designer.config.seed_source_dataframe import DataFrameSeedSource
 from data_designer.engine.column_generators.generators.base import GenerationStrategy
 from data_designer.engine.column_generators.generators.samplers import SamplerColumnGenerator
-from data_designer.engine.dataset_builders.acceptance import (
-    AcceptanceController,
-    CandidateBatch,
-    SelectionBatchMarker,
-    SelectionDecision,
-)
+from data_designer.engine.dataset_builders.acceptance import SelectionBatchMarker
 from data_designer.engine.dataset_builders.dataset_builder import DatasetBuilder, build_row_group_resume_plan
 from data_designer.engine.dataset_builders.errors import (
     DatasetGenerationError,
@@ -52,7 +47,6 @@ from data_designer.engine.dataset_builders.errors import (
 )
 from data_designer.engine.dataset_builders.row_group_plan import CompactRowGroupPlan
 from data_designer.engine.dataset_builders.utils.processor_runner import ProcessorRunner
-from data_designer.engine.dataset_builders.utils.row_group_buffer import RowGroupBufferManager
 from data_designer.engine.errors import DataDesignerRuntimeError
 from data_designer.engine.models.telemetry import InferenceEvent, NemoSourceEnum, TaskStatusEnum
 from data_designer.engine.models.usage import ModelUsageStats, TokenUsageStats
@@ -143,112 +137,6 @@ def create_mock_processor(name: str, stages: list[str]) -> Mock:
     mock_processor.process_after_batch.side_effect = lambda df, **kw: df
     mock_processor.process_after_generation.side_effect = lambda df: df
     return mock_processor
-
-
-def _create_boundary_selection_builder(
-    stub_resource_provider: Any,
-    *,
-    after_generation: bool,
-) -> tuple[DatasetBuilder, Mock | None]:
-    """Build a two-row completed selection publication with six-digit candidate names."""
-    stub_resource_provider.run_config = RunConfig(
-        buffer_size=1,
-        display_tui=False,
-        preserve_dropped_columns=True,
-    )
-    config = DataDesignerConfigBuilder()
-    config.add_column(
-        SamplerColumnConfig(
-            name="keep",
-            sampler_type=SamplerType.CATEGORY,
-            params=CategorySamplerParams(values=[True]),
-        )
-    )
-    config.add_column(
-        SamplerColumnConfig(
-            name="payload",
-            sampler_type=SamplerType.CATEGORY,
-            params=CategorySamplerParams(values=["accepted"]),
-            drop=True,
-        )
-    )
-    config.add_processor(
-        SchemaTransformProcessorConfig(
-            name="formatted",
-            template={"value": "{{ payload }}"},
-        )
-    )
-    config.with_record_selection(RecordSelectionConfig(predicate_column="keep", max_candidate_records=100_001))
-    builder = DatasetBuilder(data_designer_config=config.build(), resource_provider=stub_resource_provider)
-    after_generation_processor: Mock | None = None
-    if after_generation:
-        after_generation_processor = create_mock_processor("identity", ["process_after_generation"])
-        _replace_processors(
-            builder,
-            [*builder._processor_runner.processors, after_generation_processor],
-        )
-
-    builder.build(num_records=2)
-    if after_generation_processor is not None:
-        after_generation_processor.process_after_generation.reset_mock()
-    return builder, after_generation_processor
-
-
-def _rewrite_completed_selection_at_filename_boundary(
-    builder: DatasetBuilder,
-    *,
-    after_generation: bool,
-    valid_publication: bool = True,
-) -> str:
-    """Rewrite two small artifacts to model legacy names around the five-digit boundary."""
-    storage = builder.artifact_storage
-    legacy_batch_ids = (99_999, 100_000)
-    for checkpoint_id, legacy_batch_id in enumerate(legacy_batch_ids):
-        accepted_source = storage.selection_accepted_path / f"batch_{checkpoint_id:06d}.parquet"
-        accepted_target = storage.selection_accepted_path / f"batch_{checkpoint_id:05d}.parquet"
-        accepted_source.unlink()
-        lazy.pd.DataFrame({"value": [legacy_batch_id]}).to_parquet(accepted_target, index=False)
-
-        checkpoint_source = storage.selection_checkpoints_path / f"batch_{checkpoint_id:06d}.json"
-        checkpoint = json.loads(checkpoint_source.read_text(encoding="utf-8"))
-        checkpoint["accepted_partition"] = accepted_target.relative_to(storage.base_dataset_path).as_posix()
-        checkpoint_path = storage.selection_checkpoints_path / f"batch_{checkpoint_id:05d}.json"
-        checkpoint_path.write_text(json.dumps(checkpoint), encoding="utf-8")
-        checkpoint_source.unlink()
-
-        dropped_source = storage.dropped_columns_dataset_path / f"batch_{checkpoint_id:06d}.parquet"
-        dropped_source.unlink()
-        lazy.pd.DataFrame({"dropped": [legacy_batch_id]}).to_parquet(
-            storage.dropped_columns_dataset_path / f"batch_{legacy_batch_id}.parquet",
-            index=False,
-        )
-
-        processor_source = storage.processors_outputs_path / "formatted" / f"batch_{checkpoint_id:06d}.parquet"
-        processor_source.unlink()
-        lazy.pd.DataFrame({"value": [legacy_batch_id]}).to_parquet(
-            storage.processors_outputs_path / "formatted" / f"batch_{legacy_batch_id}.parquet",
-            index=False,
-        )
-
-    for path in storage.final_dataset_path.glob("batch_*.parquet"):
-        path.unlink()
-    if after_generation:
-        publication_values = legacy_batch_ids[::-1]
-        publication_names = ("batch_00000.parquet", "batch_00001.parquet")
-    else:
-        publication_values = legacy_batch_ids
-        publication_names = ("batch_99999.parquet", "batch_100000.parquet")
-    if not valid_publication:
-        publication_values = publication_values[:1]
-        publication_names = publication_names[:1]
-    for name, value in zip(publication_names, publication_values, strict=True):
-        lazy.pd.DataFrame({"value": [value]}).to_parquet(storage.final_dataset_path / name, index=False)
-
-    metadata = storage.read_metadata()
-    publication_id = metadata["record_selection"]["publication_id"]
-    metadata["file_paths"] = storage.get_file_paths()
-    storage.write_metadata(metadata)
-    return publication_id
 
 
 def test_dataset_builder_creation(stub_resource_provider, stub_test_config_builder):
@@ -594,79 +482,89 @@ def test_record_selection_persists_early_shutdown_across_exhausted_resume(stub_r
         builder.build(num_records=1)
 
     assert "resume=ResumeMode.ALWAYS" not in str(exc_info.value)
-    terminal_error = builder.artifact_storage.read_metadata()["record_selection"]["terminal_error"]
-    assert terminal_error["kind"] == "early_shutdown"
     marker = json.loads(builder.artifact_storage.selection_checkpoint_path(0).read_text())
-    assert marker["terminal_error_kind"] == "early_shutdown"
-
-    # Simulate the crash window where the committed marker reaches disk before
-    # the best-effort metadata mirror. Resume must still replay the typed error.
-    metadata = builder.artifact_storage.read_metadata()
-    metadata["record_selection"].pop("terminal_error")
-    builder.artifact_storage.write_metadata(metadata)
+    assert marker["stopped_early"] is True
 
     with pytest.raises(RecordSelectionEarlyShutdownError):
         builder.build(num_records=1, resume=ResumeMode.ALWAYS)
 
 
-def test_record_selection_persists_fatal_post_checkpoint_error_across_resume(stub_resource_provider) -> None:
+def test_record_selection_discards_schema_without_checkpoint_on_resume(stub_resource_provider) -> None:
     stub_resource_provider.run_config = RunConfig(buffer_size=1, display_tui=False)
     config = DataDesignerConfigBuilder()
     config.add_column(
         SamplerColumnConfig(
-            name="value",
+            name="keep",
             sampler_type=SamplerType.CATEGORY,
-            params=CategorySamplerParams(values=["constant"]),
+            params=CategorySamplerParams(values=[True]),
         )
     )
-    config.add_column(ExpressionColumnConfig(name="keep", expr="{{ false }}", dtype="bool", drop=True))
-    config.with_record_selection(
-        RecordSelectionConfig(
-            predicate_column="keep",
-            max_candidate_records=2,
-            on_exhausted=RecordSelectionExhaustion.RETURN_PARTIAL,
-        )
-    )
+    config.with_record_selection(RecordSelectionConfig(predicate_column="keep", max_candidate_records=1))
     builder = DatasetBuilder(data_designer_config=config.build(), resource_provider=stub_resource_provider)
 
-    def commit_then_fail(
-        _generators: list[object],
-        *,
-        controller: AcceptanceController,
-        batch: CandidateBatch,
-        **_kwargs: object,
-    ) -> None:
-        builder.artifact_storage.write_selection_schema(builder._derive_empty_selection_schema())
-        marker = controller.record_checkpoint(
-            batch=batch,
-            decision=SelectionDecision(
-                accepted_indices=(),
-                candidate_records=1,
-                accepted_records=0,
-                rejected_records=1,
-                null_predicate_records=0,
-                failed_generation_records=0,
-                trimmed_accepted_records=0,
-            ),
-            accepted_partition=None,
-        )
-        builder.artifact_storage.write_selection_checkpoint(batch.candidate_batch_id, marker.to_dict())
-        raise DatasetGenerationError("fatal generation error after checkpoint")
-
     with (
-        patch.object(builder, "_run_candidate_batch", side_effect=commit_then_fail),
-        pytest.raises(DatasetGenerationError, match="fatal generation error after checkpoint"),
+        patch.object(ArtifactStorage, "write_selection_checkpoint", side_effect=OSError("checkpoint failed")),
+        pytest.raises(DatasetGenerationError, match="checkpoint failed"),
     ):
         builder.build(num_records=1)
 
-    marker = json.loads(builder.artifact_storage.selection_checkpoint_path(0).read_text())
-    assert marker["terminal_error_kind"] == "generation_error"
-    metadata = builder.artifact_storage.read_metadata()
-    metadata["record_selection"].pop("terminal_error")
-    builder.artifact_storage.write_metadata(metadata)
+    assert builder.artifact_storage.selection_schema_path.exists()
+    lazy.pd.DataFrame({"stale": lazy.pd.Series(dtype="int64")}).to_parquet(
+        builder.artifact_storage.selection_schema_path,
+        index=False,
+    )
 
-    with pytest.raises(DatasetGenerationError, match="fatal generation error after checkpoint"):
-        builder.build(num_records=1, resume=ResumeMode.ALWAYS)
+    output_path = builder.build(num_records=1, resume=ResumeMode.ALWAYS)
+
+    assert lazy.pd.read_parquet(output_path)["keep"].tolist() == [True]
+    assert lazy.pd.read_parquet(builder.artifact_storage.selection_schema_path).columns.tolist() == ["keep"]
+
+
+def test_record_selection_rejects_missing_schema_owned_by_committed_batch(stub_resource_provider) -> None:
+    stub_resource_provider.run_config = RunConfig(buffer_size=1, display_tui=False)
+    config = DataDesignerConfigBuilder()
+    config.add_column(
+        SamplerColumnConfig(
+            name="keep",
+            sampler_type=SamplerType.CATEGORY,
+            params=CategorySamplerParams(values=[False]),
+        )
+    )
+    selection_config = RecordSelectionConfig(
+        predicate_column="keep",
+        max_candidate_records=2,
+        on_exhausted=RecordSelectionExhaustion.RETURN_PARTIAL,
+    )
+    config.with_record_selection(selection_config)
+    builder = DatasetBuilder(data_designer_config=config.build(), resource_provider=stub_resource_provider)
+    marker = SelectionBatchMarker(
+        candidate_batch_id=0,
+        row_group_id=0,
+        candidate_start_offset=0,
+        candidate_records=1,
+        accepted_records=0,
+        rejected_records=1,
+        null_predicate_records=0,
+        failed_generation_records=0,
+        trimmed_accepted_records=0,
+        accepted_partition=None,
+        schema_materialized=True,
+    )
+    builder.artifact_storage.write_selection_checkpoint(0, marker.to_dict())
+
+    with (
+        patch.object(builder, "_run_candidate_batch") as run_candidate_batch,
+        pytest.raises(DatasetGenerationError, match="committed output schema is missing"),
+    ):
+        builder._build_with_record_selection(
+            [],
+            target_num_records=1,
+            buffer_size=1,
+            on_batch_complete=None,
+            resume=ResumeMode.ALWAYS,
+        )
+
+    run_candidate_batch.assert_not_called()
 
 
 def test_record_selection_post_checkpoint_metadata_failure_is_resumable(stub_resource_provider) -> None:
@@ -717,8 +615,8 @@ def test_record_selection_post_checkpoint_metadata_failure_is_resumable(stub_res
             builder.build(num_records=1)
 
         marker = json.loads(storage.selection_checkpoint_path(0).read_text())
-        assert marker["terminal_error_kind"] is None
         assert marker["schema_materialized"] is True
+        assert marker["stopped_early"] is False
 
         output_path = builder.build(num_records=1, resume=ResumeMode.ALWAYS)
 
@@ -728,164 +626,7 @@ def test_record_selection_post_checkpoint_metadata_failure_is_resumable(stub_res
     assert storage.read_metadata()["post_generation_state"] == "complete"
 
 
-def test_record_selection_callback_precedes_simultaneous_early_shutdown(stub_resource_provider) -> None:
-    stub_resource_provider.run_config = RunConfig(buffer_size=2, display_tui=False)
-    config = DataDesignerConfigBuilder()
-    config.add_column(
-        SamplerColumnConfig(
-            name="value",
-            sampler_type=SamplerType.CATEGORY,
-            params=CategorySamplerParams(values=["constant"]),
-        )
-    )
-    config.add_column(ExpressionColumnConfig(name="keep", expr="{{ true }}", dtype="bool"))
-    selection_config = RecordSelectionConfig(predicate_column="keep", max_candidate_records=4)
-    config.with_record_selection(selection_config)
-    builder = DatasetBuilder(data_designer_config=config.build(), resource_provider=stub_resource_provider)
-    buffer_manager = RowGroupBufferManager(builder.artifact_storage)
-    buffer_manager.init_row_group(0, 2)
-
-    class StubScheduler:
-        traces: list[Any] = []
-        early_shutdown = True
-        partial_row_groups: tuple[int, ...] = ()
-        first_non_retryable_error: Exception | None = None
-
-        def __init__(
-            self,
-            *,
-            select_dataframe: Callable[[int, int, pd.DataFrame], pd.DataFrame],
-            on_finalize_row_group: Callable[[int], None],
-        ) -> None:
-            self._select_dataframe = select_dataframe
-            self._on_finalize_row_group = on_finalize_row_group
-
-        async def run(self) -> None:
-            dataframe = lazy.pd.DataFrame(
-                {
-                    "value": ["accepted", "rejected"],
-                    "keep": [True, False],
-                }
-            )
-            selected = self._select_dataframe(0, 2, dataframe)
-            buffer_manager.replace_dataframe(0, selected)
-            self._on_finalize_row_group(0)
-
-    def prepare_async_run(*_args: Any, **kwargs: Any) -> tuple[StubScheduler, RowGroupBufferManager]:
-        return (
-            StubScheduler(
-                select_dataframe=kwargs["select_dataframe"],
-                on_finalize_row_group=kwargs["on_finalize_row_group"],
-            ),
-            buffer_manager,
-        )
-
-    def fail_callback(_path: Path) -> None:
-        raise RuntimeError("callback sentinel")
-
-    with patch.object(builder, "_prepare_async_run", side_effect=prepare_async_run):
-        with pytest.raises(DatasetGenerationError, match="callback sentinel") as exc_info:
-            builder._build_with_record_selection(
-                [],
-                target_num_records=2,
-                buffer_size=2,
-                on_batch_complete=fail_callback,
-                resume=ResumeMode.NEVER,
-            )
-
-    assert not isinstance(exc_info.value, RecordSelectionEarlyShutdownError)
-    marker = SelectionBatchMarker.from_dict(builder.artifact_storage.read_selection_checkpoints()[0])
-    assert marker.terminal_error_kind == "early_shutdown"
-    assert "resume=ResumeMode.ALWAYS" in marker.terminal_error_message
-    resumed_controller = AcceptanceController(
-        config=selection_config,
-        target_records=2,
-        buffer_size=2,
-        markers=(marker,),
-    )
-    builder._raise_unrecoverable_selection_terminal_error(resumed_controller, resumed_controller.terminal_error)
-
-
-def test_record_selection_newer_checkpoint_clears_stale_terminal_metadata(stub_resource_provider) -> None:
-    stub_resource_provider.run_config = RunConfig(buffer_size=1, display_tui=False)
-    config = DataDesignerConfigBuilder()
-    config.add_column(
-        SamplerColumnConfig(
-            name="value",
-            sampler_type=SamplerType.CATEGORY,
-            params=CategorySamplerParams(values=["constant"]),
-        )
-    )
-    config.add_column(ExpressionColumnConfig(name="keep", expr="{{ false }}", dtype="bool", drop=True))
-    config.with_record_selection(
-        RecordSelectionConfig(
-            predicate_column="keep",
-            max_candidate_records=2,
-            on_exhausted=RecordSelectionExhaustion.RETURN_PARTIAL,
-        )
-    )
-    builder = DatasetBuilder(data_designer_config=config.build(), resource_provider=stub_resource_provider)
-    markers = (
-        SelectionBatchMarker(
-            candidate_batch_id=0,
-            row_group_id=0,
-            candidate_start_offset=0,
-            candidate_records=1,
-            accepted_records=0,
-            rejected_records=1,
-            null_predicate_records=0,
-            failed_generation_records=0,
-            trimmed_accepted_records=0,
-            accepted_partition=None,
-            terminal_error_kind="early_shutdown",
-            terminal_error_message="stale early shutdown",
-        ),
-        SelectionBatchMarker(
-            candidate_batch_id=1,
-            row_group_id=1,
-            candidate_start_offset=1,
-            candidate_records=1,
-            accepted_records=0,
-            rejected_records=1,
-            null_predicate_records=0,
-            failed_generation_records=0,
-            trimmed_accepted_records=0,
-            accepted_partition=None,
-        ),
-    )
-    for marker in markers:
-        builder.artifact_storage.write_selection_checkpoint(marker.candidate_batch_id, marker.to_dict())
-    builder.artifact_storage.write_selection_schema(builder._derive_empty_selection_schema())
-    builder.artifact_storage.write_metadata(
-        {
-            "target_num_records": 1,
-            "original_target_num_records": 1,
-            "actual_num_records": 0,
-            "buffer_size": 1,
-            "record_selection": {
-                "candidate_batches_completed": 1,
-                "run_buffer_size": 1,
-                "terminal_error": {
-                    "kind": "early_shutdown",
-                    "message": "stale early shutdown",
-                },
-            },
-        }
-    )
-
-    builder._build_with_record_selection(
-        [],
-        target_num_records=1,
-        buffer_size=1,
-        on_batch_complete=None,
-        resume=ResumeMode.ALWAYS,
-    )
-
-    assert lazy.pd.read_parquet(builder.artifact_storage.final_dataset_path).empty
-    assert "terminal_error" not in builder.artifact_storage.read_metadata()["record_selection"]
-
-
-def test_record_selection_replaces_schema_from_completely_failed_first_batch(stub_resource_provider) -> None:
+def test_record_selection_writes_schema_from_first_materialized_batch(stub_resource_provider) -> None:
     stub_resource_provider.run_config = RunConfig(buffer_size=1, disable_early_shutdown=True, display_tui=False)
     config = DataDesignerConfigBuilder()
     config.add_column(
@@ -935,352 +676,11 @@ def test_record_selection_replaces_schema_from_completely_failed_first_batch(stu
     schema = lazy.pd.read_parquet(builder.artifact_storage.selection_schema_path)
     assert schema.empty
     assert schema.columns.tolist() == ["value"]
-    assert schema_write_count == 2
-    assert [marker["schema_materialized"] for marker in builder.artifact_storage.read_selection_checkpoints()] == [
-        False,
-        True,
-        True,
-    ]
-
-
-def test_record_selection_publication_id_is_stable_per_attempt_and_changes_on_republish(
-    stub_resource_provider,
-) -> None:
-    stub_resource_provider.run_config = RunConfig(buffer_size=1, display_tui=False)
-    config = DataDesignerConfigBuilder()
-    config.add_column(
-        SamplerColumnConfig(
-            name="keep",
-            sampler_type=SamplerType.CATEGORY,
-            params=CategorySamplerParams(values=[True]),
-        )
-    )
-    selection_config = RecordSelectionConfig(predicate_column="keep", max_candidate_records=1)
-    config.with_record_selection(selection_config)
-    builder = DatasetBuilder(data_designer_config=config.build(), resource_provider=stub_resource_provider)
-    storage = builder.artifact_storage
-    original_update_metadata = ArtifactStorage.update_metadata
-    publication_events: list[tuple[str, str]] = []
-
-    def record_publication_metadata(self: ArtifactStorage, updates: dict[str, Any]) -> Path:
-        path = original_update_metadata(self, updates)
-        state = updates.get("post_generation_state")
-        if isinstance(state, str):
-            publication_id = storage.read_metadata()["record_selection"]["publication_id"]
-            publication_events.append((state, publication_id))
-        return path
-
-    with patch.object(
-        ArtifactStorage,
-        "update_metadata",
-        autospec=True,
-        side_effect=record_publication_metadata,
-    ):
-        builder.build(num_records=1)
-        controller = AcceptanceController(
-            config=selection_config,
-            target_records=1,
-            buffer_size=1,
-            markers=builder._load_selection_markers(),
-        )
-        builder._publish_selection_result(controller, buffer_size=1)
-
-    assert [state for state, _publication_id in publication_events] == [
-        "pending",
-        "started",
-        "complete",
-        "pending",
-        "started",
-        "complete",
-    ]
-    first_attempt_ids = {publication_id for _state, publication_id in publication_events[:3]}
-    second_attempt_ids = {publication_id for _state, publication_id in publication_events[3:]}
-    assert len(first_attempt_ids) == 1
-    assert len(second_attempt_ids) == 1
-    assert first_attempt_ids != second_attempt_ids
-
-
-def test_record_selection_completed_legacy_artifact_migration_recovers_without_reprocessing(
-    stub_resource_provider,
-) -> None:
-    stub_resource_provider.run_config = RunConfig(
-        buffer_size=1,
-        display_tui=False,
-        preserve_dropped_columns=True,
-    )
-    config = DataDesignerConfigBuilder()
-    config.add_column(
-        SamplerColumnConfig(
-            name="keep",
-            sampler_type=SamplerType.CATEGORY,
-            params=CategorySamplerParams(values=[True]),
-        )
-    )
-    config.add_column(
-        SamplerColumnConfig(
-            name="payload",
-            sampler_type=SamplerType.CATEGORY,
-            params=CategorySamplerParams(values=["accepted"]),
-            drop=True,
-        )
-    )
-    config.add_processor(
-        SchemaTransformProcessorConfig(
-            name="formatted",
-            template={"value": "{{ payload }}"},
-        )
-    )
-    config.with_record_selection(RecordSelectionConfig(predicate_column="keep", max_candidate_records=100_001))
-    builder = DatasetBuilder(data_designer_config=config.build(), resource_provider=stub_resource_provider)
-
-    output_path = builder.build(num_records=1)
-    storage = builder.artifact_storage
-    metadata = storage.read_metadata()
-    previous_publication_id = metadata["record_selection"]["publication_id"]
-
-    accepted = storage.selection_accepted_path / "batch_000000.parquet"
-    accepted.rename(accepted.with_name("batch_00000.parquet"))
-    checkpoint = storage.selection_checkpoints_path / "batch_000000.json"
-    legacy_checkpoint = checkpoint.with_name("batch_00000.json")
-    checkpoint.rename(legacy_checkpoint)
-    checkpoint_payload = json.loads(legacy_checkpoint.read_text(encoding="utf-8"))
-    checkpoint_payload["accepted_partition"] = "selection-accepted/batch_00000.parquet"
-    legacy_checkpoint.write_text(json.dumps(checkpoint_payload), encoding="utf-8")
-    dropped = storage.dropped_columns_dataset_path / "batch_000000.parquet"
-    dropped.rename(dropped.with_name("batch_00000.parquet"))
-    processor = storage.processors_outputs_path / "formatted" / "batch_000000.parquet"
-    processor.rename(processor.with_name("batch_00000.parquet"))
-    metadata["file_paths"]["processor-files"]["formatted"] = ["processors-files/formatted/batch_00000.parquet"]
-    storage.write_metadata(metadata)
-
-    with (
-        patch.object(builder, "_load_selection_markers", side_effect=RuntimeError("simulated post-migration crash")),
-        pytest.raises(RuntimeError, match="simulated post-migration crash"),
-    ):
-        builder.build(num_records=1, resume=ResumeMode.ALWAYS)
-
-    interrupted_metadata = storage.read_metadata()
-    assert interrupted_metadata["post_generation_state"] == "started"
-    assert interrupted_metadata["record_selection_artifact_migration"] == {
-        "previously_complete": True,
-        "side_artifacts_deferred": False,
-    }
-    assert not storage.selection_artifact_migration_path.exists()
-    assert storage.selection_accepted_path.joinpath("batch_000000.parquet").is_file()
-    assert storage.selection_checkpoints_path.joinpath("batch_000000.json").is_file()
-
-    with patch.object(builder._processor_runner, "run_after_generation") as run_after_generation:
-        resumed_output = builder.build(num_records=1, resume=ResumeMode.ALWAYS)
-
-    refreshed_metadata = storage.read_metadata()
-    assert resumed_output == output_path
-    run_after_generation.assert_not_called()
-    assert refreshed_metadata["post_generation_state"] == "complete"
-    assert "record_selection_artifact_migration" not in refreshed_metadata
-    assert refreshed_metadata["record_selection"]["publication_id"] != previous_publication_id
-    assert refreshed_metadata["file_paths"]["processor-files"]["formatted"] == [
-        "processors-files/formatted/batch_000000.parquet"
-    ]
-
-
-def test_record_selection_completed_migration_keeps_unprocessed_boundary_artifacts_aligned(
-    stub_resource_provider: Any,
-) -> None:
-    builder, _after_generation_processor = _create_boundary_selection_builder(
-        stub_resource_provider,
-        after_generation=False,
-    )
-    storage = builder.artifact_storage
-    previous_publication_id = _rewrite_completed_selection_at_filename_boundary(
-        builder,
-        after_generation=False,
-    )
-
-    output_path = builder.build(num_records=2, resume=ResumeMode.ALWAYS)
-
-    metadata = storage.read_metadata()
-    assert output_path == storage.final_dataset_path
-    assert sorted(path.name for path in storage.final_dataset_path.glob("batch_*.parquet")) == [
-        "batch_00000.parquet",
-        "batch_00001.parquet",
-    ]
-    assert sorted(path.name for path in storage.selection_accepted_path.glob("batch_*.parquet")) == [
-        "batch_000000.parquet",
-        "batch_000001.parquet",
-    ]
-    assert sorted(path.name for path in storage.dropped_columns_dataset_path.glob("batch_*.parquet")) == [
-        "batch_099999.parquet",
-        "batch_100000.parquet",
-    ]
-    assert storage.load_dataset_with_dropped_columns().to_dict(orient="records") == [
-        {"value": 99_999, "dropped": 99_999},
-        {"value": 100_000, "dropped": 100_000},
-    ]
-    assert storage.load_processor_dataset("formatted")["value"].tolist() == [99_999, 100_000]
-    assert metadata["post_generation_state"] == "complete"
-    assert metadata["record_selection"]["publication_id"] != previous_publication_id
-    assert "record_selection_artifact_migration" not in metadata
-
-
-def test_record_selection_completed_migration_defers_processed_side_artifacts_without_reprocessing(
-    stub_resource_provider: Any,
-) -> None:
-    builder, after_generation_processor = _create_boundary_selection_builder(
-        stub_resource_provider,
-        after_generation=True,
-    )
-    assert after_generation_processor is not None
-    storage = builder.artifact_storage
-    previous_publication_id = _rewrite_completed_selection_at_filename_boundary(
-        builder,
-        after_generation=True,
-    )
-
-    with (
-        patch.object(builder, "_load_selection_markers", side_effect=RuntimeError("simulated post-migration crash")),
-        pytest.raises(RuntimeError, match="simulated post-migration crash"),
-    ):
-        builder.build(num_records=2, resume=ResumeMode.ALWAYS)
-
-    interrupted_metadata = storage.read_metadata()
-    assert interrupted_metadata["record_selection_artifact_migration"] == {
-        "previously_complete": True,
-        "side_artifacts_deferred": True,
-    }
-    assert sorted(path.name for path in storage.selection_accepted_path.glob("batch_*.parquet")) == [
-        "batch_000000.parquet",
-        "batch_000001.parquet",
-    ]
-    assert sorted(path.name for path in storage.dropped_columns_dataset_path.glob("batch_*.parquet")) == [
-        "batch_100000.parquet",
-        "batch_99999.parquet",
-    ]
-
-    output_path = builder.build(num_records=2, resume=ResumeMode.ALWAYS)
-
-    metadata = storage.read_metadata()
-    assert output_path == storage.final_dataset_path
-    after_generation_processor.process_after_generation.assert_not_called()
-    assert storage.load_dataset_with_dropped_columns().to_dict(orient="records") == [
-        {"value": 100_000, "dropped": 100_000},
-        {"value": 99_999, "dropped": 99_999},
-    ]
-    assert storage.load_processor_dataset("formatted")["value"].tolist() == [100_000, 99_999]
-    assert metadata["record_selection"]["publication_id"] != previous_publication_id
-    assert "record_selection_artifact_migration" not in metadata
-
-    current_publication_id = metadata["record_selection"]["publication_id"]
-    builder.build(num_records=2, resume=ResumeMode.ALWAYS)
-
-    after_generation_processor.process_after_generation.assert_not_called()
-    assert storage.read_metadata()["record_selection"]["publication_id"] == current_publication_id
-    assert sorted(path.name for path in storage.dropped_columns_dataset_path.glob("batch_*.parquet")) == [
-        "batch_100000.parquet",
-        "batch_99999.parquet",
-    ]
-
-
-def test_record_selection_failed_processed_reuse_persists_full_migration_before_republication(
-    stub_resource_provider: Any,
-) -> None:
-    builder, after_generation_processor = _create_boundary_selection_builder(
-        stub_resource_provider,
-        after_generation=True,
-    )
-    assert after_generation_processor is not None
-    storage = builder.artifact_storage
-    _rewrite_completed_selection_at_filename_boundary(
-        builder,
-        after_generation=True,
-        valid_publication=False,
-    )
-    original_normalize = storage.normalize_selection_candidate_artifact_width
-    normalization_scopes: list[bool] = []
-
-    def interrupt_deferred_migration(
-        _storage: ArtifactStorage,
-        *,
-        include_side_artifacts: bool = True,
-    ) -> bool:
-        normalization_scopes.append(include_side_artifacts)
-        if include_side_artifacts:
-            raise OSError("simulated deferred migration interruption")
-        return original_normalize(include_side_artifacts=include_side_artifacts)
-
-    with (
-        patch.object(
-            ArtifactStorage,
-            "normalize_selection_candidate_artifact_width",
-            autospec=True,
-            side_effect=interrupt_deferred_migration,
-        ),
-        pytest.raises(OSError, match="simulated deferred migration interruption"),
-    ):
-        builder.build(num_records=2, resume=ResumeMode.ALWAYS)
-
-    interrupted_metadata = storage.read_metadata()
-    assert normalization_scopes == [False, True]
-    assert interrupted_metadata["record_selection_artifact_migration"] == {
-        "previously_complete": True,
-        "side_artifacts_deferred": False,
-    }
-    assert sorted(path.name for path in storage.dropped_columns_dataset_path.glob("batch_*.parquet")) == [
-        "batch_100000.parquet",
-        "batch_99999.parquet",
-    ]
-    after_generation_processor.process_after_generation.assert_not_called()
-
-    output_path = builder.build(num_records=2, resume=ResumeMode.ALWAYS)
-
-    metadata = storage.read_metadata()
-    assert output_path == storage.final_dataset_path
-    after_generation_processor.process_after_generation.assert_called_once()
-    assert sorted(path.name for path in storage.dropped_columns_dataset_path.glob("batch_*.parquet")) == [
-        "batch_099999.parquet",
-        "batch_100000.parquet",
-    ]
-    assert storage.load_dataset_with_dropped_columns().to_dict(orient="records") == [
-        {"value": 99_999, "dropped": 99_999},
-        {"value": 100_000, "dropped": 100_000},
-    ]
-    assert storage.load_processor_dataset("formatted")["value"].tolist() == [99_999, 100_000]
-    assert metadata["post_generation_state"] == "complete"
-    assert "record_selection_artifact_migration" not in metadata
-
-
-@pytest.mark.parametrize("stored_publication_id", [None, "", "   "])
-def test_record_selection_resume_migrates_completed_publication_without_valid_id(
-    stub_resource_provider,
-    stored_publication_id: str | None,
-) -> None:
-    stub_resource_provider.run_config = RunConfig(buffer_size=1, display_tui=False)
-    config = DataDesignerConfigBuilder()
-    config.add_column(
-        SamplerColumnConfig(
-            name="keep",
-            sampler_type=SamplerType.CATEGORY,
-            params=CategorySamplerParams(values=[True]),
-        )
-    )
-    config.with_record_selection(RecordSelectionConfig(predicate_column="keep", max_candidate_records=1))
-    builder = DatasetBuilder(data_designer_config=config.build(), resource_provider=stub_resource_provider)
-
-    output_path = builder.build(num_records=1)
-    metadata = builder.artifact_storage.read_metadata()
-    previous_publication_id = metadata["record_selection"]["publication_id"]
-    if stored_publication_id is None:
-        metadata["record_selection"].pop("publication_id")
-    else:
-        metadata["record_selection"]["publication_id"] = stored_publication_id
-    builder.artifact_storage.write_metadata(metadata)
-
-    resumed_output_path = builder.build(num_records=1, resume=ResumeMode.ALWAYS)
-
-    migrated_publication_id = builder.artifact_storage.read_metadata()["record_selection"]["publication_id"]
-    assert resumed_output_path == output_path
-    assert isinstance(migrated_publication_id, str)
-    assert migrated_publication_id
-    assert migrated_publication_id != previous_publication_id
+    assert schema_write_count == 1
+    markers = builder.artifact_storage.read_selection_checkpoints()
+    assert [marker["schema_materialized"] for marker in markers] == [False, True, False]
+    assert [marker["stopped_early"] for marker in markers] == [False, False, False]
+    assert all("non_retryable_error" in marker for marker in markers)
 
 
 def test_record_selection_normalizes_corrupt_accepted_partition_error(stub_resource_provider) -> None:

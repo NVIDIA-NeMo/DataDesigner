@@ -4,9 +4,7 @@
 from __future__ import annotations
 
 import json
-import os
 from datetime import datetime
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -87,209 +85,6 @@ def test_configure_selection_batch_file_width_covers_entire_candidate_budget(stu
     assert stub_artifact_storage.selection_partition_path(99_999).name == "batch_099999.parquet"
     assert stub_artifact_storage.selection_partition_path(100_000).name == "batch_100000.parquet"
     assert stub_artifact_storage.selection_checkpoint_path(100_000).name == "batch_100000.json"
-
-
-def test_selection_candidate_artifact_migration_normalizes_legacy_boundary_names(
-    stub_artifact_storage: ArtifactStorage,
-) -> None:
-    processor_name = "formatted"
-    for batch_id in (99_999, 100_000):
-        dataframe = lazy.pd.DataFrame({"value": [batch_id]})
-        partition = stub_artifact_storage.write_selection_partition(batch_id, dataframe)
-        stub_artifact_storage.write_selection_checkpoint(
-            batch_id,
-            {
-                "candidate_batch_id": batch_id,
-                "accepted_partition": partition.relative_to(stub_artifact_storage.base_dataset_path).as_posix(),
-            },
-        )
-        stub_artifact_storage.write_batch_to_parquet_file(
-            batch_id,
-            dataframe.rename(columns={"value": "dropped"}),
-            BatchStage.DROPPED_COLUMNS,
-        )
-        stub_artifact_storage.write_batch_to_parquet_file(
-            batch_id,
-            dataframe,
-            BatchStage.PROCESSORS_OUTPUTS,
-            subfolder=processor_name,
-        )
-
-    stub_artifact_storage.configure_selection_batch_file_width(
-        max_candidate_records=100_001,
-        candidate_batch_size=1,
-    )
-
-    assert stub_artifact_storage.requires_selection_candidate_artifact_migration()
-    assert stub_artifact_storage.normalize_selection_candidate_artifact_width()
-
-    expected_names = ["batch_099999.parquet", "batch_100000.parquet"]
-    assert sorted(path.name for path in stub_artifact_storage.selection_accepted_path.glob("batch_*.parquet")) == (
-        expected_names
-    )
-    assert sorted(path.name for path in stub_artifact_storage.dropped_columns_dataset_path.glob("batch_*.parquet")) == (
-        expected_names
-    )
-    assert (
-        sorted(
-            path.name
-            for path in (stub_artifact_storage.processors_outputs_path / processor_name).glob("batch_*.parquet")
-        )
-        == expected_names
-    )
-    checkpoints = stub_artifact_storage.read_selection_checkpoints()
-    assert [checkpoint["accepted_partition"] for checkpoint in checkpoints] == [
-        "selection-accepted/batch_099999.parquet",
-        "selection-accepted/batch_100000.parquet",
-    ]
-    assert not stub_artifact_storage.requires_selection_candidate_artifact_migration()
-    assert not stub_artifact_storage.normalize_selection_candidate_artifact_width()
-
-
-def test_selection_candidate_artifact_migration_keeps_zero_prefix_side_artifacts_aligned(
-    stub_artifact_storage: ArtifactStorage,
-) -> None:
-    processor_name = "formatted"
-    for batch_id in range(3):
-        stub_artifact_storage.write_selection_checkpoint(
-            batch_id,
-            {"candidate_batch_id": batch_id, "accepted_partition": None},
-        )
-        stub_artifact_storage.write_batch_to_parquet_file(
-            batch_id,
-            lazy.pd.DataFrame({"dropped": lazy.pd.Series(dtype="string")}),
-            BatchStage.DROPPED_COLUMNS,
-        )
-        stub_artifact_storage.write_batch_to_parquet_file(
-            batch_id,
-            lazy.pd.DataFrame({"value": lazy.pd.Series(dtype="int64")}),
-            BatchStage.PROCESSORS_OUTPUTS,
-            subfolder=processor_name,
-        )
-
-    stub_artifact_storage.configure_selection_batch_file_width(
-        max_candidate_records=100_001,
-        candidate_batch_size=1,
-    )
-    assert stub_artifact_storage.normalize_selection_candidate_artifact_width()
-
-    stub_artifact_storage.write_batch_to_parquet_file(
-        0,
-        lazy.pd.DataFrame({"value": [3]}),
-        BatchStage.FINAL_RESULT,
-    )
-    stub_artifact_storage.write_batch_to_parquet_file(
-        3,
-        lazy.pd.DataFrame({"dropped": ["accepted"]}),
-        BatchStage.DROPPED_COLUMNS,
-    )
-    stub_artifact_storage.write_batch_to_parquet_file(
-        3,
-        lazy.pd.DataFrame({"value": [3]}),
-        BatchStage.PROCESSORS_OUTPUTS,
-        subfolder=processor_name,
-    )
-
-    assert stub_artifact_storage.load_dataset_with_dropped_columns().to_dict(orient="records") == [
-        {"value": 3, "dropped": "accepted"}
-    ]
-    assert stub_artifact_storage.load_processor_dataset(processor_name)["value"].tolist() == [3]
-    assert all(
-        len(path.stem.removeprefix("batch_")) == 6
-        for path in stub_artifact_storage.dropped_columns_dataset_path.glob("batch_*.parquet")
-    )
-
-
-@pytest.mark.parametrize("interrupt_phase", ["staging", "committing"])
-def test_selection_candidate_artifact_migration_recovers_after_interruption(
-    stub_artifact_storage: ArtifactStorage,
-    interrupt_phase: str,
-) -> None:
-    partition = stub_artifact_storage.write_selection_partition(0, lazy.pd.DataFrame({"value": [1]}))
-    stub_artifact_storage.write_selection_checkpoint(
-        0,
-        {
-            "candidate_batch_id": 0,
-            "accepted_partition": partition.relative_to(stub_artifact_storage.base_dataset_path).as_posix(),
-        },
-    )
-    stub_artifact_storage.final_dataset_path.mkdir(parents=True)
-    for batch_id in (99_999, 100_000):
-        lazy.pd.DataFrame({"value": [batch_id]}).to_parquet(
-            stub_artifact_storage.final_dataset_path / f"batch_{batch_id}.parquet",
-            index=False,
-        )
-    stub_artifact_storage.configure_selection_batch_file_width(
-        max_candidate_records=100_001,
-        candidate_batch_size=1,
-    )
-    original_replace = os.replace
-    publication_replace_interrupted = False
-
-    def interrupt_publication_artifact(source: Path | str, target: Path | str) -> None:
-        nonlocal publication_replace_interrupted
-        source_path = Path(source)
-        target_path = Path(target)
-        source_name = source_path.name
-        target_name = target_path.name
-        is_matching_phase = (
-            interrupt_phase == "staging"
-            and source_path.parent == stub_artifact_storage.final_dataset_path
-            and ".selection-migration-" in target_name
-        ) or (
-            interrupt_phase == "committing"
-            and target_path.parent == stub_artifact_storage.final_dataset_path
-            and ".selection-migration-" in source_name
-            and ".selection-migration-" not in target_name
-        )
-        if is_matching_phase and not publication_replace_interrupted:
-            publication_replace_interrupted = True
-            raise OSError("simulated migration interruption")
-        original_replace(source, target)
-
-    with (
-        patch(
-            "data_designer.engine.storage.artifact_storage.os.replace",
-            side_effect=interrupt_publication_artifact,
-        ),
-        pytest.raises(OSError, match="simulated migration interruption"),
-    ):
-        stub_artifact_storage.normalize_selection_candidate_artifact_width()
-
-    assert stub_artifact_storage.selection_artifact_migration_path.is_file()
-    journal = json.loads(stub_artifact_storage.selection_artifact_migration_path.read_text(encoding="utf-8"))
-    assert journal["phase"] == ("planned" if interrupt_phase == "staging" else "committing")
-    assert any(operation["source"].startswith("parquet-files/") for operation in journal["operations"])
-    assert stub_artifact_storage.normalize_selection_candidate_artifact_width()
-    assert not stub_artifact_storage.selection_artifact_migration_path.exists()
-    assert stub_artifact_storage.selection_partition_path(0).is_file()
-    assert stub_artifact_storage.read_selection_checkpoints()[0]["accepted_partition"] == (
-        "selection-accepted/batch_000000.parquet"
-    )
-    assert sorted(path.name for path in stub_artifact_storage.final_dataset_path.glob("batch_*.parquet")) == [
-        "batch_00000.parquet",
-        "batch_00001.parquet",
-    ]
-    assert stub_artifact_storage.load_dataset()["value"].tolist() == [99_999, 100_000]
-    assert not stub_artifact_storage.normalize_selection_candidate_artifact_width()
-
-
-def test_selection_candidate_artifact_migration_ignores_current_publication_names(
-    stub_artifact_storage: ArtifactStorage,
-) -> None:
-    stub_artifact_storage.final_dataset_path.mkdir(parents=True)
-    for batch_id in range(2):
-        lazy.pd.DataFrame({"value": [batch_id]}).to_parquet(
-            stub_artifact_storage.final_dataset_path / f"batch_{batch_id:05d}.parquet",
-            index=False,
-        )
-    stub_artifact_storage.configure_selection_batch_file_width(
-        max_candidate_records=100_001,
-        candidate_batch_size=1,
-    )
-
-    assert not stub_artifact_storage.requires_selection_candidate_artifact_migration()
-    assert not stub_artifact_storage.normalize_selection_candidate_artifact_width()
 
 
 @pytest.mark.parametrize(
@@ -939,12 +734,13 @@ def test_selection_media_promotion_rewrites_duplicate_references(stub_artifact_s
 def test_clean_uncommitted_selection_batch_removes_promoted_media_and_side_artifacts(
     stub_artifact_storage, stub_sample_dataframe
 ) -> None:
+    stub_artifact_storage.media_storage.images_subdir = "custom-images"
     stub_artifact_storage.begin_selection_media_batch(5)
-    staging = stub_artifact_storage.selection_media_staging_path / "batch_00005" / "images" / "picture"
+    staging = stub_artifact_storage.selection_media_staging_path / "batch_00005" / "custom-images" / "picture"
     staging.mkdir(parents=True)
     (staging / "accepted.png").write_bytes(b"accepted")
     promoted = stub_artifact_storage.promote_selection_media(
-        lazy.pd.DataFrame({"image": ["images/picture/accepted.png"]}),
+        lazy.pd.DataFrame({"image": ["custom-images/picture/accepted.png"]}),
         5,
     )
     stub_artifact_storage.write_batch_to_parquet_file(

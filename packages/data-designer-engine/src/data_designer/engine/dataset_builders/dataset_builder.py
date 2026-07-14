@@ -79,7 +79,6 @@ from data_designer.engine.resources.resource_provider import ResourceProvider
 from data_designer.engine.storage.artifact_storage import (
     METADATA_FILENAME,
     SDG_CONFIG_FILENAME,
-    SELECTION_ARTIFACT_MIGRATION_FILENAME,
     ArtifactStorage,
     ResumeMode,
 )
@@ -97,11 +96,6 @@ logger = logging.getLogger(__name__)
 
 _CLIENT_VERSION: str = get_library_version()
 PRESERVE_DROPPED_COLUMNS_METADATA_KEY = "preserve_dropped_columns"
-_SELECTION_TERMINAL_ERROR_KEY = "terminal_error"
-_SELECTION_EARLY_SHUTDOWN_KIND = "early_shutdown"
-_SELECTION_GENERATION_ERROR_KIND = "generation_error"
-_SELECTION_ARTIFACT_MIGRATION_METADATA_KEY = "record_selection_artifact_migration"
-_SELECTION_ARTIFACT_MIGRATION_DEFER_SIDE_KEY = "side_artifacts_deferred"
 
 
 def _is_async_trace_enabled(settings: RunConfig) -> bool:
@@ -132,34 +126,12 @@ class _SelectionPostCommitError(DatasetGenerationError):
     """A transient failure after a candidate checkpoint reached durable storage."""
 
 
-class _SelectionCallbackError(_SelectionPostCommitError):
-    """A post-commit callback error that must remain resumable."""
-
-
-@dataclass(slots=True)
-class _SelectionSchemaState:
-    """Track whether the durable selection schema is a fallback or materialized anchor."""
-
-    is_written: bool
-    is_materialized: bool
-
-
-@dataclass(frozen=True, slots=True)
-class _SelectionArtifactMigrationState:
-    """Describe how legacy artifact migration affects an existing publication."""
-
-    previously_completed_publication: bool
-    side_artifacts_deferred: bool
-    publication_refresh_required: bool
-
-
 @dataclass(slots=True)
 class _SelectionCandidateBatchRuntime:
     """Mutable state shared by one candidate batch and its scheduler callbacks."""
 
     controller: AcceptanceController
     batch: CandidateBatch
-    schema_state: _SelectionSchemaState
     on_batch_complete: Callable[[Path], None] | None
     media_staged: bool
     decision: SelectionDecision | None = None
@@ -899,7 +871,7 @@ class DatasetBuilder:
             self.artifact_storage.partial_results_folder_name,
             self.artifact_storage.dropped_columns_folder_name,
             self.artifact_storage.processors_outputs_folder_name,
-            "images",
+            self.artifact_storage.media_storage.images_subdir,
             "selection-accepted",
             "selection-checkpoints",
             "selection-media-staging",
@@ -912,7 +884,6 @@ class DatasetBuilder:
         for name in (
             METADATA_FILENAME,
             SDG_CONFIG_FILENAME,
-            SELECTION_ARTIFACT_MIGRATION_FILENAME,
             "scheduler_events.jsonl",
         ):
             (dataset_dir / name).unlink(missing_ok=True)
@@ -935,17 +906,15 @@ class DatasetBuilder:
             max_candidate_records=config.max_candidate_records,
             candidate_batch_size=min(buffer_size, target_num_records),
         )
-        migration = self._prepare_selection_artifact_migration(resume=resume)
-        controller, schema_state, stored_selection = self._restore_selection_run(
+        controller, completed_publication = self._restore_selection_run(
             config=config,
             target_num_records=target_num_records,
             buffer_size=buffer_size,
             resume=resume,
         )
-        if self._reconcile_completed_selection_publication(
+        if self._reuse_completed_selection_publication(
             controller,
-            migration=migration,
-            stored_selection=stored_selection,
+            completed_publication=completed_publication,
         ):
             return
 
@@ -953,75 +922,12 @@ class DatasetBuilder:
         self._run_selection_candidate_batches(
             generators,
             controller=controller,
-            schema_state=schema_state,
             on_batch_complete=on_batch_complete,
         )
         self._finalize_selection_build(
             controller,
             target_num_records=target_num_records,
             buffer_size=buffer_size,
-        )
-
-    def _prepare_selection_artifact_migration(
-        self,
-        *,
-        resume: ResumeMode,
-    ) -> _SelectionArtifactMigrationState:
-        """Normalize legacy candidate artifact names without exposing a mixed publication."""
-        migration_metadata: dict[str, Any] = {}
-        if resume == ResumeMode.ALWAYS and self.artifact_storage.metadata_file_path.is_file():
-            migration_metadata = self.artifact_storage.read_metadata()
-        persisted_migration = migration_metadata.get(_SELECTION_ARTIFACT_MIGRATION_METADATA_KEY)
-        persisted_completed_publication = (
-            isinstance(persisted_migration, dict) and persisted_migration.get("previously_complete") is True
-        )
-        migrated_completed_publication = (
-            persisted_completed_publication or migration_metadata.get("post_generation_state") == "complete"
-        )
-        has_after_generation_processors = self._processor_runner.has_processors_for(ProcessorStage.AFTER_GENERATION)
-        if (
-            isinstance(persisted_migration, dict)
-            and _SELECTION_ARTIFACT_MIGRATION_DEFER_SIDE_KEY in persisted_migration
-        ):
-            deferred_value = persisted_migration[_SELECTION_ARTIFACT_MIGRATION_DEFER_SIDE_KEY]
-            if not isinstance(deferred_value, bool):
-                raise DatasetGenerationError("🛑 Record-selection artifact migration metadata is invalid.")
-            side_artifacts_deferred = deferred_value
-        else:
-            side_artifacts_deferred = migrated_completed_publication and has_after_generation_processors
-        include_side_artifacts = not side_artifacts_deferred
-        migration_needed = (
-            resume == ResumeMode.ALWAYS
-            and self.artifact_storage.requires_selection_candidate_artifact_migration(
-                include_side_artifacts=include_side_artifacts,
-            )
-        )
-        publication_refresh_required = persisted_completed_publication
-        if migration_needed:
-            if self.artifact_storage.metadata_file_path.is_file():
-                # Invalidate the old publication before the first rename so a
-                # concurrent uploader cannot accept a mixed-width snapshot.
-                migration_updates: dict[str, Any] = {
-                    "post_generation_state": "started",
-                    "post_generation_processed": False,
-                }
-                if migrated_completed_publication:
-                    migration_updates[_SELECTION_ARTIFACT_MIGRATION_METADATA_KEY] = {
-                        "previously_complete": True,
-                        _SELECTION_ARTIFACT_MIGRATION_DEFER_SIDE_KEY: side_artifacts_deferred,
-                    }
-                self.artifact_storage.update_metadata(migration_updates)
-            publication_refresh_required = (
-                self.artifact_storage.normalize_selection_candidate_artifact_width(
-                    include_side_artifacts=include_side_artifacts,
-                )
-                or publication_refresh_required
-            )
-
-        return _SelectionArtifactMigrationState(
-            previously_completed_publication=migrated_completed_publication,
-            side_artifacts_deferred=side_artifacts_deferred,
-            publication_refresh_required=publication_refresh_required,
         )
 
     def _restore_selection_run(
@@ -1031,7 +937,7 @@ class DatasetBuilder:
         target_num_records: int,
         buffer_size: int,
         resume: ResumeMode,
-    ) -> tuple[AcceptanceController, _SelectionSchemaState, dict[str, Any] | None]:
+    ) -> tuple[AcceptanceController, bool]:
         """Restore durable selection progress and prepare it for generation or publication."""
         markers = self._load_selection_markers() if resume == ResumeMode.ALWAYS else ()
         try:
@@ -1050,51 +956,31 @@ class DatasetBuilder:
                 existing_metadata = self.artifact_storage.read_metadata()
             except (OSError, json.JSONDecodeError):
                 existing_metadata = {}
-        stored_selection_value = existing_metadata.get("record_selection")
-        stored_selection = stored_selection_value if isinstance(stored_selection_value, dict) else None
-        terminal_error: object | None = None
-        stored_batches = 0
-        if stored_selection is not None:
-            stored_batches = stored_selection.get("candidate_batches_completed", 0)
-            if isinstance(stored_batches, int) and stored_batches > controller.candidate_batches_completed:
-                raise DatasetGenerationError(
-                    "🛑 Cannot resume record selection: metadata reports more completed candidate batches "
-                    "than the durable checkpoint directory. Restore the missing checkpoints or start fresh."
-                )
-            terminal_error = stored_selection.get(_SELECTION_TERMINAL_ERROR_KEY)
-
-        # Checkpoints are the source of truth for committed candidate work. A
-        # marker-level failure survives the crash window before metadata catches up.
-        # When checkpoints are ahead, the newest marker's explicit lack of a
-        # terminal error must also supersede stale terminal metadata.
-        if controller.terminal_error is not None:
-            terminal_error = controller.terminal_error
-        elif isinstance(stored_batches, int) and controller.candidate_batches_completed > stored_batches:
-            terminal_error = None
-
-        if terminal_error is None:
-            terminal_error = self._derive_nonretryable_selection_terminal_error(controller)
 
         self.artifact_storage.clear_selection_transient_artifacts()
         self.artifact_storage.clean_uncommitted_selection_batch(controller.candidate_batches_completed)
         self._validate_selection_partitions(controller.markers)
-        schema_state = self._hydrate_selection_schema_state(controller)
+        self._restore_committed_selection_schema(controller)
         self._actual_num_records = controller.accepted_records
 
         if resume == ResumeMode.ALWAYS:
-            self._raise_unrecoverable_selection_terminal_error(controller, terminal_error)
+            if controller.last_batch_stopped_early and controller.is_exhausted:
+                raise RecordSelectionEarlyShutdownError(candidate_budget_remaining=False)
+            self._raise_nonretryable_empty_partial(controller)
 
-        return controller, schema_state, stored_selection
+        completed_publication = (
+            resume == ResumeMode.ALWAYS and existing_metadata.get("post_generation_state") == "complete"
+        )
+        return controller, completed_publication
 
-    def _reconcile_completed_selection_publication(
+    def _reuse_completed_selection_publication(
         self,
         controller: AcceptanceController,
         *,
-        migration: _SelectionArtifactMigrationState,
-        stored_selection: dict[str, Any] | None,
+        completed_publication: bool,
     ) -> bool:
-        """Reuse a valid completed publication or invalidate it before rebuilding."""
-        if not migration.previously_completed_publication:
+        """Reuse a valid completed publication or mark it incomplete for rebuilding."""
+        if not completed_publication:
             return False
 
         terminal_selection = controller.has_reached_target or controller.is_exhausted
@@ -1105,140 +991,47 @@ class DatasetBuilder:
             except (OSError, lazy.pa.ArrowInvalid):
                 final_count = None
             publication_reusable = bool(published_files) and final_count == controller.accepted_records
-            stored_publication_id = stored_selection.get("publication_id") if stored_selection is not None else None
-            if publication_reusable and migration.publication_refresh_required:
-                self._write_selection_metadata(
-                    controller,
-                    post_generation_state="complete",
-                    publication_id=uuid.uuid4().hex,
-                )
-                self._clear_selection_artifact_migration_metadata()
-                logger.warning(
-                    "▶️ Migrated legacy record-selection artifact names and refreshed the completed publication."
-                )
-                return True
-            if (
-                publication_reusable
-                and not migration.publication_refresh_required
-                and isinstance(stored_publication_id, str)
-                and stored_publication_id.strip()
-            ):
+            if publication_reusable:
                 logger.warning("▶️ Record-selection dataset is already complete; nothing to resume.")
                 return True
-            if publication_reusable:
-                logger.warning(
-                    "⚠️ Completed record-selection publication has no publication ID; rebuilding the "
-                    "published view to migrate it to the current atomic-upload protocol."
-                )
-            else:
-                logger.warning(
-                    "⚠️ Completed record-selection publication contains %s rows, but committed markers contain %d; "
-                    "rebuilding the published view from immutable accepted partitions.",
-                    final_count if final_count is not None else "unreadable",
-                    controller.accepted_records,
-                )
-
-        self._invalidate_completed_selection_publication(migration)
-        return False
-
-    def _invalidate_completed_selection_publication(
-        self,
-        migration: _SelectionArtifactMigrationState,
-    ) -> None:
-        """Move a completed publication back to an explicitly incomplete rebuild state."""
-        migration_updates: dict[str, Any] = {
-            "post_generation_state": "started",
-            "post_generation_processed": False,
-        }
-        if migration.side_artifacts_deferred:
-            migration_updates[_SELECTION_ARTIFACT_MIGRATION_METADATA_KEY] = {
-                "previously_complete": True,
-                _SELECTION_ARTIFACT_MIGRATION_DEFER_SIDE_KEY: False,
-            }
-        self.artifact_storage.update_metadata(migration_updates)
-        if migration.side_artifacts_deferred:
-            self.artifact_storage.normalize_selection_candidate_artifact_width(
-                include_side_artifacts=True,
+            logger.warning(
+                "⚠️ Completed record-selection publication contains %s rows, but committed markers contain %d; "
+                "rebuilding the published view from immutable accepted partitions.",
+                final_count if final_count is not None else "unreadable",
+                controller.accepted_records,
             )
-        # The old completed publication is not reusable. Drop migration
-        # provenance before rebuilding so a crash during processors cannot
-        # be mistaken for the untouched pre-migration publication.
-        self._clear_selection_artifact_migration_metadata()
+
+        self.artifact_storage.update_metadata({"post_generation_state": "started", "post_generation_processed": False})
+        return False
 
     def _run_selection_candidate_batches(
         self,
         generators: list[ColumnGenerator],
         *,
         controller: AcceptanceController,
-        schema_state: _SelectionSchemaState,
         on_batch_complete: Callable[[Path], None] | None,
     ) -> None:
         """Generate and durably commit candidate batches until selection terminates."""
         while not controller.has_reached_target and controller.has_candidate_budget:
             batch = controller.next_candidate_batch()
-            try:
-                self._run_candidate_batch(
-                    generators,
-                    controller=controller,
-                    batch=batch,
-                    on_batch_complete=on_batch_complete,
-                    schema_state=schema_state,
-                )
-            except _SelectionPostCommitError:
-                raise
-            except Exception as exc:
-                self._persist_selection_generation_error(controller, batch=batch, error=exc)
-                raise
-            self._raise_if_selection_stopped_early(controller, batch=batch)
-
-    def _persist_selection_generation_error(
-        self,
-        controller: AcceptanceController,
-        *,
-        batch: CandidateBatch,
-        error: Exception,
-    ) -> None:
-        """Attach a fatal post-checkpoint generation error to the durable marker."""
-        if not self.artifact_storage.selection_checkpoint_path(batch.candidate_batch_id).is_file():
-            return
-        terminal_error = {
-            "kind": _SELECTION_GENERATION_ERROR_KIND,
-            "message": str(error),
-        }
-        marker = controller.replace_last_marker_terminal_error(terminal_error)
-        self.artifact_storage.write_selection_checkpoint(batch.candidate_batch_id, marker.to_dict())
-        try:
-            self._write_selection_metadata(controller, terminal_error=terminal_error)
-        except Exception:
-            logger.warning(
-                "⚠️ Failed to mirror a durable record-selection terminal error into metadata.",
-                exc_info=True,
+            self._run_candidate_batch(
+                generators,
+                controller=controller,
+                batch=batch,
+                on_batch_complete=on_batch_complete,
             )
+            self._raise_if_selection_stopped_early(controller)
 
     def _raise_if_selection_stopped_early(
         self,
         controller: AcceptanceController,
-        *,
-        batch: CandidateBatch,
     ) -> None:
-        """Persist and raise the structured error for scheduler early shutdown."""
+        """Raise the structured error for scheduler early shutdown."""
         if not self._early_shutdown or controller.has_reached_target:
             return
-        error = RecordSelectionEarlyShutdownError(
+        raise RecordSelectionEarlyShutdownError(
             candidate_budget_remaining=controller.has_candidate_budget,
         )
-        terminal_error = {
-            "kind": _SELECTION_EARLY_SHUTDOWN_KIND,
-            "message": str(error),
-        }
-        if controller.terminal_error is None and controller.candidate_batches_completed > batch.candidate_batch_id:
-            marker = controller.replace_last_marker_terminal_error(terminal_error)
-            self.artifact_storage.write_selection_checkpoint(marker.candidate_batch_id, marker.to_dict())
-        self._write_selection_metadata(
-            controller,
-            terminal_error=terminal_error,
-        )
-        raise error
 
     def _finalize_selection_build(
         self,
@@ -1258,13 +1051,8 @@ class DatasetBuilder:
                 max_candidate_records=controller.config.max_candidate_records,
             )
 
-        terminal_error = self._derive_nonretryable_selection_terminal_error(controller)
-        if terminal_error is not None:
-            marker = controller.replace_last_marker_terminal_error(terminal_error)
-            self.artifact_storage.write_selection_checkpoint(marker.candidate_batch_id, marker.to_dict())
-            self._write_selection_metadata(controller, terminal_error=terminal_error)
-            raise DatasetGenerationError(terminal_error["message"])
-
+        self._raise_nonretryable_empty_partial(controller)
+        self._ensure_selection_schema(controller)
         self._publish_selection_result(controller, buffer_size)
 
     def _run_candidate_batch(
@@ -1274,18 +1062,14 @@ class DatasetBuilder:
         controller: AcceptanceController,
         batch: CandidateBatch,
         on_batch_complete: Callable[[Path], None] | None,
-        schema_state: _SelectionSchemaState | None = None,
     ) -> None:
         """Run and durably commit one candidate batch."""
         settings = self._resource_provider.run_config
         trace_enabled = _is_async_trace_enabled(settings)
-        if schema_state is None:
-            schema_state = self._hydrate_selection_schema_state(controller)
         media_staged = self._has_image_columns() and self.artifact_storage.media_storage.mode == StorageMode.DISK
         runtime = _SelectionCandidateBatchRuntime(
             controller=controller,
             batch=batch,
-            schema_state=schema_state,
             on_batch_complete=on_batch_complete,
             media_staged=media_staged,
         )
@@ -1372,7 +1156,7 @@ class DatasetBuilder:
                 try:
                     runtime.on_batch_complete(partition_path)
                 except Exception as exc:
-                    raise _SelectionCallbackError(str(exc)) from exc
+                    raise _SelectionPostCommitError(str(exc)) from exc
         except DatasetGenerationError:
             raise
         except Exception as exc:
@@ -1395,8 +1179,9 @@ class DatasetBuilder:
                 "🛑 Post-batch processing changed the selected row count from "
                 f"{decision.accepted_records} to {len(dataframe)}."
             )
-        self._update_selection_schema(runtime.schema_state, dataframe=dataframe)
-
+        schema_materialized = len(dataframe.columns) > 0
+        if schema_materialized and not self.artifact_storage.selection_schema_path.is_file():
+            self.artifact_storage.write_selection_schema(dataframe)
         partition_path: Path | None = None
         partition_relative: str | None = None
         if len(dataframe) > 0:
@@ -1406,14 +1191,14 @@ class DatasetBuilder:
             )
             partition_relative = str(partition_path.relative_to(self.artifact_storage.base_dataset_path))
 
-        non_retryable_error, terminal_error = self._selection_candidate_diagnostics(runtime, decision=decision)
+        non_retryable_error, stopped_early = self._selection_candidate_diagnostics(runtime, decision=decision)
         marker = runtime.controller.record_checkpoint(
             batch=runtime.batch,
             decision=decision,
             accepted_partition=partition_relative,
-            schema_materialized=runtime.schema_state.is_materialized,
+            schema_materialized=schema_materialized,
             non_retryable_error=non_retryable_error,
-            terminal_error=terminal_error,
+            stopped_early=stopped_early,
         )
         self.artifact_storage.write_selection_checkpoint(
             runtime.batch.candidate_batch_id,
@@ -1422,60 +1207,22 @@ class DatasetBuilder:
         runtime.checkpoint_committed = True
         return partition_path
 
-    def _update_selection_schema(
-        self,
-        schema_state: _SelectionSchemaState,
-        *,
-        dataframe: pd.DataFrame,
-    ) -> None:
-        """Create or upgrade the durable schema anchor for accepted partitions."""
-        if len(dataframe.columns) > 0 and not schema_state.is_materialized:
-            # A later materialized batch upgrades any name-only fallback
-            # written for an earlier completely failed batch.
-            self.artifact_storage.write_selection_schema(dataframe)
-            schema_state.is_written = True
-            schema_state.is_materialized = True
-        elif not schema_state.is_written:
-            # Preserve an existing materialized schema when a later batch
-            # completely fails and therefore has no columns of its own.
-            self.artifact_storage.write_selection_schema(self._derive_empty_selection_schema())
-            schema_state.is_written = True
-
     @staticmethod
     def _selection_candidate_diagnostics(
         runtime: _SelectionCandidateBatchRuntime,
         *,
         decision: SelectionDecision,
-    ) -> tuple[dict[str, str] | None, dict[str, str] | None]:
+    ) -> tuple[str | None, bool]:
         """Capture scheduler diagnostics in the same transaction as the candidate marker."""
         scheduler = runtime.scheduler
         non_retryable = scheduler.first_non_retryable_error if scheduler is not None else None
-        non_retryable_error = (
-            {
-                "type": type(non_retryable).__name__,
-                "message": str(non_retryable),
-            }
-            if non_retryable is not None
-            else None
-        )
-        terminal_error: dict[str, str] | None = None
-        if (
+        non_retryable_error = f"{type(non_retryable).__name__}: {non_retryable}" if non_retryable is not None else None
+        stopped_early = bool(
             scheduler is not None
             and scheduler.early_shutdown
             and runtime.controller.accepted_records + decision.accepted_records < runtime.controller.target_records
-        ):
-            terminal_error = {
-                "kind": _SELECTION_EARLY_SHUTDOWN_KIND,
-                "message": str(
-                    RecordSelectionEarlyShutdownError(
-                        candidate_budget_remaining=(
-                            runtime.batch.start_offset + decision.candidate_records
-                            < runtime.controller.config.max_candidate_records
-                        ),
-                    )
-                ),
-            }
-        return non_retryable_error, terminal_error
+        )
+        return non_retryable_error, stopped_early
 
     def _mirror_committed_selection_batch(
         self,
@@ -1605,46 +1352,20 @@ class DatasetBuilder:
                 if partition not in referenced:
                     partition.unlink()
 
-    def _raise_unrecoverable_selection_terminal_error(
-        self,
-        controller: AcceptanceController,
-        terminal_error: object | None,
-    ) -> None:
-        """Replay a durable terminal failure when resume cannot safely supersede it."""
-        if terminal_error is None:
-            return
-        if not isinstance(terminal_error, dict):
-            raise DatasetGenerationError("🛑 Cannot resume record selection: terminal error metadata is invalid.")
-        kind = terminal_error.get("kind")
-        message = terminal_error.get("message")
-        if not isinstance(kind, str) or not isinstance(message, str):
-            raise DatasetGenerationError("🛑 Cannot resume record selection: terminal error metadata is invalid.")
-        if kind == _SELECTION_GENERATION_ERROR_KIND:
-            raise DatasetGenerationError(message)
-        if kind == _SELECTION_EARLY_SHUTDOWN_KIND:
-            if not controller.has_reached_target and not controller.has_candidate_budget:
-                raise RecordSelectionEarlyShutdownError(candidate_budget_remaining=False)
-            return
-        raise DatasetGenerationError(f"🛑 Cannot resume record selection: unknown terminal error kind {kind!r}.")
-
     @staticmethod
-    def _derive_nonretryable_selection_terminal_error(
+    def _raise_nonretryable_empty_partial(
         controller: AcceptanceController,
-    ) -> dict[str, str] | None:
-        """Derive an authoritative zero-row failure from durable marker diagnostics."""
+    ) -> None:
+        """Surface the scheduler diagnostic when every candidate failed generation."""
         if (
             not controller.is_exhausted
             or controller.accepted_records != 0
             or RecordSelectionExhaustion(controller.config.on_exhausted) != RecordSelectionExhaustion.RETURN_PARTIAL
         ):
-            return None
+            return
         diagnostic = controller.first_non_retryable_error
-        if diagnostic is None:
-            return None
-        return {
-            "kind": _SELECTION_GENERATION_ERROR_KIND,
-            "message": f"{diagnostic['type']}: {diagnostic['message']}",
-        }
+        if diagnostic is not None:
+            raise DatasetGenerationError(diagnostic)
 
     def _derive_empty_selection_schema(self) -> pd.DataFrame:
         """Build a name-bearing fallback schema when every candidate slot failed generation."""
@@ -1664,46 +1385,38 @@ class DatasetBuilder:
         ]
         return lazy.pd.DataFrame(columns=output_columns)
 
-    def _hydrate_selection_schema_state(self, controller: AcceptanceController) -> _SelectionSchemaState:
-        """Restore schema-anchor state from durable markers, repairing a missing reconstructable anchor."""
+    def _restore_committed_selection_schema(self, controller: AcceptanceController) -> None:
+        """Discard an orphan schema or restore the schema owned by committed work."""
         schema_path = self.artifact_storage.selection_schema_path
-        materialized = any(
+        schema_materialized = any(
             marker.schema_materialized or marker.accepted_partition is not None for marker in controller.markers
         )
         if schema_path.is_file():
-            return _SelectionSchemaState(is_written=True, is_materialized=materialized)
-        if not controller.markers:
-            return _SelectionSchemaState(is_written=False, is_materialized=False)
+            if not schema_materialized:
+                schema_path.unlink()
+            return
 
         accepted_marker = next((marker for marker in controller.markers if marker.accepted_partition is not None), None)
         if accepted_marker is not None:
             partition = self.artifact_storage.base_dataset_path / accepted_marker.accepted_partition
             self.artifact_storage.write_selection_schema(lazy.pd.read_parquet(partition))
-            return _SelectionSchemaState(is_written=True, is_materialized=True)
-        if materialized:
-            raise DatasetGenerationError(
-                "🛑 Cannot resume record selection: the materialized schema anchor is missing and no "
-                "accepted partition is available to reconstruct it."
-            )
+        elif schema_materialized:
+            raise DatasetGenerationError("🛑 Cannot resume record selection: the committed output schema is missing.")
 
+    def _ensure_selection_schema(self, controller: AcceptanceController) -> None:
+        """Ensure empty or all-failed selections still publish a schema-bearing dataset."""
+        self._restore_committed_selection_schema(controller)
+        if self.artifact_storage.selection_schema_path.is_file():
+            return
         self.artifact_storage.write_selection_schema(self._derive_empty_selection_schema())
-        return _SelectionSchemaState(is_written=True, is_materialized=False)
 
     def _write_selection_metadata(
         self,
         controller: AcceptanceController,
         *,
         post_generation_state: str | None = None,
-        terminal_error: dict[str, str] | None = None,
-        publication_id: str | None = None,
     ) -> None:
         selection_summary: dict[str, Any] = controller.summary()
-        if terminal_error is None:
-            terminal_error = controller.terminal_error
-        if terminal_error is not None:
-            selection_summary[_SELECTION_TERMINAL_ERROR_KEY] = terminal_error
-        if publication_id is not None:
-            selection_summary["publication_id"] = publication_id
         updates: dict[str, Any] = {
             "target_num_records": controller.target_records,
             "original_target_num_records": controller.target_records,
@@ -1725,17 +1438,7 @@ class DatasetBuilder:
         self.artifact_storage.update_metadata(updates)
 
     def _publish_selection_result(self, controller: AcceptanceController, buffer_size: int) -> None:
-        publication_id = uuid.uuid4().hex
-        self._write_selection_metadata(
-            controller,
-            post_generation_state="pending",
-            publication_id=publication_id,
-        )
-        self._write_selection_metadata(
-            controller,
-            post_generation_state="started",
-            publication_id=publication_id,
-        )
+        self._write_selection_metadata(controller, post_generation_state="started")
         self.artifact_storage.materialize_selection_dataset()
         self._processor_runner.run_after_generation(buffer_size, selection_publication=True)
         actual_records = self._count_published_selection_records()
@@ -1746,34 +1449,7 @@ class DatasetBuilder:
                 "processors are not supported with record selection."
             )
         self.artifact_storage.clear_selection_transient_artifacts()
-        processor_names = self.artifact_storage.list_processor_names()
-        self.artifact_storage.update_metadata(
-            {
-                "publication": {
-                    "managed_local_prefixes": [
-                        "parquet-files",
-                        "images",
-                        *(f"processors-files/{name}" for name in processor_names),
-                    ],
-                    "managed_hub_prefixes": ["data", "images", *processor_names],
-                }
-            }
-        )
-        self._write_selection_metadata(
-            controller,
-            post_generation_state="complete",
-            publication_id=publication_id,
-        )
-        self._clear_selection_artifact_migration_metadata()
-
-    def _clear_selection_artifact_migration_metadata(self) -> None:
-        if not self.artifact_storage.metadata_file_path.is_file():
-            return
-        metadata = self.artifact_storage.read_metadata()
-        if _SELECTION_ARTIFACT_MIGRATION_METADATA_KEY not in metadata:
-            return
-        metadata.pop(_SELECTION_ARTIFACT_MIGRATION_METADATA_KEY)
-        self.artifact_storage.write_metadata(metadata)
+        self._write_selection_metadata(controller, post_generation_state="complete")
 
     def _count_published_selection_records(self) -> int:
         return sum(

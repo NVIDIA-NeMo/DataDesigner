@@ -289,18 +289,10 @@ def test_selection_nonretryable_empty_partial_remains_failure_across_fresh_resum
 
     marker_path = tmp_path / "nonretryable-empty-selection" / "selection-checkpoints" / "batch_00000.json"
     marker = json.loads(marker_path.read_text())
-    assert marker["non_retryable_error_type"] == "CustomColumnGenerationError"
-    assert marker["terminal_error_kind"] == "generation_error"
-
-    # Simulate a crash after the candidate checkpoint committed but before the
-    # derived terminal outcome was mirrored into the marker and metadata.
-    marker["terminal_error_kind"] = None
-    marker["terminal_error_message"] = None
-    marker_path.write_text(json.dumps(marker))
-    metadata_path = tmp_path / "nonretryable-empty-selection" / "metadata.json"
-    metadata = json.loads(metadata_path.read_text())
-    metadata["record_selection"].pop("terminal_error")
-    metadata_path.write_text(json.dumps(metadata))
+    assert marker["non_retryable_error"] == (
+        "CustomColumnGenerationError: "
+        "Custom generator function failed for column 'keep': deterministic predicate failure"
+    )
 
     resumed_designer = DataDesigner(
         artifact_path=tmp_path,
@@ -494,16 +486,18 @@ def test_if_possible_runtime_mismatch_clears_selection_artifacts_and_restarts(tm
     assert metadata["record_selection"]["candidate_records_generated"] == 4
 
 
-def test_resume_rejects_missing_durable_checkpoint_reported_by_metadata(tmp_path: Path) -> None:
+def test_resume_regenerates_work_without_a_durable_checkpoint(tmp_path: Path) -> None:
     designer = _designer(tmp_path)
     builder = _builder(predicate="{{ true }}", cap=4, on_exhausted=RecordSelectionExhaustion.RAISE)
     first = designer.create(builder, num_records=2, dataset_name="missing-checkpoint")
     first.artifact_storage.selection_checkpoint_path(0).unlink()
 
-    with pytest.raises(DataDesignerGenerationError, match="more completed candidate batches"):
-        designer.create(
-            builder,
-            num_records=2,
-            dataset_name="missing-checkpoint",
-            resume=ResumeMode.ALWAYS,
-        )
+    resumed = designer.create(
+        builder,
+        num_records=2,
+        dataset_name="missing-checkpoint",
+        resume=ResumeMode.ALWAYS,
+    )
+
+    assert resumed.count_records() == 2
+    assert resumed.artifact_storage.selection_checkpoint_path(0).is_file()
