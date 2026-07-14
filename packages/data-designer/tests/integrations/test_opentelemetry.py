@@ -20,10 +20,14 @@ from urllib.request import urlopen
 import pytest
 
 import data_designer.integrations.opentelemetry as opentelemetry
-from data_designer.config.column_configs import LLMTextColumnConfig
+import data_designer.lazy_heavy_imports as lazy
+from data_designer.config.column_configs import ExpressionColumnConfig, LLMTextColumnConfig
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.models import ModelConfig, ModelProvider
+from data_designer.config.record_selection import RecordSelectionConfig, RecordSelectionExhaustion
 from data_designer.config.run_config import RunConfig
+from data_designer.config.seed import SamplingStrategy
+from data_designer.config.seed_source_dataframe import DataFrameSeedSource
 from data_designer.engine.models.clients.adapters.openai_compatible import OpenAICompatibleClient
 from data_designer.engine.models.request_admission.resources import RequestDomain, RequestResourceKey
 from data_designer.engine.observability import (
@@ -902,6 +906,63 @@ def test_data_designer_create_exports_and_accumulates_end_to_end(
     assert generated_line.endswith(" 5.0")
     assert completed_line.endswith(" 2.0")
     assert create_line.endswith(" 2.0")
+
+
+def test_record_selection_exports_durable_progress_end_to_end(
+    runtime: OpenTelemetryRuntime,
+    tmp_path: Path,
+    stub_model_providers: list[ModelProvider],
+) -> None:
+    port = _free_port()
+    designer = _data_designer(
+        tmp_path / "artifacts",
+        tmp_path / "managed-assets",
+        stub_model_providers,
+        runtime,
+        port,
+    )
+    designer.set_run_config(RunConfig(buffer_size=2, otel_metrics_port=port, display_tui=False))
+    source = DataFrameSeedSource(
+        df=lazy.pd.DataFrame(
+            {
+                "keep": [True, False],
+                "payload": ["accepted", "rejected"],
+            }
+        )
+    )
+    config = DataDesignerConfigBuilder().with_seed_dataset(source, sampling_strategy=SamplingStrategy.ORDERED)
+    config.add_column(ExpressionColumnConfig(name="output", expr="{{ payload }}"))
+    config.with_record_selection(
+        RecordSelectionConfig(
+            predicate_column="keep",
+            max_candidate_records=2,
+            on_exhausted=RecordSelectionExhaustion.RETURN_PARTIAL,
+        )
+    )
+
+    designer.create(config, dataset_name="selection", num_records=2)
+
+    metrics = _scrape(runtime)
+    generated_line = next(
+        line
+        for line in metrics.splitlines()
+        if line.startswith("data_designer_dataset_records_total{") and 'record_result="generated"' in line
+    )
+    dropped_line = next(
+        line
+        for line in metrics.splitlines()
+        if line.startswith("data_designer_dataset_records_total{") and 'record_result="dropped"' in line
+    )
+    progress_line = next(line for line in metrics.splitlines() if line.startswith("data_designer_dataset_progress{"))
+    completed_line = next(
+        line
+        for line in metrics.splitlines()
+        if line.startswith("data_designer_scheduler_events_total{") and 'event_name="job.completed"' in line
+    )
+    assert generated_line.endswith(" 1.0")
+    assert dropped_line.endswith(" 1.0")
+    assert progress_line.endswith(" 1.0")
+    assert completed_line.endswith(" 1.0")
 
 
 def test_data_designer_model_and_log_sinks_export_once_end_to_end(

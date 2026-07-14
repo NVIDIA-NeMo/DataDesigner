@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import contextlib
 import functools
 import json
@@ -46,9 +45,8 @@ from data_designer.engine.dataset_builders.row_group_plan import (
 )
 from data_designer.engine.dataset_builders.scheduling.completion import CompletionTracker, FrontierDelta
 from data_designer.engine.dataset_builders.utils.async_concurrency import (
-    await_async_scheduler_result,
-    ensure_async_engine_loop,
     is_async_trace_enabled,
+    run_async_scheduler,
 )
 from data_designer.engine.dataset_builders.utils.config_compiler import compile_dataset_builder_column_configs
 from data_designer.engine.dataset_builders.utils.execution_graph import ExecutionGraph
@@ -632,10 +630,8 @@ class DatasetBuilder:
             trace=trace_enabled,
         )
 
-        loop = ensure_async_engine_loop()
-        future = asyncio.run_coroutine_threadsafe(scheduler.run(), loop)
         try:
-            await_async_scheduler_result(future, scheduler)
+            run_async_scheduler(scheduler)
         finally:
             self._task_traces = scheduler.traces
             self._early_shutdown = scheduler.early_shutdown
@@ -921,10 +917,8 @@ class DatasetBuilder:
             # so the structured signal is preserved even if `scheduler.run()`
             # raises during the salvage path - otherwise callers see a generic
             # error and lose the early-shutdown context.
-            loop = ensure_async_engine_loop()
-            future = asyncio.run_coroutine_threadsafe(scheduler.run(), loop)
             try:
-                await_async_scheduler_result(future, scheduler)
+                run_async_scheduler(scheduler)
             finally:
                 self._task_traces = scheduler.traces
                 self._early_shutdown = scheduler.early_shutdown
@@ -972,7 +966,7 @@ class DatasetBuilder:
         buffer_size: int,
         *,
         on_finalize_row_group: Callable[[int], None] | None = None,
-        finalize_empty_row_groups: bool = False,
+        retain_row_group_result: bool = False,
         run_post_batch_in_scheduler: bool = True,
         shutdown_error_rate: float = 0.5,
         shutdown_error_window: int = 10,
@@ -982,13 +976,13 @@ class DatasetBuilder:
         initial_actual_num_records: int = 0,
         initial_total_num_batches: int = 0,
         scheduler_event_sink: SchedulerAdmissionEventSink | None = None,
-        select_dataframe: Callable[[int, int, pd.DataFrame], pd.DataFrame] | None = None,
         log_pre_generation: bool = True,
     ) -> tuple[AsyncTaskScheduler, RowGroupBufferManager]:
         """Build a fully-wired scheduler and buffer manager for async generation.
 
-        Shared setup for both build and preview paths. Processor hooks are always
-        wired when the config has processors, so callers cannot accidentally omit them.
+        Shared setup for build, preview, and result-producing candidate paths. Pre-batch
+        processors are always wired; callers may defer post-batch processing until after
+        the scheduler returns.
         """
         strategies: dict[str, GenerationStrategy] = {}
         gen_map: dict[str, ColumnGenerator] = {}
@@ -1038,22 +1032,7 @@ class DatasetBuilder:
             ProcessorStage.POST_BATCH
         )
 
-        # Transform selected rows first, then run post-batch processors before finalization.
-        # The scheduler sees one feature-agnostic before-checkpoint callback.
-        def on_before_checkpoint(rg_id: int, rg_size: int) -> None:
-            if select_dataframe is not None:
-                try:
-                    dataframe = buffer_manager.get_dataframe(rg_id)
-                    dataframe = select_dataframe(rg_id, rg_size, dataframe)
-                    buffer_manager.replace_dataframe(rg_id, dataframe)
-                    for row_index in range(rg_size):
-                        if buffer_manager.is_dropped(rg_id, row_index) and not tracker.is_dropped(rg_id, row_index):
-                            tracker.drop_row(rg_id, row_index)
-                except DatasetGenerationError:
-                    raise
-                except Exception as exc:
-                    raise DatasetGenerationError(f"Record selection failed for row group {rg_id}: {exc}") from exc
-
+        def on_before_checkpoint(rg_id: int, _rg_size: int) -> None:
             if has_post_batch_processors:
                 try:
                     dataframe = buffer_manager.get_dataframe(rg_id)
@@ -1081,13 +1060,11 @@ class DatasetBuilder:
             max_in_flight_tasks=max_in_flight_tasks,
             max_model_task_admission=max_model_task_admission,
             on_finalize_row_group=on_finalize_row_group,
-            finalize_empty_row_groups=finalize_empty_row_groups,
+            retain_row_group_result=retain_row_group_result,
             on_seeds_complete=(
                 on_seeds_complete if self._processor_runner.has_processors_for(ProcessorStage.PRE_BATCH) else None
             ),
-            on_before_checkpoint=on_before_checkpoint
-            if select_dataframe is not None or has_post_batch_processors
-            else None,
+            on_before_checkpoint=on_before_checkpoint if has_post_batch_processors else None,
             shutdown_error_rate=shutdown_error_rate,
             shutdown_error_window=shutdown_error_window,
             disable_early_shutdown=disable_early_shutdown,

@@ -3,9 +3,7 @@
 
 from __future__ import annotations
 
-import asyncio
 import contextlib
-import functools
 import json
 import logging
 import shutil
@@ -33,9 +31,8 @@ from data_designer.engine.dataset_builders.errors import (
 )
 from data_designer.engine.dataset_builders.row_group_plan import ExplicitRowGroupPlan
 from data_designer.engine.dataset_builders.utils.async_concurrency import (
-    await_async_scheduler_result,
-    ensure_async_engine_loop,
     is_async_trace_enabled,
+    run_async_scheduler,
 )
 from data_designer.engine.dataset_builders.utils.row_group_buffer import RowGroupBufferManager
 from data_designer.engine.observability import JsonlSchedulerEventSink, SchedulerAdmissionEventSink
@@ -54,24 +51,6 @@ if TYPE_CHECKING:
     from data_designer.engine.dataset_builders.dataset_builder import DatasetBuilder
 
 logger = logging.getLogger(__name__)
-
-
-class _SelectionPostCommitError(DatasetGenerationError):
-    """A transient failure after a candidate checkpoint reached durable storage."""
-
-
-@dataclass(slots=True)
-class _SelectionCandidateBatchRuntime:
-    """Mutable state shared by one candidate batch and its scheduler callbacks."""
-
-    controller: AcceptanceController
-    batch: CandidateBatch
-    on_batch_complete: Callable[[Path], None] | None
-    media_staged: bool
-    decision: SelectionDecision | None = None
-    buffer_manager: RowGroupBufferManager | None = None
-    scheduler: AsyncTaskScheduler | None = None
-    checkpoint_committed: bool = False
 
 
 class _SelectionMetadataState(StrEnum):
@@ -368,38 +347,71 @@ class RecordSelectionRunner:
         media_staged = (
             self._builder._has_image_columns() and self._builder.artifact_storage.media_storage.mode == StorageMode.DISK
         )
-        runtime = _SelectionCandidateBatchRuntime(
-            controller=controller,
-            batch=batch,
-            on_batch_complete=on_batch_complete,
-            media_staged=media_staged,
-        )
-
-        if media_staged:
-            self._builder.artifact_storage.begin_selection_media_batch(batch.candidate_batch_id)
-
         pre_batch_snapshot = self._builder._resource_provider.model_registry.get_model_usage_snapshot()
         group_id = uuid.uuid4().hex
+        scheduler: AsyncTaskScheduler | None = None
         event_sink_context = (
             JsonlSchedulerEventSink(self._builder.artifact_storage.base_dataset_path / "scheduler_events.jsonl")
             if settings.write_scheduler_events
             else contextlib.nullcontext()
         )
-        run_error: BaseException | None = None
         try:
             with event_sink_context as scheduler_event_sink:
-                self._execute_selection_candidate_scheduler(
-                    generators,
-                    runtime=runtime,
-                    settings=settings,
-                    trace_enabled=trace_enabled,
-                    scheduler_event_sink=scheduler_event_sink,
-                )
-        except BaseException as exc:
-            run_error = exc
+                pipeline_error: BaseException | None = None
+                try:
+                    if media_staged:
+                        self._builder.artifact_storage.begin_selection_media_batch(batch.candidate_batch_id)
+                    dataframe, scheduler = self._generate_candidate_dataframe(
+                        generators,
+                        batch=batch,
+                        settings=settings,
+                        trace_enabled=trace_enabled,
+                        scheduler_event_sink=scheduler_event_sink,
+                    )
+                    decision, selected = self._select_candidate_dataframe(
+                        controller,
+                        batch=batch,
+                        dataframe=dataframe,
+                        media_staged=media_staged,
+                    )
+                    del dataframe
+                    self._process_and_commit_selected_batch(
+                        controller,
+                        batch=batch,
+                        dataframe=selected,
+                        decision=decision,
+                        scheduler=scheduler,
+                        on_batch_complete=on_batch_complete,
+                    )
+                except BaseException as exc:
+                    pipeline_error = exc
+                    raise
+                finally:
+                    completion_error = pipeline_error
+                    try:
+                        self._finish_selection_candidate_batch(
+                            batch=batch,
+                            media_staged=media_staged,
+                            run_error=pipeline_error,
+                        )
+                    except BaseException as exc:
+                        completion_error = exc
+                        raise
+                    finally:
+                        if scheduler is not None:
+                            scheduler.emit_deferred_job_completed(error=completion_error)
+        except DatasetGenerationError as exc:
+            if self._builder.artifact_storage.selection_checkpoint_path(batch.candidate_batch_id).is_file():
+                raise DatasetGenerationError(
+                    f"🛑 Failed after committing record-selection candidate batch {batch.candidate_batch_id}: {exc}"
+                ) from exc
             raise
-        finally:
-            self._finish_selection_candidate_batch(runtime, run_error=run_error)
+        except Exception as exc:
+            committed = self._builder.artifact_storage.selection_checkpoint_path(batch.candidate_batch_id).is_file()
+            phase = "after committing" if committed else "to commit"
+            raise DatasetGenerationError(
+                f"🛑 Failed {phase} record-selection candidate batch {batch.candidate_batch_id}: {exc}"
+            ) from exc
 
         try:
             usage_deltas = self._builder._resource_provider.model_registry.get_usage_deltas(pre_batch_snapshot)
@@ -407,94 +419,120 @@ class RecordSelectionRunner:
         except Exception:
             logger.debug("Failed to emit batch telemetry for record selection", exc_info=True)
 
-    def _select_selection_candidate_dataframe(
+    def _process_and_commit_selected_batch(
         self,
-        runtime: _SelectionCandidateBatchRuntime,
-        _row_group_id: int,
-        row_group_size: int,
+        controller: AcceptanceController,
+        *,
+        batch: CandidateBatch,
         dataframe: pd.DataFrame,
-    ) -> pd.DataFrame:
-        """Apply the selection predicate before post-batch processing."""
-        runtime.decision = runtime.controller.select(
-            dataframe,
-            batch=runtime.batch,
-            failed_generation_records=row_group_size - len(dataframe),
-        )
-        selected = dataframe.iloc[list(runtime.decision.accepted_indices)].reset_index(drop=True)
-        if runtime.media_staged:
-            # Commit accepted media before post-batch processors run. Processors may
-            # persist transformed or dropped-column side artifacts, and every such
-            # artifact must contain the same durable paths as the accepted partition.
-            selected = self._builder.artifact_storage.promote_selection_media(
-                selected,
-                runtime.batch.candidate_batch_id,
-            )
-        return selected
-
-    def _finalize_selection_candidate_row_group(
-        self,
-        runtime: _SelectionCandidateBatchRuntime,
-        row_group_id: int,
+        decision: SelectionDecision,
+        scheduler: AsyncTaskScheduler,
+        on_batch_complete: Callable[[Path], None] | None,
     ) -> None:
-        """Commit a selected row group, then mirror progress and notify the caller."""
-        buffer_manager = runtime.buffer_manager
-        decision = runtime.decision
-        if buffer_manager is None or decision is None:
-            raise DatasetGenerationError("🛑 Record selection reached finalization without a selection decision.")
+        """Process, durably checkpoint, and report one selected candidate batch."""
+        dataframe = self._run_selection_post_batch(dataframe, row_group_id=batch.row_group_id)
+        partition_path = self._commit_selection_candidate_batch(
+            controller,
+            batch=batch,
+            dataframe=dataframe,
+            decision=decision,
+            scheduler=scheduler,
+        )
+        scheduler.emit_row_group_checkpointed(
+            batch.row_group_id,
+            batch.size,
+            surviving_rows=decision.accepted_records,
+            result="selection_committed",
+        )
+        self._mirror_committed_selection_batch(controller)
+        if partition_path is not None and on_batch_complete is not None:
+            on_batch_complete(partition_path)
+
+    def _select_candidate_dataframe(
+        self,
+        controller: AcceptanceController,
+        *,
+        batch: CandidateBatch,
+        dataframe: pd.DataFrame,
+        media_staged: bool,
+    ) -> tuple[SelectionDecision, pd.DataFrame]:
+        """Apply the selection predicate before post-batch processing."""
         try:
-            partition_path = self._commit_selection_candidate_row_group(
-                runtime,
-                row_group_id=row_group_id,
-                buffer_manager=buffer_manager,
-                decision=decision,
+            decision = controller.select(
+                dataframe,
+                batch=batch,
+                failed_generation_records=batch.size - len(dataframe),
             )
-            self._mirror_committed_selection_batch(
-                runtime,
-                row_group_id=row_group_id,
-                buffer_manager=buffer_manager,
+            selected = (
+                lazy.pd.DataFrame()
+                if decision.failed_generation_records == batch.size
+                else dataframe.iloc[list(decision.accepted_indices)].reset_index(drop=True)
             )
-            if partition_path is not None and runtime.on_batch_complete is not None:
-                try:
-                    runtime.on_batch_complete(partition_path)
-                except Exception as exc:
-                    raise _SelectionPostCommitError(str(exc)) from exc
+            if media_staged:
+                # Processors may persist side artifacts, so promote accepted media first.
+                selected = self._builder.artifact_storage.promote_selection_media(
+                    selected,
+                    batch.candidate_batch_id,
+                )
+            return decision, selected
         except DatasetGenerationError:
             raise
         except Exception as exc:
-            raise DatasetGenerationError(
-                f"🛑 Failed to commit record-selection candidate batch {runtime.batch.candidate_batch_id}: {exc}"
-            ) from exc
+            raise DatasetGenerationError(f"Record selection failed for row group {batch.row_group_id}: {exc}") from exc
 
-    def _commit_selection_candidate_row_group(
+    def _run_selection_post_batch(self, dataframe: pd.DataFrame, *, row_group_id: int) -> pd.DataFrame:
+        try:
+            processed = self._builder._processor_runner.run_post_batch(
+                dataframe,
+                current_batch_number=row_group_id,
+                strict_row_count=True,
+            )
+            if processed.empty:
+                # Empty processor files can establish an empty Arrow directory schema
+                # and hide valid rows written by a later accepted candidate batch.
+                self._builder.artifact_storage.clean_selection_batch_side_artifacts(row_group_id)
+            return processed
+        except DatasetGenerationError:
+            raise
+        except Exception as exc:
+            raise DatasetGenerationError(f"Post-batch processor failed for row group {row_group_id}: {exc}") from exc
+
+    def _commit_selection_candidate_batch(
         self,
-        runtime: _SelectionCandidateBatchRuntime,
+        controller: AcceptanceController,
         *,
-        row_group_id: int,
-        buffer_manager: RowGroupBufferManager,
+        batch: CandidateBatch,
+        dataframe: pd.DataFrame,
         decision: SelectionDecision,
+        scheduler: AsyncTaskScheduler,
     ) -> Path | None:
         """Persist selection artifacts and the authoritative candidate checkpoint."""
-        dataframe = buffer_manager.get_dataframe(row_group_id)
         if len(dataframe) != decision.accepted_records:
             raise DatasetGenerationError(
                 "🛑 Post-batch processing changed the selected row count from "
                 f"{decision.accepted_records} to {len(dataframe)}."
             )
-        schema_materialized = len(dataframe.columns) > 0
+        schema_materialized = (
+            len(dataframe.columns) > 0 and decision.failed_generation_records < decision.candidate_records
+        )
         if schema_materialized and not self._builder.artifact_storage.selection_schema_path.is_file():
             self._builder.artifact_storage.write_selection_schema(dataframe)
         partition_path: Path | None = None
         partition_relative: str | None = None
         if len(dataframe) > 0:
             partition_path = self._builder.artifact_storage.write_selection_partition(
-                runtime.batch.candidate_batch_id,
+                batch.candidate_batch_id,
                 dataframe,
             )
             partition_relative = str(partition_path.relative_to(self._builder.artifact_storage.base_dataset_path))
 
-        non_retryable_error, stopped_early = self._selection_candidate_diagnostics(runtime, decision=decision)
-        marker = runtime.controller.record_checkpoint(
-            batch=runtime.batch,
+        non_retryable_error, stopped_early = self._selection_candidate_diagnostics(
+            controller,
+            scheduler=scheduler,
+            decision=decision,
+        )
+        marker = controller.record_checkpoint(
+            batch=batch,
             decision=decision,
             accepted_partition=partition_relative,
             schema_materialized=schema_materialized,
@@ -502,114 +540,113 @@ class RecordSelectionRunner:
             stopped_early=stopped_early,
         )
         self._builder.artifact_storage.write_selection_checkpoint(
-            runtime.batch.candidate_batch_id,
-            marker.to_dict(),
+            batch.candidate_batch_id,
+            marker.model_dump(mode="json"),
         )
-        runtime.checkpoint_committed = True
         return partition_path
 
     @staticmethod
     def _selection_candidate_diagnostics(
-        runtime: _SelectionCandidateBatchRuntime,
+        controller: AcceptanceController,
         *,
+        scheduler: AsyncTaskScheduler,
         decision: SelectionDecision,
     ) -> tuple[str | None, bool]:
         """Capture scheduler diagnostics in the same transaction as the candidate marker."""
-        scheduler = runtime.scheduler
-        non_retryable = scheduler.first_non_retryable_error if scheduler is not None else None
+        non_retryable = scheduler.first_non_retryable_error
         non_retryable_error = f"{type(non_retryable).__name__}: {non_retryable}" if non_retryable is not None else None
         stopped_early = bool(
-            scheduler is not None
-            and scheduler.early_shutdown
-            and runtime.controller.accepted_records + decision.accepted_records < runtime.controller.target_records
+            scheduler.early_shutdown
+            and controller.accepted_records + decision.accepted_records < controller.target_records
         )
         return non_retryable_error, stopped_early
 
     def _mirror_committed_selection_batch(
         self,
-        runtime: _SelectionCandidateBatchRuntime,
-        *,
-        row_group_id: int,
-        buffer_manager: RowGroupBufferManager,
+        controller: AcceptanceController,
     ) -> None:
         """Mirror a durable checkpoint into in-memory state and metadata."""
-        controller = runtime.controller
-        try:
-            buffer_manager.free_row_group(row_group_id)
-            self._builder._actual_num_records = controller.accepted_records
-            self._write_selection_metadata(controller)
-            rate = controller.accepted_records / controller.candidate_records
-            logger.info(
-                "🎯 Record selection: accepted %d / %d; candidates generated %d / %d; acceptance rate %.1f%%.",
-                controller.accepted_records,
-                controller.target_records,
-                controller.candidate_records,
-                controller.config.max_candidate_records,
-                rate * 100,
-            )
-        except Exception as exc:
-            raise _SelectionPostCommitError(
-                f"🛑 Failed after committing record-selection candidate batch {runtime.batch.candidate_batch_id}: {exc}"
-            ) from exc
+        self._builder._actual_num_records = controller.accepted_records
+        self._write_selection_metadata(controller)
+        rate = controller.accepted_records / controller.candidate_records
+        logger.info(
+            "🎯 Record selection: accepted %d / %d; candidates generated %d / %d; acceptance rate %.1f%%.",
+            controller.accepted_records,
+            controller.target_records,
+            controller.candidate_records,
+            controller.config.max_candidate_records,
+            rate * 100,
+        )
 
-    def _execute_selection_candidate_scheduler(
+    def _generate_candidate_dataframe(
         self,
         generators: list[ColumnGenerator],
         *,
-        runtime: _SelectionCandidateBatchRuntime,
+        batch: CandidateBatch,
         settings: RunConfig,
         trace_enabled: bool,
         scheduler_event_sink: SchedulerAdmissionEventSink | None,
-    ) -> None:
-        """Wire and run the async scheduler for one explicit candidate row group."""
-        scheduler, buffer_manager = self._builder._prepare_async_run(
-            generators,
-            runtime.batch.size,
-            runtime.batch.size,
-            on_finalize_row_group=functools.partial(self._finalize_selection_candidate_row_group, runtime),
-            finalize_empty_row_groups=True,
-            shutdown_error_rate=settings.shutdown_error_rate,
-            shutdown_error_window=settings.shutdown_error_window,
-            disable_early_shutdown=settings.disable_early_shutdown,
-            trace=trace_enabled,
-            precomputed_row_groups=ExplicitRowGroupPlan(
-                ((runtime.batch.row_group_id, runtime.batch.size),),
-                base_offset=runtime.batch.start_offset,
-            ),
-            scheduler_event_sink=scheduler_event_sink,
-            select_dataframe=functools.partial(self._select_selection_candidate_dataframe, runtime),
-            log_pre_generation=False,
-        )
-        runtime.scheduler = scheduler
-        runtime.buffer_manager = buffer_manager
-        loop = ensure_async_engine_loop()
-        future = asyncio.run_coroutine_threadsafe(scheduler.run(), loop)
-        await_async_scheduler_result(future, scheduler)
+    ) -> tuple[pd.DataFrame, AsyncTaskScheduler]:
+        """Generate one candidate row group and return its retained DataFrame."""
+        scheduler: AsyncTaskScheduler | None = None
+        buffer_manager: RowGroupBufferManager | None = None
+        completion_error: BaseException | None = None
+        try:
+            scheduler, buffer_manager = self._builder._prepare_async_run(
+                generators,
+                batch.size,
+                batch.size,
+                retain_row_group_result=True,
+                run_post_batch_in_scheduler=False,
+                shutdown_error_rate=settings.shutdown_error_rate,
+                shutdown_error_window=settings.shutdown_error_window,
+                disable_early_shutdown=settings.disable_early_shutdown,
+                trace=trace_enabled,
+                precomputed_row_groups=ExplicitRowGroupPlan(
+                    ((batch.row_group_id, batch.size),),
+                    base_offset=batch.start_offset,
+                ),
+                scheduler_event_sink=scheduler_event_sink,
+                log_pre_generation=False,
+            )
+            run_async_scheduler(scheduler)
+            dataframe = buffer_manager.get_dataframe(batch.row_group_id)
+            return dataframe, scheduler
+        except BaseException as exc:
+            completion_error = exc
+            raise
+        finally:
+            try:
+                if buffer_manager is not None:
+                    buffer_manager.free_row_group(batch.row_group_id)
+                if scheduler is not None:
+                    self._merge_selection_scheduler_state(scheduler)
+            except BaseException as exc:
+                completion_error = exc
+                raise
+            finally:
+                if scheduler is not None and completion_error is not None:
+                    scheduler.emit_deferred_job_completed(error=completion_error)
 
     def _finish_selection_candidate_batch(
         self,
-        runtime: _SelectionCandidateBatchRuntime,
         *,
+        batch: CandidateBatch,
+        media_staged: bool,
         run_error: BaseException | None,
     ) -> None:
-        """Clean staging and merge scheduler state after a candidate attempt."""
-        if runtime.media_staged:
-            try:
-                self._builder.artifact_storage.finish_selection_media_batch(runtime.batch.candidate_batch_id)
-            except Exception as exc:
-                if run_error is not None:
-                    logger.warning("⚠️ Failed to clean record-selection media staging.", exc_info=True)
-                elif runtime.checkpoint_committed:
-                    raise _SelectionPostCommitError(
-                        f"🛑 Failed after committing record-selection candidate batch "
-                        f"{runtime.batch.candidate_batch_id}: {exc}"
-                    ) from exc
-                else:
-                    raise
+        """Clean media staging after a candidate attempt."""
+        try:
+            if media_staged:
+                self._builder.artifact_storage.finish_selection_media_batch(batch.candidate_batch_id)
+        except Exception:
+            if run_error is not None:
+                logger.warning("⚠️ Failed to clean record-selection media staging.", exc_info=True)
+            else:
+                raise
 
-        scheduler = runtime.scheduler
-        if scheduler is None:
-            return
+    def _merge_selection_scheduler_state(self, scheduler: AsyncTaskScheduler) -> None:
+        """Merge one candidate scheduler into build-level diagnostics."""
         self._builder._task_traces.extend(scheduler.traces)
         self._builder._early_shutdown = self._builder._early_shutdown or scheduler.early_shutdown
         self._builder._partial_row_groups = tuple(
@@ -621,7 +658,7 @@ class RecordSelectionRunner:
     def _load_selection_markers(self) -> tuple[SelectionBatchMarker, ...]:
         try:
             raw_markers = self._builder.artifact_storage.read_selection_checkpoints()
-            return tuple(SelectionBatchMarker.from_dict(value) for value in raw_markers)
+            return tuple(SelectionBatchMarker.model_validate(value) for value in raw_markers)
         except (ValueError, TypeError) as exc:
             raise DatasetGenerationError(f"🛑 Cannot resume record selection: {exc}") from exc
 
@@ -744,7 +781,7 @@ class RecordSelectionRunner:
     def _publish_selection_result(self, controller: AcceptanceController, buffer_size: int) -> None:
         self._write_selection_metadata(controller, post_generation_state="started")
         self._builder.artifact_storage.materialize_selection_dataset()
-        self._builder._processor_runner.run_after_generation(buffer_size, selection_publication=True)
+        self._builder._processor_runner.run_after_generation(buffer_size)
         actual_records = self._count_published_selection_records()
         if actual_records != controller.accepted_records:
             raise DatasetGenerationError(

@@ -38,7 +38,7 @@ from data_designer.config.seed_source import LocalFileSeedSource
 from data_designer.config.seed_source_dataframe import DataFrameSeedSource
 from data_designer.engine.column_generators.generators.base import GenerationStrategy
 from data_designer.engine.column_generators.generators.samplers import SamplerColumnGenerator
-from data_designer.engine.dataset_builders.acceptance import SelectionBatchMarker
+from data_designer.engine.dataset_builders.acceptance import AcceptanceController, SelectionBatchMarker
 from data_designer.engine.dataset_builders.dataset_builder import DatasetBuilder, build_row_group_resume_plan
 from data_designer.engine.dataset_builders.errors import (
     DatasetGenerationError,
@@ -49,7 +49,6 @@ from data_designer.engine.dataset_builders.record_selection_runner import Record
 from data_designer.engine.dataset_builders.row_group_plan import CompactRowGroupPlan
 from data_designer.engine.dataset_builders.utils.async_concurrency import await_async_scheduler_result
 from data_designer.engine.dataset_builders.utils.processor_runner import ProcessorRunner
-from data_designer.engine.dataset_builders.utils.row_group_buffer import RowGroupBufferManager
 from data_designer.engine.errors import DataDesignerRuntimeError
 from data_designer.engine.models.telemetry import InferenceEvent, NemoSourceEnum, TaskStatusEnum
 from data_designer.engine.models.usage import ModelUsageStats, TokenUsageStats
@@ -200,7 +199,110 @@ def test_record_selection_runs_with_boolean_category_predicate(stub_resource_pro
     assert lazy.pd.read_parquet(output_path)["boolean_predicate"].tolist() == [True]
 
 
-def test_record_selection_normalizes_buffer_update_failure(stub_resource_provider) -> None:
+def test_record_selection_reports_checkpoint_only_after_marker_commit(stub_resource_provider) -> None:
+    stub_resource_provider.run_config = RunConfig(
+        buffer_size=2,
+        disable_early_shutdown=True,
+        display_tui=False,
+    )
+    source = DataFrameSeedSource(
+        df=lazy.pd.DataFrame(
+            {
+                "keep": [True, False],
+                "payload": ["accepted", "rejected"],
+            }
+        )
+    )
+    seed_reader = DataFrameSeedReader()
+    seed_reader.attach(source, Mock())
+    stub_resource_provider.seed_reader = seed_reader
+    storage = stub_resource_provider.artifact_storage
+    marker_was_durable: list[bool] = []
+
+    class MarkerObservingSink(InMemoryAdmissionEventSink):
+        def emit_scheduler_event(self, event: SchedulerAdmissionEvent) -> None:
+            if event.event_kind == "row_group_checkpointed":
+                marker_was_durable.append(storage.selection_checkpoint_path(0).is_file())
+            super().emit_scheduler_event(event)
+
+    sink = MarkerObservingSink()
+    stub_resource_provider.scheduler_event_sink = sink
+    config = DataDesignerConfigBuilder().with_seed_dataset(
+        source,
+        sampling_strategy=SamplingStrategy.ORDERED,
+    )
+    config.add_column(ExpressionColumnConfig(name="output", expr="{{ payload }}"))
+    config.add_processor(
+        SchemaTransformProcessorConfig(
+            name="selected_rows",
+            template={"value": "{{ payload }}"},
+        )
+    )
+    config.with_record_selection(
+        RecordSelectionConfig(
+            predicate_column="keep",
+            max_candidate_records=2,
+            on_exhausted=RecordSelectionExhaustion.RETURN_PARTIAL,
+        )
+    )
+    builder = DatasetBuilder(data_designer_config=config.build(), resource_provider=stub_resource_provider)
+
+    builder.build(num_records=2)
+
+    checkpoint_events = [event for event in sink.scheduler_events if event.event_kind == "row_group_checkpointed"]
+    assert marker_was_durable == [True]
+    assert len(checkpoint_events) == 1
+    assert checkpoint_events[0].diagnostics["surviving_rows"] == 1
+    assert checkpoint_events[0].diagnostics["dropped_rows"] == 1
+    completion_kinds = [
+        event.event_kind
+        for event in sink.scheduler_events
+        if event.event_kind in {"row_group_checkpointed", "scheduler_job_completed"}
+    ]
+    assert completion_kinds == ["row_group_checkpointed", "scheduler_job_completed"]
+    processor_files = list((storage.processors_outputs_path / "selected_rows").glob("*.parquet"))
+    assert len(processor_files) == 1
+    assert storage.load_processor_dataset("selected_rows")["value"].tolist() == ["accepted"]
+
+
+def test_record_selection_discards_empty_processor_output_before_later_acceptance(stub_resource_provider) -> None:
+    stub_resource_provider.run_config = RunConfig(
+        buffer_size=1,
+        disable_early_shutdown=True,
+        display_tui=False,
+    )
+    source = DataFrameSeedSource(
+        df=lazy.pd.DataFrame(
+            {
+                "keep": [False, True],
+                "payload": ["rejected", "accepted"],
+            }
+        )
+    )
+    seed_reader = DataFrameSeedReader()
+    seed_reader.attach(source, Mock())
+    stub_resource_provider.seed_reader = seed_reader
+    config = DataDesignerConfigBuilder().with_seed_dataset(
+        source,
+        sampling_strategy=SamplingStrategy.ORDERED,
+    )
+    config.add_processor(
+        SchemaTransformProcessorConfig(
+            name="selected_rows",
+            template={"value": "{{ payload }}"},
+        )
+    )
+    config.with_record_selection(RecordSelectionConfig(predicate_column="keep", max_candidate_records=2))
+    builder = DatasetBuilder(data_designer_config=config.build(), resource_provider=stub_resource_provider)
+
+    builder.build(num_records=1)
+
+    processor_path = builder.artifact_storage.processors_outputs_path / "selected_rows"
+    assert [path.name for path in processor_path.glob("*.parquet")] == ["batch_00001.parquet"]
+    assert builder.artifact_storage.load_processor_dataset("selected_rows")["value"].tolist() == ["accepted"]
+
+
+def test_record_selection_normalizes_unexpected_selection_failure(stub_resource_provider) -> None:
     stub_resource_provider.run_config = RunConfig(buffer_size=1, display_tui=False)
     config = DataDesignerConfigBuilder()
     config.add_column(
@@ -212,15 +314,61 @@ def test_record_selection_normalizes_buffer_update_failure(stub_resource_provide
     )
     config.with_record_selection(RecordSelectionConfig(predicate_column="keep", max_candidate_records=1))
     builder = DatasetBuilder(data_designer_config=config.build(), resource_provider=stub_resource_provider)
+    sink = InMemoryAdmissionEventSink()
+    stub_resource_provider.scheduler_event_sink = sink
 
     with (
-        patch.object(RowGroupBufferManager, "replace_dataframe", side_effect=RuntimeError("replace failed")),
-        pytest.raises(DatasetGenerationError, match="Record selection failed for row group 0: replace failed"),
+        patch.object(AcceptanceController, "select", side_effect=RuntimeError("selection failed")),
+        pytest.raises(DatasetGenerationError, match="Record selection failed for row group 0: selection failed"),
     ):
         builder.build(num_records=1)
 
+    assert not any(event.event_kind == "row_group_checkpointed" for event in sink.scheduler_events)
+    completed = [event for event in sink.scheduler_events if event.event_kind == "scheduler_job_completed"]
+    assert len(completed) == 1
+    assert completed[0].reason_or_result == "error"
+    assert completed[0].diagnostics["error_type"] == "DatasetGenerationError"
 
-def test_record_selection_normalizes_post_batch_buffer_update_failure(stub_resource_provider) -> None:
+
+def test_record_selection_does_not_commit_partial_schema_when_all_candidates_fail(stub_resource_provider) -> None:
+    config = DataDesignerConfigBuilder()
+    config.add_column(
+        SamplerColumnConfig(
+            name="keep",
+            sampler_type=SamplerType.CATEGORY,
+            params=CategorySamplerParams(values=[False]),
+        )
+    )
+    selection_config = RecordSelectionConfig(predicate_column="keep", max_candidate_records=1)
+    config.with_record_selection(selection_config)
+    builder = DatasetBuilder(data_designer_config=config.build(), resource_provider=stub_resource_provider)
+    runner = RecordSelectionRunner(builder)
+    controller = AcceptanceController(config=selection_config, target_records=1, buffer_size=1)
+    batch = controller.next_candidate_batch()
+    partial_empty_schema = lazy.pd.DataFrame({"seed_only": lazy.pd.Series(dtype="str")})
+
+    decision, selected = runner._select_candidate_dataframe(
+        controller,
+        batch=batch,
+        dataframe=partial_empty_schema,
+        media_staged=False,
+    )
+    runner._commit_selection_candidate_batch(
+        controller,
+        batch=batch,
+        dataframe=selected,
+        decision=decision,
+        scheduler=Mock(first_non_retryable_error=None, early_shutdown=False),
+    )
+
+    assert selected.columns.empty
+    assert not builder.artifact_storage.selection_schema_path.exists()
+    marker = builder.artifact_storage.read_selection_checkpoints()[0]
+    assert marker["failed_generation_records"] == 1
+    assert marker["schema_materialized"] is False
+
+
+def test_record_selection_normalizes_unexpected_post_batch_failure(stub_resource_provider) -> None:
     stub_resource_provider.run_config = RunConfig(buffer_size=1, display_tui=False)
     config = DataDesignerConfigBuilder()
     config.add_column(
@@ -233,25 +381,12 @@ def test_record_selection_normalizes_post_batch_buffer_update_failure(stub_resou
     config.with_record_selection(RecordSelectionConfig(predicate_column="keep", max_candidate_records=1))
     builder = DatasetBuilder(data_designer_config=config.build(), resource_provider=stub_resource_provider)
     _replace_processors(builder, [create_mock_processor("identity", ["process_after_batch"])])
-    original_replace_dataframe = RowGroupBufferManager.replace_dataframe
-    replace_calls = 0
-
-    def fail_second_replace(
-        buffer_manager: RowGroupBufferManager,
-        row_group: int,
-        dataframe: pd.DataFrame,
-    ) -> None:
-        nonlocal replace_calls
-        replace_calls += 1
-        if replace_calls == 2:
-            raise RuntimeError("post-batch replace failed")
-        original_replace_dataframe(buffer_manager, row_group, dataframe)
 
     with (
-        patch.object(RowGroupBufferManager, "replace_dataframe", fail_second_replace),
+        patch.object(ProcessorRunner, "run_post_batch", side_effect=RuntimeError("post-batch failed")),
         pytest.raises(
             DatasetGenerationError,
-            match="Post-batch processor failed for row group 0: post-batch replace failed",
+            match="Post-batch processor failed for row group 0: post-batch failed",
         ),
     ):
         builder.build(num_records=1)
@@ -383,7 +518,7 @@ def test_record_selection_uses_fixed_width_for_all_candidate_artifacts(stub_reso
     assert storage.load_dataset_with_dropped_columns()["payload"].tolist() == ["accepted"]
 
 
-def test_record_selection_after_generation_uses_publication_width(stub_resource_provider) -> None:
+def test_record_selection_after_generation_reuses_configured_batch_width(stub_resource_provider) -> None:
     stub_resource_provider.run_config = RunConfig(buffer_size=1, display_tui=False)
     config = DataDesignerConfigBuilder()
     config.add_column(
@@ -403,8 +538,8 @@ def test_record_selection_after_generation_uses_publication_width(stub_resource_
     storage = builder.artifact_storage
     processor.process_after_generation.assert_called_once()
     assert [path.name for path in storage.selection_accepted_path.glob("batch_*.parquet")] == ["batch_000000.parquet"]
-    assert [path.name for path in output_path.glob("*.parquet")] == ["batch_00000.parquet"]
-    assert storage.read_metadata()["file_paths"]["parquet-files"] == ["parquet-files/batch_00000.parquet"]
+    assert [path.name for path in output_path.glob("*.parquet")] == ["batch_000000.parquet"]
+    assert storage.read_metadata()["file_paths"]["parquet-files"] == ["parquet-files/batch_000000.parquet"]
 
 
 @pytest.mark.parametrize(
@@ -561,12 +696,19 @@ def test_record_selection_discards_schema_without_checkpoint_on_resume(stub_reso
     )
     config.with_record_selection(RecordSelectionConfig(predicate_column="keep", max_candidate_records=1))
     builder = DatasetBuilder(data_designer_config=config.build(), resource_provider=stub_resource_provider)
+    sink = InMemoryAdmissionEventSink()
+    stub_resource_provider.scheduler_event_sink = sink
 
     with (
         patch.object(ArtifactStorage, "write_selection_checkpoint", side_effect=OSError("checkpoint failed")),
         pytest.raises(DatasetGenerationError, match="checkpoint failed"),
     ):
         builder.build(num_records=1)
+
+    assert not any(event.event_kind == "row_group_checkpointed" for event in sink.scheduler_events)
+    completed = [event for event in sink.scheduler_events if event.event_kind == "scheduler_job_completed"]
+    assert len(completed) == 1
+    assert completed[0].reason_or_result == "error"
 
     assert builder.artifact_storage.selection_schema_path.exists()
     lazy.pd.DataFrame({"stale": lazy.pd.Series(dtype="int64")}).to_parquet(
@@ -609,8 +751,10 @@ def test_record_selection_rejects_missing_schema_owned_by_committed_batch(stub_r
         trimmed_accepted_records=0,
         accepted_partition=None,
         schema_materialized=True,
+        non_retryable_error=None,
+        stopped_early=False,
     )
-    builder.artifact_storage.write_selection_checkpoint(0, marker.to_dict())
+    builder.artifact_storage.write_selection_checkpoint(0, marker.model_dump(mode="json"))
     runner = RecordSelectionRunner(builder)
 
     with (
@@ -770,6 +914,9 @@ def test_record_selection_normalizes_corrupt_accepted_partition_error(stub_resou
         failed_generation_records=0,
         trimmed_accepted_records=0,
         accepted_partition=str(partition.relative_to(builder.artifact_storage.base_dataset_path)),
+        schema_materialized=True,
+        non_retryable_error=None,
+        stopped_early=False,
     )
 
     with pytest.raises(DatasetGenerationError, match="missing or unreadable accepted partition"):
@@ -1267,31 +1414,19 @@ def test_build_async_preview_returns_empty_dataframe_when_row_group_is_already_f
         async def run(self) -> None:
             return None
 
-    class MockFuture:
-        def result(self) -> None:
-            return None
-
-    def mock_run_coroutine_threadsafe(coro, loop):
-        coro.close()
-        return MockFuture()
-
     scheduler = StubScheduler()
     buffer_manager = Mock()
     buffer_manager.has_row_group.return_value = False
     buffer_manager.actual_num_records = 0
+    run_scheduler = Mock()
 
     monkeypatch.setattr(builder, "_prepare_async_run", Mock(return_value=(scheduler, buffer_manager)))
-    monkeypatch.setattr(builder_mod, "ensure_async_engine_loop", lambda: object(), raising=False)
-    monkeypatch.setattr(
-        builder_mod,
-        "asyncio",
-        Mock(run_coroutine_threadsafe=mock_run_coroutine_threadsafe),
-        raising=False,
-    )
+    monkeypatch.setattr(builder_mod, "run_async_scheduler", run_scheduler)
 
     result = builder._build_async_preview([], num_records=3)
 
     assert result.empty
+    run_scheduler.assert_called_once_with(scheduler)
     buffer_manager.get_dataframe.assert_not_called()
     buffer_manager.free_row_group.assert_not_called()
 
@@ -1390,7 +1525,7 @@ def test_run_after_generation(
     assert sum(len(lazy.pd.read_parquet(f)) for f in batch_files) == expected_rows
 
 
-def test_run_after_generation_selection_publication_names_use_output_partition_count(
+def test_run_after_generation_uses_configured_batch_width(
     stub_resource_provider,
     simple_builder,
 ) -> None:
@@ -1404,13 +1539,13 @@ def test_run_after_generation_selection_publication_names_use_output_partition_c
     processor = create_mock_processor("proc", ["process_after_generation"])
     _replace_processors(simple_builder, [processor])
 
-    simple_builder._processor_runner.run_after_generation(2, selection_publication=True)
+    simple_builder._processor_runner.run_after_generation(2)
 
     batch_files = sorted(storage.final_dataset_path.glob("*.parquet"))
     assert [path.name for path in batch_files] == [
-        "batch_00000.parquet",
-        "batch_00001.parquet",
-        "batch_00002.parquet",
+        "batch_000000.parquet",
+        "batch_000001.parquet",
+        "batch_000002.parquet",
     ]
     assert [value for path in batch_files for value in lazy.pd.read_parquet(path)["id"]] == list(range(5))
 
@@ -2725,8 +2860,6 @@ def test_initial_actual_num_records_from_filesystem_in_crash_window(
     With 6 records and buffer_size=2 (3 row groups total), the correct
     initial_actual_num_records is 4 (groups 0+1), not 2 (stale metadata value).
     """
-    import asyncio as stdlib_asyncio
-
     dataset_dir = tmp_path / "dataset"
     # Metadata lags — says only 1 batch completed with 2 records
     _write_metadata(dataset_dir, target_num_records=6, buffer_size=2, num_completed_batches=1, actual_num_records=2)
@@ -2746,17 +2879,15 @@ def test_initial_actual_num_records_from_filesystem_in_crash_window(
         mock_buffer_manager.actual_num_records = 6
         return mock_scheduler, mock_buffer_manager
 
-    mock_future = Mock()
-    mock_future.result = Mock(return_value=None)
-
-    with patch.object(builder_mod, "asyncio", stdlib_asyncio, create=True):
-        with patch.object(builder_mod, "ensure_async_engine_loop", Mock(return_value=Mock()), create=True):
-            with patch.object(stdlib_asyncio, "run_coroutine_threadsafe", return_value=mock_future):
-                with patch.object(builder_mod, "run_readiness_check"):
-                    with patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare):
-                        builder.build(num_records=6, resume=ResumeMode.ALWAYS)
+    with (
+        patch.object(builder_mod, "run_async_scheduler") as mock_run_scheduler,
+        patch.object(builder_mod, "run_readiness_check"),
+        patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare),
+    ):
+        builder.build(num_records=6, resume=ResumeMode.ALWAYS)
 
     # Filesystem says 2 groups done (IDs 0+1) → 2+2 = 4 records, not stale metadata value 2
+    mock_run_scheduler.assert_called_once()
     assert captured["initial_actual_num_records"] == 4
     assert captured["initial_total_num_batches"] == 2
 
@@ -2829,8 +2960,6 @@ def test_initial_actual_num_records_uses_actual_parquet_rows_for_partial_row_gro
     stub_resource_provider, stub_test_config_builder, tmp_path
 ):
     """Partial salvaged row groups count persisted parquet rows, not requested group size."""
-    import asyncio as stdlib_asyncio
-
     dataset_dir = tmp_path / "dataset"
     _write_metadata(dataset_dir, target_num_records=6, buffer_size=2, num_completed_batches=1, actual_num_records=2)
     # Row group 1 was salvaged with only one surviving row.
@@ -2851,16 +2980,14 @@ def test_initial_actual_num_records_uses_actual_parquet_rows_for_partial_row_gro
         mock_buffer_manager.actual_num_records = 6
         return mock_scheduler, mock_buffer_manager
 
-    mock_future = Mock()
-    mock_future.result = Mock(return_value=None)
+    with (
+        patch.object(builder_mod, "run_async_scheduler") as mock_run_scheduler,
+        patch.object(builder_mod, "run_readiness_check"),
+        patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare),
+    ):
+        builder.build(num_records=6, resume=ResumeMode.ALWAYS)
 
-    with patch.object(builder_mod, "asyncio", stdlib_asyncio, create=True):
-        with patch.object(builder_mod, "ensure_async_engine_loop", Mock(return_value=Mock()), create=True):
-            with patch.object(stdlib_asyncio, "run_coroutine_threadsafe", return_value=mock_future):
-                with patch.object(builder_mod, "run_readiness_check"):
-                    with patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare):
-                        builder.build(num_records=6, resume=ResumeMode.ALWAYS)
-
+    mock_run_scheduler.assert_called_once()
     assert captured["initial_actual_num_records"] == 3
     assert captured["initial_total_num_batches"] == 2
 
@@ -2874,8 +3001,6 @@ def test_build_async_resume_initial_actual_num_records_uses_original_target(
     all 3 row groups completed. Resuming with num_records=7 must not use the new target in the
     formula: min(2, 7-2*2)=min(2,3)=2 would give 6, but the actual data is 5 records.
     """
-    import asyncio as stdlib_asyncio
-
     dataset_dir = tmp_path / "dataset"
     # Original run: 5 records, buffer_size=2, all 3 row groups done
     _write_metadata(dataset_dir, target_num_records=5, buffer_size=2, num_completed_batches=3, actual_num_records=5)
@@ -2893,18 +3018,16 @@ def test_build_async_resume_initial_actual_num_records_uses_original_target(
         mock_buffer_manager.actual_num_records = 7
         return mock_scheduler, mock_buffer_manager
 
-    mock_future = Mock()
-    mock_future.result = Mock(return_value=None)
-
-    with patch.object(builder_mod, "asyncio", stdlib_asyncio, create=True):
-        with patch.object(builder_mod, "ensure_async_engine_loop", Mock(return_value=Mock()), create=True):
-            with patch.object(stdlib_asyncio, "run_coroutine_threadsafe", return_value=mock_future):
-                with patch.object(builder_mod, "run_readiness_check"):
-                    with patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare):
-                        # Extend the dataset: new target is 7, original was 5
-                        builder.build(num_records=7, resume=ResumeMode.ALWAYS)
+    with (
+        patch.object(builder_mod, "run_async_scheduler") as mock_run_scheduler,
+        patch.object(builder_mod, "run_readiness_check"),
+        patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare),
+    ):
+        # Extend the dataset: new target is 7, original was 5
+        builder.build(num_records=7, resume=ResumeMode.ALWAYS)
 
     # Row groups [2, 2, 1] from original 5-record run: 2+2+1=5, not 2+2+2=6
+    mock_run_scheduler.assert_called_once()
     assert captured["initial_actual_num_records"] == 5
 
 
@@ -2922,8 +3045,6 @@ def test_build_async_resume_initial_actual_num_records_extension_crash_window(
     (extension) → min(2, 9-6)=2. Total = 7, not 4 (which the unguarded formula gives,
     since min(2, 5-6) = -1).
     """
-    import asyncio as stdlib_asyncio
-
     dataset_dir = tmp_path / "dataset"
     _write_metadata(dataset_dir, target_num_records=5, buffer_size=2, num_completed_batches=3, actual_num_records=5)
     _write_parquet_files(dataset_dir / "parquet-files", [0, 1, 2, 3], row_counts={2: 1})
@@ -2940,17 +3061,15 @@ def test_build_async_resume_initial_actual_num_records_extension_crash_window(
         mock_buffer_manager.actual_num_records = 9
         return mock_scheduler, mock_buffer_manager
 
-    mock_future = Mock()
-    mock_future.result = Mock(return_value=None)
-
-    with patch.object(builder_mod, "asyncio", stdlib_asyncio, create=True):
-        with patch.object(builder_mod, "ensure_async_engine_loop", Mock(return_value=Mock()), create=True):
-            with patch.object(stdlib_asyncio, "run_coroutine_threadsafe", return_value=mock_future):
-                with patch.object(builder_mod, "run_readiness_check"):
-                    with patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare):
-                        builder.build(num_records=9, resume=ResumeMode.ALWAYS)
+    with (
+        patch.object(builder_mod, "run_async_scheduler") as mock_run_scheduler,
+        patch.object(builder_mod, "run_readiness_check"),
+        patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare),
+    ):
+        builder.build(num_records=9, resume=ResumeMode.ALWAYS)
 
     # 2+2+1 (original) + 2 (extension group 3) = 7, not 4 (which unguarded formula gives)
+    mock_run_scheduler.assert_called_once()
     assert captured["initial_actual_num_records"] == 7
 
 
@@ -2968,8 +3087,6 @@ def test_build_async_resume_stale_original_target_after_incremental_metadata_wri
     With the fix, original_target_num_records=5 is preserved in metadata, giving the correct
     initial_actual_num_records=7 (2+2+1 original + 2 extension).
     """
-    import asyncio as stdlib_asyncio
-
     dataset_dir = tmp_path / "dataset"
     # Metadata reflects a post-incremental-write state: target updated to 9, original still 5
     _write_metadata(
@@ -2994,17 +3111,15 @@ def test_build_async_resume_stale_original_target_after_incremental_metadata_wri
         mock_buffer_manager.actual_num_records = 9
         return mock_scheduler, mock_buffer_manager
 
-    mock_future = Mock()
-    mock_future.result = Mock(return_value=None)
-
-    with patch.object(builder_mod, "asyncio", stdlib_asyncio, create=True):
-        with patch.object(builder_mod, "ensure_async_engine_loop", Mock(return_value=Mock()), create=True):
-            with patch.object(stdlib_asyncio, "run_coroutine_threadsafe", return_value=mock_future):
-                with patch.object(builder_mod, "run_readiness_check"):
-                    with patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare):
-                        builder.build(num_records=9, resume=ResumeMode.ALWAYS)
+    with (
+        patch.object(builder_mod, "run_async_scheduler") as mock_run_scheduler,
+        patch.object(builder_mod, "run_readiness_check"),
+        patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare),
+    ):
+        builder.build(num_records=9, resume=ResumeMode.ALWAYS)
 
     # original_target=5 → groups 0,1 → 2+2; group 2 → 1; group 3 (ext) → min(2,9-6)=2. Total=7
+    mock_run_scheduler.assert_called_once()
     assert captured["initial_actual_num_records"] == 7
 
 
@@ -3017,8 +3132,6 @@ def test_build_async_resume_skip_row_groups_contains_completed_ids(
     already has a parquet file on disk.  6 records, buffer_size=2 → 3 row groups total;
     row groups 0 and 2 already on disk → only row group 1 should be scheduled.
     """
-    import asyncio as stdlib_asyncio
-
     dataset_dir = tmp_path / "dataset"
     # 6 records, buffer_size=2 → 3 row groups total; row groups 0 and 2 already on disk
     _write_metadata(dataset_dir, target_num_records=6, buffer_size=2, num_completed_batches=2, actual_num_records=4)
@@ -3036,17 +3149,15 @@ def test_build_async_resume_skip_row_groups_contains_completed_ids(
         mock_buffer_manager.actual_num_records = 6
         return mock_scheduler, mock_buffer_manager
 
-    mock_future = Mock()
-    mock_future.result = Mock(return_value=None)
-
-    with patch.object(builder_mod, "asyncio", stdlib_asyncio, create=True):
-        with patch.object(builder_mod, "ensure_async_engine_loop", Mock(return_value=Mock()), create=True):
-            with patch.object(stdlib_asyncio, "run_coroutine_threadsafe", return_value=mock_future):
-                with patch.object(builder_mod, "run_readiness_check"):
-                    with patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare):
-                        builder.build(num_records=6, resume=ResumeMode.ALWAYS)
+    with (
+        patch.object(builder_mod, "run_async_scheduler") as mock_run_scheduler,
+        patch.object(builder_mod, "run_readiness_check"),
+        patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare),
+    ):
+        builder.build(num_records=6, resume=ResumeMode.ALWAYS)
 
     # Only rg_id=1 remains; rg_id=0 and rg_id=2 are already on disk
+    mock_run_scheduler.assert_called_once()
     assert list(captured["precomputed_row_groups"]) == [(1, 2)]
 
 
@@ -3062,8 +3173,6 @@ def test_build_async_resume_extension_non_aligned_row_group_sizes(
 
     After the fix, precomputed_row_groups must be [(3, 2)], not [(3, 1)].
     """
-    import asyncio as stdlib_asyncio
-
     dataset_dir = tmp_path / "dataset"
     _write_metadata(dataset_dir, target_num_records=5, buffer_size=2, num_completed_batches=3, actual_num_records=5)
     _write_parquet_files(dataset_dir / "parquet-files", [0, 1, 2], row_counts={2: 1})
@@ -3080,17 +3189,15 @@ def test_build_async_resume_extension_non_aligned_row_group_sizes(
         mock_buffer_manager.actual_num_records = 7
         return mock_scheduler, mock_buffer_manager
 
-    mock_future = Mock()
-    mock_future.result = Mock(return_value=None)
-
-    with patch.object(builder_mod, "asyncio", stdlib_asyncio, create=True):
-        with patch.object(builder_mod, "ensure_async_engine_loop", Mock(return_value=Mock()), create=True):
-            with patch.object(stdlib_asyncio, "run_coroutine_threadsafe", return_value=mock_future):
-                with patch.object(builder_mod, "run_readiness_check"):
-                    with patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare):
-                        builder.build(num_records=7, resume=ResumeMode.ALWAYS)
+    with (
+        patch.object(builder_mod, "run_async_scheduler") as mock_run_scheduler,
+        patch.object(builder_mod, "run_readiness_check"),
+        patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare),
+    ):
+        builder.build(num_records=7, resume=ResumeMode.ALWAYS)
 
     # rg_id=3 should have 2 records (7-5=2 extension records, buffer_size=2), not 1
+    mock_run_scheduler.assert_called_once()
     assert list(captured["precomputed_row_groups"]) == [(3, 2)]
 
 
@@ -3103,8 +3210,6 @@ def test_build_async_resume_not_already_complete_when_extension_fits_in_slack(
     ceil(6/2)=3 == len(completed_ids)=3 used to trigger the false 'already complete' branch.
     Correct total_row_groups = 3 + ceil(1/2) = 4, so _prepare_async_run must be called.
     """
-    import asyncio as stdlib_asyncio
-
     dataset_dir = tmp_path / "dataset"
     _write_metadata(dataset_dir, target_num_records=5, buffer_size=2, num_completed_batches=3, actual_num_records=5)
     _write_parquet_files(dataset_dir / "parquet-files", [0, 1, 2], row_counts={2: 1})
@@ -3118,17 +3223,15 @@ def test_build_async_resume_not_already_complete_when_extension_fits_in_slack(
         mock_buffer_manager.actual_num_records = 6
         return mock_scheduler, mock_buffer_manager
 
-    mock_future = Mock()
-    mock_future.result = Mock(return_value=None)
-
-    with patch.object(builder_mod, "asyncio", stdlib_asyncio, create=True):
-        with patch.object(builder_mod, "ensure_async_engine_loop", Mock(return_value=Mock()), create=True):
-            with patch.object(stdlib_asyncio, "run_coroutine_threadsafe", return_value=mock_future):
-                with patch.object(builder_mod, "run_readiness_check"):
-                    with patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare) as mock_prepare:
-                        builder.build(num_records=6, resume=ResumeMode.ALWAYS)
+    with (
+        patch.object(builder_mod, "run_async_scheduler") as mock_run_scheduler,
+        patch.object(builder_mod, "run_readiness_check"),
+        patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare) as mock_prepare,
+    ):
+        builder.build(num_records=6, resume=ResumeMode.ALWAYS)
 
     # _prepare_async_run must be called — the dataset is NOT already complete
+    mock_run_scheduler.assert_called_once()
     mock_prepare.assert_called_once()
 
 

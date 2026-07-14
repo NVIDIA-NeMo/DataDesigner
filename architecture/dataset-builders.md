@@ -8,7 +8,7 @@ Source: `packages/data-designer-engine/src/data_designer/engine/dataset_builders
 
 `DatasetBuilder` is the high-level orchestrator. It receives a compiled `DataDesignerConfig`, initializes column generators from the registry, and owns shared scheduler and resource state. Ordinary builds execute directly through `AsyncTaskScheduler`; record-selection builds delegate their feature lifecycle to a per-build `RecordSelectionRunner`.
 
-The scheduler produces row-group DataFrames managed by `RowGroupBufferManager`. `DatasetBuilder` composes generic processor and DataFrame-transform callbacks around checkpointing, while `RecordSelectionRunner` owns candidate selection, durable selection state, resume, and terminal publication.
+The scheduler produces row-group DataFrames managed by `RowGroupBufferManager`. `DatasetBuilder` composes generic processor callbacks for ordinary checkpointing, while `RecordSelectionRunner` treats each completed candidate scheduler as a one-row-group producer and then owns selection, durable state, resume, and terminal publication.
 
 ## Key Components
 
@@ -27,11 +27,13 @@ Preparation (`_prepare_async_run`):
 2. Creates `ExecutionGraph` from column dependencies
 3. Partitions rows into row groups by `buffer_size`
 4. Constructs `CompletionTracker`, `RowGroupBufferManager`, `AsyncTaskScheduler`
-5. Composes one generic before-checkpoint callback: an optional DataFrame transform runs first, newly dropped rows are mirrored into `CompletionTracker`, and configured post-batch processors run afterward
+5. Composes a generic before-checkpoint callback for configured post-batch processors
 
 `AsyncTaskScheduler` runs on a dedicated async loop with frontier-driven dispatch, task-admission leases, salvage rounds for failed tasks, and order-dependent locks for columns that must execute sequentially. Ready frontier tasks enter `FairTaskQueue`, are selected through virtual-time ordering, and are committed only after `TaskAdmissionController` acquires the required scheduler resources. Salvage-exhausted tasks are dropped except for preserved retryable failures: provider rate limits and local request-admission queue timeouts stay deferred and retry after cooldown/backoff so scheduler-local pressure delays records rather than discarding them.
 
-`AsyncTaskScheduler` has no record-selection-specific callback. `on_before_checkpoint` is generic. A caller that must durably finalize progress even when that callback drops every row opts into `finalize_empty_row_groups=True` and supplies `on_finalize_row_group`.
+`AsyncTaskScheduler` has no record-selection-specific callback. `on_before_checkpoint` is generic. A result-oriented caller can set `retain_row_group_result=True` for a single-row-group run; the scheduler then retains even a zero-row result and defers checkpoint and terminal events until the caller finishes its durable commit. Record selection uses that one contract so accepted and dropped telemetry reflects the marker on disk and `scheduler_job_completed` remains the terminal event. If caller-side selection, processing, commit, or cleanup fails, the deferred terminal event is emitted with an error outcome and no pre-marker checkpoint is reported.
+
+Post-batch processors run only after selection. When a candidate accepts no rows, their zero-row batch-addressed side files are removed before the marker is committed; this prevents an empty first parquet file from defining an empty directory schema that masks accepted processor output from a later candidate.
 
 ### Execution Graph
 
@@ -111,12 +113,11 @@ DatasetBuilder.build()
        → probe unresolved resume state and restore committed markers
        → for each immutable candidate batch
             → DatasetBuilder._prepare_async_run()
-            → AsyncTaskScheduler.run()
-                 → generic on_before_checkpoint
-                      → select and mirror dropped rows
-                      → run post-batch processors
-                 → on_finalize_row_group (including empty groups by opt-in)
+            → AsyncTaskScheduler.run() retains one completed candidate DataFrame
+            → select and trim accepted rows
+            → promote accepted media and run strict post-batch processors
             → commit accepted partition and marker
+            → report the durable accepted/dropped checkpoint
        → materialize terminal publication
 ```
 
@@ -128,7 +129,7 @@ When request admission is available, async scheduling may use request-pressure s
 
 - **One execution engine behind the API.** The async scheduler handles row-group parallelism, DAG-aware dispatch, resume, and checkpointing for all generation runs.
 - **Selection collaborator.** `DatasetBuilder` owns shared engine setup; the per-build `RecordSelectionRunner` owns the feature lifecycle and resume state, keeping selection-specific orchestration and recovery out of the central builder.
-- **Feature-agnostic scheduler.** Selection is composed through the generic checkpoint boundary. `finalize_empty_row_groups` describes lifecycle policy without naming selection.
+- **Feature-agnostic scheduler.** The scheduler produces candidate DataFrames without selection callbacks. `retain_row_group_result` is one generic contract for result ownership and caller-managed completion reporting.
 - **DAG-driven ordering** ensures columns with dependencies (e.g., a judge column that depends on a text column) are generated in the correct order, regardless of the order they appear in the config.
 - **Fair async admission with bounded borrow by default** keeps the scheduler flowing across ready columns and model groups. `FairTaskQueue.select_next(...)` chooses eligible ready work, `TaskAdmissionController` leases scheduler resources before spawn, and `FairTaskQueue.commit(...)` removes the selected task only after admission succeeds. The default `BoundedBorrowTaskAdmissionPolicyConfig` computes a strict per-group share, lets solo groups borrow only up to a capacity-derived reserve, and makes borrowed groups yield when eligible peer pressure appears. Passing `bounded_borrow=None` selects strict-fair admission for tests and benchmark comparisons. Per-group virtual-time ordering prevents a large ready frontier from degenerating into a column-by-column wave, and scheduler-resource accounting remains separate from provider/model request admission.
 - **Salvage rounds** retry failed tasks after all other tasks in a round complete, improving resilience against transient LLM failures without blocking the entire generation.

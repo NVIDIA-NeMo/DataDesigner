@@ -409,20 +409,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
 
     @staticmethod
     def _is_valid_empty_selection_result(builder: DatasetBuilder) -> bool:
-        if builder.early_shutdown or builder.first_non_retryable_error is not None:
-            return False
-        try:
-            metadata = builder.artifact_storage.read_metadata()
-        except (OSError, ValueError):
-            return False
-        selection = metadata.get("record_selection")
-        return bool(
-            isinstance(selection, dict)
-            and selection.get("selection_exhausted") is True
-            and selection.get("on_exhausted") == "return_partial"
-            and metadata.get("post_generation_state") == "complete"
-            and metadata.get("actual_num_records") == 0
-        )
+        return builder.data_designer_config.record_selection is not None and builder.actual_num_records == 0
 
     async def acreate(
         self,

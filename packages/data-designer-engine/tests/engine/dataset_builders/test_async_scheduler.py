@@ -1985,8 +1985,8 @@ async def test_scheduler_on_finalize_skips_empty_row_group() -> None:
 
 
 @pytest.mark.asyncio(loop_scope="session")
-async def test_scheduler_can_finalize_empty_row_group() -> None:
-    """Callers can opt into finalization when an empty group carries durable progress."""
+async def test_scheduler_can_retain_empty_row_group_result() -> None:
+    """Callers can retain an empty completed group for result-oriented processing."""
     provider = _mock_provider()
     storage = MagicMock()
     storage.dataset_name = "test"
@@ -2004,7 +2004,6 @@ async def test_scheduler_can_finalize_empty_row_group() -> None:
     row_groups = [(0, 3)]
     tracker = CompletionTracker.with_graph(graph, row_groups)
     buffer_mgr = RowGroupBufferManager(storage)
-    finalized: list[int] = []
     sink = InMemoryAdmissionEventSink()
 
     def drop_all_rows(rg_id: int, rg_size: int) -> None:
@@ -2012,42 +2011,121 @@ async def test_scheduler_can_finalize_empty_row_group() -> None:
             tracker.drop_row(rg_id, row_index)
             buffer_mgr.drop_row(rg_id, row_index)
 
-    def finalize_row_group(rg_id: int) -> None:
-        finalized.append(rg_id)
-        buffer_mgr.checkpoint_row_group(rg_id)
-
     scheduler = AsyncTaskScheduler(
         generators=generators,
         graph=graph,
         tracker=tracker,
         row_groups=row_groups,
         buffer_manager=buffer_mgr,
-        on_finalize_row_group=finalize_row_group,
-        finalize_empty_row_groups=True,
+        retain_row_group_result=True,
         on_before_checkpoint=drop_all_rows,
         scheduler_event_sink=sink,
     )
     await scheduler.run()
 
-    assert finalized == [0]
     storage.write_batch_to_parquet_file.assert_not_called()
-    assert not buffer_mgr.has_row_group(0)
+    assert buffer_mgr.has_row_group(0)
+    assert buffer_mgr.get_dataframe(0).empty
+    scheduler.emit_row_group_checkpointed(0, 3, surviving_rows=0, result="retained_empty")
+    scheduler.emit_deferred_job_completed()
     checkpointed = next(event for event in sink.scheduler_events if event.event_kind == "row_group_checkpointed")
-    assert checkpointed.diagnostics["result"] == "finalized_empty"
+    assert checkpointed.diagnostics["result"] == "retained_empty"
 
 
-def test_scheduler_rejects_empty_finalization_without_callback() -> None:
-    """Opting into empty finalization requires a row-group finalizer."""
+@pytest.mark.asyncio(loop_scope="session")
+async def test_scheduler_can_retain_result_for_caller_managed_checkpoint() -> None:
+    """Result-oriented callers report a durable checkpoint before the terminal event."""
+    provider = _mock_provider()
+    storage = MagicMock()
+    storage.dataset_name = "test"
+    storage.get_file_paths.return_value = {}
+    config = SamplerColumnConfig(
+        name="seed",
+        sampler_type=SamplerType.CATEGORY,
+        params={"values": ["A"]},
+    )
+    graph = ExecutionGraph.create([config], {"seed": GenerationStrategy.FULL_COLUMN})
+    row_groups = [(0, 3)]
+    buffer_mgr = RowGroupBufferManager(storage)
+    sink = InMemoryAdmissionEventSink()
+    scheduler = AsyncTaskScheduler(
+        generators={"seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider)},
+        graph=graph,
+        tracker=CompletionTracker.with_graph(graph, row_groups),
+        row_groups=row_groups,
+        buffer_manager=buffer_mgr,
+        retain_row_group_result=True,
+        scheduler_event_sink=sink,
+    )
+
+    await scheduler.run()
+
+    deferred_kinds = {"row_group_checkpointed", "scheduler_job_completed"}
+    assert not any(event.event_kind in deferred_kinds for event in sink.scheduler_events)
+
+    scheduler.emit_row_group_checkpointed(
+        0,
+        3,
+        surviving_rows=2,
+        result="selection_committed",
+    )
+    scheduler.emit_deferred_job_completed()
+
+    checkpoint_events = [event for event in sink.scheduler_events if event.event_kind == "row_group_checkpointed"]
+    assert len(checkpoint_events) == 1
+    assert checkpoint_events[0].diagnostics["surviving_rows"] == 2
+    assert checkpoint_events[0].diagnostics["dropped_rows"] == 1
+    assert checkpoint_events[0].diagnostics["result"] == "selection_committed"
+    completion_kinds = [event.event_kind for event in sink.scheduler_events if event.event_kind in deferred_kinds]
+    assert completion_kinds == ["row_group_checkpointed", "scheduler_job_completed"]
+    buffer_mgr.free_row_group(0)
+
+
+def test_scheduler_rejects_result_retention_without_buffer_manager() -> None:
+    """Retaining an empty row group requires a buffer for the caller to inspect."""
     config = ExpressionColumnConfig(name="seed", expr="'x'", dtype="str")
     graph = ExecutionGraph.create([config], {"seed": GenerationStrategy.FULL_COLUMN})
 
-    with pytest.raises(ValueError, match="finalize_empty_row_groups requires on_finalize_row_group"):
+    with pytest.raises(ValueError, match="retain_row_group_result requires buffer_manager"):
         AsyncTaskScheduler(
             generators={"seed": MockSeedGenerator(config=config, resource_provider=_mock_provider())},
             graph=graph,
             tracker=CompletionTracker.with_graph(graph, [(0, 1)]),
             row_groups=[(0, 1)],
-            finalize_empty_row_groups=True,
+            retain_row_group_result=True,
+        )
+
+
+def test_scheduler_rejects_result_retention_with_row_group_finalizer() -> None:
+    """A run cannot split row-group ownership between retention and a finalizer."""
+    config = ExpressionColumnConfig(name="seed", expr="'x'", dtype="str")
+    graph = ExecutionGraph.create([config], {"seed": GenerationStrategy.FULL_COLUMN})
+
+    with pytest.raises(ValueError, match="retain_row_group_result cannot be combined with on_finalize_row_group"):
+        AsyncTaskScheduler(
+            generators={"seed": MockSeedGenerator(config=config, resource_provider=_mock_provider())},
+            graph=graph,
+            tracker=CompletionTracker.with_graph(graph, [(0, 1)]),
+            row_groups=[(0, 1)],
+            buffer_manager=RowGroupBufferManager(MagicMock()),
+            on_finalize_row_group=lambda _row_group_id: None,
+            retain_row_group_result=True,
+        )
+
+
+def test_scheduler_rejects_result_retention_for_multiple_row_groups() -> None:
+    config = ExpressionColumnConfig(name="seed", expr="'x'", dtype="str")
+    graph = ExecutionGraph.create([config], {"seed": GenerationStrategy.FULL_COLUMN})
+    row_groups = [(0, 1), (1, 1)]
+
+    with pytest.raises(ValueError, match="retain_row_group_result requires exactly one row group"):
+        AsyncTaskScheduler(
+            generators={"seed": MockSeedGenerator(config=config, resource_provider=_mock_provider())},
+            graph=graph,
+            tracker=CompletionTracker.with_graph(graph, row_groups),
+            row_groups=row_groups,
+            buffer_manager=RowGroupBufferManager(MagicMock()),
+            retain_row_group_result=True,
         )
 
 

@@ -46,6 +46,10 @@ class _CancellableScheduler(Protocol):
     def request_cancel(self) -> None: ...
 
 
+class _RunnableScheduler(_CancellableScheduler, Protocol):
+    async def run(self) -> None: ...
+
+
 def is_async_trace_enabled(settings: RunConfig) -> bool:
     return settings.async_trace or os.environ.get("DATA_DESIGNER_ASYNC_TRACE", "0") == "1"
 
@@ -66,6 +70,13 @@ def await_async_scheduler_result(
         except Exception:
             logger.debug("Async scheduler raised while cancelling after KeyboardInterrupt", exc_info=True)
         raise
+
+
+def run_async_scheduler(scheduler: _RunnableScheduler) -> None:
+    """Run a scheduler on the shared engine loop and wait for completion."""
+    loop = ensure_async_engine_loop()
+    future = asyncio.run_coroutine_threadsafe(scheduler.run(), loop)
+    await_async_scheduler_result(future, scheduler)
 
 
 def _run_loop(loop: asyncio.AbstractEventLoop, ready: threading.Event) -> None:

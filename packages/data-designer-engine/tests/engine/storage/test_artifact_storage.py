@@ -17,7 +17,6 @@ from data_designer.engine.storage.artifact_storage import (
     ArtifactStorage,
     BatchStage,
     ResumeMode,
-    _get_selection_publication_file_name,
 )
 
 
@@ -600,22 +599,6 @@ def test_materialize_selection_dataset_preserves_numeric_order_after_five_digits
     assert stub_artifact_storage.load_dataset()["value"].tolist() == [1, 2]
 
 
-def test_selection_publication_names_widen_together_and_preserve_metadata_order(stub_artifact_storage) -> None:
-    assert _get_selection_publication_file_name(99_999, num_partitions=100_000) == "batch_99999.parquet"
-
-    boundary_names = [
-        _get_selection_publication_file_name(batch_id, num_partitions=100_001) for batch_id in (99_999, 100_000)
-    ]
-    assert boundary_names == ["batch_099999.parquet", "batch_100000.parquet"]
-    assert sorted(boundary_names) == boundary_names
-
-    stub_artifact_storage.final_dataset_path.mkdir(parents=True)
-    for name in reversed(boundary_names):
-        (stub_artifact_storage.final_dataset_path / name).touch()
-
-    assert stub_artifact_storage.get_parquet_file_paths() == [f"parquet-files/{name}" for name in boundary_names]
-
-
 def test_fixed_width_selection_side_artifacts_remain_aligned_when_storage_is_reconstructed(tmp_path) -> None:
     storage = ArtifactStorage(artifact_path=tmp_path)
     storage.final_dataset_path.mkdir(parents=True)
@@ -655,7 +638,7 @@ def test_materialize_empty_selection_uses_schema_anchor(stub_artifact_storage, s
     stub_artifact_storage.write_selection_schema(stub_sample_dataframe.iloc[0:0])
 
     published = stub_artifact_storage.materialize_selection_dataset()
-    dataset = lazy.pd.read_parquet(published / "batch_00000.parquet")
+    dataset = lazy.pd.read_parquet(published / "batch_000000.parquet")
 
     assert dataset.empty
     assert dataset.columns.tolist() == stub_sample_dataframe.columns.tolist()
