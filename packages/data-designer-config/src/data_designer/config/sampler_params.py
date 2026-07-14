@@ -50,14 +50,14 @@ class CategorySamplerParams(ConfigBase):
     sampled according to their assigned probabilities. Without weights, uniform sampling is used.
 
     Attributes:
-        values (required): List of possible categorical values to sample from. Can contain booleans, strings,
-            integers, or floats. Must contain at least one value.
+        values (required): List of possible categorical values to sample from. Can contain strings, integers,
+            or floats. Must contain at least one value.
         weights: Optional unnormalized probability weights for each value. If provided, must be
             the same length as `values`. Weights are automatically normalized to sum to 1.0.
             Larger weights result in higher sampling probability for the corresponding value.
     """
 
-    values: list[bool | str | int | float] = Field(
+    values: list[str | int | float] = Field(
         ...,
         min_length=1,
         description="List of possible categorical values that can be sampled from.",
@@ -135,13 +135,12 @@ class SubcategorySamplerParams(ConfigBase):
     Attributes:
         category (required): Name of the parent category column that this subcategory depends on.
             The parent column must be generated before this subcategory column.
-        values (required): Mapping from each parent category value to a list of possible boolean, string, integer,
-            or float subcategory values. Each key must correspond to a value that appears in the parent category
-            column.
+        values (required): Mapping from each parent category value to a list of possible subcategory values.
+            Each key must correspond to a value that appears in the parent category column.
     """
 
     category: str = Field(..., description="Name of parent category to this subcategory.")
-    values: dict[str, list[bool | str | int | float]] = Field(
+    values: dict[str, list[str | int | float]] = Field(
         ...,
         description="Mapping from each value of parent category to a list of subcategory values.",
     )

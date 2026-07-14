@@ -19,8 +19,10 @@ from data_designer.config.base import SkipConfig
 from data_designer.config.column_configs import (
     CustomColumnConfig,
     ExpressionColumnConfig,
+    LLMStructuredColumnConfig,
     LLMTextColumnConfig,
     SamplerColumnConfig,
+    ValidationColumnConfig,
 )
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.custom_column import custom_column_generator
@@ -30,12 +32,13 @@ from data_designer.config.run_config import RunConfig
 from data_designer.config.sampler_params import (
     CategorySamplerParams,
     SamplerType,
-    SubcategorySamplerParams,
     UUIDSamplerParams,
 )
 from data_designer.config.seed import IndexRange, PartitionBlock, SamplingStrategy
 from data_designer.config.seed_source import LocalFileSeedSource
 from data_designer.config.seed_source_dataframe import DataFrameSeedSource
+from data_designer.config.utils.code_lang import CodeLang
+from data_designer.config.validator_params import CodeValidatorParams, ValidatorType
 from data_designer.engine.column_generators.generators.base import GenerationStrategy
 from data_designer.engine.column_generators.generators.samplers import SamplerColumnGenerator
 from data_designer.engine.dataset_builders.acceptance import AcceptanceController, SelectionBatchMarker
@@ -141,6 +144,23 @@ def create_mock_processor(name: str, stages: list[str]) -> Mock:
     return mock_processor
 
 
+def add_constant_boolean_expression(
+    config: DataDesignerConfigBuilder,
+    *,
+    name: str = "keep",
+    value: bool,
+) -> None:
+    config.add_column(
+        SamplerColumnConfig(
+            name=f"{name}_candidate",
+            sampler_type=SamplerType.CATEGORY,
+            params=CategorySamplerParams(values=["candidate"]),
+        )
+    )
+    literal = "true" if value else "false"
+    config.add_column(ExpressionColumnConfig(name=name, expr=f"{{{{ {literal} }}}}", dtype="bool"))
+
+
 def test_dataset_builder_creation(stub_resource_provider, stub_test_config_builder):
     builder = DatasetBuilder(
         data_designer_config=stub_test_config_builder.build(),
@@ -151,7 +171,7 @@ def test_dataset_builder_creation(stub_resource_provider, stub_test_config_build
     assert isinstance(builder._registry, DataDesignerRegistry)
 
 
-def test_record_selection_rejects_known_non_boolean_builtin_predicate(stub_resource_provider) -> None:
+def test_record_selection_rejects_sampler_predicate(stub_resource_provider) -> None:
     config = DataDesignerConfigBuilder()
     config.add_column(
         SamplerColumnConfig(
@@ -162,41 +182,166 @@ def test_record_selection_rejects_known_non_boolean_builtin_predicate(stub_resou
     )
     config.with_record_selection(RecordSelectionConfig(predicate_column="numeric_predicate", max_candidate_records=1))
 
-    with pytest.raises(DatasetGenerationError, match="built-in column type.*does not produce boolean"):
+    with pytest.raises(DatasetGenerationError, match="unsupported built-in column type 'sampler'"):
         DatasetBuilder(data_designer_config=config.build(), resource_provider=stub_resource_provider)
 
 
-def test_record_selection_accepts_known_boolean_category_predicate(stub_resource_provider) -> None:
+def test_record_selection_rejects_seed_predicate(stub_resource_provider) -> None:
+    source = DataFrameSeedSource(df=lazy.pd.DataFrame({"keep": [True]}))
+    seed_reader = DataFrameSeedReader()
+    seed_reader.attach(source, Mock())
+    stub_resource_provider.seed_reader = seed_reader
+    config = DataDesignerConfigBuilder().with_seed_dataset(source)
+    config.add_column(ExpressionColumnConfig(name="payload", expr="{{ keep }}"))
+    config.with_record_selection(RecordSelectionConfig(predicate_column="keep", max_candidate_records=1))
+
+    with pytest.raises(DatasetGenerationError, match="unsupported built-in column type 'seed-dataset'"):
+        DatasetBuilder(data_designer_config=config.build(), resource_provider=stub_resource_provider)
+
+
+def test_record_selection_rejects_validation_predicate(stub_resource_provider) -> None:
     config = DataDesignerConfigBuilder()
     config.add_column(
         SamplerColumnConfig(
-            name="boolean_predicate",
+            name="candidate",
             sampler_type=SamplerType.CATEGORY,
-            params=CategorySamplerParams(values=[True, False]),
-            conditional_params={"true": CategorySamplerParams(values=[False, True])},
+            params=CategorySamplerParams(values=["candidate"]),
         )
     )
-    config.with_record_selection(RecordSelectionConfig(predicate_column="boolean_predicate", max_candidate_records=1))
+    config.add_column(
+        ValidationColumnConfig(
+            name="predicate",
+            target_columns=["candidate"],
+            validator_type=ValidatorType.CODE,
+            validator_params=CodeValidatorParams(code_lang=CodeLang.PYTHON),
+        )
+    )
+    config.with_record_selection(RecordSelectionConfig(predicate_column="predicate", max_candidate_records=1))
+
+    with pytest.raises(DatasetGenerationError, match="unsupported built-in column type 'validation'"):
+        DatasetBuilder(data_designer_config=config.build(), resource_provider=stub_resource_provider)
+
+
+def test_record_selection_rejects_non_boolean_expression_predicate(stub_resource_provider) -> None:
+    config = DataDesignerConfigBuilder()
+    config.add_column(
+        SamplerColumnConfig(
+            name="candidate",
+            sampler_type=SamplerType.CATEGORY,
+            params=CategorySamplerParams(values=["candidate"]),
+        )
+    )
+    config.add_column(ExpressionColumnConfig(name="predicate", expr="{{ candidate }}", dtype="str"))
+    config.with_record_selection(RecordSelectionConfig(predicate_column="predicate", max_candidate_records=1))
+
+    with pytest.raises(DatasetGenerationError, match="must use dtype='bool'"):
+        DatasetBuilder(data_designer_config=config.build(), resource_provider=stub_resource_provider)
+
+
+def test_record_selection_accepts_column_type_classified_as_plugin(stub_resource_provider) -> None:
+    config = DataDesignerConfigBuilder()
+    config.add_column(
+        SamplerColumnConfig(
+            name="plugin_predicate",
+            sampler_type=SamplerType.CATEGORY,
+            params=CategorySamplerParams(values=["plugin-defined"]),
+        )
+    )
+    config.with_record_selection(RecordSelectionConfig(predicate_column="plugin_predicate", max_candidate_records=1))
+
+    with patch.object(builder_mod, "is_plugin_column_type", return_value=True):
+        DatasetBuilder(data_designer_config=config.build(), resource_provider=stub_resource_provider)
+
+
+@pytest.mark.parametrize(
+    "predicate_config",
+    [
+        LLMTextColumnConfig(name="predicate", prompt="Return true or false", model_alias="stub-model"),
+        LLMStructuredColumnConfig(
+            name="predicate",
+            prompt="Return a decision",
+            model_alias="stub-model",
+            output_format={
+                "type": "object",
+                "properties": {"accepted": {"type": "boolean"}},
+                "required": ["accepted"],
+            },
+        ),
+    ],
+)
+def test_record_selection_rejects_direct_llm_predicate(
+    stub_resource_provider, stub_model_configs, predicate_config
+) -> None:
+    config = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+    config.add_column(
+        SamplerColumnConfig(
+            name="candidate",
+            sampler_type=SamplerType.CATEGORY,
+            params=CategorySamplerParams(values=["candidate"]),
+        )
+    )
+    config.add_column(predicate_config)
+    config.with_record_selection(RecordSelectionConfig(predicate_column="predicate", max_candidate_records=1))
+
+    with pytest.raises(DatasetGenerationError, match="unsupported built-in column type 'llm-"):
+        DatasetBuilder(data_designer_config=config.build(), resource_provider=stub_resource_provider)
+
+
+def test_record_selection_accepts_boolean_expression_derived_from_llm_structured(
+    stub_resource_provider, stub_model_configs
+) -> None:
+    config = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+    config.add_column(
+        SamplerColumnConfig(
+            name="candidate",
+            sampler_type=SamplerType.CATEGORY,
+            params=CategorySamplerParams(values=["candidate"]),
+        )
+    )
+    config.add_column(
+        LLMStructuredColumnConfig(
+            name="judgment",
+            prompt="Return a decision",
+            model_alias="stub-model",
+            output_format={
+                "type": "object",
+                "properties": {"accepted": {"type": "boolean"}},
+                "required": ["accepted"],
+            },
+        )
+    )
+    config.add_column(ExpressionColumnConfig(name="keep", expr="{{ judgment.accepted }}", dtype="bool", drop=True))
+    config.with_record_selection(RecordSelectionConfig(predicate_column="keep", max_candidate_records=1))
 
     DatasetBuilder(data_designer_config=config.build(), resource_provider=stub_resource_provider)
 
 
-def test_record_selection_runs_with_boolean_category_predicate(stub_resource_provider) -> None:
-    stub_resource_provider.run_config = RunConfig(buffer_size=1, display_tui=False)
-    config = DataDesignerConfigBuilder()
-    config.add_column(
-        SamplerColumnConfig(
-            name="boolean_predicate",
-            sampler_type=SamplerType.CATEGORY,
-            params=CategorySamplerParams(values=[True]),
+def test_record_selection_applies_boolean_expression_to_nested_object(stub_resource_provider) -> None:
+    stub_resource_provider.run_config = RunConfig(
+        buffer_size=2,
+        disable_early_shutdown=True,
+        display_tui=False,
+    )
+    source = DataFrameSeedSource(
+        df=lazy.pd.DataFrame(
+            {
+                "judgment": [{"accepted": False}, {"accepted": True}],
+                "payload": ["rejected", "accepted"],
+            }
         )
     )
-    config.with_record_selection(RecordSelectionConfig(predicate_column="boolean_predicate", max_candidate_records=1))
+    seed_reader = DataFrameSeedReader()
+    seed_reader.attach(source, Mock())
+    stub_resource_provider.seed_reader = seed_reader
+    config = DataDesignerConfigBuilder().with_seed_dataset(source, sampling_strategy=SamplingStrategy.ORDERED)
+    config.add_column(ExpressionColumnConfig(name="output", expr="{{ payload }}"))
+    config.add_column(ExpressionColumnConfig(name="keep", expr="{{ judgment.accepted }}", dtype="bool", drop=True))
+    config.with_record_selection(RecordSelectionConfig(predicate_column="keep", max_candidate_records=2))
     builder = DatasetBuilder(data_designer_config=config.build(), resource_provider=stub_resource_provider)
 
     output_path = builder.build(num_records=1)
 
-    assert lazy.pd.read_parquet(output_path)["boolean_predicate"].tolist() == [True]
+    assert lazy.pd.read_parquet(output_path)["output"].tolist() == ["accepted"]
 
 
 def test_record_selection_reports_checkpoint_only_after_marker_commit(stub_resource_provider) -> None:
@@ -232,6 +377,7 @@ def test_record_selection_reports_checkpoint_only_after_marker_commit(stub_resou
         sampling_strategy=SamplingStrategy.ORDERED,
     )
     config.add_column(ExpressionColumnConfig(name="output", expr="{{ payload }}"))
+    config.add_column(ExpressionColumnConfig(name="keep_predicate", expr="{{ keep }}", dtype="bool", drop=True))
     config.add_processor(
         SchemaTransformProcessorConfig(
             name="selected_rows",
@@ -240,7 +386,7 @@ def test_record_selection_reports_checkpoint_only_after_marker_commit(stub_resou
     )
     config.with_record_selection(
         RecordSelectionConfig(
-            predicate_column="keep",
+            predicate_column="keep_predicate",
             max_candidate_records=2,
             on_exhausted=RecordSelectionExhaustion.RETURN_PARTIAL,
         )
@@ -286,13 +432,14 @@ def test_record_selection_discards_empty_processor_output_before_later_acceptanc
         source,
         sampling_strategy=SamplingStrategy.ORDERED,
     )
+    config.add_column(ExpressionColumnConfig(name="keep_predicate", expr="{{ keep }}", dtype="bool", drop=True))
     config.add_processor(
         SchemaTransformProcessorConfig(
             name="selected_rows",
             template={"value": "{{ payload }}"},
         )
     )
-    config.with_record_selection(RecordSelectionConfig(predicate_column="keep", max_candidate_records=2))
+    config.with_record_selection(RecordSelectionConfig(predicate_column="keep_predicate", max_candidate_records=2))
     builder = DatasetBuilder(data_designer_config=config.build(), resource_provider=stub_resource_provider)
 
     builder.build(num_records=1)
@@ -305,13 +452,7 @@ def test_record_selection_discards_empty_processor_output_before_later_acceptanc
 def test_record_selection_normalizes_unexpected_selection_failure(stub_resource_provider) -> None:
     stub_resource_provider.run_config = RunConfig(buffer_size=1, display_tui=False)
     config = DataDesignerConfigBuilder()
-    config.add_column(
-        SamplerColumnConfig(
-            name="keep",
-            sampler_type=SamplerType.CATEGORY,
-            params=CategorySamplerParams(values=[True]),
-        )
-    )
+    add_constant_boolean_expression(config, value=True)
     config.with_record_selection(RecordSelectionConfig(predicate_column="keep", max_candidate_records=1))
     builder = DatasetBuilder(data_designer_config=config.build(), resource_provider=stub_resource_provider)
     sink = InMemoryAdmissionEventSink()
@@ -332,13 +473,7 @@ def test_record_selection_normalizes_unexpected_selection_failure(stub_resource_
 
 def test_record_selection_does_not_commit_partial_schema_when_all_candidates_fail(stub_resource_provider) -> None:
     config = DataDesignerConfigBuilder()
-    config.add_column(
-        SamplerColumnConfig(
-            name="keep",
-            sampler_type=SamplerType.CATEGORY,
-            params=CategorySamplerParams(values=[False]),
-        )
-    )
+    add_constant_boolean_expression(config, value=False)
     selection_config = RecordSelectionConfig(predicate_column="keep", max_candidate_records=1)
     config.with_record_selection(selection_config)
     builder = DatasetBuilder(data_designer_config=config.build(), resource_provider=stub_resource_provider)
@@ -371,13 +506,7 @@ def test_record_selection_does_not_commit_partial_schema_when_all_candidates_fai
 def test_record_selection_normalizes_unexpected_post_batch_failure(stub_resource_provider) -> None:
     stub_resource_provider.run_config = RunConfig(buffer_size=1, display_tui=False)
     config = DataDesignerConfigBuilder()
-    config.add_column(
-        SamplerColumnConfig(
-            name="keep",
-            sampler_type=SamplerType.CATEGORY,
-            params=CategorySamplerParams(values=[True]),
-        )
-    )
+    add_constant_boolean_expression(config, value=True)
     config.with_record_selection(RecordSelectionConfig(predicate_column="keep", max_candidate_records=1))
     builder = DatasetBuilder(data_designer_config=config.build(), resource_provider=stub_resource_provider)
     _replace_processors(builder, [create_mock_processor("identity", ["process_after_batch"])])
@@ -392,77 +521,6 @@ def test_record_selection_normalizes_unexpected_post_batch_failure(stub_resource
         builder.build(num_records=1)
 
 
-def test_record_selection_runs_with_boolean_subcategory_predicate(stub_resource_provider) -> None:
-    stub_resource_provider.run_config = RunConfig(buffer_size=1, display_tui=False)
-    config = DataDesignerConfigBuilder()
-    config.add_column(
-        SamplerColumnConfig(
-            name="parent",
-            sampler_type=SamplerType.CATEGORY,
-            params=CategorySamplerParams(values=["group"]),
-        )
-    )
-    config.add_column(
-        SamplerColumnConfig(
-            name="boolean_predicate",
-            sampler_type=SamplerType.SUBCATEGORY,
-            params=SubcategorySamplerParams(category="parent", values={"group": [True]}),
-        )
-    )
-    config.with_record_selection(RecordSelectionConfig(predicate_column="boolean_predicate", max_candidate_records=1))
-    builder = DatasetBuilder(data_designer_config=config.build(), resource_provider=stub_resource_provider)
-
-    output_path = builder.build(num_records=1)
-
-    assert lazy.pd.read_parquet(output_path)["boolean_predicate"].tolist() == [True]
-
-
-def test_record_selection_rejects_subcategory_with_non_boolean_conditional_values(stub_resource_provider) -> None:
-    config = DataDesignerConfigBuilder()
-    config.add_column(
-        SamplerColumnConfig(
-            name="parent",
-            sampler_type=SamplerType.CATEGORY,
-            params=CategorySamplerParams(values=["group"]),
-        )
-    )
-    config.add_column(
-        SamplerColumnConfig(
-            name="mixed_predicate",
-            sampler_type=SamplerType.SUBCATEGORY,
-            params=SubcategorySamplerParams(category="parent", values={"group": [True, False]}),
-            conditional_params={"true": SubcategorySamplerParams(category="parent", values={"group": ["not-boolean"]})},
-        )
-    )
-    config.with_record_selection(RecordSelectionConfig(predicate_column="mixed_predicate", max_candidate_records=1))
-
-    with pytest.raises(DatasetGenerationError, match="does not produce boolean"):
-        DatasetBuilder(data_designer_config=config.build(), resource_provider=stub_resource_provider)
-
-
-def test_record_selection_rejects_converted_boolean_subcategory(stub_resource_provider) -> None:
-    config = DataDesignerConfigBuilder()
-    config.add_column(
-        SamplerColumnConfig(
-            name="parent",
-            sampler_type=SamplerType.CATEGORY,
-            params=CategorySamplerParams(values=["group"]),
-        )
-    )
-    config.add_column(
-        SamplerColumnConfig(
-            name="converted_predicate",
-            sampler_type=SamplerType.SUBCATEGORY,
-            params=SubcategorySamplerParams(category="parent", values={"group": [True]}),
-            convert_to="str",
-        )
-    )
-    config.with_record_selection(RecordSelectionConfig(predicate_column="converted_predicate", max_candidate_records=1))
-
-    with pytest.raises(DatasetGenerationError, match="does not produce boolean"):
-        DatasetBuilder(data_designer_config=config.build(), resource_provider=stub_resource_provider)
-
-
 def test_record_selection_uses_fixed_width_for_all_candidate_artifacts(stub_resource_provider) -> None:
     stub_resource_provider.run_config = RunConfig(
         buffer_size=1,
@@ -470,13 +528,7 @@ def test_record_selection_uses_fixed_width_for_all_candidate_artifacts(stub_reso
         preserve_dropped_columns=True,
     )
     config = DataDesignerConfigBuilder()
-    config.add_column(
-        SamplerColumnConfig(
-            name="keep",
-            sampler_type=SamplerType.CATEGORY,
-            params=CategorySamplerParams(values=[True]),
-        )
-    )
+    add_constant_boolean_expression(config, value=True)
     config.add_column(
         SamplerColumnConfig(
             name="payload",
@@ -521,13 +573,7 @@ def test_record_selection_uses_fixed_width_for_all_candidate_artifacts(stub_reso
 def test_record_selection_after_generation_reuses_configured_batch_width(stub_resource_provider) -> None:
     stub_resource_provider.run_config = RunConfig(buffer_size=1, display_tui=False)
     config = DataDesignerConfigBuilder()
-    config.add_column(
-        SamplerColumnConfig(
-            name="keep",
-            sampler_type=SamplerType.CATEGORY,
-            params=CategorySamplerParams(values=[True]),
-        )
-    )
+    add_constant_boolean_expression(config, value=True)
     config.with_record_selection(RecordSelectionConfig(predicate_column="keep", max_candidate_records=100_001))
     builder = DatasetBuilder(data_designer_config=config.build(), resource_provider=stub_resource_provider)
     processor = create_mock_processor("identity", ["process_after_generation"])
@@ -556,13 +602,7 @@ def test_record_selection_rejects_nonempty_zero_column_processor_output(
 ) -> None:
     stub_resource_provider.run_config = RunConfig(buffer_size=1, display_tui=False)
     config = DataDesignerConfigBuilder()
-    config.add_column(
-        SamplerColumnConfig(
-            name="keep",
-            sampler_type=SamplerType.CATEGORY,
-            params=CategorySamplerParams(values=[True]),
-        )
-    )
+    add_constant_boolean_expression(config, value=True)
     config.with_record_selection(RecordSelectionConfig(predicate_column="keep", max_candidate_records=1))
     builder = DatasetBuilder(data_designer_config=config.build(), resource_provider=stub_resource_provider)
     processor = create_mock_processor("drop_all_columns", [stage])
@@ -576,13 +616,7 @@ def test_record_selection_rejects_nonempty_zero_column_processor_output(
 def test_record_selection_refreshes_file_manifest_only_for_publication(stub_resource_provider) -> None:
     stub_resource_provider.run_config = RunConfig(buffer_size=1, display_tui=False)
     config = DataDesignerConfigBuilder()
-    config.add_column(
-        SamplerColumnConfig(
-            name="keep",
-            sampler_type=SamplerType.CATEGORY,
-            params=CategorySamplerParams(values=[True]),
-        )
-    )
+    add_constant_boolean_expression(config, value=True)
     config.add_column(
         SamplerColumnConfig(
             name="payload",
@@ -611,22 +645,6 @@ def test_record_selection_refreshes_file_manifest_only_for_publication(stub_reso
         builder.build(num_records=5)
 
     assert get_file_paths_calls == 1
-
-
-def test_record_selection_rejects_category_with_non_boolean_conditional_values(stub_resource_provider) -> None:
-    config = DataDesignerConfigBuilder()
-    config.add_column(
-        SamplerColumnConfig(
-            name="mixed_predicate",
-            sampler_type=SamplerType.CATEGORY,
-            params=CategorySamplerParams(values=[True, False]),
-            conditional_params={"true": CategorySamplerParams(values=[0, 1])},
-        )
-    )
-    config.with_record_selection(RecordSelectionConfig(predicate_column="mixed_predicate", max_candidate_records=1))
-
-    with pytest.raises(DatasetGenerationError, match="does not produce boolean"):
-        DatasetBuilder(data_designer_config=config.build(), resource_provider=stub_resource_provider)
 
 
 def test_record_selection_defers_custom_predicate_type_validation_to_runtime(stub_resource_provider) -> None:
@@ -687,13 +705,7 @@ def test_record_selection_persists_early_shutdown_across_exhausted_resume(stub_r
 def test_record_selection_discards_schema_without_checkpoint_on_resume(stub_resource_provider) -> None:
     stub_resource_provider.run_config = RunConfig(buffer_size=1, display_tui=False)
     config = DataDesignerConfigBuilder()
-    config.add_column(
-        SamplerColumnConfig(
-            name="keep",
-            sampler_type=SamplerType.CATEGORY,
-            params=CategorySamplerParams(values=[True]),
-        )
-    )
+    add_constant_boolean_expression(config, value=True)
     config.with_record_selection(RecordSelectionConfig(predicate_column="keep", max_candidate_records=1))
     builder = DatasetBuilder(data_designer_config=config.build(), resource_provider=stub_resource_provider)
     sink = InMemoryAdmissionEventSink()
@@ -719,19 +731,16 @@ def test_record_selection_discards_schema_without_checkpoint_on_resume(stub_reso
     output_path = builder.build(num_records=1, resume=ResumeMode.ALWAYS)
 
     assert lazy.pd.read_parquet(output_path)["keep"].tolist() == [True]
-    assert lazy.pd.read_parquet(builder.artifact_storage.selection_schema_path).columns.tolist() == ["keep"]
+    assert lazy.pd.read_parquet(builder.artifact_storage.selection_schema_path).columns.tolist() == [
+        "keep_candidate",
+        "keep",
+    ]
 
 
 def test_record_selection_rejects_missing_schema_owned_by_committed_batch(stub_resource_provider) -> None:
     stub_resource_provider.run_config = RunConfig(buffer_size=1, display_tui=False)
     config = DataDesignerConfigBuilder()
-    config.add_column(
-        SamplerColumnConfig(
-            name="keep",
-            sampler_type=SamplerType.CATEGORY,
-            params=CategorySamplerParams(values=[False]),
-        )
-    )
+    add_constant_boolean_expression(config, value=False)
     selection_config = RecordSelectionConfig(
         predicate_column="keep",
         max_candidate_records=2,
@@ -775,13 +784,7 @@ def test_record_selection_rejects_missing_schema_owned_by_committed_batch(stub_r
 def test_record_selection_post_checkpoint_metadata_failure_is_resumable(stub_resource_provider) -> None:
     stub_resource_provider.run_config = RunConfig(buffer_size=1, display_tui=False)
     config = DataDesignerConfigBuilder()
-    config.add_column(
-        SamplerColumnConfig(
-            name="keep",
-            sampler_type=SamplerType.CATEGORY,
-            params=CategorySamplerParams(values=[True]),
-        )
-    )
+    add_constant_boolean_expression(config, value=True)
     config.with_record_selection(RecordSelectionConfig(predicate_column="keep", max_candidate_records=1))
     builder = DatasetBuilder(data_designer_config=config.build(), resource_provider=stub_resource_provider)
     storage = builder.artifact_storage
@@ -925,13 +928,7 @@ def test_record_selection_normalizes_corrupt_accepted_partition_error(stub_resou
 
 def _record_selection_probe_builder(stub_resource_provider) -> DatasetBuilder:
     config = DataDesignerConfigBuilder()
-    config.add_column(
-        SamplerColumnConfig(
-            name="keep",
-            sampler_type=SamplerType.CATEGORY,
-            params=CategorySamplerParams(values=[True]),
-        )
-    )
+    add_constant_boolean_expression(config, value=True)
     config.with_record_selection(RecordSelectionConfig(predicate_column="keep", max_candidate_records=4))
     return DatasetBuilder(data_designer_config=config.build(), resource_provider=stub_resource_provider)
 

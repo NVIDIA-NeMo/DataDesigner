@@ -34,11 +34,12 @@ def test_selection_restores_media_storage_when_event_sink_setup_fails(
     config_builder = DataDesignerConfigBuilder()
     config_builder.add_column(
         SamplerColumnConfig(
-            name="keep",
+            name="candidate",
             sampler_type=SamplerType.CATEGORY,
-            params=CategorySamplerParams(values=[True]),
+            params=CategorySamplerParams(values=["candidate"]),
         )
     )
+    config_builder.add_column(ExpressionColumnConfig(name="keep", expr="{{ true }}", dtype="bool"))
     selection_config = RecordSelectionConfig(predicate_column="keep", max_candidate_records=1)
     config_builder.with_record_selection(selection_config)
     builder = DatasetBuilder(config_builder.build(), stub_resource_provider)

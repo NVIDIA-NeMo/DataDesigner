@@ -20,7 +20,8 @@ class RecordSelectionConfig(ConfigBase):
     """Select records until the requested accepted-row count is reached.
 
     Attributes:
-        predicate_column: Non-blank name of the boolean column used to accept or reject generated records.
+        predicate_column: Non-blank name of the boolean expression, custom, or plugin column used to accept or reject
+            generated records. Other built-in outputs must be normalized through a boolean expression column.
         max_candidate_records: Strict positive integer limiting how many candidate records the engine may generate.
         on_exhausted: Behavior when the candidate budget is exhausted before reaching the target.
     """

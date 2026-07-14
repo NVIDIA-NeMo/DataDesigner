@@ -29,7 +29,7 @@ The config layer provides:
 
 ### Record Selection
 
-`RecordSelectionConfig` declares an optional, bounded policy for accepting generated candidate records. It identifies a boolean predicate column, sets a strict positive `max_candidate_records` budget, and chooses the behavior when that budget is exhausted. The configuration is stored on `DataDesignerConfig` and attached through `DataDesignerConfigBuilder.with_record_selection()`; it remains declarative and does not call engine code.
+`RecordSelectionConfig` declares an optional, bounded policy for accepting generated candidate records. Its direct predicate must be a boolean `ExpressionColumnConfig`, a custom column, or a registered plugin column; other built-in outputs, including nested LLM structured data, are normalized through a boolean expression first. The config also sets a strict positive `max_candidate_records` budget and chooses the behavior when that budget is exhausted. It is stored on `DataDesignerConfig` and attached through `DataDesignerConfigBuilder.with_record_selection()`; it remains declarative and does not call engine code.
 
 ### Column Configs
 

@@ -677,7 +677,7 @@ class DataDesignerConfigBuilder:
         return self
 
     def with_record_selection(self, config: RecordSelectionConfig) -> Self:
-        """Select generated records using a declared boolean predicate column.
+        """Select generated records using a boolean expression, custom, or plugin predicate column.
 
         Args:
             config: Record-selection policy for the generated dataset.
