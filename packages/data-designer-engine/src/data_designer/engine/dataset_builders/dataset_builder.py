@@ -30,7 +30,7 @@ from data_designer.config.processors import (
     ProcessorConfig,
     ProcessorType,
 )
-from data_designer.config.record_selection import RecordSelectionExhaustion
+from data_designer.config.record_selection import RecordSelectionConfig, RecordSelectionExhaustion
 from data_designer.config.sampler_params import CategorySamplerParams, SubcategorySamplerParams
 from data_designer.config.utils.type_helpers import StrEnum
 from data_designer.config.version import get_library_version
@@ -142,6 +142,30 @@ class _SelectionSchemaState:
 
     is_written: bool
     is_materialized: bool
+
+
+@dataclass(frozen=True, slots=True)
+class _SelectionArtifactMigrationState:
+    """Describe how legacy artifact migration affects an existing publication."""
+
+    previously_completed_publication: bool
+    side_artifacts_deferred: bool
+    publication_refresh_required: bool
+
+
+@dataclass(slots=True)
+class _SelectionCandidateBatchRuntime:
+    """Mutable state shared by one candidate batch and its scheduler callbacks."""
+
+    controller: AcceptanceController
+    batch: CandidateBatch
+    schema_state: _SelectionSchemaState
+    on_batch_complete: Callable[[Path], None] | None
+    media_staged: bool
+    decision: SelectionDecision | None = None
+    buffer_manager: RowGroupBufferManager | None = None
+    scheduler: AsyncTaskScheduler | None = None
+    checkpoint_committed: bool = False
 
 
 @dataclass
@@ -911,6 +935,39 @@ class DatasetBuilder:
             max_candidate_records=config.max_candidate_records,
             candidate_batch_size=min(buffer_size, target_num_records),
         )
+        migration = self._prepare_selection_artifact_migration(resume=resume)
+        controller, schema_state, stored_selection = self._restore_selection_run(
+            config=config,
+            target_num_records=target_num_records,
+            buffer_size=buffer_size,
+            resume=resume,
+        )
+        if self._reconcile_completed_selection_publication(
+            controller,
+            migration=migration,
+            stored_selection=stored_selection,
+        ):
+            return
+
+        self._write_selection_metadata(controller)
+        self._run_selection_candidate_batches(
+            generators,
+            controller=controller,
+            schema_state=schema_state,
+            on_batch_complete=on_batch_complete,
+        )
+        self._finalize_selection_build(
+            controller,
+            target_num_records=target_num_records,
+            buffer_size=buffer_size,
+        )
+
+    def _prepare_selection_artifact_migration(
+        self,
+        *,
+        resume: ResumeMode,
+    ) -> _SelectionArtifactMigrationState:
+        """Normalize legacy candidate artifact names without exposing a mixed publication."""
         migration_metadata: dict[str, Any] = {}
         if resume == ResumeMode.ALWAYS and self.artifact_storage.metadata_file_path.is_file():
             migration_metadata = self.artifact_storage.read_metadata()
@@ -939,7 +996,7 @@ class DatasetBuilder:
                 include_side_artifacts=include_side_artifacts,
             )
         )
-        migration_changed = persisted_completed_publication
+        publication_refresh_required = persisted_completed_publication
         if migration_needed:
             if self.artifact_storage.metadata_file_path.is_file():
                 # Invalidate the old publication before the first rename so a
@@ -954,12 +1011,28 @@ class DatasetBuilder:
                         _SELECTION_ARTIFACT_MIGRATION_DEFER_SIDE_KEY: side_artifacts_deferred,
                     }
                 self.artifact_storage.update_metadata(migration_updates)
-            migration_changed = (
+            publication_refresh_required = (
                 self.artifact_storage.normalize_selection_candidate_artifact_width(
                     include_side_artifacts=include_side_artifacts,
                 )
-                or migration_changed
+                or publication_refresh_required
             )
+
+        return _SelectionArtifactMigrationState(
+            previously_completed_publication=migrated_completed_publication,
+            side_artifacts_deferred=side_artifacts_deferred,
+            publication_refresh_required=publication_refresh_required,
+        )
+
+    def _restore_selection_run(
+        self,
+        *,
+        config: RecordSelectionConfig,
+        target_num_records: int,
+        buffer_size: int,
+        resume: ResumeMode,
+    ) -> tuple[AcceptanceController, _SelectionSchemaState, dict[str, Any] | None]:
+        """Restore durable selection progress and prepare it for generation or publication."""
         markers = self._load_selection_markers() if resume == ResumeMode.ALWAYS else ()
         try:
             controller = AcceptanceController(
@@ -977,10 +1050,11 @@ class DatasetBuilder:
                 existing_metadata = self.artifact_storage.read_metadata()
             except (OSError, json.JSONDecodeError):
                 existing_metadata = {}
-        stored_selection = existing_metadata.get("record_selection")
+        stored_selection_value = existing_metadata.get("record_selection")
+        stored_selection = stored_selection_value if isinstance(stored_selection_value, dict) else None
         terminal_error: object | None = None
         stored_batches = 0
-        if isinstance(stored_selection, dict):
+        if stored_selection is not None:
             stored_batches = stored_selection.get("candidate_batches_completed", 0)
             if isinstance(stored_batches, int) and stored_batches > controller.candidate_batches_completed:
                 raise DatasetGenerationError(
@@ -1010,18 +1084,29 @@ class DatasetBuilder:
         if resume == ResumeMode.ALWAYS:
             self._raise_unrecoverable_selection_terminal_error(controller, terminal_error)
 
+        return controller, schema_state, stored_selection
+
+    def _reconcile_completed_selection_publication(
+        self,
+        controller: AcceptanceController,
+        *,
+        migration: _SelectionArtifactMigrationState,
+        stored_selection: dict[str, Any] | None,
+    ) -> bool:
+        """Reuse a valid completed publication or invalidate it before rebuilding."""
+        if not migration.previously_completed_publication:
+            return False
+
         terminal_selection = controller.has_reached_target or controller.is_exhausted
-        if migrated_completed_publication and terminal_selection:
+        if terminal_selection:
             published_files = list(self.artifact_storage.final_dataset_path.glob("batch_*.parquet"))
             try:
                 final_count: int | None = sum(lazy.pq.read_metadata(path).num_rows for path in published_files)
             except (OSError, lazy.pa.ArrowInvalid):
                 final_count = None
             publication_reusable = bool(published_files) and final_count == controller.accepted_records
-            stored_publication_id = (
-                stored_selection.get("publication_id") if isinstance(stored_selection, dict) else None
-            )
-            if publication_reusable and migration_changed:
+            stored_publication_id = stored_selection.get("publication_id") if stored_selection is not None else None
+            if publication_reusable and migration.publication_refresh_required:
                 self._write_selection_metadata(
                     controller,
                     post_generation_state="complete",
@@ -1031,15 +1116,15 @@ class DatasetBuilder:
                 logger.warning(
                     "▶️ Migrated legacy record-selection artifact names and refreshed the completed publication."
                 )
-                return
+                return True
             if (
                 publication_reusable
-                and not migration_changed
+                and not migration.publication_refresh_required
                 and isinstance(stored_publication_id, str)
                 and stored_publication_id.strip()
             ):
                 logger.warning("▶️ Record-selection dataset is already complete; nothing to resume.")
-                return
+                return True
             if publication_reusable:
                 logger.warning(
                     "⚠️ Completed record-selection publication has no publication ID; rebuilding the "
@@ -1053,27 +1138,42 @@ class DatasetBuilder:
                     controller.accepted_records,
                 )
 
-        if migrated_completed_publication:
-            migration_updates: dict[str, Any] = {
-                "post_generation_state": "started",
-                "post_generation_processed": False,
-            }
-            if side_artifacts_deferred:
-                migration_updates[_SELECTION_ARTIFACT_MIGRATION_METADATA_KEY] = {
-                    "previously_complete": True,
-                    _SELECTION_ARTIFACT_MIGRATION_DEFER_SIDE_KEY: False,
-                }
-            self.artifact_storage.update_metadata(migration_updates)
-            if side_artifacts_deferred:
-                self.artifact_storage.normalize_selection_candidate_artifact_width(
-                    include_side_artifacts=True,
-                )
-            # The old completed publication is not reusable. Drop migration
-            # provenance before rebuilding so a crash during processors cannot
-            # be mistaken for the untouched pre-migration publication.
-            self._clear_selection_artifact_migration_metadata()
+        self._invalidate_completed_selection_publication(migration)
+        return False
 
-        self._write_selection_metadata(controller)
+    def _invalidate_completed_selection_publication(
+        self,
+        migration: _SelectionArtifactMigrationState,
+    ) -> None:
+        """Move a completed publication back to an explicitly incomplete rebuild state."""
+        migration_updates: dict[str, Any] = {
+            "post_generation_state": "started",
+            "post_generation_processed": False,
+        }
+        if migration.side_artifacts_deferred:
+            migration_updates[_SELECTION_ARTIFACT_MIGRATION_METADATA_KEY] = {
+                "previously_complete": True,
+                _SELECTION_ARTIFACT_MIGRATION_DEFER_SIDE_KEY: False,
+            }
+        self.artifact_storage.update_metadata(migration_updates)
+        if migration.side_artifacts_deferred:
+            self.artifact_storage.normalize_selection_candidate_artifact_width(
+                include_side_artifacts=True,
+            )
+        # The old completed publication is not reusable. Drop migration
+        # provenance before rebuilding so a crash during processors cannot
+        # be mistaken for the untouched pre-migration publication.
+        self._clear_selection_artifact_migration_metadata()
+
+    def _run_selection_candidate_batches(
+        self,
+        generators: list[ColumnGenerator],
+        *,
+        controller: AcceptanceController,
+        schema_state: _SelectionSchemaState,
+        on_batch_complete: Callable[[Path], None] | None,
+    ) -> None:
+        """Generate and durably commit candidate batches until selection terminates."""
         while not controller.has_reached_target and controller.has_candidate_budget:
             batch = controller.next_candidate_batch()
             try:
@@ -1087,49 +1187,75 @@ class DatasetBuilder:
             except _SelectionPostCommitError:
                 raise
             except Exception as exc:
-                if self.artifact_storage.selection_checkpoint_path(batch.candidate_batch_id).is_file():
-                    terminal_error = {
-                        "kind": _SELECTION_GENERATION_ERROR_KIND,
-                        "message": str(exc),
-                    }
-                    marker = controller.replace_last_marker_terminal_error(terminal_error)
-                    self.artifact_storage.write_selection_checkpoint(batch.candidate_batch_id, marker.to_dict())
-                    try:
-                        self._write_selection_metadata(controller, terminal_error=terminal_error)
-                    except Exception:
-                        logger.warning(
-                            "⚠️ Failed to mirror a durable record-selection terminal error into metadata.",
-                            exc_info=True,
-                        )
+                self._persist_selection_generation_error(controller, batch=batch, error=exc)
                 raise
-            if self._early_shutdown and not controller.has_reached_target:
-                error = RecordSelectionEarlyShutdownError(
-                    candidate_budget_remaining=controller.has_candidate_budget,
-                )
-                terminal_error = {
-                    "kind": _SELECTION_EARLY_SHUTDOWN_KIND,
-                    "message": str(error),
-                }
-                if (
-                    controller.terminal_error is None
-                    and controller.candidate_batches_completed > batch.candidate_batch_id
-                ):
-                    marker = controller.replace_last_marker_terminal_error(terminal_error)
-                    self.artifact_storage.write_selection_checkpoint(marker.candidate_batch_id, marker.to_dict())
-                self._write_selection_metadata(
-                    controller,
-                    terminal_error=terminal_error,
-                )
-                raise error
+            self._raise_if_selection_stopped_early(controller, batch=batch)
 
+    def _persist_selection_generation_error(
+        self,
+        controller: AcceptanceController,
+        *,
+        batch: CandidateBatch,
+        error: Exception,
+    ) -> None:
+        """Attach a fatal post-checkpoint generation error to the durable marker."""
+        if not self.artifact_storage.selection_checkpoint_path(batch.candidate_batch_id).is_file():
+            return
+        terminal_error = {
+            "kind": _SELECTION_GENERATION_ERROR_KIND,
+            "message": str(error),
+        }
+        marker = controller.replace_last_marker_terminal_error(terminal_error)
+        self.artifact_storage.write_selection_checkpoint(batch.candidate_batch_id, marker.to_dict())
+        try:
+            self._write_selection_metadata(controller, terminal_error=terminal_error)
+        except Exception:
+            logger.warning(
+                "⚠️ Failed to mirror a durable record-selection terminal error into metadata.",
+                exc_info=True,
+            )
+
+    def _raise_if_selection_stopped_early(
+        self,
+        controller: AcceptanceController,
+        *,
+        batch: CandidateBatch,
+    ) -> None:
+        """Persist and raise the structured error for scheduler early shutdown."""
+        if not self._early_shutdown or controller.has_reached_target:
+            return
+        error = RecordSelectionEarlyShutdownError(
+            candidate_budget_remaining=controller.has_candidate_budget,
+        )
+        terminal_error = {
+            "kind": _SELECTION_EARLY_SHUTDOWN_KIND,
+            "message": str(error),
+        }
+        if controller.terminal_error is None and controller.candidate_batches_completed > batch.candidate_batch_id:
+            marker = controller.replace_last_marker_terminal_error(terminal_error)
+            self.artifact_storage.write_selection_checkpoint(marker.candidate_batch_id, marker.to_dict())
+        self._write_selection_metadata(
+            controller,
+            terminal_error=terminal_error,
+        )
+        raise error
+
+    def _finalize_selection_build(
+        self,
+        controller: AcceptanceController,
+        *,
+        target_num_records: int,
+        buffer_size: int,
+    ) -> None:
+        """Apply terminal policy and publish the immutable accepted partitions."""
         self._actual_num_records = controller.accepted_records
-        if controller.is_exhausted and config.on_exhausted == RecordSelectionExhaustion.RAISE:
+        if controller.is_exhausted and controller.config.on_exhausted == RecordSelectionExhaustion.RAISE:
             self._write_selection_metadata(controller)
             raise RecordSelectionExhaustedError(
                 target_records=target_num_records,
                 accepted_records=controller.accepted_records,
                 candidate_records=controller.candidate_records,
-                max_candidate_records=config.max_candidate_records,
+                max_candidate_records=controller.config.max_candidate_records,
             )
 
         terminal_error = self._derive_nonretryable_selection_terminal_error(controller)
@@ -1153,132 +1279,19 @@ class DatasetBuilder:
         """Run and durably commit one candidate batch."""
         settings = self._resource_provider.run_config
         trace_enabled = _is_async_trace_enabled(settings)
-        decision: SelectionDecision | None = None
-        buffer_manager: RowGroupBufferManager | None = None
-        checkpoint_committed = False
         if schema_state is None:
             schema_state = self._hydrate_selection_schema_state(controller)
         media_staged = self._has_image_columns() and self.artifact_storage.media_storage.mode == StorageMode.DISK
+        runtime = _SelectionCandidateBatchRuntime(
+            controller=controller,
+            batch=batch,
+            schema_state=schema_state,
+            on_batch_complete=on_batch_complete,
+            media_staged=media_staged,
+        )
 
         if media_staged:
             self.artifact_storage.begin_selection_media_batch(batch.candidate_batch_id)
-
-        def select_dataframe(_rg_id: int, rg_size: int, dataframe: pd.DataFrame) -> pd.DataFrame:
-            nonlocal decision
-            decision = controller.select(
-                dataframe,
-                batch=batch,
-                failed_generation_records=rg_size - len(dataframe),
-            )
-            selected = dataframe.iloc[list(decision.accepted_indices)].reset_index(drop=True)
-            if media_staged:
-                # Commit accepted media before post-batch processors run. Processors may
-                # persist transformed or dropped-column side artifacts, and every such
-                # artifact must contain the same durable paths as the accepted partition.
-                selected = self.artifact_storage.promote_selection_media(
-                    selected,
-                    batch.candidate_batch_id,
-                )
-            return selected
-
-        def finalize_row_group(rg_id: int) -> None:
-            nonlocal checkpoint_committed
-            if buffer_manager is None or decision is None:
-                raise DatasetGenerationError("🛑 Record selection reached finalization without a selection decision.")
-            try:
-                dataframe = buffer_manager.get_dataframe(rg_id)
-                if len(dataframe) != decision.accepted_records:
-                    raise DatasetGenerationError(
-                        "🛑 Post-batch processing changed the selected row count from "
-                        f"{decision.accepted_records} to {len(dataframe)}."
-                    )
-                if len(dataframe.columns) > 0 and not schema_state.is_materialized:
-                    # A later materialized batch upgrades any name-only fallback
-                    # written for an earlier completely failed batch.
-                    self.artifact_storage.write_selection_schema(dataframe)
-                    schema_state.is_written = True
-                    schema_state.is_materialized = True
-                elif not schema_state.is_written:
-                    # Preserve an existing materialized schema when a later batch
-                    # completely fails and therefore has no columns of its own.
-                    self.artifact_storage.write_selection_schema(self._derive_empty_selection_schema())
-                    schema_state.is_written = True
-
-                partition_path: Path | None = None
-                partition_relative: str | None = None
-                if len(dataframe) > 0:
-                    partition_path = self.artifact_storage.write_selection_partition(
-                        batch.candidate_batch_id,
-                        dataframe,
-                    )
-                    partition_relative = str(partition_path.relative_to(self.artifact_storage.base_dataset_path))
-                non_retryable_error = scheduler.first_non_retryable_error if scheduler is not None else None
-                marker = controller.record_checkpoint(
-                    batch=batch,
-                    decision=decision,
-                    accepted_partition=partition_relative,
-                    schema_materialized=schema_state.is_materialized,
-                    non_retryable_error=(
-                        {
-                            "type": type(non_retryable_error).__name__,
-                            "message": str(non_retryable_error),
-                        }
-                        if non_retryable_error is not None
-                        else None
-                    ),
-                    terminal_error=(
-                        {
-                            "kind": _SELECTION_EARLY_SHUTDOWN_KIND,
-                            "message": str(
-                                RecordSelectionEarlyShutdownError(
-                                    candidate_budget_remaining=(
-                                        batch.start_offset + decision.candidate_records
-                                        < controller.config.max_candidate_records
-                                    ),
-                                )
-                            ),
-                        }
-                        if (
-                            scheduler is not None
-                            and scheduler.early_shutdown
-                            and controller.accepted_records + decision.accepted_records < controller.target_records
-                        )
-                        else None
-                    ),
-                )
-                self.artifact_storage.write_selection_checkpoint(
-                    batch.candidate_batch_id,
-                    marker.to_dict(),
-                )
-                checkpoint_committed = True
-                try:
-                    buffer_manager.free_row_group(rg_id)
-                    self._actual_num_records = controller.accepted_records
-                    self._write_selection_metadata(controller)
-                    rate = controller.accepted_records / controller.candidate_records
-                    logger.info(
-                        "🎯 Record selection: accepted %d / %d; candidates generated %d / %d; acceptance rate %.1f%%.",
-                        controller.accepted_records,
-                        controller.target_records,
-                        controller.candidate_records,
-                        controller.config.max_candidate_records,
-                        rate * 100,
-                    )
-                except Exception as exc:
-                    raise _SelectionPostCommitError(
-                        f"🛑 Failed after committing record-selection candidate batch {batch.candidate_batch_id}: {exc}"
-                    ) from exc
-                if partition_path is not None and on_batch_complete is not None:
-                    try:
-                        on_batch_complete(partition_path)
-                    except Exception as exc:
-                        raise _SelectionCallbackError(str(exc)) from exc
-            except DatasetGenerationError:
-                raise
-            except Exception as exc:
-                raise DatasetGenerationError(
-                    f"🛑 Failed to commit record-selection candidate batch {batch.candidate_batch_id}: {exc}"
-                ) from exc
 
         pre_batch_snapshot = self._resource_provider.model_registry.get_model_usage_snapshot()
         group_id = uuid.uuid4().hex
@@ -1287,61 +1300,272 @@ class DatasetBuilder:
             if settings.write_scheduler_events
             else contextlib.nullcontext()
         )
-        scheduler: AsyncTaskScheduler | None = None
         run_error: BaseException | None = None
         try:
             with event_sink_context as scheduler_event_sink:
-                scheduler, buffer_manager = self._prepare_async_run(
+                self._execute_selection_candidate_scheduler(
                     generators,
-                    batch.size,
-                    batch.size,
-                    on_finalize_row_group=finalize_row_group,
-                    shutdown_error_rate=settings.shutdown_error_rate,
-                    shutdown_error_window=settings.shutdown_error_window,
-                    disable_early_shutdown=settings.disable_early_shutdown,
-                    trace=trace_enabled,
-                    precomputed_row_groups=ExplicitRowGroupPlan(
-                        ((batch.row_group_id, batch.size),),
-                        base_offset=batch.start_offset,
-                    ),
+                    runtime=runtime,
+                    settings=settings,
+                    trace_enabled=trace_enabled,
                     scheduler_event_sink=scheduler_event_sink,
-                    select_dataframe=select_dataframe,
-                    log_pre_generation=False,
                 )
-                loop = ensure_async_engine_loop()
-                future = asyncio.run_coroutine_threadsafe(scheduler.run(), loop)
-                _await_async_scheduler_result(future, scheduler)
         except BaseException as exc:
             run_error = exc
             raise
         finally:
-            if media_staged:
-                try:
-                    self.artifact_storage.finish_selection_media_batch(batch.candidate_batch_id)
-                except Exception as exc:
-                    if run_error is not None:
-                        logger.warning("⚠️ Failed to clean record-selection media staging.", exc_info=True)
-                    elif checkpoint_committed:
-                        raise _SelectionPostCommitError(
-                            f"🛑 Failed after committing record-selection candidate batch "
-                            f"{batch.candidate_batch_id}: {exc}"
-                        ) from exc
-                    else:
-                        raise
-            if scheduler is not None:
-                self._task_traces.extend(scheduler.traces)
-                self._early_shutdown = self._early_shutdown or scheduler.early_shutdown
-                self._partial_row_groups = tuple(
-                    sorted(set(self._partial_row_groups).union(scheduler.partial_row_groups))
-                )
-                if self._first_non_retryable_error is None:
-                    self._first_non_retryable_error = scheduler.first_non_retryable_error
+            self._finish_selection_candidate_batch(runtime, run_error=run_error)
 
         try:
             usage_deltas = self._resource_provider.model_registry.get_usage_deltas(pre_batch_snapshot)
             self._emit_batch_inference_events("selection_batch", usage_deltas, group_id)
         except Exception:
             logger.debug("Failed to emit batch telemetry for record selection", exc_info=True)
+
+    def _select_selection_candidate_dataframe(
+        self,
+        runtime: _SelectionCandidateBatchRuntime,
+        _row_group_id: int,
+        row_group_size: int,
+        dataframe: pd.DataFrame,
+    ) -> pd.DataFrame:
+        """Apply the selection predicate before post-batch processing."""
+        runtime.decision = runtime.controller.select(
+            dataframe,
+            batch=runtime.batch,
+            failed_generation_records=row_group_size - len(dataframe),
+        )
+        selected = dataframe.iloc[list(runtime.decision.accepted_indices)].reset_index(drop=True)
+        if runtime.media_staged:
+            # Commit accepted media before post-batch processors run. Processors may
+            # persist transformed or dropped-column side artifacts, and every such
+            # artifact must contain the same durable paths as the accepted partition.
+            selected = self.artifact_storage.promote_selection_media(
+                selected,
+                runtime.batch.candidate_batch_id,
+            )
+        return selected
+
+    def _finalize_selection_candidate_row_group(
+        self,
+        runtime: _SelectionCandidateBatchRuntime,
+        row_group_id: int,
+    ) -> None:
+        """Commit a selected row group, then mirror progress and notify the caller."""
+        buffer_manager = runtime.buffer_manager
+        decision = runtime.decision
+        if buffer_manager is None or decision is None:
+            raise DatasetGenerationError("🛑 Record selection reached finalization without a selection decision.")
+        try:
+            partition_path = self._commit_selection_candidate_row_group(
+                runtime,
+                row_group_id=row_group_id,
+                buffer_manager=buffer_manager,
+                decision=decision,
+            )
+            self._mirror_committed_selection_batch(
+                runtime,
+                row_group_id=row_group_id,
+                buffer_manager=buffer_manager,
+            )
+            if partition_path is not None and runtime.on_batch_complete is not None:
+                try:
+                    runtime.on_batch_complete(partition_path)
+                except Exception as exc:
+                    raise _SelectionCallbackError(str(exc)) from exc
+        except DatasetGenerationError:
+            raise
+        except Exception as exc:
+            raise DatasetGenerationError(
+                f"🛑 Failed to commit record-selection candidate batch {runtime.batch.candidate_batch_id}: {exc}"
+            ) from exc
+
+    def _commit_selection_candidate_row_group(
+        self,
+        runtime: _SelectionCandidateBatchRuntime,
+        *,
+        row_group_id: int,
+        buffer_manager: RowGroupBufferManager,
+        decision: SelectionDecision,
+    ) -> Path | None:
+        """Persist selection artifacts and the authoritative candidate checkpoint."""
+        dataframe = buffer_manager.get_dataframe(row_group_id)
+        if len(dataframe) != decision.accepted_records:
+            raise DatasetGenerationError(
+                "🛑 Post-batch processing changed the selected row count from "
+                f"{decision.accepted_records} to {len(dataframe)}."
+            )
+        self._update_selection_schema(runtime.schema_state, dataframe=dataframe)
+
+        partition_path: Path | None = None
+        partition_relative: str | None = None
+        if len(dataframe) > 0:
+            partition_path = self.artifact_storage.write_selection_partition(
+                runtime.batch.candidate_batch_id,
+                dataframe,
+            )
+            partition_relative = str(partition_path.relative_to(self.artifact_storage.base_dataset_path))
+
+        non_retryable_error, terminal_error = self._selection_candidate_diagnostics(runtime, decision=decision)
+        marker = runtime.controller.record_checkpoint(
+            batch=runtime.batch,
+            decision=decision,
+            accepted_partition=partition_relative,
+            schema_materialized=runtime.schema_state.is_materialized,
+            non_retryable_error=non_retryable_error,
+            terminal_error=terminal_error,
+        )
+        self.artifact_storage.write_selection_checkpoint(
+            runtime.batch.candidate_batch_id,
+            marker.to_dict(),
+        )
+        runtime.checkpoint_committed = True
+        return partition_path
+
+    def _update_selection_schema(
+        self,
+        schema_state: _SelectionSchemaState,
+        *,
+        dataframe: pd.DataFrame,
+    ) -> None:
+        """Create or upgrade the durable schema anchor for accepted partitions."""
+        if len(dataframe.columns) > 0 and not schema_state.is_materialized:
+            # A later materialized batch upgrades any name-only fallback
+            # written for an earlier completely failed batch.
+            self.artifact_storage.write_selection_schema(dataframe)
+            schema_state.is_written = True
+            schema_state.is_materialized = True
+        elif not schema_state.is_written:
+            # Preserve an existing materialized schema when a later batch
+            # completely fails and therefore has no columns of its own.
+            self.artifact_storage.write_selection_schema(self._derive_empty_selection_schema())
+            schema_state.is_written = True
+
+    @staticmethod
+    def _selection_candidate_diagnostics(
+        runtime: _SelectionCandidateBatchRuntime,
+        *,
+        decision: SelectionDecision,
+    ) -> tuple[dict[str, str] | None, dict[str, str] | None]:
+        """Capture scheduler diagnostics in the same transaction as the candidate marker."""
+        scheduler = runtime.scheduler
+        non_retryable = scheduler.first_non_retryable_error if scheduler is not None else None
+        non_retryable_error = (
+            {
+                "type": type(non_retryable).__name__,
+                "message": str(non_retryable),
+            }
+            if non_retryable is not None
+            else None
+        )
+        terminal_error: dict[str, str] | None = None
+        if (
+            scheduler is not None
+            and scheduler.early_shutdown
+            and runtime.controller.accepted_records + decision.accepted_records < runtime.controller.target_records
+        ):
+            terminal_error = {
+                "kind": _SELECTION_EARLY_SHUTDOWN_KIND,
+                "message": str(
+                    RecordSelectionEarlyShutdownError(
+                        candidate_budget_remaining=(
+                            runtime.batch.start_offset + decision.candidate_records
+                            < runtime.controller.config.max_candidate_records
+                        ),
+                    )
+                ),
+            }
+        return non_retryable_error, terminal_error
+
+    def _mirror_committed_selection_batch(
+        self,
+        runtime: _SelectionCandidateBatchRuntime,
+        *,
+        row_group_id: int,
+        buffer_manager: RowGroupBufferManager,
+    ) -> None:
+        """Mirror a durable checkpoint into in-memory state and metadata."""
+        controller = runtime.controller
+        try:
+            buffer_manager.free_row_group(row_group_id)
+            self._actual_num_records = controller.accepted_records
+            self._write_selection_metadata(controller)
+            rate = controller.accepted_records / controller.candidate_records
+            logger.info(
+                "🎯 Record selection: accepted %d / %d; candidates generated %d / %d; acceptance rate %.1f%%.",
+                controller.accepted_records,
+                controller.target_records,
+                controller.candidate_records,
+                controller.config.max_candidate_records,
+                rate * 100,
+            )
+        except Exception as exc:
+            raise _SelectionPostCommitError(
+                f"🛑 Failed after committing record-selection candidate batch {runtime.batch.candidate_batch_id}: {exc}"
+            ) from exc
+
+    def _execute_selection_candidate_scheduler(
+        self,
+        generators: list[ColumnGenerator],
+        *,
+        runtime: _SelectionCandidateBatchRuntime,
+        settings: RunConfig,
+        trace_enabled: bool,
+        scheduler_event_sink: SchedulerAdmissionEventSink | None,
+    ) -> None:
+        """Wire and run the async scheduler for one explicit candidate row group."""
+        scheduler, buffer_manager = self._prepare_async_run(
+            generators,
+            runtime.batch.size,
+            runtime.batch.size,
+            on_finalize_row_group=functools.partial(self._finalize_selection_candidate_row_group, runtime),
+            shutdown_error_rate=settings.shutdown_error_rate,
+            shutdown_error_window=settings.shutdown_error_window,
+            disable_early_shutdown=settings.disable_early_shutdown,
+            trace=trace_enabled,
+            precomputed_row_groups=ExplicitRowGroupPlan(
+                ((runtime.batch.row_group_id, runtime.batch.size),),
+                base_offset=runtime.batch.start_offset,
+            ),
+            scheduler_event_sink=scheduler_event_sink,
+            select_dataframe=functools.partial(self._select_selection_candidate_dataframe, runtime),
+            log_pre_generation=False,
+        )
+        runtime.scheduler = scheduler
+        runtime.buffer_manager = buffer_manager
+        loop = ensure_async_engine_loop()
+        future = asyncio.run_coroutine_threadsafe(scheduler.run(), loop)
+        _await_async_scheduler_result(future, scheduler)
+
+    def _finish_selection_candidate_batch(
+        self,
+        runtime: _SelectionCandidateBatchRuntime,
+        *,
+        run_error: BaseException | None,
+    ) -> None:
+        """Clean staging and merge scheduler state after a candidate attempt."""
+        if runtime.media_staged:
+            try:
+                self.artifact_storage.finish_selection_media_batch(runtime.batch.candidate_batch_id)
+            except Exception as exc:
+                if run_error is not None:
+                    logger.warning("⚠️ Failed to clean record-selection media staging.", exc_info=True)
+                elif runtime.checkpoint_committed:
+                    raise _SelectionPostCommitError(
+                        f"🛑 Failed after committing record-selection candidate batch "
+                        f"{runtime.batch.candidate_batch_id}: {exc}"
+                    ) from exc
+                else:
+                    raise
+
+        scheduler = runtime.scheduler
+        if scheduler is None:
+            return
+        self._task_traces.extend(scheduler.traces)
+        self._early_shutdown = self._early_shutdown or scheduler.early_shutdown
+        self._partial_row_groups = tuple(sorted(set(self._partial_row_groups).union(scheduler.partial_row_groups)))
+        if self._first_non_retryable_error is None:
+            self._first_non_retryable_error = scheduler.first_non_retryable_error
 
     def _load_selection_markers(self) -> tuple[SelectionBatchMarker, ...]:
         try:
