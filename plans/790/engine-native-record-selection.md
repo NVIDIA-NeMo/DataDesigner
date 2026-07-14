@@ -1279,9 +1279,9 @@ commitment to implement a v2; benchmark evidence should justify it first.
 This section records the tests present in PR #817. It distinguishes direct coverage from behavior that is currently
 covered only by smaller unit tests or remains to be exercised directly.
 
-The combined Python 3.11 CI-equivalent run at implementation commit `e8e5cb14` completed with 4,056 passed and one
-skipped test. Aggregate line coverage was 91.64%, passing the 90% project gate; changed-line coverage was
-approximately 91.8% (794 of 865 executable changed lines).
+The combined Python 3.11 CI-equivalent run against the merged PR state at commit `04ee8b1d` completed with 4,073
+passed and one skipped test. Aggregate line coverage was 91.63%, passing the 90% project gate; changed-line coverage
+was approximately 90.3% (856 of 948 executable changed lines).
 
 ### Config and interface coverage
 
