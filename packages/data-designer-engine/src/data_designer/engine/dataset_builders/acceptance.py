@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass
 from typing import TYPE_CHECKING, Any
 
 import data_designer.lazy_heavy_imports as lazy
@@ -63,10 +63,8 @@ class SelectionBatchMarker:
     trimmed_accepted_records: int
     accepted_partition: str | None
     schema_materialized: bool = False
-    non_retryable_error_type: str | None = None
-    non_retryable_error_message: str | None = None
-    terminal_error_kind: str | None = None
-    terminal_error_message: str | None = None
+    non_retryable_error: str | None = None
+    stopped_early: bool = False
 
     def __post_init__(self) -> None:
         nonnegative_fields = (
@@ -93,10 +91,12 @@ class SelectionBatchMarker:
             raise ValueError(f"Selection marker accounts for {accounted} records, expected {self.candidate_records}.")
         if (self.accepted_partition is None) != (self.accepted_records == 0):
             raise ValueError("accepted_partition must be present exactly when accepted_records is non-zero.")
-        if (self.non_retryable_error_type is None) != (self.non_retryable_error_message is None):
-            raise ValueError("non_retryable_error_type and non_retryable_error_message must be present together.")
-        if (self.terminal_error_kind is None) != (self.terminal_error_message is None):
-            raise ValueError("terminal_error_kind and terminal_error_message must be present together.")
+        if not isinstance(self.schema_materialized, bool):
+            raise ValueError("schema_materialized must be a boolean.")
+        if self.non_retryable_error is not None and not isinstance(self.non_retryable_error, str):
+            raise ValueError("non_retryable_error must be a string or null.")
+        if not isinstance(self.stopped_early, bool):
+            raise ValueError("stopped_early must be a boolean.")
 
     def to_dict(self) -> dict[str, int | bool | str | None]:
         return asdict(self)
@@ -114,12 +114,10 @@ class SelectionBatchMarker:
                 null_predicate_records=_strict_int(value, "null_predicate_records"),
                 failed_generation_records=_strict_int(value, "failed_generation_records"),
                 trimmed_accepted_records=_strict_int(value, "trimmed_accepted_records"),
-                accepted_partition=_optional_string(value, "accepted_partition"),
-                schema_materialized=_optional_bool(value, "schema_materialized", required=False),
-                non_retryable_error_type=_optional_string(value, "non_retryable_error_type", required=False),
-                non_retryable_error_message=_optional_string(value, "non_retryable_error_message", required=False),
-                terminal_error_kind=_optional_string(value, "terminal_error_kind", required=False),
-                terminal_error_message=_optional_string(value, "terminal_error_message", required=False),
+                accepted_partition=_nullable_string(value, "accepted_partition"),
+                schema_materialized=_strict_bool(value, "schema_materialized"),
+                non_retryable_error=_nullable_string(value, "non_retryable_error"),
+                stopped_early=_strict_bool(value, "stopped_early"),
             )
         except (KeyError, TypeError, ValueError) as exc:
             raise ValueError(f"Invalid selection batch marker: {exc}") from exc
@@ -156,7 +154,7 @@ class AcceptanceController:
         self._failed_generation_records = 0
         self._trimmed_accepted_records = 0
         self._accepted_partitions = 0
-        self._first_non_retryable_error: dict[str, str] | None = None
+        self._first_non_retryable_error: str | None = None
         self._validate_marker_sequence()
 
     @property
@@ -192,23 +190,12 @@ class AcceptanceController:
         return self._accepted_partitions
 
     @property
-    def first_non_retryable_error(self) -> dict[str, str] | None:
-        if self._first_non_retryable_error is None:
-            return None
-        return dict(self._first_non_retryable_error)
+    def first_non_retryable_error(self) -> str | None:
+        return self._first_non_retryable_error
 
     @property
-    def terminal_error(self) -> dict[str, str] | None:
-        if not self._markers:
-            return None
-        marker = self._markers[-1]
-        kind = marker.terminal_error_kind
-        message = marker.terminal_error_message
-        if kind is None:
-            return None
-        if message is None:
-            raise RuntimeError("Selection marker terminal-error fields are inconsistent.")
-        return {"kind": kind, "message": message}
+    def last_batch_stopped_early(self) -> bool:
+        return bool(self._markers and self._markers[-1].stopped_early)
 
     @property
     def candidate_batches_completed(self) -> int:
@@ -313,8 +300,8 @@ class AcceptanceController:
         decision: SelectionDecision,
         accepted_partition: str | None,
         schema_materialized: bool = False,
-        non_retryable_error: dict[str, str] | None = None,
-        terminal_error: dict[str, str] | None = None,
+        non_retryable_error: str | None = None,
+        stopped_early: bool = False,
     ) -> SelectionBatchMarker:
         expected = self.next_candidate_batch()
         if batch != expected:
@@ -331,24 +318,11 @@ class AcceptanceController:
             trimmed_accepted_records=decision.trimmed_accepted_records,
             accepted_partition=accepted_partition,
             schema_materialized=schema_materialized,
-            non_retryable_error_type=(non_retryable_error["type"] if non_retryable_error is not None else None),
-            non_retryable_error_message=(non_retryable_error["message"] if non_retryable_error is not None else None),
-            terminal_error_kind=terminal_error["kind"] if terminal_error is not None else None,
-            terminal_error_message=terminal_error["message"] if terminal_error is not None else None,
+            non_retryable_error=non_retryable_error,
+            stopped_early=stopped_early,
         )
         self._markers.append(marker)
         self._accumulate_marker(marker)
-        return marker
-
-    def replace_last_marker_terminal_error(self, terminal_error: dict[str, str]) -> SelectionBatchMarker:
-        if not self._markers:
-            raise RuntimeError("Cannot attach a terminal error without a completed candidate batch.")
-        marker = replace(
-            self._markers[-1],
-            terminal_error_kind=terminal_error["kind"],
-            terminal_error_message=terminal_error["message"],
-        )
-        self._markers[-1] = marker
         return marker
 
     def summary(self) -> dict[str, int | float | bool | str]:
@@ -402,14 +376,8 @@ class AcceptanceController:
         self._failed_generation_records += marker.failed_generation_records
         self._trimmed_accepted_records += marker.trimmed_accepted_records
         self._accepted_partitions += marker.accepted_partition is not None
-        if self._first_non_retryable_error is None and marker.non_retryable_error_type is not None:
-            message = marker.non_retryable_error_message
-            if message is None:
-                raise RuntimeError("Selection marker non-retryable-error fields are inconsistent.")
-            self._first_non_retryable_error = {
-                "type": marker.non_retryable_error_type,
-                "message": message,
-            }
+        if self._first_non_retryable_error is None and marker.non_retryable_error is not None:
+            self._first_non_retryable_error = marker.non_retryable_error
 
 
 def _strict_int(value: dict[str, Any], key: str) -> int:
@@ -419,15 +387,15 @@ def _strict_int(value: dict[str, Any], key: str) -> int:
     return field
 
 
-def _optional_string(value: dict[str, Any], key: str, *, required: bool = True) -> str | None:
-    field = value[key] if required else value.get(key)
+def _nullable_string(value: dict[str, Any], key: str) -> str | None:
+    field = value[key]
     if field is not None and not isinstance(field, str):
         raise TypeError(f"{key} must be a string or null")
     return field
 
 
-def _optional_bool(value: dict[str, Any], key: str, *, required: bool = True) -> bool:
-    field = value[key] if required else value.get(key, False)
+def _strict_bool(value: dict[str, Any], key: str) -> bool:
+    field = value[key]
     if not isinstance(field, bool):
         raise TypeError(f"{key} must be a boolean")
     return field

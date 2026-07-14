@@ -145,8 +145,8 @@ def test_selection_promotes_media_before_writing_post_batch_side_artifacts(
     accepted = lazy.pd.read_parquet(builder.artifact_storage.selection_partition_path(0))
     assert accepted.columns.tolist() == ["keep"]
     assert controller.has_reached_target
-    assert controller.terminal_error is None
+    assert controller.first_non_retryable_error is None
     marker = builder.artifact_storage.read_selection_checkpoints()[0]
-    assert marker["terminal_error_kind"] is None
-    assert marker["terminal_error_message"] is None
-    assert "terminal_error" not in builder.artifact_storage.read_metadata()["record_selection"]
+    assert marker["schema_materialized"] is True
+    assert marker["non_retryable_error"] is None
+    assert marker["stopped_early"] is False

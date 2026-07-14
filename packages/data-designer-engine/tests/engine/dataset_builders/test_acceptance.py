@@ -100,8 +100,7 @@ def test_marker_sequence_hydrates_progress() -> None:
         failed_generation_records=0,
         trimmed_accepted_records=0,
         accepted_partition="selection-accepted/batch_00000.parquet",
-        non_retryable_error_type="CustomColumnGenerationError",
-        non_retryable_error_message="predicate failed",
+        non_retryable_error="CustomColumnGenerationError: predicate failed",
     )
     controller = AcceptanceController(
         config=RecordSelectionConfig(predicate_column="keep", max_candidate_records=6),
@@ -116,10 +115,7 @@ def test_marker_sequence_hydrates_progress() -> None:
     assert controller.failed_generation_records == 0
     assert controller.trimmed_accepted_records == 0
     assert controller.accepted_partitions == 1
-    assert controller.first_non_retryable_error == {
-        "type": "CustomColumnGenerationError",
-        "message": "predicate failed",
-    }
+    assert controller.first_non_retryable_error == "CustomColumnGenerationError: predicate failed"
     assert controller.next_candidate_batch().start_offset == 3
 
     class _MarkersMustNotBeScanned(list[SelectionBatchMarker]):
@@ -129,10 +125,7 @@ def test_marker_sequence_hydrates_progress() -> None:
     controller._markers = _MarkersMustNotBeScanned(controller._markers)
     assert controller.candidate_records == 3
     assert controller.accepted_records == 1
-    assert controller.first_non_retryable_error == {
-        "type": "CustomColumnGenerationError",
-        "message": "predicate failed",
-    }
+    assert controller.first_non_retryable_error == "CustomColumnGenerationError: predicate failed"
     assert controller.summary()["candidate_records_generated"] == 3
 
 
@@ -186,16 +179,55 @@ def test_zero_acceptance_marker_has_no_partition() -> None:
     )
     assert SelectionBatchMarker.from_dict(marker.to_dict()) == marker
 
-    legacy_marker = marker.to_dict()
-    for optional_field in (
-        "schema_materialized",
-        "non_retryable_error_type",
-        "non_retryable_error_message",
-        "terminal_error_kind",
-        "terminal_error_message",
-    ):
-        legacy_marker.pop(optional_field)
-    assert SelectionBatchMarker.from_dict(legacy_marker) == marker
+
+@pytest.mark.parametrize("field", ["schema_materialized", "non_retryable_error", "stopped_early"])
+def test_marker_rejects_unreleased_format_without_current_status_fields(field: str) -> None:
+    marker = SelectionBatchMarker(
+        candidate_batch_id=0,
+        row_group_id=0,
+        candidate_start_offset=0,
+        candidate_records=1,
+        accepted_records=0,
+        rejected_records=1,
+        null_predicate_records=0,
+        failed_generation_records=0,
+        trimmed_accepted_records=0,
+        accepted_partition=None,
+    ).to_dict()
+    marker.pop(field)
+
+    with pytest.raises(ValueError, match="Invalid selection batch marker"):
+        SelectionBatchMarker.from_dict(marker)
+
+
+def test_last_batch_stopped_early_only_reflects_latest_marker() -> None:
+    controller = _controller(target=3, cap=6, buffer_size=3)
+    first = controller.next_candidate_batch()
+    first_decision = controller.select(
+        pd.DataFrame({"keep": [True, False, False]}),
+        batch=first,
+        failed_generation_records=0,
+    )
+    controller.record_checkpoint(
+        batch=first,
+        decision=first_decision,
+        accepted_partition="selection-accepted/batch_00000.parquet",
+        stopped_early=True,
+    )
+    assert controller.last_batch_stopped_early
+
+    second = controller.next_candidate_batch()
+    second_decision = controller.select(
+        pd.DataFrame({"keep": [True, True, False]}),
+        batch=second,
+        failed_generation_records=0,
+    )
+    controller.record_checkpoint(
+        batch=second,
+        decision=second_decision,
+        accepted_partition="selection-accepted/batch_00001.parquet",
+    )
+    assert not controller.last_batch_stopped_early
 
 
 def test_summary_normalizes_default_exhaustion_value() -> None:
