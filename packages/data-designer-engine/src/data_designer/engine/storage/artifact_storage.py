@@ -53,12 +53,6 @@ def _selection_batch_sort_key(path: Path) -> int:
     return batch_id
 
 
-def _get_selection_publication_file_name(batch_number: int, *, num_partitions: int) -> str:
-    """Return a lexically sortable file name for one selection publication partition."""
-    width = max(_MIN_BATCH_NUMBER_WIDTH, len(str(num_partitions - 1)))
-    return f"batch_{batch_number:0{width}d}.parquet"
-
-
 class BatchStage(StrEnum):
     PARTIAL_RESULT = "partial_results_path"
     FINAL_RESULT = "final_dataset_path"
@@ -372,7 +366,7 @@ class ArtifactStorage(BaseModel):
         """Remove deterministic artifacts for a candidate batch that has no committed marker."""
         self.selection_partition_path(candidate_batch_id).unlink(missing_ok=True)
         self.selection_checkpoint_path(candidate_batch_id).unlink(missing_ok=True)
-        self._remove_candidate_batch_side_artifacts(candidate_batch_id)
+        self.clean_selection_batch_side_artifacts(candidate_batch_id)
         media_prefix = (
             self.base_dataset_path
             / self.media_storage.images_subdir
@@ -451,15 +445,12 @@ class ArtifactStorage(BaseModel):
         partitions = sorted(self.selection_accepted_path.glob("batch_*.parquet"), key=_selection_batch_sort_key)
         if partitions:
             for published_batch_id, partition in enumerate(partitions):
-                published_name = _get_selection_publication_file_name(
-                    published_batch_id,
-                    num_partitions=len(partitions),
-                )
+                published_name = self._candidate_batch_file_name(published_batch_id, suffix="parquet")
                 shutil.copy2(partition, self.selection_publication_staging_path / published_name)
         elif self.selection_schema_path.is_file():
             shutil.copy2(
                 self.selection_schema_path,
-                self.selection_publication_staging_path / _get_selection_publication_file_name(0, num_partitions=1),
+                self.selection_publication_staging_path / self._candidate_batch_file_name(0, suffix="parquet"),
             )
         else:
             raise ArtifactStorageError("🛑 Cannot publish record selection: no accepted partitions or schema found.")
@@ -469,18 +460,8 @@ class ArtifactStorage(BaseModel):
         os.replace(self.selection_publication_staging_path, self.final_dataset_path)
         return self.final_dataset_path
 
-    def write_selection_publication_batch(
-        self,
-        batch_number: int,
-        dataframe: pd.DataFrame,
-        *,
-        num_partitions: int,
-    ) -> Path:
-        """Write one final record-selection shard using publication-scoped numbering."""
-        file_name = _get_selection_publication_file_name(batch_number, num_partitions=num_partitions)
-        return self.write_parquet_file(file_name, dataframe, BatchStage.FINAL_RESULT)
-
-    def _remove_candidate_batch_side_artifacts(self, candidate_batch_id: int) -> None:
+    def clean_selection_batch_side_artifacts(self, candidate_batch_id: int) -> None:
+        """Remove dropped-column and processor outputs for one selection candidate batch."""
         filename = self._candidate_batch_file_name(candidate_batch_id, suffix="parquet")
         (self.dropped_columns_dataset_path / filename).unlink(missing_ok=True)
         if self.processors_outputs_path.exists():

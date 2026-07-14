@@ -100,7 +100,9 @@ def test_marker_sequence_hydrates_progress() -> None:
         failed_generation_records=0,
         trimmed_accepted_records=0,
         accepted_partition="selection-accepted/batch_00000.parquet",
+        schema_materialized=True,
         non_retryable_error="CustomColumnGenerationError: predicate failed",
+        stopped_early=False,
     )
     controller = AcceptanceController(
         config=RecordSelectionConfig(predicate_column="keep", max_candidate_records=6),
@@ -141,6 +143,9 @@ def test_marker_sequence_rejects_markers_after_candidate_budget_is_exhausted() -
         failed_generation_records=0,
         trimmed_accepted_records=0,
         accepted_partition=None,
+        schema_materialized=True,
+        non_retryable_error=None,
+        stopped_early=False,
     )
     impossible_marker = SelectionBatchMarker(
         candidate_batch_id=1,
@@ -153,6 +158,9 @@ def test_marker_sequence_rejects_markers_after_candidate_budget_is_exhausted() -
         failed_generation_records=0,
         trimmed_accepted_records=0,
         accepted_partition=None,
+        schema_materialized=False,
+        non_retryable_error=None,
+        stopped_early=False,
     )
 
     with pytest.raises(ValueError, match="continue after the candidate budget was exhausted"):
@@ -176,8 +184,11 @@ def test_zero_acceptance_marker_has_no_partition() -> None:
         failed_generation_records=0,
         trimmed_accepted_records=0,
         accepted_partition=None,
+        schema_materialized=True,
+        non_retryable_error=None,
+        stopped_early=False,
     )
-    assert SelectionBatchMarker.from_dict(marker.to_dict()) == marker
+    assert SelectionBatchMarker.model_validate(marker.model_dump(mode="json")) == marker
 
 
 @pytest.mark.parametrize("field", ["schema_materialized", "non_retryable_error", "stopped_early"])
@@ -193,11 +204,46 @@ def test_marker_rejects_unreleased_format_without_current_status_fields(field: s
         failed_generation_records=0,
         trimmed_accepted_records=0,
         accepted_partition=None,
-    ).to_dict()
+        schema_materialized=True,
+        non_retryable_error=None,
+        stopped_early=False,
+    ).model_dump(mode="json")
     marker.pop(field)
 
-    with pytest.raises(ValueError, match="Invalid selection batch marker"):
-        SelectionBatchMarker.from_dict(marker)
+    with pytest.raises(ValueError, match=field):
+        SelectionBatchMarker.model_validate(marker)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("candidate_batch_id", True),
+        ("candidate_batch_id", 0.0),
+        ("candidate_batch_id", "0"),
+        ("schema_materialized", 1),
+        ("non_retryable_error", 1),
+    ],
+)
+def test_marker_rejects_coerced_checkpoint_field_types(field: str, value: object) -> None:
+    marker = SelectionBatchMarker(
+        candidate_batch_id=0,
+        row_group_id=0,
+        candidate_start_offset=0,
+        candidate_records=1,
+        accepted_records=0,
+        rejected_records=1,
+        null_predicate_records=0,
+        failed_generation_records=0,
+        trimmed_accepted_records=0,
+        accepted_partition=None,
+        schema_materialized=True,
+        non_retryable_error=None,
+        stopped_early=False,
+    ).model_dump(mode="json")
+    marker[field] = value
+
+    with pytest.raises(ValueError, match=field):
+        SelectionBatchMarker.model_validate(marker)
 
 
 def test_last_batch_stopped_early_only_reflects_latest_marker() -> None:

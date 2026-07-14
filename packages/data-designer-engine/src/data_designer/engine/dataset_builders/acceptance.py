@@ -3,8 +3,10 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
-from typing import TYPE_CHECKING, Any
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.record_selection import RecordSelectionConfig, RecordSelectionExhaustion
@@ -48,38 +50,28 @@ class SelectionDecision:
             raise ValueError(f"Selection decision accounts for {accounted} records, expected {self.candidate_records}.")
 
 
-@dataclass(frozen=True, slots=True)
-class SelectionBatchMarker:
+class SelectionBatchMarker(BaseModel):
     """Durable commit record for a completed candidate batch."""
 
-    candidate_batch_id: int
-    row_group_id: int
-    candidate_start_offset: int
-    candidate_records: int
-    accepted_records: int
-    rejected_records: int
-    null_predicate_records: int
-    failed_generation_records: int
-    trimmed_accepted_records: int
-    accepted_partition: str | None
-    schema_materialized: bool = False
-    non_retryable_error: str | None = None
-    stopped_early: bool = False
+    model_config = ConfigDict(frozen=True, strict=True)
 
-    def __post_init__(self) -> None:
-        nonnegative_fields = (
-            self.candidate_batch_id,
-            self.row_group_id,
-            self.candidate_start_offset,
-            self.candidate_records,
-            self.accepted_records,
-            self.rejected_records,
-            self.null_predicate_records,
-            self.failed_generation_records,
-            self.trimmed_accepted_records,
-        )
-        if any(value < 0 for value in nonnegative_fields):
-            raise ValueError("Selection marker counters must be non-negative.")
+    candidate_batch_id: int = Field(ge=0)
+    row_group_id: int = Field(ge=0)
+    candidate_start_offset: int = Field(ge=0)
+    candidate_records: int = Field(ge=0)
+    accepted_records: int = Field(ge=0)
+    rejected_records: int = Field(ge=0)
+    null_predicate_records: int = Field(ge=0)
+    failed_generation_records: int = Field(ge=0)
+    trimmed_accepted_records: int = Field(ge=0)
+    accepted_partition: str | None
+    schema_materialized: bool
+    non_retryable_error: str | None
+    stopped_early: bool
+
+    @model_validator(mode="after")
+    def validate_accounting(self) -> SelectionBatchMarker:
+        """Validate persisted candidate accounting and partition consistency."""
         accounted = (
             self.accepted_records
             + self.rejected_records
@@ -91,36 +83,7 @@ class SelectionBatchMarker:
             raise ValueError(f"Selection marker accounts for {accounted} records, expected {self.candidate_records}.")
         if (self.accepted_partition is None) != (self.accepted_records == 0):
             raise ValueError("accepted_partition must be present exactly when accepted_records is non-zero.")
-        if not isinstance(self.schema_materialized, bool):
-            raise ValueError("schema_materialized must be a boolean.")
-        if self.non_retryable_error is not None and not isinstance(self.non_retryable_error, str):
-            raise ValueError("non_retryable_error must be a string or null.")
-        if not isinstance(self.stopped_early, bool):
-            raise ValueError("stopped_early must be a boolean.")
-
-    def to_dict(self) -> dict[str, int | bool | str | None]:
-        return asdict(self)
-
-    @classmethod
-    def from_dict(cls, value: dict[str, Any]) -> SelectionBatchMarker:
-        try:
-            return cls(
-                candidate_batch_id=_strict_int(value, "candidate_batch_id"),
-                row_group_id=_strict_int(value, "row_group_id"),
-                candidate_start_offset=_strict_int(value, "candidate_start_offset"),
-                candidate_records=_strict_int(value, "candidate_records"),
-                accepted_records=_strict_int(value, "accepted_records"),
-                rejected_records=_strict_int(value, "rejected_records"),
-                null_predicate_records=_strict_int(value, "null_predicate_records"),
-                failed_generation_records=_strict_int(value, "failed_generation_records"),
-                trimmed_accepted_records=_strict_int(value, "trimmed_accepted_records"),
-                accepted_partition=_nullable_string(value, "accepted_partition"),
-                schema_materialized=_strict_bool(value, "schema_materialized"),
-                non_retryable_error=_nullable_string(value, "non_retryable_error"),
-                stopped_early=_strict_bool(value, "stopped_early"),
-            )
-        except (KeyError, TypeError, ValueError) as exc:
-            raise ValueError(f"Invalid selection batch marker: {exc}") from exc
+        return self
 
 
 class AcceptanceController:
@@ -378,24 +341,3 @@ class AcceptanceController:
         self._accepted_partitions += marker.accepted_partition is not None
         if self._first_non_retryable_error is None and marker.non_retryable_error is not None:
             self._first_non_retryable_error = marker.non_retryable_error
-
-
-def _strict_int(value: dict[str, Any], key: str) -> int:
-    field = value[key]
-    if isinstance(field, bool) or not isinstance(field, int):
-        raise TypeError(f"{key} must be an integer")
-    return field
-
-
-def _nullable_string(value: dict[str, Any], key: str) -> str | None:
-    field = value[key]
-    if field is not None and not isinstance(field, str):
-        raise TypeError(f"{key} must be a string or null")
-    return field
-
-
-def _strict_bool(value: dict[str, Any], key: str) -> bool:
-    field = value[key]
-    if not isinstance(field, bool):
-        raise TypeError(f"{key} must be a boolean")
-    return field

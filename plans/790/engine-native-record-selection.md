@@ -328,17 +328,17 @@ sequenceDiagram
         R->>S: run(row_group_id, candidate_offset, batch_size)
         S->>G: generate normal column DAG
         G-->>S: completed candidate rows + predicate
-        S->>B: on_before_checkpoint(row_group)
-        B->>R: select_dataframe(completed candidates)
+        S-->>R: retained candidate DataFrame + diagnostics
         R->>A: select(batch, failed_generation_records)
         A-->>R: accepted indices and accounting decision
-        R-->>B: filtered and trimmed DataFrame
-        B->>B: run post-batch processors
-        S->>R: on_finalize_row_group(row_group)
+        R->>R: filter, promote media, run post-batch processors
         R->>P: write schema anchor and accepted partition
         R->>A: record_checkpoint(batch, decision, artifacts)
         A-->>R: SelectionBatchMarker
-        R->>P: atomically persist marker, then mirror metadata
+        R->>P: atomically persist marker
+        R->>S: report durable accepted/dropped checkpoint
+        R->>P: mirror metadata
+        R->>S: emit deferred terminal event
     end
 
     alt accepted == X
@@ -410,21 +410,25 @@ class SelectionDecision:
     trimmed_accepted_records: int
 
 
-@dataclass(frozen=True, slots=True)
-class SelectionBatchMarker:
-    candidate_batch_id: int
-    row_group_id: int
-    candidate_start_offset: int
-    candidate_records: int
-    accepted_records: int
-    rejected_records: int
-    null_predicate_records: int
-    failed_generation_records: int
-    trimmed_accepted_records: int
+class SelectionBatchMarker(BaseModel):
+    model_config = ConfigDict(frozen=True, strict=True)
+
+    candidate_batch_id: int = Field(ge=0)
+    row_group_id: int = Field(ge=0)
+    candidate_start_offset: int = Field(ge=0)
+    candidate_records: int = Field(ge=0)
+    accepted_records: int = Field(ge=0)
+    rejected_records: int = Field(ge=0)
+    null_predicate_records: int = Field(ge=0)
+    failed_generation_records: int = Field(ge=0)
+    trimmed_accepted_records: int = Field(ge=0)
     accepted_partition: str | None
-    schema_materialized: bool = False
-    non_retryable_error: str | None = None
-    stopped_early: bool = False
+    schema_materialized: bool
+    non_retryable_error: str | None
+    stopped_early: bool
+
+    @model_validator(mode="after")
+    def validate_accounting(self) -> SelectionBatchMarker: ...
 
 
 class AcceptanceController:
@@ -478,6 +482,11 @@ Responsibilities:
 - Hydrate and validate committed marker sequences.
 - Expose progress and terminal properties for metadata and logs.
 - Decide satisfied vs exhausted state.
+
+The marker is a strict frozen Pydantic model. Pydantic owns field presence, type, and non-negative counter
+validation; its model validator owns only the candidate-accounting and accepted-partition invariants. Persisted JSON
+uses `model_dump(mode="json")`, so the on-disk object shape is unchanged while hand-written serialization and type
+parsing are avoided.
 
 The controller does not call column generators, write parquet, or own scheduler tasks. `RecordSelectionRunner`
 persists the returned `SelectionBatchMarker` through `ArtifactStorage.write_selection_checkpoint()`.
@@ -625,65 +634,81 @@ The runner:
   `_finalize_selection_build()`.
 - Profiles once in the interface after the engine returns a non-empty terminal result.
 
-### 5. Generic before-checkpoint composition
+### 5. Result-oriented candidate execution
 
-`AsyncTaskScheduler` has no selection-specific API. Its checkpoint boundary exposes only generic lifecycle controls:
+`AsyncTaskScheduler` has no selection-specific API. Its checkpoint boundary exposes generic lifecycle controls:
 
 ```python
 on_before_checkpoint: Callable[[int, int], None] | None
 on_finalize_row_group: Callable[[int], None] | None
-finalize_empty_row_groups: bool = False
+retain_row_group_result: bool = False
 ```
 
-`DatasetBuilder._prepare_async_run()` accepts an internal optional DataFrame transform separately:
+Ordinary builds continue to use `on_before_checkpoint` for post-batch processing and `on_finalize_row_group` for
+checkpointing. Selection instead treats each one-row-group scheduler as a result producer:
 
 ```python
-select_dataframe: Callable[[int, int, pd.DataFrame], pd.DataFrame] | None
+scheduler, buffer_manager = self._builder._prepare_async_run(
+    ...,
+    retain_row_group_result=True,
+    run_post_batch_in_scheduler=False,
+)
+run_async_scheduler(scheduler)
+candidate_dataframe = buffer_manager.get_dataframe(batch.row_group_id)
 ```
 
-The builder composes that transform and configured post-batch processors into one `on_before_checkpoint` callback:
-selection runs first, newly dropped slots are mirrored into `CompletionTracker`, and strict row-count-preserving
-post-batch processing runs second. Ordinary builds use the same generic callback with no selection transform.
-
-For selection, `RecordSelectionRunner._execute_selection_candidate_scheduler()` binds `select_dataframe` to
-`_select_selection_candidate_dataframe()` and `on_finalize_row_group` to
-`_finalize_selection_candidate_row_group()`. It also sets `finalize_empty_row_groups=True`, because a candidate batch
-that accepts zero rows must still commit a durable marker. The constructor rejects that opt-in without a finalizer.
-Per-candidate mutable state, including the `SelectionDecision`, lives in `_SelectionCandidateBatchRuntime`.
+`RecordSelectionRunner._generate_candidate_dataframe()` awaits that scheduler before applying selection.
+`retain_row_group_result=True` retains the single completed buffer, including an all-failed zero-row batch, and gives
+the caller ownership of completion reporting. The runner then performs selection, media promotion,
+strict post-batch processing, and durable commit in a linear call stack. No selection callback, finalizer callback, or
+shared callback runtime is required. The scheduler's automatic checkpoint event is deferred because candidate
+completion is not yet a durable selection checkpoint; after the marker is written, the runner reports the checkpoint
+with accepted rows as survivors and every rejected, null, failed, or trimmed candidate as dropped, then emits the
+deferred terminal event. This preserves `scheduler_job_completed` as the final event and lets progress consumers
+observe the durable checkpoint before closing the scheduler lifecycle. Deferred completion is restricted to the
+single-row-group retained-result contract; a caller-side failure emits one error terminal event without inventing a
+durable checkpoint.
 
 ```mermaid
 flowchart TD
-    dag["Candidate DAG complete"] --> select["Select and trim rows"]
+    dag["Candidate DAG complete"] --> retained["Return retained candidate DataFrame"]
+    retained --> select["Select and trim rows"]
     select --> media["Promote referenced accepted images when enabled"]
-    media --> buffer["Replace buffer and mirror dropped slots"]
-    buffer --> post["Run strict row-count-preserving post-batch processors"]
+    media --> post["Run strict row-count-preserving post-batch processors"]
     post --> validate["Validate selected row count"]
     validate --> schema["Write schema anchor when materialized"]
     schema --> write{"Any accepted rows?"}
     write -->|yes| parquet["Write immutable accepted partition"]
     write -->|no| marker["Create and atomically persist marker"]
     parquet --> marker
-    marker --> mirror["Mirror metadata and notify caller"]
+    marker --> telemetry["Report durable accepted and dropped counts"]
+    telemetry --> mirror["Mirror metadata and notify caller"]
+    mirror --> terminal["Emit deferred scheduler terminal event"]
 ```
 
 The exact checkpoint order is:
 
 1. The candidate DAG completes or salvages its surviving rows.
-2. The scheduler invokes the builder-composed generic `on_before_checkpoint` callback, whose selection phase reads
-   the current DataFrame and calls `RecordSelectionRunner._select_selection_candidate_dataframe()`.
-3. That method calls `AcceptanceController.select()` with
-   `failed_generation_records=row_group_size - len(dataframe)`, filters and trims accepted rows, promotes accepted
-   image references when staging is active, and stores the decision in `_SelectionCandidateBatchRuntime`.
-4. The wrapper replaces the row-group buffer and mirrors newly dropped slots into `CompletionTracker`.
-5. The same callback runs normal post-batch processors with `strict_row_count=True`.
-6. After the callback returns, the scheduler recomputes dropped-row diagnostics. It invokes the runner finalizer even
-   when zero rows survive because the selection caller explicitly opted into empty-row-group finalization; other
-   callers retain the default behavior of freeing an empty group without finalizing it.
-7. `RecordSelectionRunner._commit_selection_candidate_row_group()` verifies the final count, writes a schema anchor
-   when columns were materialized, writes an immutable accepted partition when non-empty, creates a
+2. The scheduler returns while retaining the completed candidate buffer, including a zero-row buffer when the caller
+   opts into `retain_row_group_result=True`. The runner materializes the candidate DataFrame and immediately releases
+   the scheduler buffer.
+3. `RecordSelectionRunner._select_candidate_dataframe()` calls `AcceptanceController.select()` with
+   `failed_generation_records=batch.size - len(dataframe)` and filters and trims the accepted rows.
+4. The runner promotes accepted image references when staging is active.
+5. The runner applies normal post-batch processors with `strict_row_count=True`.
+6. `RecordSelectionRunner._commit_selection_candidate_batch()` verifies the final count, writes a schema anchor
+   when at least one candidate row fully generated and columns were materialized, writes an immutable accepted
+   partition when non-empty, creates a
    `SelectionBatchMarker`, and atomically writes it through `ArtifactStorage`.
-8. `RecordSelectionRunner._mirror_committed_selection_batch()` frees the buffer, refreshes metadata and in-memory
-   counters, and logs progress. The finalizer then invokes `on_batch_complete` for a non-empty accepted partition.
+7. The runner reports `row_group_checkpointed` with the durable accepted/dropped counts, then
+   `RecordSelectionRunner._mirror_committed_selection_batch()` refreshes metadata and in-memory counters and logs
+   progress.
+8. The runner invokes `on_batch_complete` for a non-empty accepted partition, cleans per-batch media staging in a
+   `finally` path, and emits the deferred `scheduler_job_completed` event. Failures after the marker use the
+   committed-phase error path so resume does not regenerate work. The runner derives that phase from the atomic
+   marker file itself rather than a second mutable commit flag. The event sink is opened before media staging begins,
+   so sink setup cannot leave media state to unwind; once generation starts, media cleanup still completes before the
+   deferred terminal event.
 
 ### 6. Predicate placement in the DAG
 
@@ -883,7 +908,8 @@ Treat the batch marker as the commit point:
 2. Select and trim rows, promote referenced accepted images into the batch-scoped published prefix, rewrite their
    DataFrame values, and delete the candidate image-staging directory.
 3. Run strict row-count-preserving post-batch processors, which may write accepted-only dropped-column and processor
-   artifacts under the candidate batch ID.
+   artifacts under the candidate batch ID. If the selected DataFrame is empty, remove those zero-row side files;
+   otherwise an empty first parquet file can establish an empty Arrow directory schema and hide later accepted rows.
 4. Validate that post-batch processing retained the selected row count.
 5. Write the zero-row schema anchor when columns were materialized and no anchor exists.
 6. Write the post-trim rows to the immutable accepted-partition path when non-empty.
@@ -988,7 +1014,9 @@ pre-generation filtering.
 
 Apply record selection first, then run post-batch processors over accepted rows. Existing post-batch processing is
 row-count preserving under `strict_row_count=True`, so accepted counts remain valid and processor side artifacts
-align with the output.
+align with the output. Processors still run for a zero-acceptance batch so a schema-capable processor can validate its
+input contract, but any zero-row batch-addressed side files are discarded before commit. A later accepted batch then
+becomes the first durable processor/dropped-column file and cannot be masked by an empty Arrow directory schema.
 
 ### After-generation processors
 
@@ -996,8 +1024,8 @@ The implementation does not classify resizing after-generation processors during
 
 1. Writes `post_generation_state="started"`.
 2. Materializes `parquet-files/` from immutable accepted partitions.
-3. Runs `ProcessorRunner.run_after_generation(..., selection_publication=True)` once over the published dataset,
-   never over `selection-accepted/`.
+3. Runs `ProcessorRunner.run_after_generation(...)` once over the published dataset, never over
+   `selection-accepted/`; the normal writer reuses the already configured fixed batch-number width.
 4. Counts the rewritten publication and compares it with `AcceptanceController.accepted_records`.
 5. Raises `DatasetGenerationError` if the count changed. The state remains `started`, and immutable accepted
    partitions remain available for recovery.
@@ -1231,10 +1259,10 @@ Primary files:
 - `engine/dataset_builders/record_selection_runner.py` — per-build selection orchestration, resume, candidate commit,
   media cleanup, and terminal publication.
 - `engine/dataset_builders/row_group_plan.py` — provides `base_offset` on the existing `ExplicitRowGroupPlan`.
-- `engine/dataset_builders/dataset_builder.py` — runner delegation plus shared generic scheduler/callback composition.
-- `engine/dataset_builders/async_scheduler.py` — generic before-checkpoint callback and explicit empty-row finalization
-  policy.
-- `engine/dataset_builders/utils/row_group_buffer.py` — selected checkpoint support.
+- `engine/dataset_builders/dataset_builder.py` — runner delegation plus shared generic scheduler construction.
+- `engine/dataset_builders/async_scheduler.py` — generic before-checkpoint callback, empty-row retention policy, and
+  caller-managed durable-checkpoint event reporting.
+- `engine/dataset_builders/utils/row_group_buffer.py` — retained candidate DataFrame support.
 
 Implemented behavior:
 
@@ -1314,9 +1342,9 @@ commitment to implement a v2; benchmark evidence should justify it first.
 This section records the tests present in PR #817. It distinguishes direct coverage from behavior that is currently
 covered only by smaller unit tests or remains to be exercised directly.
 
-The combined Python 3.11 CI-equivalent run against the current PR working tree completed with 4,094 passed and one
-skipped test. Aggregate line coverage was 91.69%, passing the 90% project gate; changed-line coverage was 92.0%
-(913 of 992 executable changed lines, including the new runner module).
+The combined Python 3.11 CI-equivalent run against the current PR working tree completed with 4,107 passed and one
+skipped test. Aggregate line coverage was 91.67%, passing the 90% project gate; diff coverage against `origin/main`
+was 91.6% (870 of 950 executable changed lines).
 
 ### Config and interface coverage
 
@@ -1341,23 +1369,28 @@ skipped test. Aggregate line coverage was 91.69%, passing the 90% project gate; 
 ### Controller, ordering, and artifact coverage
 
 - Controller tests cover Python and NumPy booleans, null rejection, invalid values, failed-generation accounting,
-  deterministic trimming, marker hydration, marker sequence validation, and zero-acceptance markers.
+  deterministic trimming, strict Pydantic marker validation, marker hydration, marker sequence validation, and
+  zero-acceptance markers.
 - `log_pre_generation()` is called once across multiple candidate batches.
 - Ordered seeds advance in candidate-coordinate space, and `ExplicitRowGroupPlan(base_offset=...)` retains its offset
   through normalization without changing scheduled row totals.
 - Schema tests cover orphan-anchor deletion, first-materialized-batch ownership, and failure when a committed schema
-  anchor is missing.
+  anchor is missing. An all-failed candidate cannot claim a partial cached buffer schema as the output anchor.
 - Storage tests cover marker and partition round trips, numeric ordering beyond five digits, empty publication,
   candidate-width naming, and cleanup of uncommitted side artifacts.
 - Image tests cover accepted-reference promotion, rejected-image cleanup, duplicate references, path traversal, and
   committed paths in post-batch and dropped-column outputs.
 - Boundary tests cover a candidate cap equal to the target, a smaller final candidate batch, and rejection of
   non-empty zero-column post-batch or after-generation processor output.
-- The composed builder callback preserves selection-specific and post-batch-specific error normalization through
-  buffer reads, transforms, dropped-row mirroring, and buffer replacement.
-- Scheduler coverage includes default freeing of all-dropped groups, explicit empty-group finalization, rejection of
-  empty finalization without a finalizer, generic before-checkpoint error normalization, and the independent-root
-  in-flight race.
+- The linear runner path preserves selection-specific and post-batch-specific error normalization after scheduler
+  completion.
+- A rejected first candidate followed by an accepted candidate proves zero-row processor files are discarded and do
+  not mask later accepted processor output.
+- Scheduler coverage includes default freeing of all-dropped groups, explicit empty-group retention, generic
+  before-checkpoint error normalization, caller-managed durable-checkpoint events, and the independent-root in-flight
+  race.
+- End-to-end OpenTelemetry coverage verifies accepted/dropped record counters, progress, and one terminal scheduler
+  event for a mixed record-selection batch.
 
 ### Resume and publication coverage
 
@@ -1402,8 +1435,6 @@ selection-specific regression test:
   partition.
 - Complete marker accounting in one assertion and propagation of null, failed, and trimmed counters into terminal
   `metadata.json`.
-- A mixed accepted/rejected post-batch processor case proving processor and dropped-column artifacts contain only
-  accepted rows.
 - After-generation re-chunking followed by resume and row-count-changing after-generation detection.
 - Publication reconstruction with candidate generation explicitly patched or counted to prove that it is not rerun.
 - Early shutdown after one or more accepted candidate batches and end-to-end media cleanup across a crash/resume.
@@ -1441,8 +1472,9 @@ selection-specific regression test:
 - Use `RecordSelectionConfig` publicly and `AcceptanceController` internally.
 - Keep selection lifecycle and resume state in one per-build `RecordSelectionRunner`; keep shared generator, scheduler,
   processor, resource, and run state in `DatasetBuilder`.
-- Keep `AsyncTaskScheduler` feature-agnostic by composing selection into `on_before_checkpoint` and using an explicit
-  `finalize_empty_row_groups` lifecycle opt-in for zero-output durable commits.
+- Keep `AsyncTaskScheduler` feature-agnostic by processing selection after each result-producing scheduler completes;
+  use one `retain_row_group_result` contract so zero-output candidate DataFrames remain available to the runner and
+  completion events remain caller-owned until the selection marker is durable.
 - Require an explicit, row-local boolean predicate column; global ranking, quotas, and deduplication are out of scope.
 - Require `max_candidate_records`.
 - Treat null as rejected and non-boolean as an error.
