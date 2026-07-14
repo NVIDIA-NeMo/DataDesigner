@@ -98,6 +98,10 @@ class ProcessorRunner:
                 f"Post-batch processor changed row count from {original_len} to {len(df)}. "
                 "Row-count changes in post-batch processors are not supported; use workflow chaining instead."
             )
+        if strict_row_count and len(df) > 0 and len(df.columns) == 0:
+            raise DatasetProcessingError(
+                "Post-batch processors must retain at least one column for non-empty record-selection output."
+            )
         return df
 
     def run_after_generation_on_df(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -118,6 +122,10 @@ class ProcessorRunner:
         logger.info("⏳ Running process_after_generation on final dataset...")
         df = self._artifact_storage.load_dataset()
         df = self._run_stage(df, ProcessorStage.AFTER_GENERATION)
+        if selection_publication and len(df) > 0 and len(df.columns) == 0:
+            raise DatasetProcessingError(
+                "After-generation processors must retain at least one column for non-empty record-selection output."
+            )
 
         shutil.rmtree(self._artifact_storage.final_dataset_path)
         num_partitions = len(range(0, max(len(df), 1), batch_size))

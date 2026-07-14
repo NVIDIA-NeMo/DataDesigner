@@ -48,9 +48,10 @@ results = DataDesigner().create(builder, num_records=1_000)
 assert results.count_records() == 1_000
 ```
 
-With record selection enabled, `num_records=1_000` means **1,000 accepted output rows**. Candidate attempts stop as
-soon as that target is reached, or when `max_candidate_records` is exhausted. Accepted rows keep candidate order;
-if the final candidate batch contains more passing rows than needed, Data Designer keeps the earliest rows.
+With record selection enabled, `num_records=1_000` means **1,000 accepted output rows**. Candidate generation stops
+after the completed batch that reaches that target, or when `max_candidate_records` is exhausted. Accepted rows keep
+candidate order; if the final candidate batch contains more passing rows than needed, Data Designer keeps the earliest
+rows.
 
 <Warning>
   Candidate generation can invoke models for rows that are later rejected. Set `max_candidate_records` to a strict
@@ -137,9 +138,9 @@ are not uploaded.
 ## Processor limitations
 
 Pre-batch processors run on candidates. Record selection runs before post-batch processors, so post-batch processors
-see accepted rows only and must preserve their count. After-generation processors run once on the published accepted
-dataset and must also preserve the selected row count; Data Designer verifies the final count and raises if a plugin
-changes it.
+see accepted rows only, must preserve their count, and must retain at least one column for non-empty output.
+After-generation processors run once on the published accepted dataset and have the same count and non-empty schema
+requirements. Data Designer validates both contracts and raises if a plugin violates them.
 
 Selection diagnostics are stored under `record_selection` in `metadata.json`, including candidate attempts, accepted,
 rejected, null, failed, and trimmed rows, acceptance rate, and terminal state. Model usage includes both accepted and

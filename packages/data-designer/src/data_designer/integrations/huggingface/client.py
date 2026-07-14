@@ -9,6 +9,7 @@ import os
 import shutil
 import stat
 import tempfile
+from contextlib import ExitStack
 from copy import deepcopy
 from pathlib import Path
 
@@ -37,6 +38,9 @@ _RESERVED_PROCESSOR_HUB_PREFIXES = {
     "images",
 }
 _MANAGED_HUB_EXACT_PATHS = {SDG_CONFIG_FILENAME}
+_ManagedSnapshotEntry = tuple[os.stat_result, bool]
+_ManagedSnapshot = dict[tuple[str, ...], _ManagedSnapshotEntry]
+_ManagedSnapshotChildren = dict[tuple[str, ...], tuple[str, ...]]
 
 
 class HuggingFaceHubClientUploadError(DataDesignerError):
@@ -137,16 +141,46 @@ class HuggingFaceHubClient:
         logger.info(f"🤗 Uploading dataset to Hugging Face Hub: {repo_id}")
 
         self._validate_repo_id(repo_id=repo_id)
-        metadata = self._validate_dataset_path(base_dataset_path=base_dataset_path)
-        self._validate_hub_upload_paths(base_dataset_path=base_dataset_path, metadata=metadata)
-        if isinstance(metadata.get("record_selection"), dict):
-            # Stage the complete terminal view before the first network call. CommitOperationAdd
-            # reads path-backed files lazily, so using the live artifact directory here would let
-            # a concurrent local resume change files after metadata validation.
-            with tempfile.TemporaryDirectory(prefix="data-designer-hub-upload-") as staging_directory:
+        if not base_dataset_path.exists():
+            raise HuggingFaceHubClientUploadError(f"Dataset path does not exist: {base_dataset_path}")
+        if not base_dataset_path.is_dir():
+            raise HuggingFaceHubClientUploadError(f"Dataset path is not a directory: {base_dataset_path}")
+        with ExitStack() as local_snapshot:
+            source_directory_fd, source_directory_stat = self._open_managed_directory(base_dataset_path)
+            local_snapshot.callback(os.close, source_directory_fd)
+            validated_metadata = self._validate_dataset_path(base_dataset_path=base_dataset_path)
+            self._validate_hub_upload_paths(base_dataset_path=base_dataset_path, metadata=validated_metadata)
+            self._validate_open_directory_identity(base_dataset_path, source_directory_stat)
+            try:
+                pinned_metadata = json.loads(
+                    self._read_managed_regular_file_at(
+                        source_directory_fd,
+                        METADATA_FILENAME,
+                        base_dataset_path / METADATA_FILENAME,
+                    )
+                )
+            except json.JSONDecodeError as exc:
+                raise HuggingFaceHubClientUploadError(f"Invalid JSON in {METADATA_FILENAME}: {exc}") from exc
+            if not isinstance(pinned_metadata, dict):
+                raise HuggingFaceHubClientUploadError(f"{METADATA_FILENAME} must contain a JSON object")
+            if pinned_metadata != validated_metadata:
+                raise HuggingFaceHubClientUploadError(
+                    "Dataset metadata changed while validating the local upload source. "
+                    "No Hub request was made; wait for local generation or resume to finish and retry."
+                )
+            metadata = pinned_metadata
+            if isinstance(metadata.get("record_selection"), dict):
+                # Stage the complete terminal view before the first network call. CommitOperationAdd
+                # reads path-backed files lazily, so using the live artifact directory here would let
+                # a concurrent local resume change files after metadata validation.
+                staging_directory = local_snapshot.enter_context(
+                    tempfile.TemporaryDirectory(prefix="data-designer-hub-upload-")
+                )
                 staged_dataset_path = self._stage_record_selection_dataset(
                     base_dataset_path=base_dataset_path,
                     staging_directory=Path(staging_directory),
+                    source_directory_fd=source_directory_fd,
+                    source_directory_stat=source_directory_stat,
                 )
                 staged_metadata = self._validate_dataset_path(base_dataset_path=staged_dataset_path)
                 self._validate_hub_upload_paths(
@@ -158,6 +192,13 @@ class HuggingFaceHubClient:
                         "Record-selection metadata changed before the upload snapshot was staged. "
                         "No Hub request was made; wait for local generation or resume to finish and retry."
                     )
+                initial_selection = metadata["record_selection"]
+                staged_selection = staged_metadata["record_selection"]
+                if staged_selection.get("publication_id") != initial_selection.get("publication_id"):
+                    raise HuggingFaceHubClientUploadError(
+                        "The record-selection publication changed before the upload snapshot was staged. "
+                        "No Hub request was made; wait for local generation or resume to finish and retry."
+                    )
                 self._upload_record_selection_dataset(
                     repo_id=repo_id,
                     base_dataset_path=staged_dataset_path,
@@ -166,9 +207,9 @@ class HuggingFaceHubClient:
                     tags=tags,
                     private=private,
                 )
-            url = f"{HUGGINGFACE_HUB_DATASET_URL_PREFIX}{repo_id}"
-            logger.info(f"{LOG_INDENT}{RandomEmoji.success()} Dataset uploaded successfully! View at: {url}")
-            return url
+                url = f"{HUGGINGFACE_HUB_DATASET_URL_PREFIX}{repo_id}"
+                logger.info(f"{LOG_INDENT}{RandomEmoji.success()} Dataset uploaded successfully! View at: {url}")
+                return url
 
         self._create_or_get_repo(repo_id=repo_id, private=private)
 
@@ -325,48 +366,132 @@ class HuggingFaceHubClient:
             raise HuggingFaceHubClientUploadError(f"Failed to publish record-selection dataset: {exc}") from exc
 
     @staticmethod
-    def _stage_record_selection_dataset(*, base_dataset_path: Path, staging_directory: Path) -> Path:
+    def _stage_record_selection_dataset(
+        *,
+        base_dataset_path: Path,
+        staging_directory: Path,
+        source_directory_fd: int | None = None,
+        source_directory_stat: os.stat_result | None = None,
+    ) -> Path:
         """Copy the managed terminal view into an immutable upload staging directory."""
-        HuggingFaceHubClient._validate_managed_upload_symlinks(base_dataset_path)
         staged_dataset_path = staging_directory / "dataset"
         metadata_path = base_dataset_path / METADATA_FILENAME
         builder_config_path = base_dataset_path / SDG_CONFIG_FILENAME
+        owns_source_directory_fd = source_directory_fd is None
+        opened_source_directory_fd = source_directory_fd if source_directory_fd is not None else -1
         try:
-            metadata_before = HuggingFaceHubClient._read_managed_regular_file(metadata_path)
-            builder_config_before = HuggingFaceHubClient._read_optional_managed_regular_file(builder_config_path)
+            if opened_source_directory_fd < 0:
+                opened_source_directory_fd, source_directory_stat = HuggingFaceHubClient._open_managed_directory(
+                    base_dataset_path
+                )
+            if source_directory_stat is None:
+                raise HuggingFaceHubClientUploadError("Managed upload staging requires a pinned source directory.")
+            HuggingFaceHubClient._validate_managed_upload_symlinks(base_dataset_path)
+            HuggingFaceHubClient._validate_open_path_stability(
+                opened_source_directory_fd,
+                base_dataset_path,
+                source_directory_stat,
+            )
+            managed_snapshot = HuggingFaceHubClient._capture_managed_snapshot(
+                opened_source_directory_fd,
+                base_dataset_path,
+            )
+            managed_snapshot_children = HuggingFaceHubClient._index_managed_snapshot(managed_snapshot)
+            HuggingFaceHubClient._validate_open_path_stability(
+                opened_source_directory_fd,
+                base_dataset_path,
+                source_directory_stat,
+            )
+            metadata_stat, _ = managed_snapshot[(METADATA_FILENAME,)]
+            metadata_before = HuggingFaceHubClient._read_managed_regular_file_at(
+                opened_source_directory_fd,
+                METADATA_FILENAME,
+                metadata_path,
+                expected_stat=metadata_stat,
+            )
+            builder_snapshot = managed_snapshot.get((SDG_CONFIG_FILENAME,))
+            builder_config_before = (
+                HuggingFaceHubClient._read_managed_regular_file_at(
+                    opened_source_directory_fd,
+                    SDG_CONFIG_FILENAME,
+                    builder_config_path,
+                    expected_stat=builder_snapshot[0],
+                )
+                if builder_snapshot is not None
+                else None
+            )
             staged_dataset_path.mkdir()
 
-            final_dataset_path = base_dataset_path / FINAL_DATASET_FOLDER_NAME
-            shutil.copytree(
-                final_dataset_path,
+            HuggingFaceHubClient._copy_managed_directory_at(
+                opened_source_directory_fd,
+                FINAL_DATASET_FOLDER_NAME,
                 staged_dataset_path / FINAL_DATASET_FOLDER_NAME,
-                symlinks=True,
+                base_dataset_path / FINAL_DATASET_FOLDER_NAME,
+                snapshot=managed_snapshot,
+                snapshot_children=managed_snapshot_children,
+                relative_parts=(FINAL_DATASET_FOLDER_NAME,),
             )
 
             for folder_name in ("images", PROCESSORS_OUTPUTS_FOLDER_NAME):
-                source_path = base_dataset_path / folder_name
-                if source_path.exists():
-                    shutil.copytree(source_path, staged_dataset_path / folder_name, symlinks=True)
+                HuggingFaceHubClient._copy_optional_managed_directory_at(
+                    opened_source_directory_fd,
+                    folder_name,
+                    staged_dataset_path / folder_name,
+                    base_dataset_path / folder_name,
+                    snapshot=managed_snapshot,
+                    snapshot_children=managed_snapshot_children,
+                    relative_parts=(folder_name,),
+                )
 
-            metadata_after = HuggingFaceHubClient._read_managed_regular_file(metadata_path)
+            metadata_after = HuggingFaceHubClient._read_managed_regular_file_at(
+                opened_source_directory_fd,
+                METADATA_FILENAME,
+                metadata_path,
+                expected_stat=metadata_stat,
+            )
             if metadata_after != metadata_before:
                 raise HuggingFaceHubClientUploadError(
                     "Dataset metadata changed while staging the record-selection upload snapshot. "
                     "No Hub request was made; wait for local generation or resume to finish and retry."
                 )
-            builder_config_after = HuggingFaceHubClient._read_optional_managed_regular_file(builder_config_path)
+            builder_config_after = (
+                HuggingFaceHubClient._read_managed_regular_file_at(
+                    opened_source_directory_fd,
+                    SDG_CONFIG_FILENAME,
+                    builder_config_path,
+                    expected_stat=builder_snapshot[0],
+                )
+                if builder_snapshot is not None
+                else None
+            )
             if builder_config_after != builder_config_before:
                 raise HuggingFaceHubClientUploadError(
                     f"{SDG_CONFIG_FILENAME} changed while staging the record-selection upload snapshot. "
                     "No Hub request was made; wait for local generation or resume to finish and retry."
                 )
+            HuggingFaceHubClient._validate_managed_snapshot(
+                opened_source_directory_fd,
+                base_dataset_path,
+                managed_snapshot,
+            )
+            HuggingFaceHubClient._validate_open_path_stability(
+                opened_source_directory_fd,
+                base_dataset_path,
+                source_directory_stat,
+            )
+            HuggingFaceHubClient._validate_open_directory_identity(base_dataset_path, source_directory_stat)
             (staged_dataset_path / METADATA_FILENAME).write_bytes(metadata_before)
             if builder_config_before is not None:
                 (staged_dataset_path / SDG_CONFIG_FILENAME).write_bytes(builder_config_before)
-        except (OSError, shutil.Error) as exc:
+        except HuggingFaceHubClientUploadError:
+            raise
+        except OSError as exc:
             raise HuggingFaceHubClientUploadError(
                 f"Failed to stage the record-selection dataset for upload: {exc}"
             ) from exc
+        finally:
+            if owns_source_directory_fd and opened_source_directory_fd >= 0:
+                os.close(opened_source_directory_fd)
 
         return staged_dataset_path
 
@@ -377,11 +502,26 @@ class HuggingFaceHubClient:
         path_in_repo: str,
         source: Path | bytes,
     ) -> None:
+        HuggingFaceHubClient._validate_hub_path(path_in_repo)
         if path_in_repo in add_files:
             raise HuggingFaceHubClientUploadError(
                 f"Multiple local artifacts map to the same Hub path: {path_in_repo!r}"
             )
         add_files[path_in_repo] = source
+
+    @staticmethod
+    def _validate_hub_path(path_in_repo: str) -> None:
+        """Require a normalized relative POSIX path before any Hub mutation."""
+        path_parts = path_in_repo.split("/")
+        if (
+            not path_in_repo
+            or path_in_repo.startswith("/")
+            or "\\" in path_in_repo
+            or any(part in {"", ".", ".."} or "\0" in part for part in path_parts)
+        ):
+            raise HuggingFaceHubClientUploadError(
+                f"Managed artifact path {path_in_repo!r} is not a valid relative Hub path."
+            )
 
     def _collect_processor_hub_files(
         self,
@@ -482,14 +622,36 @@ class HuggingFaceHubClient:
 
     @staticmethod
     def _validate_processor_hub_prefix(processor_name: str) -> None:
-        if not isinstance(processor_name, str) or not processor_name or "/" in processor_name:
+        if (
+            not isinstance(processor_name, str)
+            or not processor_name
+            or processor_name in {".", ".."}
+            or "/" in processor_name
+            or "\\" in processor_name
+            or "\0" in processor_name
+        ):
             raise HuggingFaceHubClientUploadError(
-                "Processor names used for Hub publication must be non-empty Hub path components."
+                "Processor names used for Hub publication must be non-empty, non-traversing Hub path components."
             )
         if processor_name in _RESERVED_PROCESSOR_HUB_PREFIXES:
             raise HuggingFaceHubClientUploadError(
                 f"Processor name {processor_name!r} conflicts with a reserved Hub dataset path. "
                 f"Choose a name other than: {', '.join(sorted(_RESERVED_PROCESSOR_HUB_PREFIXES))}."
+            )
+
+    @staticmethod
+    def _validate_processor_hub_path(processor_name: str, path: str) -> None:
+        """Require an exact, normalized path below one processor namespace."""
+        try:
+            HuggingFaceHubClient._validate_hub_path(path)
+        except HuggingFaceHubClientUploadError as exc:
+            raise HuggingFaceHubClientUploadError(
+                f"Managed processor path {path!r} is outside the {processor_name!r} namespace."
+            ) from exc
+        path_parts = path.split("/")
+        if len(path_parts) < 2 or path_parts[0] != processor_name:
+            raise HuggingFaceHubClientUploadError(
+                f"Managed processor path {path!r} is outside the {processor_name!r} namespace."
             )
 
     @staticmethod
@@ -523,14 +685,640 @@ class HuggingFaceHubClient:
                             )
         except HuggingFaceHubClientUploadError:
             raise
-        except OSError as exc:
+        except (OSError, RuntimeError) as exc:
             raise HuggingFaceHubClientUploadError(f"Failed to inspect managed upload inputs: {exc}") from exc
+
+    @staticmethod
+    def _open_managed_directory(path: Path) -> tuple[int, os.stat_result]:
+        """Resolve, open, and pin a managed directory without following links during traversal."""
+        requested_path = Path(os.path.abspath(path))
+        file_descriptor = -1
+        try:
+            requested_lstat = os.lstat(requested_path)
+            if stat.S_ISLNK(requested_lstat.st_mode):
+                raise HuggingFaceHubClientUploadError(
+                    f"Managed upload input must not be a symbolic link: {requested_path}"
+                )
+            canonical_path = requested_path.resolve(strict=True)
+            path_parts = canonical_path.parts
+            root_path = Path(canonical_path.anchor)
+            root_flags = (
+                os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+            )
+            file_descriptor = os.open(root_path, root_flags)
+            opened_stat = os.fstat(file_descriptor)
+            display_path = root_path
+            for path_part in path_parts[1:]:
+                next_display_path = display_path / path_part
+                next_descriptor, opened_stat = HuggingFaceHubClient._open_managed_entry(
+                    file_descriptor,
+                    path_part,
+                    next_display_path,
+                    directory=True,
+                )
+                os.close(file_descriptor)
+                file_descriptor = next_descriptor
+                display_path = next_display_path
+
+            if HuggingFaceHubClient._managed_stat_signature(
+                opened_stat
+            ) != HuggingFaceHubClient._managed_stat_signature(requested_lstat):
+                raise HuggingFaceHubClientUploadError(
+                    f"Managed upload input changed while it was being staged: {requested_path}"
+                )
+            HuggingFaceHubClient._validate_open_directory_identity(requested_path, opened_stat)
+            return file_descriptor, opened_stat
+        except HuggingFaceHubClientUploadError:
+            if file_descriptor >= 0:
+                os.close(file_descriptor)
+            raise
+        except (OSError, RuntimeError) as exc:
+            if file_descriptor >= 0:
+                os.close(file_descriptor)
+            raise HuggingFaceHubClientUploadError(
+                f"Managed upload input must be a directory and must not be a symbolic link: {path}"
+            ) from exc
+
+    @staticmethod
+    def _validate_open_directory_identity(path: Path, opened_stat: os.stat_result) -> None:
+        """Verify that a pinned directory is still the directory named by its path."""
+        current_stat = os.lstat(path)
+        if stat.S_ISLNK(current_stat.st_mode):
+            raise HuggingFaceHubClientUploadError(f"Managed upload input must not be a symbolic link: {path}")
+        if not stat.S_ISDIR(current_stat.st_mode) or (
+            current_stat.st_dev,
+            current_stat.st_ino,
+        ) != (
+            opened_stat.st_dev,
+            opened_stat.st_ino,
+        ):
+            raise HuggingFaceHubClientUploadError(f"Managed upload input changed while it was being staged: {path}")
+
+    @staticmethod
+    def _open_managed_entry(
+        parent_directory_fd: int,
+        name: str,
+        display_path: Path,
+        *,
+        directory: bool,
+        expected_stat: os.stat_result | None = None,
+    ) -> tuple[int, os.stat_result]:
+        """Open one entry relative to a pinned parent and verify its identity."""
+        file_descriptor = -1
+        try:
+            path_stat = (
+                expected_stat
+                if expected_stat is not None
+                else os.stat(name, dir_fd=parent_directory_fd, follow_symlinks=False)
+            )
+            if stat.S_ISLNK(path_stat.st_mode):
+                raise HuggingFaceHubClientUploadError(
+                    f"Managed upload input must not be a symbolic link: {display_path}"
+                )
+            expected_type = stat.S_ISDIR if directory else stat.S_ISREG
+            if not expected_type(path_stat.st_mode):
+                expected_name = "directory" if directory else "regular file"
+                raise HuggingFaceHubClientUploadError(f"Managed upload input must be a {expected_name}: {display_path}")
+
+            flags = (
+                os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+            )
+            if directory:
+                flags |= getattr(os, "O_DIRECTORY", 0)
+            file_descriptor = os.open(name, flags, dir_fd=parent_directory_fd)
+            opened_stat = os.fstat(file_descriptor)
+            if not expected_type(opened_stat.st_mode) or HuggingFaceHubClient._managed_stat_signature(
+                path_stat
+            ) != HuggingFaceHubClient._managed_stat_signature(opened_stat):
+                raise HuggingFaceHubClientUploadError(
+                    f"Managed upload input changed while it was being staged: {display_path}"
+                )
+            return file_descriptor, opened_stat
+        except HuggingFaceHubClientUploadError:
+            if file_descriptor >= 0:
+                os.close(file_descriptor)
+            raise
+        except OSError as exc:
+            if file_descriptor >= 0:
+                os.close(file_descriptor)
+            raise HuggingFaceHubClientUploadError(
+                f"Managed upload input changed or became a symbolic link while it was being staged: {display_path}"
+            ) from exc
+
+    @staticmethod
+    def _validate_open_entry_identity(
+        parent_directory_fd: int,
+        name: str,
+        display_path: Path,
+        opened_stat: os.stat_result,
+        *,
+        directory: bool,
+    ) -> None:
+        """Verify that an opened entry is still named by its pinned parent."""
+        current_stat = os.stat(name, dir_fd=parent_directory_fd, follow_symlinks=False)
+        if stat.S_ISLNK(current_stat.st_mode):
+            raise HuggingFaceHubClientUploadError(f"Managed upload input must not be a symbolic link: {display_path}")
+        expected_type = stat.S_ISDIR if directory else stat.S_ISREG
+        if not expected_type(current_stat.st_mode) or (
+            current_stat.st_dev,
+            current_stat.st_ino,
+        ) != (
+            opened_stat.st_dev,
+            opened_stat.st_ino,
+        ):
+            raise HuggingFaceHubClientUploadError(
+                f"Managed upload input changed while it was being staged: {display_path}"
+            )
+
+    @staticmethod
+    def _validate_open_path_stability(
+        file_descriptor: int,
+        display_path: Path,
+        opened_stat: os.stat_result,
+    ) -> None:
+        """Reject an in-place mutation while a managed file is being copied."""
+        current_stat = os.fstat(file_descriptor)
+        if HuggingFaceHubClient._managed_stat_signature(current_stat) != HuggingFaceHubClient._managed_stat_signature(
+            opened_stat
+        ):
+            raise HuggingFaceHubClientUploadError(
+                f"Managed upload input changed while it was being staged: {display_path}"
+            )
+
+    @staticmethod
+    def _managed_stat_signature(path_stat: os.stat_result) -> tuple[int, int, int, int, int, int]:
+        """Return the identity and stability fields used for a managed snapshot."""
+        return (
+            path_stat.st_mode,
+            path_stat.st_dev,
+            path_stat.st_ino,
+            path_stat.st_size,
+            path_stat.st_mtime_ns,
+            path_stat.st_ctime_ns,
+        )
+
+    @staticmethod
+    def _snapshot_managed_file_at(
+        parent_directory_fd: int,
+        name: str,
+        display_path: Path,
+        relative_parts: tuple[str, ...],
+        snapshot: _ManagedSnapshot,
+    ) -> None:
+        """Capture one regular-file baseline from a pinned parent."""
+        path_stat = os.stat(name, dir_fd=parent_directory_fd, follow_symlinks=False)
+        file_descriptor, opened_stat = HuggingFaceHubClient._open_managed_entry(
+            parent_directory_fd,
+            name,
+            display_path,
+            directory=False,
+            expected_stat=path_stat,
+        )
+        try:
+            HuggingFaceHubClient._validate_open_path_stability(file_descriptor, display_path, opened_stat)
+            HuggingFaceHubClient._validate_open_entry_identity(
+                parent_directory_fd,
+                name,
+                display_path,
+                opened_stat,
+                directory=False,
+            )
+            snapshot[relative_parts] = (opened_stat, False)
+        finally:
+            os.close(file_descriptor)
+
+    @staticmethod
+    def _snapshot_open_managed_directory(
+        source_directory_fd: int,
+        display_path: Path,
+        relative_parts: tuple[str, ...],
+        opened_stat: os.stat_result,
+        snapshot: _ManagedSnapshot,
+    ) -> None:
+        """Capture a recursive directory baseline before any managed bytes are copied."""
+        snapshot[relative_parts] = (opened_stat, True)
+        entry_names = sorted(os.listdir(source_directory_fd))
+        for name in entry_names:
+            child_display_path = display_path / name
+            child_relative_parts = (*relative_parts, name)
+            entry_stat = os.stat(name, dir_fd=source_directory_fd, follow_symlinks=False)
+            if stat.S_ISLNK(entry_stat.st_mode):
+                raise HuggingFaceHubClientUploadError(
+                    f"Managed upload input must not be a symbolic link: {child_display_path}"
+                )
+            if stat.S_ISDIR(entry_stat.st_mode):
+                child_directory_fd, child_opened_stat = HuggingFaceHubClient._open_managed_entry(
+                    source_directory_fd,
+                    name,
+                    child_display_path,
+                    directory=True,
+                    expected_stat=entry_stat,
+                )
+                try:
+                    HuggingFaceHubClient._snapshot_open_managed_directory(
+                        child_directory_fd,
+                        child_display_path,
+                        child_relative_parts,
+                        child_opened_stat,
+                        snapshot,
+                    )
+                    HuggingFaceHubClient._validate_open_entry_identity(
+                        source_directory_fd,
+                        name,
+                        child_display_path,
+                        child_opened_stat,
+                        directory=True,
+                    )
+                finally:
+                    os.close(child_directory_fd)
+            elif stat.S_ISREG(entry_stat.st_mode):
+                HuggingFaceHubClient._snapshot_managed_file_at(
+                    source_directory_fd,
+                    name,
+                    child_display_path,
+                    child_relative_parts,
+                    snapshot,
+                )
+            else:
+                raise HuggingFaceHubClientUploadError(
+                    f"Managed upload input must be a regular file or directory: {child_display_path}"
+                )
+        if sorted(os.listdir(source_directory_fd)) != entry_names:
+            raise HuggingFaceHubClientUploadError(
+                f"Managed upload directory changed while it was being staged: {display_path}"
+            )
+        HuggingFaceHubClient._validate_open_path_stability(source_directory_fd, display_path, opened_stat)
+
+    @staticmethod
+    def _snapshot_managed_directory_at(
+        parent_directory_fd: int,
+        name: str,
+        display_path: Path,
+        relative_parts: tuple[str, ...],
+        snapshot: _ManagedSnapshot,
+    ) -> None:
+        """Capture one recursive directory baseline from a pinned parent."""
+        path_stat = os.stat(name, dir_fd=parent_directory_fd, follow_symlinks=False)
+        source_directory_fd, opened_stat = HuggingFaceHubClient._open_managed_entry(
+            parent_directory_fd,
+            name,
+            display_path,
+            directory=True,
+            expected_stat=path_stat,
+        )
+        try:
+            HuggingFaceHubClient._snapshot_open_managed_directory(
+                source_directory_fd,
+                display_path,
+                relative_parts,
+                opened_stat,
+                snapshot,
+            )
+            HuggingFaceHubClient._validate_open_entry_identity(
+                parent_directory_fd,
+                name,
+                display_path,
+                opened_stat,
+                directory=True,
+            )
+        finally:
+            os.close(source_directory_fd)
+
+    @staticmethod
+    def _capture_managed_snapshot(source_directory_fd: int, base_dataset_path: Path) -> _ManagedSnapshot:
+        """Capture all local paths that can enter a managed Hub publication."""
+        snapshot: _ManagedSnapshot = {}
+        HuggingFaceHubClient._snapshot_managed_file_at(
+            source_directory_fd,
+            METADATA_FILENAME,
+            base_dataset_path / METADATA_FILENAME,
+            (METADATA_FILENAME,),
+            snapshot,
+        )
+        try:
+            os.stat(SDG_CONFIG_FILENAME, dir_fd=source_directory_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            pass
+        else:
+            HuggingFaceHubClient._snapshot_managed_file_at(
+                source_directory_fd,
+                SDG_CONFIG_FILENAME,
+                base_dataset_path / SDG_CONFIG_FILENAME,
+                (SDG_CONFIG_FILENAME,),
+                snapshot,
+            )
+        HuggingFaceHubClient._snapshot_managed_directory_at(
+            source_directory_fd,
+            FINAL_DATASET_FOLDER_NAME,
+            base_dataset_path / FINAL_DATASET_FOLDER_NAME,
+            (FINAL_DATASET_FOLDER_NAME,),
+            snapshot,
+        )
+        for folder_name in ("images", PROCESSORS_OUTPUTS_FOLDER_NAME):
+            try:
+                os.stat(folder_name, dir_fd=source_directory_fd, follow_symlinks=False)
+            except FileNotFoundError:
+                continue
+            HuggingFaceHubClient._snapshot_managed_directory_at(
+                source_directory_fd,
+                folder_name,
+                base_dataset_path / folder_name,
+                (folder_name,),
+                snapshot,
+            )
+        return snapshot
+
+    @staticmethod
+    def _validate_managed_snapshot(
+        source_directory_fd: int,
+        base_dataset_path: Path,
+        expected_snapshot: _ManagedSnapshot,
+    ) -> None:
+        """Require a second full snapshot to match the pre-copy baseline."""
+        current_snapshot = HuggingFaceHubClient._capture_managed_snapshot(
+            source_directory_fd,
+            base_dataset_path,
+        )
+        if current_snapshot.keys() != expected_snapshot.keys():
+            raise HuggingFaceHubClientUploadError(
+                f"Managed upload directory changed while it was being staged: {base_dataset_path}"
+            )
+        for relative_parts, (expected_stat, expected_directory) in expected_snapshot.items():
+            current_stat, current_directory = current_snapshot[relative_parts]
+            if current_directory != expected_directory or HuggingFaceHubClient._managed_stat_signature(
+                current_stat
+            ) != HuggingFaceHubClient._managed_stat_signature(expected_stat):
+                raise HuggingFaceHubClientUploadError(
+                    "Managed upload input changed while it was being staged: "
+                    f"{base_dataset_path.joinpath(*relative_parts)}"
+                )
+
+    @staticmethod
+    def _index_managed_snapshot(snapshot: _ManagedSnapshot) -> _ManagedSnapshotChildren:
+        """Index direct child names once so recursive snapshot copies stay linear."""
+        mutable_children: dict[tuple[str, ...], list[str]] = {}
+        for relative_parts in snapshot:
+            if relative_parts:
+                mutable_children.setdefault(relative_parts[:-1], []).append(relative_parts[-1])
+        return {parent: tuple(sorted(names)) for parent, names in mutable_children.items()}
+
+    @staticmethod
+    def _copy_managed_file_at(
+        parent_directory_fd: int,
+        name: str,
+        destination: Path,
+        display_path: Path,
+        expected_stat: os.stat_result | None = None,
+    ) -> None:
+        """Copy a regular file from a pinned directory without following links."""
+        file_descriptor, opened_stat = HuggingFaceHubClient._open_managed_entry(
+            parent_directory_fd,
+            name,
+            display_path,
+            directory=False,
+            expected_stat=expected_stat,
+        )
+        try:
+            with (
+                os.fdopen(file_descriptor, "rb", closefd=False) as source_file,
+                destination.open("xb") as destination_file,
+            ):
+                shutil.copyfileobj(source_file, destination_file)
+            HuggingFaceHubClient._validate_open_path_stability(file_descriptor, display_path, opened_stat)
+            HuggingFaceHubClient._validate_open_entry_identity(
+                parent_directory_fd,
+                name,
+                display_path,
+                opened_stat,
+                directory=False,
+            )
+        finally:
+            os.close(file_descriptor)
+
+    @staticmethod
+    def _copy_open_managed_directory(
+        source_directory_fd: int,
+        destination: Path,
+        display_path: Path,
+        *,
+        snapshot: _ManagedSnapshot | None = None,
+        snapshot_children: _ManagedSnapshotChildren | None = None,
+        relative_parts: tuple[str, ...] = (),
+    ) -> None:
+        """Recursively copy entries from a pinned directory."""
+        opened_directory_stat = os.fstat(source_directory_fd)
+        entry_names = sorted(os.listdir(source_directory_fd))
+        if snapshot is not None:
+            snapshot_entry = snapshot.get(relative_parts)
+            if (
+                snapshot_entry is None
+                or not snapshot_entry[1]
+                or HuggingFaceHubClient._managed_stat_signature(opened_directory_stat)
+                != HuggingFaceHubClient._managed_stat_signature(snapshot_entry[0])
+            ):
+                raise HuggingFaceHubClientUploadError(
+                    f"Managed upload directory changed while it was being staged: {display_path}"
+                )
+            if snapshot_children is None or entry_names != list(snapshot_children.get(relative_parts, ())):
+                raise HuggingFaceHubClientUploadError(
+                    f"Managed upload directory changed while it was being staged: {display_path}"
+                )
+        for name in entry_names:
+            child_display_path = display_path / name
+            child_relative_parts = (*relative_parts, name)
+            entry_stat = os.stat(name, dir_fd=source_directory_fd, follow_symlinks=False)
+            if stat.S_ISLNK(entry_stat.st_mode):
+                raise HuggingFaceHubClientUploadError(
+                    f"Managed upload input must not be a symbolic link: {child_display_path}"
+                )
+            if snapshot is not None:
+                expected_entry = snapshot.get(child_relative_parts)
+                if expected_entry is None or HuggingFaceHubClient._managed_stat_signature(
+                    entry_stat
+                ) != HuggingFaceHubClient._managed_stat_signature(expected_entry[0]):
+                    raise HuggingFaceHubClientUploadError(
+                        f"Managed upload input changed while it was being staged: {child_display_path}"
+                    )
+                expected_stat, expected_directory = expected_entry
+            else:
+                expected_stat = entry_stat
+                expected_directory = stat.S_ISDIR(entry_stat.st_mode)
+            if expected_directory:
+                if not stat.S_ISDIR(entry_stat.st_mode):
+                    raise HuggingFaceHubClientUploadError(
+                        f"Managed upload input changed while it was being staged: {child_display_path}"
+                    )
+                HuggingFaceHubClient._copy_managed_directory_at(
+                    source_directory_fd,
+                    name,
+                    destination / name,
+                    child_display_path,
+                    expected_stat=expected_stat,
+                    snapshot=snapshot,
+                    snapshot_children=snapshot_children,
+                    relative_parts=child_relative_parts,
+                )
+            elif stat.S_ISREG(entry_stat.st_mode):
+                HuggingFaceHubClient._copy_managed_file_at(
+                    source_directory_fd,
+                    name,
+                    destination / name,
+                    child_display_path,
+                    expected_stat=expected_stat,
+                )
+            else:
+                raise HuggingFaceHubClientUploadError(
+                    f"Managed upload input must be a regular file or directory: {child_display_path}"
+                )
+        if sorted(os.listdir(source_directory_fd)) != entry_names:
+            raise HuggingFaceHubClientUploadError(
+                f"Managed upload directory changed while it was being staged: {display_path}"
+            )
+        HuggingFaceHubClient._validate_open_path_stability(
+            source_directory_fd,
+            display_path,
+            opened_directory_stat,
+        )
+
+    @staticmethod
+    def _copy_managed_directory_at(
+        parent_directory_fd: int,
+        name: str,
+        destination: Path,
+        display_path: Path,
+        expected_stat: os.stat_result | None = None,
+        *,
+        snapshot: _ManagedSnapshot | None = None,
+        snapshot_children: _ManagedSnapshotChildren | None = None,
+        relative_parts: tuple[str, ...] = (),
+    ) -> None:
+        """Copy one directory relative to a pinned parent without following links."""
+        source_directory_fd, opened_stat = HuggingFaceHubClient._open_managed_entry(
+            parent_directory_fd,
+            name,
+            display_path,
+            directory=True,
+            expected_stat=expected_stat,
+        )
+        try:
+            destination.mkdir()
+            HuggingFaceHubClient._copy_open_managed_directory(
+                source_directory_fd,
+                destination,
+                display_path,
+                snapshot=snapshot,
+                snapshot_children=snapshot_children,
+                relative_parts=relative_parts,
+            )
+            HuggingFaceHubClient._validate_open_entry_identity(
+                parent_directory_fd,
+                name,
+                display_path,
+                opened_stat,
+                directory=True,
+            )
+        finally:
+            os.close(source_directory_fd)
+
+    @staticmethod
+    def _copy_optional_managed_directory_at(
+        parent_directory_fd: int,
+        name: str,
+        destination: Path,
+        display_path: Path,
+        *,
+        snapshot: _ManagedSnapshot | None = None,
+        snapshot_children: _ManagedSnapshotChildren | None = None,
+        relative_parts: tuple[str, ...] = (),
+    ) -> None:
+        """Copy an optional managed directory while distinguishing absence from replacement."""
+        if snapshot is not None:
+            snapshot_entry = snapshot.get(relative_parts)
+            if snapshot_entry is None:
+                return
+            if not snapshot_entry[1]:
+                raise HuggingFaceHubClientUploadError(
+                    f"Managed upload input changed while it was being staged: {display_path}"
+                )
+            HuggingFaceHubClient._copy_managed_directory_at(
+                parent_directory_fd,
+                name,
+                destination,
+                display_path,
+                expected_stat=snapshot_entry[0],
+                snapshot=snapshot,
+                snapshot_children=snapshot_children,
+                relative_parts=relative_parts,
+            )
+            return
+        try:
+            os.stat(name, dir_fd=parent_directory_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            return
+        except OSError as exc:
+            raise HuggingFaceHubClientUploadError(f"Failed to inspect managed upload input: {display_path}") from exc
+        HuggingFaceHubClient._copy_managed_directory_at(
+            parent_directory_fd,
+            name,
+            destination,
+            display_path,
+        )
+
+    @staticmethod
+    def _read_managed_regular_file_at(
+        parent_directory_fd: int,
+        name: str,
+        display_path: Path,
+        *,
+        expected_stat: os.stat_result | None = None,
+    ) -> bytes:
+        """Read a regular file relative to a pinned directory without following links."""
+        file_descriptor, opened_stat = HuggingFaceHubClient._open_managed_entry(
+            parent_directory_fd,
+            name,
+            display_path,
+            directory=False,
+            expected_stat=expected_stat,
+        )
+        try:
+            with os.fdopen(file_descriptor, "rb", closefd=False) as file_object:
+                contents = file_object.read()
+            HuggingFaceHubClient._validate_open_path_stability(file_descriptor, display_path, opened_stat)
+            HuggingFaceHubClient._validate_open_entry_identity(
+                parent_directory_fd,
+                name,
+                display_path,
+                opened_stat,
+                directory=False,
+            )
+            return contents
+        finally:
+            os.close(file_descriptor)
+
+    @staticmethod
+    def _read_optional_managed_regular_file_at(
+        parent_directory_fd: int,
+        name: str,
+        display_path: Path,
+    ) -> bytes | None:
+        """Read an optional regular file relative to a pinned directory."""
+        try:
+            os.stat(name, dir_fd=parent_directory_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            return None
+        except OSError as exc:
+            raise HuggingFaceHubClientUploadError(f"Failed to inspect managed upload input: {display_path}") from exc
+        return HuggingFaceHubClient._read_managed_regular_file_at(
+            parent_directory_fd,
+            name,
+            display_path,
+        )
 
     @staticmethod
     def _read_managed_regular_file(path: Path) -> bytes:
         """Read a managed local file without ever following a symbolic link."""
         file_descriptor = -1
-        flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+        flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
         try:
             file_descriptor = os.open(path, flags)
             opened_stat = os.fstat(file_descriptor)
@@ -538,11 +1326,10 @@ class HuggingFaceHubClient:
                 raise HuggingFaceHubClientUploadError(f"Managed upload input must be a regular file: {path}")
             HuggingFaceHubClient._validate_open_file_identity(path, opened_stat)
 
-            file_object = os.fdopen(file_descriptor, "rb")
-            file_descriptor = -1
-            with file_object:
+            with os.fdopen(file_descriptor, "rb", closefd=False) as file_object:
                 contents = file_object.read()
 
+            HuggingFaceHubClient._validate_open_path_stability(file_descriptor, path, opened_stat)
             HuggingFaceHubClient._validate_open_file_identity(path, opened_stat)
             return contents
         except HuggingFaceHubClientUploadError:
@@ -613,17 +1400,17 @@ class HuggingFaceHubClient:
                 raise ValueError("file_paths.processor-files must contain a JSON object")
             managed_processor_paths: set[str] = set()
             for processor_name, paths in processor_files.items():
-                if not isinstance(processor_name, str) or not processor_name or "/" in processor_name:
-                    raise ValueError("file_paths.processor-files keys must be non-empty Hub path components")
-                if processor_name in _RESERVED_PROCESSOR_HUB_PREFIXES:
-                    raise ValueError(f"processor name {processor_name!r} conflicts with a reserved Hub path")
+                try:
+                    self._validate_processor_hub_prefix(processor_name)
+                except HuggingFaceHubClientUploadError as exc:
+                    raise ValueError(str(exc)) from exc
                 if not isinstance(paths, list) or not all(isinstance(path, str) for path in paths):
                     raise ValueError(f"file_paths.processor-files.{processor_name} must contain a list of paths")
-                expected_prefix = f"{processor_name}/"
-                if any(not path.startswith(expected_prefix) for path in paths):
-                    raise ValueError(
-                        f"file_paths.processor-files.{processor_name} contains a path outside its namespace"
-                    )
+                for path in paths:
+                    try:
+                        self._validate_processor_hub_path(processor_name, path)
+                    except HuggingFaceHubClientUploadError as exc:
+                        raise ValueError(str(exc)) from exc
                 managed_processor_paths.update(path for path in paths if path in remote_files)
             return managed_processor_paths
         except Exception as exc:
@@ -919,31 +1706,61 @@ class HuggingFaceHubClient:
         metadata = deepcopy(metadata)
 
         if "file_paths" in metadata:
-            updated_file_paths = {}
+            file_paths = metadata["file_paths"]
+            if not isinstance(file_paths, dict):
+                raise HuggingFaceHubClientUploadError(f"{METADATA_FILENAME} file_paths must contain a JSON object.")
+            updated_file_paths: dict[str, list[str] | dict[str, list[str]]] = {}
 
             # Update parquet files path: parquet-files/ → data/
-            if FINAL_DATASET_FOLDER_NAME in metadata["file_paths"]:
-                updated_file_paths["data"] = [
-                    path.replace(f"{FINAL_DATASET_FOLDER_NAME}/", "data/")
-                    for path in metadata["file_paths"][FINAL_DATASET_FOLDER_NAME]
-                ]
+            if FINAL_DATASET_FOLDER_NAME in file_paths:
+                local_paths = file_paths[FINAL_DATASET_FOLDER_NAME]
+                if not isinstance(local_paths, list) or not all(isinstance(path, str) for path in local_paths):
+                    raise HuggingFaceHubClientUploadError(
+                        f"{METADATA_FILENAME} file_paths.{FINAL_DATASET_FOLDER_NAME} must contain a list of paths."
+                    )
+                local_prefix = f"{FINAL_DATASET_FOLDER_NAME}/"
+                updated_paths: list[str] = []
+                for path in local_paths:
+                    if not path.startswith(local_prefix):
+                        raise HuggingFaceHubClientUploadError(
+                            f"Managed dataset path {path!r} is outside the {FINAL_DATASET_FOLDER_NAME!r} namespace."
+                        )
+                    updated_path = f"data/{path.removeprefix(local_prefix)}"
+                    HuggingFaceHubClient._validate_hub_path(updated_path)
+                    updated_paths.append(updated_path)
+                updated_file_paths["data"] = updated_paths
 
             # Update processor files paths: processors-files/{name}/ → {name}/
-            if "processor-files" in metadata["file_paths"]:
-                updated_file_paths["processor-files"] = {}
-                for processor_name, paths in metadata["file_paths"]["processor-files"].items():
+            if "processor-files" in file_paths:
+                processor_file_paths = file_paths["processor-files"]
+                if not isinstance(processor_file_paths, dict):
+                    raise HuggingFaceHubClientUploadError(
+                        f"{METADATA_FILENAME} file_paths.processor-files must contain a JSON object."
+                    )
+                updated_processor_file_paths: dict[str, list[str]] = {}
+                for processor_name, paths in processor_file_paths.items():
                     HuggingFaceHubClient._validate_processor_hub_prefix(processor_name)
-                    single_file_path = f"{PROCESSORS_OUTPUTS_FOLDER_NAME}/{processor_name}.parquet"
-                    updated_file_paths["processor-files"][processor_name] = [
-                        (
-                            f"{processor_name}/{processor_name}.parquet"
-                            if path == single_file_path
-                            else path.replace(
-                                f"{PROCESSORS_OUTPUTS_FOLDER_NAME}/{processor_name}/", f"{processor_name}/"
-                            )
+                    if not isinstance(paths, list) or not all(isinstance(path, str) for path in paths):
+                        raise HuggingFaceHubClientUploadError(
+                            f"{METADATA_FILENAME} file_paths.processor-files.{processor_name} "
+                            "must contain a list of paths."
                         )
-                        for path in paths
-                    ]
+                    single_file_path = f"{PROCESSORS_OUTPUTS_FOLDER_NAME}/{processor_name}.parquet"
+                    local_prefix = f"{PROCESSORS_OUTPUTS_FOLDER_NAME}/{processor_name}/"
+                    updated_paths = []
+                    for path in paths:
+                        if path == single_file_path:
+                            updated_path = f"{processor_name}/{processor_name}.parquet"
+                        elif path.startswith(local_prefix):
+                            updated_path = f"{processor_name}/{path.removeprefix(local_prefix)}"
+                        else:
+                            raise HuggingFaceHubClientUploadError(
+                                f"Managed processor path {path!r} is outside the {processor_name!r} namespace."
+                            )
+                        HuggingFaceHubClient._validate_processor_hub_path(processor_name, updated_path)
+                        updated_paths.append(updated_path)
+                    updated_processor_file_paths[processor_name] = updated_paths
+                updated_file_paths["processor-files"] = updated_processor_file_paths
 
             metadata["file_paths"] = updated_file_paths
 

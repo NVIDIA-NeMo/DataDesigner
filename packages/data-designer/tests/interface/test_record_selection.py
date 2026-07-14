@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -41,7 +42,7 @@ def _select_good_value_or_raise(row: dict) -> dict:
     return {**row, "keep": row["value"] == "good"}
 
 
-def _designer(tmp_path) -> DataDesigner:
+def _designer(tmp_path: Path) -> DataDesigner:
     managed_assets = tmp_path / "managed-assets"
     managed_assets.mkdir()
     designer = DataDesigner(
@@ -79,7 +80,7 @@ def _builder(*, predicate: str, cap: int, on_exhausted: RecordSelectionExhaustio
     )
 
 
-def test_create_selects_exact_target_across_batches_and_trims(tmp_path) -> None:
+def test_create_selects_exact_target_across_batches_and_trims(tmp_path: Path) -> None:
     designer = _designer(tmp_path)
     results = designer.create(
         _builder(predicate="{{ true }}", cap=10, on_exhausted=RecordSelectionExhaustion.RAISE),
@@ -100,7 +101,7 @@ def test_create_selects_exact_target_across_batches_and_trims(tmp_path) -> None:
     assert sum(json.loads(path.read_text())["candidate_records"] for path in markers) == 4
 
 
-def test_generators_log_pre_generation_once_across_candidate_batches(tmp_path) -> None:
+def test_generators_log_pre_generation_once_across_candidate_batches(tmp_path: Path) -> None:
     designer = _designer(tmp_path)
     with (
         patch.object(SamplerColumnGenerator, "log_pre_generation") as sampler_log,
@@ -116,7 +117,7 @@ def test_generators_log_pre_generation_once_across_candidate_batches(tmp_path) -
     expression_log.assert_called_once_with()
 
 
-def test_ordered_seed_offsets_advance_in_candidate_coordinate_space(tmp_path) -> None:
+def test_ordered_seed_offsets_advance_in_candidate_coordinate_space(tmp_path: Path) -> None:
     designer = _designer(tmp_path)
     builder = DataDesignerConfigBuilder().with_seed_dataset(
         DataFrameSeedSource(df=lazy.pd.DataFrame({"ordinal": list(range(8))}))
@@ -139,7 +140,7 @@ def test_ordered_seed_offsets_advance_in_candidate_coordinate_space(tmp_path) ->
     assert metadata["record_selection"]["candidate_records_generated"] == 6
 
 
-def test_create_returns_schema_bearing_empty_partial_and_skips_profiling(tmp_path) -> None:
+def test_create_returns_schema_bearing_empty_partial_and_skips_profiling(tmp_path: Path) -> None:
     designer = _designer(tmp_path)
     builder = _builder(
         predicate="{{ false }}",
@@ -176,7 +177,7 @@ def test_create_returns_schema_bearing_empty_partial_and_skips_profiling(tmp_pat
     assert rebuilt.load_dataset().columns.tolist() == ["value"]
 
 
-def test_create_profiles_non_empty_partial_against_requested_target(tmp_path) -> None:
+def test_create_profiles_non_empty_partial_against_requested_target(tmp_path: Path) -> None:
     designer = _designer(tmp_path)
     builder = DataDesignerConfigBuilder().with_seed_dataset(
         DataFrameSeedSource(df=lazy.pd.DataFrame({"ordinal": [0, 1, 2]}))
@@ -207,7 +208,7 @@ def test_create_profiles_non_empty_partial_against_requested_target(tmp_path) ->
     assert analysis.percent_complete == pytest.approx(50.0)
 
 
-def test_create_raises_structured_exhaustion_error(tmp_path) -> None:
+def test_create_raises_structured_exhaustion_error(tmp_path: Path) -> None:
     designer = _designer(tmp_path)
     with pytest.raises(DataDesignerRecordSelectionExhaustedError) as exc_info:
         designer.create(
@@ -221,10 +222,10 @@ def test_create_raises_structured_exhaustion_error(tmp_path) -> None:
     assert error.max_candidate_records == 5
 
 
-def test_selection_early_shutdown_remains_a_typed_public_error(tmp_path) -> None:
+def test_selection_early_shutdown_remains_a_typed_public_error(tmp_path: Path) -> None:
     designer = _designer(tmp_path)
 
-    def stop_after_checkpoint(_builder: DatasetBuilder, **_kwargs) -> None:
+    def stop_after_checkpoint(_builder: DatasetBuilder, **_kwargs: object) -> None:
         raise RecordSelectionEarlyShutdownError()
 
     with (
@@ -237,10 +238,10 @@ def test_selection_early_shutdown_remains_a_typed_public_error(tmp_path) -> None
         )
 
 
-def test_selection_prior_early_shutdown_does_not_mask_later_generation_error(tmp_path) -> None:
+def test_selection_prior_early_shutdown_does_not_mask_later_generation_error(tmp_path: Path) -> None:
     designer = _designer(tmp_path)
 
-    def fail_after_prior_early_shutdown(builder: DatasetBuilder, **_kwargs) -> None:
+    def fail_after_prior_early_shutdown(builder: DatasetBuilder, **_kwargs: object) -> None:
         builder._early_shutdown = True
         raise DatasetGenerationError("publication failed")
 
@@ -256,7 +257,7 @@ def test_selection_prior_early_shutdown_does_not_mask_later_generation_error(tmp
     assert not isinstance(exc_info.value, DataDesignerEarlyShutdownError)
 
 
-def test_selection_nonretryable_empty_partial_remains_failure_across_fresh_resume(tmp_path) -> None:
+def test_selection_nonretryable_empty_partial_remains_failure_across_fresh_resume(tmp_path: Path) -> None:
     designer = _designer(tmp_path)
     run_config = RunConfig(buffer_size=1, disable_early_shutdown=True, display_tui=False)
     designer.set_run_config(run_config)
@@ -316,7 +317,7 @@ def test_selection_nonretryable_empty_partial_remains_failure_across_fresh_resum
         )
 
 
-def test_selection_nonretryable_failure_does_not_override_structured_exhaustion(tmp_path) -> None:
+def test_selection_nonretryable_failure_does_not_override_structured_exhaustion(tmp_path: Path) -> None:
     designer = _designer(tmp_path)
     designer.set_run_config(RunConfig(buffer_size=1, disable_early_shutdown=True, display_tui=False))
     builder = DataDesignerConfigBuilder().with_seed_dataset(
@@ -336,7 +337,7 @@ def test_selection_nonretryable_failure_does_not_override_structured_exhaustion(
         designer.create(builder, num_records=1)
 
 
-def test_selection_nonretryable_failure_allows_nonempty_partial(tmp_path) -> None:
+def test_selection_nonretryable_failure_allows_nonempty_partial(tmp_path: Path) -> None:
     designer = _designer(tmp_path)
     designer.set_run_config(RunConfig(buffer_size=2, disable_early_shutdown=True, display_tui=False))
     builder = DataDesignerConfigBuilder().with_seed_dataset(
@@ -358,7 +359,7 @@ def test_selection_nonretryable_failure_allows_nonempty_partial(tmp_path) -> Non
     assert results.artifact_storage.read_metadata()["record_selection"]["accepted_records"] == 1
 
 
-def test_preview_rejects_record_selection_before_generation(tmp_path) -> None:
+def test_preview_rejects_record_selection_before_generation(tmp_path: Path) -> None:
     designer = _designer(tmp_path)
     with pytest.raises(DataDesignerGenerationError, match="preview.*does not support record selection"):
         designer.preview(
@@ -367,7 +368,7 @@ def test_preview_rejects_record_selection_before_generation(tmp_path) -> None:
         )
 
 
-def test_create_rejects_candidate_cap_below_target(tmp_path) -> None:
+def test_create_rejects_candidate_cap_below_target(tmp_path: Path) -> None:
     designer = _designer(tmp_path)
     with pytest.raises(DataDesignerGenerationError, match="greater than or equal"):
         designer.create(
@@ -376,7 +377,7 @@ def test_create_rejects_candidate_cap_below_target(tmp_path) -> None:
         )
 
 
-def test_completed_selection_resumes_only_with_same_target(tmp_path) -> None:
+def test_completed_selection_resumes_only_with_same_target(tmp_path: Path) -> None:
     designer = _designer(tmp_path)
     builder = _builder(predicate="{{ true }}", cap=5, on_exhausted=RecordSelectionExhaustion.RAISE)
     first = designer.create(builder, num_records=2, dataset_name="resume-selection")
@@ -406,11 +407,11 @@ def test_completed_selection_resumes_only_with_same_target(tmp_path) -> None:
         )
 
 
-def test_resume_continues_after_callback_crash_without_regenerating_committed_batch(tmp_path) -> None:
+def test_resume_continues_after_callback_crash_without_regenerating_committed_batch(tmp_path: Path) -> None:
     designer = _designer(tmp_path)
     builder = _builder(predicate="{{ true }}", cap=8, on_exhausted=RecordSelectionExhaustion.RAISE)
 
-    def crash_after_commit(_path) -> None:
+    def crash_after_commit(_path: Path) -> None:
         raise RuntimeError("simulated callback crash")
 
     with pytest.raises(DataDesignerGenerationError, match="simulated callback crash"):
@@ -439,7 +440,7 @@ def test_resume_continues_after_callback_crash_without_regenerating_committed_ba
     assert metadata["record_selection"]["candidate_records_generated"] == 4
 
 
-def test_resume_rebuilds_incomplete_publication_from_immutable_partitions(tmp_path) -> None:
+def test_resume_rebuilds_incomplete_publication_from_immutable_partitions(tmp_path: Path) -> None:
     designer = _designer(tmp_path)
     builder = _builder(predicate="{{ true }}", cap=4, on_exhausted=RecordSelectionExhaustion.RAISE)
     first = designer.create(builder, num_records=2, dataset_name="publication-recovery")
@@ -471,7 +472,7 @@ def test_resume_rebuilds_incomplete_publication_from_immutable_partitions(tmp_pa
     assert rebuilt_from_complete.count_records() == 2
 
 
-def test_if_possible_runtime_mismatch_clears_selection_artifacts_and_restarts(tmp_path) -> None:
+def test_if_possible_runtime_mismatch_clears_selection_artifacts_and_restarts(tmp_path: Path) -> None:
     designer = _designer(tmp_path)
     builder = _builder(predicate="{{ true }}", cap=8, on_exhausted=RecordSelectionExhaustion.RAISE)
     first = designer.create(builder, num_records=2, dataset_name="if-possible-selection")
@@ -493,7 +494,7 @@ def test_if_possible_runtime_mismatch_clears_selection_artifacts_and_restarts(tm
     assert metadata["record_selection"]["candidate_records_generated"] == 4
 
 
-def test_resume_rejects_missing_durable_checkpoint_reported_by_metadata(tmp_path) -> None:
+def test_resume_rejects_missing_durable_checkpoint_reported_by_metadata(tmp_path: Path) -> None:
     designer = _designer(tmp_path)
     builder = _builder(predicate="{{ true }}", cap=4, on_exhausted=RecordSelectionExhaustion.RAISE)
     first = designer.create(builder, num_records=2, dataset_name="missing-checkpoint")

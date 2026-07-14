@@ -4,6 +4,9 @@
 from __future__ import annotations
 
 import json
+import os
+import shutil
+from contextlib import nullcontext
 from copy import deepcopy
 from pathlib import Path
 from typing import cast
@@ -741,13 +744,565 @@ def test_record_selection_staging_rejects_symlink_swapped_in_after_scan(
 
     client = HuggingFaceHubClient(token="test-token")
     with patch.object(HuggingFaceHubClient, "_validate_managed_upload_symlinks", side_effect=validate_then_swap):
-        with pytest.raises(HuggingFaceHubClientUploadError, match="symbolic link"):
+        with pytest.raises(HuggingFaceHubClientUploadError, match="symbolic link|changed while it was being staged"):
             client._stage_record_selection_dataset(
                 base_dataset_path=sample_dataset_path,
                 staging_directory=staging_directory,
             )
 
     assert not (staging_directory / "dataset" / raced_filename).is_file()
+    assert mock_hf_api.method_calls == []
+
+
+@pytest.mark.parametrize("race_target", ["file", "ancestor-directory"])
+def test_record_selection_staging_rejects_managed_tree_symlink_swap_during_copy(
+    sample_dataset_path: Path,
+    tmp_path: Path,
+    race_target: str,
+) -> None:
+    _make_record_selection_publishable(
+        sample_dataset_path,
+        publication_id=f"tree-race-{race_target}",
+    )
+    external_path = tmp_path / "external"
+    external_path.mkdir()
+    (external_path / "secret.txt").write_text("SECRET")
+    if race_target == "file":
+        local_path = sample_dataset_path / "parquet-files" / "batch_00000.parquet"
+        external_target = external_path / "secret.txt"
+    else:
+        local_path = sample_dataset_path / "processors-files" / "processor1"
+        external_target = external_path
+    original_path = local_path.with_name(f"{local_path.name}-original")
+    staging_directory = tmp_path / "staging"
+    staging_directory.mkdir()
+    real_open = os.open
+    swapped = False
+
+    def open_then_swap(
+        path: str | bytes | os.PathLike[str] | os.PathLike[bytes],
+        flags: int,
+        mode: int = 0o777,
+        *,
+        dir_fd: int | None = None,
+    ) -> int:
+        nonlocal swapped
+        if dir_fd is not None and path == local_path.name and not swapped:
+            if local_path.is_dir():
+                local_path.rename(original_path)
+                local_path.symlink_to(external_target, target_is_directory=True)
+            else:
+                local_path.rename(original_path)
+                local_path.symlink_to(external_target)
+            swapped = True
+        return real_open(path, flags, mode, dir_fd=dir_fd)
+
+    with patch("data_designer.integrations.huggingface.client.os.open", side_effect=open_then_swap):
+        with pytest.raises(HuggingFaceHubClientUploadError, match="symbolic link|changed while it was being staged"):
+            HuggingFaceHubClient._stage_record_selection_dataset(
+                base_dataset_path=sample_dataset_path,
+                staging_directory=staging_directory,
+            )
+
+    assert swapped
+    staged_dataset_path = staging_directory / "dataset"
+    assert all(path.read_bytes() != b"SECRET" for path in staged_dataset_path.rglob("*") if path.is_file())
+
+
+def test_record_selection_staging_rejects_symlinked_parent_swapped_after_scan(
+    sample_dataset_path: Path,
+    tmp_path: Path,
+) -> None:
+    _make_record_selection_publishable(sample_dataset_path, publication_id="ancestor-race")
+    live_parent = tmp_path / "live"
+    live_parent.mkdir()
+    live_dataset_path = live_parent / "dataset"
+    sample_dataset_path.rename(live_dataset_path)
+    external_parent = tmp_path / "external"
+    external_dataset_path = external_parent / "dataset"
+    shutil.copytree(live_dataset_path, external_dataset_path)
+    (external_dataset_path / "parquet-files" / "batch_00000.parquet").write_text("SECRET")
+    staging_directory = tmp_path / "staging"
+    staging_directory.mkdir()
+    original_parent = tmp_path / "live-original"
+    real_validate_symlinks = HuggingFaceHubClient._validate_managed_upload_symlinks
+
+    def validate_then_swap(base_dataset_path: Path) -> None:
+        real_validate_symlinks(base_dataset_path)
+        live_parent.rename(original_parent)
+        live_parent.symlink_to(external_parent, target_is_directory=True)
+
+    with patch.object(HuggingFaceHubClient, "_validate_managed_upload_symlinks", side_effect=validate_then_swap):
+        with pytest.raises(HuggingFaceHubClientUploadError, match="symbolic link|changed while it was being staged"):
+            HuggingFaceHubClient._stage_record_selection_dataset(
+                base_dataset_path=live_dataset_path,
+                staging_directory=staging_directory,
+            )
+
+    staged_dataset_path = staging_directory / "dataset"
+    assert all(path.read_bytes() != b"SECRET" for path in staged_dataset_path.rglob("*") if path.is_file())
+
+
+def test_record_selection_staging_rejects_in_place_file_mutation(
+    sample_dataset_path: Path,
+    tmp_path: Path,
+) -> None:
+    _make_record_selection_publishable(sample_dataset_path, publication_id="in-place-race")
+    staging_directory = tmp_path / "staging"
+    staging_directory.mkdir()
+    local_path = sample_dataset_path / "parquet-files" / "batch_00000.parquet"
+    real_copyfileobj = shutil.copyfileobj
+    mutated = False
+
+    def copy_then_mutate(source: object, destination: object, length: int = 0) -> None:
+        nonlocal mutated
+        real_copyfileobj(source, destination, length)
+        if not mutated:
+            local_path.write_text("changed in place")
+            mutated = True
+
+    with patch("data_designer.integrations.huggingface.client.shutil.copyfileobj", side_effect=copy_then_mutate):
+        with pytest.raises(HuggingFaceHubClientUploadError, match="changed while it was being staged"):
+            HuggingFaceHubClient._stage_record_selection_dataset(
+                base_dataset_path=sample_dataset_path,
+                staging_directory=staging_directory,
+            )
+
+    assert mutated
+
+
+def test_record_selection_staging_rejects_prior_file_mutation_during_later_copy(
+    sample_dataset_path: Path,
+    tmp_path: Path,
+) -> None:
+    _make_record_selection_publishable(sample_dataset_path, publication_id="cross-file-race")
+    staging_directory = tmp_path / "staging"
+    staging_directory.mkdir()
+    prior_path = sample_dataset_path / "parquet-files" / "batch_00000.parquet"
+    real_copyfileobj = shutil.copyfileobj
+    copy_count = 0
+
+    def mutate_prior_during_next_copy(source: object, destination: object, length: int = 0) -> None:
+        nonlocal copy_count
+        copy_count += 1
+        if copy_count == 2:
+            prior_path.write_text("changed after its copy completed")
+        real_copyfileobj(source, destination, length)
+
+    with patch(
+        "data_designer.integrations.huggingface.client.shutil.copyfileobj",
+        side_effect=mutate_prior_during_next_copy,
+    ):
+        with pytest.raises(HuggingFaceHubClientUploadError, match="changed while it was being staged"):
+            HuggingFaceHubClient._stage_record_selection_dataset(
+                base_dataset_path=sample_dataset_path,
+                staging_directory=staging_directory,
+            )
+
+    assert copy_count >= 2
+
+
+def test_record_selection_staging_rejects_later_file_rewrite_after_snapshot(
+    sample_dataset_path: Path,
+    tmp_path: Path,
+) -> None:
+    _make_record_selection_publishable(sample_dataset_path, publication_id="snapshot-baseline-race")
+    staging_directory = tmp_path / "staging"
+    staging_directory.mkdir()
+    later_path = sample_dataset_path / "parquet-files" / "batch_00001.parquet"
+    real_copy_file = HuggingFaceHubClient._copy_managed_file_at
+    mutated = False
+
+    def rewrite_before_copy(
+        parent_directory_fd: int,
+        name: str,
+        destination: Path,
+        display_path: Path,
+        expected_stat: os.stat_result | None = None,
+    ) -> None:
+        nonlocal mutated
+        if display_path == later_path and not mutated:
+            later_path.write_text("changed after snapshot capture")
+            mutated = True
+        real_copy_file(
+            parent_directory_fd,
+            name,
+            destination,
+            display_path,
+            expected_stat=expected_stat,
+        )
+
+    with patch.object(HuggingFaceHubClient, "_copy_managed_file_at", side_effect=rewrite_before_copy):
+        with pytest.raises(HuggingFaceHubClientUploadError, match="changed while it was being staged"):
+            HuggingFaceHubClient._stage_record_selection_dataset(
+                base_dataset_path=sample_dataset_path,
+                staging_directory=staging_directory,
+            )
+
+    assert mutated
+
+
+def test_record_selection_staging_rejects_top_level_directory_swap_and_restore(
+    sample_dataset_path: Path,
+    tmp_path: Path,
+) -> None:
+    _make_record_selection_publishable(sample_dataset_path, publication_id="top-level-race")
+    parquet_path = sample_dataset_path / "parquet-files"
+    original_path = sample_dataset_path / "parquet-files-original"
+    malicious_path = tmp_path / "parquet-files-malicious"
+    shutil.copytree(parquet_path, malicious_path)
+    (malicious_path / "batch_00000.parquet").write_text("MALICIOUS")
+    staging_directory = tmp_path / "staging"
+    staging_directory.mkdir()
+    real_copy_directory = HuggingFaceHubClient._copy_managed_directory_at
+    swapped = False
+
+    def swap_copy_and_restore(
+        parent_directory_fd: int,
+        name: str,
+        destination: Path,
+        display_path: Path,
+        expected_stat: os.stat_result | None = None,
+        **copy_kwargs: object,
+    ) -> None:
+        nonlocal swapped
+        if display_path == parquet_path and not swapped:
+            swapped = True
+            parquet_path.rename(original_path)
+            malicious_path.rename(parquet_path)
+            try:
+                real_copy_directory(
+                    parent_directory_fd,
+                    name,
+                    destination,
+                    display_path,
+                    expected_stat=expected_stat,
+                    **copy_kwargs,
+                )
+            finally:
+                parquet_path.rename(malicious_path)
+                original_path.rename(parquet_path)
+            return
+        real_copy_directory(
+            parent_directory_fd,
+            name,
+            destination,
+            display_path,
+            expected_stat=expected_stat,
+            **copy_kwargs,
+        )
+
+    with patch.object(HuggingFaceHubClient, "_copy_managed_directory_at", side_effect=swap_copy_and_restore):
+        with pytest.raises(HuggingFaceHubClientUploadError, match="changed while it was being staged"):
+            HuggingFaceHubClient._stage_record_selection_dataset(
+                base_dataset_path=sample_dataset_path,
+                staging_directory=staging_directory,
+            )
+
+    assert swapped
+
+
+def test_record_selection_staging_rejects_late_optional_directory(
+    sample_dataset_path: Path,
+    tmp_path: Path,
+) -> None:
+    _make_record_selection_publishable(sample_dataset_path, publication_id="late-optional-directory")
+    staging_directory = tmp_path / "staging"
+    staging_directory.mkdir()
+    real_copy_optional = HuggingFaceHubClient._copy_optional_managed_directory_at
+    added = False
+
+    def copy_then_add(
+        parent_directory_fd: int,
+        name: str,
+        destination: Path,
+        display_path: Path,
+        **copy_kwargs: object,
+    ) -> None:
+        nonlocal added
+        real_copy_optional(parent_directory_fd, name, destination, display_path, **copy_kwargs)
+        if name == "images" and not added:
+            images_path = sample_dataset_path / "images"
+            images_path.mkdir()
+            (images_path / "late.txt").write_text("late")
+            added = True
+
+    with patch.object(
+        HuggingFaceHubClient,
+        "_copy_optional_managed_directory_at",
+        side_effect=copy_then_add,
+    ):
+        with pytest.raises(HuggingFaceHubClientUploadError, match="changed while it was being staged"):
+            HuggingFaceHubClient._stage_record_selection_dataset(
+                base_dataset_path=sample_dataset_path,
+                staging_directory=staging_directory,
+            )
+
+    assert added
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="FIFO creation is unavailable")
+def test_record_selection_staging_rejects_special_files_without_blocking(
+    sample_dataset_path: Path,
+    tmp_path: Path,
+) -> None:
+    _make_record_selection_publishable(sample_dataset_path, publication_id="special-file")
+    images_path = sample_dataset_path / "images"
+    images_path.mkdir()
+    os.mkfifo(images_path / "pipe")
+    staging_directory = tmp_path / "staging"
+    staging_directory.mkdir()
+
+    with pytest.raises(HuggingFaceHubClientUploadError, match="regular file or directory"):
+        HuggingFaceHubClient._stage_record_selection_dataset(
+            base_dataset_path=sample_dataset_path,
+            staging_directory=staging_directory,
+        )
+
+
+def test_upload_uses_pinned_metadata_for_record_selection_branch(
+    mock_hf_api: MagicMock,
+    sample_dataset_path: Path,
+    tmp_path: Path,
+) -> None:
+    _make_record_selection_publishable(sample_dataset_path, publication_id="pinned-selection")
+    live_parent = tmp_path / "live-upload"
+    live_parent.mkdir()
+    live_dataset_path = live_parent / "dataset"
+    sample_dataset_path.rename(live_dataset_path)
+    external_parent = tmp_path / "external-upload"
+    external_dataset_path = external_parent / "dataset"
+    shutil.copytree(live_dataset_path, external_dataset_path)
+    external_metadata_path = external_dataset_path / "metadata.json"
+    external_metadata = json.loads(external_metadata_path.read_text())
+    external_metadata.pop("record_selection")
+    external_metadata.pop("publication")
+    external_metadata.pop("post_generation_state")
+    external_metadata_path.write_text(json.dumps(external_metadata))
+    (external_dataset_path / "parquet-files" / "batch_00000.parquet").write_text("SECRET")
+    original_parent = tmp_path / "live-upload-original"
+    real_open_directory = HuggingFaceHubClient._open_managed_directory
+    swapped = False
+
+    def open_then_swap(path: Path) -> tuple[int, os.stat_result]:
+        nonlocal swapped
+        descriptor, opened_stat = real_open_directory(path)
+        if not swapped:
+            live_parent.rename(original_parent)
+            live_parent.symlink_to(external_parent, target_is_directory=True)
+            swapped = True
+        return descriptor, opened_stat
+
+    client = HuggingFaceHubClient(token="test-token")
+    with patch.object(HuggingFaceHubClient, "_open_managed_directory", side_effect=open_then_swap):
+        with pytest.raises(HuggingFaceHubClientUploadError, match="changed while it was being staged"):
+            client.upload_dataset("test/selection", live_dataset_path, "Selection dataset")
+
+    assert swapped
+    assert mock_hf_api.method_calls == []
+
+
+@pytest.mark.parametrize("fail_copy", [False, True], ids=["success", "copy-failure"])
+def test_record_selection_staging_closes_source_descriptors(
+    sample_dataset_path: Path,
+    tmp_path: Path,
+    fail_copy: bool,
+) -> None:
+    _make_record_selection_publishable(sample_dataset_path, publication_id=f"fd-close-{fail_copy}")
+    staging_directory = tmp_path / "staging"
+    staging_directory.mkdir()
+    real_open = os.open
+    opened_descriptors: list[int] = []
+
+    def record_open(
+        path: str | bytes | os.PathLike[str] | os.PathLike[bytes],
+        flags: int,
+        mode: int = 0o777,
+        *,
+        dir_fd: int | None = None,
+    ) -> int:
+        descriptor = real_open(path, flags, mode, dir_fd=dir_fd)
+        opened_descriptors.append(descriptor)
+        return descriptor
+
+    copy_context = (
+        patch(
+            "data_designer.integrations.huggingface.client.shutil.copyfileobj",
+            side_effect=RuntimeError("copy failed"),
+        )
+        if fail_copy
+        else nullcontext()
+    )
+    with patch("data_designer.integrations.huggingface.client.os.open", side_effect=record_open), copy_context:
+        if fail_copy:
+            with pytest.raises(RuntimeError, match="copy failed"):
+                HuggingFaceHubClient._stage_record_selection_dataset(
+                    base_dataset_path=sample_dataset_path,
+                    staging_directory=staging_directory,
+                )
+        else:
+            HuggingFaceHubClient._stage_record_selection_dataset(
+                base_dataset_path=sample_dataset_path,
+                staging_directory=staging_directory,
+            )
+
+    assert opened_descriptors
+    for descriptor in opened_descriptors:
+        with pytest.raises(OSError):
+            os.fstat(descriptor)
+
+
+def test_open_managed_directory_accepts_macos_var_alias(sample_dataset_path: Path) -> None:
+    canonical_prefix = "/private/var/"
+    if not str(sample_dataset_path).startswith(canonical_prefix) or not Path("/var").is_symlink():
+        pytest.skip("macOS /var alias is not present")
+    alias_path = Path(f"/var/{str(sample_dataset_path).removeprefix(canonical_prefix)}")
+
+    descriptor, _ = HuggingFaceHubClient._open_managed_directory(alias_path)
+
+    os.close(descriptor)
+
+
+def test_open_managed_directory_accepts_stable_ancestor_symlink(
+    sample_dataset_path: Path,
+    tmp_path: Path,
+) -> None:
+    canonical_parent = tmp_path / "canonical"
+    canonical_parent.mkdir()
+    canonical_dataset_path = canonical_parent / "dataset"
+    sample_dataset_path.rename(canonical_dataset_path)
+    alias_parent = tmp_path / "alias"
+    alias_parent.symlink_to(canonical_parent, target_is_directory=True)
+
+    descriptor, opened_stat = HuggingFaceHubClient._open_managed_directory(alias_parent / "dataset")
+
+    try:
+        assert (opened_stat.st_dev, opened_stat.st_ino) == (
+            canonical_dataset_path.stat().st_dev,
+            canonical_dataset_path.stat().st_ino,
+        )
+    finally:
+        os.close(descriptor)
+
+
+def test_open_managed_directory_normalizes_resolve_runtime_error(sample_dataset_path: Path) -> None:
+    with (
+        patch.object(Path, "resolve", side_effect=RuntimeError("symlink loop")),
+        pytest.raises(HuggingFaceHubClientUploadError, match="must be a directory"),
+    ):
+        HuggingFaceHubClient._open_managed_directory(sample_dataset_path)
+
+
+def test_open_managed_directory_rejects_final_directory_swap_after_lstat(
+    sample_dataset_path: Path,
+    tmp_path: Path,
+) -> None:
+    original_path = tmp_path / "dataset-original"
+    malicious_path = tmp_path / "dataset-malicious"
+    shutil.copytree(sample_dataset_path, malicious_path)
+    real_lstat = os.lstat
+    swapped = False
+
+    def lstat_then_swap(path: str | bytes | os.PathLike[str] | os.PathLike[bytes]) -> os.stat_result:
+        nonlocal swapped
+        path_stat = real_lstat(path)
+        if Path(path) == sample_dataset_path and not swapped:
+            sample_dataset_path.rename(original_path)
+            malicious_path.rename(sample_dataset_path)
+            swapped = True
+        return path_stat
+
+    with (
+        patch("data_designer.integrations.huggingface.client.os.lstat", side_effect=lstat_then_swap),
+        pytest.raises(HuggingFaceHubClientUploadError, match="changed while it was being staged"),
+    ):
+        HuggingFaceHubClient._open_managed_directory(sample_dataset_path)
+
+    assert swapped
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="FIFO creation is unavailable")
+def test_read_managed_regular_file_rejects_fifo_swap_without_blocking(tmp_path: Path) -> None:
+    managed_path = tmp_path / "metadata.json"
+    managed_path.write_text("{}")
+    real_open = os.open
+    swapped = False
+
+    def swap_then_open(
+        path: str | bytes | os.PathLike[str] | os.PathLike[bytes],
+        flags: int,
+        mode: int = 0o777,
+        *,
+        dir_fd: int | None = None,
+    ) -> int:
+        nonlocal swapped
+        if Path(path) == managed_path and not swapped:
+            managed_path.unlink()
+            os.mkfifo(managed_path)
+            swapped = True
+        return real_open(path, flags, mode, dir_fd=dir_fd)
+
+    with (
+        patch("data_designer.integrations.huggingface.client.os.open", side_effect=swap_then_open),
+        pytest.raises(HuggingFaceHubClientUploadError, match="regular file"),
+    ):
+        HuggingFaceHubClient._read_managed_regular_file(managed_path)
+
+    assert swapped
+
+
+@pytest.mark.parametrize("processor_name", [".", "..", "nested/name", "nested\\name"])
+def test_processor_hub_prefix_rejects_traversing_components(processor_name: str) -> None:
+    with pytest.raises(HuggingFaceHubClientUploadError, match="non-traversing"):
+        HuggingFaceHubClient._validate_processor_hub_prefix(processor_name)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Backslash is a path separator on Windows")
+@pytest.mark.parametrize("record_selection", [False, True], ids=["legacy", "record-selection"])
+def test_upload_rejects_invalid_managed_hub_path_before_network(
+    mock_hf_api: MagicMock,
+    sample_dataset_path: Path,
+    record_selection: bool,
+) -> None:
+    if record_selection:
+        _make_record_selection_publishable(sample_dataset_path, publication_id="invalid-hub-path")
+    images_path = sample_dataset_path / "images"
+    images_path.mkdir()
+    (images_path / "bad\\name.png").write_bytes(b"image")
+
+    client = HuggingFaceHubClient(token="test-token")
+    with pytest.raises(HuggingFaceHubClientUploadError, match="valid relative Hub path"):
+        client.upload_dataset("test/dataset", sample_dataset_path, "Test")
+
+    assert mock_hf_api.method_calls == []
+
+
+@pytest.mark.parametrize(
+    ("file_group", "invalid_path"),
+    [
+        ("parquet-files", "parquet-files/../README.md"),
+        ("processor-files", "processors-files/safe/../README.md"),
+        ("processor-files", "processors-files/other/batch.parquet"),
+    ],
+)
+def test_upload_rejects_invalid_metadata_artifact_path_before_network(
+    mock_hf_api: MagicMock,
+    sample_dataset_path: Path,
+    file_group: str,
+    invalid_path: str,
+) -> None:
+    metadata_path = sample_dataset_path / "metadata.json"
+    metadata = json.loads(metadata_path.read_text())
+    if file_group == "parquet-files":
+        metadata["file_paths"][file_group] = [invalid_path]
+    else:
+        metadata["file_paths"][file_group] = {"safe": [invalid_path]}
+    metadata_path.write_text(json.dumps(metadata))
+
+    client = HuggingFaceHubClient(token="test-token")
+    with pytest.raises(HuggingFaceHubClientUploadError, match="valid relative Hub path|outside"):
+        client.upload_dataset("test/dataset", sample_dataset_path, "Test")
+
     assert mock_hf_api.method_calls == []
 
 
@@ -1073,22 +1628,30 @@ def test_record_selection_upload_rejects_metadata_mutation_during_staging(
         }
     )
     metadata_path.write_text(json.dumps(metadata))
-    real_read_file = HuggingFaceHubClient._read_managed_regular_file
+    real_read_file = HuggingFaceHubClient._read_managed_regular_file_at
     metadata_read_count = 0
 
-    def read_and_mutate_metadata(path: Path) -> bytes:
+    def read_and_mutate_metadata(
+        parent_directory_fd: int,
+        name: str,
+        display_path: Path,
+        **read_kwargs: object,
+    ) -> bytes:
         nonlocal metadata_read_count
-        if path == metadata_path:
+        if display_path == metadata_path:
             metadata_read_count += 1
             if metadata_read_count == 3:
                 mutated_metadata = deepcopy(metadata)
                 mutated_metadata["post_generation_state"] = "pending"
                 metadata_path.write_text(json.dumps(mutated_metadata))
-        return real_read_file(path)
+        return real_read_file(parent_directory_fd, name, display_path, **read_kwargs)
 
     client = HuggingFaceHubClient(token="test-token")
-    with patch.object(HuggingFaceHubClient, "_read_managed_regular_file", side_effect=read_and_mutate_metadata):
-        with pytest.raises(HuggingFaceHubClientUploadError, match="metadata changed while staging"):
+    with patch.object(HuggingFaceHubClient, "_read_managed_regular_file_at", side_effect=read_and_mutate_metadata):
+        with pytest.raises(
+            HuggingFaceHubClientUploadError,
+            match="metadata changed while staging|input changed while it was being staged",
+        ):
             client.upload_dataset("test/selection", sample_dataset_path, "Selection dataset")
 
     mock_hf_api.repo_exists.assert_not_called()
@@ -1116,22 +1679,30 @@ def test_record_selection_upload_rejects_complete_republication_during_staging(
         }
     )
     metadata_path.write_text(json.dumps(metadata))
-    real_read_file = HuggingFaceHubClient._read_managed_regular_file
+    real_read_file = HuggingFaceHubClient._read_managed_regular_file_at
     metadata_read_count = 0
 
-    def read_and_republish(path: Path) -> bytes:
+    def read_and_republish(
+        parent_directory_fd: int,
+        name: str,
+        display_path: Path,
+        **read_kwargs: object,
+    ) -> bytes:
         nonlocal metadata_read_count
-        if path == metadata_path:
+        if display_path == metadata_path:
             metadata_read_count += 1
             if metadata_read_count == 3:
                 republished_metadata = deepcopy(metadata)
                 republished_metadata["record_selection"]["publication_id"] = "publication-after"
                 metadata_path.write_text(json.dumps(republished_metadata))
-        return real_read_file(path)
+        return real_read_file(parent_directory_fd, name, display_path, **read_kwargs)
 
     client = HuggingFaceHubClient(token="test-token")
-    with patch.object(HuggingFaceHubClient, "_read_managed_regular_file", side_effect=read_and_republish):
-        with pytest.raises(HuggingFaceHubClientUploadError, match="metadata changed while staging"):
+    with patch.object(HuggingFaceHubClient, "_read_managed_regular_file_at", side_effect=read_and_republish):
+        with pytest.raises(
+            HuggingFaceHubClientUploadError,
+            match="metadata changed while staging|input changed while it was being staged",
+        ):
             client.upload_dataset("test/selection", sample_dataset_path, "Selection dataset")
 
     mock_hf_api.repo_exists.assert_not_called()
@@ -1332,7 +1903,19 @@ def test_load_remote_managed_processor_paths_surfaces_download_failure(mock_hf_a
 
 @pytest.mark.parametrize(
     "remote_contents",
-    ["not-json", "[]", json.dumps({"file_paths": {"processor-files": 3}}), None],
+    [
+        "not-json",
+        "[]",
+        json.dumps({"file_paths": {"processor-files": 3}}),
+        json.dumps({"file_paths": {"processor-files": {".": ["./batch.parquet"]}}}),
+        json.dumps({"file_paths": {"processor-files": {"..": ["../batch.parquet"]}}}),
+        json.dumps({"file_paths": {"processor-files": {"bad\\name": ["bad\\name/batch.parquet"]}}}),
+        json.dumps({"file_paths": {"processor-files": {"safe": ["safe/../README.md"]}}}),
+        json.dumps({"file_paths": {"processor-files": {"safe": ["safe//batch.parquet"]}}}),
+        json.dumps({"file_paths": {"processor-files": {"safe": ["safe/bad\\name.parquet"]}}}),
+        json.dumps({"file_paths": {"processor-files": {"bad\0name": []}}}),
+        None,
+    ],
 )
 def test_load_remote_managed_processor_paths_surfaces_read_failure(
     mock_hf_api: MagicMock,
