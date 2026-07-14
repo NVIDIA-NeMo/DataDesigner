@@ -184,8 +184,8 @@ class AsyncTaskScheduler:
         task_admission_config: TaskAdmissionConfig | None = None,
         salvage_max_rounds: int = 2,
         on_finalize_row_group: Callable[[int], None] | None = None,
+        finalize_empty_row_groups: bool = False,
         on_seeds_complete: Callable[[int, int], FrontierDelta | None] | None = None,
-        on_select_before_checkpoint: Callable[[int, int], None] | None = None,
         on_before_checkpoint: Callable[[int, int], None] | None = None,
         shutdown_error_rate: float = 0.5,
         shutdown_error_window: int = 10,
@@ -250,10 +250,12 @@ class AsyncTaskScheduler:
         self._scheduler_event_sequence = 0
         if salvage_max_rounds < 1:
             raise ValueError("salvage_max_rounds must be at least 1.")
+        if finalize_empty_row_groups and on_finalize_row_group is None:
+            raise ValueError("finalize_empty_row_groups requires on_finalize_row_group.")
         self._salvage_max_rounds = salvage_max_rounds
         self._on_finalize_row_group = on_finalize_row_group
+        self._finalize_empty_row_groups = finalize_empty_row_groups
         self._on_seeds_complete = on_seeds_complete
-        self._on_select_before_checkpoint = on_select_before_checkpoint
         self._on_before_checkpoint = on_before_checkpoint
 
         # Error rate shutdown (caller passes pre-normalized values via RunConfig)
@@ -1602,16 +1604,6 @@ class AsyncTaskScheduler:
             checkpointed = False
             checkpoint_result = "unknown"
             try:
-                if self._on_select_before_checkpoint:
-                    try:
-                        self._on_select_before_checkpoint(rg_id, rg_size)
-                    except DatasetGenerationError:
-                        raise
-                    except Exception as exc:
-                        raise DatasetGenerationError(f"Record selection failed for row group {rg_id}: {exc}") from exc
-                # Selection may have dropped additional rows, so diagnostics and
-                # the all-rows-dropped branch must use the post-selection state.
-                dropped_rows = sum(1 for ri in range(rg_size) if self._tracker.is_dropped(rg_id, ri))
                 if self._on_before_checkpoint:
                     try:
                         self._on_before_checkpoint(rg_id, rg_size)
@@ -1619,15 +1611,19 @@ class AsyncTaskScheduler:
                         raise
                     except Exception as exc:
                         raise DatasetGenerationError(
-                            f"Post-batch processor failed for row group {rg_id}: {exc}"
+                            f"Before-checkpoint callback failed for row group {rg_id}: {exc}"
                         ) from exc
+                # The callback may change row liveness, so diagnostics and the
+                # empty-row-group policy must use the post-callback state.
+                dropped_rows = sum(1 for ri in range(rg_size) if self._tracker.is_dropped(rg_id, ri))
                 # Remove from tracking only after the callback succeeds.
                 del self._rg_states[rg_id]
-                # Selection finalizers must run even for a zero-survivor batch so
-                # candidate progress can commit independently of parquet output.
-                if self._on_select_before_checkpoint is not None and self._on_finalize_row_group is not None:
+                if dropped_rows == rg_size and self._finalize_empty_row_groups:
+                    # Some callers commit durable progress independently of row output.
+                    # The constructor contract guarantees the finalizer is present.
+                    assert self._on_finalize_row_group is not None
                     self._on_finalize_row_group(rg_id)
-                    checkpoint_result = "selection_finalized"
+                    checkpoint_result = "finalized_empty"
                 elif dropped_rows == rg_size:
                     if self._buffer_manager:
                         self._buffer_manager.free_row_group(rg_id)
@@ -1690,12 +1686,13 @@ class AsyncTaskScheduler:
         ``_checkpoint_completed_row_groups`` writes survivors and frees
         zero-survivor groups via the buffer manager's existing logic.
 
-        Note on processors: ``_checkpoint_completed_row_groups`` calls
-        ``on_before_checkpoint`` (post-batch) but never ``on_seeds_complete``
-        (pre-batch). If the gate fires before seeds completed for a row
-        group, that row group's pre-batch processor never ran. Survivors
-        are checkpointed without it. This is the existing contract for
-        partial-row-group salvage.
+        Note on processors: ``_checkpoint_completed_row_groups`` calls the
+        generic ``on_before_checkpoint`` callback, which may include
+        post-batch processing, but never ``on_seeds_complete`` (pre-batch).
+        If the gate fires before seeds completed for a row group, that row
+        group's pre-batch processor never ran. Survivors are checkpointed
+        without it. This is the existing contract for partial-row-group
+        salvage.
         """
         for rg_id in list(self._rg_states.keys()):
             rg_size = self._rg_states[rg_id].size

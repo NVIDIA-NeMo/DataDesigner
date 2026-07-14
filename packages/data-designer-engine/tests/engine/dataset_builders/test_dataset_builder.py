@@ -9,7 +9,7 @@ import logging
 import tracemalloc
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, PropertyMock, patch
 
 import pytest
 
@@ -45,8 +45,11 @@ from data_designer.engine.dataset_builders.errors import (
     DatasetProcessingError,
     RecordSelectionEarlyShutdownError,
 )
+from data_designer.engine.dataset_builders.record_selection_runner import RecordSelectionRunner
 from data_designer.engine.dataset_builders.row_group_plan import CompactRowGroupPlan
+from data_designer.engine.dataset_builders.utils.async_concurrency import await_async_scheduler_result
 from data_designer.engine.dataset_builders.utils.processor_runner import ProcessorRunner
+from data_designer.engine.dataset_builders.utils.row_group_buffer import RowGroupBufferManager
 from data_designer.engine.errors import DataDesignerRuntimeError
 from data_designer.engine.models.telemetry import InferenceEvent, NemoSourceEnum, TaskStatusEnum
 from data_designer.engine.models.usage import ModelUsageStats, TokenUsageStats
@@ -195,6 +198,63 @@ def test_record_selection_runs_with_boolean_category_predicate(stub_resource_pro
     output_path = builder.build(num_records=1)
 
     assert lazy.pd.read_parquet(output_path)["boolean_predicate"].tolist() == [True]
+
+
+def test_record_selection_normalizes_buffer_update_failure(stub_resource_provider) -> None:
+    stub_resource_provider.run_config = RunConfig(buffer_size=1, display_tui=False)
+    config = DataDesignerConfigBuilder()
+    config.add_column(
+        SamplerColumnConfig(
+            name="keep",
+            sampler_type=SamplerType.CATEGORY,
+            params=CategorySamplerParams(values=[True]),
+        )
+    )
+    config.with_record_selection(RecordSelectionConfig(predicate_column="keep", max_candidate_records=1))
+    builder = DatasetBuilder(data_designer_config=config.build(), resource_provider=stub_resource_provider)
+
+    with (
+        patch.object(RowGroupBufferManager, "replace_dataframe", side_effect=RuntimeError("replace failed")),
+        pytest.raises(DatasetGenerationError, match="Record selection failed for row group 0: replace failed"),
+    ):
+        builder.build(num_records=1)
+
+
+def test_record_selection_normalizes_post_batch_buffer_update_failure(stub_resource_provider) -> None:
+    stub_resource_provider.run_config = RunConfig(buffer_size=1, display_tui=False)
+    config = DataDesignerConfigBuilder()
+    config.add_column(
+        SamplerColumnConfig(
+            name="keep",
+            sampler_type=SamplerType.CATEGORY,
+            params=CategorySamplerParams(values=[True]),
+        )
+    )
+    config.with_record_selection(RecordSelectionConfig(predicate_column="keep", max_candidate_records=1))
+    builder = DatasetBuilder(data_designer_config=config.build(), resource_provider=stub_resource_provider)
+    _replace_processors(builder, [create_mock_processor("identity", ["process_after_batch"])])
+    original_replace_dataframe = RowGroupBufferManager.replace_dataframe
+    replace_calls = 0
+
+    def fail_second_replace(
+        buffer_manager: RowGroupBufferManager,
+        row_group: int,
+        dataframe: pd.DataFrame,
+    ) -> None:
+        nonlocal replace_calls
+        replace_calls += 1
+        if replace_calls == 2:
+            raise RuntimeError("post-batch replace failed")
+        original_replace_dataframe(buffer_manager, row_group, dataframe)
+
+    with (
+        patch.object(RowGroupBufferManager, "replace_dataframe", fail_second_replace),
+        pytest.raises(
+            DatasetGenerationError,
+            match="Post-batch processor failed for row group 0: post-batch replace failed",
+        ),
+    ):
+        builder.build(num_records=1)
 
 
 def test_record_selection_runs_with_boolean_subcategory_predicate(stub_resource_provider) -> None:
@@ -551,12 +611,13 @@ def test_record_selection_rejects_missing_schema_owned_by_committed_batch(stub_r
         schema_materialized=True,
     )
     builder.artifact_storage.write_selection_checkpoint(0, marker.to_dict())
+    runner = RecordSelectionRunner(builder)
 
     with (
-        patch.object(builder, "_run_candidate_batch") as run_candidate_batch,
+        patch.object(runner, "_run_candidate_batch") as run_candidate_batch,
         pytest.raises(DatasetGenerationError, match="committed output schema is missing"),
     ):
-        builder._build_with_record_selection(
+        runner.run(
             [],
             target_num_records=1,
             buffer_size=1,
@@ -712,7 +773,190 @@ def test_record_selection_normalizes_corrupt_accepted_partition_error(stub_resou
     )
 
     with pytest.raises(DatasetGenerationError, match="missing or unreadable accepted partition"):
-        builder._validate_selection_partitions((marker,))
+        RecordSelectionRunner(builder)._validate_selection_partitions((marker,))
+
+
+def _record_selection_probe_builder(stub_resource_provider) -> DatasetBuilder:
+    config = DataDesignerConfigBuilder()
+    config.add_column(
+        SamplerColumnConfig(
+            name="keep",
+            sampler_type=SamplerType.CATEGORY,
+            params=CategorySamplerParams(values=[True]),
+        )
+    )
+    config.with_record_selection(RecordSelectionConfig(predicate_column="keep", max_candidate_records=4))
+    return DatasetBuilder(data_designer_config=config.build(), resource_provider=stub_resource_provider)
+
+
+@pytest.mark.parametrize(
+    (
+        "metadata_text",
+        "create_checkpoint_directory",
+        "create_marker",
+        "expected_metadata_state",
+        "expected_selection_metadata",
+        "expected_checkpoint_directory",
+        "expected_marker",
+    ),
+    [
+        (None, False, False, "missing", False, False, False),
+        ("not-json", True, False, "unreadable", False, True, False),
+        (json.dumps({"target_num_records": 2}), False, False, "readable", False, False, False),
+        (
+            json.dumps({"target_num_records": 2, "record_selection": {"run_buffer_size": 3}}),
+            True,
+            True,
+            "readable",
+            True,
+            True,
+            True,
+        ),
+    ],
+)
+def test_selection_resume_probe_distinguishes_unresolved_artifact_states(
+    stub_resource_provider,
+    metadata_text: str | None,
+    create_checkpoint_directory: bool,
+    create_marker: bool,
+    expected_metadata_state: str,
+    expected_selection_metadata: bool,
+    expected_checkpoint_directory: bool,
+    expected_marker: bool,
+) -> None:
+    builder = _record_selection_probe_builder(stub_resource_provider)
+    dataset_dir = Path(builder.artifact_storage.artifact_path) / builder.artifact_storage.dataset_name
+    dataset_dir.mkdir()
+    if metadata_text is not None:
+        (dataset_dir / "metadata.json").write_text(metadata_text, encoding="utf-8")
+    if create_checkpoint_directory:
+        checkpoints_path = dataset_dir / "selection-checkpoints"
+        checkpoints_path.mkdir()
+        if create_marker:
+            (checkpoints_path / "batch_00000.json").write_text("{}", encoding="utf-8")
+
+    probe = RecordSelectionRunner(builder)._selection_resume_probe()
+
+    assert probe.metadata_state == expected_metadata_state
+    assert probe.has_selection_metadata is expected_selection_metadata
+    assert probe.checkpoint_directory_exists is expected_checkpoint_directory
+    assert probe.checkpoint_marker_exists is expected_marker
+
+
+def test_selection_resume_compatibility_allows_empty_checkpoint_directory_but_cleanup_owns_it(
+    stub_resource_provider,
+) -> None:
+    builder = _record_selection_probe_builder(stub_resource_provider)
+    dataset_dir = Path(builder.artifact_storage.artifact_path) / builder.artifact_storage.dataset_name
+    checkpoints_path = dataset_dir / "selection-checkpoints"
+    checkpoints_path.mkdir(parents=True)
+    managed_path = dataset_dir / builder.artifact_storage.final_dataset_folder_name
+    managed_path.mkdir()
+    (managed_path / "stale.parquet").write_bytes(b"stale")
+    runner = RecordSelectionRunner(builder)
+
+    assert runner.runtime_inputs_are_compatible(target_num_records=2, buffer_size=3)
+
+    runner.clear_incompatible_artifacts()
+
+    assert not checkpoints_path.exists()
+    assert not managed_path.exists()
+
+
+def test_selection_resume_cleanup_leaves_unowned_unreadable_metadata(
+    stub_resource_provider,
+) -> None:
+    builder = _record_selection_probe_builder(stub_resource_provider)
+    dataset_dir = Path(builder.artifact_storage.artifact_path) / builder.artifact_storage.dataset_name
+    managed_path = dataset_dir / builder.artifact_storage.final_dataset_folder_name
+    managed_path.mkdir(parents=True)
+    sentinel = managed_path / "existing.parquet"
+    sentinel.write_bytes(b"existing")
+    metadata_path = dataset_dir / "metadata.json"
+    metadata_path.write_text("not-json", encoding="utf-8")
+    runner = RecordSelectionRunner(builder)
+
+    assert not runner.runtime_inputs_are_compatible(target_num_records=2, buffer_size=3)
+
+    runner.clear_incompatible_artifacts()
+
+    assert sentinel.read_bytes() == b"existing"
+    assert metadata_path.read_text(encoding="utf-8") == "not-json"
+
+
+def test_selection_resume_compatibility_rejects_checkpoint_without_metadata(
+    stub_resource_provider,
+) -> None:
+    builder = _record_selection_probe_builder(stub_resource_provider)
+    dataset_dir = Path(builder.artifact_storage.artifact_path) / builder.artifact_storage.dataset_name
+    checkpoints_path = dataset_dir / "selection-checkpoints"
+    checkpoints_path.mkdir(parents=True)
+    (checkpoints_path / "batch_00000.json").write_text("{}", encoding="utf-8")
+
+    assert not RecordSelectionRunner(builder).runtime_inputs_are_compatible(
+        target_num_records=2,
+        buffer_size=3,
+    )
+
+
+def test_selection_resume_compatibility_reads_matching_selection_metadata(
+    stub_resource_provider,
+) -> None:
+    builder = _record_selection_probe_builder(stub_resource_provider)
+    dataset_dir = Path(builder.artifact_storage.artifact_path) / builder.artifact_storage.dataset_name
+    dataset_dir.mkdir()
+    (dataset_dir / "metadata.json").write_text(
+        json.dumps({"target_num_records": 2, "record_selection": {"run_buffer_size": 3}}),
+        encoding="utf-8",
+    )
+    runner = RecordSelectionRunner(builder)
+
+    with (
+        patch.object(ArtifactStorage, "read_metadata", side_effect=AssertionError("resolved metadata read")),
+        patch.object(
+            ArtifactStorage,
+            "base_dataset_path",
+            new_callable=PropertyMock,
+            side_effect=AssertionError("resolved dataset path read"),
+        ),
+    ):
+        assert runner.runtime_inputs_are_compatible(target_num_records=2, buffer_size=3)
+        assert not runner.runtime_inputs_are_compatible(target_num_records=3, buffer_size=3)
+        assert not runner.runtime_inputs_are_compatible(target_num_records=2, buffer_size=4)
+
+
+@pytest.mark.parametrize("metadata_content", ["not-json", "[]", b"\xff"])
+@pytest.mark.parametrize("create_checkpoint_directory", [False, True])
+def test_record_selection_if_possible_handles_unreadable_or_non_object_metadata(
+    stub_resource_provider,
+    metadata_content: str | bytes,
+    create_checkpoint_directory: bool,
+) -> None:
+    stub_resource_provider.run_config = RunConfig(buffer_size=1, display_tui=False)
+    builder = _record_selection_probe_builder(stub_resource_provider)
+    dataset_dir = Path(builder.artifact_storage.artifact_path) / builder.artifact_storage.dataset_name
+    dataset_dir.mkdir()
+    metadata_path = dataset_dir / "metadata.json"
+    expected_metadata = metadata_content.encode() if isinstance(metadata_content, str) else metadata_content
+    metadata_path.write_bytes(expected_metadata)
+    stale_output = dataset_dir / builder.artifact_storage.final_dataset_folder_name / "stale.parquet"
+    stale_output.parent.mkdir()
+    stale_output.write_bytes(b"stale")
+    checkpoints_path = dataset_dir / "selection-checkpoints"
+    if create_checkpoint_directory:
+        checkpoints_path.mkdir()
+
+    output_path = builder.build(num_records=1, resume=ResumeMode.IF_POSSIBLE)
+
+    assert lazy.pd.read_parquet(output_path)["keep"].tolist() == [True]
+    if create_checkpoint_directory:
+        assert output_path.parent == dataset_dir
+        assert not stale_output.exists()
+        assert json.loads(metadata_path.read_text(encoding="utf-8"))["actual_num_records"] == 1
+    else:
+        assert output_path.parent != dataset_dir
+        assert stale_output.read_bytes() == b"stale"
+        assert metadata_path.read_bytes() == expected_metadata
 
 
 def test_dataset_builder_creation_with_custom_registry(stub_resource_provider, stub_test_config_builder):
@@ -1068,7 +1312,7 @@ def test_await_async_scheduler_result_waits_for_scheduler_cleanup_on_keyboard_in
     future = MockFuture()
 
     with pytest.raises(KeyboardInterrupt):
-        builder_mod._await_async_scheduler_result(future, scheduler)
+        await_async_scheduler_result(future, scheduler)
 
     scheduler.request_cancel.assert_called_once_with()
     assert future.result_calls == 2
@@ -2120,6 +2364,23 @@ def test_build_resume_raises_on_corrupt_metadata(stub_resource_provider, stub_te
     builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
     with pytest.raises(DatasetGenerationError, match="metadata.json is corrupt"):
         builder.build(num_records=4, resume=ResumeMode.ALWAYS)
+
+
+@pytest.mark.parametrize("metadata_content", [b"{not valid json", b"[]", b"\xff"])
+def test_build_if_possible_preserves_ordinary_unreadable_metadata_failure(
+    stub_resource_provider,
+    stub_test_config_builder,
+    tmp_path,
+    metadata_content: bytes,
+) -> None:
+    dataset_dir = tmp_path / "dataset"
+    dataset_dir.mkdir(parents=True)
+    (dataset_dir / "sentinel.txt").write_text("x")
+    (dataset_dir / "metadata.json").write_bytes(metadata_content)
+    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
+
+    with pytest.raises(DatasetGenerationError, match="metadata.json"):
+        builder.build(num_records=4, resume=ResumeMode.IF_POSSIBLE)
 
 
 def test_build_resume_always_raises_on_config_mismatch(stub_resource_provider, stub_test_config_builder, tmp_path):

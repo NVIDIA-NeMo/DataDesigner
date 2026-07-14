@@ -6,16 +6,19 @@ Source: `packages/data-designer-engine/src/data_designer/engine/dataset_builders
 
 ## Overview
 
-`DatasetBuilder` is the central orchestrator. It receives a compiled `DataDesignerConfig`, instantiates column generators from the registry, and executes them through `AsyncTaskScheduler`.
+`DatasetBuilder` is the high-level orchestrator. It receives a compiled `DataDesignerConfig`, initializes column generators from the registry, and owns shared scheduler and resource state. Ordinary builds execute directly through `AsyncTaskScheduler`; record-selection builds delegate their feature lifecycle to a per-build `RecordSelectionRunner`.
 
-The scheduler produces row-group parquet files managed by `RowGroupBufferManager`, with post-generation processing and profiling.
+The scheduler produces row-group DataFrames managed by `RowGroupBufferManager`. `DatasetBuilder` composes generic processor and DataFrame-transform callbacks around checkpointing, while `RecordSelectionRunner` owns candidate selection, durable selection state, resume, and terminal publication.
 
 ## Key Components
 
 ### DatasetBuilder
 
-Entry point for generation. `build()` runs:
-- `_prepare_async_run` -> `AsyncTaskScheduler.run()` -> telemetry and metadata
+Entry point for generation. `build()` initializes shared generators and routes ordinary runs to `_build_async()` or selection runs to `RecordSelectionRunner(self).run(...)`. `_prepare_async_run()` remains the shared scheduler-construction path.
+
+### RecordSelectionRunner
+
+Per-build collaborator for record-selection runs. It holds a reference to its `DatasetBuilder` so it can reuse scheduler construction, processors, artifact storage, resource configuration, and build-level run state without duplicating them in a context object. It owns the bounded candidate loop, selection decisions, per-batch media and marker commits, unresolved-path resume compatibility and cleanup, committed-marker reconstruction, exhaustion, and terminal publication.
 
 ### Async Execution (`_build_async`)
 
@@ -24,9 +27,11 @@ Preparation (`_prepare_async_run`):
 2. Creates `ExecutionGraph` from column dependencies
 3. Partitions rows into row groups by `buffer_size`
 4. Constructs `CompletionTracker`, `RowGroupBufferManager`, `AsyncTaskScheduler`
-5. Hooks `ProcessorRunner` for pre-batch and post-batch stages
+5. Composes one generic before-checkpoint callback: an optional DataFrame transform runs first, newly dropped rows are mirrored into `CompletionTracker`, and configured post-batch processors run afterward
 
 `AsyncTaskScheduler` runs on a dedicated async loop with frontier-driven dispatch, task-admission leases, salvage rounds for failed tasks, and order-dependent locks for columns that must execute sequentially. Ready frontier tasks enter `FairTaskQueue`, are selected through virtual-time ordering, and are committed only after `TaskAdmissionController` acquires the required scheduler resources. Salvage-exhausted tasks are dropped except for preserved retryable failures: provider rate limits and local request-admission queue timeouts stay deferred and retry after cooldown/backoff so scheduler-local pressure delays records rather than discarding them.
+
+`AsyncTaskScheduler` has no record-selection-specific callback. `on_before_checkpoint` is generic. A caller that must durably finalize progress even when that callback drops every row opts into `finalize_empty_row_groups=True` and supplies `on_finalize_row_group`.
 
 ### Execution Graph
 
@@ -86,7 +91,9 @@ On the ordinary path, after-generation processors run unconditionally on the on-
 
 Record selection uses a separate two-phase checkpoint model. Each completed candidate batch commits a marker under `selection-checkpoints/` and, when it accepted rows, an immutable accepted-row partition under `selection-accepted/`; those artifacts, rather than the published `parquet-files/`, are the durable source of selection progress. Once enough rows are accepted—or the candidate budget is exhausted with `on_exhausted="return_partial"`—the engine publishes the final dataset from the immutable partitions and then runs after-generation processors. A valid completed publication is reused as-is on resume, while a missing or incomplete publication can be rebuilt from the immutable partitions without regenerating candidates. This keeps candidate progress resumable even when publication or after-generation processing is interrupted.
 
-Metadata writes are atomic (`tmp` file + `fsync` + `os.replace`). Metadata remains authoritative for run configuration and publication state; ordinary parquet files and record-selection markers are authoritative for generation progress. Corrupt or partially written metadata raises a clear `DatasetGenerationError` rather than falling through as a generic config mismatch.
+Before `ArtifactStorage` resolves or caches a possibly timestamped dataset path, `RecordSelectionRunner._selection_resume_probe()` reads the unresolved requested directory (`artifact_path / dataset_name`). The probe distinguishes missing, readable, and unreadable metadata; whether readable metadata contains record-selection state; stored target and buffer values; checkpoint-directory presence; and actual marker presence. Both runtime compatibility and cleanup use this state model. Missing metadata with no marker is compatible (including an empty selection-checkpoint directory), while unreadable or readable non-selection metadata is incompatible. Selection metadata or a checkpoint directory establishes selection ownership for cleanup; unreadable metadata without either is preserved rather than destructively claimed. Raw JSON reading is intentional here because `ArtifactStorage.read_metadata()` would resolve and cache the dataset path too early. After path resolution, the same runner hydrates markers, validates committed partitions, cleans uncommitted artifacts, and reconstructs publication.
+
+Metadata writes are atomic (`tmp` file + `fsync` + `os.replace`). Metadata remains authoritative for run configuration and publication state; ordinary parquet files and record-selection markers are authoritative for generation progress. With `ResumeMode.ALWAYS`, corrupt or partially written metadata raises a clear `DatasetGenerationError`. During record-selection preflight with `ResumeMode.IF_POSSIBLE`, unreadable metadata is treated as incompatible: selection-owned state is cleared, unowned state is preserved, and generation restarts under normal fresh-path semantics. Ordinary-run corrupt-metadata behavior is unchanged.
 
 `DatasetCreationResults` from a resume invocation reflects the full on-disk dataset for anything that reads the artifact directory (`load_dataset`, `count_records`, `load_analysis`, `export`, `push_to_hub`), but per-run observability (`task_traces`, model-usage logs, telemetry events) is scoped to the current invocation — the original run's in-memory state is not persisted across process boundaries.
 
@@ -96,17 +103,21 @@ When `RunConfig.write_scheduler_events` is enabled, each invocation also appends
 
 ```
 DatasetBuilder.build()
-  → _build_async()
-  → _prepare_async_run()
-      → ExecutionGraph.create()
-      → CompletionTracker.with_graph()
-      → AsyncTaskScheduler(task admission, fair queue, salvage_rounds)
-  → scheduler.run()
-      → admit row groups under the configured row-group cap
-      → fairly admit ready tasks from the frontier through task admission
-      → tasks execute generators, update CompletionTracker
-      → checkpoints via RowGroupBufferManager
-  → collect TaskTraces, emit telemetry
+  → initialize generators and graph
+  ├─ ordinary → _build_async()
+  │    → _prepare_async_run()
+  │    → AsyncTaskScheduler.run()
+  └─ record selection → RecordSelectionRunner(self).run()
+       → probe unresolved resume state and restore committed markers
+       → for each immutable candidate batch
+            → DatasetBuilder._prepare_async_run()
+            → AsyncTaskScheduler.run()
+                 → generic on_before_checkpoint
+                      → select and mirror dropped rows
+                      → run post-batch processors
+                 → on_finalize_row_group (including empty groups by opt-in)
+            → commit accepted partition and marker
+       → materialize terminal publication
 ```
 
 Dataset-builder row-group admission is fixed: `RunConfig.max_concurrent_row_groups` (default `3`) is the hard in-flight cap. `buffer_size` controls the records per group, so raising the cap can increase active memory. The scheduler's adaptive row-group mode remains internal and is not wired through the public interface.
@@ -116,6 +127,8 @@ When request admission is available, async scheduling may use request-pressure s
 ## Design Decisions
 
 - **One execution engine behind the API.** The async scheduler handles row-group parallelism, DAG-aware dispatch, resume, and checkpointing for all generation runs.
+- **Selection collaborator.** `DatasetBuilder` owns shared engine setup; the per-build `RecordSelectionRunner` owns the feature lifecycle and resume state, keeping selection-specific orchestration and recovery out of the central builder.
+- **Feature-agnostic scheduler.** Selection is composed through the generic checkpoint boundary. `finalize_empty_row_groups` describes lifecycle policy without naming selection.
 - **DAG-driven ordering** ensures columns with dependencies (e.g., a judge column that depends on a text column) are generated in the correct order, regardless of the order they appear in the config.
 - **Fair async admission with bounded borrow by default** keeps the scheduler flowing across ready columns and model groups. `FairTaskQueue.select_next(...)` chooses eligible ready work, `TaskAdmissionController` leases scheduler resources before spawn, and `FairTaskQueue.commit(...)` removes the selected task only after admission succeeds. The default `BoundedBorrowTaskAdmissionPolicyConfig` computes a strict per-group share, lets solo groups borrow only up to a capacity-derived reserve, and makes borrowed groups yield when eligible peer pressure appears. Passing `bounded_borrow=None` selects strict-fair admission for tests and benchmark comparisons. Per-group virtual-time ordering prevents a large ready frontier from degenerating into a column-by-column wave, and scheduler-resource accounting remains separate from provider/model request admission.
 - **Salvage rounds** retry failed tasks after all other tasks in a round complete, improving resilience against transient LLM failures without blocking the entire generation.
