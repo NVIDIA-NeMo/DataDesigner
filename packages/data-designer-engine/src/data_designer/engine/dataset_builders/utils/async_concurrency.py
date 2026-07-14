@@ -24,8 +24,14 @@ Startup handshake:
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import logging
+import os
 import threading
+from typing import TYPE_CHECKING, Any, Protocol
+
+if TYPE_CHECKING:
+    from data_designer.config.run_config import RunConfig
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +40,32 @@ _thread: threading.Thread | None = None
 _lock = threading.Lock()
 
 _LOOP_READY_TIMEOUT = 5.0  # seconds to wait for the background loop to start
+
+
+class _CancellableScheduler(Protocol):
+    def request_cancel(self) -> None: ...
+
+
+def is_async_trace_enabled(settings: RunConfig) -> bool:
+    return settings.async_trace or os.environ.get("DATA_DESIGNER_ASYNC_TRACE", "0") == "1"
+
+
+def await_async_scheduler_result(
+    future: concurrent.futures.Future[Any],
+    scheduler: _CancellableScheduler,
+) -> None:
+    """Wait for a scheduler result and let cancellation cleanup finish after an interrupt."""
+    try:
+        future.result()
+    except KeyboardInterrupt:
+        scheduler.request_cancel()
+        try:
+            future.result()
+        except concurrent.futures.CancelledError:
+            pass
+        except Exception:
+            logger.debug("Async scheduler raised while cancelling after KeyboardInterrupt", exc_info=True)
+        raise
 
 
 def _run_loop(loop: asyncio.AbstractEventLoop, ready: threading.Event) -> None:

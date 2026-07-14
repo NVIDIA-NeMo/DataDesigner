@@ -16,6 +16,7 @@ from data_designer.config.record_selection import RecordSelectionConfig
 from data_designer.config.sampler_params import CategorySamplerParams, SamplerType
 from data_designer.engine.dataset_builders.acceptance import AcceptanceController
 from data_designer.engine.dataset_builders.dataset_builder import DatasetBuilder
+from data_designer.engine.dataset_builders.record_selection_runner import RecordSelectionRunner
 from data_designer.engine.dataset_builders.utils.processor_runner import ProcessorRunner
 from data_designer.engine.dataset_builders.utils.row_group_buffer import RowGroupBufferManager
 from data_designer.engine.processing.processors.drop_columns import DropColumnsProcessor
@@ -127,7 +128,7 @@ def test_selection_promotes_media_before_writing_post_batch_side_artifacts(
     stub_resource_provider.model_registry.get_model_usage_snapshot.return_value = {}
     stub_resource_provider.model_registry.get_usage_deltas.return_value = {}
 
-    builder._run_candidate_batch(
+    RecordSelectionRunner(builder)._run_candidate_batch(
         [],
         controller=controller,
         batch=batch,

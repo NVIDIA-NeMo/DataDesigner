@@ -263,6 +263,8 @@ flowchart TD
 
     subgraph engine_pkg ["data-designer-engine"]
         compiler["Config validation / compilation"]
+        builder["DatasetBuilder"]
+        runner["RecordSelectionRunner"]
         controller["AcceptanceController"]
         candidate_plan["CandidateBatch + ExplicitRowGroupPlan"]
         scheduler["AsyncTaskScheduler"]
@@ -281,12 +283,15 @@ flowchart TD
     predicate_col --> data_config
     create_api --> compiler
     data_config --> compiler
-    compiler --> controller
+    compiler --> builder
+    builder --> runner
+    runner --> controller
     controller --> candidate_plan
     candidate_plan --> scheduler
+    runner --> scheduler
     scheduler --> buffer
-    buffer --> controller
-    controller --> checkpoint
+    buffer --> runner
+    runner --> checkpoint
     checkpoint --> metadata
     checkpoint --> results
 ```
@@ -306,6 +311,7 @@ sequenceDiagram
     participant U as User
     participant I as DataDesigner.create
     participant B as DatasetBuilder
+    participant R as RecordSelectionRunner
     participant A as AcceptanceController
     participant S as AsyncTaskScheduler
     participant G as Column DAG
@@ -313,32 +319,38 @@ sequenceDiagram
 
     U->>I: create(builder, num_records=X)
     I->>B: build(target_accepted=X)
-    B->>A: initialize(target=X, candidate_cap=M)
+    B->>R: RecordSelectionRunner(self).run(...)
+    R->>A: initialize(target=X, candidate_cap=M)
 
     loop while accepted < X and candidates < M
-        B->>A: request next immutable candidate batch
-        A-->>B: batch ID, row group, offset, size
-        B->>S: run(row_group_id, candidate_offset, batch_size)
+        R->>A: request next immutable candidate batch
+        A-->>R: batch ID, row group, offset, size
+        R->>S: run(row_group_id, candidate_offset, batch_size)
         S->>G: generate normal column DAG
         G-->>S: completed candidate rows + predicate
-        S->>B: selection callback with completed DataFrame
-        B->>A: select(batch, failed_generation_records)
-        A-->>B: accepted indices and accounting decision
-        B-->>S: filtered and trimmed DataFrame
-        S->>B: finalization callback after post-batch processors
-        B->>P: write schema anchor and accepted partition
-        B->>A: record_checkpoint(batch, decision, artifacts)
-        A-->>B: SelectionBatchMarker
-        B->>P: atomically persist marker, then mirror metadata
+        S->>B: on_before_checkpoint(row_group)
+        B->>R: select_dataframe(completed candidates)
+        R->>A: select(batch, failed_generation_records)
+        A-->>R: accepted indices and accounting decision
+        R-->>B: filtered and trimmed DataFrame
+        B->>B: run post-batch processors
+        S->>R: on_finalize_row_group(row_group)
+        R->>P: write schema anchor and accepted partition
+        R->>A: record_checkpoint(batch, decision, artifacts)
+        A-->>R: SelectionBatchMarker
+        R->>P: atomically persist marker, then mirror metadata
     end
 
     alt accepted == X
+        R-->>B: exact accepted dataset
         B-->>I: exact accepted dataset
         I-->>U: DatasetCreationResults
     else cap exhausted and return_partial
+        R-->>B: partial accepted dataset
         B-->>I: partial accepted dataset
         I-->>U: DatasetCreationResults
     else cap exhausted and raise
+        R-->>B: engine RecordSelectionExhaustedError
         B-->>I: engine RecordSelectionExhaustedError
         I-->>U: DataDesignerRecordSelectionExhaustedError
     end
@@ -467,8 +479,8 @@ Responsibilities:
 - Expose progress and terminal properties for metadata and logs.
 - Decide satisfied vs exhausted state.
 
-The controller does not call column generators, write parquet, or own scheduler tasks. `DatasetBuilder` persists the
-returned `SelectionBatchMarker` through `ArtifactStorage.write_selection_checkpoint()`.
+The controller does not call column generators, write parquet, or own scheduler tasks. `RecordSelectionRunner`
+persists the returned `SelectionBatchMarker` through `ArtifactStorage.write_selection_checkpoint()`.
 
 ### 2. Immutable candidate batch planning
 
@@ -553,55 +565,43 @@ trimmed from the previous final batch and would therefore violate the earliest-a
 For either mismatch, `ResumeMode.ALWAYS` raises an incompatibility error and `ResumeMode.IF_POSSIBLE` visibly clears
 all selection-owned and published artifacts before restarting from candidate offset zero.
 
-### 4. Builder loop
+### 4. Record-selection runner
 
-`DatasetBuilder.build()` initializes generators once, calls each generator's `log_pre_generation()` once, and then
-dispatches record selection to this short orchestration path:
+`DatasetBuilder` remains the shared engine orchestrator. It owns generator initialization, graph construction,
+processor and resource objects, generic scheduler construction, model-usage timing, and public run state. For a
+selection build it creates one `RecordSelectionRunner` before resume preflight, uses that same per-build instance for
+compatibility and cleanup decisions, calls each generator's `log_pre_generation()` once, and delegates the feature
+lifecycle:
 
 ```python
-def _build_with_record_selection(
-    self,
-    generators: list[ColumnGenerator],
-    *,
-    target_num_records: int,
-    buffer_size: int,
-    on_batch_complete: Callable[[Path], None] | None,
-    resume: ResumeMode,
-) -> None:
-    config = self._data_designer_config.record_selection
-    if config is None:
-        raise RuntimeError("Record-selection build path requires a record-selection config.")
+record_selection_runner = (
+    RecordSelectionRunner(self) if self._data_designer_config.record_selection is not None else None
+)
 
-    self.artifact_storage.configure_selection_batch_file_width(
-        max_candidate_records=config.max_candidate_records,
-        candidate_batch_size=min(buffer_size, target_num_records),
-    )
-    controller, completed_publication = self._restore_selection_run(
-        config=config,
-        target_num_records=target_num_records,
-        buffer_size=buffer_size,
-        resume=resume,
-    )
-    if self._reuse_completed_selection_publication(
-        controller,
-        completed_publication=completed_publication,
-    ):
-        return
+# Resume preflight uses this same runner before ArtifactStorage resolves a dataset path.
+...
 
-    self._write_selection_metadata(controller)
-    self._run_selection_candidate_batches(
+if record_selection_runner is not None:
+    for generator in generators:
+        generator.log_pre_generation()
+    record_selection_runner.run(
         generators,
-        controller=controller,
-        on_batch_complete=on_batch_complete,
-    )
-    self._finalize_selection_build(
-        controller,
-        target_num_records=target_num_records,
+        target_num_records=num_records,
         buffer_size=buffer_size,
+        on_batch_complete=on_batch_complete,
+        resume=resume,
     )
 ```
 
-`_run_selection_candidate_batches()` owns the bounded loop:
+The runner holds a reference to its builder rather than copying a large set of scheduler, processor, storage,
+resource, and run-state fields into a parallel context object. It owns selection-specific resume probing and cleanup,
+controller hydration, the candidate lifecycle, marker and media commits, exhaustion, and terminal publication. It
+does not retain a controller or candidate runtime after `run()` returns, so reusing a `DatasetBuilder` cannot leak
+selection state across builds.
+
+`RecordSelectionRunner.run()` restores or initializes the controller, reuses a valid completed publication when
+possible, executes the bounded candidate loop, and then applies the terminal exhaustion/publication policy. The loop
+remains deliberately serialized in v1:
 
 ```python
 while not controller.has_reached_target and controller.has_candidate_budget:
@@ -615,7 +615,7 @@ while not controller.has_reached_target and controller.has_candidate_budget:
     self._raise_if_selection_stopped_early(controller)
 ```
 
-The implementation:
+The runner:
 
 - Calls `_prepare_async_run(..., log_pre_generation=False)` for every candidate batch while reusing the initialized
   generator instances and model registry.
@@ -625,27 +625,31 @@ The implementation:
   `_finalize_selection_build()`.
 - Profiles once in the interface after the engine returns a non-empty terminal result.
 
-### 5. Selection checkpoint hook
+### 5. Generic before-checkpoint composition
 
-Selection is split between a scheduler hook and a builder-owned finalizer. The scheduler-facing callbacks remain
-side-effect callbacks:
+`AsyncTaskScheduler` has no selection-specific API. Its checkpoint boundary exposes only generic lifecycle controls:
 
 ```python
-on_select_before_checkpoint: Callable[[int, int], None] | None
 on_before_checkpoint: Callable[[int, int], None] | None
 on_finalize_row_group: Callable[[int], None] | None
+finalize_empty_row_groups: bool = False
 ```
 
-`DatasetBuilder._prepare_async_run()` accepts the DataFrame transformation separately:
+`DatasetBuilder._prepare_async_run()` accepts an internal optional DataFrame transform separately:
 
 ```python
 select_dataframe: Callable[[int, int, pd.DataFrame], pd.DataFrame] | None
 ```
 
-For selection, `_execute_selection_candidate_scheduler()` binds `select_dataframe` to
+The builder composes that transform and configured post-batch processors into one `on_before_checkpoint` callback:
+selection runs first, newly dropped slots are mirrored into `CompletionTracker`, and strict row-count-preserving
+post-batch processing runs second. Ordinary builds use the same generic callback with no selection transform.
+
+For selection, `RecordSelectionRunner._execute_selection_candidate_scheduler()` binds `select_dataframe` to
 `_select_selection_candidate_dataframe()` and `on_finalize_row_group` to
-`_finalize_selection_candidate_row_group()`. Per-candidate mutable state, including the `SelectionDecision`, lives in
-`_SelectionCandidateBatchRuntime`.
+`_finalize_selection_candidate_row_group()`. It also sets `finalize_empty_row_groups=True`, because a candidate batch
+that accepts zero rows must still commit a durable marker. The constructor rejects that opt-in without a finalizer.
+Per-candidate mutable state, including the `SelectionDecision`, lives in `_SelectionCandidateBatchRuntime`.
 
 ```mermaid
 flowchart TD
@@ -665,21 +669,21 @@ flowchart TD
 The exact checkpoint order is:
 
 1. The candidate DAG completes or salvages its surviving rows.
-2. The scheduler invokes `on_select_before_checkpoint`, whose wrapper reads the current DataFrame and calls
-   `_select_selection_candidate_dataframe()`.
+2. The scheduler invokes the builder-composed generic `on_before_checkpoint` callback, whose selection phase reads
+   the current DataFrame and calls `RecordSelectionRunner._select_selection_candidate_dataframe()`.
 3. That method calls `AcceptanceController.select()` with
    `failed_generation_records=row_group_size - len(dataframe)`, filters and trims accepted rows, promotes accepted
    image references when staging is active, and stores the decision in `_SelectionCandidateBatchRuntime`.
 4. The wrapper replaces the row-group buffer and mirrors newly dropped slots into `CompletionTracker`.
-5. The scheduler recomputes dropped-row diagnostics and runs the normal post-batch callback with
-   `strict_row_count=True`.
-6. The scheduler invokes `_finalize_selection_candidate_row_group()` even when zero rows survive.
-7. `_commit_selection_candidate_row_group()` verifies the final count, writes a schema anchor when columns were
-   materialized, writes an immutable accepted partition when non-empty, creates a `SelectionBatchMarker`, and
-   atomically writes it through `ArtifactStorage`.
-8. `_mirror_committed_selection_batch()` frees the buffer, refreshes metadata and in-memory counters, and logs
-   progress. `_finalize_selection_candidate_row_group()` then invokes `on_batch_complete` for a non-empty accepted
-   partition.
+5. The same callback runs normal post-batch processors with `strict_row_count=True`.
+6. After the callback returns, the scheduler recomputes dropped-row diagnostics. It invokes the runner finalizer even
+   when zero rows survive because the selection caller explicitly opted into empty-row-group finalization; other
+   callers retain the default behavior of freeing an empty group without finalizing it.
+7. `RecordSelectionRunner._commit_selection_candidate_row_group()` verifies the final count, writes a schema anchor
+   when columns were materialized, writes an immutable accepted partition when non-empty, creates a
+   `SelectionBatchMarker`, and atomically writes it through `ArtifactStorage`.
+8. `RecordSelectionRunner._mirror_committed_selection_batch()` frees the buffer, refreshes metadata and in-memory
+   counters, and logs progress. The finalizer then invokes `on_batch_complete` for a non-empty accepted partition.
 
 ### 6. Predicate placement in the DAG
 
@@ -886,6 +890,27 @@ Treat the batch marker as the commit point:
 7. Create and atomically persist the batch marker, including whether this candidate materialized a schema.
 8. Mirror committed progress into global metadata and notify `on_batch_complete` for a non-empty partition.
 
+Before `ArtifactStorage` resolves or caches a possibly timestamped dataset path,
+`RecordSelectionRunner._selection_resume_probe()` reads the unresolved requested directory at
+`Path(artifact_path) / dataset_name`. The immutable probe records metadata state (`missing`, `readable`, or
+`unreadable`), whether readable metadata contains `record_selection`, stored target and buffer values, checkpoint
+directory presence, and actual marker presence. Runtime compatibility and cleanup ownership derive their different
+decisions from this one state model:
+
+- Missing metadata is compatible only when no marker exists; an empty checkpoint directory is compatible.
+- Unreadable metadata or readable non-selection metadata is incompatible for selection resume.
+- Selection metadata or a checkpoint directory establishes selection ownership for cleanup.
+- Unreadable metadata without selection metadata or a checkpoint directory is preserved rather than destructively
+  claimed.
+
+Raw unresolved-path JSON reading is intentional here. `ArtifactStorage.read_metadata()` uses `base_dataset_path`,
+which would resolve and cache the dataset path before resume mode is finalized.
+
+The earlier config-fingerprint preflight preserves the same mode distinction. Corrupt metadata raises a specific
+`DatasetGenerationError` for `ResumeMode.ALWAYS`; for `ResumeMode.IF_POSSIBLE`, it is classified as incompatible so
+the runner probe can apply safe selection-owned cleanup and normal fresh-path semantics. A readable non-object JSON
+value is likewise incompatible rather than being allowed to fail later through dictionary access.
+
 On resume:
 
 - Reconstruct accepted and candidate progress from committed batch markers.
@@ -910,13 +935,13 @@ On resume:
 
 ```mermaid
 stateDiagram-v2
-    [*] --> LoadConfig
-    LoadConfig --> AllocateFreshArtifact: resume=NEVER
+    [*] --> ProbeUnresolvedState
+    ProbeUnresolvedState --> AllocateFreshArtifact: resume=NEVER
     AllocateFreshArtifact --> Fresh: choose empty requested path or new timestamped sibling
-    LoadConfig --> Fresh: no checkpoints
-    LoadConfig --> Reconstruct: checkpoints exist and config, buffer, target match
-    LoadConfig --> Incompatible: config, buffer, or target mismatch with resume=ALWAYS
-    LoadConfig --> ResetForFresh: config, buffer, or target mismatch with resume=IF_POSSIBLE
+    ProbeUnresolvedState --> Fresh: metadata missing and no checkpoint marker
+    ProbeUnresolvedState --> Reconstruct: compatible selection state
+    ProbeUnresolvedState --> Incompatible: incompatible state with resume=ALWAYS
+    ProbeUnresolvedState --> ResetForFresh: incompatible state with resume=IF_POSSIBLE
     ResetForFresh --> Fresh: warn and clear selection-owned artifacts
 
     Reconstruct --> ValidateMarkers
@@ -990,7 +1015,8 @@ using the existing `preserve_dropped_columns` behavior, aligned only to accepted
 The engine-managed selection media contract currently covers image columns written in `StorageMode.DISK`. Staging is
 candidate-batch-scoped rather than row-scoped:
 
-1. `_run_candidate_batch()` calls `ArtifactStorage.begin_selection_media_batch(candidate_batch_id)`, which points
+1. `RecordSelectionRunner._run_candidate_batch()` calls
+   `ArtifactStorage.begin_selection_media_batch(candidate_batch_id)`, which points
    `MediaStorage` at `selection-media-staging/batch_<padded-id>/`.
 2. Image generation retains its normal `images/<column>/<uuid>.<extension>` relative values. The physical staged
    file is `selection-media-staging/batch_<padded-id>/images/<column>/<uuid>.<extension>`.
@@ -998,7 +1024,7 @@ candidate-batch-scoped rather than row-scoped:
    values. It moves referenced files to `images/selection_batch_<padded-id>/<column>/<uuid>.<extension>` and rewrites
    those accepted values.
 4. The candidate staging directory is deleted, removing images generated for rejected and trimmed rows.
-   `_finish_selection_candidate_batch()` restores the ordinary media path in a `finally` path.
+   `RecordSelectionRunner._finish_selection_candidate_batch()` restores the ordinary media path in a `finally` path.
 5. Resume cleanup removes both staging and the promoted `images/selection_batch_<padded-id>/` prefix for the next
    uncommitted candidate, while committed candidate image prefixes remain valid.
 
@@ -1114,7 +1140,8 @@ with `dtype="bool"` already provide the expected ergonomic conversion.
 
 ## Observability
 
-After every committed candidate batch, `_mirror_committed_selection_batch()` writes the selection summary and logs:
+After every committed candidate batch, `RecordSelectionRunner._mirror_committed_selection_batch()` writes the
+selection summary and logs:
 
 ```text
 Record selection: accepted 4,217 / 5,000; candidates generated 12,000 / 20,000; acceptance rate 35.1%.
@@ -1194,16 +1221,19 @@ Implemented behavior:
 - Engine exhaustion errors are normalized at the interface boundary.
 - V1 preview rejection and zero-row `return_partial` behavior are explicit and tested.
 
-### Component 3: Engine controller and one-candidate-batch execution
+### Component 3: Engine controller, runner, and one-candidate-batch execution
 
 **Package:** `data-designer-engine`
 
 Primary files:
 
 - `engine/dataset_builders/acceptance.py` — `AcceptanceController` and DTOs.
+- `engine/dataset_builders/record_selection_runner.py` — per-build selection orchestration, resume, candidate commit,
+  media cleanup, and terminal publication.
 - `engine/dataset_builders/row_group_plan.py` — provides `base_offset` on the existing `ExplicitRowGroupPlan`.
-- `engine/dataset_builders/dataset_builder.py` — bounded candidate-batch loop.
-- `engine/dataset_builders/async_scheduler.py` — selection callback before post-batch checkpoint.
+- `engine/dataset_builders/dataset_builder.py` — runner delegation plus shared generic scheduler/callback composition.
+- `engine/dataset_builders/async_scheduler.py` — generic before-checkpoint callback and explicit empty-row finalization
+  policy.
 - `engine/dataset_builders/utils/row_group_buffer.py` — selected checkpoint support.
 
 Implemented behavior:
@@ -1213,6 +1243,8 @@ Implemented behavior:
 - `raise` and `return_partial` exhaustion.
 - Deterministic trimming and ordering.
 - One candidate batch in flight at a time.
+- Selection-specific orchestration is isolated from the central builder in a per-build collaborator.
+- The generic scheduler contains no record-selection callback or feature branch.
 - `log_pre_generation()` runs once per logical build across all candidate batches.
 - Ordered seeds receive the absolute candidate offset through the existing scheduler context.
 
@@ -1221,7 +1253,8 @@ Implemented behavior:
 Primary files:
 
 - `engine/storage/artifact_storage.py` — selection checkpoint paths and atomic marker I/O.
-- `engine/dataset_builders/dataset_builder.py` — resume reconstruction.
+- `engine/dataset_builders/record_selection_runner.py` — unresolved-path resume probe, compatibility and cleanup,
+  marker hydration, validation, and publication reconstruction.
 - `engine/dataset_builders/acceptance.py` — controller hydration from markers.
 - Engine media-storage integration — candidate-batch-scoped image staging, accepted-reference promotion, and crash
   cleanup.
@@ -1238,6 +1271,8 @@ Implemented behavior:
   reconstruction or revalidation) of marker-committed post-batch processor output, and cleanup of the next
   uncommitted batch's side artifacts.
 - Compatible `ResumeMode.ALWAYS` and `ResumeMode.IF_POSSIBLE` behavior for config, `buffer_size`, and target changes.
+- A single unresolved-path probe preserves the intentional difference between resume compatibility and safe cleanup
+  ownership without resolving `ArtifactStorage.base_dataset_path` early.
 - Explicit `post_generation_state` transitions from terminal selection through publication completion.
 
 ### Component 5: Results, Hub publication, docs, and examples
@@ -1279,9 +1314,9 @@ commitment to implement a v2; benchmark evidence should justify it first.
 This section records the tests present in PR #817. It distinguishes direct coverage from behavior that is currently
 covered only by smaller unit tests or remains to be exercised directly.
 
-The combined Python 3.11 CI-equivalent run against the merged PR state at commit `04ee8b1d` completed with 4,073
-passed and one skipped test. Aggregate line coverage was 91.63%, passing the 90% project gate; changed-line coverage
-was approximately 90.3% (856 of 948 executable changed lines).
+The combined Python 3.11 CI-equivalent run against the current PR working tree completed with 4,094 passed and one
+skipped test. Aggregate line coverage was 91.69%, passing the 90% project gate; changed-line coverage was 92.0%
+(913 of 992 executable changed lines, including the new runner module).
 
 ### Config and interface coverage
 
@@ -1318,7 +1353,11 @@ was approximately 90.3% (856 of 948 executable changed lines).
   committed paths in post-batch and dropped-column outputs.
 - Boundary tests cover a candidate cap equal to the target, a smaller final candidate batch, and rejection of
   non-empty zero-column post-batch or after-generation processor output.
-- Scheduler coverage includes the all-row-drop finalization race while an independent root task remains in flight.
+- The composed builder callback preserves selection-specific and post-batch-specific error normalization through
+  buffer reads, transforms, dropped-row mirroring, and buffer replacement.
+- Scheduler coverage includes default freeing of all-dropped groups, explicit empty-group finalization, rejection of
+  empty finalization without a finalizer, generic before-checkpoint error normalization, and the independent-root
+  in-flight race.
 
 ### Resume and publication coverage
 
@@ -1328,6 +1367,10 @@ was approximately 90.3% (856 of 948 executable changed lines).
 - Completed output with the same target is reused without rewriting markers.
 - A larger target fails with `ResumeMode.ALWAYS`; `ResumeMode.IF_POSSIBLE` clears selection-owned artifacts and
   restarts from offset zero.
+- Direct probe tests distinguish missing/readable/unreadable metadata, selection ownership, empty checkpoint
+  directories, marker-without-metadata incompatibility, matching/mismatched target and buffer values, corrupt JSON,
+  non-object JSON, invalid UTF-8, preservation of unowned unreadable state, and the requirement to avoid resolved
+  `ArtifactStorage` APIs.
 - The missing/incomplete published-parquet reconstruction path is exercised with immutable accepted partitions.
 - Unreadable accepted partitions are normalized; malformed marker/schema states are rejected; persisted
   non-retryable diagnostics and exhausted early shutdown are replayed.
@@ -1352,7 +1395,8 @@ selection-specific regression test:
 - Rejected-candidate model-usage accounting, shuffle determinism, and stateful generator reuse across candidate
   batches.
 - A configured predicate name that does not exist among compiled columns.
-- Changed selection-config compatibility and the smaller-target/changed-`buffer_size` `ALWAYS`/`IF_POSSIBLE` matrix.
+- The end-to-end `ALWAYS`/`IF_POSSIBLE` matrix for changed selection config, smaller target, and changed `buffer_size`;
+  target/buffer comparison and unresolved cleanup ownership are covered directly at the runner boundary.
 - A zero-acceptance committed batch proven not to regenerate by marker timestamp or predicate call count.
 - A missing committed accepted partition, plus reconstruction of a missing committed schema from a valid accepted
   partition.
@@ -1395,6 +1439,10 @@ selection-specific regression test:
 ## V1 decisions
 
 - Use `RecordSelectionConfig` publicly and `AcceptanceController` internally.
+- Keep selection lifecycle and resume state in one per-build `RecordSelectionRunner`; keep shared generator, scheduler,
+  processor, resource, and run state in `DatasetBuilder`.
+- Keep `AsyncTaskScheduler` feature-agnostic by composing selection into `on_before_checkpoint` and using an explicit
+  `finalize_empty_row_groups` lifecycle opt-in for zero-output durable commits.
 - Require an explicit, row-local boolean predicate column; global ranking, quotas, and deduplication are out of scope.
 - Require `max_candidate_records`.
 - Treat null as rejected and non-boolean as an error.
