@@ -54,6 +54,7 @@ def create_model_client(
             setup, which happens before any generation task invokes the client.
             Direct callers of this factory must ensure registration happens
             before use.
+        request_event_sink: Optional direct sink for model-request events.
 
     Returns:
         A ``ModelClient`` instance routed by provider type.

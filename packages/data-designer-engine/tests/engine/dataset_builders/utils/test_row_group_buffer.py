@@ -49,15 +49,6 @@ def test_update_cell() -> None:
     assert mgr.get_row(0, 1) == {"col_a": "val_1"}
 
 
-def test_update_cells() -> None:
-    mgr = RowGroupBufferManager(_mock_artifact_storage())
-    mgr.init_row_group(0, 1)
-
-    mgr.update_cells(0, 0, {"col_a": "a", "col_b": "b"})
-
-    assert mgr.get_row(0, 0) == {"col_a": "a", "col_b": "b"}
-
-
 def test_update_batch() -> None:
     mgr = RowGroupBufferManager(_mock_artifact_storage())
     mgr.init_row_group(0, 3)

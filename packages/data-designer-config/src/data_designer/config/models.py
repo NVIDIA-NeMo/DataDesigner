@@ -335,7 +335,10 @@ class ManualDistributionParams(ConfigBase):
     @model_validator(mode="after")
     def _normalize_weights(self) -> Self:
         if self.weights is not None:
-            self.weights = [w / sum(self.weights) for w in self.weights]
+            total_weight = sum(self.weights)
+            if total_weight == 0:
+                raise ValueError("`weights` must sum to a non-zero value")
+            self.weights = [w / total_weight for w in self.weights]
         return self
 
     @model_validator(mode="after")

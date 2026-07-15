@@ -5,8 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import threading
-import time
+from types import SimpleNamespace
 
 import pytest
 
@@ -25,7 +24,8 @@ from data_designer.engine.models.request_admission.resources import (
     RequestGroupSpec,
     RequestResourceKey,
 )
-from data_designer.engine.observability import InMemoryAdmissionEventSink
+from data_designer.engine.observability import RequestAdmissionEventKind, subscribe_request_admission_events
+from data_designer.engine.testing import InMemoryAdmissionEventSink
 
 
 def _item(domain: RequestDomain = RequestDomain.CHAT, timeout: float | None = None) -> RequestAdmissionItem:
@@ -46,6 +46,11 @@ def _controller(cap: int = 2, config: RequestAdmissionConfig | None = None) -> A
 class _BrokenRequestSink:
     def emit_request_event(self, _event: object) -> None:
         raise RuntimeError("sink boom")
+
+
+class _RejectingRequestSink(InMemoryAdmissionEventSink):
+    def accepts_request_event(self, _event_kind: RequestAdmissionEventKind) -> bool:
+        return False
 
 
 def test_request_admission_acquires_and_releases_lease() -> None:
@@ -139,6 +144,30 @@ def test_request_admission_rate_limit_decreases_and_sets_cooldown() -> None:
     assert snapshot is not None
     assert snapshot.current_limit == 2
     assert snapshot.cooldown_remaining_seconds > 0
+
+
+def test_request_admission_broadcasts_global_feedback_events() -> None:
+    events = []
+    unsubscribe = subscribe_request_admission_events(events.append)
+    try:
+        controller = _controller(
+            cap=4,
+            config=RequestAdmissionConfig(
+                multiplicative_decrease_factor=0.5,
+                cooldown_seconds=10,
+            ),
+        )
+        item = _item()
+        lease = controller.try_acquire(item)
+        assert isinstance(lease, RequestAdmissionLease)
+
+        controller.release(lease, RequestReleaseOutcome(kind="rate_limited"))
+    finally:
+        unsubscribe()
+
+    event_kinds = {event.event_kind for event in events}
+    assert "request_rate_limited" in event_kinds
+    assert "request_limit_decreased" in event_kinds
 
 
 def test_request_admission_rate_limit_burst_decreases_once_per_cascade() -> None:
@@ -325,6 +354,15 @@ def test_request_admission_logs_sink_failures(caplog: pytest.LogCaptureFixture) 
     assert "Request admission event sink raised; dropping event." in caplog.text
 
 
+def test_request_admission_honors_sink_interest_filter() -> None:
+    sink = _RejectingRequestSink()
+    controller = AdaptiveRequestAdmissionController(event_sink=sink)
+
+    controller.register(provider_name="nvidia", model_id="nemotron", alias="default", max_parallel_requests=1)
+
+    assert sink.request_events == []
+
+
 def test_request_lease_released_event_records_release_outcome() -> None:
     sink = InMemoryAdmissionEventSink()
     controller = AdaptiveRequestAdmissionController(event_sink=sink)
@@ -392,6 +430,11 @@ async def test_request_admission_zero_async_timeout_is_immediate() -> None:
 async def test_acquire_async_does_not_assign_expired_waiter_after_release(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    now = 100.0
+    monkeypatch.setattr(
+        "data_designer.engine.models.request_admission.controller.time",
+        SimpleNamespace(monotonic=lambda: now),
+    )
     controller = _controller(cap=1)
     monkeypatch.setattr(controller, "_wait_seconds_locked", lambda _item, _now, _deadline: 10.0)
     lease = controller.try_acquire(_item(RequestDomain.CHAT))
@@ -399,26 +442,15 @@ async def test_acquire_async_does_not_assign_expired_waiter_after_release(
     queued = _item(RequestDomain.EMBEDDING, timeout=0.01)
 
     queued_task = asyncio.create_task(controller.acquire_async(queued))
-    for _ in range(20):
-        snapshot = controller.pressure.snapshot(queued.resource)
-        if snapshot is not None and snapshot.waiters == 1:
-            break
-        await asyncio.sleep(0)
-    else:
-        raise AssertionError("async waiter did not enqueue")
+    await asyncio.sleep(0)
+    snapshot = controller.pressure.snapshot(queued.resource)
+    assert snapshot is not None
+    assert snapshot.waiters == 1
 
-    def release_after_deadline() -> None:
-        time.sleep(0.03)
-        controller.release(lease, RequestReleaseOutcome(kind="success"))
-
-    release_thread = threading.Thread(target=release_after_deadline)
-    release_thread.start()
-    try:
-        time.sleep(0.06)
-        with pytest.raises(RequestAdmissionError) as exc_info:
-            await asyncio.wait_for(queued_task, timeout=0.5)
-    finally:
-        release_thread.join()
+    now = 101.0
+    controller.release(lease, RequestReleaseOutcome(kind="success"))
+    with pytest.raises(RequestAdmissionError) as exc_info:
+        await asyncio.wait_for(queued_task, timeout=0.5)
 
     assert exc_info.value.decision.reason == "queue_timeout"
     snapshot = controller.pressure.snapshot(queued.resource)

@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from typing import Annotated
+
 import click
 import typer
 
@@ -52,8 +54,16 @@ def preview_command(
         help="Maximum width of the rendered record output in characters.",
         min=40,
     ),
+    script_args: Annotated[
+        list[str] | None,
+        typer.Argument(help="Arguments forwarded to a local Python config module after '--'."),
+    ] = None,
 ) -> None:
-    """Generate a preview dataset for fast iteration on your configuration."""
+    """Generate a preview dataset for fast iteration on your configuration.
+
+    Example:
+        data-designer preview workflow.py -n 3 -- --seed-path seed.parquet
+    """
     controller = GenerationController()
     controller.run_preview(
         config_source=config_source,
@@ -63,4 +73,5 @@ def preview_command(
         artifact_path=artifact_path,
         theme=theme,
         display_width=display_width,
+        script_args=script_args,
     )

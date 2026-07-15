@@ -6,9 +6,6 @@ from __future__ import annotations
 from data_designer.engine.errors import DataDesignerError
 
 
-class DatasetBatchManagementError(DataDesignerError): ...
-
-
 class ConfigCompilationError(DataDesignerError): ...
 
 

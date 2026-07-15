@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import concurrent.futures
 import json
 import logging
 import tracemalloc
@@ -33,15 +34,22 @@ from data_designer.engine.column_generators.generators.base import GenerationStr
 from data_designer.engine.dataset_builders.dataset_builder import DatasetBuilder, build_row_group_resume_plan
 from data_designer.engine.dataset_builders.errors import DatasetGenerationError, DatasetProcessingError
 from data_designer.engine.dataset_builders.row_group_plan import CompactRowGroupPlan
+from data_designer.engine.dataset_builders.utils.processor_runner import ProcessorRunner
 from data_designer.engine.models.telemetry import InferenceEvent, NemoSourceEnum, TaskStatusEnum
 from data_designer.engine.models.usage import ModelUsageStats, TokenUsageStats
+from data_designer.engine.observability import SchedulerAdmissionEvent
 from data_designer.engine.processing.processors.base import Processor
 from data_designer.engine.registry.data_designer_registry import DataDesignerRegistry
 from data_designer.engine.resources.seed_reader import DataFrameSeedReader
 from data_designer.engine.storage.artifact_storage import ArtifactStorage, ResumeMode
+from data_designer.engine.testing import InMemoryAdmissionEventSink
 
 if TYPE_CHECKING:
     import pandas as pd
+
+
+def _replace_processors(builder: DatasetBuilder, processors: list[Processor]) -> None:
+    builder._processor_runner = ProcessorRunner(processors=processors, artifact_storage=builder.artifact_storage)
 
 
 @pytest.fixture
@@ -142,6 +150,33 @@ def test_dataset_builder_creation_with_custom_registry(stub_resource_provider, s
 
 def test_dataset_builder_artifact_storage_property(stub_dataset_builder, stub_resource_provider):
     assert stub_dataset_builder.artifact_storage == stub_resource_provider.artifact_storage
+
+
+def test_dataset_builder_combines_scheduler_event_sinks(
+    stub_resource_provider,
+    stub_test_config_builder,
+) -> None:
+    provider_sink = InMemoryAdmissionEventSink()
+    local_sink = InMemoryAdmissionEventSink()
+    stub_resource_provider.scheduler_event_sink = provider_sink
+    builder = DatasetBuilder(
+        data_designer_config=stub_test_config_builder.build(),
+        resource_provider=stub_resource_provider,
+    )
+    generators, _graph = builder._initialize_generators_and_graph()
+    for generator in generators:
+        generator.log_pre_generation = Mock()
+
+    with patch.object(builder_mod, "AsyncTaskScheduler", return_value=Mock()) as scheduler_factory:
+        builder._prepare_async_run(generators, num_records=1, buffer_size=1, scheduler_event_sink=local_sink)
+
+    sink = scheduler_factory.call_args.kwargs["scheduler_event_sink"]
+    assert sink is not None
+    event = SchedulerAdmissionEvent.capture("scheduler_job_started", sequence=1)
+    sink.emit_scheduler_event(event)
+
+    assert local_sink.scheduler_events == [event]
+    assert provider_sink.scheduler_events == [event]
 
 
 @pytest.mark.parametrize(
@@ -438,6 +473,28 @@ def test_build_async_preview_returns_empty_dataframe_when_row_group_is_already_f
     buffer_manager.free_row_group.assert_not_called()
 
 
+def test_await_async_scheduler_result_waits_for_scheduler_cleanup_on_keyboard_interrupt() -> None:
+    class MockFuture:
+        def __init__(self) -> None:
+            self.result_calls = 0
+
+        def result(self) -> None:
+            self.result_calls += 1
+            if self.result_calls == 1:
+                raise KeyboardInterrupt
+            assert scheduler.request_cancel.called
+            raise concurrent.futures.CancelledError
+
+    scheduler = Mock()
+    future = MockFuture()
+
+    with pytest.raises(KeyboardInterrupt):
+        builder_mod._await_async_scheduler_result(future, scheduler)
+
+    scheduler.request_cancel.assert_called_once_with()
+    assert future.result_calls == 2
+
+
 def test_reset_run_state_clears_per_run_signals(stub_resource_provider, stub_test_config_builder) -> None:
     """``_reset_run_state`` must clear all per-run state so reused builders don't leak."""
     builder = DatasetBuilder(
@@ -501,7 +558,7 @@ def test_run_after_generation(
     mock_processor = create_mock_processor("proc", ["process_after_generation"])
     mock_processor.process_after_generation.side_effect = processor_fn
 
-    simple_builder.set_processor_runner([mock_processor])
+    _replace_processors(simple_builder, [mock_processor])
     simple_builder._processor_runner.run_after_generation(batch_size)
 
     mock_processor.process_after_generation.assert_called_once()
@@ -524,7 +581,7 @@ def test_all_processor_stages_run_in_order(builder_with_seed, mode):
         df,
     )[1]
 
-    builder_with_seed.set_processor_runner([mock_processor])
+    _replace_processors(builder_with_seed, [mock_processor])
 
     if mode == "preview":
         raw_dataset = builder_with_seed.build_preview(num_records=3)
@@ -544,7 +601,7 @@ def test_processor_exception_in_process_after_batch_raises_error(simple_builder)
     mock_processor = create_mock_processor("failing_processor", ["process_after_batch"])
     mock_processor.process_after_batch.side_effect = ValueError("Post-batch processing failed")
 
-    simple_builder.set_processor_runner([mock_processor])
+    _replace_processors(simple_builder, [mock_processor])
 
     with pytest.raises(DatasetProcessingError, match="Failed in process_after_batch"):
         simple_builder._processor_runner.run_post_batch(lazy.pd.DataFrame({"id": [1, 2, 3]}), current_batch_number=0)
@@ -553,7 +610,7 @@ def test_processor_exception_in_process_after_batch_raises_error(simple_builder)
 def test_processor_with_no_implemented_stages_is_skipped(builder_with_seed):
     """Test that a processor implementing no stages doesn't cause errors."""
     mock_processor = create_mock_processor("noop_processor", [])
-    builder_with_seed.set_processor_runner([mock_processor])
+    _replace_processors(builder_with_seed, [mock_processor])
 
     result = builder_with_seed.build_preview(num_records=3)
 
@@ -573,7 +630,7 @@ def test_multiple_processors_run_in_definition_order(builder_with_seed):
         p.process_before_batch.side_effect = lambda df, lbl=label: (call_order.append(lbl), df)[1]
         processors.append(p)
 
-    builder_with_seed.set_processor_runner(processors)
+    _replace_processors(builder_with_seed, processors)
     builder_with_seed.build(num_records=3)
 
     assert call_order == ["a", "b", "c"]
@@ -582,7 +639,7 @@ def test_multiple_processors_run_in_definition_order(builder_with_seed):
 def test_pre_batch_processor_row_count_change_rejected(builder_with_seed, caplog):
     mock_processor = create_mock_processor("filtering_processor", ["process_before_batch"])
     mock_processor.process_before_batch.side_effect = lambda df: df.iloc[:2].reset_index(drop=True)
-    builder_with_seed.set_processor_runner([mock_processor])
+    _replace_processors(builder_with_seed, [mock_processor])
 
     with caplog.at_level(logging.INFO):
         with pytest.raises(DatasetGenerationError, match="Pre-batch processor changed row count"):
@@ -594,7 +651,7 @@ def test_pre_batch_processor_row_count_change_rejected(builder_with_seed, caplog
 def test_process_preview_with_empty_dataframe(simple_builder):
     """Test that process_preview handles empty DataFrames gracefully."""
     mock_processor = create_mock_processor("test_processor", ["process_after_batch", "process_after_generation"])
-    simple_builder.set_processor_runner([mock_processor])
+    _replace_processors(simple_builder, [mock_processor])
 
     result = simple_builder.process_preview(lazy.pd.DataFrame())
 
@@ -1019,11 +1076,15 @@ def _make_sampler_only_builder(
     tmp_path: Path,
     *,
     resume: ResumeMode = ResumeMode.IF_POSSIBLE,
+    write_scheduler_events: bool = False,
 ) -> tuple[DatasetBuilder, ArtifactStorage]:
     """Create a builder that can run end-to-end without model or MCP stubs."""
     storage = ArtifactStorage(artifact_path=tmp_path, resume=resume)
     stub_resource_provider.artifact_storage = storage
-    stub_resource_provider.run_config = RunConfig(buffer_size=2)
+    stub_resource_provider.run_config = RunConfig(
+        buffer_size=2,
+        write_scheduler_events=write_scheduler_events,
+    )
 
     config_builder = DataDesignerConfigBuilder()
     config_builder.add_column(
@@ -1036,6 +1097,66 @@ def _make_sampler_only_builder(
         ),
         storage,
     )
+
+
+@pytest.mark.parametrize("write_scheduler_events", [False, True])
+def test_build_writes_scheduler_events_when_enabled(
+    stub_resource_provider: Mock,
+    tmp_path: Path,
+    write_scheduler_events: bool,
+) -> None:
+    builder, _storage = _make_sampler_only_builder(
+        stub_resource_provider,
+        tmp_path,
+        resume=ResumeMode.NEVER,
+        write_scheduler_events=write_scheduler_events,
+    )
+
+    final_path = builder.build(num_records=2, resume=ResumeMode.NEVER)
+    event_path = final_path.parent / "scheduler_events.jsonl"
+
+    assert event_path.exists() is write_scheduler_events
+    if write_scheduler_events:
+        events = [json.loads(line) for line in event_path.read_text(encoding="utf-8").splitlines()]
+        assert events[0]["event_kind"] == "scheduler_job_started"
+        assert events[-1]["event_kind"] == "scheduler_job_completed"
+
+
+def test_preview_does_not_write_scheduler_events(stub_resource_provider: Mock, tmp_path: Path) -> None:
+    builder, _storage = _make_sampler_only_builder(
+        stub_resource_provider,
+        tmp_path,
+        resume=ResumeMode.NEVER,
+        write_scheduler_events=True,
+    )
+
+    builder.build_preview(num_records=1)
+
+    assert list(tmp_path.rglob("scheduler_events.jsonl")) == []
+
+
+def test_resumed_build_appends_scheduler_event_segment(stub_resource_provider: Mock, tmp_path: Path) -> None:
+    builder, _storage = _make_sampler_only_builder(
+        stub_resource_provider,
+        tmp_path,
+        resume=ResumeMode.NEVER,
+        write_scheduler_events=True,
+    )
+    final_path = builder.build(num_records=1, resume=ResumeMode.NEVER)
+    event_path = final_path.parent / "scheduler_events.jsonl"
+
+    resumed_builder, _storage = _make_sampler_only_builder(
+        stub_resource_provider,
+        tmp_path,
+        resume=ResumeMode.ALWAYS,
+        write_scheduler_events=True,
+    )
+    resumed_builder.build(num_records=3, resume=ResumeMode.ALWAYS)
+
+    events = [json.loads(line) for line in event_path.read_text(encoding="utf-8").splitlines()]
+    starts = [event for event in events if event["event_kind"] == "scheduler_job_started"]
+    assert len(starts) == 2
+    assert starts[0]["diagnostics"]["run_id"] != starts[1]["diagnostics"]["run_id"]
 
 
 def test_build_resume_ordered_seed_dataset_continues_from_next_planned_row(stub_resource_provider, tmp_path):
@@ -1604,7 +1725,7 @@ def test_build_resume_complete_dataset_runs_after_generation_when_no_marker(
 
     builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
     after_gen_processor = create_mock_processor("after_gen", ["process_after_generation"])
-    builder.set_processor_runner([after_gen_processor])
+    _replace_processors(builder, [after_gen_processor])
 
     builder.build(num_records=4, resume=ResumeMode.ALWAYS)
 

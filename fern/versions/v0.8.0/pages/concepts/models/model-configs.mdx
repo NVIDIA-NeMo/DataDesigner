@@ -1,0 +1,159 @@
+---
+title: "Model Configurations"
+description: ""
+position: 5
+---
+Model configurations define the specific models you use for synthetic data generation and their associated inference parameters. Each `ModelConfig` represents a named model that can be referenced throughout your data generation workflows.
+
+## Overview
+
+A `ModelConfig` specifies which LLM model to use and how it should behave during generation. When you create column configurations (like `LLMText`, `LLMCode`, or `LLMStructured`), you reference a model by its alias. Data Designer uses the model configuration to determine which model to call and with what parameters.
+
+When a column includes `multi_modal_context`, the `ModelConfig` alias must point to a model that supports the media types you send. Data Designer can serialize image, audio, and video context blocks, but model capability is still provider-specific. Local audio/video paths require explicit URL mode (`data_type=url`) and require the model endpoint to have filesystem access to the same paths, typically a colocated vLLM server configured for local media access.
+
+## ModelConfig Structure
+
+The `ModelConfig` class has the following fields:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `alias` | `str` | Yes | Unique identifier for this model configuration (e.g., `"my-text-model"`, `"reasoning-model"`) |
+| `model` | `str` | Yes | Model identifier as recognized by the provider (e.g., `"nvidia/nemotron-3-nano-30b-a3b"`, `"gpt-4"`) |
+| `inference_parameters` | `InferenceParamsT` | No | Controls model behavior during generation. Use `ChatCompletionInferenceParams` for text/code/structured generation or `EmbeddingInferenceParams` for embeddings. Defaults to `ChatCompletionInferenceParams()` if not provided. The generation type is automatically determined by the inference parameters type. See [Inference Parameters](/concepts/models/inference-parameters) for details. |
+| `provider` | `str` | Yes | Reference to the name of the Provider to use (e.g., `"nvidia"`, `"openai"`, `"openrouter"`). |
+| `skip_health_check` | `bool` | No | Whether to skip the health check for this model. Defaults to `False`. Set to `True` to skip health checks when you know the model is accessible or want to defer validation. |
+
+<Warning title="Upgrade note">
+Every `ModelConfig` must now specify `provider`. Existing `model_configs.yaml` entries from older releases that omit `provider` or set it to `null` must be updated with an explicit provider name before loading. Agent tooling that parses `data-designer agent context` should read each model alias item's `provider` field; the top-level `default_provider` and per-item `configured_provider` / `effective_provider` fields are no longer emitted.
+</Warning>
+
+
+## Examples
+
+### Basic Model Configuration
+
+```python
+import data_designer.config as dd
+
+# Simple model configuration with fixed parameters
+model_config = dd.ModelConfig(
+    alias="my-text-model",
+    model="nvidia/nemotron-3-nano-30b-a3b",
+    provider="nvidia",
+    inference_parameters=dd.ChatCompletionInferenceParams(
+        temperature=0.85,
+        top_p=0.95,
+        max_tokens=2048,
+    ),
+)
+```
+
+### Multiple Model Configurations for Different Tasks
+
+```python
+import data_designer.config as dd
+
+model_configs = [
+    # Creative tasks
+    dd.ModelConfig(
+        alias="creative-model",
+        model="nvidia/nemotron-3-nano-30b-a3b",
+        provider="nvidia",
+        inference_parameters=dd.ChatCompletionInferenceParams(
+            temperature=0.9,
+            top_p=0.95,
+            max_tokens=2048,
+        ),
+    ),
+    # Critic tasks
+    dd.ModelConfig(
+        alias="critic-model",
+        model="nvidia/nemotron-3-nano-30b-a3b",
+        provider="nvidia",
+        inference_parameters=dd.ChatCompletionInferenceParams(
+            temperature=0.25,
+            top_p=0.95,
+            max_tokens=2048,
+        ),
+    ),
+    # Reasoning and structured tasks
+    dd.ModelConfig(
+        alias="reasoning-model",
+        model="nvidia/nemotron-3-super-120b-a12b",
+        provider="nvidia",
+        inference_parameters=dd.ChatCompletionInferenceParams(
+            temperature=1.0,
+            top_p=0.95,
+            max_tokens=4096,
+        ),
+    ),
+    # Omni multimodal tasks
+    dd.ModelConfig(
+        alias="vision-model",
+        model="nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+        provider="nvidia",
+        inference_parameters=dd.ChatCompletionInferenceParams(
+            temperature=0.60,
+            top_p=0.95,
+            max_tokens=2048,
+        ),
+    ),
+    # Embedding tasks
+    dd.ModelConfig(
+        alias="embedding_model",
+        model="nvidia/llama-nemotron-embed-1b-v2",
+        provider="nvidia",
+        inference_parameters=dd.EmbeddingInferenceParams(
+            encoding_format="float",
+            extra_body={
+                "input_type": "query"
+            }
+        )
+    )
+]
+```
+
+<Tip>
+Experiment with max_tokens for Task-Specific Model Configurations
+The number of tokens required to generate a single data entry can vary significantly with use case. For example, reasoning models often need more tokens to "think through" problems before generating a response. Note that `max_tokens` specifies the **maximum number of output tokens** to generate in the response, so set this value based on the expected length of the generated content.
+</Tip>
+
+### Skipping Health Checks
+
+By default, Data Designer runs a health check for each model before starting data generation to ensure the model is accessible and configured correctly. You can skip this health check for specific models by setting `skip_health_check=True`:
+
+```python
+import data_designer.config as dd
+
+model_config = dd.ModelConfig(
+    alias="my-model",
+    model="nvidia/nemotron-3-nano-30b-a3b",
+    provider="nvidia",
+    inference_parameters=dd.ChatCompletionInferenceParams(
+        temperature=0.85,
+        top_p=0.95,
+        max_tokens=2048,
+    ),
+    skip_health_check=True,  # Skip health check for this model
+)
+```
+
+<Note>
+When to Skip Health Checks
+Skipping health checks can be useful when:
+
+- You've already verified the model is accessible and want to speed up initialization
+- You're using a model that doesn't support the standard health check format
+- You want to defer model validation until the model is actually used
+
+Note that skipping health checks means errors will only be discovered during actual data generation.
+</Note>
+
+## See Also
+
+- **[Inference Parameters](/concepts/models/inference-parameters)**: Detailed guide to inference parameters and how to configure them
+- **[Model Providers](/concepts/models/model-providers)**: Learn about configuring model providers
+- **[Default Model Settings](/concepts/models/default-model-settings)**: Pre-configured model settings included with Data Designer
+- **[Custom Model Settings](/concepts/models/custom-model-settings)**: Learn how to create custom providers and model configurations
+- **[Configure Model Settings With the CLI](/concepts/models/configure-with-the-cli)**: Use the CLI to manage model settings
+- **[Architecture & Performance](/concepts/architecture-and-performance)**: Understanding separation of concerns and optimizing concurrency

@@ -3,11 +3,8 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel
-
 from data_designer.engine.models.parsers.parser import LLMResponseParser
 from data_designer.engine.models.parsers.postprocessors import (
-    RealizePydanticTypes,
     deserialize_json_code,
     merge_text_blocks,
 )
@@ -15,7 +12,6 @@ from data_designer.engine.models.parsers.tag_parsers import code_block_parser
 from data_designer.engine.models.parsers.types import (
     CodeBlock,
     LLMStructuredResponse,
-    PydanticTypeBlock,
     StructuredDataBlock,
     TextBlock,
 )
@@ -82,7 +78,7 @@ def test_llm_response_parser_markup_passthrough():
     assert block.text == text
 
 
-def test_llm_response_parser_full_pipeline():
+def test_llm_response_parser_deserializes_json_blocks():
     text = """\
 Test prompt return. The return has some `code` included.
 ```json
@@ -97,17 +93,10 @@ Test prompt return. The return has some `code` included.
 That is all there is at the moment.\
 """
 
-    class Foo(BaseModel):
-        baz: int
-
-    class Bar(BaseModel):
-        foos: list[Foo]
-
     parser = LLMResponseParser(
         postprocessors=[
             merge_text_blocks,
             deserialize_json_code,
-            RealizePydanticTypes([Foo, Bar]),
         ]
     )
     result = parser.parse(text)
@@ -119,12 +108,12 @@ That is all there is at the moment.\
 
     assert result.parsed[0] == TextBlock(text="Test prompt return. The return has some `code` included.")
     assert isinstance(result.parsed[1], StructuredDataBlock)
-    assert isinstance(result.parsed[2], PydanticTypeBlock)
-    assert isinstance(result.parsed[3], PydanticTypeBlock)
+    assert isinstance(result.parsed[2], StructuredDataBlock)
+    assert isinstance(result.parsed[3], StructuredDataBlock)
 
     assert result.parsed[1].obj == {"asdf": 42}
-    assert result.parsed[2].obj == Foo(baz=3)
-    assert result.parsed[3].obj == Bar(foos=[Foo(baz=1), Foo(baz=2)])
+    assert result.parsed[2].obj == {"baz": 3}
+    assert result.parsed[3].obj == {"foos": [{"baz": 1}, {"baz": 2}]}
     assert result.parsed[4] == TextBlock(text="That is all there is at the moment.")
 
 

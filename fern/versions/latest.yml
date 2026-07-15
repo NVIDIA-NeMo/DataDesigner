@@ -4,206 +4,208 @@ navigation:
   - section: Getting Started
     contents:
       - page: Welcome
-        path: ./v0.7.0/pages/index.mdx
+        path: ./v0.8.0/pages/index.mdx
       - page: Contributing
-        path: ./v0.7.0/pages/CONTRIBUTING.mdx
+        path: ./v0.8.0/pages/CONTRIBUTING.mdx
   - section: Concepts
     contents:
       - page: Columns
-        path: ./v0.7.0/pages/concepts/columns.mdx
+        path: ./v0.8.0/pages/concepts/columns.mdx
       - page: Seed Datasets
-        path: ./v0.7.0/pages/concepts/seed-datasets.mdx
+        path: ./v0.8.0/pages/concepts/seed-datasets.mdx
       - page: Agent Rollout Ingestion
-        path: ./v0.7.0/pages/concepts/agent-rollout-ingestion.mdx
+        path: ./v0.8.0/pages/concepts/agent-rollout-ingestion.mdx
       - section: Models
         contents:
           - page: Default Model Settings
-            path: ./v0.7.0/pages/concepts/models/default-model-settings.mdx
+            path: ./v0.8.0/pages/concepts/models/default-model-settings.mdx
           - page: Configure with the CLI
-            path: ./v0.7.0/pages/concepts/models/configure-model-settings-with-the-cli.mdx
+            path: ./v0.8.0/pages/concepts/models/configure-model-settings-with-the-cli.mdx
           - page: Custom Model Settings
-            path: ./v0.7.0/pages/concepts/models/custom-model-settings.mdx
+            path: ./v0.8.0/pages/concepts/models/custom-model-settings.mdx
           - page: Model Providers
-            path: ./v0.7.0/pages/concepts/models/model-providers.mdx
+            path: ./v0.8.0/pages/concepts/models/model-providers.mdx
           - page: Model Configs
-            path: ./v0.7.0/pages/concepts/models/model-configs.mdx
+            path: ./v0.8.0/pages/concepts/models/model-configs.mdx
           - page: Inference Parameters
-            path: ./v0.7.0/pages/concepts/models/inference-parameters.mdx
+            path: ./v0.8.0/pages/concepts/models/inference-parameters.mdx
       - page: Custom Columns
-        path: ./v0.7.0/pages/concepts/custom_columns.mdx
+        path: ./v0.8.0/pages/concepts/custom_columns.mdx
       - page: Validators
-        path: ./v0.7.0/pages/concepts/validators.mdx
+        path: ./v0.8.0/pages/concepts/validators.mdx
       - page: Processors
-        path: ./v0.7.0/pages/concepts/processors.mdx
+        path: ./v0.8.0/pages/concepts/processors.mdx
       - page: Workflow Chaining
-        path: ./v0.7.0/pages/concepts/workflow-chaining.mdx
+        path: ./v0.8.0/pages/concepts/workflow-chaining.mdx
       - page: Person Sampling
-        path: ./v0.7.0/pages/concepts/person_sampling.mdx
+        path: ./v0.8.0/pages/concepts/person_sampling.mdx
       - page: Traces
-        path: ./v0.7.0/pages/concepts/traces.mdx
+        path: ./v0.8.0/pages/concepts/traces.mdx
+      - page: Logging
+        path: ./v0.8.0/pages/concepts/logging.mdx
       - section: Tool Use & MCP
         contents:
           - page: Overview
-            path: ./v0.7.0/pages/concepts/tool_use_and_mcp.mdx
+            path: ./v0.8.0/pages/concepts/tool_use_and_mcp.mdx
           - page: MCP Providers
-            path: ./v0.7.0/pages/concepts/mcp/mcp-providers.mdx
+            path: ./v0.8.0/pages/concepts/mcp/mcp-providers.mdx
           - page: Tool Configs
-            path: ./v0.7.0/pages/concepts/mcp/tool-configs.mdx
+            path: ./v0.8.0/pages/concepts/mcp/tool-configs.mdx
           - page: Enabling Tools
-            path: ./v0.7.0/pages/concepts/mcp/enabling-tools.mdx
+            path: ./v0.8.0/pages/concepts/mcp/enabling-tools.mdx
           - page: CLI Configuration
-            path: ./v0.7.0/pages/concepts/mcp/configure-mcp-cli.mdx
+            path: ./v0.8.0/pages/concepts/mcp/configure-mcp-cli.mdx
           - page: Safety & Limits
-            path: ./v0.7.0/pages/concepts/mcp/safety-and-limits.mdx
+            path: ./v0.8.0/pages/concepts/mcp/safety-and-limits.mdx
       - page: Architecture & Performance
-        path: ./v0.7.0/pages/concepts/architecture-and-performance.mdx
+        path: ./v0.8.0/pages/concepts/architecture-and-performance.mdx
       - page: Deployment Options
-        path: ./v0.7.0/pages/concepts/deployment-options.mdx
+        path: ./v0.8.0/pages/concepts/deployment-options.mdx
       - page: Security
-        path: ./v0.7.0/pages/concepts/security.mdx
+        path: ./v0.8.0/pages/concepts/security.mdx
   - section: Tutorials
     contents:
       - page: Overview
-        path: ./v0.7.0/pages/notebooks/README.mdx
+        path: ./v0.8.0/pages/notebooks/README.mdx
       - page: The Basics
-        path: ./v0.7.0/pages/notebooks/1-the-basics.mdx
+        path: ./v0.8.0/pages/notebooks/1-the-basics.mdx
       - page: Structured Outputs, Jinja Expressions, and Conditional Generation
-        path: ./v0.7.0/pages/notebooks/2-structured-outputs-and-jinja-expressions.mdx
+        path: ./v0.8.0/pages/notebooks/2-structured-outputs-and-jinja-expressions.mdx
       - page: Seeding with an External Dataset
-        path: ./v0.7.0/pages/notebooks/3-seeding-with-a-dataset.mdx
+        path: ./v0.8.0/pages/notebooks/3-seeding-with-a-dataset.mdx
       - page: Providing Images as Context
-        path: ./v0.7.0/pages/notebooks/4-providing-images-as-context.mdx
+        path: ./v0.8.0/pages/notebooks/4-providing-images-as-context.mdx
       - page: Generating Images
-        path: ./v0.7.0/pages/notebooks/5-generating-images.mdx
+        path: ./v0.8.0/pages/notebooks/5-generating-images.mdx
       - page: Image-to-Image Editing
-        path: ./v0.7.0/pages/notebooks/6-editing-images-with-image-context.mdx
+        path: ./v0.8.0/pages/notebooks/6-editing-images-with-image-context.mdx
   - section: Recipes
     contents:
       - page: Recipe Cards
-        path: ./latest/pages/recipes/cards.mdx
+        path: ./v0.8.0/pages/recipes/cards.mdx
       - section: Image Generation
         contents:
           - page: Rich Document Image Generation
-            path: ./latest/pages/recipes/image_generation/rich_document_images.mdx
+            path: ./v0.8.0/pages/recipes/image_generation/rich_document_images.mdx
           - page: Product Image Variations
-            path: ./latest/pages/recipes/image_generation/product_image_variations.mdx
+            path: ./v0.8.0/pages/recipes/image_generation/product_image_variations.mdx
           - page: Funny Pet Image Edits
-            path: ./latest/pages/recipes/image_generation/funny_pet_image_edits.mdx
+            path: ./v0.8.0/pages/recipes/image_generation/funny_pet_image_edits.mdx
           - page: Autonomous Vehicle Traffic Scenarios
-            path: ./latest/pages/recipes/image_generation/traffic_scenarios.mdx
+            path: ./v0.8.0/pages/recipes/image_generation/traffic_scenarios.mdx
           - page: Synthetic Extremity X-rays
-            path: ./latest/pages/recipes/image_generation/medical_extremity_xrays.mdx
+            path: ./v0.8.0/pages/recipes/image_generation/medical_extremity_xrays.mdx
           - page: Airport Baggage Screening Scans
-            path: ./latest/pages/recipes/image_generation/airport_security_scans.mdx
+            path: ./v0.8.0/pages/recipes/image_generation/airport_security_scans.mdx
           - page: Humanoid Robot Scene Understanding
-            path: ./latest/pages/recipes/image_generation/humanoid_robot_scene_understanding.mdx
+            path: ./v0.8.0/pages/recipes/image_generation/humanoid_robot_scene_understanding.mdx
           - page: Crop Disease Detection Images
-            path: ./latest/pages/recipes/image_generation/agriculture_crop_imagery.mdx
+            path: ./v0.8.0/pages/recipes/image_generation/agriculture_crop_imagery.mdx
           - page: Drone Aerial Inspection
-            path: ./latest/pages/recipes/image_generation/drone_aerial_inspection.mdx
+            path: ./v0.8.0/pages/recipes/image_generation/drone_aerial_inspection.mdx
       - section: Code Generation
         contents:
           - page: Text to Python
-            path: ./latest/pages/recipes/code_generation/text_to_python.mdx
+            path: ./v0.8.0/pages/recipes/code_generation/text_to_python.mdx
           - page: Text to SQL
-            path: ./latest/pages/recipes/code_generation/text_to_sql.mdx
+            path: ./v0.8.0/pages/recipes/code_generation/text_to_sql.mdx
           - page: Nemotron Super Text to SQL
-            path: ./latest/pages/recipes/code_generation/enterprise_text_to_sql.mdx
+            path: ./v0.8.0/pages/recipes/code_generation/enterprise_text_to_sql.mdx
       - section: Plugin Development
         contents:
           - page: Markdown Section Seed Reader Plugin
-            path: ./latest/pages/recipes/plugin_development/markdown_seed_reader.mdx
+            path: ./v0.8.0/pages/recipes/plugin_development/markdown_seed_reader.mdx
       - section: QA and Chat
         contents:
           - page: Product Info QA
-            path: ./latest/pages/recipes/qa_and_chat/product_info_qa.mdx
+            path: ./v0.8.0/pages/recipes/qa_and_chat/product_info_qa.mdx
           - page: Multi-Turn Chat
-            path: ./latest/pages/recipes/qa_and_chat/multi_turn_chat.mdx
+            path: ./v0.8.0/pages/recipes/qa_and_chat/multi_turn_chat.mdx
       - section: Trace Ingestion
         contents:
           - page: Agent Rollout Trace Distillation
-            path: ./latest/pages/recipes/trace_ingestion/agent_rollout_distillation.mdx
+            path: ./v0.8.0/pages/recipes/trace_ingestion/agent_rollout_distillation.mdx
       - section: Workflow Chaining
         contents:
           - page: Document Review Gate
-            path: ./latest/pages/recipes/workflow_chaining/document_review_gate.mdx
+            path: ./v0.8.0/pages/recipes/workflow_chaining/document_review_gate.mdx
       - section: MCP and Tool Use
         contents:
           - page: Basic MCP Tool Use
-            path: ./latest/pages/recipes/mcp_and_tooluse/basic_mcp.mdx
+            path: ./v0.8.0/pages/recipes/mcp_and_tooluse/basic_mcp.mdx
           - page: PDF Document QA
-            path: ./latest/pages/recipes/mcp_and_tooluse/pdf_qa.mdx
+            path: ./v0.8.0/pages/recipes/mcp_and_tooluse/pdf_qa.mdx
           - page: Nemotron Super Search Agent
-            path: ./latest/pages/recipes/mcp_and_tooluse/search_agent.mdx
+            path: ./v0.8.0/pages/recipes/mcp_and_tooluse/search_agent.mdx
       - section: VLM Long-Document Understanding
         contents:
           - page: Seed Dataset Preparation
-            path: ./latest/pages/recipes/vlm_long_doc/seed_dataset_preparation.mdx
+            path: ./v0.8.0/pages/recipes/vlm_long_doc/seed_dataset_preparation.mdx
           - page: Nemotron Parse OCR
-            path: ./latest/pages/recipes/vlm_long_doc/nemotron_parse_ocr.mdx
+            path: ./v0.8.0/pages/recipes/vlm_long_doc/nemotron_parse_ocr.mdx
           - page: Text QA from OCR Transcripts
-            path: ./latest/pages/recipes/vlm_long_doc/text_qa.mdx
+            path: ./v0.8.0/pages/recipes/vlm_long_doc/text_qa.mdx
           - page: Page Classification
-            path: ./latest/pages/recipes/vlm_long_doc/page_classification.mdx
+            path: ./v0.8.0/pages/recipes/vlm_long_doc/page_classification.mdx
           - page: Visual QA
-            path: ./latest/pages/recipes/vlm_long_doc/visual_qa.mdx
+            path: ./v0.8.0/pages/recipes/vlm_long_doc/visual_qa.mdx
           - page: Single-Page QA
-            path: ./latest/pages/recipes/vlm_long_doc/single_page_qa.mdx
+            path: ./v0.8.0/pages/recipes/vlm_long_doc/single_page_qa.mdx
           - page: Multi-Page Windowed QA
-            path: ./latest/pages/recipes/vlm_long_doc/multi_page_windowed_qa.mdx
+            path: ./v0.8.0/pages/recipes/vlm_long_doc/multi_page_windowed_qa.mdx
           - page: Whole-Document QA
-            path: ./latest/pages/recipes/vlm_long_doc/whole_document_qa.mdx
+            path: ./v0.8.0/pages/recipes/vlm_long_doc/whole_document_qa.mdx
           - page: Frontier Judge QA Filter
-            path: ./latest/pages/recipes/vlm_long_doc/frontier_judge.mdx
+            path: ./v0.8.0/pages/recipes/vlm_long_doc/frontier_judge.mdx
   - section: Plugins
     contents:
       - page: Overview
-        path: ./v0.7.0/pages/plugins/overview.mdx
+        path: ./v0.8.0/pages/plugins/overview.mdx
       - page: Example Plugin
-        path: ./v0.7.0/pages/plugins/example.mdx
+        path: ./v0.8.0/pages/plugins/example.mdx
       - page: FileSystemSeedReader Plugins
-        path: ./v0.7.0/pages/plugins/filesystem_seed_reader.mdx
+        path: ./v0.8.0/pages/plugins/filesystem_seed_reader.mdx
       - page: Discover
-        path: ./v0.7.0/pages/plugins/discover.mdx
+        path: ./v0.8.0/pages/plugins/discover.mdx
   - section: Dev Notes
     contents:
       - page: Overview
-        path: ./latest/pages/devnotes/index.mdx
+        path: ./v0.8.0/pages/devnotes/index.mdx
       - page: Image Generation for Multimodal Data Pipelines
-        path: ./latest/pages/devnotes/posts/image-generation-for-multimodal-data-pipelines.mdx
+        path: ./v0.8.0/pages/devnotes/posts/image-generation-for-multimodal-data-pipelines.mdx
       - page: Pause, Inspect, Resume
-        path: ./latest/pages/devnotes/posts/annotate-hard-pages-review-gates.mdx
+        path: ./v0.8.0/pages/devnotes/posts/annotate-hard-pages-review-gates.mdx
       - page: Designing Nemotron-Personas
-        path: ./latest/pages/devnotes/posts/nemotron-personas.mdx
+        path: ./v0.8.0/pages/devnotes/posts/nemotron-personas.mdx
       - page: Prompt Sensitivity
-        path: ./latest/pages/devnotes/posts/prompt-sensitivity.mdx
+        path: ./v0.8.0/pages/devnotes/posts/prompt-sensitivity.mdx
       - page: Retriever SDG Toolkit
-        path: ./latest/pages/devnotes/posts/retriever-sdg-toolkit.mdx
+        path: ./v0.8.0/pages/devnotes/posts/retriever-sdg-toolkit.mdx
       - page: Have It Your Way
-        path: ./latest/pages/devnotes/posts/have-it-your-way.mdx
+        path: ./v0.8.0/pages/devnotes/posts/have-it-your-way.mdx
       - page: VLM Long Document Understanding
-        path: ./latest/pages/devnotes/posts/vlm-long-document-understanding.mdx
+        path: ./v0.8.0/pages/devnotes/posts/vlm-long-document-understanding.mdx
       - page: Push Datasets to Hugging Face Hub
-        path: ./latest/pages/devnotes/posts/push-datasets-to-hugging-face-hub.mdx
+        path: ./v0.8.0/pages/devnotes/posts/push-datasets-to-hugging-face-hub.mdx
       - page: Text-to-SQL for Nemotron Super
-        path: ./latest/pages/devnotes/posts/text-to-sql.mdx
+        path: ./v0.8.0/pages/devnotes/posts/text-to-sql.mdx
       - page: Async All the Way Down
-        path: ./latest/pages/devnotes/posts/async-all-the-way-down.mdx
+        path: ./v0.8.0/pages/devnotes/posts/async-all-the-way-down.mdx
       - page: Owning the Model Stack
-        path: ./latest/pages/devnotes/posts/owning-the-model-stack.mdx
+        path: ./v0.8.0/pages/devnotes/posts/owning-the-model-stack.mdx
       - section: Older Dev Notes
         collapsed: true
         skip-slug: true
         contents:
           - page: Data Designer Got Skills
-            path: ./latest/pages/devnotes/posts/data-designer-got-skills.mdx
+            path: ./v0.8.0/pages/devnotes/posts/data-designer-got-skills.mdx
           - page: Search Agent
-            path: ./latest/pages/devnotes/posts/search-agent.mdx
+            path: ./v0.8.0/pages/devnotes/posts/search-agent.mdx
           - page: Structured Outputs from Nemotron
-            path: ./latest/pages/devnotes/posts/structured-outputs-from-nemotron.mdx
+            path: ./v0.8.0/pages/devnotes/posts/structured-outputs-from-nemotron.mdx
           - page: Deep Research Trajectories
-            path: ./latest/pages/devnotes/posts/deep-research-trajectories.mdx
+            path: ./v0.8.0/pages/devnotes/posts/deep-research-trajectories.mdx
           - page: Design Principles
-            path: ./latest/pages/devnotes/posts/design-principles.mdx
+            path: ./v0.8.0/pages/devnotes/posts/design-principles.mdx
           - page: RQA Dataset
-            path: ./latest/pages/devnotes/posts/rqa.mdx
+            path: ./v0.8.0/pages/devnotes/posts/rqa.mdx

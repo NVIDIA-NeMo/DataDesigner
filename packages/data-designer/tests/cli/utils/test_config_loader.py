@@ -7,12 +7,213 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+import yaml
 
 from data_designer.cli.utils.config_loader import (
     ConfigLoadError,
     load_config_builder,
+    load_run_config,
 )
+from data_designer.config import DataDesignerScriptParams
 from data_designer.config.config_builder import DataDesignerConfigBuilder
+from data_designer.config.run_config import JinjaRenderingEngine, RequestAdmissionTuningConfig, RunConfig
+
+
+@pytest.mark.parametrize("suffix", [".yaml", ".yml", ".YAML"])
+def test_load_run_config_accepts_yaml_extensions(tmp_path: Path, suffix: str) -> None:
+    run_config_file = tmp_path / f"run-config{suffix}"
+    run_config_file.write_text("buffer_size: 250\n")
+
+    assert load_run_config(str(run_config_file)).buffer_size == 250
+
+
+def test_load_run_config_accepts_all_canonical_fields(tmp_path: Path) -> None:
+    expected = RunConfig(
+        disable_early_shutdown=False,
+        shutdown_error_rate=0.25,
+        shutdown_error_window=20,
+        buffer_size=250,
+        max_in_flight_tasks=128,
+        non_inference_max_parallel_workers=8,
+        max_conversation_restarts=7,
+        max_conversation_correction_steps=2,
+        async_trace=True,
+        display_tui=False,
+        progress_interval=10.0,
+        preserve_dropped_columns=False,
+        jinja_rendering_engine=JinjaRenderingEngine.NATIVE,
+        request_admission=RequestAdmissionTuningConfig(
+            multiplicative_decrease_factor=0.5,
+            additive_increase_step=2,
+            successes_until_increase=10,
+            cooldown_seconds=1.5,
+            startup_ramp_seconds=30.0,
+        ),
+    )
+    run_config_file = tmp_path / "run-config.yaml"
+    run_config_file.write_text(yaml.safe_dump(expected.model_dump(mode="json"), sort_keys=False))
+
+    loaded = load_run_config(str(run_config_file))
+
+    assert loaded == expected
+    assert loaded.model_dump(exclude_unset=True) == expected.model_dump()
+
+
+def test_load_run_config_accepts_empty_mapping(tmp_path: Path) -> None:
+    run_config_file = tmp_path / "run-config.yaml"
+    run_config_file.write_text("{}\n")
+
+    loaded = load_run_config(str(run_config_file))
+
+    assert loaded.model_dump(exclude_unset=True) == {}
+
+
+def test_load_run_config_preserves_explicit_partial_fields(tmp_path: Path) -> None:
+    run_config_file = tmp_path / "run-config.yaml"
+    run_config_file.write_text("buffer_size: 250\ndisplay_tui: true\n")
+
+    loaded = load_run_config(str(run_config_file))
+
+    assert loaded.model_dump(exclude_unset=True) == {"buffer_size": 250, "display_tui": True}
+
+
+def test_load_run_config_preserves_partial_nested_fields(tmp_path: Path) -> None:
+    run_config_file = tmp_path / "run-config.yaml"
+    run_config_file.write_text("request_admission:\n  successes_until_increase: 7\n")
+
+    loaded = load_run_config(str(run_config_file))
+
+    assert loaded.model_dump(exclude_unset=True) == {"request_admission": {"successes_until_increase": 7}}
+
+
+def test_load_run_config_canonicalizes_deprecated_aliases(tmp_path: Path) -> None:
+    run_config_file = tmp_path / "run-config.yaml"
+    run_config_file.write_text("progress_bar: false\nthrottle:\n  reduce_factor: 0.5\n  success_window: 7\n")
+
+    with pytest.warns(DeprecationWarning) as caught:
+        loaded = load_run_config(str(run_config_file))
+
+    explicit = loaded.model_dump(exclude_unset=True)
+    assert len(caught) == 2
+    assert explicit["display_tui"] is False
+    assert explicit["request_admission"]["multiplicative_decrease_factor"] == 0.5
+    assert explicit["request_admission"]["successes_until_increase"] == 7
+    assert "progress_bar" not in explicit
+    assert "throttle" not in explicit
+
+
+def test_load_run_config_rejects_missing_file(tmp_path: Path) -> None:
+    run_config_file = tmp_path / "missing.yaml"
+
+    with pytest.raises(ConfigLoadError) as exc_info:
+        load_run_config(str(run_config_file))
+
+    assert str(run_config_file) in str(exc_info.value)
+    assert "file not found" in str(exc_info.value)
+
+
+def test_load_run_config_rejects_directory(tmp_path: Path) -> None:
+    with pytest.raises(ConfigLoadError) as exc_info:
+        load_run_config(str(tmp_path))
+
+    assert str(tmp_path) in str(exc_info.value)
+    assert "not a file" in str(exc_info.value)
+
+
+def test_load_run_config_rejects_url() -> None:
+    config_url = "https://user:password@example.com/run-config.yaml?token=secret#fragment"
+
+    with pytest.raises(ConfigLoadError) as exc_info:
+        load_run_config(config_url)
+
+    message = str(exc_info.value)
+    assert "https://example.com/run-config.yaml" in message
+    assert "password" not in message
+    assert "secret" not in message
+    assert "fragment" not in message
+    assert "remote URLs are not supported" in message
+
+
+def test_load_run_config_wraps_malformed_url() -> None:
+    with pytest.raises(ConfigLoadError) as exc_info:
+        load_run_config("http://[invalid/run-config.yaml?token=secret")
+
+    message = str(exc_info.value)
+    assert "<invalid remote URL>" in message
+    assert "secret" not in message
+    assert "remote URLs are not supported" in message
+
+
+def test_load_run_config_rejects_unsupported_extension(tmp_path: Path) -> None:
+    run_config_file = tmp_path / "run-config.json"
+    run_config_file.write_text("{}\n")
+
+    with pytest.raises(ConfigLoadError) as exc_info:
+        load_run_config(str(run_config_file))
+
+    assert str(run_config_file) in str(exc_info.value)
+    assert "unsupported file extension" in str(exc_info.value)
+
+
+@patch("data_designer.cli.utils.config_loader.smart_load_yaml", side_effect=PermissionError("Permission denied"))
+def test_load_run_config_wraps_unreadable_file(mock_load_yaml: MagicMock, tmp_path: Path) -> None:
+    run_config_file = tmp_path / "run-config.yaml"
+    run_config_file.write_text("{}\n")
+
+    with pytest.raises(ConfigLoadError) as exc_info:
+        load_run_config(str(run_config_file))
+
+    mock_load_yaml.assert_called_once_with(run_config_file)
+    assert str(run_config_file) in str(exc_info.value)
+    assert "Permission denied" in str(exc_info.value)
+
+
+@patch("data_designer.cli.utils.config_loader.Path.exists", side_effect=OSError("path probe failed"))
+def test_load_run_config_wraps_path_probe_error(mock_exists: MagicMock) -> None:
+    with pytest.raises(ConfigLoadError) as exc_info:
+        load_run_config("run-config.yaml")
+
+    mock_exists.assert_called_once_with()
+    assert "run-config.yaml" in str(exc_info.value)
+    assert "path probe failed" in str(exc_info.value)
+
+
+def test_load_run_config_omits_invalid_values_from_errors(tmp_path: Path) -> None:
+    run_config_file = tmp_path / "run-config.yaml"
+    run_config_file.write_text("api_key: sk-live-secret\n")
+
+    with pytest.raises(ConfigLoadError) as exc_info:
+        load_run_config(str(run_config_file))
+
+    message = str(exc_info.value)
+    assert "api_key" in message
+    assert "Extra inputs are not permitted" in message
+    assert "sk-live-secret" not in message
+    assert "input_value" not in message
+
+
+@pytest.mark.parametrize(
+    ("content", "expected_detail"),
+    [
+        ("", "NoneType"),
+        (":\n  - [\n", "while parsing"),
+        ("runtime\n", "str"),
+        ("- buffer_size\n", "list"),
+        ("unknown_field: 1\n", "unknown_field"),
+        ("buffer_size: 0\n", "buffer_size"),
+        ("request_admission:\n  successes_until_increase: 0\n", "successes_until_increase"),
+    ],
+    ids=["blank", "malformed", "scalar", "list", "unknown", "invalid-scalar", "invalid-nested"],
+)
+def test_load_run_config_wraps_invalid_content(tmp_path: Path, content: str, expected_detail: str) -> None:
+    run_config_file = tmp_path / "run-config.yaml"
+    run_config_file.write_text(content)
+
+    with pytest.raises(ConfigLoadError) as exc_info:
+        load_run_config(str(run_config_file))
+
+    assert str(run_config_file) in str(exc_info.value)
+    assert expected_detail in str(exc_info.value)
 
 
 @patch("data_designer.cli.utils.config_loader.DataDesignerConfigBuilder.from_config")
@@ -24,7 +225,7 @@ def test_load_config_builder_from_yaml(mock_from_config: MagicMock, tmp_path: Pa
     mock_builder = MagicMock()
     mock_from_config.return_value = mock_builder
 
-    result = load_config_builder(str(yaml_file))
+    result = load_config_builder(str(yaml_file), DataDesignerScriptParams())
 
     mock_from_config.assert_called_once_with(yaml_file)
     assert result is mock_builder
@@ -97,8 +298,108 @@ def test_load_config_builder_from_python_module(tmp_path: Path) -> None:
 
         result = load_config_builder(str(py_file))
 
-        mock_load_py.assert_called_once_with(py_file)
+        mock_load_py.assert_called_once_with(py_file, None)
         assert result is mock_builder
+
+
+@pytest.mark.parametrize(
+    ("script_params", "expected_argv"),
+    [
+        pytest.param(None, (), id="empty"),
+        pytest.param(
+            DataDesignerScriptParams(argv=("--seed-path", "seed.parquet")),
+            ("--seed-path", "seed.parquet"),
+            id="forwarded",
+        ),
+    ],
+)
+def test_load_config_builder_python_module_receives_script_params(
+    tmp_path: Path,
+    script_params: DataDesignerScriptParams | None,
+    expected_argv: tuple[str, ...],
+) -> None:
+    py_file = tmp_path / "params_config.py"
+    py_file.write_text(
+        "from data_designer.config import DataDesignerConfigBuilder\n\n"
+        "def load_config_builder(params):\n"
+        "    builder = DataDesignerConfigBuilder()\n"
+        "    builder._test_argv = params.argv\n"
+        "    return builder\n"
+    )
+
+    result = load_config_builder(str(py_file), script_params)
+
+    assert result._test_argv == expected_argv
+
+
+def test_load_config_builder_python_module_accepts_keyword_only_parameter(tmp_path: Path) -> None:
+    py_file = tmp_path / "keyword_params_config.py"
+    py_file.write_text(
+        "from data_designer.config import DataDesignerConfigBuilder\n\n"
+        "def load_config_builder(*, config):\n"
+        "    builder = DataDesignerConfigBuilder()\n"
+        "    builder._test_argv = config.argv\n"
+        "    return builder\n"
+    )
+
+    result = load_config_builder(str(py_file), DataDesignerScriptParams(argv=("--variant", "compact")))
+
+    assert result._test_argv == ("--variant", "compact")
+
+
+def test_load_config_builder_python_module_rejects_script_args_for_legacy_signature(tmp_path: Path) -> None:
+    py_file = tmp_path / "legacy_config.py"
+    py_file.write_text(
+        "from data_designer.config import DataDesignerConfigBuilder\n\n"
+        "def load_config_builder():\n"
+        "    return DataDesignerConfigBuilder()\n"
+    )
+
+    with pytest.raises(ConfigLoadError, match="does not accept script arguments") as exc_info:
+        load_config_builder(
+            str(py_file),
+            DataDesignerScriptParams(argv=("--api-key", "sensitive-value")),
+        )
+
+    assert "sensitive-value" not in str(exc_info.value)
+
+
+@pytest.mark.parametrize("signature", ["first, second", "*args", "**kwargs"])
+def test_load_config_builder_python_module_rejects_unsupported_signature(tmp_path: Path, signature: str) -> None:
+    py_file = tmp_path / "unsupported_signature.py"
+    py_file.write_text(f"def load_config_builder({signature}):\n    return None\n")
+
+    with pytest.raises(ConfigLoadError, match="Unsupported 'load_config_builder\\(\\)' signature"):
+        load_config_builder(str(py_file))
+
+
+@pytest.mark.parametrize(
+    ("filename", "contents"),
+    [
+        ("config.yaml", "data_designer:\n  columns: []\n"),
+        ("config.yml", "data_designer:\n  columns: []\n"),
+        ("config.json", '{"data_designer": {"columns": []}}'),
+    ],
+)
+def test_load_config_builder_rejects_script_args_for_serialized_config(
+    tmp_path: Path,
+    filename: str,
+    contents: str,
+) -> None:
+    config_file = tmp_path / filename
+    config_file.write_text(contents)
+
+    with pytest.raises(ConfigLoadError, match="only supported for local Python config modules"):
+        load_config_builder(str(config_file), DataDesignerScriptParams(argv=("--custom", "value")))
+
+
+@pytest.mark.parametrize(
+    "config_url",
+    ["https://example.com/config.yaml", "https://example.com/config.json", "https://example.com/config.py"],
+)
+def test_load_config_builder_rejects_script_args_for_remote_config(config_url: str) -> None:
+    with pytest.raises(ConfigLoadError, match="only supported for local Python config modules"):
+        load_config_builder(config_url, DataDesignerScriptParams(argv=("--custom", "value")))
 
 
 def test_load_config_builder_file_not_found() -> None:

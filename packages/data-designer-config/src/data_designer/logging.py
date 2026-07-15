@@ -47,6 +47,18 @@ class LoggingConfig:
         )
 
 
+class DataDesignerManagedHandler:
+    """Marker mixin for handlers installed by ``configure_logging()``."""
+
+
+class DataDesignerStreamHandler(DataDesignerManagedHandler, logging.StreamHandler):
+    """Stream handler managed by Data Designer."""
+
+
+class DataDesignerFileHandler(DataDesignerManagedHandler, logging.FileHandler):
+    """File handler managed by Data Designer."""
+
+
 class RandomEmoji:
     """A generator for various themed emoji collections."""
 
@@ -119,8 +131,10 @@ def configure_logging(config: LoggingConfig | None = None) -> None:
 
     root_logger = logging.getLogger()
 
-    # Remove all handlers
-    root_logger.handlers.clear()
+    # Remove and close all handlers replaced by this configuration.
+    for handler in root_logger.handlers[:]:
+        root_logger.removeHandler(handler)
+        handler.close()
 
     # Create and attach handler(s)
     handlers = [_create_handler(output_config) for output_config in config.output_configs]
@@ -138,6 +152,37 @@ def configure_logging(config: LoggingConfig | None = None) -> None:
         quiet_noisy_logger(name)
 
 
+def is_logging_configured() -> bool:
+    """Return whether Data Designer configured the root logger.
+
+    Detected by the presence of a Data Designer-managed handler on the root
+    logger. Logging configured through stdlib APIs (e.g. ``logging.basicConfig()``)
+    is not detected.
+    """
+    return any(isinstance(handler, DataDesignerManagedHandler) for handler in logging.getLogger().handlers)
+
+
+def reset_logging() -> None:
+    """Remove Data Designer's logging configuration from the current process.
+
+    Detaches handlers installed by ``configure_logging()`` from the root logger
+    and returns the root and ``data_designer`` loggers to their default levels.
+    Handlers installed by other code are left untouched. This does not restore
+    logging configuration that existed before ``configure_logging()`` was called.
+    If no Data Designer-managed handler is attached, this function does nothing.
+    """
+    root_logger = logging.getLogger()
+    managed_handlers = [handler for handler in root_logger.handlers if isinstance(handler, DataDesignerManagedHandler)]
+    if not managed_handlers:
+        return
+
+    for handler in managed_handlers:
+        root_logger.removeHandler(handler)
+        handler.close()
+    root_logger.setLevel(logging.WARNING)
+    logging.getLogger("data_designer").setLevel(logging.NOTSET)
+
+
 def quiet_noisy_logger(name: str) -> None:
     logger = logging.getLogger(name)
     logger.handlers.clear()
@@ -146,9 +191,9 @@ def quiet_noisy_logger(name: str) -> None:
 
 def _create_handler(output_config: OutputConfig) -> logging.Handler:
     if isinstance(output_config.destination, Path):
-        handler = logging.FileHandler(str(output_config.destination))
+        handler = DataDesignerFileHandler(str(output_config.destination))
     else:
-        handler = logging.StreamHandler()
+        handler = DataDesignerStreamHandler()
 
     if output_config.structured:
         formatter = _make_json_formatter()

@@ -9,13 +9,14 @@ import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, PropertyMock, patch
+from unittest.mock import MagicMock, PropertyMock, call, patch
 
 import pytest
 from pydantic import ValidationError
 
 import data_designer.interface.data_designer as dd_mod
 import data_designer.lazy_heavy_imports as lazy
+import data_designer.logging as dd_logging
 from data_designer.config.column_configs import (
     ExpressionColumnConfig,
     LLMTextColumnConfig,
@@ -36,6 +37,11 @@ from data_designer.config.seed_source import (
     HuggingFaceSeedSource,
 )
 from data_designer.engine.models.clients.adapters.http_model_client import ClientConcurrencyMode
+from data_designer.engine.models.errors import (
+    RETRYABLE_MODEL_ERRORS,
+    ModelAPIConnectionError,
+    ModelAuthenticationError,
+)
 from data_designer.engine.resources.seed_reader import (
     FileSystemSeedReader,
     SeedReaderError,
@@ -513,6 +519,46 @@ def test_run_config_setting_persists(stub_artifact_path, stub_model_providers):
     assert data_designer.run_config.max_in_flight_tasks == 2048
     assert data_designer.run_config.max_conversation_restarts == 9
     assert data_designer.run_config.max_conversation_correction_steps == 1
+
+
+def test_create_observes_configured_otel_port(stub_artifact_path, stub_model_providers) -> None:
+    data_designer = DataDesigner(artifact_path=stub_artifact_path, model_providers=stub_model_providers)
+    telemetry = MagicMock()
+    telemetry.observe_create.return_value = contextlib.nullcontext()
+    data_designer._open_telemetry = telemetry
+
+    with (
+        patch.object(data_designer, "_create_resource_provider", side_effect=RuntimeError("stop")),
+        pytest.raises(RuntimeError, match="stop"),
+    ):
+        data_designer.create(MagicMock())
+
+    telemetry.observe_create.assert_called_once_with(9464)
+
+
+def test_resource_provider_uses_otel_sink_only_when_enabled(
+    stub_artifact_path,
+    stub_model_providers,
+    stub_sampler_only_config_builder,
+) -> None:
+    person_reader = MagicMock()
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        person_reader=person_reader,
+    )
+    telemetry = MagicMock()
+    data_designer._open_telemetry = telemetry
+
+    with patch.object(dd_mod, "create_resource_provider", return_value=MagicMock()) as create_provider:
+        data_designer._create_resource_provider("enabled", stub_sampler_only_config_builder)
+        assert create_provider.call_args.kwargs["request_event_sink"] is telemetry
+        assert create_provider.call_args.kwargs["scheduler_event_sink"] is telemetry
+
+        data_designer.set_run_config(RunConfig(otel_metrics_port=None))
+        data_designer._create_resource_provider("disabled", stub_sampler_only_config_builder)
+        assert create_provider.call_args.kwargs["request_event_sink"] is None
+        assert create_provider.call_args.kwargs["scheduler_event_sink"] is None
 
 
 def test_run_config_normalizes_error_rate_when_disabled(stub_artifact_path, stub_model_providers):
@@ -1279,58 +1325,142 @@ def stub_check_models_model_configs() -> list[ModelConfig]:
     ]
 
 
-def test_check_models_invokes_readiness_check(
-    stub_artifact_path,
-    stub_model_providers,
+@pytest.fixture
+def stub_check_models_config_builder(
     stub_check_models_model_configs,
-    stub_managed_assets_path,
-):
-    """check_models constructs a ResourceProvider and delegates to run_readiness_check."""
+) -> DataDesignerConfigBuilder:
     config_builder = DataDesignerConfigBuilder(model_configs=stub_check_models_model_configs)
     config_builder.add_column(LLMTextColumnConfig(name="text", prompt="x", model_alias="stub-model"))
+    return config_builder
 
-    data_designer = DataDesigner(
+
+@pytest.fixture
+def stub_check_models_data_designer(
+    stub_artifact_path,
+    stub_model_providers,
+    stub_managed_assets_path,
+) -> DataDesigner:
+    return DataDesigner(
         artifact_path=stub_artifact_path,
         model_providers=stub_model_providers,
         secret_resolver=PlaintextResolver(),
         managed_assets_path=stub_managed_assets_path,
     )
 
+
+def test_check_models_invokes_readiness_check(
+    stub_check_models_config_builder,
+    stub_check_models_data_designer,
+):
+    """check_models constructs a ResourceProvider and delegates to run_readiness_check."""
     with patch("data_designer.interface.data_designer.run_readiness_check") as mock_check:
-        data_designer.check_models(config_builder)
+        stub_check_models_data_designer.check_models(stub_check_models_config_builder)
 
     assert mock_check.call_count == 1
     (called_columns, called_resource_provider), kwargs = mock_check.call_args
     assert [c.name for c in called_columns] == ["text"]
     assert called_resource_provider is not None
-    assert kwargs["client_concurrency_mode"] == ClientConcurrencyMode.ASYNC
+    assert kwargs == {}
 
 
 def test_check_models_propagates_typed_model_error(
-    stub_artifact_path,
-    stub_model_providers,
-    stub_check_models_model_configs,
-    stub_managed_assets_path,
+    stub_check_models_config_builder,
+    stub_check_models_data_designer,
 ):
     """Errors from the readiness probe surface unchanged so callers can branch on type."""
-    from data_designer.engine.models.errors import ModelAuthenticationError
-
-    config_builder = DataDesignerConfigBuilder(model_configs=stub_check_models_model_configs)
-    config_builder.add_column(LLMTextColumnConfig(name="text", prompt="x", model_alias="stub-model"))
-
-    data_designer = DataDesigner(
-        artifact_path=stub_artifact_path,
-        model_providers=stub_model_providers,
-        secret_resolver=PlaintextResolver(),
-        managed_assets_path=stub_managed_assets_path,
-    )
-
-    with patch(
-        "data_designer.interface.data_designer.run_readiness_check",
-        side_effect=ModelAuthenticationError("bad creds"),
+    with (
+        patch(
+            "data_designer.interface.data_designer.run_readiness_check",
+            side_effect=ModelAuthenticationError("bad creds"),
+        ) as mock_check,
+        patch("data_designer.interface.data_designer.time.sleep") as mock_sleep,
     ):
         with pytest.raises(ModelAuthenticationError, match="bad creds"):
-            data_designer.check_models(config_builder)
+            stub_check_models_data_designer.check_models(
+                stub_check_models_config_builder,
+                max_attempts=3,
+                retry_backoff_seconds=5,
+            )
+
+    assert mock_check.call_count == 1
+    mock_sleep.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "error_type",
+    [*RETRYABLE_MODEL_ERRORS, TimeoutError],
+    ids=lambda error_type: error_type.__name__,
+)
+def test_check_models_retries_transient_errors(
+    error_type,
+    stub_check_models_config_builder,
+    stub_check_models_data_designer,
+):
+    transient_error = error_type("temporary failure")
+
+    with (
+        patch(
+            "data_designer.interface.data_designer.run_readiness_check",
+            side_effect=[transient_error, None],
+        ) as mock_check,
+        patch("data_designer.interface.data_designer.time.sleep") as mock_sleep,
+    ):
+        stub_check_models_data_designer.check_models(
+            stub_check_models_config_builder,
+            max_attempts=2,
+            retry_backoff_seconds=5,
+        )
+
+    assert mock_check.call_count == 2
+    mock_sleep.assert_called_once_with(5)
+
+
+def test_check_models_reraises_final_retryable_error(
+    stub_check_models_config_builder,
+    stub_check_models_data_designer,
+):
+    errors = [
+        ModelAPIConnectionError("first failure"),
+        ModelAPIConnectionError("second failure"),
+        ModelAPIConnectionError("final failure"),
+    ]
+
+    with (
+        patch("data_designer.interface.data_designer.run_readiness_check", side_effect=errors) as mock_check,
+        patch("data_designer.interface.data_designer.time.sleep") as mock_sleep,
+        pytest.raises(ModelAPIConnectionError) as exc_info,
+    ):
+        stub_check_models_data_designer.check_models(
+            stub_check_models_config_builder,
+            max_attempts=3,
+            retry_backoff_seconds=5,
+        )
+
+    assert exc_info.value is errors[-1]
+    assert mock_check.call_count == 3
+    assert mock_sleep.call_args_list == [call(5), call(10)]
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"max_attempts": 0}, "max_attempts must be at least 1"),
+        ({"retry_backoff_seconds": -1}, "retry_backoff_seconds must be non-negative"),
+    ],
+)
+def test_check_models_validates_retry_settings(
+    kwargs,
+    message,
+    stub_check_models_config_builder,
+    stub_check_models_data_designer,
+):
+    with (
+        patch.object(stub_check_models_data_designer, "_create_resource_provider") as mock_create_resource_provider,
+        pytest.raises(ValueError, match=message),
+    ):
+        stub_check_models_data_designer.check_models(stub_check_models_config_builder, **kwargs)
+
+    mock_create_resource_provider.assert_not_called()
 
 
 def test_check_models_passes_built_columns_to_readiness_check(
@@ -1425,18 +1555,89 @@ def test_validate_raises_error_when_seed_collides(
         data_designer.validate(config_builder)
 
 
-def test_initialize_interface_runtime_runs_once(monkeypatch: pytest.MonkeyPatch) -> None:
-    """_initialize_interface_runtime only runs initialization once."""
-    monkeypatch.setattr(dd_mod, "_interface_runtime_initialized", False)
+def test_init_auto_configures_logging_by_default(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+) -> None:
+    dd_logging.reset_logging()
 
-    with (
-        patch("data_designer.interface.data_designer.configure_logging") as mock_logging,
-        patch("data_designer.interface.data_designer.resolve_seed_default_model_settings") as mock_resolve,
-    ):
-        dd_mod._initialize_interface_runtime()
-        dd_mod._initialize_interface_runtime()
-        mock_logging.assert_called_once()
-        mock_resolve.assert_called_once()
+    DataDesigner(artifact_path=stub_artifact_path, model_providers=stub_model_providers)
+    configured_handlers = tuple(logging.getLogger().handlers)
+    DataDesigner(artifact_path=stub_artifact_path, model_providers=stub_model_providers)
+
+    assert dd_logging.is_logging_configured() is True
+    assert tuple(logging.getLogger().handlers) == configured_handlers
+
+
+def test_init_resolves_seed_default_model_settings_per_instance(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+) -> None:
+    with patch("data_designer.interface.data_designer.resolve_seed_default_model_settings") as mock_resolve:
+        DataDesigner(artifact_path=stub_artifact_path, model_providers=stub_model_providers)
+        DataDesigner(artifact_path=stub_artifact_path, model_providers=stub_model_providers)
+
+    assert mock_resolve.call_count == 2
+
+
+def test_init_auto_configure_logging_false_preserves_root_handlers(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+) -> None:
+    dd_logging.reset_logging()
+
+    root_logger = logging.getLogger()
+    sentinel_handler = logging.NullHandler()
+    root_logger.addHandler(sentinel_handler)
+
+    try:
+        DataDesigner(
+            artifact_path=stub_artifact_path,
+            model_providers=stub_model_providers,
+            auto_configure_logging=False,
+        )
+
+        assert sentinel_handler in root_logger.handlers
+        assert dd_logging.is_logging_configured() is False
+    finally:
+        root_logger.removeHandler(sentinel_handler)
+
+
+def test_init_preserves_preconfigured_logging(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+) -> None:
+    data_designer_logger = logging.getLogger("data_designer")
+
+    dd_logging.configure_logging(dd_logging.LoggingConfig.debug())
+    configured_handlers = tuple(logging.getLogger().handlers)
+
+    try:
+        DataDesigner(artifact_path=stub_artifact_path, model_providers=stub_model_providers)
+
+        assert data_designer_logger.level == logging.DEBUG
+        assert tuple(logging.getLogger().handlers) == configured_handlers
+    finally:
+        dd_logging.reset_logging()
+
+
+def test_init_auto_configure_logging_applies_per_instance(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+) -> None:
+    dd_logging.reset_logging()
+
+    DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        auto_configure_logging=False,
+    )
+
+    assert dd_logging.is_logging_configured() is False
+
+    DataDesigner(artifact_path=stub_artifact_path, model_providers=stub_model_providers)
+
+    assert dd_logging.is_logging_configured() is True
 
 
 def test_create_dataset_e2e_with_directory_seed_source(
@@ -2029,6 +2230,8 @@ def test_create_dataset_warns_for_unhandled_transform_files(
         model_providers=stub_model_providers,
         secret_resolver=PlaintextResolver(),
         managed_assets_path=stub_managed_assets_path,
+        # Keep pytest's root capture handler attached so caplog sees the warning.
+        auto_configure_logging=False,
     )
 
     results = data_designer.create(builder, num_records=2, dataset_name="trace-unhandled-test")

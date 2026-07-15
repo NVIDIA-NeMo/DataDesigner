@@ -22,6 +22,7 @@ from data_designer.engine.models.clients.model_request_executor import ModelRequ
 from data_designer.engine.models.clients.retry import RetryConfig
 from data_designer.engine.models.request_admission.controller import AdaptiveRequestAdmissionController
 from data_designer.engine.secret_resolver import SecretResolver
+from data_designer.engine.testing import InMemoryAdmissionEventSink
 
 
 @pytest.fixture
@@ -199,6 +200,26 @@ def test_request_admission_wraps_openai_client(
     assert isinstance(client._inner, OpenAICompatibleClient)
     assert client._retry_config is retry_config
     assert client._inner._retry_config.max_retries == 0
+
+
+def test_request_event_sink_is_forwarded_to_executor(
+    openai_model_config: ModelConfig,
+    secret_resolver: SecretResolver,
+    openai_registry: ModelProviderRegistry,
+) -> None:
+    controller = AdaptiveRequestAdmissionController()
+    sink = InMemoryAdmissionEventSink()
+
+    client = create_model_client(
+        openai_model_config,
+        secret_resolver,
+        openai_registry,
+        request_admission=controller,
+        request_event_sink=sink,
+    )
+
+    assert isinstance(client, ModelRequestExecutor)
+    assert client._event_sink is sink
 
 
 def test_request_admission_wraps_anthropic_client(
