@@ -607,11 +607,16 @@ if record_selection_runner is not None:
     )
 ```
 
-The runner holds a reference to its builder rather than copying a large set of scheduler, processor, storage,
-resource, and run-state fields into a parallel context object. It owns selection-specific resume probing and cleanup,
-controller hydration, the candidate lifecycle, marker and media commits, exhaustion, and terminal publication. It
-does not retain a controller or candidate runtime after `run()` returns, so reusing a `DatasetBuilder` cannot leak
-selection state across builds.
+The runner holds a reference to its builder for shared services—generic scheduler construction, the processor runner,
+storage, and resource access—rather than copying them into a parallel context object. It does not, however, mutate the
+builder's run-state fields directly. It accumulates the build outcome (`actual_num_records`, `early_shutdown`,
+`partial_row_groups`, `first_non_retryable_error`, and task traces) into its own `RecordSelectionRunState`, and
+`DatasetBuilder.build()` adopts that state once in a `finally`. Syncing in `finally` publishes the outcome even on the
+raising exhaustion and early-shutdown paths, whose fields the interface reads to classify the run. The runner owns
+selection-specific resume probing and cleanup, controller hydration, the candidate lifecycle, marker and media
+commits, exhaustion, and terminal publication. It does not retain a controller or candidate runtime after `run()`
+returns, and `DatasetBuilder._reset_run_state()` clears the adopted fields at the start of each build, so reusing a
+`DatasetBuilder` cannot leak selection state across builds.
 
 `RecordSelectionRunner.run()` restores or initializes the controller, reuses a valid completed publication when
 possible, executes the bounded candidate loop, and then applies the terminal exhaustion/publication policy. The loop
@@ -681,7 +686,8 @@ flowchart TD
     select --> media["Promote referenced accepted images when enabled"]
     media --> post["Run strict row-count-preserving post-batch processors"]
     post --> validate["Validate selected row count"]
-    validate --> schema["Write schema anchor when materialized"]
+    validate --> order["Reindex to deterministic column order"]
+    order --> schema["Write schema anchor when materialized"]
     schema --> write{"Any accepted rows?"}
     write -->|yes| parquet["Write immutable accepted partition"]
     write -->|no| marker["Create and atomically persist marker"]
@@ -701,10 +707,13 @@ The exact checkpoint order is:
    `failed_generation_records=batch.size - len(dataframe)` and filters and trims the accepted rows.
 4. The runner promotes accepted image references when staging is active.
 5. The runner applies normal post-batch processors with `strict_row_count=True`.
-6. `RecordSelectionRunner._commit_selection_candidate_batch()` verifies the final count, writes a schema anchor
-   when at least one candidate row fully generated and columns were materialized, writes an immutable accepted
-   partition when non-empty, creates a
-   `SelectionBatchMarker`, and atomically writes it through `ArtifactStorage`.
+6. `RecordSelectionRunner._commit_selection_candidate_batch()` verifies the final count, reindexes the accepted rows
+   to a deterministic column order derived from config declaration order (generated row dicts are keyed in
+   scheduler-completion order, which is not stable across processes for columns with no dependency edge between them),
+   writes a schema anchor when at least one candidate row fully generated and columns were materialized, writes an
+   immutable accepted partition when non-empty, creates a `SelectionBatchMarker`, and atomically writes it through
+   `ArtifactStorage`. Accepted partitions, the schema anchor, and the published dataset therefore share one column
+   order regardless of `PYTHONHASHSEED`.
 7. The runner reports `row_group_checkpointed` with the durable accepted/dropped counts, then
    `RecordSelectionRunner._mirror_committed_selection_batch()` refreshes metadata and in-memory counters and logs
    progress.
@@ -1381,7 +1390,9 @@ was 91.3% (912 of 999 executable changed lines).
 - Ordered seeds advance in candidate-coordinate space, and `ExplicitRowGroupPlan(base_offset=...)` retains its offset
   through normalization without changing scheduled row totals.
 - Schema tests cover orphan-anchor deletion, first-materialized-batch ownership, and failure when a committed schema
-  anchor is missing. An all-failed candidate cannot claim a partial cached buffer schema as the output anchor.
+  anchor is missing, including that the recovered output schema uses the deterministic config-declaration column order
+  rather than the hash-seed-dependent generation order. An all-failed candidate cannot claim a partial cached buffer
+  schema as the output anchor.
 - Storage tests cover marker and partition round trips, numeric ordering beyond five digits, empty publication,
   candidate-width naming, and cleanup of uncommitted side artifacts.
 - Image tests cover accepted-reference promotion, rejected-image cleanup, duplicate references, path traversal, and
@@ -1477,7 +1488,9 @@ selection-specific regression test:
 
 - Use `RecordSelectionConfig` publicly and `AcceptanceController` internally.
 - Keep selection lifecycle and resume state in one per-build `RecordSelectionRunner`; keep shared generator, scheduler,
-  processor, resource, and run state in `DatasetBuilder`.
+  processor, and resource wiring in `DatasetBuilder`. The runner accumulates its run outcome into a
+  `RecordSelectionRunState` that `DatasetBuilder.build()` adopts, so the builder stays the canonical owner of run state
+  without the runner mutating its fields directly.
 - Keep `AsyncTaskScheduler` feature-agnostic by processing selection after each result-producing scheduler completes;
   use one `retain_row_group_result` contract so zero-output candidate DataFrames remain available to the runner and
   completion events remain caller-owned until the selection marker is durable.
