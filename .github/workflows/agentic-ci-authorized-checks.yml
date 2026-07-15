@@ -15,7 +15,6 @@ on:
 permissions:
   contents: read
   pull-requests: read
-  statuses: write
 
 concurrency:
   group: agentic-ci-authorized-checks-${{ inputs.pr_number }}
@@ -80,6 +79,8 @@ jobs:
   DCOAssistant:
     needs: pr
     if: always()
+    permissions:
+      statuses: write
     timeout-minutes: 5
     runs-on: ubuntu-latest
     steps:
