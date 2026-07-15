@@ -1,0 +1,53 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Permissive licenses that the Apache Software Foundation classifies as
+# "Apache-like" (Category A). Values use SPDX identifiers after normalization.
+# https://www.apache.org/legal/resolved.html#category-a
+allowed_licenses = [
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "MIT",
+    "Zlib",
+]
+
+# Existing dependencies outside the global whitelist are reviewed by package
+# and exact reported license. A license change or a new package with one of
+# these licenses must be reviewed explicitly.
+[exceptions.certifi]
+license = "Mozilla Public License 2.0 (MPL 2.0)"
+reason = "Unmodified TLS certificate bundle installed as a separate transitive dependency."
+
+[exceptions.chardet]
+license = "GNU Lesser General Public License v2 or later (LGPLv2+)"
+reason = "Unmodified character-detection library installed as a separate runtime dependency."
+
+[exceptions.email-validator]
+license = "The Unlicense (Unlicense)"
+reason = "Existing unmodified validation library installed as a separate runtime dependency."
+
+[exceptions.numpy]
+license = "BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0"
+reason = "Core numerical dependency with bundled components under additional permissive licenses."
+
+[exceptions.pathspec]
+license = "Mozilla Public License 2.0 (MPL 2.0)"
+reason = "Unmodified transitive dependency of sqlfluff installed as a separate package."
+
+[exceptions.pillow]
+license = "MIT-CMU"
+reason = "Core image dependency under the permissive MIT-CMU license."
+
+[exceptions.regex]
+license = "Apache-2.0 AND CNRI-Python"
+reason = "Existing regex dependency containing code under the CNRI Python license."
+
+[exceptions.tqdm]
+license = "MPL-2.0 AND MIT"
+reason = "Unmodified progress library installed as a separate transitive dependency."
+
+[exceptions.typing_extensions]
+license = "PSF-2.0"
+reason = "Python typing compatibility dependency under the PSF license."

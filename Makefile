@@ -88,6 +88,7 @@ help:
 	@echo "  check-fern-docs-locally   - Install deps, generate Fern artifacts, and run fern check"
 	@echo "  serve-fern-docs-locally   - Generate local Fern artifacts and serve Fern docs"
 	@echo "  check-license-headers     - Check if all files have license headers"
+	@echo "  check-dependency-licenses - Check runtime dependency license compatibility"
 	@echo "  update-license-headers    - Add license headers to all files"
 	@echo ""
 	@echo "⚡ Performance:"
@@ -449,8 +450,12 @@ show-versions:
 	@uv run python -c "from data_designer.interface._version import __version__; print(f'  data-designer:        {__version__}')" 2>/dev/null || echo "  data-designer: (not installed)"
 
 # ==============================================================================
-# LICENSE HEADERS
+# LICENSE CHECKS
 # ==============================================================================
+
+check-dependency-licenses:
+	@echo "🔍 Checking runtime dependency licenses..."
+	uv run --no-sync python $(REPO_PATH)/scripts/check_dependency_licenses.py
 
 check-license-headers:
 	@echo "🔍 Checking license headers in all files..."
@@ -746,7 +751,7 @@ clean-test-coverage:
 .PHONY: bench-cli-startup bench-cli-startup-verbose \
         build build-config build-engine build-interface \
         check-all check-all-fix check-config check-engine check-interface \
-        check-fern-docs check-fern-docs-locally check-fern-release-version check-fern-theme-access check-license-headers \
+        check-dependency-licenses check-fern-docs check-fern-docs-locally check-fern-release-version check-fern-theme-access check-license-headers \
         clean clean-dist clean-notebooks clean-pycache clean-test-coverage \
         convert-execute-notebooks \
         coverage coverage-config coverage-engine coverage-interface \
