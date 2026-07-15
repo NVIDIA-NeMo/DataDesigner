@@ -512,6 +512,7 @@ class RecordSelectionRunner:
                 "🛑 Post-batch processing changed the selected row count from "
                 f"{decision.accepted_records} to {len(dataframe)}."
             )
+        dataframe = self._order_selection_columns(dataframe)
         schema_materialized = (
             len(dataframe.columns) > 0 and decision.failed_generation_records < decision.candidate_records
         )
@@ -708,8 +709,14 @@ class RecordSelectionRunner:
         if diagnostic is not None:
             raise DatasetGenerationError(diagnostic)
 
-    def _derive_empty_selection_schema(self) -> pd.DataFrame:
-        """Build a name-bearing fallback schema when every candidate slot failed generation."""
+    def _selection_output_column_order(self) -> list[str]:
+        """Deterministic published column order derived from config declaration order.
+
+        Generated row dicts key their columns in scheduler-completion order, which is
+        not stable across processes for columns without a dependency edge between them.
+        Anchoring to config order keeps the accepted partitions, their schema, and the
+        published dataset consistent regardless of ``PYTHONHASHSEED``.
+        """
         columns: dict[str, None] = {}
         for config in self._builder.single_column_configs:
             columns[config.name] = None
@@ -721,10 +728,20 @@ class RecordSelectionRunner:
             if isinstance(processor, DropColumnsProcessor)
             for pattern in processor.config.column_names
         ]
-        output_columns = [
-            column for column in columns if not any(fnmatch(column, pattern) for pattern in drop_patterns)
-        ]
-        return lazy.pd.DataFrame(columns=output_columns)
+        return [column for column in columns if not any(fnmatch(column, pattern) for pattern in drop_patterns)]
+
+    def _order_selection_columns(self, dataframe: pd.DataFrame) -> pd.DataFrame:
+        """Reindex accepted rows to the deterministic output order before they are committed."""
+        canonical = [column for column in self._selection_output_column_order() if column in dataframe.columns]
+        extras = [column for column in dataframe.columns if column not in set(canonical)]
+        ordered = canonical + extras
+        if ordered == list(dataframe.columns):
+            return dataframe
+        return dataframe[ordered]
+
+    def _derive_empty_selection_schema(self) -> pd.DataFrame:
+        """Build a name-bearing fallback schema when every candidate slot failed generation."""
+        return lazy.pd.DataFrame(columns=self._selection_output_column_order())
 
     def _restore_committed_selection_schema(self, controller: AcceptanceController) -> None:
         """Discard an orphan schema or restore the schema owned by committed work."""
