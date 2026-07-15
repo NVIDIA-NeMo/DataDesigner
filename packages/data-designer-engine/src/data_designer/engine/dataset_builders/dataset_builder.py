@@ -34,7 +34,10 @@ from data_designer.engine.compiler import compile_data_designer_config
 from data_designer.engine.dataset_builders.async_scheduler import AsyncTaskScheduler
 from data_designer.engine.dataset_builders.errors import DatasetGenerationError
 from data_designer.engine.dataset_builders.multi_column_configs import MultiColumnConfig
-from data_designer.engine.dataset_builders.record_selection_runner import RecordSelectionRunner
+from data_designer.engine.dataset_builders.record_selection_runner import (
+    RecordSelectionRunner,
+    RecordSelectionRunState,
+)
 from data_designer.engine.dataset_builders.row_group_plan import (
     CompactRowGroupPlan,
     RowGroupInput,
@@ -391,6 +394,10 @@ class DatasetBuilder:
                     resume=resume,
                 )
             finally:
+                # Sync even on the raising paths (early shutdown, exhaustion): the interface
+                # reads these fields to classify the outcome, matching the pre-extraction
+                # behavior where the runner populated them in its own ``finally``.
+                self._apply_selection_run_state(record_selection_runner.run_state)
                 self._resource_provider.model_registry.log_model_usage(time.perf_counter() - start_time)
             return self.artifact_storage.final_dataset_path
 
@@ -612,6 +619,14 @@ class DatasetBuilder:
         self._actual_num_records = -1
         self._first_non_retryable_error = None
         self._task_traces = []
+
+    def _apply_selection_run_state(self, run_state: RecordSelectionRunState) -> None:
+        """Adopt the record-selection runner's accumulated run outcome as this build's state."""
+        self._actual_num_records = run_state.actual_num_records
+        self._early_shutdown = run_state.early_shutdown
+        self._partial_row_groups = run_state.partial_row_groups
+        self._first_non_retryable_error = run_state.first_non_retryable_error
+        self._task_traces = run_state.task_traces
 
     def _build_async_preview(self, generators: list[ColumnGenerator], num_records: int) -> pd.DataFrame:
         """Async preview path - single row group, no disk writes, returns in-memory DataFrame."""

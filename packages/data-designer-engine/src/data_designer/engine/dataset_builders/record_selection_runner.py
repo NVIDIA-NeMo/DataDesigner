@@ -8,7 +8,7 @@ import json
 import logging
 import shutil
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from fnmatch import fnmatch
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
@@ -49,6 +49,7 @@ if TYPE_CHECKING:
 
     from data_designer.config.run_config import RunConfig
     from data_designer.engine.dataset_builders.dataset_builder import DatasetBuilder
+    from data_designer.engine.dataset_builders.scheduling.task_model import TaskTrace
 
 logger = logging.getLogger(__name__)
 
@@ -76,11 +77,28 @@ class _SelectionResumeProbe:
         return self.has_selection_metadata or self.checkpoint_directory_exists
 
 
+@dataclass(slots=True)
+class RecordSelectionRunState:
+    """Build-level run outcome accumulated across candidate batches.
+
+    The runner owns this state and the builder syncs it once the run finishes,
+    so the runner never mutates builder run-state fields directly. Field defaults
+    mirror ``DatasetBuilder._reset_run_state``.
+    """
+
+    actual_num_records: int = -1
+    early_shutdown: bool = False
+    partial_row_groups: tuple[int, ...] = ()
+    first_non_retryable_error: Exception | None = None
+    task_traces: list[TaskTrace] = field(default_factory=list)
+
+
 class RecordSelectionRunner:
     """Generate, checkpoint, resume, and publish one record-selection build."""
 
     def __init__(self, builder: DatasetBuilder) -> None:
         self._builder = builder
+        self.run_state = RecordSelectionRunState()
 
     def _selection_resume_probe(self) -> _SelectionResumeProbe:
         """Read selection state without resolving or caching an ArtifactStorage dataset path."""
@@ -237,7 +255,7 @@ class RecordSelectionRunner:
         self._builder.artifact_storage.clean_uncommitted_selection_batch(controller.candidate_batches_completed)
         self._validate_selection_partitions(controller.markers)
         self._restore_committed_selection_schema(controller)
-        self._builder._actual_num_records = controller.accepted_records
+        self.run_state.actual_num_records = controller.accepted_records
 
         if resume == ResumeMode.ALWAYS:
             if controller.last_batch_stopped_early and controller.is_exhausted:
@@ -305,7 +323,7 @@ class RecordSelectionRunner:
         controller: AcceptanceController,
     ) -> None:
         """Raise the structured error for scheduler early shutdown."""
-        if not self._builder._early_shutdown or controller.has_reached_target:
+        if not self.run_state.early_shutdown or controller.has_reached_target:
             return
         raise RecordSelectionEarlyShutdownError(
             candidate_budget_remaining=controller.has_candidate_budget,
@@ -319,7 +337,7 @@ class RecordSelectionRunner:
         buffer_size: int,
     ) -> None:
         """Apply terminal policy and publish the immutable accepted partitions."""
-        self._builder._actual_num_records = controller.accepted_records
+        self.run_state.actual_num_records = controller.accepted_records
         if controller.is_exhausted and controller.config.on_exhausted == RecordSelectionExhaustion.RAISE:
             self._write_selection_metadata(controller)
             raise RecordSelectionExhaustedError(
@@ -567,7 +585,7 @@ class RecordSelectionRunner:
         controller: AcceptanceController,
     ) -> None:
         """Mirror a durable checkpoint into in-memory state and metadata."""
-        self._builder._actual_num_records = controller.accepted_records
+        self.run_state.actual_num_records = controller.accepted_records
         self._write_selection_metadata(controller)
         rate = controller.accepted_records / controller.candidate_records
         logger.info(
@@ -648,13 +666,13 @@ class RecordSelectionRunner:
 
     def _merge_selection_scheduler_state(self, scheduler: AsyncTaskScheduler) -> None:
         """Merge one candidate scheduler into build-level diagnostics."""
-        self._builder._task_traces.extend(scheduler.traces)
-        self._builder._early_shutdown = self._builder._early_shutdown or scheduler.early_shutdown
-        self._builder._partial_row_groups = tuple(
-            sorted(set(self._builder._partial_row_groups).union(scheduler.partial_row_groups))
+        self.run_state.task_traces.extend(scheduler.traces)
+        self.run_state.early_shutdown = self.run_state.early_shutdown or scheduler.early_shutdown
+        self.run_state.partial_row_groups = tuple(
+            sorted(set(self.run_state.partial_row_groups).union(scheduler.partial_row_groups))
         )
-        if self._builder._first_non_retryable_error is None:
-            self._builder._first_non_retryable_error = scheduler.first_non_retryable_error
+        if self.run_state.first_non_retryable_error is None:
+            self.run_state.first_non_retryable_error = scheduler.first_non_retryable_error
 
     def _load_selection_markers(self) -> tuple[SelectionBatchMarker, ...]:
         try:
