@@ -814,8 +814,11 @@ dependencies = [
     { name = "opentelemetry-exporter-prometheus" },
     { name = "opentelemetry-sdk" },
     { name = "packaging" },
+    { name = "pandas" },
     { name = "prometheus-client" },
     { name = "prompt-toolkit" },
+    { name = "pyarrow" },
+    { name = "pyyaml" },
     { name = "typer" },
 ]
 
@@ -827,8 +830,11 @@ requires-dist = [
     { name = "opentelemetry-exporter-prometheus", specifier = ">=0.64b0,<0.65" },
     { name = "opentelemetry-sdk", specifier = ">=1.43,<1.44" },
     { name = "packaging", specifier = ">=25,<27" },
+    { name = "pandas", specifier = ">=2.3.3,<3" },
     { name = "prometheus-client", specifier = ">=0.24,<1" },
     { name = "prompt-toolkit", specifier = ">=3.0.0,<4" },
+    { name = "pyarrow", specifier = ">=24,<25" },
+    { name = "pyyaml", specifier = ">=6.0.1,<7" },
     { name = "typer", specifier = ">=0.12.0,<1" },
 ]
 
