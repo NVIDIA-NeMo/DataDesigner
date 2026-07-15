@@ -28,7 +28,7 @@ LICENSE_ALIASES = {
     "Python Software Foundation License": {"PSF-2.0"},
     "The Unlicense (Unlicense)": {"Unlicense"},
 }
-EXPRESSION_OPERATOR = re.compile(r"\s+(?:AND|OR|WITH)\s+|[()]", re.IGNORECASE)
+EXPRESSION_TOKEN = re.compile(r"(\(|\)|\bAND\b|\bOR\b|\bWITH\b)")
 
 
 @dataclass(frozen=True)
@@ -63,36 +63,99 @@ def load_policy(path: Path = POLICY_PATH) -> LicensePolicy:
 
 def looks_like_mit_license(license_text: str) -> bool:
     normalized = " ".join(license_text.split()).casefold()
-    return normalized.startswith("mit license ") and "permission is hereby granted, free of charge" in normalized
+    has_mit_heading = normalized.startswith(("mit license ", "the mit license (mit) "))
+    return has_mit_heading and "permission is hereby granted, free of charge" in normalized
 
 
-def normalized_license_ids(package: PackageLicense) -> frozenset[str]:
-    """Normalize pip-licenses output into SPDX-like license identifiers."""
+def _and_alternatives(
+    left: tuple[frozenset[str], ...], right: tuple[frozenset[str], ...]
+) -> tuple[frozenset[str], ...]:
+    return tuple(left_ids | right_ids for left_ids in left for right_ids in right)
+
+
+class LicenseExpressionParser:
+    """Parse the SPDX operators needed by package license metadata."""
+
+    def __init__(self, expression: str) -> None:
+        self.tokens = [token.strip() for token in EXPRESSION_TOKEN.split(expression) if token.strip()]
+        self.position = 0
+
+    def parse(self) -> tuple[frozenset[str], ...]:
+        alternatives = self._parse_or()
+        if self.position != len(self.tokens):
+            return ()
+        return alternatives
+
+    def _parse_or(self) -> tuple[frozenset[str], ...]:
+        alternatives = self._parse_and()
+        while self._accept("OR"):
+            right = self._parse_and()
+            if not right:
+                return ()
+            alternatives += right
+        return alternatives
+
+    def _parse_and(self) -> tuple[frozenset[str], ...]:
+        alternatives = self._parse_primary()
+        while self._accept("AND"):
+            alternatives = _and_alternatives(alternatives, self._parse_primary())
+        return alternatives
+
+    def _parse_primary(self) -> tuple[frozenset[str], ...]:
+        if self._accept("("):
+            alternatives = self._parse_or()
+            if not self._accept(")"):
+                return ()
+            return alternatives
+
+        if self.position >= len(self.tokens) or self.tokens[self.position] in {"AND", "OR", "WITH", ")"}:
+            return ()
+
+        reported_id = self.tokens[self.position]
+        self.position += 1
+        identifiers = frozenset(LICENSE_ALIASES.get(reported_id, {reported_id}))
+
+        if self._accept("WITH"):
+            if self.position >= len(self.tokens) or self.tokens[self.position] in {"(", ")", "AND", "OR", "WITH"}:
+                return ()
+            self.position += 1
+
+        return (identifiers,)
+
+    def _accept(self, token: str) -> bool:
+        if self.position >= len(self.tokens) or self.tokens[self.position] != token:
+            return False
+        self.position += 1
+        return True
+
+
+def normalized_license_alternatives(package: PackageLicense) -> tuple[frozenset[str], ...]:
+    """Normalize a reported license into alternatives of required SPDX-like identifiers."""
     reported = package.license.strip()
     if reported.casefold() == "unknown":
-        return frozenset({"MIT"}) if looks_like_mit_license(package.license_text) else frozenset()
+        return (frozenset({"MIT"}),) if looks_like_mit_license(package.license_text) else ()
 
     if reported.startswith("MIT License\n") and looks_like_mit_license(reported):
-        return frozenset({"MIT"})
+        return (frozenset({"MIT"}),)
 
     aliases = LICENSE_ALIASES.get(reported)
     if aliases is not None:
-        return frozenset(aliases)
+        return (frozenset(aliases),)
 
-    identifiers: set[str] = set()
+    alternatives: tuple[frozenset[str], ...] = (frozenset(),)
+    parsed_any = False
     for part in reported.split(";"):
         stripped = part.strip()
-        part_aliases = LICENSE_ALIASES.get(stripped)
-        if part_aliases is not None:
-            identifiers.update(part_aliases)
+        if not stripped:
             continue
 
-        tokens = [token.strip() for token in EXPRESSION_OPERATOR.split(stripped) if token.strip()]
-        if not tokens:
-            return frozenset()
-        identifiers.update(tokens)
+        parsed = LicenseExpressionParser(stripped).parse()
+        if not parsed:
+            return ()
+        alternatives = _and_alternatives(alternatives, parsed)
+        parsed_any = True
 
-    return frozenset(identifiers)
+    return alternatives if parsed_any else ()
 
 
 def parse_report(data: list[dict[str, Any]]) -> list[PackageLicense]:
@@ -128,11 +191,12 @@ def evaluate_report(packages: list[PackageLicense], policy: LicensePolicy) -> tu
                 reviewed.append(f"{package.name}=={package.version}: {package.license} ({exception.reason})")
             continue
 
-        identifiers = normalized_license_ids(package)
-        if not identifiers:
+        alternatives = normalized_license_alternatives(package)
+        if not alternatives:
             violations.append(f"{package.name}=={package.version}: unknown or unrecognized license {package.license!r}")
-        elif not identifiers.issubset(policy.allowed_licenses):
-            disallowed = ", ".join(sorted(identifiers - policy.allowed_licenses))
+        elif not any(identifiers.issubset(policy.allowed_licenses) for identifiers in alternatives):
+            disallowed_ids = set().union(*(identifiers - policy.allowed_licenses for identifiers in alternatives))
+            disallowed = ", ".join(sorted(disallowed_ids))
             violations.append(f"{package.name}=={package.version}: disallowed license(s): {disallowed}")
 
     for package_key in sorted(policy.exceptions.keys() - seen_exceptions):

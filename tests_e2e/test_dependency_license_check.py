@@ -39,6 +39,68 @@ def test_evaluate_report_accepts_permissive_and_composite_licenses() -> None:
     assert reviewed == []
 
 
+def test_evaluate_report_accepts_allowed_or_alternative() -> None:
+    module = load_script()
+    policy = module.LicensePolicy(allowed_licenses=frozenset({"Apache-2.0", "MIT"}), exceptions={})
+    packages = [
+        module.PackageLicense("dual", "1", "MIT OR GPL-3.0-only", ""),
+        module.PackageLicense("grouped", "1", "Apache-2.0 AND (MIT OR GPL-3.0-only)", ""),
+    ]
+
+    violations, _ = module.evaluate_report(packages, policy)
+
+    assert violations == []
+
+
+def test_evaluate_report_requires_all_and_terms() -> None:
+    module = load_script()
+    policy = module.LicensePolicy(allowed_licenses=frozenset({"Apache-2.0"}), exceptions={})
+    package = module.PackageLicense("conjunctive", "1", "Apache-2.0 AND GPL-3.0-only", "")
+
+    violations, _ = module.evaluate_report([package], policy)
+
+    assert violations == ["conjunctive==1: disallowed license(s): GPL-3.0-only"]
+
+
+def test_evaluate_report_rejects_disallowed_or_alternatives_and_malformed_expressions() -> None:
+    module = load_script()
+    policy = module.LicensePolicy(allowed_licenses=frozenset({"Apache-2.0"}), exceptions={})
+    packages = [
+        module.PackageLicense("disallowed", "1", "GPL-2.0-only OR GPL-3.0-only", ""),
+        module.PackageLicense("malformed", "1", "Apache-2.0 OR", ""),
+    ]
+
+    violations, _ = module.evaluate_report(packages, policy)
+
+    assert violations == [
+        "disallowed==1: disallowed license(s): GPL-2.0-only, GPL-3.0-only",
+        "malformed==1: unknown or unrecognized license 'Apache-2.0 OR'",
+    ]
+
+
+def test_evaluate_report_uses_base_license_with_exception() -> None:
+    module = load_script()
+    policy = module.LicensePolicy(allowed_licenses=frozenset({"Apache-2.0"}), exceptions={})
+    packages = [
+        module.PackageLicense("allowed", "1", "Apache-2.0 WITH LLVM-exception", ""),
+        module.PackageLicense("rejected", "1", "GPL-2.0-only WITH Classpath-exception-2.0", ""),
+    ]
+
+    violations, _ = module.evaluate_report(packages, policy)
+
+    assert violations == ["rejected==1: disallowed license(s): GPL-2.0-only"]
+
+
+def test_evaluate_report_ignores_empty_semicolon_segments() -> None:
+    module = load_script()
+    policy = module.LicensePolicy(allowed_licenses=frozenset({"Apache-2.0", "MIT"}), exceptions={})
+    package = module.PackageLicense("trailing", "1", "Apache Software License;; ", "")
+
+    violations, _ = module.evaluate_report([package], policy)
+
+    assert violations == []
+
+
 def test_evaluate_report_rejects_copyleft_and_unknown_licenses() -> None:
     module = load_script()
     policy = module.LicensePolicy(allowed_licenses=frozenset({"Apache-2.0"}), exceptions={})
@@ -58,14 +120,22 @@ def test_evaluate_report_rejects_copyleft_and_unknown_licenses() -> None:
 def test_evaluate_report_recognizes_bundled_mit_license_text() -> None:
     module = load_script()
     policy = module.LicensePolicy(allowed_licenses=frozenset({"MIT"}), exceptions={})
-    package = module.PackageLicense(
-        "missing-metadata",
-        "1",
-        "UNKNOWN",
-        "MIT License\n\nCopyright example\n\nPermission is hereby granted, free of charge, to any person obtaining a copy",
-    )
+    packages = [
+        module.PackageLicense(
+            "missing-metadata",
+            "1",
+            "UNKNOWN",
+            "MIT License\n\nCopyright example\n\nPermission is hereby granted, free of charge, to any person obtaining a copy",
+        ),
+        module.PackageLicense(
+            "alternate-heading",
+            "1",
+            "UNKNOWN",
+            "The MIT License (MIT)\n\nCopyright example\n\nPermission is hereby granted, free of charge, to any person",
+        ),
+    ]
 
-    violations, _ = module.evaluate_report([package], policy)
+    violations, _ = module.evaluate_report(packages, policy)
 
     assert violations == []
 
