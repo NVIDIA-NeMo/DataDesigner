@@ -13,41 +13,44 @@ allowed_licenses = [
     "Zlib",
 ]
 
-# Existing dependencies outside the global whitelist are reviewed by package
-# and exact reported license. A license change or a new package with one of
-# these licenses must be reviewed explicitly.
+# Existing dependencies outside the global whitelist are reviewed by package,
+# version, and exact reported license. A version or license metadata change must
+# be reviewed explicitly.
 [exceptions.certifi]
-license = "Mozilla Public License 2.0 (MPL 2.0)"
 reason = "Unmodified TLS certificate bundle installed as a separate transitive dependency."
+reports = [{ version = "2026.2.25", license = "Mozilla Public License 2.0 (MPL 2.0)" }]
 
 [exceptions.chardet]
-license = "GNU Lesser General Public License v2 or later (LGPLv2+)"
 reason = "Unmodified character-detection library installed as a separate runtime dependency."
+reports = [{ version = "5.2.0", license = "GNU Lesser General Public License v2 or later (LGPLv2+)" }]
 
 [exceptions.email-validator]
-license = "The Unlicense (Unlicense)"
 reason = "Existing unmodified validation library installed as a separate runtime dependency."
+reports = [{ version = "2.3.0", license = "The Unlicense (Unlicense)" }]
 
 [exceptions.numpy]
-license = "BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0"
-reason = "Core numerical dependency with bundled components under additional permissive licenses."
+reason = "Core numerical dependency with reviewed permissive license metadata in each locked Python slice."
+reports = [
+    { version = "2.2.6", license = "BSD License" },
+    { version = "2.4.3", license = "BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0" },
+]
 
 [exceptions.pathspec]
-license = "Mozilla Public License 2.0 (MPL 2.0)"
 reason = "Unmodified transitive dependency of sqlfluff installed as a separate package."
+reports = [{ version = "1.0.4", license = "Mozilla Public License 2.0 (MPL 2.0)" }]
 
 [exceptions.pillow]
-license = "MIT-CMU"
 reason = "Core image dependency under the permissive MIT-CMU license."
+reports = [{ version = "12.3.0", license = "MIT-CMU" }]
 
 [exceptions.regex]
-license = "Apache-2.0 AND CNRI-Python"
 reason = "Existing regex dependency containing code under the CNRI Python license."
+reports = [{ version = "2026.2.28", license = "Apache-2.0 AND CNRI-Python" }]
 
 [exceptions.tqdm]
-license = "MPL-2.0 AND MIT"
 reason = "Unmodified progress library installed as a separate transitive dependency."
+reports = [{ version = "4.67.3", license = "MPL-2.0 AND MIT" }]
 
 [exceptions.typing_extensions]
-license = "PSF-2.0"
 reason = "Python typing compatibility dependency under the PSF license."
+reports = [{ version = "4.15.0", license = "PSF-2.0" }]

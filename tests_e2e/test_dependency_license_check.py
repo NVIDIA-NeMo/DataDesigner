@@ -9,6 +9,28 @@ from pathlib import Path
 from types import ModuleType
 
 SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "check_dependency_licenses.py"
+MIT_LICENSE_TEXT = """MIT License
+
+Copyright (c) 2026 Example
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+"""
 
 
 def load_script() -> ModuleType:
@@ -78,17 +100,29 @@ def test_evaluate_report_rejects_disallowed_or_alternatives_and_malformed_expres
     ]
 
 
-def test_evaluate_report_uses_base_license_with_exception() -> None:
+def test_evaluate_report_requires_with_exception_approval() -> None:
     module = load_script()
     policy = module.LicensePolicy(allowed_licenses=frozenset({"Apache-2.0"}), exceptions={})
     packages = [
-        module.PackageLicense("allowed", "1", "Apache-2.0 WITH LLVM-exception", ""),
+        module.PackageLicense("unknown", "1", "Apache-2.0 WITH Totally-Unknown-terms", ""),
         module.PackageLicense("rejected", "1", "GPL-2.0-only WITH Classpath-exception-2.0", ""),
     ]
 
     violations, _ = module.evaluate_report(packages, policy)
 
-    assert violations == ["rejected==1: disallowed license(s): GPL-2.0-only"]
+    assert violations == [
+        "rejected==1: disallowed license(s): GPL-2.0-only WITH Classpath-exception-2.0",
+        "unknown==1: disallowed license(s): Apache-2.0 WITH Totally-Unknown-terms",
+    ]
+
+    approved_policy = module.LicensePolicy(
+        allowed_licenses=frozenset({"Apache-2.0", "Apache-2.0 WITH LLVM-exception"}), exceptions={}
+    )
+    approved = module.PackageLicense("approved", "1", "Apache-2.0 WITH LLVM-exception", "")
+
+    approved_violations, _ = module.evaluate_report([approved], approved_policy)
+
+    assert approved_violations == []
 
 
 def test_evaluate_report_ignores_empty_semicolon_segments() -> None:
@@ -125,13 +159,13 @@ def test_evaluate_report_recognizes_bundled_mit_license_text() -> None:
             "missing-metadata",
             "1",
             "UNKNOWN",
-            "MIT License\n\nCopyright example\n\nPermission is hereby granted, free of charge, to any person obtaining a copy",
+            MIT_LICENSE_TEXT,
         ),
         module.PackageLicense(
             "alternate-heading",
             "1",
             "UNKNOWN",
-            "The MIT License (MIT)\n\nCopyright example\n\nPermission is hereby granted, free of charge, to any person",
+            MIT_LICENSE_TEXT.replace("MIT License", "The MIT License (MIT)", 1),
         ),
     ]
 
@@ -140,21 +174,79 @@ def test_evaluate_report_recognizes_bundled_mit_license_text() -> None:
     assert violations == []
 
 
+def test_evaluate_report_rejects_incomplete_or_modified_mit_license_text() -> None:
+    module = load_script()
+    policy = module.LicensePolicy(allowed_licenses=frozenset({"MIT"}), exceptions={})
+    packages = [
+        module.PackageLicense(
+            "additional-restriction",
+            "1",
+            "UNKNOWN",
+            f"{MIT_LICENSE_TEXT}\nUse is prohibited in commercial products.",
+        ),
+        module.PackageLicense(
+            "truncated",
+            "1",
+            "UNKNOWN",
+            "MIT License\n\nCopyright example\n\nPermission is hereby granted, free of charge",
+        ),
+    ]
+
+    violations, _ = module.evaluate_report(packages, policy)
+
+    assert violations == [
+        "additional-restriction==1: unknown or unrecognized license 'UNKNOWN'",
+        "truncated==1: unknown or unrecognized license 'UNKNOWN'",
+    ]
+
+
 def test_evaluate_report_requires_exception_license_to_remain_unchanged() -> None:
     module = load_script()
-    exception = module.ExceptionPolicy(license="MPL-2.0", reason="Reviewed separately.")
+    exception = module.ExceptionPolicy(
+        reports=frozenset({module.ExceptionReport(version="1", license="MPL-2.0")}),
+        reason="Reviewed separately.",
+    )
     policy = module.LicensePolicy(allowed_licenses=frozenset({"Apache-2.0"}), exceptions={"example": exception})
     package = module.PackageLicense("example", "2", "GPL-3.0-only", "")
 
     violations, reviewed = module.evaluate_report([package], policy)
 
-    assert violations == ["example==2: exception expected 'MPL-2.0', but package reports 'GPL-3.0-only'"]
+    assert violations == ["example==2: exception does not approve 'GPL-3.0-only'; expected one of: 1 with 'MPL-2.0'"]
     assert reviewed == []
+
+
+def test_evaluate_report_accepts_each_exact_exception_report() -> None:
+    module = load_script()
+    exception = module.ExceptionPolicy(
+        reports=frozenset(
+            {
+                module.ExceptionReport(version="1", license="Legacy license"),
+                module.ExceptionReport(version="2", license="Current license"),
+            }
+        ),
+        reason="Reviewed per locked slice.",
+    )
+    policy = module.LicensePolicy(allowed_licenses=frozenset(), exceptions={"example": exception})
+    packages = [
+        module.PackageLicense("example", "1", "Legacy license", ""),
+        module.PackageLicense("example", "2", "Current license", ""),
+    ]
+
+    violations, reviewed = module.evaluate_report(packages, policy)
+
+    assert violations == []
+    assert reviewed == [
+        "example==1: Legacy license (Reviewed per locked slice.)",
+        "example==2: Current license (Reviewed per locked slice.)",
+    ]
 
 
 def test_evaluate_report_rejects_stale_exceptions() -> None:
     module = load_script()
-    exception = module.ExceptionPolicy(license="MPL-2.0", reason="Reviewed separately.")
+    exception = module.ExceptionPolicy(
+        reports=frozenset({module.ExceptionReport(version="1", license="MPL-2.0")}),
+        reason="Reviewed separately.",
+    )
     policy = module.LicensePolicy(allowed_licenses=frozenset({"Apache-2.0"}), exceptions={"removed": exception})
 
     violations, _ = module.evaluate_report([], policy)

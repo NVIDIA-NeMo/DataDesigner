@@ -29,11 +29,37 @@ LICENSE_ALIASES = {
     "The Unlicense (Unlicense)": {"Unlicense"},
 }
 EXPRESSION_TOKEN = re.compile(r"(\(|\)|\bAND\b|\bOR\b|\bWITH\b)")
+MIT_LICENSE_HEADINGS = {"mit license", "the mit license (mit)"}
+MIT_LICENSE_BODY = " ".join(
+    """Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the \"Software\"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.""".split()
+).casefold()
+
+
+@dataclass(frozen=True)
+class ExceptionReport:
+    version: str
+    license: str
 
 
 @dataclass(frozen=True)
 class ExceptionPolicy:
-    license: str
+    reports: frozenset[ExceptionReport]
     reason: str
 
 
@@ -55,16 +81,31 @@ def load_policy(path: Path = POLICY_PATH) -> LicensePolicy:
     """Load the dependency-license policy from TOML."""
     data = tomllib.loads(path.read_text(encoding="utf-8"))
     exceptions = {
-        name.casefold(): ExceptionPolicy(license=value["license"], reason=value["reason"])
+        name.casefold(): ExceptionPolicy(
+            reports=frozenset(
+                ExceptionReport(version=report["version"], license=report["license"]) for report in value["reports"]
+            ),
+            reason=value["reason"],
+        )
         for name, value in data.get("exceptions", {}).items()
     }
     return LicensePolicy(allowed_licenses=frozenset(data["allowed_licenses"]), exceptions=exceptions)
 
 
 def looks_like_mit_license(license_text: str) -> bool:
-    normalized = " ".join(license_text.split()).casefold()
-    has_mit_heading = normalized.startswith(("mit license ", "the mit license (mit) "))
-    return has_mit_heading and "permission is hereby granted, free of charge" in normalized
+    lines = [line.strip() for line in license_text.splitlines() if line.strip()]
+    if len(lines) < 3 or lines[0].casefold() not in MIT_LICENSE_HEADINGS:
+        return False
+
+    permission_index = next(
+        (index for index, line in enumerate(lines) if line.casefold().startswith("permission is hereby granted")), None
+    )
+    if permission_index is None or permission_index < 2:
+        return False
+    if not all(line.casefold().startswith("copyright") for line in lines[1:permission_index]):
+        return False
+
+    return " ".join(lines[permission_index:]).casefold() == MIT_LICENSE_BODY
 
 
 def _and_alternatives(
@@ -118,7 +159,9 @@ class LicenseExpressionParser:
         if self._accept("WITH"):
             if self.position >= len(self.tokens) or self.tokens[self.position] in {"(", ")", "AND", "OR", "WITH"}:
                 return ()
+            exception_id = self.tokens[self.position]
             self.position += 1
+            identifiers = frozenset(f"{identifier} WITH {exception_id}" for identifier in identifiers)
 
         return (identifiers,)
 
@@ -182,10 +225,15 @@ def evaluate_report(packages: list[PackageLicense], policy: LicensePolicy) -> tu
         exception = policy.exceptions.get(package_key)
         if exception is not None:
             seen_exceptions.add(package_key)
-            if package.license != exception.license:
+            report = ExceptionReport(version=package.version, license=package.license)
+            if report not in exception.reports:
+                expected = ", ".join(
+                    f"{approved.version} with {approved.license!r}"
+                    for approved in sorted(exception.reports, key=lambda item: (item.version, item.license))
+                )
                 violations.append(
-                    f"{package.name}=={package.version}: exception expected {exception.license!r}, "
-                    f"but package reports {package.license!r}"
+                    f"{package.name}=={package.version}: exception does not approve {package.license!r}; "
+                    f"expected one of: {expected}"
                 )
             else:
                 reviewed.append(f"{package.name}=={package.version}: {package.license} ({exception.reason})")

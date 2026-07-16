@@ -250,9 +250,13 @@ jobs:
         run: make check-license-headers
 
   dependency-licenses:
-    name: Check Dependency Licenses
+    name: Check Dependency Licenses (Python ${{ matrix.python-version }})
     needs: validate-dispatch
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
 
     steps:
       - name: Checkout code
@@ -262,14 +266,11 @@ jobs:
         uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
         with:
           version: "latest"
-          python-version: "3.11"
+          python-version: ${{ matrix.python-version }}
           enable-cache: true
 
-      - name: Install locked runtime dependencies
-        run: uv sync --all-packages --no-dev --locked
-
       - name: Check dependency licenses
-        run: make check-dependency-licenses
+        run: make check-dependency-licenses LICENSE_PYTHON_VERSION=${{ matrix.python-version }}
 
   # ===========================================================================
   # Summary Job for Branch Protection

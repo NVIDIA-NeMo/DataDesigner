@@ -4,6 +4,7 @@
 
 REPO_PATH := $(shell pwd)
 PRE_COMMIT ?= .venv/bin/pre-commit
+LICENSE_PYTHON_VERSION ?= 3.11
 
 # Package directories
 CONFIG_PKG := packages/data-designer-config
@@ -454,8 +455,9 @@ show-versions:
 # ==============================================================================
 
 check-dependency-licenses:
-	@echo "🔍 Checking runtime dependency licenses..."
-	uv run --no-sync python $(REPO_PATH)/scripts/check_dependency_licenses.py
+	@echo "🔍 Checking Python $(LICENSE_PYTHON_VERSION) locked runtime dependency licenses..."
+	uv run --isolated --python $(LICENSE_PYTHON_VERSION) --all-packages --no-dev --locked \
+		python $(REPO_PATH)/scripts/check_dependency_licenses.py
 
 check-license-headers:
 	@echo "🔍 Checking license headers in all files..."
