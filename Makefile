@@ -85,7 +85,8 @@ help:
 	@echo "  prepare-fern-release VERSION=X.Y.Z - Add or refresh Fern version files for release preview"
 	@echo "  check-fern-release-version VERSION=X.Y.Z - Verify Fern has a version entry for release publishing"
 	@echo "  prepare-fern-docs         - Generate local Fern artifacts"
-	@echo "  check-fern-docs           - Generate local Fern artifacts and run fern check"
+	@echo "  check-fern-links          - Validate latest navigation-derived internal Fern links"
+	@echo "  check-fern-docs           - Generate artifacts, validate links, and run fern check"
 	@echo "  check-fern-docs-locally   - Install deps, generate Fern artifacts, and run fern check"
 	@echo "  serve-fern-docs-locally   - Generate local Fern artifacts and serve Fern docs"
 	@echo "  check-license-headers     - Check if all files have license headers"
@@ -507,7 +508,11 @@ endif
 prepare-fern-docs: generate-fern-notebooks
 	@echo "✅ Fern local artifacts ready"
 
+check-fern-links:
+	$(DOCS_PYTHON) fern/scripts/check-internal-links.py --root fern --version latest
+
 check-fern-docs: prepare-fern-docs
+	@$(MAKE) check-fern-links
 	cd fern && $(FERN) check
 
 check-fern-docs-locally:
@@ -753,7 +758,7 @@ clean-test-coverage:
 .PHONY: bench-cli-startup bench-cli-startup-verbose \
         build build-config build-engine build-interface \
         check-all check-all-fix check-config check-engine check-interface \
-        check-dependency-licenses check-fern-docs check-fern-docs-locally check-fern-release-version check-fern-theme-access check-license-headers \
+        check-dependency-licenses check-fern-docs check-fern-docs-locally check-fern-links check-fern-release-version check-fern-theme-access check-license-headers \
         clean clean-dist clean-notebooks clean-pycache clean-test-coverage \
         convert-execute-notebooks \
         coverage coverage-config coverage-engine coverage-interface \
