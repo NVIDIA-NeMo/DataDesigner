@@ -82,81 +82,81 @@ navigation:
   - section: Recipes
     contents:
       - page: Recipe Cards
-        path: ./v0.8.0/pages/recipes/cards.mdx
+        path: ./latest/pages/recipes/cards.mdx
       - section: Image Generation
         contents:
           - page: Rich Document Image Generation
-            path: ./v0.8.0/pages/recipes/image_generation/rich_document_images.mdx
+            path: ./latest/pages/recipes/image_generation/rich_document_images.mdx
           - page: Product Image Variations
-            path: ./v0.8.0/pages/recipes/image_generation/product_image_variations.mdx
+            path: ./latest/pages/recipes/image_generation/product_image_variations.mdx
           - page: Funny Pet Image Edits
-            path: ./v0.8.0/pages/recipes/image_generation/funny_pet_image_edits.mdx
+            path: ./latest/pages/recipes/image_generation/funny_pet_image_edits.mdx
           - page: Autonomous Vehicle Traffic Scenarios
-            path: ./v0.8.0/pages/recipes/image_generation/traffic_scenarios.mdx
+            path: ./latest/pages/recipes/image_generation/traffic_scenarios.mdx
           - page: Synthetic Extremity X-rays
-            path: ./v0.8.0/pages/recipes/image_generation/medical_extremity_xrays.mdx
+            path: ./latest/pages/recipes/image_generation/medical_extremity_xrays.mdx
           - page: Airport Baggage Screening Scans
-            path: ./v0.8.0/pages/recipes/image_generation/airport_security_scans.mdx
+            path: ./latest/pages/recipes/image_generation/airport_security_scans.mdx
           - page: Humanoid Robot Scene Understanding
-            path: ./v0.8.0/pages/recipes/image_generation/humanoid_robot_scene_understanding.mdx
+            path: ./latest/pages/recipes/image_generation/humanoid_robot_scene_understanding.mdx
           - page: Crop Disease Detection Images
-            path: ./v0.8.0/pages/recipes/image_generation/agriculture_crop_imagery.mdx
+            path: ./latest/pages/recipes/image_generation/agriculture_crop_imagery.mdx
           - page: Drone Aerial Inspection
-            path: ./v0.8.0/pages/recipes/image_generation/drone_aerial_inspection.mdx
+            path: ./latest/pages/recipes/image_generation/drone_aerial_inspection.mdx
       - section: Code Generation
         contents:
           - page: Text to Python
-            path: ./v0.8.0/pages/recipes/code_generation/text_to_python.mdx
+            path: ./latest/pages/recipes/code_generation/text_to_python.mdx
           - page: Text to SQL
-            path: ./v0.8.0/pages/recipes/code_generation/text_to_sql.mdx
+            path: ./latest/pages/recipes/code_generation/text_to_sql.mdx
           - page: Nemotron Super Text to SQL
-            path: ./v0.8.0/pages/recipes/code_generation/enterprise_text_to_sql.mdx
+            path: ./latest/pages/recipes/code_generation/enterprise_text_to_sql.mdx
       - section: Plugin Development
         contents:
           - page: Markdown Section Seed Reader Plugin
-            path: ./v0.8.0/pages/recipes/plugin_development/markdown_seed_reader.mdx
+            path: ./latest/pages/recipes/plugin_development/markdown_seed_reader.mdx
       - section: QA and Chat
         contents:
           - page: Product Info QA
-            path: ./v0.8.0/pages/recipes/qa_and_chat/product_info_qa.mdx
+            path: ./latest/pages/recipes/qa_and_chat/product_info_qa.mdx
           - page: Multi-Turn Chat
-            path: ./v0.8.0/pages/recipes/qa_and_chat/multi_turn_chat.mdx
+            path: ./latest/pages/recipes/qa_and_chat/multi_turn_chat.mdx
       - section: Trace Ingestion
         contents:
           - page: Agent Rollout Trace Distillation
-            path: ./v0.8.0/pages/recipes/trace_ingestion/agent_rollout_distillation.mdx
+            path: ./latest/pages/recipes/trace_ingestion/agent_rollout_distillation.mdx
       - section: Workflow Chaining
         contents:
           - page: Document Review Gate
-            path: ./v0.8.0/pages/recipes/workflow_chaining/document_review_gate.mdx
+            path: ./latest/pages/recipes/workflow_chaining/document_review_gate.mdx
       - section: MCP and Tool Use
         contents:
           - page: Basic MCP Tool Use
-            path: ./v0.8.0/pages/recipes/mcp_and_tooluse/basic_mcp.mdx
+            path: ./latest/pages/recipes/mcp_and_tooluse/basic_mcp.mdx
           - page: PDF Document QA
-            path: ./v0.8.0/pages/recipes/mcp_and_tooluse/pdf_qa.mdx
+            path: ./latest/pages/recipes/mcp_and_tooluse/pdf_qa.mdx
           - page: Nemotron Super Search Agent
-            path: ./v0.8.0/pages/recipes/mcp_and_tooluse/search_agent.mdx
+            path: ./latest/pages/recipes/mcp_and_tooluse/search_agent.mdx
       - section: VLM Long-Document Understanding
         contents:
           - page: Seed Dataset Preparation
-            path: ./v0.8.0/pages/recipes/vlm_long_doc/seed_dataset_preparation.mdx
+            path: ./latest/pages/recipes/vlm_long_doc/seed_dataset_preparation.mdx
           - page: Nemotron Parse OCR
-            path: ./v0.8.0/pages/recipes/vlm_long_doc/nemotron_parse_ocr.mdx
+            path: ./latest/pages/recipes/vlm_long_doc/nemotron_parse_ocr.mdx
           - page: Text QA from OCR Transcripts
-            path: ./v0.8.0/pages/recipes/vlm_long_doc/text_qa.mdx
+            path: ./latest/pages/recipes/vlm_long_doc/text_qa.mdx
           - page: Page Classification
-            path: ./v0.8.0/pages/recipes/vlm_long_doc/page_classification.mdx
+            path: ./latest/pages/recipes/vlm_long_doc/page_classification.mdx
           - page: Visual QA
-            path: ./v0.8.0/pages/recipes/vlm_long_doc/visual_qa.mdx
+            path: ./latest/pages/recipes/vlm_long_doc/visual_qa.mdx
           - page: Single-Page QA
-            path: ./v0.8.0/pages/recipes/vlm_long_doc/single_page_qa.mdx
+            path: ./latest/pages/recipes/vlm_long_doc/single_page_qa.mdx
           - page: Multi-Page Windowed QA
-            path: ./v0.8.0/pages/recipes/vlm_long_doc/multi_page_windowed_qa.mdx
+            path: ./latest/pages/recipes/vlm_long_doc/multi_page_windowed_qa.mdx
           - page: Whole-Document QA
-            path: ./v0.8.0/pages/recipes/vlm_long_doc/whole_document_qa.mdx
+            path: ./latest/pages/recipes/vlm_long_doc/whole_document_qa.mdx
           - page: Frontier Judge QA Filter
-            path: ./v0.8.0/pages/recipes/vlm_long_doc/frontier_judge.mdx
+            path: ./latest/pages/recipes/vlm_long_doc/frontier_judge.mdx
   - section: Plugins
     contents:
       - page: Overview
@@ -170,42 +170,42 @@ navigation:
   - section: Dev Notes
     contents:
       - page: Overview
-        path: ./v0.8.0/pages/devnotes/index.mdx
+        path: ./latest/pages/devnotes/index.mdx
       - page: Image Generation for Multimodal Data Pipelines
-        path: ./v0.8.0/pages/devnotes/posts/image-generation-for-multimodal-data-pipelines.mdx
+        path: ./latest/pages/devnotes/posts/image-generation-for-multimodal-data-pipelines.mdx
       - page: Pause, Inspect, Resume
-        path: ./v0.8.0/pages/devnotes/posts/annotate-hard-pages-review-gates.mdx
+        path: ./latest/pages/devnotes/posts/annotate-hard-pages-review-gates.mdx
       - page: Designing Nemotron-Personas
-        path: ./v0.8.0/pages/devnotes/posts/nemotron-personas.mdx
+        path: ./latest/pages/devnotes/posts/nemotron-personas.mdx
       - page: Prompt Sensitivity
-        path: ./v0.8.0/pages/devnotes/posts/prompt-sensitivity.mdx
+        path: ./latest/pages/devnotes/posts/prompt-sensitivity.mdx
       - page: Retriever SDG Toolkit
-        path: ./v0.8.0/pages/devnotes/posts/retriever-sdg-toolkit.mdx
+        path: ./latest/pages/devnotes/posts/retriever-sdg-toolkit.mdx
       - page: Have It Your Way
-        path: ./v0.8.0/pages/devnotes/posts/have-it-your-way.mdx
+        path: ./latest/pages/devnotes/posts/have-it-your-way.mdx
       - page: VLM Long Document Understanding
-        path: ./v0.8.0/pages/devnotes/posts/vlm-long-document-understanding.mdx
+        path: ./latest/pages/devnotes/posts/vlm-long-document-understanding.mdx
       - page: Push Datasets to Hugging Face Hub
-        path: ./v0.8.0/pages/devnotes/posts/push-datasets-to-hugging-face-hub.mdx
+        path: ./latest/pages/devnotes/posts/push-datasets-to-hugging-face-hub.mdx
       - page: Text-to-SQL for Nemotron Super
-        path: ./v0.8.0/pages/devnotes/posts/text-to-sql.mdx
+        path: ./latest/pages/devnotes/posts/text-to-sql.mdx
       - page: Async All the Way Down
-        path: ./v0.8.0/pages/devnotes/posts/async-all-the-way-down.mdx
+        path: ./latest/pages/devnotes/posts/async-all-the-way-down.mdx
       - page: Owning the Model Stack
-        path: ./v0.8.0/pages/devnotes/posts/owning-the-model-stack.mdx
+        path: ./latest/pages/devnotes/posts/owning-the-model-stack.mdx
       - section: Older Dev Notes
         collapsed: true
         skip-slug: true
         contents:
           - page: Data Designer Got Skills
-            path: ./v0.8.0/pages/devnotes/posts/data-designer-got-skills.mdx
+            path: ./latest/pages/devnotes/posts/data-designer-got-skills.mdx
           - page: Search Agent
-            path: ./v0.8.0/pages/devnotes/posts/search-agent.mdx
+            path: ./latest/pages/devnotes/posts/search-agent.mdx
           - page: Structured Outputs from Nemotron
-            path: ./v0.8.0/pages/devnotes/posts/structured-outputs-from-nemotron.mdx
+            path: ./latest/pages/devnotes/posts/structured-outputs-from-nemotron.mdx
           - page: Deep Research Trajectories
-            path: ./v0.8.0/pages/devnotes/posts/deep-research-trajectories.mdx
+            path: ./latest/pages/devnotes/posts/deep-research-trajectories.mdx
           - page: Design Principles
-            path: ./v0.8.0/pages/devnotes/posts/design-principles.mdx
+            path: ./latest/pages/devnotes/posts/design-principles.mdx
           - page: RQA Dataset
-            path: ./v0.8.0/pages/devnotes/posts/rqa.mdx
+            path: ./latest/pages/devnotes/posts/rqa.mdx
