@@ -24,10 +24,6 @@ reports = [{ version = "2026.2.25", license = "Mozilla Public License 2.0 (MPL 2
 reason = "Unmodified character-detection library installed as a separate runtime dependency."
 reports = [{ version = "5.2.0", license = "GNU Lesser General Public License v2 or later (LGPLv2+)" }]
 
-[exceptions.email-validator]
-reason = "Existing unmodified validation library installed as a separate runtime dependency."
-reports = [{ version = "2.3.0", license = "The Unlicense (Unlicense)" }]
-
 [exceptions.numpy]
 reason = "Core numerical dependency with reviewed permissive license metadata in each locked Python slice."
 reports = [
