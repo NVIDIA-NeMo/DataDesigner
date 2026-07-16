@@ -85,7 +85,7 @@ help:
 	@echo "  prepare-fern-release VERSION=X.Y.Z - Add or refresh Fern version files for release preview"
 	@echo "  check-fern-release-version VERSION=X.Y.Z - Verify Fern has a version entry for release publishing"
 	@echo "  prepare-fern-docs         - Generate local Fern artifacts"
-	@echo "  check-fern-links          - Validate navigation-derived internal Fern links"
+	@echo "  check-fern-links          - Validate latest navigation-derived internal Fern links"
 	@echo "  check-fern-docs           - Generate artifacts, validate links, and run fern check"
 	@echo "  check-fern-docs-locally   - Install deps, generate Fern artifacts, and run fern check"
 	@echo "  serve-fern-docs-locally   - Generate local Fern artifacts and serve Fern docs"
@@ -509,7 +509,7 @@ prepare-fern-docs: generate-fern-notebooks
 	@echo "✅ Fern local artifacts ready"
 
 check-fern-links:
-	$(DOCS_PYTHON) fern/scripts/check-internal-links.py --root fern
+	$(DOCS_PYTHON) fern/scripts/check-internal-links.py --root fern --version latest
 
 check-fern-docs: prepare-fern-docs
 	@$(MAKE) check-fern-links

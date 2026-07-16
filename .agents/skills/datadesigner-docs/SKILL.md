@@ -425,7 +425,7 @@ fern check          # YAML + frontmatter + MDX validation
 fern docs dev       # localhost:3000 hot-reload preview
 ```
 
-`fern check` must pass before commit. `make check-fern-docs` also validates internal links and fragments against URLs derived from the active Fern navigation titles and configured redirects. Internal-link failures are actionable; external URLs are intentionally outside this deterministic build check.
+`fern check` must pass before commit. `make check-fern-docs` also validates internal links and fragments in `latest` against URLs derived from its active Fern navigation titles and configured redirects. Historical release snapshots on `docs-website` are intentionally excluded from this authoring check. Internal-link failures are actionable; external URLs are intentionally outside this deterministic build check.
 
 ## Commit & Preview
 

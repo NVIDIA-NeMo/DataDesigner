@@ -170,11 +170,19 @@ def docs_base_path(docs_config: dict[str, Any]) -> str:
     return parsed.path.rstrip("/")
 
 
-def build_index(root: Path) -> DocsIndex:
+def build_index(root: Path, version_slugs: set[str] | None = None) -> DocsIndex:
     root = root.resolve()
     docs_config = yaml.safe_load((root / "docs.yml").read_text(encoding="utf-8"))
     index = DocsIndex(root=root, base_path=docs_base_path(docs_config))
-    for version in docs_config.get("versions", []):
+    configured_versions = docs_config.get("versions", [])
+    configured_slugs = {str(version["slug"]) for version in configured_versions}
+    if version_slugs is not None:
+        unknown_slugs = version_slugs - configured_slugs
+        if unknown_slugs:
+            raise ValueError(f"unknown Fern version slug(s): {', '.join(sorted(unknown_slugs))}")
+    for version in configured_versions:
+        if version_slugs is not None and str(version["slug"]) not in version_slugs:
+            continue
         version_config_path = (root / str(version["path"])).resolve()
         version_config = yaml.safe_load(version_config_path.read_text(encoding="utf-8"))
         pages = version_routes(version_config, str(version["slug"]), version_config_path)
@@ -311,12 +319,22 @@ def notebook_sources(index: DocsIndex, repository_root: Path) -> list[tuple[Path
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Validate internal links against Fern navigation-derived routes.")
     parser.add_argument("--root", type=Path, default=Path(__file__).parents[1], help="Fern documentation root")
+    parser.add_argument(
+        "--version",
+        dest="versions",
+        action="append",
+        help="Fern version slug to validate (repeatable; validates all configured versions when omitted)",
+    )
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
-    index = build_index(args.root)
+    try:
+        index = build_index(args.root, set(args.versions) if args.versions else None)
+    except ValueError as error:
+        print(error, file=sys.stderr)
+        return 2
     repository_root = index.root.parent
     errors = validate_links(index, notebook_sources(index, repository_root))
     if not errors:

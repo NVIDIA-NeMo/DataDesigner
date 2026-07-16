@@ -115,6 +115,35 @@ def test_build_index_uses_navigation_titles_and_skip_slug(docs_root: Path) -> No
     assert index.routes["/"].route == "/concepts/columns"
 
 
+def test_build_index_can_limit_validation_to_latest(docs_root: Path) -> None:
+    historical_pages = docs_root / "versions/v0.6.0/pages"
+    historical_pages.mkdir(parents=True)
+    (historical_pages / "legacy.mdx").write_text("# Legacy\n\n[Broken](/removed-page)\n", encoding="utf-8")
+    historical_config = docs_root / "versions/v0.6.0.yml"
+    historical_config.write_text(
+        yaml.safe_dump(
+            {"navigation": [{"page": "Legacy", "path": "./v0.6.0/pages/legacy.mdx"}]},
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    docs_config_path = docs_root / "docs.yml"
+    docs_config = yaml.safe_load(docs_config_path.read_text(encoding="utf-8"))
+    docs_config["versions"].append({"display-name": "0.6.0", "path": "versions/v0.6.0.yml", "slug": "v0.6.0"})
+    docs_config_path.write_text(yaml.safe_dump(docs_config, sort_keys=False), encoding="utf-8")
+
+    latest_index = check_internal_links.build_index(docs_root, {"latest"})
+
+    assert {page.version_slug for page in latest_index.pages} == {"latest"}
+    assert check_internal_links.validate_links(latest_index) == []
+    assert check_internal_links.validate_links(check_internal_links.build_index(docs_root))
+
+
+def test_build_index_rejects_unknown_version(docs_root: Path) -> None:
+    with pytest.raises(ValueError, match="unknown Fern version slug"):
+        check_internal_links.build_index(docs_root, {"missing"})
+
+
 def test_validate_links_accepts_routes_fragments_relative_links_and_redirects(docs_root: Path) -> None:
     columns = docs_root / "versions/latest/pages/columns.mdx"
     columns.write_text(

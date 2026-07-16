@@ -172,7 +172,7 @@ Support and CI targets:
 | `make install-docs-deps` | Install docs and notebook dependencies |
 | `make generate-fern-notebooks` | Refresh gitignored notebook output from `docs/notebook_source/*.py` |
 | `make prepare-fern-docs` | Generate local Fern notebook artifacts |
-| `make check-fern-links` | Validate internal routes and fragments against navigation-derived Fern URLs and configured redirects |
+| `make check-fern-links` | Validate internal routes and fragments in `latest` against navigation-derived Fern URLs and configured redirects |
 | `make check-fern-docs` | Generate local Fern notebook artifacts, validate internal links, and run `fern check` |
 
 Raw Fern CLI commands, normally wrapped by Make:
