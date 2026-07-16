@@ -456,7 +456,7 @@ show-versions:
 
 check-dependency-licenses:
 	@echo "🔍 Checking Python $(LICENSE_PYTHON_VERSION) locked runtime dependency licenses..."
-	uv run --isolated --python $(LICENSE_PYTHON_VERSION) --all-packages --no-dev --locked \
+	uv run --isolated --python $(LICENSE_PYTHON_VERSION) --all-packages --no-dev --group license-check --locked \
 		python $(REPO_PATH)/scripts/check_dependency_licenses.py
 
 check-license-headers:
