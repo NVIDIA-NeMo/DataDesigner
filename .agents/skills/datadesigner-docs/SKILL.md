@@ -425,7 +425,7 @@ fern check          # YAML + frontmatter + MDX validation
 fern docs dev       # localhost:3000 hot-reload preview
 ```
 
-`fern check` must pass before commit. The local broken-link checker has known false positives — it computes URLs from file paths instead of from slugified nav titles, so cross-section absolute links sometimes flag incorrectly. Spot-check by clicking through the dev server.
+`fern check` must pass before commit. `make check-fern-docs` also validates internal links and fragments against URLs derived from the active Fern navigation titles and configured redirects. Internal-link failures are actionable; external URLs are intentionally outside this deterministic build check.
 
 ## Commit & Preview
 
