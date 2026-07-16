@@ -37,7 +37,6 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     permissions:
-      actions: read
       contents: write
     env:
       FERN_TOKEN: ${{ secrets.DOCS_FERN_TOKEN }}
@@ -70,6 +69,14 @@ jobs:
           git fetch origin "$FERN_PUBLISHED_BRANCH" --depth=1
           git checkout -B "$FERN_PUBLISHED_BRANCH" FETCH_HEAD
 
+      - name: Require published notebook snapshot
+        working-directory: website
+        run: |
+          if [ ! -f fern/notebook-snapshot.json ]; then
+            echo "::error::No canonical notebook snapshot is published. Run the Build Fern docs workflow successfully once."
+            exit 1
+          fi
+
       - name: Patch Dev Notes into latest Fern docs
         env:
           SOURCE_REF: ${{ github.ref }}
@@ -97,37 +104,24 @@ jobs:
         working-directory: website
         run: uv sync --python 3.13 --all-packages --group docs --group notebooks
 
-      - name: Reuse notebooks from last successful docs build
+      - name: Restore published notebook snapshot
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_REPOSITORY: ${{ github.repository }}
+        working-directory: website
         run: |
-          mkdir -p website/docs/notebooks
-
-          download_notebooks() {
-            workflow="$1"
-            shift
-
-            last_run_id=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow "$workflow" --status success "$@" --limit 1 --json databaseId -q '.[0].databaseId // empty' 2>/dev/null || true)
-            if [ -n "$last_run_id" ] && gh run download "$last_run_id" --repo "$GITHUB_REPOSITORY" --name notebooks --dir website/docs/notebooks; then
-              echo "::notice::Downloaded notebooks from $workflow run $last_run_id"
-              exit 0
-            fi
-          }
-
-          for workflow in build-fern-docs.yml; do
-            download_notebooks "$workflow" --event release
-          done
-
-          for workflow in build-fern-docs.yml; do
-            download_notebooks "$workflow" --event workflow_dispatch --branch main
-          done
-
-          echo "::error::No successful docs build run with notebook artifacts found."
-          exit 1
+          release_tag=$(jq -er '.release_tag' fern/notebook-snapshot.json)
+          asset=$(jq -er '.asset' fern/notebook-snapshot.json)
+          snapshot_dir="$RUNNER_TEMP/fern-notebook-snapshot"
+          mkdir -p "$snapshot_dir"
+          gh release download "$release_tag" --repo "$SOURCE_REPOSITORY" \
+            --pattern "$asset" --dir "$snapshot_dir"
+          bash ../workflow/docs/scripts/fern_notebook_snapshot.sh \
+            restore . "$snapshot_dir/$asset"
 
       - name: Check Fern docs
         working-directory: website
-        run: make check-fern-docs
+        run: make check-fern-published-docs
 
       - name: Commit published branch
         env:

@@ -112,6 +112,10 @@ redirects:
         published_root / "fern" / "publish-metadata.json",
         '{"action": "release-snapshot", "release_tag": "v0.6.0"}\n',
     )
+    write_text(
+        published_root / "fern" / "notebook-snapshot.json",
+        '{"release_tag": "v0.6.0", "asset": "notebooks.tar.gz"}\n',
+    )
     write_text(published_root / "fern" / "assets" / "published-only-asset.png", "old asset")
     write_text(
         published_root / "fern" / "versions" / "latest.yml",
@@ -177,6 +181,9 @@ redirects:
     assert not (published_root / "fern" / "assets" / "published-only-asset.png").exists()
     assert (published_root / "fern" / "publish-metadata.json").read_text() == (
         '{"action": "release-snapshot", "release_tag": "v0.6.0"}\n'
+    )
+    assert (published_root / "fern" / "notebook-snapshot.json").read_text() == (
+        '{"release_tag": "v0.6.0", "asset": "notebooks.tar.gz"}\n'
     )
     assert (published_root / "fern" / "versions" / "latest" / "pages" / "devnotes" / "posts" / "new-note.mdx").exists()
     published_nav = (published_root / "fern" / "versions" / "latest.yml").read_text()
