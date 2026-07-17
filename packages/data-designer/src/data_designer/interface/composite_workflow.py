@@ -437,8 +437,10 @@ class CompositeWorkflow:
                     )
                 else:
                     from data_designer.interface.cohort_retry_runner import CohortRetryRunner
+                    from data_designer.interface.cohort_retry_state import read_retry_manifest
+                    from data_designer.interface.cohort_retry_utils import manifest_summary
 
-                    retry_run = CohortRetryRunner(self._data_designer).run(
+                    result = CohortRetryRunner(self._data_designer).run(
                         config_builder=stage_builder,
                         num_records=num_records,
                         dataset_name=stage_dir_name,
@@ -448,8 +450,7 @@ class CompositeWorkflow:
                         resume=stage_resume,
                         workflow_resume=resume,
                     )
-                    result = retry_run.result
-                    retry_summary = retry_run.summary
+                    retry_summary = manifest_summary(read_retry_manifest(stage_path))
                 actual_records = result.count_records()
                 output_result = result
                 output_source_result = result
@@ -690,9 +691,9 @@ def _can_skip_prior_stage(stage: _WorkflowStage, prior_stage_metadata: dict[str,
         stage_dir_name = prior_stage_metadata.get("stage_dir")
         if not isinstance(fingerprint, str) or type(target_records) is not int or not isinstance(stage_dir_name, str):
             return False
-        from data_designer.interface.cohort_retry_runner import CohortRetryRunner
+        from data_designer.interface.cohort_retry_utils import is_completed_retry_state_reusable
 
-        if not CohortRetryRunner.completed_state_is_reusable(
+        if not is_completed_retry_state_reusable(
             stage_path=workflow_path / stage_dir_name,
             fingerprint=fingerprint,
             policy=stage.retry_until,

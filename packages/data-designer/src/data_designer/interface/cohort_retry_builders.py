@@ -3,31 +3,26 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from fnmatch import fnmatch
 from pathlib import Path
 
-from data_designer.config.column_configs import SamplerColumnConfig
 from data_designer.config.column_types import ColumnConfigT, DataDesignerColumnType, is_plugin_column_type
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.data_designer_config import DataDesignerConfig
 from data_designer.config.processor_types import ProcessorConfigT
 from data_designer.config.processors import DropColumnsProcessorConfig, ProcessorType
 from data_designer.config.sampler_constraints import ColumnInequalityConstraint
-from data_designer.config.sampler_params import UUIDSamplerParams
 from data_designer.config.seed import SamplingStrategy, SeedConfig
 from data_designer.config.seed_source import LocalFileSeedSource
 from data_designer.engine.sampling_gen.jinja_utils import extract_column_names_from_expression
 from data_designer.interface.cohort_retry import RetryUntil, SamplerRetryMode
 from data_designer.interface.errors import DataDesignerWorkflowError
 
-_BOOTSTRAP_COLUMN_BASENAME = "_data_designer_cohort_retry_bootstrap"
 _IMPLICIT_DROP_PROCESSOR_BASENAME = "_data_designer_cohort_retry_implicit_drop"
 _SEED_PASSTHROUGH_PROCESSOR_BASENAME = "_data_designer_cohort_retry_seed_passthrough"
 _SAMPLER_REFERENCE_PARAM_FIELDS = ("category", "reference_column_name")
 
 
-@dataclass(frozen=True, init=False)
 class CohortRetryBuilderProjection:
     """Create isolated builders for the three cohort-retry execution phases.
 
@@ -41,48 +36,30 @@ class CohortRetryBuilderProjection:
 
     original_config: DataDesignerConfig
     retry_until: RetryUntil
-    sampler_names: tuple[str, ...]
-    generated_names: tuple[str, ...]
     original_dropped_names: tuple[str, ...]
-    image_column_names: tuple[str, ...]
-    bootstrap_column_name: str | None
+    requires_base_materialization: bool
 
     def __init__(self, config_builder: DataDesignerConfigBuilder, retry_until: RetryUntil) -> None:
         original_config = config_builder.build().model_copy(deep=True)
         validate_cohort_retry_predicate(original_config, retry_until.predicate_column)
 
-        sampler_names = tuple(
-            column.name for column in original_config.columns if column.column_type == DataDesignerColumnType.SAMPLER
-        )
         generated_columns = tuple(
             column
             for column in original_config.columns
             if column.column_type not in {DataDesignerColumnType.SEED_DATASET, DataDesignerColumnType.SAMPLER}
         )
-        generated_names = tuple(column.name for column in generated_columns)
         original_dropped_names = tuple(column.name for column in original_config.columns if column.drop)
-        image_column_names = tuple(
-            column.name for column in original_config.columns if column.column_type == DataDesignerColumnType.IMAGE
-        )
 
         if retry_until.sampler_retry_mode == SamplerRetryMode.PRESERVE:
             _validate_preserved_sampler_dependencies(original_config, generated_columns)
 
-        base_has_sampler = bool(sampler_names) and retry_until.sampler_retry_mode == SamplerRetryMode.PRESERVE
-        needs_bootstrap = original_config.seed_config is None and not base_has_sampler
-        bootstrap_column_name = (
-            _unique_name(_BOOTSTRAP_COLUMN_BASENAME, _declared_output_names(original_config.columns))
-            if needs_bootstrap
-            else None
+        has_preserved_sampler = retry_until.sampler_retry_mode == SamplerRetryMode.PRESERVE and any(
+            column.column_type == DataDesignerColumnType.SAMPLER for column in original_config.columns
         )
-
-        object.__setattr__(self, "original_config", original_config)
-        object.__setattr__(self, "retry_until", retry_until)
-        object.__setattr__(self, "sampler_names", sampler_names)
-        object.__setattr__(self, "generated_names", generated_names)
-        object.__setattr__(self, "original_dropped_names", original_dropped_names)
-        object.__setattr__(self, "image_column_names", image_column_names)
-        object.__setattr__(self, "bootstrap_column_name", bootstrap_column_name)
+        self.original_config = original_config
+        self.retry_until = retry_until
+        self.original_dropped_names = original_dropped_names
+        self.requires_base_materialization = original_config.seed_config is not None or has_preserved_sampler
 
     @property
     def predicate_column(self) -> str:
@@ -107,16 +84,7 @@ class CohortRetryBuilderProjection:
             for constraint in self.original_config.constraints or []:
                 builder.add_constraint(constraint.model_copy(deep=True))
 
-        if self.bootstrap_column_name is not None:
-            builder.add_column(
-                SamplerColumnConfig(
-                    name=self.bootstrap_column_name,
-                    sampler_type="uuid",
-                    params=UUIDSamplerParams(),
-                    drop=False,
-                )
-            )
-        elif not builder.get_column_configs():
+        if not builder.get_column_configs():
             _add_seed_passthrough_processor(builder, self.original_config)
 
         return builder
@@ -186,31 +154,24 @@ def validate_cohort_retry_predicate(config: DataDesignerConfig, predicate_column
     and ``"false"`` are never coerced. Structured output, including a nested
     Boolean, must likewise feed a separate Boolean expression predicate.
     """
-    predicate_owner: ColumnConfigT | None = None
-    predicate_config: ColumnConfigT | None = None
-    for column in config.columns:
-        if column.name == predicate_column:
-            if predicate_owner is not None:
-                raise DataDesignerWorkflowError(
-                    f"retry_until.predicate_column {predicate_column!r} has more than one declared owner."
-                )
-            predicate_owner = column
-            predicate_config = column
-        elif predicate_column in column.side_effect_columns:
-            if predicate_owner is not None:
-                raise DataDesignerWorkflowError(
-                    f"retry_until.predicate_column {predicate_column!r} has more than one declared owner."
-                )
-            predicate_owner = column
-
-    if predicate_owner is None:
+    owners = [
+        column
+        for column in config.columns
+        if column.name == predicate_column or predicate_column in column.side_effect_columns
+    ]
+    if not owners:
         raise DataDesignerWorkflowError(
             f"retry_until.predicate_column {predicate_column!r} is not declared by any configured column."
         )
+    if len(owners) > 1:
+        raise DataDesignerWorkflowError(
+            f"retry_until.predicate_column {predicate_column!r} has more than one declared owner."
+        )
 
+    predicate_owner = owners[0]
     column_type = predicate_owner.column_type
     if column_type == DataDesignerColumnType.EXPRESSION:
-        if predicate_config is not None and getattr(predicate_config, "dtype", None) == "bool":
+        if predicate_owner.name == predicate_column and getattr(predicate_owner, "dtype", None) == "bool":
             return
         raise DataDesignerWorkflowError(f"retry_until predicate expression {predicate_column!r} must use dtype='bool'.")
 

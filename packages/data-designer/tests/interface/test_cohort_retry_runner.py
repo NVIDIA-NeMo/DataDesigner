@@ -26,7 +26,8 @@ from data_designer.engine.secret_resolver import PlaintextResolver
 from data_designer.engine.storage.artifact_storage import ResumeMode
 from data_designer.interface.cohort_retry import RetryExhaustion, RetryUntil, SamplerRetryMode
 from data_designer.interface.cohort_retry_builders import CohortRetryBuilderProjection
-from data_designer.interface.cohort_retry_runner import (
+from data_designer.interface.cohort_retry_runner import CohortRetryRunner
+from data_designer.interface.cohort_retry_state import (
     ACCEPTED_DIRECTORY,
     ATTEMPT_COMPLETION_FILENAME,
     ATTEMPTS_DIRECTORY,
@@ -35,16 +36,24 @@ from data_designer.interface.cohort_retry_runner import (
     INTERNAL_ATTEMPT_COLUMN_BASENAME,
     INTERNAL_SLOT_COLUMN_BASENAME,
     MANIFEST_FILENAME,
-    CohortRetryRunner,
-    _aggregate_model_usage,
-    _AttemptManifest,
-    _copy_preserved_seed_media,
-    _normalized_slot_ids,
-    _package_accepted_media,
-    _read_attempt_completion,
-    _RetryManifest,
-    _strict_predicate_outcome,
-    _write_or_validate_attempt_input,
+    AttemptManifest,
+    RetryManifest,
+    get_attempt_accepted_path,
+    load_retry_manifest,
+    read_attempt_completion,
+)
+from data_designer.interface.cohort_retry_utils import (
+    aggregate_model_usage,
+    classify_attempt,
+    clear_ambiguous_finalization,
+    copy_preserved_seed_media,
+    load_and_validate_base_cohort,
+    load_committed_accepted_ids,
+    normalize_slot_ids,
+    package_accepted_media,
+    read_accepted_slot_ids,
+    strict_predicate_outcome,
+    write_or_validate_attempt_input,
 )
 from data_designer.interface.data_designer import DataDesigner
 from data_designer.interface.errors import DataDesignerWorkflowError
@@ -107,19 +116,14 @@ def _workflow_metadata(artifact_path: Path, workflow_name: str) -> dict[str, Any
     return json.loads((artifact_path / workflow_name / "workflow-metadata.json").read_text(encoding="utf-8"))
 
 
-def _attempt_payload(index: int = 0, accepted_records: int = 1) -> dict[str, Any]:
+def _attempt_payload(accepted_records: int = 1) -> dict[str, Any]:
     return {
-        "index": index,
-        "input_path": f"attempts/attempt-{index:03d}/input.parquet",
-        "artifact_path": f"attempts/attempt-{index:03d}/run",
-        "accepted_path": f"accepted/attempt-{index:03d}.parquet",
         "input_records": 1,
         "output_records": 1,
         "accepted_records": accepted_records,
         "false_records": 1 - accepted_records,
         "null_records": 0,
         "missing_records": 0,
-        "samplers_executed": False,
     }
 
 
@@ -224,9 +228,6 @@ def test_real_workflow_retries_only_pending_slots_and_honors_sampler_mode(
     manifest = _manifest(stage_path)
     assert [attempt["input_records"] for attempt in manifest["attempts"]] == [3, 2, 1]
     assert [attempt["accepted_records"] for attempt in manifest["attempts"]] == [1, 1, 1]
-    assert [attempt["samplers_executed"] for attempt in manifest["attempts"]] == [
-        sampler_mode == SamplerRetryMode.RESAMPLE
-    ] * 3
     summary = _workflow_metadata(artifact_path, f"retry-{sampler_mode.value}")["stages"][0]["retry_summary"]
     assert summary == {
         "target_records": 3,
@@ -239,6 +240,53 @@ def test_real_workflow_retries_only_pending_slots_and_honors_sampler_mode(
         "exhausted": False,
         "distribution_warning": None,
     }
+
+
+def test_seedless_cohort_uses_direct_slots_without_a_bootstrap_run(
+    tmp_path: Path,
+    stub_model_configs: list[ModelConfig],
+    stub_model_providers: list[ModelProvider],
+) -> None:
+    @custom_column_generator(required_columns=["sample_id"], side_effect_columns=["accepted"])
+    def generate(row: dict[str, Any]) -> dict[str, Any]:
+        row["value"] = row["sample_id"]
+        row["accepted"] = True
+        return row
+
+    builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+    builder.add_column(
+        SamplerColumnConfig(
+            name="sample_id",
+            sampler_type="uuid",
+            params=UUIDSamplerParams(),
+        )
+    )
+    builder.add_column(CustomColumnConfig(name="value", generator_function=generate))
+    artifact_path = tmp_path / "artifacts"
+
+    result = CohortRetryRunner(_real_data_designer(artifact_path, stub_model_providers)).run(
+        config_builder=builder,
+        num_records=3,
+        dataset_name="records",
+        artifact_path=artifact_path,
+        policy=RetryUntil(
+            predicate_column="accepted",
+            max_attempts=1,
+            sampler_retry_mode=SamplerRetryMode.RESAMPLE,
+        ),
+        fingerprint="fingerprint",
+        resume=ResumeMode.NEVER,
+        workflow_resume=ResumeMode.NEVER,
+    )
+
+    stage_path = artifact_path / "records"
+    base = lazy.pd.read_parquet(stage_path / BASE_COHORT_PATH)
+    assert len(base) == 3
+    assert list(base.columns) == [_manifest(stage_path)["slot_column"]]
+    assert not (stage_path / BASE_COHORT_PATH.parent / "run").exists()
+    output = result.load_dataset()
+    assert output["value"].tolist() == output["sample_id"].tolist()
+    assert output["sample_id"].nunique() == 3
 
 
 @pytest.mark.parametrize(
@@ -272,7 +320,7 @@ def test_full_and_partial_publications_use_original_fingerprint_and_logical_targ
         on_exhausted=on_exhausted,
     )
 
-    retry_run = CohortRetryRunner(_real_data_designer(artifact_path, stub_model_providers)).run(
+    result = CohortRetryRunner(_real_data_designer(artifact_path, stub_model_providers)).run(
         config_builder=builder,
         num_records=target_records,
         dataset_name="records",
@@ -283,7 +331,6 @@ def test_full_and_partial_publications_use_original_fingerprint_and_logical_targ
         workflow_resume=ResumeMode.NEVER,
     )
 
-    result = retry_run.result
     metadata = result.artifact_storage.read_metadata()
     original_fingerprint = builder.build().fingerprint()
     assert {key: metadata[key] for key in original_fingerprint} == original_fingerprint
@@ -544,11 +591,11 @@ def test_real_runner_resumes_committed_attempt_without_retrying_accepted_slots(
     )
 
     assert call_counts == {0: 1, 1: 2}
-    assert resumed.result.load_dataset().sort_values("seed_id")["generated"].tolist() == [
+    assert resumed.load_dataset().sort_values("seed_id")["generated"].tolist() == [
         "seed-0-attempt-1",
         "seed-1-attempt-2",
     ]
-    assert resumed.summary["candidate_records"] == 3
+    assert resumed.artifact_storage.read_metadata()["cohort_retry"]["candidate_records"] == 3
     assert [attempt["input_records"] for attempt in _manifest(stage_path)["attempts"]] == [2, 1]
 
 
@@ -568,13 +615,13 @@ def test_real_runner_recovers_uncommitted_attempt_artifact_without_regeneration(
     )
     policy = RetryUntil(predicate_column="accepted", max_attempts=2)
     data_designer = _real_data_designer(artifact_path, stub_model_providers)
-    original_package_media = cohort_retry_runner_module._package_accepted_media
+    original_package_media = cohort_retry_runner_module.package_accepted_media
 
     def interrupt_after_attempt_artifact(*args: Any, **kwargs: Any):
         del args, kwargs
         raise RuntimeError("simulated packaging interruption")
 
-    monkeypatch.setattr(cohort_retry_runner_module, "_package_accepted_media", interrupt_after_attempt_artifact)
+    monkeypatch.setattr(cohort_retry_runner_module, "package_accepted_media", interrupt_after_attempt_artifact)
     with pytest.raises(RuntimeError, match="simulated packaging interruption"):
         CohortRetryRunner(data_designer).run(
             config_builder=builder,
@@ -593,7 +640,7 @@ def test_real_runner_recovers_uncommitted_attempt_artifact_without_regeneration(
     assert (stage_path / ATTEMPTS_DIRECTORY / "attempt-000" / "run" / "parquet-files").is_dir()
     assert (stage_path / ATTEMPTS_DIRECTORY / "attempt-000" / ATTEMPT_COMPLETION_FILENAME).is_file()
 
-    monkeypatch.setattr(cohort_retry_runner_module, "_package_accepted_media", original_package_media)
+    monkeypatch.setattr(cohort_retry_runner_module, "package_accepted_media", original_package_media)
     resumed = CohortRetryRunner(data_designer).run(
         config_builder=builder,
         num_records=2,
@@ -606,7 +653,7 @@ def test_real_runner_recovers_uncommitted_attempt_artifact_without_regeneration(
     )
 
     assert call_counts == {0: 1, 1: 2}
-    assert resumed.result.load_dataset().sort_values("seed_id")["generated"].tolist() == [
+    assert resumed.load_dataset().sort_values("seed_id")["generated"].tolist() == [
         "seed-0-attempt-1",
         "seed-1-attempt-2",
     ]
@@ -665,7 +712,7 @@ def test_real_runner_resumes_after_final_artifact_was_published_before_manifest_
     )
 
     assert call_counts == {0: 1}
-    assert resumed.result.load_dataset()["generated"].tolist() == ["seed-0-attempt-1"]
+    assert resumed.load_dataset()["generated"].tolist() == ["seed-0-attempt-1"]
     assert _manifest(stage_path)["status"] == "complete"
 
 
@@ -707,14 +754,14 @@ def test_final_completion_resume_skips_generation_and_reprofiling_and_restores_u
 
     create.assert_not_called()
     create_profiler.assert_not_called()
-    assert resumed.result.model_usage is not None
-    assert resumed.result.model_usage["model"]["token_usage"]["input_tokens"] == 6
-    assert resumed.result.model_usage["model"]["request_usage"]["successful_requests"] == 3
-    analysis = resumed.result.load_analysis()
+    assert resumed.model_usage is not None
+    assert resumed.model_usage["model"]["token_usage"]["input_tokens"] == 6
+    assert resumed.model_usage["model"]["request_usage"]["successful_requests"] == 3
+    analysis = resumed.load_analysis()
     assert analysis.num_records == 1
     assert analysis.target_num_records == 1
-    metadata = resumed.result.artifact_storage.read_metadata()
-    assert metadata["cohort_retry"]["model_usage"] == resumed.result.model_usage
+    metadata = resumed.artifact_storage.read_metadata()
+    assert metadata["cohort_retry"]["model_usage"] == resumed.model_usage
 
 
 @pytest.mark.parametrize(
@@ -802,7 +849,7 @@ def test_zero_output_completion_marker_is_reclassified_without_regeneration(
         ),
         encoding="utf-8",
     )
-    manifest = _RetryManifest(
+    manifest = RetryManifest(
         fingerprint="fingerprint",
         target_records=1,
         policy=policy.to_dict(),
@@ -827,7 +874,7 @@ def test_zero_output_completion_marker_is_reclassified_without_regeneration(
     assert attempt.false_records == 0
     assert attempt.null_records == 0
     assert attempt.missing_records == 1
-    accepted = lazy.pd.read_parquet(stage_path / attempt.accepted_path)
+    accepted = lazy.pd.read_parquet(stage_path / get_attempt_accepted_path(0))
     assert accepted.empty
     assert {"slot", "attempt", "seed_id", "generated", "accepted"}.issubset(accepted.columns)
 
@@ -880,7 +927,7 @@ def test_attempt_completion_marker_rejects_corruption_and_slot_mismatch(
     marker.write_text(payload, encoding="utf-8")
 
     with pytest.raises(DataDesignerWorkflowError, match=message):
-        _read_attempt_completion(marker, [0])
+        read_attempt_completion(marker, [0])
 
 
 def test_missing_manifest_with_durable_orphans_respects_workflow_resume_policy(tmp_path: Path) -> None:
@@ -888,10 +935,9 @@ def test_missing_manifest_with_durable_orphans_respects_workflow_resume_policy(t
     (stage_path / ATTEMPTS_DIRECTORY / "attempt-000").mkdir(parents=True)
     (stage_path / ACCEPTED_DIRECTORY).mkdir()
     policy = RetryUntil(predicate_column="accepted", max_attempts=2)
-    runner = CohortRetryRunner(object())  # type: ignore[arg-type]
 
     with pytest.raises(DataDesignerWorkflowError, match="retry manifest is missing"):
-        runner._load_manifest_for_resume(
+        load_retry_manifest(
             stage_path=stage_path,
             fingerprint="fingerprint",
             policy=policy,
@@ -901,7 +947,7 @@ def test_missing_manifest_with_durable_orphans_respects_workflow_resume_policy(t
 
     assert (stage_path / ATTEMPTS_DIRECTORY).exists()
     assert (
-        runner._load_manifest_for_resume(
+        load_retry_manifest(
             stage_path=stage_path,
             fingerprint="fingerprint",
             policy=policy,
@@ -917,47 +963,29 @@ def test_missing_manifest_with_durable_orphans_respects_workflow_resume_policy(t
 @pytest.mark.parametrize(
     ("updates", "message"),
     [
-        ({"index": -1}, "attempt index must be non-negative"),
         ({"false_records": -1}, "attempt counts must be non-negative"),
         (
             {"accepted_records": 0, "false_records": 0},
             "produced-row outcomes do not match output_records",
         ),
         ({"missing_records": 1}, "attempt outcomes do not match input_records"),
-        ({"input_path": "../input.parquet"}, "must match its deterministic stage-relative path"),
     ],
 )
 def test_attempt_manifest_rejects_invalid_durable_accounting(updates: dict[str, Any], message: str) -> None:
     with pytest.raises(ValidationError, match=message):
-        _AttemptManifest.model_validate(_attempt_payload() | updates)
+        AttemptManifest.model_validate(_attempt_payload() | updates)
 
 
 @pytest.mark.parametrize(
     ("updates", "message"),
     [
         ({"target_records": 0}, "target_records must be positive"),
-        ({"base_cohort_path": "../cohort.parquet"}, "base cohort path must match"),
         ({"slot_column": "attempt"}, "must be distinct non-empty names"),
-        ({"attempts": [_attempt_payload(index=1)]}, "attempt indexes must be contiguous"),
         ({"attempts": [_attempt_payload()]}, "attempt input counts must match the complete pending cohort"),
         ({"unresolved_slot_ids": [1, 1]}, "unresolved slot IDs must be unique"),
         ({"unresolved_slot_ids": [2]}, "unresolved slot IDs must be unique"),
-        (
-            {"unresolved_slot_ids": [1, 0], "distribution_warning": "warning"},
-            "must remain in stable cohort order",
-        ),
-        (
-            {"unresolved_slot_ids": [0]},
-            "partial-result distribution warning must agree",
-        ),
-        (
-            {"distribution_warning": "warning"},
-            "partial-result distribution warning must agree",
-        ),
-        (
-            {"unresolved_slot_ids": [0], "distribution_warning": "warning"},
-            "must match the pending cohort",
-        ),
+        ({"unresolved_slot_ids": [1, 0]}, "must remain in stable cohort order"),
+        ({"unresolved_slot_ids": [0]}, "must match the pending cohort"),
     ],
 )
 def test_retry_manifest_rejects_invalid_cohort_state(updates: dict[str, Any], message: str) -> None:
@@ -969,18 +997,17 @@ def test_retry_manifest_rejects_invalid_cohort_state(updates: dict[str, Any], me
         "attempt_column": "attempt",
     }
     with pytest.raises(ValidationError, match=message):
-        _RetryManifest.model_validate(payload | updates)
+        RetryManifest.model_validate(payload | updates)
 
 
 def test_resume_discards_nondurable_or_corrupt_state_only_when_allowed(tmp_path: Path) -> None:
     policy = RetryUntil(predicate_column="accepted", max_attempts=1)
-    runner = CohortRetryRunner(object())  # type: ignore[arg-type]
 
     nondurable = tmp_path / "nondurable"
     nondurable.mkdir()
     (nondurable / "stray.txt").write_text("not durable", encoding="utf-8")
     assert (
-        runner._load_manifest_for_resume(
+        load_retry_manifest(
             stage_path=nondurable,
             fingerprint="fingerprint",
             policy=policy,
@@ -995,7 +1022,7 @@ def test_resume_discards_nondurable_or_corrupt_state_only_when_allowed(tmp_path:
     corrupt.mkdir()
     (corrupt / MANIFEST_FILENAME).write_text("{not-json", encoding="utf-8")
     assert (
-        runner._load_manifest_for_resume(
+        load_retry_manifest(
             stage_path=corrupt,
             fingerprint="fingerprint",
             policy=policy,
@@ -1018,7 +1045,7 @@ def test_resume_discards_nondurable_or_corrupt_state_only_when_allowed(tmp_path:
     }
     (mismatched / MANIFEST_FILENAME).write_text(json.dumps(manifest_payload), encoding="utf-8")
     with pytest.raises(DataDesignerWorkflowError, match="does not match the current stage fingerprint"):
-        runner._load_manifest_for_resume(
+        load_retry_manifest(
             stage_path=mismatched,
             fingerprint="new-fingerprint",
             policy=policy,
@@ -1037,7 +1064,7 @@ def test_resume_discards_nondurable_or_corrupt_state_only_when_allowed(tmp_path:
     ],
 )
 def test_resume_validates_base_cohort_before_reusing_attempts(case: str, message: str, tmp_path: Path) -> None:
-    manifest = _RetryManifest(
+    manifest = RetryManifest(
         fingerprint="fingerprint",
         target_records=2,
         policy=RetryUntil(predicate_column="accepted", max_attempts=1).to_dict(),
@@ -1056,11 +1083,11 @@ def test_resume_validates_base_cohort_before_reusing_attempts(case: str, message
         lazy.pd.DataFrame({"slot": [1, 0]}).to_parquet(base_path, index=False)
 
     with pytest.raises(DataDesignerWorkflowError, match=message):
-        CohortRetryRunner._load_and_validate_base_cohort(tmp_path, manifest)
+        load_and_validate_base_cohort(tmp_path, manifest)
 
 
 def test_classification_accounts_for_true_false_null_and_missing_rows() -> None:
-    manifest = _RetryManifest(
+    manifest = RetryManifest(
         fingerprint="fingerprint",
         target_records=4,
         policy=RetryUntil(predicate_column="accepted", max_attempts=1).to_dict(),
@@ -1076,24 +1103,27 @@ def test_classification_accounts_for_true_false_null_and_missing_rows() -> None:
         }
     )
 
-    classification = CohortRetryRunner._classify_attempt(
+    accepted, counts = classify_attempt(
         output=output,
         attempt_input=attempt_input,
         manifest=manifest,
         predicate_column="accepted",
     )
 
-    assert classification.accepted[["slot", "value"]].to_dict(orient="records") == [{"slot": 0, "value": "accepted"}]
-    assert classification.output_records == 3
-    assert classification.false_records == 1
-    assert classification.null_records == 1
-    assert classification.missing_records == 1
+    assert accepted[["slot", "value"]].to_dict(orient="records") == [{"slot": 0, "value": "accepted"}]
+    assert counts == {
+        "output_records": 3,
+        "accepted_records": 1,
+        "false_records": 1,
+        "null_records": 1,
+        "missing_records": 1,
+    }
 
 
 @pytest.mark.parametrize("column", ["seed_value", "preserved_sample"])
 def test_classification_rejects_mutated_seed_or_preserved_sampler_values(column: str) -> None:
     policy = RetryUntil(predicate_column="accepted", max_attempts=1, sampler_retry_mode=SamplerRetryMode.PRESERVE)
-    manifest = _RetryManifest(
+    manifest = RetryManifest(
         fingerprint="fingerprint",
         target_records=1,
         policy=policy.to_dict(),
@@ -1113,7 +1143,7 @@ def test_classification_rejects_mutated_seed_or_preserved_sampler_values(column:
     output["accepted"] = True
 
     with pytest.raises(DataDesignerWorkflowError, match=rf"mutated stable seed/cohort column '{column}'"):
-        CohortRetryRunner._classify_attempt(
+        classify_attempt(
             output=output,
             attempt_input=attempt_input,
             manifest=manifest,
@@ -1123,7 +1153,7 @@ def test_classification_rejects_mutated_seed_or_preserved_sampler_values(column:
 
 def test_classification_does_not_treat_resampled_values_as_stable_inputs() -> None:
     policy = RetryUntil(predicate_column="accepted", max_attempts=1, sampler_retry_mode=SamplerRetryMode.RESAMPLE)
-    manifest = _RetryManifest(
+    manifest = RetryManifest(
         fingerprint="fingerprint",
         target_records=1,
         policy=policy.to_dict(),
@@ -1135,14 +1165,14 @@ def test_classification_does_not_treat_resampled_values_as_stable_inputs() -> No
     output["resampled_value"] = "fresh-attempt-value"
     output["accepted"] = True
 
-    classification = CohortRetryRunner._classify_attempt(
+    accepted, _ = classify_attempt(
         output=output,
         attempt_input=attempt_input,
         manifest=manifest,
         predicate_column="accepted",
     )
 
-    assert classification.accepted["resampled_value"].tolist() == ["fresh-attempt-value"]
+    assert accepted["resampled_value"].tolist() == ["fresh-attempt-value"]
 
 
 @pytest.mark.parametrize(
@@ -1158,7 +1188,7 @@ def test_classification_does_not_treat_resampled_values_as_stable_inputs() -> No
     ],
 )
 def test_classification_rejects_outputs_that_break_slot_identity(output: Any, message: str) -> None:
-    manifest = _RetryManifest(
+    manifest = RetryManifest(
         fingerprint="fingerprint",
         target_records=3,
         policy=RetryUntil(predicate_column="accepted", max_attempts=1).to_dict(),
@@ -1166,7 +1196,7 @@ def test_classification_rejects_outputs_that_break_slot_identity(output: Any, me
         attempt_column="attempt",
     )
     with pytest.raises(DataDesignerWorkflowError, match=message):
-        CohortRetryRunner._classify_attempt(
+        classify_attempt(
             output=output,
             attempt_input=lazy.pd.DataFrame({"slot": [0, 1]}),
             manifest=manifest,
@@ -1185,53 +1215,53 @@ def test_classification_rejects_outputs_that_break_slot_identity(output: Any, me
 )
 def test_slot_ids_are_strict_bounded_integers(values: list[Any], target: int, message: str) -> None:
     with pytest.raises(DataDesignerWorkflowError, match=message):
-        _normalized_slot_ids(lazy.pd.Series(values), target, "test slots")
+        normalize_slot_ids(lazy.pd.Series(values), target, "test slots")
 
 
 def test_immutable_attempt_input_rejects_changed_slots_or_schema(tmp_path: Path) -> None:
     path = tmp_path / "attempt" / "input.parquet"
     original = lazy.pd.DataFrame({"slot": [0], "value": ["first"]})
-    _write_or_validate_attempt_input(original, path, "slot")
-    _write_or_validate_attempt_input(original.copy(), path, "slot")
+    write_or_validate_attempt_input(original, path, "slot")
+    write_or_validate_attempt_input(original.copy(), path, "slot")
 
     with pytest.raises(DataDesignerWorkflowError, match="Stored immutable attempt input"):
-        _write_or_validate_attempt_input(lazy.pd.DataFrame({"slot": [1], "other": ["changed"]}), path, "slot")
+        write_or_validate_attempt_input(lazy.pd.DataFrame({"slot": [1], "other": ["changed"]}), path, "slot")
 
 
 def test_accepted_partition_validation_detects_missing_duplicates_counts_and_overlap(tmp_path: Path) -> None:
     with pytest.raises(DataDesignerWorkflowError, match="Accepted partition is missing"):
-        CohortRetryRunner._read_accepted_slot_ids(tmp_path / "missing.parquet", "slot")
+        read_accepted_slot_ids(tmp_path / "missing.parquet", "slot")
 
     duplicate_path = tmp_path / "duplicate.parquet"
     lazy.pd.DataFrame({"slot": [0, 0]}).to_parquet(duplicate_path, index=False)
     with pytest.raises(DataDesignerWorkflowError, match="contains duplicate slot IDs"):
-        CohortRetryRunner._read_accepted_slot_ids(duplicate_path, "slot")
+        read_accepted_slot_ids(duplicate_path, "slot")
 
     count_path = tmp_path / "accepted" / "attempt-000.parquet"
     count_path.parent.mkdir()
     lazy.pd.DataFrame({"slot": [0]}).to_parquet(count_path, index=False)
-    count_manifest = _RetryManifest(
+    count_manifest = RetryManifest(
         fingerprint="fingerprint",
         target_records=1,
         policy=RetryUntil(predicate_column="accepted", max_attempts=2).to_dict(),
         slot_column="slot",
         attempt_column="attempt",
-        attempts=[_AttemptManifest.model_validate(_attempt_payload() | {"accepted_records": 0, "false_records": 1})],
+        attempts=[AttemptManifest.model_validate(_attempt_payload() | {"accepted_records": 0, "false_records": 1})],
     )
     with pytest.raises(DataDesignerWorkflowError, match="does not match its manifest record count"):
-        CohortRetryRunner._load_committed_accepted_ids(tmp_path, count_manifest)
+        load_committed_accepted_ids(tmp_path, count_manifest)
 
     second_path = tmp_path / "accepted" / "attempt-001.parquet"
     lazy.pd.DataFrame({"slot": [0]}).to_parquet(second_path, index=False)
-    overlap_manifest = _RetryManifest(
+    overlap_manifest = RetryManifest(
         fingerprint="fingerprint",
         target_records=2,
         policy=RetryUntil(predicate_column="accepted", max_attempts=2).to_dict(),
         slot_column="slot",
         attempt_column="attempt",
         attempts=[
-            _AttemptManifest.model_validate(
-                _attempt_payload(index=0)
+            AttemptManifest.model_validate(
+                _attempt_payload()
                 | {
                     "input_records": 2,
                     "output_records": 2,
@@ -1239,18 +1269,18 @@ def test_accepted_partition_validation_detects_missing_duplicates_counts_and_ove
                     "false_records": 1,
                 }
             ),
-            _AttemptManifest.model_validate(_attempt_payload(index=1)),
+            AttemptManifest.model_validate(_attempt_payload()),
         ],
     )
     with pytest.raises(DataDesignerWorkflowError, match="Slots were accepted more than once"):
-        CohortRetryRunner._load_committed_accepted_ids(tmp_path, overlap_manifest)
+        load_committed_accepted_ids(tmp_path, overlap_manifest)
 
 
 def test_finalization_cleanup_removes_only_an_ambiguous_started_publication(tmp_path: Path) -> None:
     corrupt = tmp_path / "corrupt"
     corrupt.mkdir()
     (corrupt / "metadata.json").write_text("{not-json", encoding="utf-8")
-    CohortRetryRunner._clear_ambiguous_finalization(corrupt)
+    clear_ambiguous_finalization(corrupt)
     assert (corrupt / "metadata.json").exists()
 
     started = tmp_path / "started"
@@ -1260,7 +1290,7 @@ def test_finalization_cleanup_removes_only_an_ambiguous_started_publication(tmp_
     (started / "metadata.json").write_text(json.dumps({"post_generation_state": "started"}), encoding="utf-8")
     (started / "builder-config.json").write_text("partial", encoding="utf-8")
 
-    CohortRetryRunner._clear_ambiguous_finalization(started)
+    clear_ambiguous_finalization(started)
 
     assert not final_dataset.exists()
     assert not (started / "metadata.json").exists()
@@ -1289,18 +1319,18 @@ def test_model_usage_is_aggregated_across_base_attempts_and_finalization() -> No
         },
         "image_usage": {"total_images": 3},
     }
-    manifest = _RetryManifest(
+    manifest = RetryManifest(
         fingerprint="fingerprint",
         target_records=1,
         policy=RetryUntil(predicate_column="accepted", max_attempts=1).to_dict(),
         slot_column="slot",
         attempt_column="attempt",
         base_model_usage={"model": first_usage},
-        attempts=[_AttemptManifest.model_validate(_attempt_payload() | {"model_usage": {"model": second_usage}})],
+        attempts=[AttemptManifest.model_validate(_attempt_payload() | {"model_usage": {"model": second_usage}})],
         final_model_usage={"model": first_usage},
     )
 
-    aggregate = _aggregate_model_usage(manifest)["model"]
+    aggregate = aggregate_model_usage(manifest)["model"]
 
     assert aggregate["token_usage"]["input_tokens"] == 9
     assert aggregate["token_usage"]["output_tokens"] == 13
@@ -1326,7 +1356,7 @@ def test_model_usage_is_aggregated_across_base_attempts_and_finalization() -> No
     ],
 )
 def test_strict_predicate_accepts_only_scalar_boolean_or_null(value: Any, expected: bool | None) -> None:
-    assert _strict_predicate_outcome(value) is expected
+    assert strict_predicate_outcome(value) is expected
 
 
 @pytest.mark.parametrize(
@@ -1343,7 +1373,7 @@ def test_strict_predicate_accepts_only_scalar_boolean_or_null(value: Any, expect
 )
 def test_strict_predicate_rejects_truthy_coercions_and_non_scalars(value: Any) -> None:
     with pytest.raises(DataDesignerWorkflowError, match="strict scalar booleans or null"):
-        _strict_predicate_outcome(value)
+        strict_predicate_outcome(value)
 
 
 def test_preserved_local_seed_images_are_copied_into_attempt_run(
@@ -1365,7 +1395,7 @@ def test_preserved_local_seed_images_are_copied_into_attempt_run(
     )
     run_path = tmp_path / "stage" / ATTEMPTS_DIRECTORY / "attempt-000" / "run"
 
-    _copy_preserved_seed_media(
+    copy_preserved_seed_media(
         attempt_input=attempt_input,
         seed_column_names=["image"],
         source_root=seed_root,
@@ -1395,7 +1425,7 @@ def test_preserved_local_seed_media_rejects_unsafe_or_unresolvable_paths(
         (seed_root / "images").mkdir()
 
     with pytest.raises(DataDesignerWorkflowError, match=message):
-        _copy_preserved_seed_media(
+        copy_preserved_seed_media(
             attempt_input=lazy.pd.DataFrame({"image": [value]}),
             seed_column_names=["image"],
             source_root=None if case == "unresolvable" else seed_root,
@@ -1439,7 +1469,7 @@ def test_runner_uses_durable_base_media_after_original_seed_media_is_removed(
     stage_path = artifact_path / "records"
     durable_media_path = stage_path / BASE_COHORT_PATH.parent / "images" / "nested" / "image.png"
 
-    def remove_original_before_first_attempt(**kwargs: Any) -> _AttemptManifest:
+    def remove_original_before_first_attempt(**kwargs: Any) -> AttemptManifest:
         if image_path.exists():
             assert durable_media_path.read_bytes() == b"seed-image"
             image_path.unlink()
@@ -1456,7 +1486,7 @@ def test_runner_uses_durable_base_media_after_original_seed_media_is_removed(
         fingerprint="stable-fingerprint",
         resume=ResumeMode.NEVER,
         workflow_resume=ResumeMode.NEVER,
-    ).result
+    )
 
     assert call_count == 2
     assert not image_path.exists()
@@ -1492,7 +1522,7 @@ def test_media_packaging_copies_and_rewrites_nested_attempt_media_without_escapi
         }
     )
 
-    packaged = _package_accepted_media(
+    packaged = package_accepted_media(
         accepted,
         attempt_root=attempt_root,
         stage_path=stage_path,
@@ -1513,7 +1543,7 @@ def test_media_packaging_copies_and_rewrites_nested_attempt_media_without_escapi
 def test_empty_media_partition_is_returned_without_creating_media_directory(tmp_path: Path) -> None:
     accepted = lazy.pd.DataFrame({"image": lazy.pd.Series(dtype="object")})
 
-    packaged = _package_accepted_media(
+    packaged = package_accepted_media(
         accepted,
         attempt_root=tmp_path / "attempt",
         stage_path=tmp_path / "stage",

@@ -99,11 +99,8 @@ def test_preserve_base_keeps_seed_sampler_constraints_and_selection(
 
     base = projection.build_base_builder()
 
-    assert projection.sampler_names == ("category", "score")
-    assert projection.generated_names == ("accepted", "image")
     assert projection.original_dropped_names == ("category", "image")
-    assert projection.image_column_names == ("image",)
-    assert projection.bootstrap_column_name is None
+    assert projection.requires_base_materialization is True
     assert [column.name for column in base.get_column_configs()] == ["category", "score"]
     assert all(not column.drop for column in base.get_column_configs())
     assert base.build().constraints == original.build().constraints
@@ -142,7 +139,7 @@ def test_resample_base_is_seed_only_and_uses_passthrough_processor(
     assert seed.selection_strategy == IndexRange(start=1, end=2)
 
 
-def test_resample_base_bootstraps_only_when_it_has_no_seed_source(
+def test_resample_seedless_projection_skips_base_materialization(
     stub_model_configs: list[ModelConfig],
 ) -> None:
     builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
@@ -150,14 +147,8 @@ def test_resample_base_bootstraps_only_when_it_has_no_seed_source(
     builder.add_column(ExpressionColumnConfig(name="accepted", expr="{{ source == 'a' }}", dtype="bool"))
 
     projection = CohortRetryBuilderProjection(builder, _policy(mode=SamplerRetryMode.RESAMPLE))
-    base = projection.build_base_builder()
 
-    assert projection.bootstrap_column_name is not None
-    assert [column.name for column in base.get_column_configs()] == [projection.bootstrap_column_name]
-    bootstrap = base.get_column_configs()[0]
-    assert bootstrap.sampler_type == "uuid"
-    assert bootstrap.drop is False
-    assert base.get_seed_config() is None
+    assert projection.requires_base_materialization is False
 
 
 @pytest.mark.parametrize(
