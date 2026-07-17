@@ -15,8 +15,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from pydantic import ValidationError
-
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.analysis.dataset_profiler import DatasetProfilerResults
 from data_designer.config.base import ProcessorConfig
@@ -30,7 +28,9 @@ from data_designer.config.utils.constants import DEFAULT_NUM_RECORDS
 from data_designer.config.utils.type_helpers import StrEnum
 from data_designer.config.version import get_library_version
 from data_designer.engine.dataset_builders.errors import ArtifactStorageError
+from data_designer.engine.models.usage import ModelUsageStats
 from data_designer.engine.storage.artifact_storage import ArtifactStorage, ResumeMode
+from data_designer.interface.cohort_retry import RetryUntil
 from data_designer.interface.errors import DataDesignerWorkflowError
 from data_designer.interface.results import (
     SUPPORTED_EXPORT_FORMATS,
@@ -39,6 +39,7 @@ from data_designer.interface.results import (
     _export_csv,
     _export_jsonl,
     _export_parquet,
+    _load_analysis_from_artifact_storage,
 )
 
 if TYPE_CHECKING:
@@ -76,6 +77,7 @@ class _WorkflowStage:
     allow_empty: bool
     sampling_strategy: SamplingStrategy
     selection_strategy: IndexRange | PartitionBlock | None
+    retry_until: RetryUntil | None
 
 
 class SkippedStageStatus(StrEnum):
@@ -207,6 +209,7 @@ class CompositeWorkflow:
         allow_empty: bool = False,
         sampling_strategy: SamplingStrategy = SamplingStrategy.ORDERED,
         selection_strategy: IndexRange | PartitionBlock | None = None,
+        retry_until: RetryUntil | None = None,
     ) -> CompositeWorkflow:
         """Add a stage to the workflow.
 
@@ -214,13 +217,25 @@ class CompositeWorkflow:
         ``output_processors`` for stage-boundary transforms whose output should
         feed downstream stages by default. ``output="processor:<name>"`` selects
         a named processor artifact, and ``on_success`` can override the selected
-        output by returning a parquet file or directory.
+        output by returning a parquet file or directory. ``retry_until`` keeps a
+        stable logical cohort and reruns only rejected or missing rows until all
+        slots pass or one of the configured bounds is exhausted.
         """
         _validate_dir_name(name, "stage name")
         if any(stage.name == name for stage in self._stages):
             raise DataDesignerWorkflowError(f"Stage name {name!r} is already used in workflow {self.name!r}.")
         if num_records is not None and num_records < 1:
             raise DataDesignerWorkflowError("Stage num_records must be at least 1.")
+        if (
+            retry_until is not None
+            and num_records is not None
+            and retry_until.max_candidate_records is not None
+            and retry_until.max_candidate_records < num_records
+        ):
+            raise DataDesignerWorkflowError(
+                "retry_until.max_candidate_records must be at least the stage num_records so the first "
+                "complete cohort attempt can run."
+            )
         _validate_stage_output(output)
         output_processors = output_processors or []
         _validate_distinct_output_processors(config_builder, output_processors)
@@ -238,6 +253,7 @@ class CompositeWorkflow:
                 allow_empty=allow_empty,
                 sampling_strategy=sampling_strategy,
                 selection_strategy=selection_strategy,
+                retry_until=retry_until,
             )
         )
         return self
@@ -359,7 +375,7 @@ class CompositeWorkflow:
                 stage_metadata["output_records"] = output_records
                 if override_path is not None:
                     if output_records == 0:
-                        if not stage.allow_empty:
+                        if not _stage_allows_empty(stage, stage_metadata.get("retry_summary")):
                             raise DataDesignerWorkflowError(f"Stage {stage.name!r} produced an empty output.")
                         stage_metadata["status"] = "completed_empty"
                     else:
@@ -369,6 +385,7 @@ class CompositeWorkflow:
                     stage=stage,
                     stage_dir_name=stage_dir_name,
                     stage_builder=stage_builder,
+                    stage_metadata=stage_metadata,
                 )
                 stage_results[stage.name] = output_result
                 stage_output_paths[stage.name] = output_seed_path
@@ -409,17 +426,34 @@ class CompositeWorkflow:
 
             start_time = time.monotonic()
             try:
-                result = self._data_designer.create(
-                    stage_builder,
-                    num_records=num_records,
-                    dataset_name=stage_dir_name,
-                    artifact_path=workflow_path,
-                    resume=stage_resume,
-                )
+                retry_summary = None
+                if stage.retry_until is None:
+                    result = self._data_designer.create(
+                        stage_builder,
+                        num_records=num_records,
+                        dataset_name=stage_dir_name,
+                        artifact_path=workflow_path,
+                        resume=stage_resume,
+                    )
+                else:
+                    from data_designer.interface.cohort_retry_runner import CohortRetryRunner
+
+                    retry_run = CohortRetryRunner(self._data_designer).run(
+                        config_builder=stage_builder,
+                        num_records=num_records,
+                        dataset_name=stage_dir_name,
+                        artifact_path=workflow_path,
+                        policy=stage.retry_until,
+                        fingerprint=stage_fingerprint,
+                        resume=stage_resume,
+                        workflow_resume=resume,
+                    )
+                    result = retry_run.result
+                    retry_summary = retry_run.summary
                 actual_records = result.count_records()
                 output_result = result
                 output_source_result = result
-                if stage.output_processors:
+                if stage.output_processors and actual_records > 0:
                     output_processor_path = stage_path / "output-processors"
                     if output_processor_path.exists():
                         shutil.rmtree(output_processor_path)
@@ -435,11 +469,21 @@ class CompositeWorkflow:
                         artifact_path=workflow_path / stage_dir_name,
                     )
                     output_source_result = _select_output_result(stage, result, output_result)
+                    if stage.retry_until is not None:
+                        output_result.model_usage = _merge_model_usage(result.model_usage, output_result.model_usage)
+                        output_result.artifact_storage.update_metadata(
+                            {
+                                "workflow_model_usage": output_result.model_usage,
+                                "workflow_seed_column_names": output_result.dataset_metadata.seed_column_names,
+                            }
+                        )
 
                 callback_output_path = None
                 if stage.on_success is not None:
                     callback_output_path = Path(stage.on_success(result.artifact_storage.base_dataset_path))
                     output_seed_path = callback_output_path
+                elif actual_records == 0 and stage.retry_until is not None:
+                    output_seed_path = result.artifact_storage.final_dataset_path
                 else:
                     output_seed_path = _resolve_stage_output_path(output_source_result, stage.output)
                 override_path = _stage_output_override(stage.name, stage_output_overrides)
@@ -448,7 +492,7 @@ class CompositeWorkflow:
                 output_records = _count_parquet_records(output_seed_path)
 
                 if output_records == 0:
-                    if not stage.allow_empty:
+                    if not _stage_allows_empty(stage, retry_summary):
                         raise DataDesignerWorkflowError(f"Stage {stage.name!r} produced an empty output.")
                     status = "completed_empty"
                     skipped_upstream_stage = stage.name
@@ -469,10 +513,11 @@ class CompositeWorkflow:
                         ),
                         "output_processor_output_path": (
                             _metadata_path_value(workflow_path, output_result.artifact_storage.base_dataset_path)
-                            if stage.output_processors
+                            if stage.output_processors and actual_records > 0
                             else None
                         ),
                         "duration_sec": time.monotonic() - start_time,
+                        "retry_summary": retry_summary,
                     }
                 )
             except Exception:
@@ -639,6 +684,21 @@ def _can_skip_prior_stage(stage: _WorkflowStage, prior_stage_metadata: dict[str,
         _count_parquet_records(_resolve_metadata_path(workflow_path, output_seed_path))
     except DataDesignerWorkflowError:
         return False
+    if stage.retry_until is not None:
+        fingerprint = prior_stage_metadata.get("fingerprint")
+        target_records = prior_stage_metadata.get("num_records_requested")
+        stage_dir_name = prior_stage_metadata.get("stage_dir")
+        if not isinstance(fingerprint, str) or type(target_records) is not int or not isinstance(stage_dir_name, str):
+            return False
+        from data_designer.interface.cohort_retry_runner import CohortRetryRunner
+
+        if not CohortRetryRunner.completed_state_is_reusable(
+            stage_path=workflow_path / stage_dir_name,
+            fingerprint=fingerprint,
+            policy=stage.retry_until,
+            target_records=target_records,
+        ):
+            return False
     return True
 
 
@@ -671,11 +731,16 @@ def _stage_result_from_metadata(
     stage: _WorkflowStage,
     stage_dir_name: str,
     stage_builder: DataDesignerConfigBuilder,
+    stage_metadata: dict[str, Any],
 ) -> DatasetCreationResults:
     main_storage = ArtifactStorage(artifact_path=workflow_path, dataset_name=stage_dir_name, resume=ResumeMode.ALWAYS)
+    try:
+        main_metadata = main_storage.read_metadata()
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        main_metadata = {}
     result_storage = main_storage
     result_builder = stage_builder
-    if stage.output_processors:
+    if stage.output_processors and stage_metadata.get("output_processor_output_path"):
         result_storage = ArtifactStorage(
             artifact_path=workflow_path / stage_dir_name,
             dataset_name="output-processors",
@@ -686,37 +751,67 @@ def _stage_result_from_metadata(
             seed_path=main_storage.final_dataset_path,
             output_processors=stage.output_processors,
         )
+    try:
+        result_metadata = result_storage.read_metadata()
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        result_metadata = {}
+    persisted_workflow_usage = result_metadata.get("workflow_model_usage")
+    persisted_seed_column_names = result_metadata.get("workflow_seed_column_names")
+    retry_seed_column_names = (
+        persisted_seed_column_names
+        if _is_string_list(persisted_seed_column_names)
+        else _retry_seed_column_names_from_metadata(main_metadata)
+    )
     return DatasetCreationResults(
         artifact_storage=result_storage,
-        analysis=_load_stage_analysis(result_storage),
+        analysis=_load_analysis_from_artifact_storage(result_storage),
         config_builder=result_builder,
-        dataset_metadata=DatasetMetadata(),
+        dataset_metadata=DatasetMetadata(seed_column_names=retry_seed_column_names),
+        model_usage=(
+            persisted_workflow_usage
+            if isinstance(persisted_workflow_usage, dict)
+            else _retry_model_usage_from_metadata(main_metadata)
+        ),
     )
 
 
-def _load_stage_analysis(artifact_storage: ArtifactStorage) -> Any:
-    try:
-        metadata = artifact_storage.read_metadata()
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
+def _retry_model_usage_from_metadata(metadata: dict[str, Any]) -> dict[str, dict[str, Any]] | None:
+    retry_metadata = metadata.get("cohort_retry")
+    if not isinstance(retry_metadata, dict):
         return None
-    column_statistics = metadata.get("column_statistics")
-    if not column_statistics:
-        return None
-    num_records = metadata.get("actual_num_records")
-    if num_records is None:
-        num_records = _count_parquet_records(artifact_storage.final_dataset_path)
-    try:
-        return DatasetProfilerResults.model_validate(
-            {
-                "num_records": num_records,
-                "target_num_records": metadata.get("target_num_records", num_records),
-                "column_statistics": column_statistics,
-                "side_effect_column_names": metadata.get("side_effect_column_names"),
-                "column_profiles": metadata.get("column_profiles"),
-            }
-        )
-    except ValidationError:
-        return None
+    model_usage = retry_metadata.get("model_usage")
+    return model_usage if isinstance(model_usage, dict) else None
+
+
+def _retry_seed_column_names_from_metadata(metadata: dict[str, Any]) -> list[str]:
+    retry_metadata = metadata.get("cohort_retry")
+    if not isinstance(retry_metadata, dict):
+        return []
+    names = retry_metadata.get("seed_column_names")
+    if not _is_string_list(names):
+        return []
+    return names
+
+
+def _is_string_list(value: Any) -> bool:
+    return isinstance(value, list) and all(isinstance(item, str) for item in value)
+
+
+def _merge_model_usage(
+    *snapshots: dict[str, dict[str, Any]] | None,
+) -> dict[str, dict[str, Any]]:
+    aggregate: dict[str, ModelUsageStats] = {}
+    for snapshot in snapshots:
+        for model_name, payload in (snapshot or {}).items():
+            incoming = ModelUsageStats.model_validate(payload)
+            current = aggregate.setdefault(model_name, ModelUsageStats())
+            current.extend(
+                token_usage=incoming.token_usage,
+                request_usage=incoming.request_usage,
+                tool_usage=incoming.tool_usage,
+                image_usage=incoming.image_usage,
+            )
+    return {name: usage.model_dump(mode="json") for name, usage in aggregate.items()}
 
 
 def _clone_config_builder(config_builder: DataDesignerConfigBuilder) -> DataDesignerConfigBuilder:
@@ -758,6 +853,7 @@ def _base_stage_metadata(index: int, stage: _WorkflowStage, stage_dir_name: str)
         "output": stage.output,
         "sampling_strategy": stage.sampling_strategy.value,
         "selection_strategy": _selection_strategy_payload(stage.selection_strategy),
+        "retry_until": stage.retry_until.to_dict() if stage.retry_until is not None else None,
     }
 
 
@@ -773,6 +869,7 @@ def _stage_fingerprint(
         "num_records": num_records,
         "sampling_strategy": stage.sampling_strategy.value,
         "selection_strategy": _selection_strategy_payload(stage.selection_strategy),
+        "retry_until": stage.retry_until.to_dict() if stage.retry_until is not None else None,
         "allow_empty": stage.allow_empty,
         "on_success_version": stage.on_success_version,
         "output_processors": [processor.model_dump(mode="json") for processor in stage.output_processors],
@@ -781,6 +878,12 @@ def _stage_fingerprint(
         "upstream_fingerprint": upstream_fingerprint,
     }
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
+
+
+def _stage_allows_empty(stage: _WorkflowStage, retry_summary: dict[str, Any] | None) -> bool:
+    if stage.allow_empty:
+        return True
+    return bool(retry_summary and retry_summary.get("exhausted") is True and retry_summary.get("accepted_records") == 0)
 
 
 def _selection_strategy_payload(selection_strategy: IndexRange | PartitionBlock | None) -> dict[str, Any] | None:

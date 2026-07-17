@@ -18,6 +18,37 @@ class DataDesignerWorkflowError(DataDesignerError):
     """Raised for errors related to composite workflow orchestration."""
 
 
+class CohortRetryExhaustedError(DataDesignerWorkflowError):
+    """Raised when a cohort retry reaches its bounds before every slot passes."""
+
+    target_records: int
+    accepted_records: int
+    unresolved_records: int
+    candidate_records: int
+    attempts: int
+    unresolved_slot_ids: tuple[int, ...]
+
+    def __init__(
+        self,
+        *,
+        target_records: int,
+        accepted_records: int,
+        candidate_records: int,
+        attempts: int,
+        unresolved_slot_ids: list[int],
+    ) -> None:
+        self.target_records = target_records
+        self.accepted_records = accepted_records
+        self.unresolved_records = len(unresolved_slot_ids)
+        self.candidate_records = candidate_records
+        self.attempts = attempts
+        self.unresolved_slot_ids = tuple(unresolved_slot_ids)
+        super().__init__(
+            f"Cohort retry exhausted after {attempts} attempt(s): accepted {accepted_records} of "
+            f"{target_records} slots after {candidate_records} candidate records."
+        )
+
+
 class DataDesignerEarlyShutdownError(DataDesignerGenerationError):
     """Raised when a run terminated via early shutdown and produced no records.
 

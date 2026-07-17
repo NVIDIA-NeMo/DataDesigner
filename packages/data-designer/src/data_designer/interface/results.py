@@ -3,8 +3,11 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, get_args
+from typing import TYPE_CHECKING, Any, Literal, get_args
+
+from pydantic import ValidationError
 
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.analysis.dataset_profiler import DatasetProfilerResults
@@ -16,6 +19,7 @@ from data_designer.config.utils.visualization import WithRecordSamplerMixin
 from data_designer.engine.dataset_builders.errors import ArtifactStorageError
 from data_designer.engine.storage.artifact_storage import ArtifactStorage
 from data_designer.integrations.huggingface.client import HuggingFaceHubClient
+from data_designer.interface.errors import DataDesignerProfilingError
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -24,6 +28,33 @@ if TYPE_CHECKING:
 
 ExportFormat = Literal["jsonl", "csv", "parquet"]
 SUPPORTED_EXPORT_FORMATS: tuple[str, ...] = get_args(ExportFormat)
+
+
+def _load_analysis_from_artifact_storage(artifact_storage: ArtifactStorage) -> DatasetProfilerResults | None:
+    """Reconstruct persisted profiling results for workflow resume."""
+    try:
+        metadata = artifact_storage.read_metadata()
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return None
+    column_statistics = metadata.get("column_statistics")
+    if not column_statistics:
+        return None
+    actual_records = metadata.get("actual_num_records")
+    if actual_records is None:
+        batch_files = sorted(artifact_storage.final_dataset_path.glob("batch_*.parquet"))
+        actual_records = sum(lazy.pq.read_metadata(path).num_rows for path in batch_files)
+    try:
+        return DatasetProfilerResults.model_validate(
+            {
+                "num_records": actual_records,
+                "target_num_records": metadata.get("target_num_records", actual_records),
+                "column_statistics": column_statistics,
+                "side_effect_column_names": metadata.get("side_effect_column_names"),
+                "column_profiles": metadata.get("column_profiles"),
+            }
+        )
+    except ValidationError:
+        return None
 
 
 class DatasetCreationResults(WithRecordSamplerMixin):
@@ -36,38 +67,44 @@ class DatasetCreationResults(WithRecordSamplerMixin):
     Resume scope: methods that read from the artifact directory (``load_dataset``,
     ``count_records``, ``load_analysis``, ``export``, ``push_to_hub``) reflect the
     full dataset on disk, including rows produced by earlier ``create()`` calls
-    that the current invocation resumed. Per-run observability — ``task_traces``
-    and any model-usage / telemetry side effects emitted during the call — is
-    scoped to the current invocation only, because the original run's in-memory
-    state is not persisted across process boundaries.
+    that the current invocation resumed. ``task_traces`` remain scoped to the
+    current invocation. ``model_usage`` describes the logical operation when a
+    durable aggregate is available (for example, a cohort-retry workflow stage),
+    and otherwise describes the current invocation.
     """
 
     def __init__(
         self,
         *,
         artifact_storage: ArtifactStorage,
-        analysis: DatasetProfilerResults,
+        analysis: DatasetProfilerResults | None,
         config_builder: DataDesignerConfigBuilder,
         dataset_metadata: DatasetMetadata,
         task_traces: list[TaskTrace] | None = None,
+        model_usage: dict[str, dict[str, Any]] | None = None,
     ):
         """Creates a new instance with results based on a dataset creation run.
 
         Args:
             artifact_storage: Storage manager for accessing generated artifacts.
-            analysis: Profiling results for the generated dataset.
+            analysis: Profiling results for the generated dataset. Internal generation
+                runs that explicitly skip profiling or allow a completed empty result
+                have no analysis.
             config_builder: Configuration builder used to create the dataset.
             dataset_metadata: Metadata about the generated dataset (e.g., seed column names).
             task_traces: Optional list of TaskTrace objects from the async scheduler.
                 Resume note: only contains traces for the current invocation; traces
                 from earlier ``create()`` calls that this run resumed are not
                 retained.
+            model_usage: Optional serialized model-usage snapshot for the logical
+                operation when durably aggregated, otherwise for this invocation.
         """
         self.artifact_storage = artifact_storage
         self._analysis = analysis
         self._config_builder = config_builder
         self.dataset_metadata = dataset_metadata
         self.task_traces: list[TaskTrace] = task_traces or []
+        self.model_usage: dict[str, dict[str, Any]] | None = model_usage
 
     def load_analysis(self) -> DatasetProfilerResults:
         """Load the profiling analysis results for the generated dataset.
@@ -75,7 +112,19 @@ class DatasetCreationResults(WithRecordSamplerMixin):
         Returns:
             DatasetProfilerResults containing statistical analysis and quality metrics
                 for configured columns in the generated dataset.
+
+        Raises:
+            DataDesignerProfilingError: If this internal or empty result was created
+                without profiling analysis.
         """
+        if self._analysis is None:
+            raise DataDesignerProfilingError(
+                "Profiling analysis is unavailable because this internal or empty dataset run skipped profiling."
+            )
+        return self._analysis
+
+    def _load_optional_analysis(self) -> DatasetProfilerResults | None:
+        """Return profiling analysis when present for internal workflow plumbing."""
         return self._analysis
 
     def load_dataset(self) -> pd.DataFrame:

@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import shutil
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
@@ -22,10 +23,27 @@ from data_designer.config.seed_source import LocalFileSeedSource
 from data_designer.config.seed_source_dataframe import DataFrameSeedSource
 from data_designer.engine.secret_resolver import PlaintextResolver
 from data_designer.engine.storage.artifact_storage import ArtifactStorage, BatchStage, ResumeMode
-from data_designer.interface.composite_workflow import SkippedStageResult, SkippedStageStatus
+from data_designer.interface.cohort_retry import RetryExhaustion, RetryUntil
+from data_designer.interface.composite_workflow import CompositeWorkflow, SkippedStageResult, SkippedStageStatus
 from data_designer.interface.data_designer import DataDesigner
 from data_designer.interface.errors import DataDesignerWorkflowError
 from data_designer.interface.results import DatasetCreationResults
+
+
+def test_composite_workflow_rejects_candidate_budget_smaller_than_explicit_stage_target(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_model_configs: list[ModelConfig],
+) -> None:
+    workflow = _data_designer(stub_artifact_path, stub_model_providers).compose_workflow(name="invalid-retry-budget")
+
+    with pytest.raises(DataDesignerWorkflowError, match="must be at least the stage num_records"):
+        workflow.add_stage(
+            "retry",
+            _category_builder(stub_model_configs),
+            num_records=3,
+            retry_until=RetryUntil(predicate_column="accepted", max_candidate_records=2),
+        )
 
 
 @pytest.fixture
@@ -111,6 +129,22 @@ def _copy_builder(model_configs: list[ModelConfig]) -> DataDesignerConfigBuilder
 def _seeded_builder(model_configs: list[ModelConfig], rows: list[dict]) -> DataDesignerConfigBuilder:
     builder = DataDesignerConfigBuilder(model_configs=model_configs)
     builder.with_seed_dataset(DataFrameSeedSource(df=lazy.pd.DataFrame(rows)))
+    return builder
+
+
+def _cohort_retry_builder(
+    model_configs: list[ModelConfig],
+    rows: list[dict[str, Any]],
+) -> DataDesignerConfigBuilder:
+    builder = _seeded_builder(model_configs, rows)
+
+    @custom_column_generator(required_columns=["seed_id", "should_accept"], side_effect_columns=["accepted"])
+    def generate(row: dict[str, Any]) -> dict[str, Any]:
+        row["generated"] = f"generated-{row['seed_id']}"
+        row["accepted"] = bool(row["should_accept"])
+        return row
+
+    builder.add_column(CustomColumnConfig(name="generated", generator_function=generate))
     return builder
 
 
@@ -1151,6 +1185,286 @@ def test_composite_workflow_runs_seeded_processor_only_stage(
 
     assert "secret" not in redacted.columns
     assert final.to_dict(orient="records") == [{"name": "Ada", "public_name": "Ada", "final": "Ada final"}]
+
+
+def test_composite_workflow_cohort_retry_nonempty_partial_runs_output_processors(
+    tmp_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_model_configs: list[ModelConfig],
+) -> None:
+    artifact_path = tmp_path / "artifacts"
+    stage = _cohort_retry_builder(
+        stub_model_configs,
+        [
+            {"seed_id": 0, "should_accept": True, "secret": "keep out"},
+            {"seed_id": 1, "should_accept": False, "secret": "keep out"},
+        ],
+    )
+    workflow = _real_data_designer(artifact_path, stub_model_providers).compose_workflow(
+        name="retry-partial-output-processor"
+    )
+    workflow.add_stage(
+        "records",
+        stage,
+        num_records=2,
+        retry_until=RetryUntil(
+            predicate_column="accepted",
+            max_attempts=1,
+            on_exhausted=RetryExhaustion.RETURN_PARTIAL,
+        ),
+        output_processors=[DropColumnsProcessorConfig(name="drop_secret", column_names=["secret"])],
+    )
+
+    results = workflow.run()
+    output = results.load_dataset()
+    main_output = lazy.pd.read_parquet(
+        artifact_path / "retry-partial-output-processor" / "stage-0-records" / "parquet-files"
+    )
+    metadata = _load_workflow_metadata(artifact_path, "retry-partial-output-processor")["stages"][0]
+
+    assert output["seed_id"].tolist() == [0]
+    assert "secret" not in output
+    assert "secret" in main_output
+    assert metadata["status"] == "completed"
+    assert metadata["retry_summary"]["accepted_records"] == 1
+    assert metadata["retry_summary"]["exhausted"] is True
+    assert metadata["output_processor_output_path"].endswith("stage-0-records/output-processors")
+
+
+@pytest.mark.parametrize("allow_empty", [False, True])
+def test_composite_workflow_full_retry_callback_empty_output_requires_allow_empty(
+    allow_empty: bool,
+    tmp_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_model_configs: list[ModelConfig],
+) -> None:
+    artifact_path = tmp_path / "artifacts"
+    workflow_name = f"retry-empty-callback-{allow_empty}"
+    stage = _cohort_retry_builder(
+        stub_model_configs,
+        [
+            {"seed_id": 0, "should_accept": True},
+            {"seed_id": 1, "should_accept": True},
+        ],
+    )
+
+    def empty_output(stage_path: Path) -> Path:
+        output_path = stage_path / "callback-outputs" / "empty"
+        output_path.mkdir(parents=True)
+        lazy.pd.DataFrame({"seed_id": lazy.pd.Series(dtype="int64")}).to_parquet(
+            output_path / "data.parquet",
+            index=False,
+        )
+        return output_path
+
+    workflow = _real_data_designer(artifact_path, stub_model_providers).compose_workflow(name=workflow_name)
+    workflow.add_stage(
+        "records",
+        stage,
+        num_records=2,
+        retry_until=RetryUntil(
+            predicate_column="accepted",
+            max_attempts=1,
+            on_exhausted=RetryExhaustion.RETURN_PARTIAL,
+        ),
+        on_success=empty_output,
+        on_success_version="empty-v1",
+        allow_empty=allow_empty,
+    )
+
+    if not allow_empty:
+        with pytest.raises(DataDesignerWorkflowError, match="produced an empty output"):
+            workflow.run()
+        assert _load_workflow_metadata(artifact_path, workflow_name)["stages"][0]["status"] == "failed"
+        return
+
+    results = workflow.run()
+    metadata = _load_workflow_metadata(artifact_path, workflow_name)["stages"][0]
+
+    assert results["records"].count_records() == 2
+    assert results.count_records() == 0
+    assert metadata["status"] == "completed_empty"
+    assert metadata["retry_summary"]["accepted_records"] == 2
+    assert metadata["retry_summary"]["exhausted"] is False
+
+
+def test_composite_workflow_retry_callback_receives_canonical_root_and_selects_output(
+    tmp_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_model_configs: list[ModelConfig],
+) -> None:
+    artifact_path = tmp_path / "artifacts"
+    canonical_stage_path = artifact_path / "retry-callback-selection" / "stage-0-records"
+    callback_paths: list[Path] = []
+    stage = _cohort_retry_builder(
+        stub_model_configs,
+        [
+            {"seed_id": 0, "should_accept": True},
+            {"seed_id": 1, "should_accept": True},
+        ],
+    )
+
+    def keep_first(stage_path: Path) -> Path:
+        callback_paths.append(stage_path)
+        canonical = lazy.pd.read_parquet(stage_path / "parquet-files")
+        output_path = stage_path / "callback-outputs" / "first"
+        output_path.mkdir(parents=True)
+        canonical.head(1).to_parquet(output_path / "data.parquet", index=False)
+        return output_path
+
+    workflow = _real_data_designer(artifact_path, stub_model_providers).compose_workflow(
+        name="retry-callback-selection"
+    )
+    workflow.add_stage(
+        "records",
+        stage,
+        num_records=2,
+        retry_until=RetryUntil(predicate_column="accepted", max_attempts=1),
+        on_success=keep_first,
+        on_success_version="first-v1",
+    )
+
+    results = workflow.run()
+
+    assert callback_paths == [canonical_stage_path]
+    assert results["records"].count_records() == 2
+    assert results.count_records() == 1
+    assert results.load_dataset()["seed_id"].tolist() == [0]
+    assert results.get_stage_output_path("records") == canonical_stage_path / "callback-outputs" / "first"
+
+
+def test_composite_workflow_retry_output_processor_usage_is_reconstructed_on_skipped_resume(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    stub_model_providers: list[ModelProvider],
+    stub_model_configs: list[ModelConfig],
+) -> None:
+    artifact_path = tmp_path / "artifacts"
+    data_designer = _real_data_designer(artifact_path, stub_model_providers)
+    original_create = data_designer._create
+    create_calls = 0
+
+    def create_with_usage(
+        config_builder: DataDesignerConfigBuilder,
+        **kwargs: Any,
+    ) -> DatasetCreationResults:
+        nonlocal create_calls
+        create_calls += 1
+        result = original_create(config_builder, **kwargs)
+        result.model_usage = {
+            "test-model": {
+                "token_usage": {"input_tokens": 1, "output_tokens": 0},
+                "request_usage": {"successful_requests": 1, "failed_requests": 0},
+            }
+        }
+        return result
+
+    monkeypatch.setattr(data_designer, "_create", create_with_usage)
+    stage = _cohort_retry_builder(
+        stub_model_configs,
+        [{"seed_id": 0, "should_accept": True, "secret": "drop me"}],
+    )
+
+    workflow = data_designer.compose_workflow(name="retry-output-usage")
+    workflow.add_stage(
+        "records",
+        stage,
+        num_records=1,
+        retry_until=RetryUntil(predicate_column="accepted", max_attempts=1),
+        output_processors=[DropColumnsProcessorConfig(name="drop_secret", column_names=["secret"])],
+    )
+    first = workflow.run()
+    first_usage = first["records"].model_usage
+    first_seed_column_names = first["records"].dataset_metadata.seed_column_names
+
+    assert first_usage is not None
+    assert first_usage["test-model"]["token_usage"]["input_tokens"] == 4
+    assert first_usage["test-model"]["request_usage"]["successful_requests"] == 4
+    assert create_calls == 4
+
+    resumed_workflow = data_designer.compose_workflow(name="retry-output-usage")
+    resumed_workflow.add_stage(
+        "records",
+        stage,
+        num_records=1,
+        retry_until=RetryUntil(predicate_column="accepted", max_attempts=1),
+        output_processors=[DropColumnsProcessorConfig(name="drop_secret", column_names=["secret"])],
+    )
+    resumed = resumed_workflow.run(resume=ResumeMode.IF_POSSIBLE)
+
+    assert create_calls == 4
+    assert resumed["records"].model_usage == first_usage
+    assert resumed["records"].dataset_metadata.seed_column_names == first_seed_column_names
+
+
+@pytest.mark.parametrize(
+    ("corruption", "path_name"),
+    [
+        ("missing", "manifest.json"),
+        ("corrupt", "manifest.json"),
+        ("missing", "metadata.json"),
+        ("corrupt", "metadata.json"),
+        ("missing", "final-completion.json"),
+    ],
+)
+@pytest.mark.parametrize("resume", [ResumeMode.ALWAYS, ResumeMode.IF_POSSIBLE])
+def test_composite_workflow_completed_retry_validates_terminal_state_before_reuse(
+    corruption: str,
+    path_name: str,
+    resume: ResumeMode,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    stub_model_providers: list[ModelProvider],
+    stub_model_configs: list[ModelConfig],
+) -> None:
+    artifact_path = tmp_path / "artifacts"
+    data_designer = _real_data_designer(artifact_path, stub_model_providers)
+    original_create = data_designer._create
+    create_calls = 0
+
+    def recording_create(
+        config_builder: DataDesignerConfigBuilder,
+        **kwargs: Any,
+    ) -> DatasetCreationResults:
+        nonlocal create_calls
+        create_calls += 1
+        return original_create(config_builder, **kwargs)
+
+    monkeypatch.setattr(data_designer, "_create", recording_create)
+    stage = _cohort_retry_builder(
+        stub_model_configs,
+        [{"seed_id": 0, "should_accept": True}],
+    )
+
+    def make_workflow() -> CompositeWorkflow:
+        workflow = data_designer.compose_workflow(name="retry-terminal-validation")
+        workflow.add_stage(
+            "records",
+            stage,
+            num_records=1,
+            retry_until=RetryUntil(predicate_column="accepted", max_attempts=1),
+        )
+        return workflow
+
+    assert make_workflow().run().count_records() == 1
+    assert create_calls == 3
+
+    terminal_path = artifact_path / "retry-terminal-validation" / "stage-0-records" / path_name
+    if corruption == "missing":
+        terminal_path.unlink()
+    else:
+        terminal_path.write_text("{not-json", encoding="utf-8")
+
+    if resume == ResumeMode.ALWAYS:
+        with pytest.raises(DataDesignerWorkflowError, match="stage 'records' is not reusable"):
+            make_workflow().run(resume=resume)
+        assert create_calls == 3
+        return
+
+    resumed = make_workflow().run(resume=resume)
+    assert resumed.count_records() == 1
+    assert create_calls == 6
+    assert json.loads(terminal_path.read_text(encoding="utf-8"))
 
 
 def test_composite_workflow_output_processors_transform_stage_output(

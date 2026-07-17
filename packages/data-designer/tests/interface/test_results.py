@@ -19,6 +19,7 @@ from data_designer.config.utils.errors import DatasetSampleDisplayError
 from data_designer.config.utils.visualization import display_sample_record as display_fn
 from data_designer.engine.dataset_builders.errors import ArtifactStorageError
 from data_designer.engine.storage.artifact_storage import ArtifactStorage
+from data_designer.interface.errors import DataDesignerProfilingError
 from data_designer.interface.results import DatasetCreationResults
 
 
@@ -86,6 +87,32 @@ def test_load_analysis_returns_same_instance(stub_dataset_creation_results):
     analysis2 = stub_dataset_creation_results.load_analysis()
 
     assert analysis1 is analysis2
+
+
+def test_internal_result_can_omit_analysis_and_include_model_usage(
+    stub_artifact_storage,
+    stub_complete_builder,
+    stub_dataset_metadata,
+) -> None:
+    model_usage = {
+        "test-model": {
+            "token_usage": {"input_tokens": 3, "output_tokens": 2, "total_tokens": 5},
+            "request_usage": {"successful_requests": 1, "failed_requests": 0, "total_requests": 1},
+        }
+    }
+
+    results = DatasetCreationResults(
+        artifact_storage=stub_artifact_storage,
+        analysis=None,
+        config_builder=stub_complete_builder,
+        dataset_metadata=stub_dataset_metadata,
+        model_usage=model_usage,
+    )
+
+    with pytest.raises(DataDesignerProfilingError, match="Profiling analysis is unavailable"):
+        results.load_analysis()
+    assert results._load_optional_analysis() is None
+    assert results.model_usage == model_usage
 
 
 def test_record_sampler_dataset_initialization(stub_dataset_creation_results, stub_artifact_storage):
