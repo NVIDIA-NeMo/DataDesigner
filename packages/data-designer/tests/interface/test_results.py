@@ -111,7 +111,6 @@ def test_internal_result_can_omit_analysis_and_include_model_usage(
 
     with pytest.raises(DataDesignerProfilingError, match="Profiling analysis is unavailable"):
         results.load_analysis()
-    assert results._load_optional_analysis() is None
     assert results.model_usage == model_usage
 
 

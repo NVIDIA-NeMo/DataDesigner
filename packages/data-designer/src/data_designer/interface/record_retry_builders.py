@@ -7,26 +7,26 @@ from fnmatch import fnmatch
 from pathlib import Path
 
 from data_designer.config.column_types import ColumnConfigT, DataDesignerColumnType, is_plugin_column_type
-from data_designer.config.config_builder import DataDesignerConfigBuilder
+from data_designer.config.config_builder import BuilderConfig, DataDesignerConfigBuilder
 from data_designer.config.data_designer_config import DataDesignerConfig
 from data_designer.config.processor_types import ProcessorConfigT
 from data_designer.config.processors import DropColumnsProcessorConfig, ProcessorType
 from data_designer.config.sampler_constraints import ColumnInequalityConstraint
-from data_designer.config.seed import SamplingStrategy, SeedConfig
+from data_designer.config.seed import SamplingStrategy
 from data_designer.config.seed_source import LocalFileSeedSource
 from data_designer.engine.sampling_gen.jinja_utils import extract_column_names_from_expression
-from data_designer.interface.cohort_retry import RetryUntil, SamplerRetryMode
 from data_designer.interface.errors import DataDesignerWorkflowError
+from data_designer.interface.record_retry import RetryUntil, SamplerRetryMode
 
-_IMPLICIT_DROP_PROCESSOR_BASENAME = "_data_designer_cohort_retry_implicit_drop"
-_SEED_PASSTHROUGH_PROCESSOR_BASENAME = "_data_designer_cohort_retry_seed_passthrough"
+_IMPLICIT_DROP_PROCESSOR_BASENAME = "_data_designer_record_retry_implicit_drop"
+_SEED_PASSTHROUGH_PROCESSOR_BASENAME = "_data_designer_record_retry_seed_passthrough"
 _SAMPLER_REFERENCE_PARAM_FIELDS = ("category", "reference_column_name")
 
 
-class CohortRetryBuilderProjection:
-    """Create isolated builders for the three cohort-retry execution phases.
+class RecordRetryBuilderFactory:
+    """Create isolated builders for the three record-retry execution phases.
 
-    The projection owns a deep snapshot of the user's builder. Hidden base and
+    The factory owns a deep snapshot of the user's builder. Hidden base and
     attempt runs never mutate that builder, never run its processors or
     profilers, and force selected columns to remain materialized for durable
     classification. The final builder contains no generators: it reads the
@@ -36,20 +36,17 @@ class CohortRetryBuilderProjection:
 
     original_config: DataDesignerConfig
     retry_until: RetryUntil
-    original_dropped_names: tuple[str, ...]
     requires_base_materialization: bool
 
     def __init__(self, config_builder: DataDesignerConfigBuilder, retry_until: RetryUntil) -> None:
         original_config = config_builder.build().model_copy(deep=True)
-        validate_cohort_retry_predicate(original_config, retry_until.predicate_column)
+        validate_record_retry_predicate(original_config, retry_until.predicate_column)
 
         generated_columns = tuple(
             column
             for column in original_config.columns
             if column.column_type not in {DataDesignerColumnType.SEED_DATASET, DataDesignerColumnType.SAMPLER}
         )
-        original_dropped_names = tuple(column.name for column in original_config.columns if column.drop)
-
         if retry_until.sampler_retry_mode == SamplerRetryMode.PRESERVE:
             _validate_preserved_sampler_dependencies(original_config, generated_columns)
 
@@ -58,26 +55,26 @@ class CohortRetryBuilderProjection:
         )
         self.original_config = original_config
         self.retry_until = retry_until
-        self.original_dropped_names = original_dropped_names
         self.requires_base_materialization = original_config.seed_config is not None or has_preserved_sampler
 
-    @property
-    def predicate_column(self) -> str:
-        """Return the configured materialized predicate column."""
-        return self.retry_until.predicate_column
-
-    @property
-    def sampler_retry_mode(self) -> SamplerRetryMode:
-        """Return whether sampler values are fixed in the base or rerun per attempt."""
-        return self.retry_until.sampler_retry_mode
+    def build_original_builder(self) -> DataDesignerConfigBuilder:
+        """Reconstruct the user's original declarative builder snapshot."""
+        return DataDesignerConfigBuilder.from_config(
+            BuilderConfig(data_designer=self.original_config.model_copy(deep=True))
+        )
 
     def build_base_builder(self) -> DataDesignerConfigBuilder:
         """Build the immutable base-cohort materialization config."""
         builder = _empty_builder(self.original_config)
         if self.original_config.seed_config is not None:
-            _copy_seed_config(builder, self.original_config.seed_config)
+            seed_config = self.original_config.seed_config.model_copy(deep=True)
+            builder.with_seed_dataset(
+                seed_config.source,
+                sampling_strategy=seed_config.sampling_strategy,
+                selection_strategy=seed_config.selection_strategy,
+            )
 
-        if self.sampler_retry_mode == SamplerRetryMode.PRESERVE:
+        if self.retry_until.sampler_retry_mode == SamplerRetryMode.PRESERVE:
             for column in self.original_config.columns:
                 if column.column_type == DataDesignerColumnType.SAMPLER:
                     builder.add_column(_hidden_column_copy(column))
@@ -98,12 +95,12 @@ class CohortRetryBuilderProjection:
             if column.column_type == DataDesignerColumnType.SEED_DATASET:
                 continue
             if column.column_type == DataDesignerColumnType.SAMPLER:
-                if self.sampler_retry_mode == SamplerRetryMode.RESAMPLE:
+                if self.retry_until.sampler_retry_mode == SamplerRetryMode.RESAMPLE:
                     builder.add_column(_hidden_column_copy(column))
                 continue
             builder.add_column(_hidden_column_copy(column))
 
-        if self.sampler_retry_mode == SamplerRetryMode.RESAMPLE:
+        if self.retry_until.sampler_retry_mode == SamplerRetryMode.RESAMPLE:
             for constraint in self.original_config.constraints or []:
                 builder.add_constraint(constraint.model_copy(deep=True))
 
@@ -122,11 +119,15 @@ class CohortRetryBuilderProjection:
             columns=self.original_config.columns,
             processors=original_processors,
         )
-        implicit_drop_names = [name for name in self.original_dropped_names if name not in explicitly_dropped]
+        implicit_drop_names = [
+            column.name
+            for column in self.original_config.columns
+            if column.drop and column.name not in explicitly_dropped
+        ]
         if implicit_drop_names:
             builder.add_processor(
                 DropColumnsProcessorConfig(
-                    name=_unique_name(
+                    name=unique_name(
                         _IMPLICIT_DROP_PROCESSOR_BASENAME,
                         {processor.name for processor in builder.get_processor_configs()},
                     ),
@@ -143,7 +144,17 @@ class CohortRetryBuilderProjection:
         return builder
 
 
-def validate_cohort_retry_predicate(config: DataDesignerConfig, predicate_column: str) -> None:
+def unique_name(base_name: str, used_names: set[str]) -> str:
+    """Return a deterministic unused name based on the supplied base."""
+    if base_name not in used_names:
+        return base_name
+    suffix = 1
+    while f"{base_name}_{suffix}" in used_names:
+        suffix += 1
+    return f"{base_name}_{suffix}"
+
+
+def validate_record_retry_predicate(config: DataDesignerConfig, predicate_column: str) -> None:
     """Validate that the predicate is declared by a rerunnable generator.
 
     Expression predicates must explicitly declare ``dtype="bool"``. Custom,
@@ -190,19 +201,10 @@ def validate_cohort_retry_predicate(config: DataDesignerConfig, predicate_column
 def _empty_builder(config: DataDesignerConfig) -> DataDesignerConfigBuilder:
     model_configs = [model.model_copy(deep=True) for model in config.model_configs or []]
     if not model_configs:
-        raise DataDesignerWorkflowError("Cohort retry requires the original builder to contain model configs.")
+        raise DataDesignerWorkflowError("Record retry requires the original builder to contain model configs.")
     return DataDesignerConfigBuilder(
         model_configs=model_configs,
         tool_configs=[tool.model_copy(deep=True) for tool in config.tool_configs or []],
-    )
-
-
-def _copy_seed_config(builder: DataDesignerConfigBuilder, seed_config: SeedConfig) -> None:
-    copied = seed_config.model_copy(deep=True)
-    builder.with_seed_dataset(
-        copied.source,
-        sampling_strategy=copied.sampling_strategy,
-        selection_strategy=copied.selection_strategy,
     )
 
 
@@ -225,7 +227,7 @@ def _add_seed_passthrough_processor(
     existing_names = {processor.name for processor in original_config.processors or []}
     builder.add_processor(
         DropColumnsProcessorConfig(
-            name=_unique_name(_SEED_PASSTHROUGH_PROCESSOR_BASENAME, existing_names),
+            name=unique_name(_SEED_PASSTHROUGH_PROCESSOR_BASENAME, existing_names),
             column_names=[],
         )
     )
@@ -250,7 +252,9 @@ def _validate_preserved_sampler_dependencies(
     config: DataDesignerConfig,
     generated_columns: tuple[ColumnConfigT, ...],
 ) -> None:
-    generated_outputs = _declared_output_names(generated_columns)
+    generated_outputs = {
+        output_name for column in generated_columns for output_name in (column.name, *column.side_effect_columns)
+    }
     invalid_dependencies: dict[str, list[str]] = {}
 
     for column in config.columns:
@@ -297,16 +301,3 @@ def _sampler_dependency_names(column: ColumnConfigT) -> set[str]:
             if isinstance(reference, str):
                 dependencies.add(reference)
     return dependencies
-
-
-def _declared_output_names(columns: list[ColumnConfigT] | tuple[ColumnConfigT, ...]) -> set[str]:
-    return {output_name for column in columns for output_name in (column.name, *column.side_effect_columns)}
-
-
-def _unique_name(base_name: str, used_names: set[str]) -> str:
-    if base_name not in used_names:
-        return base_name
-    suffix = 1
-    while f"{base_name}_{suffix}" in used_names:
-        suffix += 1
-    return f"{base_name}_{suffix}"

@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Any
 from pydantic import ValidationError
 
 import data_designer.lazy_heavy_imports as lazy
-from data_designer.config.config_builder import BuilderConfig, DataDesignerConfigBuilder
+from data_designer.config.config_builder import BuilderConfig
 from data_designer.config.data_designer_config import DataDesignerConfig
 from data_designer.config.processors import ProcessorType
 from data_designer.config.seed_source import LocalFileSeedSource
@@ -26,9 +26,9 @@ from data_designer.engine.storage.artifact_storage import (
     ArtifactStorage,
     ResumeMode,
 )
-from data_designer.interface.cohort_retry import RetryUntil, SamplerRetryMode
-from data_designer.interface.cohort_retry_builders import CohortRetryBuilderProjection
-from data_designer.interface.cohort_retry_state import (
+from data_designer.interface.errors import DataDesignerWorkflowError
+from data_designer.interface.record_retry import RetryUntil, SamplerRetryMode
+from data_designer.interface.record_retry_state import (
     BASE_COHORT_PATH,
     COALESCED_ACCEPTED_PATH,
     FINAL_COMPLETION_FILENAME,
@@ -40,7 +40,6 @@ from data_designer.interface.cohort_retry_state import (
     read_retry_manifest,
     write_parquet_atomic,
 )
-from data_designer.interface.errors import DataDesignerWorkflowError
 from data_designer.interface.results import _load_analysis_from_artifact_storage
 
 if TYPE_CHECKING:
@@ -63,7 +62,7 @@ def is_completed_retry_state_reusable(
         if (
             manifest.status != "complete"
             or manifest.fingerprint != fingerprint
-            or manifest.policy != policy.to_dict()
+            or manifest.policy != policy
             or manifest.target_records != target_records
         ):
             return False
@@ -88,7 +87,7 @@ def is_completed_retry_state_reusable(
             or metadata["original_target_num_records"] != manifest.target_records
             or type(metadata.get("actual_num_records")) is not int
             or metadata["actual_num_records"] != manifest.accepted_records
-            or metadata.get("cohort_retry") != metadata_retry_summary(manifest, expected_usage)
+            or metadata.get("record_retry") != metadata_retry_summary(manifest, expected_usage)
         ):
             return False
 
@@ -126,16 +125,16 @@ def load_and_validate_base_cohort(stage_path: Path, manifest: RetryManifest) -> 
     """Load a persisted base cohort and validate its stable slot identity."""
     path = stage_path / BASE_COHORT_PATH
     if not path.is_file():
-        raise DataDesignerWorkflowError(f"Cannot resume cohort retry: base cohort is missing at {str(path)!r}.")
+        raise DataDesignerWorkflowError(f"Cannot resume record retry: base cohort is missing at {str(path)!r}.")
     try:
         base_df = lazy.pd.read_parquet(path)
     except Exception as exc:
         raise DataDesignerWorkflowError(f"Cannot read base cohort at {str(path)!r}: {exc}") from exc
     if len(base_df) != manifest.target_records or manifest.slot_column not in base_df:
-        raise DataDesignerWorkflowError("Cannot resume cohort retry: base cohort shape is incompatible.")
+        raise DataDesignerWorkflowError("Cannot resume record retry: base cohort shape is incompatible.")
     slot_ids = normalize_slot_ids(base_df[manifest.slot_column], manifest.target_records, "base cohort")
     if slot_ids != list(range(manifest.target_records)):
-        raise DataDesignerWorkflowError("Cannot resume cohort retry: base cohort slot IDs are not contiguous.")
+        raise DataDesignerWorkflowError("Cannot resume record retry: base cohort slot IDs are not contiguous.")
     return base_df
 
 
@@ -351,12 +350,12 @@ def strict_predicate_outcome(value: Any) -> bool | None:
 
 def empty_attempt_output(
     attempt_input: pd.DataFrame,
-    projection: CohortRetryBuilderProjection | None,
+    original_config: DataDesignerConfig | None,
 ) -> pd.DataFrame:
     """Create a schema-bearing empty attempt output after successful zero-row generation."""
     output = attempt_input.head(0).copy()
-    if projection is not None:
-        for column in projection.original_config.columns:
+    if original_config is not None:
+        for column in original_config.columns:
             for name in (column.name, *column.side_effect_columns):
                 if name not in output:
                     output[name] = lazy.pd.Series(dtype="object")
@@ -416,7 +415,7 @@ def copy_preserved_seed_media(
 
     if source_root is None:
         raise DataDesignerWorkflowError(
-            "Cohort retry cannot resolve preserved 'images/...' seed media. Use a LocalFileSeedSource whose "
+            "Record retry cannot resolve preserved 'images/...' seed media. Use a LocalFileSeedSource whose "
             "dataset has an adjacent images directory."
         )
     resolved_root = source_root.resolve()
@@ -527,11 +526,11 @@ def load_completed_attempt_output(
     run_path: Path,
     completion: AttemptCompletion,
     attempt_input: pd.DataFrame,
-    projection: CohortRetryBuilderProjection,
+    original_config: DataDesignerConfig,
 ) -> pd.DataFrame:
     """Load and validate an attempt output after its durable completion marker exists."""
     if completion.output_records == 0:
-        return empty_attempt_output(attempt_input, projection)
+        return empty_attempt_output(attempt_input, original_config)
     try:
         storage = ArtifactStorage(
             artifact_path=run_path.parent,
@@ -552,13 +551,13 @@ def load_completed_attempt_output(
 def empty_publication_dataframe(
     coalesced: pd.DataFrame,
     *,
-    projection: CohortRetryBuilderProjection,
+    original_config: DataDesignerConfig,
     internal_columns: set[str],
 ) -> pd.DataFrame:
     """Project a schema-bearing empty canonical result through configured drop semantics."""
     empty = coalesced.head(0).copy()
-    drop_patterns: list[str] = list(projection.original_dropped_names)
-    for processor in projection.original_config.processors or []:
+    drop_patterns = [column.name for column in original_config.columns if column.drop]
+    for processor in original_config.processors or []:
         if processor.processor_type == ProcessorType.DROP_COLUMNS:
             drop_patterns.extend(processor.column_names)
     to_drop = {
@@ -569,18 +568,9 @@ def empty_publication_dataframe(
     return empty.drop(columns=sorted(to_drop), errors="ignore")
 
 
-def builder_from_projection(projection: CohortRetryBuilderProjection) -> DataDesignerConfigBuilder:
-    """Reconstruct the user's original builder from a retry projection snapshot."""
-    return DataDesignerConfigBuilder.from_config(
-        BuilderConfig(data_designer=projection.original_config.model_copy(deep=True))
-    )
-
-
-def write_original_builder_config(stage_path: Path, projection: CohortRetryBuilderProjection) -> None:
+def write_original_builder_config(stage_path: Path, original_config: DataDesignerConfig) -> None:
     """Persist the original declarative builder config at the canonical stage root."""
-    BuilderConfig(data_designer=projection.original_config.model_copy(deep=True)).to_json(
-        stage_path / SDG_CONFIG_FILENAME
-    )
+    BuilderConfig(data_designer=original_config.model_copy(deep=True)).to_json(stage_path / SDG_CONFIG_FILENAME)
 
 
 def count_storage_records(storage: ArtifactStorage) -> int:
@@ -591,7 +581,7 @@ def count_storage_records(storage: ArtifactStorage) -> int:
 def write_canonical_metadata(
     *,
     storage: ArtifactStorage,
-    projection: CohortRetryBuilderProjection,
+    original_config: DataDesignerConfig,
     manifest: RetryManifest,
     actual_records: int,
     model_usage: dict[str, dict[str, Any]],
@@ -601,18 +591,18 @@ def write_canonical_metadata(
         metadata = storage.read_metadata()
     except (FileNotFoundError, json.JSONDecodeError, OSError) as exc:
         raise DataDesignerWorkflowError(
-            "Final cohort-retry metadata is missing or invalid after durable completion."
+            "Final record-retry metadata is missing or invalid after durable completion."
         ) from exc
     if not metadata.get("column_statistics"):
-        raise DataDesignerWorkflowError("Final cohort-retry profiling metadata is missing after durable completion.")
+        raise DataDesignerWorkflowError("Final record-retry profiling metadata is missing after durable completion.")
     storage.write_metadata(
         {
             **metadata,
-            **projection.original_config.fingerprint(),
+            **original_config.fingerprint(),
             "target_num_records": manifest.target_records,
             "original_target_num_records": manifest.target_records,
             "actual_num_records": actual_records,
-            "cohort_retry": metadata_retry_summary(manifest, model_usage),
+            "record_retry": metadata_retry_summary(manifest, model_usage),
         }
     )
 
@@ -631,7 +621,7 @@ def aggregate_model_usage(manifest: RetryManifest) -> dict[str, dict[str, Any]]:
                 incoming = ModelUsageStats.model_validate(payload)
             except ValidationError as exc:
                 raise DataDesignerWorkflowError(
-                    f"Cohort-retry model usage for {model_name!r} is invalid: {exc}"
+                    f"Record-retry model usage for {model_name!r} is invalid: {exc}"
                 ) from exc
             current = aggregate.setdefault(model_name, ModelUsageStats())
             current.extend(
@@ -645,7 +635,7 @@ def aggregate_model_usage(manifest: RetryManifest) -> dict[str, dict[str, Any]]:
 
 def manifest_summary(manifest: RetryManifest) -> dict[str, Any]:
     """Build the compact retry summary exposed through workflow metadata."""
-    sampler_retry_mode = SamplerRetryMode(manifest.policy["sampler_retry_mode"])
+    sampler_retry_mode = manifest.policy.sampler_retry_mode
     return {
         "target_records": manifest.target_records,
         "accepted_records": manifest.accepted_records,
@@ -708,13 +698,3 @@ def clear_ambiguous_finalization(stage_path: Path) -> None:
             shutil.rmtree(path)
         else:
             path.unlink(missing_ok=True)
-
-
-def unique_name(base_name: str, used_names: set[str]) -> str:
-    """Return a deterministic unused name based on the supplied base."""
-    if base_name not in used_names:
-        return base_name
-    suffix = 1
-    while f"{base_name}_{suffix}" in used_names:
-        suffix += 1
-    return f"{base_name}_{suffix}"

@@ -13,8 +13,8 @@ from typing import TYPE_CHECKING, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from data_designer.engine.storage.artifact_storage import ResumeMode
-from data_designer.interface.cohort_retry import RetryUntil
 from data_designer.interface.errors import DataDesignerWorkflowError
+from data_designer.interface.record_retry import RetryUntil
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -31,35 +31,25 @@ ATTEMPT_INPUT_FILENAME = "input.parquet"
 ATTEMPT_RUN_DIRECTORY = "run"
 ATTEMPT_COMPLETION_FILENAME = "attempt-completion.json"
 FINAL_COMPLETION_FILENAME = "final-completion.json"
-INTERNAL_SLOT_COLUMN_BASENAME = "_data_designer_cohort_retry_slot"
-INTERNAL_ATTEMPT_COLUMN_BASENAME = "_data_designer_cohort_retry_attempt"
+INTERNAL_SLOT_COLUMN_BASENAME = "_data_designer_record_retry_slot"
+INTERNAL_ATTEMPT_COLUMN_BASENAME = "_data_designer_record_retry_attempt"
 
 
 class AttemptManifest(BaseModel):
-    """Persisted accounting for one committed cohort-retry attempt."""
+    """Persisted accounting for one committed record-retry attempt."""
 
     model_config = ConfigDict(extra="forbid", strict=True)
 
-    input_records: int
-    output_records: int
-    accepted_records: int
-    false_records: int
-    null_records: int
-    missing_records: int
+    input_records: int = Field(ge=0)
+    output_records: int = Field(ge=0)
+    accepted_records: int = Field(ge=0)
+    false_records: int = Field(ge=0)
+    null_records: int = Field(ge=0)
+    missing_records: int = Field(ge=0)
     model_usage: dict[str, dict[str, Any]] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_accounting(self) -> AttemptManifest:
-        counts = (
-            self.input_records,
-            self.output_records,
-            self.accepted_records,
-            self.false_records,
-            self.null_records,
-            self.missing_records,
-        )
-        if any(count < 0 for count in counts):
-            raise ValueError("attempt counts must be non-negative")
         if self.output_records != self.accepted_records + self.false_records + self.null_records:
             raise ValueError("produced-row outcomes do not match output_records")
         if self.input_records != self.output_records + self.missing_records:
@@ -74,12 +64,12 @@ class AttemptCompletion(BaseModel):
 
     schema_version: Literal[1] = 1
     input_slot_ids: list[int]
-    output_records: int
+    output_records: int = Field(ge=0)
     model_usage: dict[str, dict[str, Any]] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_counts(self) -> AttemptCompletion:
-        if self.output_records < 0 or self.output_records > len(self.input_slot_ids):
+        if self.output_records > len(self.input_slot_ids):
             raise ValueError("attempt completion output count must fit within its input slots")
         if len(self.input_slot_ids) != len(set(self.input_slot_ids)):
             raise ValueError("attempt completion input slot IDs must be unique")
@@ -92,28 +82,22 @@ class FinalCompletion(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
     schema_version: Literal[1] = 1
-    accepted_records: int
+    accepted_records: int = Field(ge=1)
     model_usage: dict[str, dict[str, Any]] = Field(default_factory=dict)
-
-    @model_validator(mode="after")
-    def validate_accepted_records(self) -> FinalCompletion:
-        if self.accepted_records < 1:
-            raise ValueError("final completion requires at least one accepted record")
-        return self
 
 
 class RetryManifest(BaseModel):
-    """Durable state and accounting for a cohort-retry stage."""
+    """Durable state and accounting for a record-retry stage."""
 
     model_config = ConfigDict(extra="forbid", strict=True)
 
     schema_version: Literal[1] = MANIFEST_SCHEMA_VERSION
     fingerprint: str
     status: Literal["running", "finalizing", "complete", "exhausted"] = "running"
-    target_records: int
-    policy: dict[str, Any]
-    slot_column: str
-    attempt_column: str
+    target_records: int = Field(ge=1)
+    policy: RetryUntil
+    slot_column: str = Field(min_length=1)
+    attempt_column: str = Field(min_length=1)
     base_seed_column_names: list[str] = Field(default_factory=list)
     base_model_usage: dict[str, dict[str, Any]] = Field(default_factory=dict)
     attempts: list[AttemptManifest] = Field(default_factory=list)
@@ -122,10 +106,8 @@ class RetryManifest(BaseModel):
 
     @model_validator(mode="after")
     def validate_attempt_sequence(self) -> RetryManifest:
-        if self.target_records < 1:
-            raise ValueError("target_records must be positive")
-        if not self.slot_column or not self.attempt_column or self.slot_column == self.attempt_column:
-            raise ValueError("internal slot and attempt columns must be distinct non-empty names")
+        if self.slot_column == self.attempt_column:
+            raise ValueError("internal slot and attempt columns must be distinct")
 
         pending_records = self.target_records
         for attempt in self.attempts:
@@ -219,7 +201,7 @@ def load_retry_manifest(
             workflow_resume,
             f"retry manifest is corrupt or invalid: {exc}",
         )
-    if manifest.fingerprint != fingerprint or manifest.policy != policy.to_dict():
+    if manifest.fingerprint != fingerprint or manifest.policy != policy:
         return _handle_incompatible_manifest(
             stage_path,
             workflow_resume,
@@ -236,7 +218,7 @@ def _handle_incompatible_manifest(
     if workflow_resume == ResumeMode.IF_POSSIBLE:
         _restart_stage(stage_path)
         return None
-    raise DataDesignerWorkflowError(f"Cannot resume cohort retry: {reason}.")
+    raise DataDesignerWorkflowError(f"Cannot resume record retry: {reason}.")
 
 
 def _restart_stage(stage_path: Path) -> None:

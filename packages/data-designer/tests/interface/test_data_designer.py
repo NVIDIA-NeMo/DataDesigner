@@ -706,7 +706,6 @@ def test_internal_create_can_skip_profiling_and_capture_model_usage(
     create_dataset_profiler.assert_not_called()
     with pytest.raises(DataDesignerProfilingError, match="Profiling analysis is unavailable"):
         result.load_analysis()
-    assert result._load_optional_analysis() is None
     assert result.model_usage == {"test-model": serialized_usage}
     usage.model_dump.assert_called_once_with(mode="json")
 
@@ -743,7 +742,6 @@ def test_internal_create_allows_clean_completed_zero_record_build(
     create_dataset_profiler.assert_not_called()
     with pytest.raises(DataDesignerProfilingError, match="Profiling analysis is unavailable"):
         result.load_analysis()
-    assert result._load_optional_analysis() is None
     assert result.model_usage == {}
 
 

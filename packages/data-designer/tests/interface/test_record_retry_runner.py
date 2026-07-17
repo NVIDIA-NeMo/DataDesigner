@@ -9,9 +9,8 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
-from pydantic import ValidationError
 
-import data_designer.interface.cohort_retry_runner as cohort_retry_runner_module
+import data_designer.interface.record_retry_attempts as record_retry_attempts_module
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.column_configs import CustomColumnConfig, SamplerColumnConfig
 from data_designer.config.config_builder import DataDesignerConfigBuilder
@@ -24,10 +23,14 @@ from data_designer.config.seed_source import LocalFileSeedSource
 from data_designer.config.seed_source_dataframe import DataFrameSeedSource
 from data_designer.engine.secret_resolver import PlaintextResolver
 from data_designer.engine.storage.artifact_storage import ResumeMode
-from data_designer.interface.cohort_retry import RetryExhaustion, RetryUntil, SamplerRetryMode
-from data_designer.interface.cohort_retry_builders import CohortRetryBuilderProjection
-from data_designer.interface.cohort_retry_runner import CohortRetryRunner
-from data_designer.interface.cohort_retry_state import (
+from data_designer.interface.data_designer import DataDesigner
+from data_designer.interface.errors import DataDesignerWorkflowError
+from data_designer.interface.record_retry import RetryExhaustion, RetryUntil, SamplerRetryMode
+from data_designer.interface.record_retry_attempts import RecordRetryAttemptRunner
+from data_designer.interface.record_retry_builders import RecordRetryBuilderFactory
+from data_designer.interface.record_retry_publisher import RecordRetryPublisher
+from data_designer.interface.record_retry_runner import RecordRetryRunner
+from data_designer.interface.record_retry_state import (
     ACCEPTED_DIRECTORY,
     ATTEMPT_COMPLETION_FILENAME,
     ATTEMPTS_DIRECTORY,
@@ -42,7 +45,7 @@ from data_designer.interface.cohort_retry_state import (
     load_retry_manifest,
     read_attempt_completion,
 )
-from data_designer.interface.cohort_retry_utils import (
+from data_designer.interface.record_retry_utils import (
     aggregate_model_usage,
     classify_attempt,
     clear_ambiguous_finalization,
@@ -55,8 +58,6 @@ from data_designer.interface.cohort_retry_utils import (
     strict_predicate_outcome,
     write_or_validate_attempt_input,
 )
-from data_designer.interface.data_designer import DataDesigner
-from data_designer.interface.errors import DataDesignerWorkflowError
 
 
 def _real_data_designer(
@@ -150,7 +151,7 @@ def _completed_single_record_run(
         call_counts={},
     )
     policy = RetryUntil(predicate_column="accepted", max_attempts=1)
-    CohortRetryRunner(data_designer).run(
+    RecordRetryRunner(data_designer).run(
         config_builder=builder,
         num_records=1,
         dataset_name="records",
@@ -215,7 +216,7 @@ def test_real_workflow_retries_only_pending_slots_and_honors_sampler_mode(
         "seed-2-attempt-3",
     ]
     assert "accepted" not in output
-    assert not any(column.startswith("_data_designer_cohort_retry_") for column in output)
+    assert not any(column.startswith("_data_designer_record_retry_") for column in output)
     assert sum("drop-predicate" in names for names in create_processor_names) == 1
 
     for seed_id, expected_calls in {0: 1, 1: 2, 2: 3}.items():
@@ -264,7 +265,7 @@ def test_seedless_cohort_uses_direct_slots_without_a_bootstrap_run(
     builder.add_column(CustomColumnConfig(name="value", generator_function=generate))
     artifact_path = tmp_path / "artifacts"
 
-    result = CohortRetryRunner(_real_data_designer(artifact_path, stub_model_providers)).run(
+    result = RecordRetryRunner(_real_data_designer(artifact_path, stub_model_providers)).run(
         config_builder=builder,
         num_records=3,
         dataset_name="records",
@@ -320,7 +321,7 @@ def test_full_and_partial_publications_use_original_fingerprint_and_logical_targ
         on_exhausted=on_exhausted,
     )
 
-    result = CohortRetryRunner(_real_data_designer(artifact_path, stub_model_providers)).run(
+    result = RecordRetryRunner(_real_data_designer(artifact_path, stub_model_providers)).run(
         config_builder=builder,
         num_records=target_records,
         dataset_name="records",
@@ -554,17 +555,17 @@ def test_real_runner_resumes_committed_attempt_without_retrying_accepted_slots(
     )
     policy = RetryUntil(predicate_column="accepted", max_attempts=2)
     data_designer = _real_data_designer(artifact_path, stub_model_providers)
-    interrupted_runner = CohortRetryRunner(data_designer)
-    original_run_attempt = interrupted_runner._run_attempt
+    attempt_runner = RecordRetryAttemptRunner(data_designer)
+    original_run_attempt = attempt_runner.run_attempt
 
-    def interrupt_before_second_attempt(**kwargs: Any):
+    def interrupt_before_second_attempt(**kwargs: Any) -> AttemptManifest:
         if len(kwargs["manifest"].attempts) == 1:
             raise RuntimeError("simulated interruption")
         return original_run_attempt(**kwargs)
 
-    monkeypatch.setattr(interrupted_runner, "_run_attempt", interrupt_before_second_attempt)
+    monkeypatch.setattr(attempt_runner, "run_attempt", interrupt_before_second_attempt)
     with pytest.raises(RuntimeError, match="simulated interruption"):
-        interrupted_runner.run(
+        RecordRetryRunner(data_designer, attempt_runner=attempt_runner).run(
             config_builder=builder,
             num_records=2,
             dataset_name="records",
@@ -579,7 +580,7 @@ def test_real_runner_resumes_committed_attempt_without_retrying_accepted_slots(
     assert call_counts == {0: 1, 1: 1}
     assert len(_manifest(stage_path)["attempts"]) == 1
 
-    resumed = CohortRetryRunner(data_designer).run(
+    resumed = RecordRetryRunner(data_designer).run(
         config_builder=builder,
         num_records=2,
         dataset_name="records",
@@ -595,7 +596,7 @@ def test_real_runner_resumes_committed_attempt_without_retrying_accepted_slots(
         "seed-0-attempt-1",
         "seed-1-attempt-2",
     ]
-    assert resumed.artifact_storage.read_metadata()["cohort_retry"]["candidate_records"] == 3
+    assert resumed.artifact_storage.read_metadata()["record_retry"]["candidate_records"] == 3
     assert [attempt["input_records"] for attempt in _manifest(stage_path)["attempts"]] == [2, 1]
 
 
@@ -615,15 +616,15 @@ def test_real_runner_recovers_uncommitted_attempt_artifact_without_regeneration(
     )
     policy = RetryUntil(predicate_column="accepted", max_attempts=2)
     data_designer = _real_data_designer(artifact_path, stub_model_providers)
-    original_package_media = cohort_retry_runner_module.package_accepted_media
+    original_package_media = record_retry_attempts_module.package_accepted_media
 
-    def interrupt_after_attempt_artifact(*args: Any, **kwargs: Any):
+    def interrupt_after_attempt_artifact(*args: Any, **kwargs: Any) -> None:
         del args, kwargs
         raise RuntimeError("simulated packaging interruption")
 
-    monkeypatch.setattr(cohort_retry_runner_module, "package_accepted_media", interrupt_after_attempt_artifact)
+    monkeypatch.setattr(record_retry_attempts_module, "package_accepted_media", interrupt_after_attempt_artifact)
     with pytest.raises(RuntimeError, match="simulated packaging interruption"):
-        CohortRetryRunner(data_designer).run(
+        RecordRetryRunner(data_designer).run(
             config_builder=builder,
             num_records=2,
             dataset_name="records",
@@ -639,9 +640,10 @@ def test_real_runner_recovers_uncommitted_attempt_artifact_without_regeneration(
     assert _manifest(stage_path)["attempts"] == []
     assert (stage_path / ATTEMPTS_DIRECTORY / "attempt-000" / "run" / "parquet-files").is_dir()
     assert (stage_path / ATTEMPTS_DIRECTORY / "attempt-000" / ATTEMPT_COMPLETION_FILENAME).is_file()
+    assert not (stage_path / get_attempt_accepted_path(0)).exists()
 
-    monkeypatch.setattr(cohort_retry_runner_module, "package_accepted_media", original_package_media)
-    resumed = CohortRetryRunner(data_designer).run(
+    monkeypatch.setattr(record_retry_attempts_module, "package_accepted_media", original_package_media)
+    resumed = RecordRetryRunner(data_designer).run(
         config_builder=builder,
         num_records=2,
         dataset_name="records",
@@ -676,16 +678,16 @@ def test_real_runner_resumes_after_final_artifact_was_published_before_manifest_
     )
     policy = RetryUntil(predicate_column="accepted", max_attempts=1)
     data_designer = _real_data_designer(artifact_path, stub_model_providers)
-    interrupted_runner = CohortRetryRunner(data_designer)
-    original_finalize = interrupted_runner._finalize
+    publisher = RecordRetryPublisher(data_designer)
+    original_publish = publisher.publish
 
-    def interrupt_after_finalization(**kwargs: Any):
-        original_finalize(**kwargs)
+    def interrupt_after_finalization(**kwargs: Any) -> None:
+        original_publish(**kwargs)
         raise RuntimeError("simulated post-publication interruption")
 
-    monkeypatch.setattr(interrupted_runner, "_finalize", interrupt_after_finalization)
+    monkeypatch.setattr(publisher, "publish", interrupt_after_finalization)
     with pytest.raises(RuntimeError, match="simulated post-publication interruption"):
-        interrupted_runner.run(
+        RecordRetryRunner(data_designer, publisher=publisher).run(
             config_builder=builder,
             num_records=1,
             dataset_name="records",
@@ -700,7 +702,7 @@ def test_real_runner_resumes_after_final_artifact_was_published_before_manifest_
     assert _manifest(stage_path)["status"] == "finalizing"
     assert call_counts == {0: 1}
 
-    resumed = CohortRetryRunner(data_designer).run(
+    resumed = RecordRetryRunner(data_designer).run(
         config_builder=builder,
         num_records=1,
         dataset_name="records",
@@ -741,7 +743,7 @@ def test_final_completion_resume_skips_generation_and_reprofiling_and_restores_u
     monkeypatch.setattr(data_designer, "_create", create)
     monkeypatch.setattr(data_designer, "_create_dataset_profiler", create_profiler)
 
-    resumed = CohortRetryRunner(data_designer).run(
+    resumed = RecordRetryRunner(data_designer).run(
         config_builder=builder,
         num_records=1,
         dataset_name="records",
@@ -761,7 +763,7 @@ def test_final_completion_resume_skips_generation_and_reprofiling_and_restores_u
     assert analysis.num_records == 1
     assert analysis.target_num_records == 1
     metadata = resumed.artifact_storage.read_metadata()
-    assert metadata["cohort_retry"]["model_usage"] == resumed.model_usage
+    assert metadata["record_retry"]["model_usage"] == resumed.model_usage
 
 
 @pytest.mark.parametrize(
@@ -770,7 +772,7 @@ def test_final_completion_resume_skips_generation_and_reprofiling_and_restores_u
         ("corrupt", "Final completion marker .* is corrupt"),
         ("invalid", "Final completion marker .* is corrupt"),
         ("coalesced-count", "does not match the coalesced accepted-record count"),
-        ("dataset-count", "Final dataset does not match its durable cohort-retry completion marker"),
+        ("dataset-count", "Final dataset does not match its durable record-retry completion marker"),
     ],
 )
 def test_final_completion_resume_rejects_corrupt_or_count_mismatched_state(
@@ -808,7 +810,7 @@ def test_final_completion_resume_rejects_corrupt_or_count_mismatched_state(
     monkeypatch.setattr(data_designer, "_create_dataset_profiler", create_profiler)
 
     with pytest.raises(DataDesignerWorkflowError, match=message):
-        CohortRetryRunner(data_designer).run(
+        RecordRetryRunner(data_designer).run(
             config_builder=builder,
             num_records=1,
             dataset_name="records",
@@ -834,7 +836,7 @@ def test_zero_output_completion_marker_is_reclassified_without_regeneration(
         call_counts=call_counts,
     )
     policy = RetryUntil(predicate_column="accepted", max_attempts=1)
-    projection = CohortRetryBuilderProjection(builder, policy)
+    builder_factory = RecordRetryBuilderFactory(builder, policy)
     stage_path = tmp_path / "records"
     attempt_dir = stage_path / ATTEMPTS_DIRECTORY / "attempt-000"
     attempt_dir.mkdir(parents=True)
@@ -852,14 +854,14 @@ def test_zero_output_completion_marker_is_reclassified_without_regeneration(
     manifest = RetryManifest(
         fingerprint="fingerprint",
         target_records=1,
-        policy=policy.to_dict(),
+        policy=policy.model_dump(mode="json"),
         slot_column="slot",
         attempt_column="attempt",
     )
     data_designer = MagicMock()
 
-    attempt = CohortRetryRunner(data_designer)._run_attempt(
-        projection=projection,
+    attempt = RecordRetryAttemptRunner(data_designer).run_attempt(
+        builder_factory=builder_factory,
         stage_path=stage_path,
         manifest=manifest,
         base_df=lazy.pd.DataFrame({"slot": [0], "seed_id": [0]}),
@@ -960,46 +962,6 @@ def test_missing_manifest_with_durable_orphans_respects_workflow_resume_policy(t
     assert list(stage_path.iterdir()) == []
 
 
-@pytest.mark.parametrize(
-    ("updates", "message"),
-    [
-        ({"false_records": -1}, "attempt counts must be non-negative"),
-        (
-            {"accepted_records": 0, "false_records": 0},
-            "produced-row outcomes do not match output_records",
-        ),
-        ({"missing_records": 1}, "attempt outcomes do not match input_records"),
-    ],
-)
-def test_attempt_manifest_rejects_invalid_durable_accounting(updates: dict[str, Any], message: str) -> None:
-    with pytest.raises(ValidationError, match=message):
-        AttemptManifest.model_validate(_attempt_payload() | updates)
-
-
-@pytest.mark.parametrize(
-    ("updates", "message"),
-    [
-        ({"target_records": 0}, "target_records must be positive"),
-        ({"slot_column": "attempt"}, "must be distinct non-empty names"),
-        ({"attempts": [_attempt_payload()]}, "attempt input counts must match the complete pending cohort"),
-        ({"unresolved_slot_ids": [1, 1]}, "unresolved slot IDs must be unique"),
-        ({"unresolved_slot_ids": [2]}, "unresolved slot IDs must be unique"),
-        ({"unresolved_slot_ids": [1, 0]}, "must remain in stable cohort order"),
-        ({"unresolved_slot_ids": [0]}, "must match the pending cohort"),
-    ],
-)
-def test_retry_manifest_rejects_invalid_cohort_state(updates: dict[str, Any], message: str) -> None:
-    payload = {
-        "fingerprint": "fingerprint",
-        "target_records": 2,
-        "policy": RetryUntil(predicate_column="accepted", max_attempts=1).to_dict(),
-        "slot_column": "slot",
-        "attempt_column": "attempt",
-    }
-    with pytest.raises(ValidationError, match=message):
-        RetryManifest.model_validate(payload | updates)
-
-
 def test_resume_discards_nondurable_or_corrupt_state_only_when_allowed(tmp_path: Path) -> None:
     policy = RetryUntil(predicate_column="accepted", max_attempts=1)
 
@@ -1039,7 +1001,7 @@ def test_resume_discards_nondurable_or_corrupt_state_only_when_allowed(tmp_path:
         "schema_version": 1,
         "fingerprint": "old-fingerprint",
         "target_records": 1,
-        "policy": policy.to_dict(),
+        "policy": policy.model_dump(mode="json"),
         "slot_column": "slot",
         "attempt_column": "attempt",
     }
@@ -1067,7 +1029,7 @@ def test_resume_validates_base_cohort_before_reusing_attempts(case: str, message
     manifest = RetryManifest(
         fingerprint="fingerprint",
         target_records=2,
-        policy=RetryUntil(predicate_column="accepted", max_attempts=1).to_dict(),
+        policy=RetryUntil(predicate_column="accepted", max_attempts=1).model_dump(mode="json"),
         slot_column="slot",
         attempt_column="attempt",
     )
@@ -1090,7 +1052,7 @@ def test_classification_accounts_for_true_false_null_and_missing_rows() -> None:
     manifest = RetryManifest(
         fingerprint="fingerprint",
         target_records=4,
-        policy=RetryUntil(predicate_column="accepted", max_attempts=1).to_dict(),
+        policy=RetryUntil(predicate_column="accepted", max_attempts=1).model_dump(mode="json"),
         slot_column="slot",
         attempt_column="attempt",
     )
@@ -1126,7 +1088,7 @@ def test_classification_rejects_mutated_seed_or_preserved_sampler_values(column:
     manifest = RetryManifest(
         fingerprint="fingerprint",
         target_records=1,
-        policy=policy.to_dict(),
+        policy=policy.model_dump(mode="json"),
         slot_column="slot",
         attempt_column="attempt",
     )
@@ -1156,7 +1118,7 @@ def test_classification_does_not_treat_resampled_values_as_stable_inputs() -> No
     manifest = RetryManifest(
         fingerprint="fingerprint",
         target_records=1,
-        policy=policy.to_dict(),
+        policy=policy.model_dump(mode="json"),
         slot_column="slot",
         attempt_column="attempt",
     )
@@ -1191,7 +1153,7 @@ def test_classification_rejects_outputs_that_break_slot_identity(output: Any, me
     manifest = RetryManifest(
         fingerprint="fingerprint",
         target_records=3,
-        policy=RetryUntil(predicate_column="accepted", max_attempts=1).to_dict(),
+        policy=RetryUntil(predicate_column="accepted", max_attempts=1).model_dump(mode="json"),
         slot_column="slot",
         attempt_column="attempt",
     )
@@ -1243,7 +1205,7 @@ def test_accepted_partition_validation_detects_missing_duplicates_counts_and_ove
     count_manifest = RetryManifest(
         fingerprint="fingerprint",
         target_records=1,
-        policy=RetryUntil(predicate_column="accepted", max_attempts=2).to_dict(),
+        policy=RetryUntil(predicate_column="accepted", max_attempts=2).model_dump(mode="json"),
         slot_column="slot",
         attempt_column="attempt",
         attempts=[AttemptManifest.model_validate(_attempt_payload() | {"accepted_records": 0, "false_records": 1})],
@@ -1256,7 +1218,7 @@ def test_accepted_partition_validation_detects_missing_duplicates_counts_and_ove
     overlap_manifest = RetryManifest(
         fingerprint="fingerprint",
         target_records=2,
-        policy=RetryUntil(predicate_column="accepted", max_attempts=2).to_dict(),
+        policy=RetryUntil(predicate_column="accepted", max_attempts=2).model_dump(mode="json"),
         slot_column="slot",
         attempt_column="attempt",
         attempts=[
@@ -1322,7 +1284,7 @@ def test_model_usage_is_aggregated_across_base_attempts_and_finalization() -> No
     manifest = RetryManifest(
         fingerprint="fingerprint",
         target_records=1,
-        policy=RetryUntil(predicate_column="accepted", max_attempts=1).to_dict(),
+        policy=RetryUntil(predicate_column="accepted", max_attempts=1).model_dump(mode="json"),
         slot_column="slot",
         attempt_column="attempt",
         base_model_usage={"model": first_usage},
@@ -1464,8 +1426,9 @@ def test_runner_uses_durable_base_media_after_original_seed_media_is_removed(
     builder.add_column(CustomColumnConfig(name="generated", generator_function=generate))
 
     artifact_path = tmp_path / "artifacts"
-    runner = CohortRetryRunner(_real_data_designer(artifact_path, stub_model_providers))
-    original_run_attempt = runner._run_attempt
+    data_designer = _real_data_designer(artifact_path, stub_model_providers)
+    attempt_runner = RecordRetryAttemptRunner(data_designer)
+    original_run_attempt = attempt_runner.run_attempt
     stage_path = artifact_path / "records"
     durable_media_path = stage_path / BASE_COHORT_PATH.parent / "images" / "nested" / "image.png"
 
@@ -1475,9 +1438,9 @@ def test_runner_uses_durable_base_media_after_original_seed_media_is_removed(
             image_path.unlink()
         return original_run_attempt(**kwargs)
 
-    monkeypatch.setattr(runner, "_run_attempt", remove_original_before_first_attempt)
+    monkeypatch.setattr(attempt_runner, "run_attempt", remove_original_before_first_attempt)
 
-    result = runner.run(
+    result = RecordRetryRunner(data_designer, attempt_runner=attempt_runner).run(
         config_builder=builder,
         num_records=1,
         dataset_name="records",

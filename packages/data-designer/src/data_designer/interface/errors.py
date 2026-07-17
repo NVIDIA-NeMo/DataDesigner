@@ -18,8 +18,8 @@ class DataDesignerWorkflowError(DataDesignerError):
     """Raised for errors related to composite workflow orchestration."""
 
 
-class CohortRetryExhaustedError(DataDesignerWorkflowError):
-    """Raised when a cohort retry reaches its bounds before every slot passes."""
+class RecordRetryExhaustedError(DataDesignerWorkflowError):
+    """Raised when a record retry reaches its bounds before every slot passes."""
 
     target_records: int
     accepted_records: int
@@ -44,7 +44,7 @@ class CohortRetryExhaustedError(DataDesignerWorkflowError):
         self.attempts = attempts
         self.unresolved_slot_ids = tuple(unresolved_slot_ids)
         super().__init__(
-            f"Cohort retry exhausted after {attempts} attempt(s): accepted {accepted_records} of "
+            f"Record retry exhausted after {attempts} attempt(s): accepted {accepted_records} of "
             f"{target_records} slots after {candidate_records} candidate records."
         )
 

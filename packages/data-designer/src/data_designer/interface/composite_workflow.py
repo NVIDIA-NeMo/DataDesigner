@@ -30,8 +30,8 @@ from data_designer.config.version import get_library_version
 from data_designer.engine.dataset_builders.errors import ArtifactStorageError
 from data_designer.engine.models.usage import ModelUsageStats
 from data_designer.engine.storage.artifact_storage import ArtifactStorage, ResumeMode
-from data_designer.interface.cohort_retry import RetryUntil
 from data_designer.interface.errors import DataDesignerWorkflowError
+from data_designer.interface.record_retry import RetryUntil
 from data_designer.interface.results import (
     SUPPORTED_EXPORT_FORMATS,
     DatasetCreationResults,
@@ -436,11 +436,11 @@ class CompositeWorkflow:
                         resume=stage_resume,
                     )
                 else:
-                    from data_designer.interface.cohort_retry_runner import CohortRetryRunner
-                    from data_designer.interface.cohort_retry_state import read_retry_manifest
-                    from data_designer.interface.cohort_retry_utils import manifest_summary
+                    from data_designer.interface.record_retry_runner import RecordRetryRunner
+                    from data_designer.interface.record_retry_state import read_retry_manifest
+                    from data_designer.interface.record_retry_utils import manifest_summary
 
-                    result = CohortRetryRunner(self._data_designer).run(
+                    result = RecordRetryRunner(self._data_designer).run(
                         config_builder=stage_builder,
                         num_records=num_records,
                         dataset_name=stage_dir_name,
@@ -691,7 +691,7 @@ def _can_skip_prior_stage(stage: _WorkflowStage, prior_stage_metadata: dict[str,
         stage_dir_name = prior_stage_metadata.get("stage_dir")
         if not isinstance(fingerprint, str) or type(target_records) is not int or not isinstance(stage_dir_name, str):
             return False
-        from data_designer.interface.cohort_retry_utils import is_completed_retry_state_reusable
+        from data_designer.interface.record_retry_utils import is_completed_retry_state_reusable
 
         if not is_completed_retry_state_reusable(
             stage_path=workflow_path / stage_dir_name,
@@ -758,40 +758,27 @@ def _stage_result_from_metadata(
         result_metadata = {}
     persisted_workflow_usage = result_metadata.get("workflow_model_usage")
     persisted_seed_column_names = result_metadata.get("workflow_seed_column_names")
-    retry_seed_column_names = (
-        persisted_seed_column_names
-        if _is_string_list(persisted_seed_column_names)
-        else _retry_seed_column_names_from_metadata(main_metadata)
-    )
+    retry_metadata = main_metadata.get("record_retry")
+    if not isinstance(retry_metadata, dict):
+        retry_metadata = {}
+    retry_seed_names = retry_metadata.get("seed_column_names")
+    retry_model_usage = retry_metadata.get("model_usage")
+    if _is_string_list(persisted_seed_column_names):
+        seed_column_names = persisted_seed_column_names
+    elif _is_string_list(retry_seed_names):
+        seed_column_names = retry_seed_names
+    else:
+        seed_column_names = []
+    model_usage = persisted_workflow_usage if isinstance(persisted_workflow_usage, dict) else retry_model_usage
+    if not isinstance(model_usage, dict):
+        model_usage = None
     return DatasetCreationResults(
         artifact_storage=result_storage,
         analysis=_load_analysis_from_artifact_storage(result_storage),
         config_builder=result_builder,
-        dataset_metadata=DatasetMetadata(seed_column_names=retry_seed_column_names),
-        model_usage=(
-            persisted_workflow_usage
-            if isinstance(persisted_workflow_usage, dict)
-            else _retry_model_usage_from_metadata(main_metadata)
-        ),
+        dataset_metadata=DatasetMetadata(seed_column_names=seed_column_names),
+        model_usage=model_usage,
     )
-
-
-def _retry_model_usage_from_metadata(metadata: dict[str, Any]) -> dict[str, dict[str, Any]] | None:
-    retry_metadata = metadata.get("cohort_retry")
-    if not isinstance(retry_metadata, dict):
-        return None
-    model_usage = retry_metadata.get("model_usage")
-    return model_usage if isinstance(model_usage, dict) else None
-
-
-def _retry_seed_column_names_from_metadata(metadata: dict[str, Any]) -> list[str]:
-    retry_metadata = metadata.get("cohort_retry")
-    if not isinstance(retry_metadata, dict):
-        return []
-    names = retry_metadata.get("seed_column_names")
-    if not _is_string_list(names):
-        return []
-    return names
 
 
 def _is_string_list(value: Any) -> bool:
@@ -854,7 +841,7 @@ def _base_stage_metadata(index: int, stage: _WorkflowStage, stage_dir_name: str)
         "output": stage.output,
         "sampling_strategy": stage.sampling_strategy.value,
         "selection_strategy": _selection_strategy_payload(stage.selection_strategy),
-        "retry_until": stage.retry_until.to_dict() if stage.retry_until is not None else None,
+        "retry_until": stage.retry_until.model_dump(mode="json") if stage.retry_until is not None else None,
     }
 
 
@@ -870,7 +857,7 @@ def _stage_fingerprint(
         "num_records": num_records,
         "sampling_strategy": stage.sampling_strategy.value,
         "selection_strategy": _selection_strategy_payload(stage.selection_strategy),
-        "retry_until": stage.retry_until.to_dict() if stage.retry_until is not None else None,
+        "retry_until": stage.retry_until.model_dump(mode="json") if stage.retry_until is not None else None,
         "allow_empty": stage.allow_empty,
         "on_success_version": stage.on_success_version,
         "output_processors": [processor.model_dump(mode="json") for processor in stage.output_processors],

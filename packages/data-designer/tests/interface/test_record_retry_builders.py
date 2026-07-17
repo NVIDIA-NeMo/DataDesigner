@@ -24,9 +24,9 @@ from data_designer.config.processors import DropColumnsProcessorConfig, Processo
 from data_designer.config.sampler_constraints import ColumnInequalityConstraint, ScalarInequalityConstraint
 from data_designer.config.seed import IndexRange, SamplingStrategy
 from data_designer.config.seed_source import LocalFileSeedSource
-from data_designer.interface.cohort_retry import RetryUntil, SamplerRetryMode
-from data_designer.interface.cohort_retry_builders import CohortRetryBuilderProjection
 from data_designer.interface.errors import DataDesignerWorkflowError
+from data_designer.interface.record_retry import RetryUntil, SamplerRetryMode
+from data_designer.interface.record_retry_builders import RecordRetryBuilderFactory
 
 
 @custom_column_generator(side_effect_columns=["custom_accept"])
@@ -52,7 +52,7 @@ def _policy(
     )
 
 
-def _seeded_projection_builder(
+def _seeded_builder(
     stub_model_configs: list[ModelConfig],
     seed_path: Path,
 ) -> DataDesignerConfigBuilder:
@@ -94,13 +94,15 @@ def test_preserve_base_keeps_seed_sampler_constraints_and_selection(
     stub_model_configs: list[ModelConfig],
     tmp_path: Path,
 ) -> None:
-    original = _seeded_projection_builder(stub_model_configs, _touch_parquet(tmp_path, "seed.parquet"))
-    projection = CohortRetryBuilderProjection(original, _policy())
+    original = _seeded_builder(stub_model_configs, _touch_parquet(tmp_path, "seed.parquet"))
+    factory = RecordRetryBuilderFactory(original, _policy())
 
-    base = projection.build_base_builder()
+    base = factory.build_base_builder()
+    restored = factory.build_original_builder()
 
-    assert projection.original_dropped_names == ("category", "image")
-    assert projection.requires_base_materialization is True
+    assert factory.requires_base_materialization is True
+    assert restored is not original
+    assert restored.build() == original.build()
     assert [column.name for column in base.get_column_configs()] == ["category", "score"]
     assert all(not column.drop for column in base.get_column_configs())
     assert base.build().constraints == original.build().constraints
@@ -122,10 +124,10 @@ def test_resample_base_is_seed_only_and_uses_passthrough_processor(
     stub_model_configs: list[ModelConfig],
     tmp_path: Path,
 ) -> None:
-    original = _seeded_projection_builder(stub_model_configs, _touch_parquet(tmp_path, "seed.parquet"))
-    projection = CohortRetryBuilderProjection(original, _policy(mode=SamplerRetryMode.RESAMPLE))
+    original = _seeded_builder(stub_model_configs, _touch_parquet(tmp_path, "seed.parquet"))
+    factory = RecordRetryBuilderFactory(original, _policy(mode=SamplerRetryMode.RESAMPLE))
 
-    base = projection.build_base_builder()
+    base = factory.build_base_builder()
 
     assert base.get_column_configs() == []
     assert base.build().constraints is None
@@ -139,16 +141,16 @@ def test_resample_base_is_seed_only_and_uses_passthrough_processor(
     assert seed.selection_strategy == IndexRange(start=1, end=2)
 
 
-def test_resample_seedless_projection_skips_base_materialization(
+def test_resample_seedless_factory_skips_base_materialization(
     stub_model_configs: list[ModelConfig],
 ) -> None:
     builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
     builder.add_column(SamplerColumnConfig(name="source", sampler_type="category", params={"values": ["a", "b"]}))
     builder.add_column(ExpressionColumnConfig(name="accepted", expr="{{ source == 'a' }}", dtype="bool"))
 
-    projection = CohortRetryBuilderProjection(builder, _policy(mode=SamplerRetryMode.RESAMPLE))
+    factory = RecordRetryBuilderFactory(builder, _policy(mode=SamplerRetryMode.RESAMPLE))
 
-    assert projection.requires_base_materialization is False
+    assert factory.requires_base_materialization is False
 
 
 @pytest.mark.parametrize(
@@ -165,11 +167,11 @@ def test_attempt_builder_projects_mode_and_resets_drop_flags(
     expected_names: list[str],
     expects_constraints: bool,
 ) -> None:
-    original = _seeded_projection_builder(stub_model_configs, _touch_parquet(tmp_path, "seed.parquet"))
+    original = _seeded_builder(stub_model_configs, _touch_parquet(tmp_path, "seed.parquet"))
     attempt_input = _touch_parquet(tmp_path, f"attempt-{mode.value}.parquet")
-    projection = CohortRetryBuilderProjection(original, _policy(mode=mode))
+    factory = RecordRetryBuilderFactory(original, _policy(mode=mode))
 
-    attempt = projection.build_attempt_builder(attempt_input)
+    attempt = factory.build_attempt_builder(attempt_input)
 
     assert [column.name for column in attempt.get_column_configs()] == expected_names
     assert all(not column.drop for column in attempt.get_column_configs())
@@ -197,10 +199,10 @@ def test_final_builder_restores_explicit_and_implicit_drop_semantics_and_profile
     profiler = JudgeScoreProfilerConfig(model_alias="stub-model", summary_score_sample_size=5)
     builder.add_processor(explicit_drop)
     builder.add_profiler(profiler)
-    projection = CohortRetryBuilderProjection(builder, _policy())
+    factory = RecordRetryBuilderFactory(builder, _policy())
     final_input = _touch_parquet(tmp_path, "accepted.parquet")
 
-    final = projection.build_final_builder(final_input)
+    final = factory.build_final_builder(final_input)
 
     assert final.get_column_configs() == []
     assert [processor.name for processor in final.get_processor_configs()][0] == "cleanup"
@@ -214,7 +216,6 @@ def test_final_builder_restores_explicit_and_implicit_drop_semantics_and_profile
     assert seed is not None
     assert seed.source.path == str(final_input)
     assert seed.sampling_strategy == SamplingStrategy.ORDERED
-    assert projection.original_dropped_names == ("direct_hidden", "processor_hidden")
 
 
 def test_final_builder_adds_seed_passthrough_when_no_user_processors_or_drops(
@@ -223,15 +224,15 @@ def test_final_builder_adds_seed_passthrough_when_no_user_processors_or_drops(
 ) -> None:
     builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
     builder.add_column(ExpressionColumnConfig(name="accepted", expr="{{ true }}", dtype="bool"))
-    projection = CohortRetryBuilderProjection(builder, _policy())
+    factory = RecordRetryBuilderFactory(builder, _policy())
 
-    final = projection.build_final_builder(_touch_parquet(tmp_path, "accepted.parquet"))
+    final = factory.build_final_builder(_touch_parquet(tmp_path, "accepted.parquet"))
 
     assert len(final.get_processor_configs()) == 1
     assert final.get_processor_configs()[0].column_names == []
 
 
-def test_projection_rejects_preserved_sampler_dependency_on_generated_column(
+def test_factory_rejects_preserved_sampler_dependency_on_generated_column(
     stub_model_configs: list[ModelConfig],
 ) -> None:
     builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
@@ -246,10 +247,10 @@ def test_projection_rejects_preserved_sampler_dependency_on_generated_column(
     builder.add_column(ExpressionColumnConfig(name="accepted", expr="{{ true }}", dtype="bool"))
 
     with pytest.raises(DataDesignerWorkflowError, match="depend on regenerated columns"):
-        CohortRetryBuilderProjection(builder, _policy())
+        RecordRetryBuilderFactory(builder, _policy())
 
 
-def test_projection_rejects_constraint_dependency_on_generated_column(
+def test_factory_rejects_constraint_dependency_on_generated_column(
     stub_model_configs: list[ModelConfig],
 ) -> None:
     builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
@@ -258,7 +259,7 @@ def test_projection_rejects_constraint_dependency_on_generated_column(
     builder.add_constraint(ColumnInequalityConstraint(target_column="score", operator="gt", rhs="accepted"))
 
     with pytest.raises(DataDesignerWorkflowError, match="'score'.*'accepted'"):
-        CohortRetryBuilderProjection(builder, _policy())
+        RecordRetryBuilderFactory(builder, _policy())
 
 
 @pytest.mark.parametrize(
@@ -282,7 +283,7 @@ def test_projection_rejects_constraint_dependency_on_generated_column(
         ),
     ],
 )
-def test_projection_rejects_invalid_predicate_producers(
+def test_factory_rejects_invalid_predicate_producers(
     stub_model_configs: list[ModelConfig],
     column: ColumnConfigT,
     predicate: str,
@@ -292,10 +293,10 @@ def test_projection_rejects_invalid_predicate_producers(
     builder.add_column(column)
 
     with pytest.raises(DataDesignerWorkflowError, match=error):
-        CohortRetryBuilderProjection(builder, _policy(predicate))
+        RecordRetryBuilderFactory(builder, _policy(predicate))
 
 
-def test_projection_accepts_custom_side_effect_and_llm_text_predicates(
+def test_factory_accepts_custom_side_effect_and_llm_text_predicates(
     stub_model_configs: list[ModelConfig],
 ) -> None:
     custom_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
@@ -303,16 +304,16 @@ def test_projection_accepts_custom_side_effect_and_llm_text_predicates(
     text_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
     text_builder.add_column(LLMTextColumnConfig(name="llm_accept", prompt="Return a Boolean", model_alias="stub-model"))
 
-    custom_projection = CohortRetryBuilderProjection(custom_builder, _policy("custom_accept"))
-    text_projection = CohortRetryBuilderProjection(text_builder, _policy("llm_accept"))
+    custom_factory = RecordRetryBuilderFactory(custom_builder, _policy("custom_accept"))
+    text_factory = RecordRetryBuilderFactory(text_builder, _policy("llm_accept"))
 
-    assert custom_projection.predicate_column == "custom_accept"
-    assert text_projection.predicate_column == "llm_accept"
+    assert custom_factory.retry_until.predicate_column == "custom_accept"
+    assert text_factory.retry_until.predicate_column == "llm_accept"
 
 
-def test_projection_rejects_missing_predicate(stub_model_configs: list[ModelConfig]) -> None:
+def test_factory_rejects_missing_predicate(stub_model_configs: list[ModelConfig]) -> None:
     builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
     builder.add_column(ExpressionColumnConfig(name="other", expr="{{ true }}", dtype="bool"))
 
     with pytest.raises(DataDesignerWorkflowError, match="not declared"):
-        CohortRetryBuilderProjection(builder, _policy("accepted"))
+        RecordRetryBuilderFactory(builder, _policy("accepted"))

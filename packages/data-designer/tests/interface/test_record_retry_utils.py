@@ -8,8 +8,9 @@ from pathlib import Path
 import pytest
 
 import data_designer.lazy_heavy_imports as lazy
-from data_designer.interface.cohort_retry import RetryUntil
-from data_designer.interface.cohort_retry_state import (
+from data_designer.interface.errors import DataDesignerWorkflowError
+from data_designer.interface.record_retry import RetryUntil
+from data_designer.interface.record_retry_state import (
     COALESCED_ACCEPTED_PATH,
     AttemptManifest,
     RetryManifest,
@@ -19,15 +20,14 @@ from data_designer.interface.cohort_retry_state import (
     get_attempt_input_path,
     get_attempt_name,
 )
-from data_designer.interface.cohort_retry_utils import coalesce_accepted, retry_bounds_exhausted
-from data_designer.interface.errors import DataDesignerWorkflowError
+from data_designer.interface.record_retry_utils import coalesce_accepted, retry_bounds_exhausted
 
 
 def _manifest(*attempts: AttemptManifest) -> RetryManifest:
     return RetryManifest(
         fingerprint="fingerprint",
         target_records=3,
-        policy=RetryUntil(predicate_column="accepted", max_attempts=3).to_dict(),
+        policy=RetryUntil(predicate_column="accepted", max_attempts=3).model_dump(mode="json"),
         slot_column="slot",
         attempt_column="attempt",
         attempts=list(attempts),

@@ -23,10 +23,10 @@ from data_designer.config.seed_source import LocalFileSeedSource
 from data_designer.config.seed_source_dataframe import DataFrameSeedSource
 from data_designer.engine.secret_resolver import PlaintextResolver
 from data_designer.engine.storage.artifact_storage import ArtifactStorage, BatchStage, ResumeMode
-from data_designer.interface.cohort_retry import RetryExhaustion, RetryUntil
 from data_designer.interface.composite_workflow import CompositeWorkflow, SkippedStageResult, SkippedStageStatus
 from data_designer.interface.data_designer import DataDesigner
 from data_designer.interface.errors import DataDesignerWorkflowError
+from data_designer.interface.record_retry import RetryExhaustion, RetryUntil
 from data_designer.interface.results import DatasetCreationResults
 
 
@@ -132,7 +132,7 @@ def _seeded_builder(model_configs: list[ModelConfig], rows: list[dict]) -> DataD
     return builder
 
 
-def _cohort_retry_builder(
+def _record_retry_builder(
     model_configs: list[ModelConfig],
     rows: list[dict[str, Any]],
 ) -> DataDesignerConfigBuilder:
@@ -1187,13 +1187,13 @@ def test_composite_workflow_runs_seeded_processor_only_stage(
     assert final.to_dict(orient="records") == [{"name": "Ada", "public_name": "Ada", "final": "Ada final"}]
 
 
-def test_composite_workflow_cohort_retry_nonempty_partial_runs_output_processors(
+def test_composite_workflow_record_retry_nonempty_partial_runs_output_processors(
     tmp_path: Path,
     stub_model_providers: list[ModelProvider],
     stub_model_configs: list[ModelConfig],
 ) -> None:
     artifact_path = tmp_path / "artifacts"
-    stage = _cohort_retry_builder(
+    stage = _record_retry_builder(
         stub_model_configs,
         [
             {"seed_id": 0, "should_accept": True, "secret": "keep out"},
@@ -1240,7 +1240,7 @@ def test_composite_workflow_full_retry_callback_empty_output_requires_allow_empt
 ) -> None:
     artifact_path = tmp_path / "artifacts"
     workflow_name = f"retry-empty-callback-{allow_empty}"
-    stage = _cohort_retry_builder(
+    stage = _record_retry_builder(
         stub_model_configs,
         [
             {"seed_id": 0, "should_accept": True},
@@ -1296,7 +1296,7 @@ def test_composite_workflow_retry_callback_receives_canonical_root_and_selects_o
     artifact_path = tmp_path / "artifacts"
     canonical_stage_path = artifact_path / "retry-callback-selection" / "stage-0-records"
     callback_paths: list[Path] = []
-    stage = _cohort_retry_builder(
+    stage = _record_retry_builder(
         stub_model_configs,
         [
             {"seed_id": 0, "should_accept": True},
@@ -1360,7 +1360,7 @@ def test_composite_workflow_retry_output_processor_usage_is_reconstructed_on_ski
         return result
 
     monkeypatch.setattr(data_designer, "_create", create_with_usage)
-    stage = _cohort_retry_builder(
+    stage = _record_retry_builder(
         stub_model_configs,
         [{"seed_id": 0, "should_accept": True, "secret": "drop me"}],
     )
@@ -1431,7 +1431,7 @@ def test_composite_workflow_completed_retry_validates_terminal_state_before_reus
         return original_create(config_builder, **kwargs)
 
     monkeypatch.setattr(data_designer, "_create", recording_create)
-    stage = _cohort_retry_builder(
+    stage = _record_retry_builder(
         stub_model_configs,
         [{"seed_id": 0, "should_accept": True}],
     )

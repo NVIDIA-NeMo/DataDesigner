@@ -69,7 +69,7 @@ class DatasetCreationResults(WithRecordSamplerMixin):
     full dataset on disk, including rows produced by earlier ``create()`` calls
     that the current invocation resumed. ``task_traces`` remain scoped to the
     current invocation. ``model_usage`` describes the logical operation when a
-    durable aggregate is available (for example, a cohort-retry workflow stage),
+    durable aggregate is available (for example, a record-retry workflow stage),
     and otherwise describes the current invocation.
     """
 
@@ -121,10 +121,6 @@ class DatasetCreationResults(WithRecordSamplerMixin):
             raise DataDesignerProfilingError(
                 "Profiling analysis is unavailable because this internal or empty dataset run skipped profiling."
             )
-        return self._analysis
-
-    def _load_optional_analysis(self) -> DatasetProfilerResults | None:
-        """Return profiling analysis when present for internal workflow plumbing."""
         return self._analysis
 
     def load_dataset(self) -> pd.DataFrame:
