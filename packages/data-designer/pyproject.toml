@@ -62,5 +62,5 @@ env = ["DISABLE_DATA_DESIGNER_PLUGINS=true"]
 package = true
 
 [tool.uv.sources]
-data-designer-config = { workspace = true }
-data-designer-engine = { workspace = true }
+data-designer-config = { git = "https://github.com/NVIDIA-NeMo/DataDesigner.git", rev = "dcorneil/retryable-outcome-telemetry", subdirectory = "packages/data-designer-config" }
+data-designer-engine = { git = "https://github.com/NVIDIA-NeMo/DataDesigner.git", rev = "dcorneil/retryable-outcome-telemetry", subdirectory = "packages/data-designer-engine" }
