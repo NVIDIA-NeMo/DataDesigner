@@ -47,6 +47,7 @@ from data_designer.engine.dataset_builders.utils.execution_graph import Executio
 from data_designer.engine.dataset_builders.utils.row_group_buffer import RowGroupBufferManager
 from data_designer.engine.models.errors import (
     RETRYABLE_MODEL_ERRORS,
+    ModelAPIConnectionError,
     ModelInternalServerError,
     ModelRateLimitError,
     ModelRequestAdmissionTimeoutError,
@@ -1720,6 +1721,35 @@ async def test_degraded_provider_warn_silent_under_threshold(caplog: pytest.LogC
     with caplog.at_level("WARNING"):
         await scheduler.run()
     assert _count_degraded_msgs(caplog) == 0
+
+
+@pytest.mark.parametrize(
+    ("exc_cls", "expected_kind"),
+    [
+        (ModelRateLimitError, "rate_limit"),
+        (ModelRequestAdmissionTimeoutError, "request_admission_timeout"),
+        (ModelTimeoutError, "timeout"),
+        (ModelInternalServerError, "internal_server"),
+        (ModelAPIConnectionError, "connection"),
+    ],
+)
+def test_retryable_outcome_metrics_classify_errors(
+    exc_cls: type[Exception],
+    expected_kind: str,
+) -> None:
+    scheduler, _tracker = _build_simple_pipeline(num_records=1)
+
+    scheduler._record_retryable_outcome(
+        retryable=True,
+        exc=exc_cls("sensitive provider text"),
+    )
+    scheduler._record_retryable_outcome(retryable=False)
+
+    metrics = scheduler.retryable_outcome_metrics
+    assert metrics["cumulative_counts"] == {expected_kind: 1, "success": 1}
+    assert metrics["rolling_counts"] == {expected_kind: 1, "success": 1}
+    assert metrics["retryable_details"] == {expected_kind: 1}
+    assert "sensitive provider text" not in str(metrics)
 
 
 @pytest.mark.asyncio(loop_scope="session")
