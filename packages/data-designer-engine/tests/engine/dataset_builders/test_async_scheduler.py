@@ -1752,6 +1752,28 @@ def test_retryable_outcome_metrics_classify_errors(
     assert "sensitive provider text" not in str(metrics)
 
 
+def test_retryable_outcome_metrics_distinguish_non_retryable_failures() -> None:
+    scheduler, _tracker = _build_simple_pipeline(num_records=1)
+
+    scheduler._record_retryable_outcome(
+        retryable=False,
+        exc=RuntimeError("sensitive non-retryable text"),
+    )
+    scheduler._record_retryable_outcome(retryable=False)
+
+    metrics = scheduler.retryable_outcome_metrics
+    assert metrics["cumulative_counts"] == {"non_retryable_failure": 1, "success": 1}
+    assert metrics["rolling_counts"] == {"non_retryable_failure": 1, "success": 1}
+    assert metrics["retryable_details"] == {}
+    assert "sensitive non-retryable text" not in str(metrics)
+
+    diagnostics = scheduler._scheduler_health_diagnostics(reason="test")
+    assert diagnostics["deferred_tasks"] == 0
+    retryable_outcomes = diagnostics["retryable_outcomes"]
+    assert isinstance(retryable_outcomes, dict)
+    assert "deferred_tasks" not in retryable_outcomes
+
+
 @pytest.mark.asyncio(loop_scope="session")
 async def test_degraded_provider_warn_only_counts_llm_tasks() -> None:
     """The WARN window must ignore non-LLM task outcomes (samplers, expressions, etc).

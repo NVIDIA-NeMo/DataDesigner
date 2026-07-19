@@ -600,7 +600,6 @@ class AsyncTaskScheduler:
             "rolling_counts": dict(sorted(rolling.items())),
             "cumulative_counts": dict(sorted(self._retryable_outcome_counts.items())),
             "retryable_details": dict(sorted(self._retryable_detail_counts.items())),
-            "deferred_tasks": len(self._deferred),
         }
 
     def _scheduler_job_diagnostics(self) -> dict[str, object]:
@@ -1838,12 +1837,18 @@ class AsyncTaskScheduler:
         health, not just the error mix. The call site filters on ``is_llm`` so
         non-LLM tasks (samplers, expressions, non-LLM customs) don't dilute the
         rate. Only retryable errors (rate-limit, timeout, 5xx, connection) count
-        toward the rate; non-retryable failures register as 0.
+        toward the rate; non-retryable failures register as 0 and are categorized
+        separately from successful outcomes.
         """
-        kind = self._retryable_error_kind(exc) if retryable else "success"
-        self._retryable_outcome_counts[kind] += 1
-        status_code, retry_after = self._provider_error_details(exc)
         if retryable:
+            kind = self._retryable_error_kind(exc)
+        elif exc is not None:
+            kind = "non_retryable_failure"
+        else:
+            kind = "success"
+        self._retryable_outcome_counts[kind] += 1
+        if retryable:
+            status_code, retry_after = self._provider_error_details(exc)
             detail = kind
             if status_code is not None:
                 detail = f"{detail}:http_{status_code}"
