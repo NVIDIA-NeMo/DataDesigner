@@ -45,6 +45,7 @@ from data_designer.engine.dataset_builders.scheduling.task_model import Task
 from data_designer.engine.dataset_builders.scheduling.task_policies import BoundedBorrowTaskAdmissionPolicyConfig
 from data_designer.engine.dataset_builders.utils.execution_graph import ExecutionGraph
 from data_designer.engine.dataset_builders.utils.row_group_buffer import RowGroupBufferManager
+from data_designer.engine.models.clients.errors import ProviderError, ProviderErrorKind
 from data_designer.engine.models.errors import (
     RETRYABLE_MODEL_ERRORS,
     ModelAPIConnectionError,
@@ -52,6 +53,7 @@ from data_designer.engine.models.errors import (
     ModelRateLimitError,
     ModelRequestAdmissionTimeoutError,
     ModelTimeoutError,
+    handle_llm_exceptions,
 )
 from data_designer.engine.models.request_admission.config import RequestAdmissionConfig
 from data_designer.engine.models.request_admission.controller import (
@@ -1750,6 +1752,36 @@ def test_retryable_outcome_metrics_classify_errors(
     assert metrics["rolling_counts"] == {expected_kind: 1, "success": 1}
     assert metrics["retryable_details"] == {expected_kind: 1}
     assert "sensitive provider text" not in str(metrics)
+
+
+def test_retryable_outcome_metrics_extract_provider_status_from_suppressed_context(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    scheduler, _tracker = _build_simple_pipeline(num_records=1)
+    provider_error = ProviderError(
+        kind=ProviderErrorKind.RATE_LIMIT,
+        message="sensitive provider text",
+        status_code=429,
+        retry_after=2.5,
+    )
+
+    try:
+        raise provider_error
+    except ProviderError as exc:
+        with pytest.raises(ModelRateLimitError) as exc_info:
+            handle_llm_exceptions(exc, MODEL_ALIAS, "stub-provider")
+
+    assert exc_info.value.__cause__ is None
+    assert exc_info.value.__context__ is provider_error
+    with caplog.at_level(logging.WARNING):
+        scheduler._record_retryable_outcome(retryable=True, exc=exc_info.value)
+
+    metrics = scheduler.retryable_outcome_metrics
+    assert metrics["retryable_details"] == {"rate_limit:http_429": 1}
+    assert "http_status=429" in caplog.text
+    assert "retry_after=2.5s" in caplog.text
+    assert "sensitive provider text" not in str(metrics)
+    assert "sensitive provider text" not in caplog.text
 
 
 def test_retryable_outcome_metrics_distinguish_non_retryable_failures() -> None:
