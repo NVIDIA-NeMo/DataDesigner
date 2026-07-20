@@ -45,12 +45,15 @@ from data_designer.engine.dataset_builders.scheduling.task_model import Task
 from data_designer.engine.dataset_builders.scheduling.task_policies import BoundedBorrowTaskAdmissionPolicyConfig
 from data_designer.engine.dataset_builders.utils.execution_graph import ExecutionGraph
 from data_designer.engine.dataset_builders.utils.row_group_buffer import RowGroupBufferManager
+from data_designer.engine.models.clients.errors import ProviderError, ProviderErrorKind
 from data_designer.engine.models.errors import (
     RETRYABLE_MODEL_ERRORS,
+    ModelAPIConnectionError,
     ModelInternalServerError,
     ModelRateLimitError,
     ModelRequestAdmissionTimeoutError,
     ModelTimeoutError,
+    handle_llm_exceptions,
 )
 from data_designer.engine.models.request_admission.config import RequestAdmissionConfig
 from data_designer.engine.models.request_admission.controller import (
@@ -1720,6 +1723,87 @@ async def test_degraded_provider_warn_silent_under_threshold(caplog: pytest.LogC
     with caplog.at_level("WARNING"):
         await scheduler.run()
     assert _count_degraded_msgs(caplog) == 0
+
+
+@pytest.mark.parametrize(
+    ("exc_cls", "expected_kind"),
+    [
+        (ModelRateLimitError, "rate_limit"),
+        (ModelRequestAdmissionTimeoutError, "request_admission_timeout"),
+        (ModelTimeoutError, "timeout"),
+        (ModelInternalServerError, "internal_server"),
+        (ModelAPIConnectionError, "connection"),
+    ],
+)
+def test_retryable_outcome_metrics_classify_errors(
+    exc_cls: type[Exception],
+    expected_kind: str,
+) -> None:
+    scheduler, _tracker = _build_simple_pipeline(num_records=1)
+
+    scheduler._record_retryable_outcome(
+        retryable=True,
+        exc=exc_cls("sensitive provider text"),
+    )
+    scheduler._record_retryable_outcome(retryable=False)
+
+    metrics = scheduler.retryable_outcome_metrics
+    assert metrics["cumulative_counts"] == {expected_kind: 1, "success": 1}
+    assert metrics["rolling_counts"] == {expected_kind: 1, "success": 1}
+    assert metrics["retryable_details"] == {expected_kind: 1}
+    assert "sensitive provider text" not in str(metrics)
+
+
+def test_retryable_outcome_metrics_extract_provider_status_from_suppressed_context(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    scheduler, _tracker = _build_simple_pipeline(num_records=1)
+    provider_error = ProviderError(
+        kind=ProviderErrorKind.RATE_LIMIT,
+        message="sensitive provider text",
+        status_code=429,
+        retry_after=2.5,
+    )
+
+    try:
+        raise provider_error
+    except ProviderError as exc:
+        with pytest.raises(ModelRateLimitError) as exc_info:
+            handle_llm_exceptions(exc, MODEL_ALIAS, "stub-provider")
+
+    assert exc_info.value.__cause__ is None
+    assert exc_info.value.__context__ is provider_error
+    with caplog.at_level(logging.WARNING):
+        scheduler._record_retryable_outcome(retryable=True, exc=exc_info.value)
+
+    metrics = scheduler.retryable_outcome_metrics
+    assert metrics["retryable_details"] == {"rate_limit:http_429": 1}
+    assert "http_status=429" in caplog.text
+    assert "retry_after=2.5s" in caplog.text
+    assert "sensitive provider text" not in str(metrics)
+    assert "sensitive provider text" not in caplog.text
+
+
+def test_retryable_outcome_metrics_distinguish_non_retryable_failures() -> None:
+    scheduler, _tracker = _build_simple_pipeline(num_records=1)
+
+    scheduler._record_retryable_outcome(
+        retryable=False,
+        exc=RuntimeError("sensitive non-retryable text"),
+    )
+    scheduler._record_retryable_outcome(retryable=False)
+
+    metrics = scheduler.retryable_outcome_metrics
+    assert metrics["cumulative_counts"] == {"non_retryable_failure": 1, "success": 1}
+    assert metrics["rolling_counts"] == {"non_retryable_failure": 1, "success": 1}
+    assert metrics["retryable_details"] == {}
+    assert "sensitive non-retryable text" not in str(metrics)
+
+    diagnostics = scheduler._scheduler_health_diagnostics(reason="test")
+    assert diagnostics["deferred_tasks"] == 0
+    retryable_outcomes = diagnostics["retryable_outcomes"]
+    assert isinstance(retryable_outcomes, dict)
+    assert "deferred_tasks" not in retryable_outcomes
 
 
 @pytest.mark.asyncio(loop_scope="session")
