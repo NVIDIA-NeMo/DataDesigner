@@ -1593,7 +1593,7 @@ class AsyncTaskScheduler:
         completed = [
             (rg_id, state.size)
             for rg_id, state in self._rg_states.items()
-            if self._tracker.is_row_group_complete(rg_id, state.size, all_columns)
+            if state.in_flight_count == 0 and self._tracker.is_row_group_complete(rg_id, state.size, all_columns)
         ]
         for rg_id, rg_size in completed:
             dropped_rows = sum(1 for ri in range(rg_size) if self._tracker.is_dropped(rg_id, ri))
@@ -1630,6 +1630,7 @@ class AsyncTaskScheduler:
                 self._rg_semaphore.release()
                 self._row_group_admission_event.set()
             if checkpointed:
+                self._tracker.compact_row_group(rg_id)
                 self._emit_scheduler_event(
                     "row_group_checkpointed",
                     diagnostics={

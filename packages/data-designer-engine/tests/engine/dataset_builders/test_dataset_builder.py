@@ -1135,6 +1135,37 @@ def test_preview_does_not_write_scheduler_events(stub_resource_provider: Mock, t
     assert list(tmp_path.rglob("scheduler_events.jsonl")) == []
 
 
+def test_build_writes_metadata_after_first_checkpoint_and_at_end(
+    stub_resource_provider: Mock,
+    tmp_path: Path,
+) -> None:
+    builder, storage = _make_sampler_only_builder(
+        stub_resource_provider,
+        tmp_path,
+        resume=ResumeMode.NEVER,
+    )
+    payloads: list[dict[str, object]] = []
+    original_write_metadata = ArtifactStorage.write_metadata
+
+    def record_write_metadata(instance: ArtifactStorage, metadata: dict[str, object]) -> Path:
+        if instance is storage:
+            payloads.append(metadata)
+        return original_write_metadata(instance, metadata)
+
+    with patch.object(ArtifactStorage, "write_metadata", autospec=True, side_effect=record_write_metadata):
+        builder.build(num_records=6, resume=ResumeMode.NEVER)
+
+    assert [(payload["actual_num_records"], payload["num_completed_batches"]) for payload in payloads] == [
+        (2, 1),
+        (6, 3),
+    ]
+    file_paths = [payload["file_paths"] for payload in payloads]
+    assert all(isinstance(paths, dict) for paths in file_paths)
+    assert [len(paths["parquet-files"]) for paths in file_paths if isinstance(paths, dict)] == [1, 3]
+    persisted = storage.read_metadata()
+    assert {key: persisted[key] for key in payloads[-1]} == payloads[-1]
+
+
 def test_resumed_build_appends_scheduler_event_segment(stub_resource_provider: Mock, tmp_path: Path) -> None:
     builder, _storage = _make_sampler_only_builder(
         stub_resource_provider,
@@ -1822,15 +1853,14 @@ def test_build_async_resume_already_complete_does_not_run_after_generation_proce
     mock_after.assert_not_called()
 
 
-def test_find_completed_row_groups_used_for_initial_total_batches(
+def test_resume_already_complete_refreshes_metadata_from_filesystem(
     stub_resource_provider, stub_test_config_builder, tmp_path
 ):
-    """initial_total_num_batches uses filesystem count, not metadata count.
+    """An already-complete resume refreshes progress metadata from disk.
 
     Simulates the crash window: 2 parquet files exist on disk but metadata still
     records num_completed_batches=1 (write_metadata crashed after the second
     row group was moved to parquet-files/ but before metadata was updated).
-    Verifies that _find_completed_row_groups() (= 2) is used, not metadata (= 1).
     """
     dataset_dir = tmp_path / "dataset"
     # Metadata lags — says only 1 batch completed
@@ -1844,8 +1874,14 @@ def test_find_completed_row_groups_used_for_initial_total_batches(
         with patch.object(builder._processor_runner, "run_after_generation") as mock_after:
             builder.build(num_records=4, resume=ResumeMode.ALWAYS)
 
-    # Already complete based on filesystem count (2 files ≥ 2 row groups) — no generation needed
     mock_after.assert_not_called()
+    metadata = builder.artifact_storage.read_metadata()
+    assert metadata["actual_num_records"] == 4
+    assert metadata["num_completed_batches"] == metadata["total_num_batches"] == 2
+    assert metadata["file_paths"]["parquet-files"] == [
+        "parquet-files/batch_00000.parquet",
+        "parquet-files/batch_00001.parquet",
+    ]
 
 
 def test_initial_actual_num_records_from_filesystem_in_crash_window(
