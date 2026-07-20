@@ -73,12 +73,9 @@ jobs:
 
   prepare-published-release:
     if: needs.resolve-release.outputs.prepare_release_docs == '1'
-    needs:
-      - resolve-release
-      - build-notebooks
+    needs: resolve-release
     runs-on: ubuntu-latest
     permissions:
-      actions: read
       contents: write
     steps:
       - name: Checkout workflow
@@ -93,6 +90,12 @@ jobs:
           fetch-depth: 0
           path: source
           ref: ${{ needs.resolve-release.outputs.source_ref }}
+
+      - name: Checkout rolling source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          path: rolling-source
+          ref: ${{ github.event.repository.default_branch }}
 
       - name: Checkout published branch
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -130,8 +133,14 @@ jobs:
           python3 workflow/fern/scripts/fern-release-version.py --root website/fern prepare --version "$RELEASE_TAG" --force
           python3 workflow/fern/scripts/fern-release-version.py --root website/fern check --version "$RELEASE_TAG" --require-latest-matches-release
 
+      - name: Restore rolling Dev Notes and Recipes
+        run: |
+          python3 workflow/fern/scripts/fern-published-branch.py patch-devnotes \
+            --source-root rolling-source \
+            --published-root website
+
       - name: Install uv
-        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
         with:
           version: "0.9.5"
 
@@ -142,18 +151,13 @@ jobs:
         working-directory: website
         run: uv sync --python 3.13 --all-packages --group docs --group notebooks
 
-      - name: Download executed notebooks
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: notebooks
-          path: website/docs/notebooks
-
       - name: Check Fern docs
         working-directory: website
         run: make check-fern-docs
 
       - name: Commit published branch
         env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           RELEASE_TAG: ${{ needs.resolve-release.outputs.release_tag }}
           SOURCE_REF: ${{ needs.resolve-release.outputs.source_ref }}
           SOURCE_REPOSITORY: ${{ github.repository }}
@@ -165,6 +169,7 @@ jobs:
           fi
 
           source_sha=$(git -C ../source rev-parse HEAD)
+          rolling_sha=$(git -C ../rolling-source rev-parse HEAD)
           previous_published_sha=$(git rev-parse HEAD)
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -172,6 +177,7 @@ jobs:
           git commit \
             -m "docs: publish Fern docs for $RELEASE_TAG" \
             -m "Source: $SOURCE_REPOSITORY@$SOURCE_REF ($source_sha)" \
+            -m "Rolling Dev Notes and Recipes: $SOURCE_REPOSITORY@$DEFAULT_BRANCH ($rolling_sha)" \
             -m "Previous docs-website head: $previous_published_sha"
           git push origin HEAD:"$FERN_PUBLISHED_BRANCH"
 
@@ -182,12 +188,12 @@ jobs:
       actions: read
       contents: write
     with:
-      use_cache: ${{ github.event_name == 'workflow_dispatch' && inputs.use_cache || false }}
+      use_cache: ${{ github.event_name == 'release' || inputs.use_cache }}
       checkout_ref: ${{ needs.resolve-release.outputs.prepare_release_docs == '1' && needs.resolve-release.outputs.source_ref || needs.resolve-release.outputs.release_tag }}
     secrets: inherit
 
   publish:
-    if: always() && needs.resolve-release.result == 'success' && needs.build-notebooks.result == 'success' && (needs.prepare-published-release.result == 'success' || needs.prepare-published-release.result == 'skipped')
+    if: always() && needs.resolve-release.result == 'success' && (needs.prepare-published-release.result == 'success' || needs.prepare-published-release.result == 'skipped')
     needs:
       - resolve-release
       - prepare-published-release
@@ -204,7 +210,7 @@ jobs:
           ref: ${{ env.FERN_PUBLISHED_BRANCH }}
 
       - name: Install uv
-        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
         with:
           version: "0.9.5"
 
@@ -215,10 +221,15 @@ jobs:
         run: uv sync --python 3.13 --all-packages --group docs --group notebooks
 
       - name: Download executed notebooks
+        if: needs.build-notebooks.result == 'success'
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: notebooks
           path: docs/notebooks
+
+      - name: Report notebook fallback
+        if: needs.build-notebooks.result != 'success'
+        run: echo "::warning::Notebook execution failed; publishing source notebooks without executed outputs."
 
       - name: Check Fern docs
         run: make check-fern-docs
@@ -238,3 +249,24 @@ jobs:
           fi
 
           npx -y "fern-api@$fern_version" generate --docs --no-prompt
+
+      - name: Verify published docs
+        env:
+          PREPARE_RELEASE_DOCS: ${{ needs.resolve-release.outputs.prepare_release_docs }}
+          RELEASE_TAG: ${{ needs.resolve-release.outputs.release_tag }}
+        run: |
+          urls=("https://docs.nvidia.com/nemo/datadesigner/latest/getting-started/welcome")
+          if [ "$PREPARE_RELEASE_DOCS" = "1" ]; then
+            release_slug="${RELEASE_TAG#refs/tags/}"
+            if [[ "$release_slug" != v* ]]; then
+              release_slug="v$release_slug"
+            fi
+            urls+=("https://docs.nvidia.com/nemo/datadesigner/$release_slug/getting-started/welcome")
+          fi
+
+          for url in "${urls[@]}"; do
+            curl --fail --location --silent --show-error \
+              --retry 12 --retry-all-errors --retry-delay 10 --retry-max-time 180 \
+              "$url" >/dev/null
+            echo "Verified $url"
+          done

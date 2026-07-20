@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # Build notebooks with per-file caching. Only re-executes notebooks whose
-# source .py file changed since the last cached build.
+# source or runtime context changed since the last cached build.
 #
 # Usage:
 #   ./docs/scripts/build_notebooks_cached.sh [CACHE_DIR]
@@ -25,12 +25,44 @@ SOURCE_DIR="$REPO_ROOT/docs/notebook_source"
 OUTPUT_DIR="$REPO_ROOT/docs/notebooks"
 CACHE_DIR="${1:-$REPO_ROOT/.notebook-cache}"
 DOCS_JUPYTEXT="${DOCS_JUPYTEXT:-$REPO_ROOT/.venv/bin/jupytext}"
+NOTEBOOK_EXECUTION_ATTEMPTS="${NOTEBOOK_EXECUTION_ATTEMPTS:-1}"
+NOTEBOOK_RETRY_DELAY_SECONDS="${NOTEBOOK_RETRY_DELAY_SECONDS:-15}"
+
+if [[ ! "$NOTEBOOK_EXECUTION_ATTEMPTS" =~ ^[1-9][0-9]*$ ]]; then
+    echo "❌ NOTEBOOK_EXECUTION_ATTEMPTS must be a positive integer"
+    exit 1
+fi
+if [[ ! "$NOTEBOOK_RETRY_DELAY_SECONDS" =~ ^[0-9]+$ ]]; then
+    echo "❌ NOTEBOOK_RETRY_DELAY_SECONDS must be a non-negative integer"
+    exit 1
+fi
 
 if [ ! -x "$DOCS_JUPYTEXT" ]; then
     echo "❌ Missing jupytext executable: $DOCS_JUPYTEXT"
     echo "Run 'make install-dev-notebooks' first."
     exit 1
 fi
+
+execute_notebook() {
+    local src="$1"
+    local output="${src%.py}.ipynb"
+    local attempt
+    local delay
+
+    for ((attempt = 1; attempt <= NOTEBOOK_EXECUTION_ATTEMPTS; attempt++)); do
+        rm -f "$output"
+        if "$DOCS_JUPYTEXT" --to ipynb --execute "$src"; then
+            return 0
+        fi
+        rm -f "$output"
+        if [ "$attempt" -eq "$NOTEBOOK_EXECUTION_ATTEMPTS" ]; then
+            return 1
+        fi
+        delay=$((NOTEBOOK_RETRY_DELAY_SECONDS * attempt))
+        echo "  ⚠️  Attempt $attempt failed; retrying in ${delay}s"
+        sleep "$delay"
+    done
+}
 
 rm -rf "$OUTPUT_DIR"
 mkdir -p "$OUTPUT_DIR" "$CACHE_DIR"
@@ -43,7 +75,7 @@ needs_cleanup=false
 
 for src in "$SOURCE_DIR"/*.py; do
     name="$(basename "$src" .py)"
-    hash="$(compute_sha256 "$src")"
+    hash="$(compute_sha256 "$src"):${NOTEBOOK_CACHE_CONTEXT:-}"
     cached_hash_file="$CACHE_DIR/${name}.sha256"
     cached_notebook="$CACHE_DIR/${name}.ipynb"
 
@@ -52,7 +84,7 @@ for src in "$SOURCE_DIR"/*.py; do
         cp "$cached_notebook" "$OUTPUT_DIR/${name}.ipynb"
     else
         echo "  🔄 $name.ipynb - executing..."
-        "$DOCS_JUPYTEXT" --to ipynb --execute "$src"
+        execute_notebook "$src"
         mv "$SOURCE_DIR/${name}.ipynb" "$OUTPUT_DIR/${name}.ipynb"
         needs_cleanup=true
 

@@ -108,6 +108,10 @@ redirects:
 """,
     )
     write_text(published_root / "fern" / "fern.config.json", '{"organization": "nvidia", "version": "4.106.0"}\n')
+    write_text(
+        published_root / "fern" / "publish-metadata.json",
+        '{"action": "release-snapshot", "release_tag": "v0.6.0"}\n',
+    )
     write_text(published_root / "fern" / "assets" / "published-only-asset.png", "old asset")
     write_text(
         published_root / "fern" / "versions" / "latest.yml",
@@ -125,6 +129,23 @@ redirects:
       - page: Released Concept
         path: ./v0.6.0/pages/concepts/released-concept.mdx
 """,
+    )
+    write_text(
+        published_root / "fern" / "versions" / "v0.6.0.yml",
+        """navigation:
+  - section: Recipes
+    contents:
+      - page: Released Recipe
+        path: ./v0.6.0/pages/recipes/released-recipe.mdx
+  - section: Dev Notes
+    contents:
+      - page: Released Note
+        path: ./v0.6.0/pages/devnotes/posts/released-note.mdx
+""",
+    )
+    write_text(
+        published_root / "fern" / "versions" / "v0.6.0" / "pages" / "devnotes" / "posts" / "released-note.mdx",
+        "# Released",
     )
     write_text(published_root / "fern" / "versions" / "latest" / "pages" / "recipes" / "old-recipe.mdx", "# Old")
 
@@ -154,6 +175,9 @@ redirects:
         'import type { ImageExample } from "./ImageExample";\nexport type ImageGallery = ImageExample[];\n'
     )
     assert not (published_root / "fern" / "assets" / "published-only-asset.png").exists()
+    assert (published_root / "fern" / "publish-metadata.json").read_text() == (
+        '{"action": "release-snapshot", "release_tag": "v0.6.0"}\n'
+    )
     assert (published_root / "fern" / "versions" / "latest" / "pages" / "devnotes" / "posts" / "new-note.mdx").exists()
     published_nav = (published_root / "fern" / "versions" / "latest.yml").read_text()
     assert published_nav.count("section: Recipes") == 1
@@ -162,3 +186,10 @@ redirects:
     assert "path: ./v0.6.0/pages/concepts/released-concept.mdx" in published_nav
     assert (published_root / "fern" / "versions" / "latest" / "pages" / "recipes" / "new-recipe.mdx").exists()
     assert not (published_root / "fern" / "versions" / "latest" / "pages" / "recipes" / "old-recipe.mdx").exists()
+    assert (
+        "./v0.6.0/pages/devnotes/posts/released-note.mdx"
+        in (published_root / "fern" / "versions" / "v0.6.0.yml").read_text()
+    )
+    assert (
+        published_root / "fern" / "versions" / "v0.6.0" / "pages" / "devnotes" / "posts" / "released-note.mdx"
+    ).read_text() == "# Released"
