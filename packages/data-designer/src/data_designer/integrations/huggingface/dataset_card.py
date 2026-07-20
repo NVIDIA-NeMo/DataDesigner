@@ -48,10 +48,13 @@ class DataDesignerDatasetCard(DatasetCard):
         schema = metadata.get("schema", {})
         column_stats = metadata.get("column_statistics", [])
 
-        # Get actual num_records from column_statistics if available
-        if column_stats:
-            actual_num_records = column_stats[0].get("num_records", target_num_records)
-        else:
+        # Final profiler statistics reflect terminal processor output. Fall back
+        # to the persisted generated count for unprofiled artifacts, including
+        # zero-row retry results, then to the requested target for older artifacts.
+        actual_num_records = column_stats[0].get("num_records") if column_stats else None
+        if actual_num_records is None:
+            actual_num_records = metadata.get("actual_num_records")
+        if actual_num_records is None:
             actual_num_records = target_num_records
 
         # Compute size category
