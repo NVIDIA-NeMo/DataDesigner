@@ -63,7 +63,7 @@ from data_designer.engine.dataset_builders.utils.skip_tracker import (
     apply_skip_to_record,
     strip_skip_metadata_from_records,
 )
-from data_designer.engine.errors import DataDesignerError
+from data_designer.engine.errors import DataDesignerError, FatalGenerationError
 from data_designer.engine.models.clients.errors import ProviderError
 from data_designer.engine.models.errors import (
     RETRYABLE_MODEL_ERRORS,
@@ -449,7 +449,7 @@ class AsyncTaskScheduler:
     def _raise_if_fatal_worker_error(self) -> None:
         if self._fatal_worker_error is None:
             return
-        if isinstance(self._fatal_worker_error, UserTemplateError):
+        if isinstance(self._fatal_worker_error, (FatalGenerationError, UserTemplateError)):
             raise DatasetGenerationError(str(self._fatal_worker_error)) from self._fatal_worker_error
         raise DatasetGenerationError(
             "Unexpected internal task failure in async scheduler."
@@ -2033,6 +2033,19 @@ class AsyncTaskScheduler:
             if self._trace and trace:
                 trace.status = "error"
                 trace.error = str(exc)
+
+            if isinstance(exc, FatalGenerationError):
+                logger.error(
+                    "Fatal generation failure on %s[rg=%s, row=%s]: %s",
+                    task.column,
+                    task.row_group,
+                    task.row_index,
+                    exc,
+                    exc_info=True,
+                )
+                self._fatal_worker_error = exc
+                self._wake_event.set()
+                raise
 
             if self._is_fatal_expression_template_error(task, generator, exc):
                 logger.error(

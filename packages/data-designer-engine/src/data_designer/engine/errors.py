@@ -11,6 +11,10 @@ from data_designer.errors import DataDesignerError
 class DataDesignerRuntimeError(DataDesignerError): ...
 
 
+class FatalGenerationError(DataDesignerError):
+    """Systemic generator failure that must abort the active dataset build."""
+
+
 class UnknownProviderError(DataDesignerError): ...
 
 

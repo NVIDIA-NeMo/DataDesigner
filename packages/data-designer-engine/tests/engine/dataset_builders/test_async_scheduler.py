@@ -45,6 +45,7 @@ from data_designer.engine.dataset_builders.scheduling.task_model import Task
 from data_designer.engine.dataset_builders.scheduling.task_policies import BoundedBorrowTaskAdmissionPolicyConfig
 from data_designer.engine.dataset_builders.utils.execution_graph import ExecutionGraph
 from data_designer.engine.dataset_builders.utils.row_group_buffer import RowGroupBufferManager
+from data_designer.engine.errors import FatalGenerationError
 from data_designer.engine.models.clients.errors import ProviderError, ProviderErrorKind
 from data_designer.engine.models.errors import (
     RETRYABLE_MODEL_ERRORS,
@@ -782,6 +783,45 @@ async def test_scheduler_non_retryable_failure_drops_row() -> None:
     # Row group is "complete" because all non-dropped rows have all columns
     # (there are no non-dropped rows)
     assert tracker.is_row_group_complete(0, 2, ["seed", "fail_col"])
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_fatal_generation_error_aborts_without_dropping_row() -> None:
+    started = asyncio.Event()
+    cancelled = asyncio.Event()
+
+    class FatalCellGenerator(MockCellGenerator):
+        calls = 0
+
+        async def agenerate(self, data: dict) -> dict:
+            self.calls += 1
+            if self.calls == 1:
+                await started.wait()
+                raise FatalGenerationError("systemic MCP worker failure")
+            started.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cancelled.set()
+            return data
+
+    provider = _mock_provider()
+    scheduler, tracker = _build_simple_pipeline(
+        num_records=2,
+        generators={
+            "seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
+            "cell_out": FatalCellGenerator(config=_expr_config("cell_out"), resource_provider=provider),
+        },
+    )
+
+    with pytest.raises(DatasetGenerationError, match="systemic MCP worker failure") as error:
+        await asyncio.wait_for(scheduler.run(), timeout=2)
+
+    assert isinstance(error.value.__cause__, FatalGenerationError)
+    assert cancelled.is_set()
+    assert scheduler.active_worker_count == 0
+    assert not tracker.is_dropped(0, 0)
+    assert not tracker.is_dropped(0, 1)
 
 
 def test_scheduler_internal_bug_classifier_preserves_scheduler_builtin_failures() -> None:
