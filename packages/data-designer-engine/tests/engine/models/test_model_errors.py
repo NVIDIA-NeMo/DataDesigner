@@ -12,6 +12,7 @@ import pytest
 from data_designer.engine.models.clients.errors import ProviderError, ProviderErrorKind
 from data_designer.engine.models.errors import (
     DataDesignerError,
+    GenerationTruncationReason,
     GenerationValidationFailureError,
     ModelAPIConnectionError,
     ModelAPIError,
@@ -229,6 +230,57 @@ def test_handle_llm_exceptions(
 ) -> None:
     with pytest.raises(expected_exception, match=re.escape(expected_error_msg)):
         handle_llm_exceptions(exception, stub_model_name, stub_model_provider_name, stub_purpose)
+
+
+def test_generation_validation_failure_error_stores_truncation_reason() -> None:
+    exception = GenerationValidationFailureError(
+        " Generation validation failure ",
+        detail="  invalid\nJSON  ",
+        failure_kind="parse_error",
+        truncation_reason=GenerationTruncationReason.MAX_TOKENS,
+    )
+
+    assert exception.summary == "Generation validation failure"
+    assert exception.detail == "invalid JSON"
+    assert exception.failure_kind == "parse_error"
+    assert exception.truncation_reason is GenerationTruncationReason.MAX_TOKENS
+
+
+@pytest.mark.parametrize(
+    ("reason", "expected_solution"),
+    [
+        pytest.param(
+            GenerationTruncationReason.MAX_TOKENS,
+            "The response appears to have been cut off because it reached max_tokens, causing the parse failure. Increase inference_parameters.max_tokens in the model config and try again.",
+            id="max-tokens",
+        ),
+        pytest.param(
+            GenerationTruncationReason.MODEL_CONTEXT_WINDOW_EXCEEDED,
+            "The response appears to have been cut off because the model context window was exhausted, causing the parse failure. Reduce the prompt, context, or schema size, or use a model with a larger context window and try again; increasing inference_parameters.max_tokens will not help.",
+            id="context-window",
+        ),
+    ],
+)
+def test_handle_llm_exceptions_formats_truncation_reason(
+    reason: GenerationTruncationReason,
+    expected_solution: str,
+) -> None:
+    with pytest.raises(ModelGenerationValidationFailureError, match=re.escape(expected_solution)) as exc_info:
+        handle_llm_exceptions(
+            GenerationValidationFailureError(
+                "Generation validation failure",
+                detail="invalid JSON",
+                failure_kind="parse_error",
+                truncation_reason=reason,
+            ),
+            stub_model_name,
+            stub_model_provider_name,
+            stub_purpose,
+        )
+
+    assert exc_info.value.detail == "invalid JSON"
+    assert exc_info.value.failure_kind == "parse_error"
+    assert not hasattr(exc_info.value, "truncation_reason")
 
 
 def test_handle_llm_exceptions_preserves_generation_failure_kind() -> None:
