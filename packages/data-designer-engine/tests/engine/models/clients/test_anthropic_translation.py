@@ -269,6 +269,22 @@ def test_parse_anthropic_response_maps_tool_use_and_thinking(monkeypatch: pytest
     assert json.loads(response.message.tool_calls[0].arguments_json) == {"query": "weather"}
 
 
+@pytest.mark.parametrize(
+    "stop_reason",
+    ["end_turn", "tool_use", "max_tokens", "model_context_window_exceeded"],
+)
+def test_parse_anthropic_response_maps_stop_reason_to_canonical_choice(stop_reason: str) -> None:
+    raw = {
+        "content": [{"type": "text", "text": "partial response"}],
+        "stop_reason": stop_reason,
+    }
+
+    response = parse_anthropic_response(raw)
+
+    assert response.choices[0].finish_reason == stop_reason
+    assert response.raw is raw
+
+
 def test_translate_non_tool_message_rejects_unsupported_role() -> None:
     with pytest.raises(ValueError, match="does not support message role"):
         translate_non_tool_message({"role": "system", "content": "Nope"})
