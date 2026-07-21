@@ -47,6 +47,8 @@ from data_designer.engine.dataset_builders.utils.execution_graph import Executio
 from data_designer.engine.dataset_builders.utils.row_group_buffer import RowGroupBufferManager
 from data_designer.engine.models.errors import (
     RETRYABLE_MODEL_ERRORS,
+    FormattedLLMErrorMessage,
+    ModelGenerationValidationFailureError,
     ModelInternalServerError,
     ModelRateLimitError,
     ModelRequestAdmissionTimeoutError,
@@ -202,6 +204,22 @@ class MockFailingGenerator(ColumnGenerator[ExpressionColumnConfig]):
             raise ValueError("permanent failure")
         data[self.config.name] = f"recovered_{data.get('seed', '?')}"
         return data
+
+
+class MockMaxTokensValidationFailureGenerator(ColumnGenerator[ExpressionColumnConfig]):
+    """Cell generator that surfaces formatted max-token parse guidance."""
+
+    @staticmethod
+    def get_generation_strategy() -> GenerationStrategy:
+        return GenerationStrategy.CELL_BY_CELL
+
+    def generate(self, _data: dict) -> dict:
+        raise ModelGenerationValidationFailureError(
+            FormattedLLMErrorMessage(
+                cause="The model output could not be parsed because it reached max_tokens.",
+                solution="Increase inference_parameters.max_tokens in the model config and try again.",
+            )
+        )
 
 
 class MockBuggyGenerator(ColumnGenerator[ExpressionColumnConfig]):
@@ -779,6 +797,32 @@ async def test_scheduler_non_retryable_failure_drops_row() -> None:
     # Row group is "complete" because all non-dropped rows have all columns
     # (there are no non-dropped rows)
     assert tracker.is_row_group_complete(0, 2, ["seed", "fail_col"])
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_scheduler_characterization_logs_max_tokens_guidance_when_non_retryable_failure_drops_row(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Characterize existing warning propagation for formatted public model errors."""
+    provider = _mock_provider()
+    scheduler, tracker = _build_simple_pipeline(
+        num_records=1,
+        generators={
+            "seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
+            "cell_out": MockMaxTokensValidationFailureGenerator(
+                config=_expr_config("cell_out"),
+                resource_provider=provider,
+            ),
+        },
+    )
+
+    with caplog.at_level(logging.WARNING, logger="data_designer.engine.dataset_builders.async_scheduler"):
+        await scheduler.run()
+
+    assert tracker.is_dropped(0, 0)
+    assert "Non-retryable failure on cell_out[rg=0, row=0]:" in caplog.text
+    assert "max_tokens" in caplog.text
+    assert "inference_parameters.max_tokens" in caplog.text
 
 
 def test_scheduler_internal_bug_classifier_preserves_scheduler_builtin_failures() -> None:

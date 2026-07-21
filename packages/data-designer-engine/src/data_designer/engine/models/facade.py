@@ -18,6 +18,7 @@ from data_designer.config.utils.constants import (
 from data_designer.config.utils.media_helpers import is_image_diffusion_model
 from data_designer.engine.mcp.errors import MCPConfigurationError
 from data_designer.engine.model_provider import ModelProviderRegistry
+from data_designer.engine.models.clients.parsing import get_first_value_or_none, get_value_from
 from data_designer.engine.models.clients.types import (
     ChatCompletionRequest,
     ChatCompletionResponse,
@@ -28,6 +29,7 @@ from data_designer.engine.models.clients.types import (
     Usage,
 )
 from data_designer.engine.models.errors import (
+    GenerationTruncationReason,
     GenerationValidationFailureError,
     ImageGenerationError,
     acatch_llm_exceptions,
@@ -60,6 +62,40 @@ def _identity(x: Any) -> Any:
 logger = logging.getLogger(__name__)
 
 
+_TRUNCATION_REASON_BY_FINISH_REASON = {
+    "length": GenerationTruncationReason.MAX_TOKENS,
+    "max_tokens": GenerationTruncationReason.MAX_TOKENS,
+    "model_context_window_exceeded": GenerationTruncationReason.MODEL_CONTEXT_WINDOW_EXCEEDED,
+}
+
+
+def _classify_generation_truncation_reason(
+    response: ChatCompletionResponse,
+) -> GenerationTruncationReason | None:
+    first_choice = get_first_value_or_none(response.choices)
+    canonical_reason = get_value_from(first_choice, "finish_reason")
+    if isinstance(canonical_reason, str):
+        return _TRUNCATION_REASON_BY_FINISH_REASON.get(canonical_reason)
+
+    raw_choices = get_value_from(response.raw, "choices")
+    raw_first_choice = get_first_value_or_none(raw_choices)
+    raw_reason = get_value_from(raw_first_choice, "finish_reason")
+    if not isinstance(raw_reason, str):
+        raw_reason = get_value_from(response.raw, "stop_reason")
+    if not isinstance(raw_reason, str):
+        return None
+    return _TRUNCATION_REASON_BY_FINISH_REASON.get(raw_reason)
+
+
+def _merge_generation_truncation_reason(
+    accumulated: GenerationTruncationReason | None,
+    current: GenerationTruncationReason | None,
+) -> GenerationTruncationReason | None:
+    if GenerationTruncationReason.MODEL_CONTEXT_WINDOW_EXCEEDED in (accumulated, current):
+        return GenerationTruncationReason.MODEL_CONTEXT_WINDOW_EXCEEDED
+    return current or accumulated
+
+
 def _classify_generation_failure_kind(exc: ParserException) -> str:
     detail = " ".join(str(get_exception_primary_cause(exc)).split()).lower()
     if "response_schema" in detail or "model_validate" in detail:
@@ -69,11 +105,17 @@ def _classify_generation_failure_kind(exc: ParserException) -> str:
     return "parse_error"
 
 
-def _build_generation_validation_error(summary: str, exc: ParserException) -> GenerationValidationFailureError:
+def _build_generation_validation_error(
+    summary: str,
+    exc: ParserException,
+    *,
+    truncation_reason: GenerationTruncationReason | None = None,
+) -> GenerationValidationFailureError:
     return GenerationValidationFailureError(
         summary,
         detail=str(get_exception_primary_cause(exc)),
         failure_kind=_classify_generation_failure_kind(exc),
+        truncation_reason=truncation_reason,
     )
 
 
@@ -349,6 +391,7 @@ class ModelFacade:
         # restart-or-raise. Reset to 0 on each conversation restart.
         parse_attempts = 0
         curr_num_restarts = 0
+        truncation_reason: GenerationTruncationReason | None = None
 
         mcp_facade = self._get_mcp_facade(tool_alias)
 
@@ -402,10 +445,15 @@ class ModelFacade:
                 output_obj = parser(response)  # type: ignore - if not a string will cause a ParserException below
                 break
             except ParserException as exc:
+                truncation_reason = _merge_generation_truncation_reason(
+                    truncation_reason,
+                    _classify_generation_truncation_reason(completion_response),
+                )
                 if max_correction_steps == 0 and max_conversation_restarts == 0:
                     raise _build_generation_validation_error(
                         "Unsuccessful generation attempt. No retries were attempted.",
                         exc,
+                        truncation_reason=truncation_reason,
                     ) from exc
 
                 if parse_attempts <= max_correction_steps:
@@ -425,6 +473,7 @@ class ModelFacade:
                             f"and {max_conversation_restarts} conversation restarts."
                         ),
                         exc,
+                        truncation_reason=truncation_reason,
                     ) from exc
 
         if not skip_usage_tracking and mcp_facade is not None:
@@ -457,6 +506,7 @@ class ModelFacade:
         # See `generate` for a description of the parse-attempts counter semantics.
         parse_attempts = 0
         curr_num_restarts = 0
+        truncation_reason: GenerationTruncationReason | None = None
 
         mcp_facade = self._get_mcp_facade(tool_alias)
 
@@ -507,10 +557,15 @@ class ModelFacade:
                 output_obj = parser(response)
                 break
             except ParserException as exc:
+                truncation_reason = _merge_generation_truncation_reason(
+                    truncation_reason,
+                    _classify_generation_truncation_reason(completion_response),
+                )
                 if max_correction_steps == 0 and max_conversation_restarts == 0:
                     raise _build_generation_validation_error(
                         "Unsuccessful generation attempt. No retries were attempted.",
                         exc,
+                        truncation_reason=truncation_reason,
                     ) from exc
 
                 if parse_attempts <= max_correction_steps:
@@ -529,6 +584,7 @@ class ModelFacade:
                             f"and {max_conversation_restarts} conversation restarts."
                         ),
                         exc,
+                        truncation_reason=truncation_reason,
                     ) from exc
 
         if not skip_usage_tracking and mcp_facade is not None:
