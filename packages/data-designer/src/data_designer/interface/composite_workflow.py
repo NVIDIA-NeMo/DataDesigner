@@ -92,8 +92,9 @@ class CompositeWorkflowResults:
     """Results for a composite workflow run.
 
     Per-stage entries are the effective ``DataDesigner.create()`` results. For
-    stages with ``output_processors``, this is the output-processor create
-    result. Use ``load_stage_output()`` to load the selected output handed
+    non-empty stages with ``output_processors``, this is the output-processor
+    create result. Empty stages skip output processors and retain the main
+    stage result. Use ``load_stage_output()`` to load the selected output handed
     downstream; it follows ``output="processor:<name>"`` and ``on_success``.
     """
 
@@ -140,7 +141,7 @@ class CompositeWorkflowResults:
         self._require_final_result()
         return self.load_stage_output(self.final_stage_name)
 
-    def load_analysis(self) -> DatasetProfilerResults:
+    def load_analysis(self) -> DatasetProfilerResults | None:
         """Load analysis from the final stage result."""
         return self.final_result.load_analysis()
 
@@ -369,6 +370,7 @@ class CompositeWorkflow:
                     stage=stage,
                     stage_dir_name=stage_dir_name,
                     stage_builder=stage_builder,
+                    stage_metadata=stage_metadata,
                 )
                 stage_results[stage.name] = output_result
                 stage_output_paths[stage.name] = output_seed_path
@@ -419,10 +421,12 @@ class CompositeWorkflow:
                 actual_records = result.count_records()
                 output_result = result
                 output_source_result = result
+                output_processors_skipped = bool(stage.output_processors and actual_records == 0)
                 if stage.output_processors:
                     output_processor_path = stage_path / "output-processors"
                     if output_processor_path.exists():
                         shutil.rmtree(output_processor_path)
+                if stage.output_processors and not output_processors_skipped:
                     output_processor_builder = _output_processor_config_builder(
                         stage_builder=stage_builder,
                         seed_path=result.artifact_storage.final_dataset_path,
@@ -440,6 +444,8 @@ class CompositeWorkflow:
                 if stage.on_success is not None:
                     callback_output_path = Path(stage.on_success(result.artifact_storage.base_dataset_path))
                     output_seed_path = callback_output_path
+                elif output_processors_skipped and _output_is_from_output_processors(stage):
+                    output_seed_path = result.artifact_storage.final_dataset_path
                 else:
                     output_seed_path = _resolve_stage_output_path(output_source_result, stage.output)
                 override_path = _stage_output_override(stage.name, stage_output_overrides)
@@ -469,9 +475,10 @@ class CompositeWorkflow:
                         ),
                         "output_processor_output_path": (
                             _metadata_path_value(workflow_path, output_result.artifact_storage.base_dataset_path)
-                            if stage.output_processors
+                            if stage.output_processors and not output_processors_skipped
                             else None
                         ),
+                        "output_processors_skipped_empty_input": output_processors_skipped,
                         "duration_sec": time.monotonic() - start_time,
                     }
                 )
@@ -671,11 +678,12 @@ def _stage_result_from_metadata(
     stage: _WorkflowStage,
     stage_dir_name: str,
     stage_builder: DataDesignerConfigBuilder,
+    stage_metadata: dict[str, Any],
 ) -> DatasetCreationResults:
     main_storage = ArtifactStorage(artifact_path=workflow_path, dataset_name=stage_dir_name, resume=ResumeMode.ALWAYS)
     result_storage = main_storage
     result_builder = stage_builder
-    if stage.output_processors:
+    if stage.output_processors and stage_metadata.get("output_processor_output_path"):
         result_storage = ArtifactStorage(
             artifact_path=workflow_path / stage_dir_name,
             dataset_name="output-processors",
@@ -819,6 +827,13 @@ def _select_output_result(
     if processor_name in {processor.name for processor in stage.output_processors}:
         return output_result
     return result
+
+
+def _output_is_from_output_processors(stage: _WorkflowStage) -> bool:
+    if not stage.output.startswith("processor:"):
+        return False
+    processor_name = stage.output.removeprefix("processor:")
+    return processor_name in {processor.name for processor in stage.output_processors}
 
 
 def _count_parquet_records(path: Path) -> int:

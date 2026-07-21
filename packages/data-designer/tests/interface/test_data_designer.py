@@ -782,6 +782,31 @@ def test_create_raises_error_when_builder_fails(
         assert isinstance(exc_info.value.__cause__, RuntimeError)
 
 
+def test_create_does_not_remap_non_selection_shutdown_failure(
+    stub_artifact_path, stub_model_providers, stub_sampler_only_config_builder, stub_managed_assets_path
+) -> None:
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+    )
+
+    with patch.object(data_designer, "_create_dataset_builder") as mock_builder_method:
+        root_cause = RuntimeError("Builder failed after early shutdown")
+        mock_builder = MagicMock()
+        mock_builder.build.side_effect = root_cause
+        mock_builder.early_shutdown = True
+        mock_builder.data_designer_config = stub_sampler_only_config_builder.build()
+        mock_builder_method.return_value = mock_builder
+
+        with pytest.raises(DataDesignerGenerationError, match="Builder failed after early shutdown") as exc_info:
+            data_designer.create(stub_sampler_only_config_builder, num_records=3)
+
+    assert not isinstance(exc_info.value, DataDesignerEarlyShutdownError)
+    assert exc_info.value.__cause__ is root_cause
+
+
 def test_create_raises_error_when_profiler_fails(
     stub_artifact_path, stub_model_providers, stub_sampler_only_config_builder, stub_managed_assets_path
 ):

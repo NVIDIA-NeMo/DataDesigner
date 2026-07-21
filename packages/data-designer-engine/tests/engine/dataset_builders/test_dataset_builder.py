@@ -8,8 +8,8 @@ import json
 import logging
 import tracemalloc
 from pathlib import Path
-from typing import TYPE_CHECKING
-from unittest.mock import Mock, patch
+from typing import TYPE_CHECKING, Any
+from unittest.mock import Mock, PropertyMock, patch
 
 import pytest
 
@@ -19,22 +19,40 @@ from data_designer.config.base import SkipConfig
 from data_designer.config.column_configs import (
     CustomColumnConfig,
     ExpressionColumnConfig,
+    LLMStructuredColumnConfig,
     LLMTextColumnConfig,
     SamplerColumnConfig,
+    ValidationColumnConfig,
 )
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.custom_column import custom_column_generator
-from data_designer.config.processors import DropColumnsProcessorConfig
+from data_designer.config.processors import DropColumnsProcessorConfig, SchemaTransformProcessorConfig
+from data_designer.config.record_selection import RecordSelectionConfig, RecordSelectionExhaustion
 from data_designer.config.run_config import RunConfig
-from data_designer.config.sampler_params import SamplerType, UUIDSamplerParams
+from data_designer.config.sampler_params import (
+    CategorySamplerParams,
+    SamplerType,
+    UUIDSamplerParams,
+)
 from data_designer.config.seed import IndexRange, PartitionBlock, SamplingStrategy
 from data_designer.config.seed_source import LocalFileSeedSource
 from data_designer.config.seed_source_dataframe import DataFrameSeedSource
+from data_designer.config.utils.code_lang import CodeLang
+from data_designer.config.validator_params import CodeValidatorParams, ValidatorType
 from data_designer.engine.column_generators.generators.base import GenerationStrategy
+from data_designer.engine.column_generators.generators.samplers import SamplerColumnGenerator
+from data_designer.engine.dataset_builders.acceptance import AcceptanceController, SelectionBatchMarker
 from data_designer.engine.dataset_builders.dataset_builder import DatasetBuilder, build_row_group_resume_plan
-from data_designer.engine.dataset_builders.errors import DatasetGenerationError, DatasetProcessingError
+from data_designer.engine.dataset_builders.errors import (
+    DatasetGenerationError,
+    DatasetProcessingError,
+    RecordSelectionEarlyShutdownError,
+)
+from data_designer.engine.dataset_builders.record_selection_runner import RecordSelectionRunner
 from data_designer.engine.dataset_builders.row_group_plan import CompactRowGroupPlan
+from data_designer.engine.dataset_builders.utils.async_concurrency import await_async_scheduler_result
 from data_designer.engine.dataset_builders.utils.processor_runner import ProcessorRunner
+from data_designer.engine.errors import DataDesignerRuntimeError
 from data_designer.engine.models.telemetry import InferenceEvent, NemoSourceEnum, TaskStatusEnum
 from data_designer.engine.models.usage import ModelUsageStats, TokenUsageStats
 from data_designer.engine.observability import SchedulerAdmissionEvent
@@ -126,6 +144,23 @@ def create_mock_processor(name: str, stages: list[str]) -> Mock:
     return mock_processor
 
 
+def add_constant_boolean_expression(
+    config: DataDesignerConfigBuilder,
+    *,
+    name: str = "keep",
+    value: bool,
+) -> None:
+    config.add_column(
+        SamplerColumnConfig(
+            name=f"{name}_candidate",
+            sampler_type=SamplerType.CATEGORY,
+            params=CategorySamplerParams(values=["candidate"]),
+        )
+    )
+    literal = "true" if value else "false"
+    config.add_column(ExpressionColumnConfig(name=name, expr=f"{{{{ {literal} }}}}", dtype="bool"))
+
+
 def test_dataset_builder_creation(stub_resource_provider, stub_test_config_builder):
     builder = DatasetBuilder(
         data_designer_config=stub_test_config_builder.build(),
@@ -134,6 +169,938 @@ def test_dataset_builder_creation(stub_resource_provider, stub_test_config_build
     assert len(builder._column_configs) == 3
     assert builder._resource_provider == stub_resource_provider
     assert isinstance(builder._registry, DataDesignerRegistry)
+
+
+def test_record_selection_rejects_sampler_predicate(stub_resource_provider) -> None:
+    config = DataDesignerConfigBuilder()
+    config.add_column(
+        SamplerColumnConfig(
+            name="numeric_predicate",
+            sampler_type=SamplerType.CATEGORY,
+            params=CategorySamplerParams(values=[0, 1]),
+        )
+    )
+    config.with_record_selection(RecordSelectionConfig(predicate_column="numeric_predicate", max_candidate_records=1))
+
+    with pytest.raises(DatasetGenerationError, match="unsupported built-in column type 'sampler'"):
+        DatasetBuilder(data_designer_config=config.build(), resource_provider=stub_resource_provider)
+
+
+def test_record_selection_rejects_seed_predicate(stub_resource_provider) -> None:
+    source = DataFrameSeedSource(df=lazy.pd.DataFrame({"keep": [True]}))
+    seed_reader = DataFrameSeedReader()
+    seed_reader.attach(source, Mock())
+    stub_resource_provider.seed_reader = seed_reader
+    config = DataDesignerConfigBuilder().with_seed_dataset(source)
+    config.add_column(ExpressionColumnConfig(name="payload", expr="{{ keep }}"))
+    config.with_record_selection(RecordSelectionConfig(predicate_column="keep", max_candidate_records=1))
+
+    with pytest.raises(DatasetGenerationError, match="unsupported built-in column type 'seed-dataset'"):
+        DatasetBuilder(data_designer_config=config.build(), resource_provider=stub_resource_provider)
+
+
+def test_record_selection_rejects_validation_predicate(stub_resource_provider) -> None:
+    config = DataDesignerConfigBuilder()
+    config.add_column(
+        SamplerColumnConfig(
+            name="candidate",
+            sampler_type=SamplerType.CATEGORY,
+            params=CategorySamplerParams(values=["candidate"]),
+        )
+    )
+    config.add_column(
+        ValidationColumnConfig(
+            name="predicate",
+            target_columns=["candidate"],
+            validator_type=ValidatorType.CODE,
+            validator_params=CodeValidatorParams(code_lang=CodeLang.PYTHON),
+        )
+    )
+    config.with_record_selection(RecordSelectionConfig(predicate_column="predicate", max_candidate_records=1))
+
+    with pytest.raises(DatasetGenerationError, match="unsupported built-in column type 'validation'"):
+        DatasetBuilder(data_designer_config=config.build(), resource_provider=stub_resource_provider)
+
+
+def test_record_selection_rejects_non_boolean_expression_predicate(stub_resource_provider) -> None:
+    config = DataDesignerConfigBuilder()
+    config.add_column(
+        SamplerColumnConfig(
+            name="candidate",
+            sampler_type=SamplerType.CATEGORY,
+            params=CategorySamplerParams(values=["candidate"]),
+        )
+    )
+    config.add_column(ExpressionColumnConfig(name="predicate", expr="{{ candidate }}", dtype="str"))
+    config.with_record_selection(RecordSelectionConfig(predicate_column="predicate", max_candidate_records=1))
+
+    with pytest.raises(DatasetGenerationError, match="must use dtype='bool'"):
+        DatasetBuilder(data_designer_config=config.build(), resource_provider=stub_resource_provider)
+
+
+def test_record_selection_accepts_column_type_classified_as_plugin(stub_resource_provider) -> None:
+    config = DataDesignerConfigBuilder()
+    config.add_column(
+        SamplerColumnConfig(
+            name="plugin_predicate",
+            sampler_type=SamplerType.CATEGORY,
+            params=CategorySamplerParams(values=["plugin-defined"]),
+        )
+    )
+    config.with_record_selection(RecordSelectionConfig(predicate_column="plugin_predicate", max_candidate_records=1))
+
+    with patch.object(builder_mod, "is_plugin_column_type", return_value=True):
+        DatasetBuilder(data_designer_config=config.build(), resource_provider=stub_resource_provider)
+
+
+@pytest.mark.parametrize(
+    "predicate_config",
+    [
+        LLMTextColumnConfig(name="predicate", prompt="Return true or false", model_alias="stub-model"),
+        LLMStructuredColumnConfig(
+            name="predicate",
+            prompt="Return a decision",
+            model_alias="stub-model",
+            output_format={
+                "type": "object",
+                "properties": {"accepted": {"type": "boolean"}},
+                "required": ["accepted"],
+            },
+        ),
+    ],
+)
+def test_record_selection_rejects_direct_llm_predicate(
+    stub_resource_provider, stub_model_configs, predicate_config
+) -> None:
+    config = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+    config.add_column(
+        SamplerColumnConfig(
+            name="candidate",
+            sampler_type=SamplerType.CATEGORY,
+            params=CategorySamplerParams(values=["candidate"]),
+        )
+    )
+    config.add_column(predicate_config)
+    config.with_record_selection(RecordSelectionConfig(predicate_column="predicate", max_candidate_records=1))
+
+    with pytest.raises(DatasetGenerationError, match="unsupported built-in column type 'llm-"):
+        DatasetBuilder(data_designer_config=config.build(), resource_provider=stub_resource_provider)
+
+
+def test_record_selection_accepts_boolean_expression_derived_from_llm_structured(
+    stub_resource_provider, stub_model_configs
+) -> None:
+    config = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+    config.add_column(
+        SamplerColumnConfig(
+            name="candidate",
+            sampler_type=SamplerType.CATEGORY,
+            params=CategorySamplerParams(values=["candidate"]),
+        )
+    )
+    config.add_column(
+        LLMStructuredColumnConfig(
+            name="judgment",
+            prompt="Return a decision",
+            model_alias="stub-model",
+            output_format={
+                "type": "object",
+                "properties": {"accepted": {"type": "boolean"}},
+                "required": ["accepted"],
+            },
+        )
+    )
+    config.add_column(ExpressionColumnConfig(name="keep", expr="{{ judgment.accepted }}", dtype="bool", drop=True))
+    config.with_record_selection(RecordSelectionConfig(predicate_column="keep", max_candidate_records=1))
+
+    DatasetBuilder(data_designer_config=config.build(), resource_provider=stub_resource_provider)
+
+
+def test_record_selection_applies_boolean_expression_to_nested_object(stub_resource_provider) -> None:
+    stub_resource_provider.run_config = RunConfig(
+        buffer_size=2,
+        disable_early_shutdown=True,
+        display_tui=False,
+    )
+    source = DataFrameSeedSource(
+        df=lazy.pd.DataFrame(
+            {
+                "judgment": [{"accepted": False}, {"accepted": True}],
+                "payload": ["rejected", "accepted"],
+            }
+        )
+    )
+    seed_reader = DataFrameSeedReader()
+    seed_reader.attach(source, Mock())
+    stub_resource_provider.seed_reader = seed_reader
+    config = DataDesignerConfigBuilder().with_seed_dataset(source, sampling_strategy=SamplingStrategy.ORDERED)
+    config.add_column(ExpressionColumnConfig(name="output", expr="{{ payload }}"))
+    config.add_column(ExpressionColumnConfig(name="keep", expr="{{ judgment.accepted }}", dtype="bool", drop=True))
+    config.with_record_selection(RecordSelectionConfig(predicate_column="keep", max_candidate_records=2))
+    builder = DatasetBuilder(data_designer_config=config.build(), resource_provider=stub_resource_provider)
+
+    output_path = builder.build(num_records=1)
+
+    assert lazy.pd.read_parquet(output_path)["output"].tolist() == ["accepted"]
+
+
+def test_record_selection_reports_checkpoint_only_after_marker_commit(stub_resource_provider) -> None:
+    stub_resource_provider.run_config = RunConfig(
+        buffer_size=2,
+        disable_early_shutdown=True,
+        display_tui=False,
+    )
+    source = DataFrameSeedSource(
+        df=lazy.pd.DataFrame(
+            {
+                "keep": [True, False],
+                "payload": ["accepted", "rejected"],
+            }
+        )
+    )
+    seed_reader = DataFrameSeedReader()
+    seed_reader.attach(source, Mock())
+    stub_resource_provider.seed_reader = seed_reader
+    storage = stub_resource_provider.artifact_storage
+    marker_was_durable: list[bool] = []
+
+    class MarkerObservingSink(InMemoryAdmissionEventSink):
+        def emit_scheduler_event(self, event: SchedulerAdmissionEvent) -> None:
+            if event.event_kind == "row_group_checkpointed":
+                marker_was_durable.append(storage.selection_checkpoint_path(0).is_file())
+            super().emit_scheduler_event(event)
+
+    sink = MarkerObservingSink()
+    stub_resource_provider.scheduler_event_sink = sink
+    config = DataDesignerConfigBuilder().with_seed_dataset(
+        source,
+        sampling_strategy=SamplingStrategy.ORDERED,
+    )
+    config.add_column(ExpressionColumnConfig(name="output", expr="{{ payload }}"))
+    config.add_column(ExpressionColumnConfig(name="keep_predicate", expr="{{ keep }}", dtype="bool", drop=True))
+    config.add_processor(
+        SchemaTransformProcessorConfig(
+            name="selected_rows",
+            template={"value": "{{ payload }}"},
+        )
+    )
+    config.with_record_selection(
+        RecordSelectionConfig(
+            predicate_column="keep_predicate",
+            max_candidate_records=2,
+            on_exhausted=RecordSelectionExhaustion.RETURN_PARTIAL,
+        )
+    )
+    builder = DatasetBuilder(data_designer_config=config.build(), resource_provider=stub_resource_provider)
+
+    builder.build(num_records=2)
+
+    checkpoint_events = [event for event in sink.scheduler_events if event.event_kind == "row_group_checkpointed"]
+    assert marker_was_durable == [True]
+    assert len(checkpoint_events) == 1
+    assert checkpoint_events[0].diagnostics["surviving_rows"] == 1
+    assert checkpoint_events[0].diagnostics["dropped_rows"] == 1
+    completion_kinds = [
+        event.event_kind
+        for event in sink.scheduler_events
+        if event.event_kind in {"row_group_checkpointed", "scheduler_job_completed"}
+    ]
+    assert completion_kinds == ["row_group_checkpointed", "scheduler_job_completed"]
+    processor_files = list((storage.processors_outputs_path / "selected_rows").glob("*.parquet"))
+    assert len(processor_files) == 1
+    assert storage.load_processor_dataset("selected_rows")["value"].tolist() == ["accepted"]
+
+
+def test_record_selection_discards_empty_processor_output_before_later_acceptance(stub_resource_provider) -> None:
+    stub_resource_provider.run_config = RunConfig(
+        buffer_size=1,
+        disable_early_shutdown=True,
+        display_tui=False,
+    )
+    source = DataFrameSeedSource(
+        df=lazy.pd.DataFrame(
+            {
+                "keep": [False, True],
+                "payload": ["rejected", "accepted"],
+            }
+        )
+    )
+    seed_reader = DataFrameSeedReader()
+    seed_reader.attach(source, Mock())
+    stub_resource_provider.seed_reader = seed_reader
+    config = DataDesignerConfigBuilder().with_seed_dataset(
+        source,
+        sampling_strategy=SamplingStrategy.ORDERED,
+    )
+    config.add_column(ExpressionColumnConfig(name="keep_predicate", expr="{{ keep }}", dtype="bool", drop=True))
+    config.add_processor(
+        SchemaTransformProcessorConfig(
+            name="selected_rows",
+            template={"value": "{{ payload }}"},
+        )
+    )
+    config.with_record_selection(RecordSelectionConfig(predicate_column="keep_predicate", max_candidate_records=2))
+    builder = DatasetBuilder(data_designer_config=config.build(), resource_provider=stub_resource_provider)
+
+    builder.build(num_records=1)
+
+    processor_path = builder.artifact_storage.processors_outputs_path / "selected_rows"
+    assert [path.name for path in processor_path.glob("*.parquet")] == ["batch_00001.parquet"]
+    assert builder.artifact_storage.load_processor_dataset("selected_rows")["value"].tolist() == ["accepted"]
+
+
+def test_record_selection_normalizes_unexpected_selection_failure(stub_resource_provider) -> None:
+    stub_resource_provider.run_config = RunConfig(buffer_size=1, display_tui=False)
+    config = DataDesignerConfigBuilder()
+    add_constant_boolean_expression(config, value=True)
+    config.with_record_selection(RecordSelectionConfig(predicate_column="keep", max_candidate_records=1))
+    builder = DatasetBuilder(data_designer_config=config.build(), resource_provider=stub_resource_provider)
+    sink = InMemoryAdmissionEventSink()
+    stub_resource_provider.scheduler_event_sink = sink
+
+    with (
+        patch.object(AcceptanceController, "select", side_effect=RuntimeError("selection failed")),
+        pytest.raises(DatasetGenerationError, match="Record selection failed for row group 0: selection failed"),
+    ):
+        builder.build(num_records=1)
+
+    assert not any(event.event_kind == "row_group_checkpointed" for event in sink.scheduler_events)
+    completed = [event for event in sink.scheduler_events if event.event_kind == "scheduler_job_completed"]
+    assert len(completed) == 1
+    assert completed[0].reason_or_result == "error"
+    assert completed[0].diagnostics["error_type"] == "DatasetGenerationError"
+
+
+def test_record_selection_does_not_commit_partial_schema_when_all_candidates_fail(stub_resource_provider) -> None:
+    config = DataDesignerConfigBuilder()
+    add_constant_boolean_expression(config, value=False)
+    selection_config = RecordSelectionConfig(predicate_column="keep", max_candidate_records=1)
+    config.with_record_selection(selection_config)
+    builder = DatasetBuilder(data_designer_config=config.build(), resource_provider=stub_resource_provider)
+    runner = RecordSelectionRunner(builder)
+    controller = AcceptanceController(config=selection_config, target_records=1, buffer_size=1)
+    batch = controller.next_candidate_batch()
+    partial_empty_schema = lazy.pd.DataFrame({"seed_only": lazy.pd.Series(dtype="str")})
+
+    decision, selected = runner._select_candidate_dataframe(
+        controller,
+        batch=batch,
+        dataframe=partial_empty_schema,
+        media_staged=False,
+    )
+    runner._commit_selection_candidate_batch(
+        controller,
+        batch=batch,
+        dataframe=selected,
+        decision=decision,
+        scheduler=Mock(first_non_retryable_error=None, early_shutdown=False),
+    )
+
+    assert selected.columns.empty
+    assert not builder.artifact_storage.selection_schema_path.exists()
+    marker = builder.artifact_storage.read_selection_checkpoints()[0]
+    assert marker["failed_generation_records"] == 1
+    assert marker["schema_materialized"] is False
+
+
+def test_record_selection_normalizes_unexpected_post_batch_failure(stub_resource_provider) -> None:
+    stub_resource_provider.run_config = RunConfig(buffer_size=1, display_tui=False)
+    config = DataDesignerConfigBuilder()
+    add_constant_boolean_expression(config, value=True)
+    config.with_record_selection(RecordSelectionConfig(predicate_column="keep", max_candidate_records=1))
+    builder = DatasetBuilder(data_designer_config=config.build(), resource_provider=stub_resource_provider)
+    _replace_processors(builder, [create_mock_processor("identity", ["process_after_batch"])])
+
+    with (
+        patch.object(ProcessorRunner, "run_post_batch", side_effect=RuntimeError("post-batch failed")),
+        pytest.raises(
+            DatasetGenerationError,
+            match="Post-batch processor failed for row group 0: post-batch failed",
+        ),
+    ):
+        builder.build(num_records=1)
+
+
+def test_record_selection_uses_fixed_width_for_all_candidate_artifacts(stub_resource_provider) -> None:
+    stub_resource_provider.run_config = RunConfig(
+        buffer_size=1,
+        display_tui=False,
+        preserve_dropped_columns=True,
+    )
+    config = DataDesignerConfigBuilder()
+    add_constant_boolean_expression(config, value=True)
+    config.add_column(
+        SamplerColumnConfig(
+            name="payload",
+            sampler_type=SamplerType.CATEGORY,
+            params=CategorySamplerParams(values=["accepted"]),
+        )
+    )
+    config.add_processor(
+        SchemaTransformProcessorConfig(
+            name="formatted",
+            template={"value": "{{ payload }}"},
+        )
+    )
+    config.add_processor(
+        DropColumnsProcessorConfig(
+            name="drop_payload",
+            column_names=["payload"],
+        )
+    )
+    config.with_record_selection(RecordSelectionConfig(predicate_column="keep", max_candidate_records=100_001))
+    builder = DatasetBuilder(data_designer_config=config.build(), resource_provider=stub_resource_provider)
+
+    builder.build(num_records=1)
+
+    storage = builder.artifact_storage
+    expected_batch_name = "batch_000000.parquet"
+    assert [path.name for path in storage.selection_accepted_path.glob("batch_*.parquet")] == [expected_batch_name]
+    assert [path.name for path in storage.selection_checkpoints_path.glob("*.json")] == ["batch_000000.json"]
+    assert [path.name for path in storage.dropped_columns_dataset_path.glob("*.parquet")] == [expected_batch_name]
+    assert [path.name for path in (storage.processors_outputs_path / "formatted").glob("*.parquet")] == [
+        expected_batch_name
+    ]
+
+    metadata = storage.read_metadata()
+    assert metadata["file_paths"]["processor-files"]["formatted"] == [
+        f"processors-files/formatted/{expected_batch_name}"
+    ]
+    assert storage.load_processor_dataset("formatted")["value"].tolist() == ["accepted"]
+    assert storage.load_dataset_with_dropped_columns()["payload"].tolist() == ["accepted"]
+
+
+def test_record_selection_after_generation_reuses_configured_batch_width(stub_resource_provider) -> None:
+    stub_resource_provider.run_config = RunConfig(buffer_size=1, display_tui=False)
+    config = DataDesignerConfigBuilder()
+    add_constant_boolean_expression(config, value=True)
+    config.with_record_selection(RecordSelectionConfig(predicate_column="keep", max_candidate_records=100_001))
+    builder = DatasetBuilder(data_designer_config=config.build(), resource_provider=stub_resource_provider)
+    processor = create_mock_processor("identity", ["process_after_generation"])
+    _replace_processors(builder, [processor])
+
+    output_path = builder.build(num_records=1)
+
+    storage = builder.artifact_storage
+    processor.process_after_generation.assert_called_once()
+    assert [path.name for path in storage.selection_accepted_path.glob("batch_*.parquet")] == ["batch_000000.parquet"]
+    assert [path.name for path in output_path.glob("*.parquet")] == ["batch_000000.parquet"]
+    assert storage.read_metadata()["file_paths"]["parquet-files"] == ["parquet-files/batch_000000.parquet"]
+
+
+@pytest.mark.parametrize(
+    ("stage", "message"),
+    [
+        ("process_after_batch", "Post-batch processors must retain at least one column"),
+        ("process_after_generation", "After-generation processors must retain at least one column"),
+    ],
+)
+def test_record_selection_rejects_nonempty_zero_column_processor_output(
+    stub_resource_provider,
+    stage: str,
+    message: str,
+) -> None:
+    stub_resource_provider.run_config = RunConfig(buffer_size=1, display_tui=False)
+    config = DataDesignerConfigBuilder()
+    add_constant_boolean_expression(config, value=True)
+    config.with_record_selection(RecordSelectionConfig(predicate_column="keep", max_candidate_records=1))
+    builder = DatasetBuilder(data_designer_config=config.build(), resource_provider=stub_resource_provider)
+    processor = create_mock_processor("drop_all_columns", [stage])
+    getattr(processor, stage).side_effect = lambda dataframe, **_kwargs: dataframe.drop(columns=dataframe.columns)
+    _replace_processors(builder, [processor])
+
+    with pytest.raises((DatasetGenerationError, DatasetProcessingError), match=message):
+        builder.build(num_records=1)
+
+
+def test_record_selection_refreshes_file_manifest_only_for_publication(stub_resource_provider) -> None:
+    stub_resource_provider.run_config = RunConfig(buffer_size=1, display_tui=False)
+    config = DataDesignerConfigBuilder()
+    add_constant_boolean_expression(config, value=True)
+    config.add_column(
+        SamplerColumnConfig(
+            name="payload",
+            sampler_type=SamplerType.CATEGORY,
+            params=CategorySamplerParams(values=["accepted"]),
+        )
+    )
+    config.add_processor(
+        SchemaTransformProcessorConfig(
+            name="formatted",
+            template={"value": "{{ payload }}"},
+        )
+    )
+    config.with_record_selection(RecordSelectionConfig(predicate_column="keep", max_candidate_records=5))
+    builder = DatasetBuilder(data_designer_config=config.build(), resource_provider=stub_resource_provider)
+
+    original_get_file_paths = ArtifactStorage.get_file_paths
+    get_file_paths_calls = 0
+
+    def count_get_file_paths(storage: ArtifactStorage) -> dict[str, list[str] | dict[str, list[str]]]:
+        nonlocal get_file_paths_calls
+        get_file_paths_calls += 1
+        return original_get_file_paths(storage)
+
+    with patch.object(ArtifactStorage, "get_file_paths", count_get_file_paths):
+        builder.build(num_records=5)
+
+    assert get_file_paths_calls == 1
+
+
+def test_record_selection_defers_custom_predicate_type_validation_to_runtime(stub_resource_provider) -> None:
+    @custom_column_generator()
+    def make_predicate(row: dict) -> bool:
+        return bool(row)
+
+    config = DataDesignerConfigBuilder()
+    config.add_column(CustomColumnConfig(name="custom_predicate", generator_function=make_predicate))
+    config.with_record_selection(RecordSelectionConfig(predicate_column="custom_predicate", max_candidate_records=1))
+
+    DatasetBuilder(data_designer_config=config.build(), resource_provider=stub_resource_provider)
+
+
+def test_record_selection_persists_early_shutdown_across_exhausted_resume(stub_resource_provider) -> None:
+    stub_resource_provider.run_config = RunConfig(
+        buffer_size=1,
+        shutdown_error_rate=0.5,
+        shutdown_error_window=1,
+        display_tui=False,
+    )
+    config = DataDesignerConfigBuilder()
+    config.add_column(
+        SamplerColumnConfig(
+            name="value",
+            sampler_type=SamplerType.CATEGORY,
+            params=CategorySamplerParams(values=["constant"]),
+        )
+    )
+    config.add_column(ExpressionColumnConfig(name="keep", expr="{{ true }}", dtype="bool", drop=True))
+    config.with_record_selection(
+        RecordSelectionConfig(
+            predicate_column="keep",
+            max_candidate_records=1,
+            on_exhausted=RecordSelectionExhaustion.RETURN_PARTIAL,
+        )
+    )
+    builder = DatasetBuilder(data_designer_config=config.build(), resource_provider=stub_resource_provider)
+
+    with (
+        patch.object(
+            SamplerColumnGenerator,
+            "generate_from_scratch",
+            side_effect=DataDesignerRuntimeError("candidate generation failed"),
+        ),
+        pytest.raises(RecordSelectionEarlyShutdownError) as exc_info,
+    ):
+        builder.build(num_records=1)
+
+    assert "resume=ResumeMode.ALWAYS" not in str(exc_info.value)
+    marker = json.loads(builder.artifact_storage.selection_checkpoint_path(0).read_text())
+    assert marker["stopped_early"] is True
+
+    with pytest.raises(RecordSelectionEarlyShutdownError):
+        builder.build(num_records=1, resume=ResumeMode.ALWAYS)
+
+
+def test_record_selection_discards_schema_without_checkpoint_on_resume(stub_resource_provider) -> None:
+    stub_resource_provider.run_config = RunConfig(buffer_size=1, display_tui=False)
+    config = DataDesignerConfigBuilder()
+    add_constant_boolean_expression(config, value=True)
+    config.with_record_selection(RecordSelectionConfig(predicate_column="keep", max_candidate_records=1))
+    builder = DatasetBuilder(data_designer_config=config.build(), resource_provider=stub_resource_provider)
+    sink = InMemoryAdmissionEventSink()
+    stub_resource_provider.scheduler_event_sink = sink
+
+    with (
+        patch.object(ArtifactStorage, "write_selection_checkpoint", side_effect=OSError("checkpoint failed")),
+        pytest.raises(DatasetGenerationError, match="checkpoint failed"),
+    ):
+        builder.build(num_records=1)
+
+    assert not any(event.event_kind == "row_group_checkpointed" for event in sink.scheduler_events)
+    completed = [event for event in sink.scheduler_events if event.event_kind == "scheduler_job_completed"]
+    assert len(completed) == 1
+    assert completed[0].reason_or_result == "error"
+
+    assert builder.artifact_storage.selection_schema_path.exists()
+    lazy.pd.DataFrame({"stale": lazy.pd.Series(dtype="int64")}).to_parquet(
+        builder.artifact_storage.selection_schema_path,
+        index=False,
+    )
+
+    output_path = builder.build(num_records=1, resume=ResumeMode.ALWAYS)
+
+    assert lazy.pd.read_parquet(output_path)["keep"].tolist() == [True]
+    assert lazy.pd.read_parquet(builder.artifact_storage.selection_schema_path).columns.tolist() == [
+        "keep_candidate",
+        "keep",
+    ]
+
+
+def test_record_selection_rejects_missing_schema_owned_by_committed_batch(stub_resource_provider) -> None:
+    stub_resource_provider.run_config = RunConfig(buffer_size=1, display_tui=False)
+    config = DataDesignerConfigBuilder()
+    add_constant_boolean_expression(config, value=False)
+    selection_config = RecordSelectionConfig(
+        predicate_column="keep",
+        max_candidate_records=2,
+        on_exhausted=RecordSelectionExhaustion.RETURN_PARTIAL,
+    )
+    config.with_record_selection(selection_config)
+    builder = DatasetBuilder(data_designer_config=config.build(), resource_provider=stub_resource_provider)
+    marker = SelectionBatchMarker(
+        candidate_batch_id=0,
+        row_group_id=0,
+        candidate_start_offset=0,
+        candidate_records=1,
+        accepted_records=0,
+        rejected_records=1,
+        null_predicate_records=0,
+        failed_generation_records=0,
+        trimmed_accepted_records=0,
+        accepted_partition=None,
+        schema_materialized=True,
+        non_retryable_error=None,
+        stopped_early=False,
+    )
+    builder.artifact_storage.write_selection_checkpoint(0, marker.model_dump(mode="json"))
+    runner = RecordSelectionRunner(builder)
+
+    with (
+        patch.object(runner, "_run_candidate_batch") as run_candidate_batch,
+        pytest.raises(DatasetGenerationError, match="committed output schema is missing"),
+    ):
+        runner.run(
+            [],
+            target_num_records=1,
+            buffer_size=1,
+            on_batch_complete=None,
+            resume=ResumeMode.ALWAYS,
+        )
+
+    run_candidate_batch.assert_not_called()
+
+
+def test_record_selection_post_checkpoint_metadata_failure_is_resumable(stub_resource_provider) -> None:
+    stub_resource_provider.run_config = RunConfig(buffer_size=1, display_tui=False)
+    config = DataDesignerConfigBuilder()
+    add_constant_boolean_expression(config, value=True)
+    config.with_record_selection(RecordSelectionConfig(predicate_column="keep", max_candidate_records=1))
+    builder = DatasetBuilder(data_designer_config=config.build(), resource_provider=stub_resource_provider)
+    storage = builder.artifact_storage
+    original_update_metadata = ArtifactStorage.update_metadata
+    original_write_selection_schema = ArtifactStorage.write_selection_schema
+    failed_once = False
+    schema_write_count = 0
+
+    def fail_first_post_checkpoint_metadata_write(self: ArtifactStorage, updates: dict[str, Any]) -> Path:
+        nonlocal failed_once
+        if storage.selection_checkpoint_path(0).is_file() and not failed_once:
+            failed_once = True
+            raise OSError("transient metadata failure")
+        return original_update_metadata(self, updates)
+
+    def record_schema_write(self: ArtifactStorage, dataframe: pd.DataFrame) -> Path:
+        nonlocal schema_write_count
+        schema_write_count += 1
+        return original_write_selection_schema(self, dataframe)
+
+    with (
+        patch.object(
+            ArtifactStorage,
+            "update_metadata",
+            autospec=True,
+            side_effect=fail_first_post_checkpoint_metadata_write,
+        ),
+        patch.object(
+            ArtifactStorage,
+            "write_selection_schema",
+            autospec=True,
+            side_effect=record_schema_write,
+        ),
+    ):
+        with pytest.raises(DatasetGenerationError, match="Failed after committing.*transient metadata failure"):
+            builder.build(num_records=1)
+
+        marker = json.loads(storage.selection_checkpoint_path(0).read_text())
+        assert marker["schema_materialized"] is True
+        assert marker["stopped_early"] is False
+
+        output_path = builder.build(num_records=1, resume=ResumeMode.ALWAYS)
+
+    assert failed_once
+    assert schema_write_count == 1
+    assert lazy.pd.read_parquet(output_path)["keep"].tolist() == [True]
+    assert storage.read_metadata()["post_generation_state"] == "complete"
+
+
+def test_record_selection_writes_schema_from_first_materialized_batch(stub_resource_provider) -> None:
+    stub_resource_provider.run_config = RunConfig(buffer_size=1, disable_early_shutdown=True, display_tui=False)
+    config = DataDesignerConfigBuilder()
+    config.add_column(
+        SamplerColumnConfig(
+            name="value",
+            sampler_type=SamplerType.CATEGORY,
+            params=CategorySamplerParams(values=["constant"]),
+        )
+    )
+    config.add_column(ExpressionColumnConfig(name="keep", expr="{{ value == 'never' }}", dtype="bool", drop=True))
+    config.with_record_selection(
+        RecordSelectionConfig(
+            predicate_column="keep",
+            max_candidate_records=3,
+            on_exhausted=RecordSelectionExhaustion.RETURN_PARTIAL,
+        )
+    )
+    builder = DatasetBuilder(data_designer_config=config.build(), resource_provider=stub_resource_provider)
+    original_write_selection_schema = ArtifactStorage.write_selection_schema
+    schema_write_count = 0
+
+    def record_schema_write(self: ArtifactStorage, dataframe: pd.DataFrame) -> Path:
+        nonlocal schema_write_count
+        schema_write_count += 1
+        return original_write_selection_schema(self, dataframe)
+
+    with (
+        patch.object(
+            ArtifactStorage,
+            "write_selection_schema",
+            autospec=True,
+            side_effect=record_schema_write,
+        ),
+        patch.object(
+            SamplerColumnGenerator,
+            "generate_from_scratch",
+            side_effect=[
+                DataDesignerRuntimeError("first candidate batch failed"),
+                lazy.pd.DataFrame({"value": ["constant"]}),
+                DataDesignerRuntimeError("final candidate batch failed"),
+            ],
+        ),
+        pytest.raises(DatasetGenerationError, match="first candidate batch failed"),
+    ):
+        builder.build(num_records=1)
+
+    schema = lazy.pd.read_parquet(builder.artifact_storage.selection_schema_path)
+    assert schema.empty
+    assert schema.columns.tolist() == ["value"]
+    assert schema_write_count == 1
+    markers = builder.artifact_storage.read_selection_checkpoints()
+    assert [marker["schema_materialized"] for marker in markers] == [False, True, False]
+    assert [marker["stopped_early"] for marker in markers] == [False, False, False]
+    assert all("non_retryable_error" in marker for marker in markers)
+
+
+def test_record_selection_normalizes_corrupt_accepted_partition_error(stub_resource_provider) -> None:
+    config = DataDesignerConfigBuilder()
+    config.add_column(
+        SamplerColumnConfig(
+            name="value",
+            sampler_type=SamplerType.CATEGORY,
+            params=CategorySamplerParams(values=["constant"]),
+        )
+    )
+    config.add_column(ExpressionColumnConfig(name="keep", expr="{{ true }}", dtype="bool", drop=True))
+    config.with_record_selection(RecordSelectionConfig(predicate_column="keep", max_candidate_records=1))
+    builder = DatasetBuilder(data_designer_config=config.build(), resource_provider=stub_resource_provider)
+    partition = builder.artifact_storage.selection_partition_path(0)
+    partition.parent.mkdir(parents=True)
+    partition.write_bytes(b"not parquet")
+    marker = SelectionBatchMarker(
+        candidate_batch_id=0,
+        row_group_id=0,
+        candidate_start_offset=0,
+        candidate_records=1,
+        accepted_records=1,
+        rejected_records=0,
+        null_predicate_records=0,
+        failed_generation_records=0,
+        trimmed_accepted_records=0,
+        accepted_partition=str(partition.relative_to(builder.artifact_storage.base_dataset_path)),
+        schema_materialized=True,
+        non_retryable_error=None,
+        stopped_early=False,
+    )
+
+    with pytest.raises(DatasetGenerationError, match="missing or unreadable accepted partition"):
+        RecordSelectionRunner(builder)._validate_selection_partitions((marker,))
+
+
+def _record_selection_probe_builder(stub_resource_provider) -> DatasetBuilder:
+    config = DataDesignerConfigBuilder()
+    add_constant_boolean_expression(config, value=True)
+    config.with_record_selection(RecordSelectionConfig(predicate_column="keep", max_candidate_records=4))
+    return DatasetBuilder(data_designer_config=config.build(), resource_provider=stub_resource_provider)
+
+
+@pytest.mark.parametrize(
+    (
+        "metadata_text",
+        "create_checkpoint_directory",
+        "create_marker",
+        "expected_metadata_state",
+        "expected_selection_metadata",
+        "expected_checkpoint_directory",
+        "expected_marker",
+    ),
+    [
+        (None, False, False, "missing", False, False, False),
+        ("not-json", True, False, "unreadable", False, True, False),
+        (json.dumps({"target_num_records": 2}), False, False, "readable", False, False, False),
+        (
+            json.dumps({"target_num_records": 2, "record_selection": {"run_buffer_size": 3}}),
+            True,
+            True,
+            "readable",
+            True,
+            True,
+            True,
+        ),
+    ],
+)
+def test_selection_resume_probe_distinguishes_unresolved_artifact_states(
+    stub_resource_provider,
+    metadata_text: str | None,
+    create_checkpoint_directory: bool,
+    create_marker: bool,
+    expected_metadata_state: str,
+    expected_selection_metadata: bool,
+    expected_checkpoint_directory: bool,
+    expected_marker: bool,
+) -> None:
+    builder = _record_selection_probe_builder(stub_resource_provider)
+    dataset_dir = Path(builder.artifact_storage.artifact_path) / builder.artifact_storage.dataset_name
+    dataset_dir.mkdir()
+    if metadata_text is not None:
+        (dataset_dir / "metadata.json").write_text(metadata_text, encoding="utf-8")
+    if create_checkpoint_directory:
+        checkpoints_path = dataset_dir / "selection-checkpoints"
+        checkpoints_path.mkdir()
+        if create_marker:
+            (checkpoints_path / "batch_00000.json").write_text("{}", encoding="utf-8")
+
+    probe = RecordSelectionRunner(builder)._selection_resume_probe()
+
+    assert probe.metadata_state == expected_metadata_state
+    assert probe.has_selection_metadata is expected_selection_metadata
+    assert probe.checkpoint_directory_exists is expected_checkpoint_directory
+    assert probe.checkpoint_marker_exists is expected_marker
+
+
+def test_selection_resume_compatibility_allows_empty_checkpoint_directory_but_cleanup_owns_it(
+    stub_resource_provider,
+) -> None:
+    builder = _record_selection_probe_builder(stub_resource_provider)
+    dataset_dir = Path(builder.artifact_storage.artifact_path) / builder.artifact_storage.dataset_name
+    checkpoints_path = dataset_dir / "selection-checkpoints"
+    checkpoints_path.mkdir(parents=True)
+    managed_path = dataset_dir / builder.artifact_storage.final_dataset_folder_name
+    managed_path.mkdir()
+    (managed_path / "stale.parquet").write_bytes(b"stale")
+    runner = RecordSelectionRunner(builder)
+
+    assert runner.runtime_inputs_are_compatible(target_num_records=2, buffer_size=3)
+
+    runner.clear_incompatible_artifacts()
+
+    assert not checkpoints_path.exists()
+    assert not managed_path.exists()
+
+
+def test_selection_resume_cleanup_leaves_unowned_unreadable_metadata(
+    stub_resource_provider,
+) -> None:
+    builder = _record_selection_probe_builder(stub_resource_provider)
+    dataset_dir = Path(builder.artifact_storage.artifact_path) / builder.artifact_storage.dataset_name
+    managed_path = dataset_dir / builder.artifact_storage.final_dataset_folder_name
+    managed_path.mkdir(parents=True)
+    sentinel = managed_path / "existing.parquet"
+    sentinel.write_bytes(b"existing")
+    metadata_path = dataset_dir / "metadata.json"
+    metadata_path.write_text("not-json", encoding="utf-8")
+    runner = RecordSelectionRunner(builder)
+
+    assert not runner.runtime_inputs_are_compatible(target_num_records=2, buffer_size=3)
+
+    runner.clear_incompatible_artifacts()
+
+    assert sentinel.read_bytes() == b"existing"
+    assert metadata_path.read_text(encoding="utf-8") == "not-json"
+
+
+def test_selection_resume_compatibility_rejects_checkpoint_without_metadata(
+    stub_resource_provider,
+) -> None:
+    builder = _record_selection_probe_builder(stub_resource_provider)
+    dataset_dir = Path(builder.artifact_storage.artifact_path) / builder.artifact_storage.dataset_name
+    checkpoints_path = dataset_dir / "selection-checkpoints"
+    checkpoints_path.mkdir(parents=True)
+    (checkpoints_path / "batch_00000.json").write_text("{}", encoding="utf-8")
+
+    assert not RecordSelectionRunner(builder).runtime_inputs_are_compatible(
+        target_num_records=2,
+        buffer_size=3,
+    )
+
+
+def test_selection_resume_compatibility_reads_matching_selection_metadata(
+    stub_resource_provider,
+) -> None:
+    builder = _record_selection_probe_builder(stub_resource_provider)
+    dataset_dir = Path(builder.artifact_storage.artifact_path) / builder.artifact_storage.dataset_name
+    dataset_dir.mkdir()
+    (dataset_dir / "metadata.json").write_text(
+        json.dumps({"target_num_records": 2, "record_selection": {"run_buffer_size": 3}}),
+        encoding="utf-8",
+    )
+    runner = RecordSelectionRunner(builder)
+
+    with (
+        patch.object(ArtifactStorage, "read_metadata", side_effect=AssertionError("resolved metadata read")),
+        patch.object(
+            ArtifactStorage,
+            "base_dataset_path",
+            new_callable=PropertyMock,
+            side_effect=AssertionError("resolved dataset path read"),
+        ),
+    ):
+        assert runner.runtime_inputs_are_compatible(target_num_records=2, buffer_size=3)
+        assert not runner.runtime_inputs_are_compatible(target_num_records=3, buffer_size=3)
+        assert not runner.runtime_inputs_are_compatible(target_num_records=2, buffer_size=4)
+
+
+@pytest.mark.parametrize("metadata_content", ["not-json", "[]", b"\xff"])
+@pytest.mark.parametrize("create_checkpoint_directory", [False, True])
+def test_record_selection_if_possible_handles_unreadable_or_non_object_metadata(
+    stub_resource_provider,
+    metadata_content: str | bytes,
+    create_checkpoint_directory: bool,
+) -> None:
+    stub_resource_provider.run_config = RunConfig(buffer_size=1, display_tui=False)
+    builder = _record_selection_probe_builder(stub_resource_provider)
+    dataset_dir = Path(builder.artifact_storage.artifact_path) / builder.artifact_storage.dataset_name
+    dataset_dir.mkdir()
+    metadata_path = dataset_dir / "metadata.json"
+    expected_metadata = metadata_content.encode() if isinstance(metadata_content, str) else metadata_content
+    metadata_path.write_bytes(expected_metadata)
+    stale_output = dataset_dir / builder.artifact_storage.final_dataset_folder_name / "stale.parquet"
+    stale_output.parent.mkdir()
+    stale_output.write_bytes(b"stale")
+    checkpoints_path = dataset_dir / "selection-checkpoints"
+    if create_checkpoint_directory:
+        checkpoints_path.mkdir()
+
+    output_path = builder.build(num_records=1, resume=ResumeMode.IF_POSSIBLE)
+
+    assert lazy.pd.read_parquet(output_path)["keep"].tolist() == [True]
+    if create_checkpoint_directory:
+        assert output_path.parent == dataset_dir
+        assert not stale_output.exists()
+        assert json.loads(metadata_path.read_text(encoding="utf-8"))["actual_num_records"] == 1
+    else:
+        assert output_path.parent != dataset_dir
+        assert stale_output.read_bytes() == b"stale"
+        assert metadata_path.read_bytes() == expected_metadata
 
 
 def test_dataset_builder_creation_with_custom_registry(stub_resource_provider, stub_test_config_builder):
@@ -444,31 +1411,19 @@ def test_build_async_preview_returns_empty_dataframe_when_row_group_is_already_f
         async def run(self) -> None:
             return None
 
-    class MockFuture:
-        def result(self) -> None:
-            return None
-
-    def mock_run_coroutine_threadsafe(coro, loop):
-        coro.close()
-        return MockFuture()
-
     scheduler = StubScheduler()
     buffer_manager = Mock()
     buffer_manager.has_row_group.return_value = False
     buffer_manager.actual_num_records = 0
+    run_scheduler = Mock()
 
     monkeypatch.setattr(builder, "_prepare_async_run", Mock(return_value=(scheduler, buffer_manager)))
-    monkeypatch.setattr(builder_mod, "ensure_async_engine_loop", lambda: object(), raising=False)
-    monkeypatch.setattr(
-        builder_mod,
-        "asyncio",
-        Mock(run_coroutine_threadsafe=mock_run_coroutine_threadsafe),
-        raising=False,
-    )
+    monkeypatch.setattr(builder_mod, "run_async_scheduler", run_scheduler)
 
     result = builder._build_async_preview([], num_records=3)
 
     assert result.empty
+    run_scheduler.assert_called_once_with(scheduler)
     buffer_manager.get_dataframe.assert_not_called()
     buffer_manager.free_row_group.assert_not_called()
 
@@ -489,7 +1444,7 @@ def test_await_async_scheduler_result_waits_for_scheduler_cleanup_on_keyboard_in
     future = MockFuture()
 
     with pytest.raises(KeyboardInterrupt):
-        builder_mod._await_async_scheduler_result(future, scheduler)
+        await_async_scheduler_result(future, scheduler)
 
     scheduler.request_cancel.assert_called_once_with()
     assert future.result_calls == 2
@@ -565,6 +1520,31 @@ def test_run_after_generation(
     batch_files = sorted(storage.final_dataset_path.glob("*.parquet"))
     assert len(batch_files) == expected_files
     assert sum(len(lazy.pd.read_parquet(f)) for f in batch_files) == expected_rows
+
+
+def test_run_after_generation_uses_configured_batch_width(
+    stub_resource_provider,
+    simple_builder,
+) -> None:
+    storage = stub_resource_provider.artifact_storage
+    storage.configure_selection_batch_file_width(max_candidate_records=100_001, candidate_batch_size=1)
+    storage.mkdir_if_needed(storage.final_dataset_path)
+    lazy.pd.DataFrame({"id": list(range(5))}).to_parquet(
+        storage.final_dataset_path / "batch_00000.parquet",
+        index=False,
+    )
+    processor = create_mock_processor("proc", ["process_after_generation"])
+    _replace_processors(simple_builder, [processor])
+
+    simple_builder._processor_runner.run_after_generation(2)
+
+    batch_files = sorted(storage.final_dataset_path.glob("*.parquet"))
+    assert [path.name for path in batch_files] == [
+        "batch_000000.parquet",
+        "batch_000001.parquet",
+        "batch_000002.parquet",
+    ]
+    assert [value for path in batch_files for value in lazy.pd.read_parquet(path)["id"]] == list(range(5))
 
 
 @pytest.mark.parametrize("mode", ["preview", "build"])
@@ -1518,6 +2498,23 @@ def test_build_resume_raises_on_corrupt_metadata(stub_resource_provider, stub_te
         builder.build(num_records=4, resume=ResumeMode.ALWAYS)
 
 
+@pytest.mark.parametrize("metadata_content", [b"{not valid json", b"[]", b"\xff"])
+def test_build_if_possible_preserves_ordinary_unreadable_metadata_failure(
+    stub_resource_provider,
+    stub_test_config_builder,
+    tmp_path,
+    metadata_content: bytes,
+) -> None:
+    dataset_dir = tmp_path / "dataset"
+    dataset_dir.mkdir(parents=True)
+    (dataset_dir / "sentinel.txt").write_text("x")
+    (dataset_dir / "metadata.json").write_bytes(metadata_content)
+    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
+
+    with pytest.raises(DatasetGenerationError, match="metadata.json"):
+        builder.build(num_records=4, resume=ResumeMode.IF_POSSIBLE)
+
+
 def test_build_resume_always_raises_on_config_mismatch(stub_resource_provider, stub_test_config_builder, tmp_path):
     """resume=ALWAYS raises DatasetGenerationError when the stored config fingerprint differs."""
     dataset_dir = tmp_path / "dataset"
@@ -1860,8 +2857,6 @@ def test_initial_actual_num_records_from_filesystem_in_crash_window(
     With 6 records and buffer_size=2 (3 row groups total), the correct
     initial_actual_num_records is 4 (groups 0+1), not 2 (stale metadata value).
     """
-    import asyncio as stdlib_asyncio
-
     dataset_dir = tmp_path / "dataset"
     # Metadata lags — says only 1 batch completed with 2 records
     _write_metadata(dataset_dir, target_num_records=6, buffer_size=2, num_completed_batches=1, actual_num_records=2)
@@ -1881,17 +2876,15 @@ def test_initial_actual_num_records_from_filesystem_in_crash_window(
         mock_buffer_manager.actual_num_records = 6
         return mock_scheduler, mock_buffer_manager
 
-    mock_future = Mock()
-    mock_future.result = Mock(return_value=None)
-
-    with patch.object(builder_mod, "asyncio", stdlib_asyncio, create=True):
-        with patch.object(builder_mod, "ensure_async_engine_loop", Mock(return_value=Mock()), create=True):
-            with patch.object(stdlib_asyncio, "run_coroutine_threadsafe", return_value=mock_future):
-                with patch.object(builder_mod, "run_readiness_check"):
-                    with patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare):
-                        builder.build(num_records=6, resume=ResumeMode.ALWAYS)
+    with (
+        patch.object(builder_mod, "run_async_scheduler") as mock_run_scheduler,
+        patch.object(builder_mod, "run_readiness_check"),
+        patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare),
+    ):
+        builder.build(num_records=6, resume=ResumeMode.ALWAYS)
 
     # Filesystem says 2 groups done (IDs 0+1) → 2+2 = 4 records, not stale metadata value 2
+    mock_run_scheduler.assert_called_once()
     assert captured["initial_actual_num_records"] == 4
     assert captured["initial_total_num_batches"] == 2
 
@@ -1964,8 +2957,6 @@ def test_initial_actual_num_records_uses_actual_parquet_rows_for_partial_row_gro
     stub_resource_provider, stub_test_config_builder, tmp_path
 ):
     """Partial salvaged row groups count persisted parquet rows, not requested group size."""
-    import asyncio as stdlib_asyncio
-
     dataset_dir = tmp_path / "dataset"
     _write_metadata(dataset_dir, target_num_records=6, buffer_size=2, num_completed_batches=1, actual_num_records=2)
     # Row group 1 was salvaged with only one surviving row.
@@ -1986,16 +2977,14 @@ def test_initial_actual_num_records_uses_actual_parquet_rows_for_partial_row_gro
         mock_buffer_manager.actual_num_records = 6
         return mock_scheduler, mock_buffer_manager
 
-    mock_future = Mock()
-    mock_future.result = Mock(return_value=None)
+    with (
+        patch.object(builder_mod, "run_async_scheduler") as mock_run_scheduler,
+        patch.object(builder_mod, "run_readiness_check"),
+        patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare),
+    ):
+        builder.build(num_records=6, resume=ResumeMode.ALWAYS)
 
-    with patch.object(builder_mod, "asyncio", stdlib_asyncio, create=True):
-        with patch.object(builder_mod, "ensure_async_engine_loop", Mock(return_value=Mock()), create=True):
-            with patch.object(stdlib_asyncio, "run_coroutine_threadsafe", return_value=mock_future):
-                with patch.object(builder_mod, "run_readiness_check"):
-                    with patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare):
-                        builder.build(num_records=6, resume=ResumeMode.ALWAYS)
-
+    mock_run_scheduler.assert_called_once()
     assert captured["initial_actual_num_records"] == 3
     assert captured["initial_total_num_batches"] == 2
 
@@ -2009,8 +2998,6 @@ def test_build_async_resume_initial_actual_num_records_uses_original_target(
     all 3 row groups completed. Resuming with num_records=7 must not use the new target in the
     formula: min(2, 7-2*2)=min(2,3)=2 would give 6, but the actual data is 5 records.
     """
-    import asyncio as stdlib_asyncio
-
     dataset_dir = tmp_path / "dataset"
     # Original run: 5 records, buffer_size=2, all 3 row groups done
     _write_metadata(dataset_dir, target_num_records=5, buffer_size=2, num_completed_batches=3, actual_num_records=5)
@@ -2028,18 +3015,16 @@ def test_build_async_resume_initial_actual_num_records_uses_original_target(
         mock_buffer_manager.actual_num_records = 7
         return mock_scheduler, mock_buffer_manager
 
-    mock_future = Mock()
-    mock_future.result = Mock(return_value=None)
-
-    with patch.object(builder_mod, "asyncio", stdlib_asyncio, create=True):
-        with patch.object(builder_mod, "ensure_async_engine_loop", Mock(return_value=Mock()), create=True):
-            with patch.object(stdlib_asyncio, "run_coroutine_threadsafe", return_value=mock_future):
-                with patch.object(builder_mod, "run_readiness_check"):
-                    with patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare):
-                        # Extend the dataset: new target is 7, original was 5
-                        builder.build(num_records=7, resume=ResumeMode.ALWAYS)
+    with (
+        patch.object(builder_mod, "run_async_scheduler") as mock_run_scheduler,
+        patch.object(builder_mod, "run_readiness_check"),
+        patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare),
+    ):
+        # Extend the dataset: new target is 7, original was 5
+        builder.build(num_records=7, resume=ResumeMode.ALWAYS)
 
     # Row groups [2, 2, 1] from original 5-record run: 2+2+1=5, not 2+2+2=6
+    mock_run_scheduler.assert_called_once()
     assert captured["initial_actual_num_records"] == 5
 
 
@@ -2057,8 +3042,6 @@ def test_build_async_resume_initial_actual_num_records_extension_crash_window(
     (extension) → min(2, 9-6)=2. Total = 7, not 4 (which the unguarded formula gives,
     since min(2, 5-6) = -1).
     """
-    import asyncio as stdlib_asyncio
-
     dataset_dir = tmp_path / "dataset"
     _write_metadata(dataset_dir, target_num_records=5, buffer_size=2, num_completed_batches=3, actual_num_records=5)
     _write_parquet_files(dataset_dir / "parquet-files", [0, 1, 2, 3], row_counts={2: 1})
@@ -2075,17 +3058,15 @@ def test_build_async_resume_initial_actual_num_records_extension_crash_window(
         mock_buffer_manager.actual_num_records = 9
         return mock_scheduler, mock_buffer_manager
 
-    mock_future = Mock()
-    mock_future.result = Mock(return_value=None)
-
-    with patch.object(builder_mod, "asyncio", stdlib_asyncio, create=True):
-        with patch.object(builder_mod, "ensure_async_engine_loop", Mock(return_value=Mock()), create=True):
-            with patch.object(stdlib_asyncio, "run_coroutine_threadsafe", return_value=mock_future):
-                with patch.object(builder_mod, "run_readiness_check"):
-                    with patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare):
-                        builder.build(num_records=9, resume=ResumeMode.ALWAYS)
+    with (
+        patch.object(builder_mod, "run_async_scheduler") as mock_run_scheduler,
+        patch.object(builder_mod, "run_readiness_check"),
+        patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare),
+    ):
+        builder.build(num_records=9, resume=ResumeMode.ALWAYS)
 
     # 2+2+1 (original) + 2 (extension group 3) = 7, not 4 (which unguarded formula gives)
+    mock_run_scheduler.assert_called_once()
     assert captured["initial_actual_num_records"] == 7
 
 
@@ -2103,8 +3084,6 @@ def test_build_async_resume_stale_original_target_after_incremental_metadata_wri
     With the fix, original_target_num_records=5 is preserved in metadata, giving the correct
     initial_actual_num_records=7 (2+2+1 original + 2 extension).
     """
-    import asyncio as stdlib_asyncio
-
     dataset_dir = tmp_path / "dataset"
     # Metadata reflects a post-incremental-write state: target updated to 9, original still 5
     _write_metadata(
@@ -2129,17 +3108,15 @@ def test_build_async_resume_stale_original_target_after_incremental_metadata_wri
         mock_buffer_manager.actual_num_records = 9
         return mock_scheduler, mock_buffer_manager
 
-    mock_future = Mock()
-    mock_future.result = Mock(return_value=None)
-
-    with patch.object(builder_mod, "asyncio", stdlib_asyncio, create=True):
-        with patch.object(builder_mod, "ensure_async_engine_loop", Mock(return_value=Mock()), create=True):
-            with patch.object(stdlib_asyncio, "run_coroutine_threadsafe", return_value=mock_future):
-                with patch.object(builder_mod, "run_readiness_check"):
-                    with patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare):
-                        builder.build(num_records=9, resume=ResumeMode.ALWAYS)
+    with (
+        patch.object(builder_mod, "run_async_scheduler") as mock_run_scheduler,
+        patch.object(builder_mod, "run_readiness_check"),
+        patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare),
+    ):
+        builder.build(num_records=9, resume=ResumeMode.ALWAYS)
 
     # original_target=5 → groups 0,1 → 2+2; group 2 → 1; group 3 (ext) → min(2,9-6)=2. Total=7
+    mock_run_scheduler.assert_called_once()
     assert captured["initial_actual_num_records"] == 7
 
 
@@ -2152,8 +3129,6 @@ def test_build_async_resume_skip_row_groups_contains_completed_ids(
     already has a parquet file on disk.  6 records, buffer_size=2 → 3 row groups total;
     row groups 0 and 2 already on disk → only row group 1 should be scheduled.
     """
-    import asyncio as stdlib_asyncio
-
     dataset_dir = tmp_path / "dataset"
     # 6 records, buffer_size=2 → 3 row groups total; row groups 0 and 2 already on disk
     _write_metadata(dataset_dir, target_num_records=6, buffer_size=2, num_completed_batches=2, actual_num_records=4)
@@ -2171,17 +3146,15 @@ def test_build_async_resume_skip_row_groups_contains_completed_ids(
         mock_buffer_manager.actual_num_records = 6
         return mock_scheduler, mock_buffer_manager
 
-    mock_future = Mock()
-    mock_future.result = Mock(return_value=None)
-
-    with patch.object(builder_mod, "asyncio", stdlib_asyncio, create=True):
-        with patch.object(builder_mod, "ensure_async_engine_loop", Mock(return_value=Mock()), create=True):
-            with patch.object(stdlib_asyncio, "run_coroutine_threadsafe", return_value=mock_future):
-                with patch.object(builder_mod, "run_readiness_check"):
-                    with patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare):
-                        builder.build(num_records=6, resume=ResumeMode.ALWAYS)
+    with (
+        patch.object(builder_mod, "run_async_scheduler") as mock_run_scheduler,
+        patch.object(builder_mod, "run_readiness_check"),
+        patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare),
+    ):
+        builder.build(num_records=6, resume=ResumeMode.ALWAYS)
 
     # Only rg_id=1 remains; rg_id=0 and rg_id=2 are already on disk
+    mock_run_scheduler.assert_called_once()
     assert list(captured["precomputed_row_groups"]) == [(1, 2)]
 
 
@@ -2197,8 +3170,6 @@ def test_build_async_resume_extension_non_aligned_row_group_sizes(
 
     After the fix, precomputed_row_groups must be [(3, 2)], not [(3, 1)].
     """
-    import asyncio as stdlib_asyncio
-
     dataset_dir = tmp_path / "dataset"
     _write_metadata(dataset_dir, target_num_records=5, buffer_size=2, num_completed_batches=3, actual_num_records=5)
     _write_parquet_files(dataset_dir / "parquet-files", [0, 1, 2], row_counts={2: 1})
@@ -2215,17 +3186,15 @@ def test_build_async_resume_extension_non_aligned_row_group_sizes(
         mock_buffer_manager.actual_num_records = 7
         return mock_scheduler, mock_buffer_manager
 
-    mock_future = Mock()
-    mock_future.result = Mock(return_value=None)
-
-    with patch.object(builder_mod, "asyncio", stdlib_asyncio, create=True):
-        with patch.object(builder_mod, "ensure_async_engine_loop", Mock(return_value=Mock()), create=True):
-            with patch.object(stdlib_asyncio, "run_coroutine_threadsafe", return_value=mock_future):
-                with patch.object(builder_mod, "run_readiness_check"):
-                    with patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare):
-                        builder.build(num_records=7, resume=ResumeMode.ALWAYS)
+    with (
+        patch.object(builder_mod, "run_async_scheduler") as mock_run_scheduler,
+        patch.object(builder_mod, "run_readiness_check"),
+        patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare),
+    ):
+        builder.build(num_records=7, resume=ResumeMode.ALWAYS)
 
     # rg_id=3 should have 2 records (7-5=2 extension records, buffer_size=2), not 1
+    mock_run_scheduler.assert_called_once()
     assert list(captured["precomputed_row_groups"]) == [(3, 2)]
 
 
@@ -2238,8 +3207,6 @@ def test_build_async_resume_not_already_complete_when_extension_fits_in_slack(
     ceil(6/2)=3 == len(completed_ids)=3 used to trigger the false 'already complete' branch.
     Correct total_row_groups = 3 + ceil(1/2) = 4, so _prepare_async_run must be called.
     """
-    import asyncio as stdlib_asyncio
-
     dataset_dir = tmp_path / "dataset"
     _write_metadata(dataset_dir, target_num_records=5, buffer_size=2, num_completed_batches=3, actual_num_records=5)
     _write_parquet_files(dataset_dir / "parquet-files", [0, 1, 2], row_counts={2: 1})
@@ -2253,17 +3220,15 @@ def test_build_async_resume_not_already_complete_when_extension_fits_in_slack(
         mock_buffer_manager.actual_num_records = 6
         return mock_scheduler, mock_buffer_manager
 
-    mock_future = Mock()
-    mock_future.result = Mock(return_value=None)
-
-    with patch.object(builder_mod, "asyncio", stdlib_asyncio, create=True):
-        with patch.object(builder_mod, "ensure_async_engine_loop", Mock(return_value=Mock()), create=True):
-            with patch.object(stdlib_asyncio, "run_coroutine_threadsafe", return_value=mock_future):
-                with patch.object(builder_mod, "run_readiness_check"):
-                    with patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare) as mock_prepare:
-                        builder.build(num_records=6, resume=ResumeMode.ALWAYS)
+    with (
+        patch.object(builder_mod, "run_async_scheduler") as mock_run_scheduler,
+        patch.object(builder_mod, "run_readiness_check"),
+        patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare) as mock_prepare,
+    ):
+        builder.build(num_records=6, resume=ResumeMode.ALWAYS)
 
     # _prepare_async_run must be called — the dataset is NOT already complete
+    mock_run_scheduler.assert_called_once()
     mock_prepare.assert_called_once()
 
 

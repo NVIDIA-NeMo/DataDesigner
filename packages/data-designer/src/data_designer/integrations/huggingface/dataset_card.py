@@ -48,8 +48,13 @@ class DataDesignerDatasetCard(DatasetCard):
         schema = metadata.get("schema", {})
         column_stats = metadata.get("column_statistics", [])
 
-        # Get actual num_records from column_statistics if available
-        if column_stats:
+        record_selection = metadata.get("record_selection")
+        if isinstance(record_selection, dict):
+            # Selection metadata is authoritative for partial and schema-bearing empty outputs.
+            actual_num_records = metadata.get("actual_num_records", target_num_records)
+        elif column_stats:
+            # Ordinary after-generation processors can change the row count without updating
+            # the top-level metadata, while profiling observes the final processor output.
             actual_num_records = column_stats[0].get("num_records", target_num_records)
         else:
             actual_num_records = target_num_records
@@ -100,6 +105,7 @@ class DataDesignerDatasetCard(DatasetCard):
             "processor_names": processor_names,
             "tags": all_tags,
             "custom_description": description,
+            "record_selection": record_selection,
         }
 
         # Create card from template

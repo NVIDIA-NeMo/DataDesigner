@@ -79,7 +79,7 @@ A stage can expose different views of its data:
 
 | Surface | What it returns |
 |---------|-----------------|
-| `results["stage_name"]` | The effective `DatasetCreationResults` for that stage. If the stage uses `output_processors`, this points at the output-processor run. |
+| `results["stage_name"]` | The effective `DatasetCreationResults` for that stage. For a non-empty stage with `output_processors`, this points at the output-processor run. An allowed empty stage skips output processors and retains the main stage result. |
 | `results.load_stage_output("stage_name")` | The selected output handed to downstream stages. This follows `output="processor:<name>"` and `on_success`. |
 | `results.load_dataset()` | The selected output from the final stage. |
 
@@ -136,7 +136,7 @@ workflow.add_stage(
 workflow.add_stage("enriched", enriched)
 ```
 
-`on_success_version` is part of the stage resume identity. Change it when the callback's output semantics change. If a callback returns zero rows, the workflow raises by default; set `allow_empty=True` to mark that stage as completed empty and skip downstream stages.
+`on_success_version` is part of the stage resume identity. Change it when the callback's output semantics change. If a selected stage output has zero rows, the workflow raises by default; set `allow_empty=True` to mark that stage as completed empty and skip downstream stages. When the main stage result is empty, configured output processors are not invoked; the schema-bearing main result is retained even when `output="processor:<name>"` was selected.
 
 ## Changing row counts between stages
 

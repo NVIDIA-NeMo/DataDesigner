@@ -35,6 +35,8 @@ navigation:
         path: ./latest/pages/concepts/validators.mdx
       - page: Processors
         path: ./latest/pages/concepts/processors.mdx
+      - page: Record Selection
+        path: ./latest/pages/concepts/record-selection.mdx
       - page: Workflow Chaining
         path: ./latest/pages/concepts/workflow-chaining.mdx
       - page: Person Sampling

@@ -184,6 +184,7 @@ class AsyncTaskScheduler:
         task_admission_config: TaskAdmissionConfig | None = None,
         salvage_max_rounds: int = 2,
         on_finalize_row_group: Callable[[int], None] | None = None,
+        retain_row_group_result: bool = False,
         on_seeds_complete: Callable[[int, int], FrontierDelta | None] | None = None,
         on_before_checkpoint: Callable[[int, int], None] | None = None,
         shutdown_error_rate: float = 0.5,
@@ -249,8 +250,16 @@ class AsyncTaskScheduler:
         self._scheduler_event_sequence = 0
         if salvage_max_rounds < 1:
             raise ValueError("salvage_max_rounds must be at least 1.")
+        if retain_row_group_result and buffer_manager is None:
+            raise ValueError("retain_row_group_result requires buffer_manager.")
+        if retain_row_group_result and on_finalize_row_group is not None:
+            raise ValueError("retain_row_group_result cannot be combined with on_finalize_row_group.")
+        if retain_row_group_result and len(self._row_groups) != 1:
+            raise ValueError("retain_row_group_result requires exactly one row group.")
         self._salvage_max_rounds = salvage_max_rounds
         self._on_finalize_row_group = on_finalize_row_group
+        self._retain_row_group_result = retain_row_group_result
+        self._deferred_job_completion: tuple[str, dict[str, object]] | None = None
         self._on_seeds_complete = on_seeds_complete
         self._on_before_checkpoint = on_before_checkpoint
 
@@ -512,6 +521,46 @@ class AsyncTaskScheduler:
         except Exception:
             logger.warning("Scheduler admission event sink raised; dropping event.", exc_info=True)
             return
+
+    def emit_row_group_checkpointed(
+        self,
+        row_group: int,
+        row_group_size: int,
+        *,
+        surviving_rows: int,
+        result: str,
+    ) -> None:
+        """Report a durable row-group checkpoint completed outside the scheduler."""
+        if not 0 <= surviving_rows <= row_group_size:
+            raise ValueError("surviving_rows must be between zero and row_group_size.")
+        self._emit_scheduler_event(
+            "row_group_checkpointed",
+            diagnostics={
+                "row_group": row_group,
+                "row_group_size": row_group_size,
+                "dropped_rows": row_group_size - surviving_rows,
+                "surviving_rows": surviving_rows,
+                "result": result,
+                "active_row_groups": len(self._rg_states),
+            },
+        )
+        self._emit_scheduler_health_snapshot("row_group_checkpointed")
+
+    def emit_deferred_job_completed(self, *, error: BaseException | None = None) -> None:
+        """Emit a deferred terminal event, optionally overriding it with a caller error."""
+        completion = self._deferred_job_completion
+        if completion is None:
+            return
+        self._deferred_job_completion = None
+        outcome, diagnostics = completion
+        if error is not None:
+            outcome = "error"
+            diagnostics = {"outcome": outcome, "error_type": type(error).__name__}
+        self._emit_scheduler_event(
+            "scheduler_job_completed",
+            reason_or_result=outcome,
+            diagnostics=diagnostics,
+        )
 
     def _record_observed_task_state(self) -> None:
         self._observed_max_row_groups_in_flight = max(self._observed_max_row_groups_in_flight, len(self._rg_states))
@@ -1328,11 +1377,14 @@ class AsyncTaskScheduler:
                 terminal_diagnostics = self._scheduler_health_diagnostics(reason="completed") | terminal_diagnostics
             if error_type is not None:
                 terminal_diagnostics["error_type"] = error_type
-            self._emit_scheduler_event(
-                "scheduler_job_completed",
-                reason_or_result=outcome,
-                diagnostics=terminal_diagnostics,
-            )
+            if self._retain_row_group_result and outcome in {"success", "early_shutdown"}:
+                self._deferred_job_completion = (outcome, terminal_diagnostics)
+            else:
+                self._emit_scheduler_event(
+                    "scheduler_job_completed",
+                    reason_or_result=outcome,
+                    diagnostics=terminal_diagnostics,
+                )
             if self._reporter:
                 self._reporter.close()
 
@@ -1593,10 +1645,10 @@ class AsyncTaskScheduler:
         completed = [
             (rg_id, state.size)
             for rg_id, state in self._rg_states.items()
-            if self._tracker.is_row_group_complete(rg_id, state.size, all_columns)
+            # Dropped rows make tracker completion vacuously true, but live workers may still own the buffer.
+            if state.in_flight_count == 0 and self._tracker.is_row_group_complete(rg_id, state.size, all_columns)
         ]
         for rg_id, rg_size in completed:
-            dropped_rows = sum(1 for ri in range(rg_size) if self._tracker.is_dropped(rg_id, ri))
             checkpointed = False
             checkpoint_result = "unknown"
             try:
@@ -1607,12 +1659,16 @@ class AsyncTaskScheduler:
                         raise
                     except Exception as exc:
                         raise DatasetGenerationError(
-                            f"Post-batch processor failed for row group {rg_id}: {exc}"
+                            f"Before-checkpoint callback failed for row group {rg_id}: {exc}"
                         ) from exc
+                # The callback may change row liveness, so diagnostics and the
+                # empty-row-group policy must use the post-callback state.
+                dropped_rows = sum(1 for ri in range(rg_size) if self._tracker.is_dropped(rg_id, ri))
                 # Remove from tracking only after the callback succeeds.
                 del self._rg_states[rg_id]
-                # If all rows were dropped (e.g. seed failure), free instead of finalizing
-                if dropped_rows == rg_size:
+                if dropped_rows == rg_size and self._retain_row_group_result:
+                    checkpoint_result = "retained_empty"
+                elif dropped_rows == rg_size:
                     if self._buffer_manager:
                         self._buffer_manager.free_row_group(rg_id)
                     checkpoint_result = "all_rows_dropped"
@@ -1629,19 +1685,13 @@ class AsyncTaskScheduler:
             finally:
                 self._rg_semaphore.release()
                 self._row_group_admission_event.set()
-            if checkpointed:
-                self._emit_scheduler_event(
-                    "row_group_checkpointed",
-                    diagnostics={
-                        "row_group": rg_id,
-                        "row_group_size": rg_size,
-                        "dropped_rows": dropped_rows,
-                        "surviving_rows": rg_size - dropped_rows,
-                        "result": checkpoint_result,
-                        "active_row_groups": len(self._rg_states),
-                    },
+            if checkpointed and not self._retain_row_group_result:
+                self.emit_row_group_checkpointed(
+                    rg_id,
+                    rg_size,
+                    surviving_rows=rg_size - dropped_rows,
+                    result=checkpoint_result,
                 )
-                self._emit_scheduler_health_snapshot("row_group_checkpointed")
 
         # Clean up deferred tasks for checkpointed row groups
         if completed:
@@ -1671,15 +1721,16 @@ class AsyncTaskScheduler:
         For each remaining row group, drop rows that aren't fully complete
         (and weren't already dropped); after that, ``is_row_group_complete``
         is true by construction over the surviving rows, so delegating to
-        ``_checkpoint_completed_row_groups`` writes survivors and frees
-        zero-survivor groups via the buffer manager's existing logic.
+        ``_checkpoint_completed_row_groups`` applies the caller's configured
+        finalization or retention policy.
 
-        Note on processors: ``_checkpoint_completed_row_groups`` calls
-        ``on_before_checkpoint`` (post-batch) but never ``on_seeds_complete``
-        (pre-batch). If the gate fires before seeds completed for a row
-        group, that row group's pre-batch processor never ran. Survivors
-        are checkpointed without it. This is the existing contract for
-        partial-row-group salvage.
+        Note on processors: ``_checkpoint_completed_row_groups`` calls the
+        generic ``on_before_checkpoint`` callback, which may include
+        post-batch processing, but never ``on_seeds_complete`` (pre-batch).
+        If the gate fires before seeds completed for a row group, that row
+        group's pre-batch processor never ran. Survivors are checkpointed
+        without it. This is the existing contract for partial-row-group
+        salvage.
         """
         for rg_id in list(self._rg_states.keys()):
             rg_size = self._rg_states[rg_id].size

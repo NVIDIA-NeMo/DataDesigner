@@ -28,5 +28,27 @@ class DataDesignerEarlyShutdownError(DataDesignerGenerationError):
     """
 
 
+class DataDesignerRecordSelectionExhaustedError(DataDesignerGenerationError):
+    """Raised when record selection exhausts its configured candidate budget."""
+
+    def __init__(
+        self,
+        *,
+        target_records: int,
+        accepted_records: int,
+        candidate_records: int,
+        max_candidate_records: int,
+    ) -> None:
+        self.target_records = target_records
+        self.accepted_records = accepted_records
+        self.candidate_records = candidate_records
+        self.max_candidate_records = max_candidate_records
+        super().__init__(
+            "🛑 Record selection exhausted its candidate budget: "
+            f"accepted {accepted_records} of {target_records} requested records after generating "
+            f"{candidate_records} of {max_candidate_records} allowed candidates."
+        )
+
+
 class InvalidBufferValueError(DataDesignerError):
     """Raised for errors related to an invalid buffer value."""

@@ -13,7 +13,11 @@ from pyarrow import ArrowNotImplementedError
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.utils.io_helpers import load_processor_dataset
 from data_designer.engine.dataset_builders.errors import ArtifactStorageError
-from data_designer.engine.storage.artifact_storage import ArtifactStorage, BatchStage, ResumeMode
+from data_designer.engine.storage.artifact_storage import (
+    ArtifactStorage,
+    BatchStage,
+    ResumeMode,
+)
 
 
 @pytest.fixture
@@ -44,6 +48,11 @@ def test_artifact_storage_custom_names(stub_custom_artifact_storage):
     assert "dropped-files" in str(stub_custom_artifact_storage.dropped_columns_dataset_path)
 
 
+def test_artifact_storage_rejects_collision_with_selection_directories(tmp_path) -> None:
+    with pytest.raises(ArtifactStorageError, match="unique"):
+        ArtifactStorage(artifact_path=tmp_path, final_dataset_folder_name="selection-accepted")
+
+
 @pytest.mark.parametrize(
     "batch_number,stage,expected_name,expected_parent_attr",
     [
@@ -63,6 +72,34 @@ def test_artifact_storage_create_batch_file_path(
 def test_artifact_storage_create_batch_file_path_negative_batch_number(stub_artifact_storage):
     with pytest.raises(ArtifactStorageError, match="Batch number must be non-negative"):
         stub_artifact_storage.create_batch_file_path(-1, BatchStage.PARTIAL_RESULT)
+
+
+def test_configure_selection_batch_file_width_covers_entire_candidate_budget(stub_artifact_storage) -> None:
+    stub_artifact_storage.configure_selection_batch_file_width(
+        max_candidate_records=100_001,
+        candidate_batch_size=1,
+    )
+
+    assert stub_artifact_storage.create_batch_file_path(0, BatchStage.DROPPED_COLUMNS).name == "batch_000000.parquet"
+    assert stub_artifact_storage.selection_partition_path(99_999).name == "batch_099999.parquet"
+    assert stub_artifact_storage.selection_partition_path(100_000).name == "batch_100000.parquet"
+    assert stub_artifact_storage.selection_checkpoint_path(100_000).name == "batch_100000.json"
+
+
+@pytest.mark.parametrize(
+    "max_candidate_records,candidate_batch_size",
+    [(0, 1), (1, 0), (-1, 1), (1, -1)],
+)
+def test_configure_selection_batch_file_width_rejects_nonpositive_limits(
+    stub_artifact_storage,
+    max_candidate_records: int,
+    candidate_batch_size: int,
+) -> None:
+    with pytest.raises(ArtifactStorageError, match="candidate limits must be positive"):
+        stub_artifact_storage.configure_selection_batch_file_width(
+            max_candidate_records=max_candidate_records,
+            candidate_batch_size=candidate_batch_size,
+        )
 
 
 def test_artifact_storage_write_parquet_file(stub_artifact_storage, stub_sample_dataframe):
@@ -502,3 +539,222 @@ def test_clear_partial_results_is_noop_when_no_partial_folder(tmp_path):
     storage = ArtifactStorage(artifact_path=tmp_path)
     assert not storage.partial_results_path.exists()
     storage.clear_partial_results()  # must not raise
+
+
+def test_selection_checkpoint_and_partition_round_trip(stub_artifact_storage, stub_sample_dataframe) -> None:
+    partition = stub_artifact_storage.write_selection_partition(0, stub_sample_dataframe.iloc[:2])
+    marker = {
+        "candidate_batch_id": 0,
+        "row_group_id": 0,
+        "candidate_start_offset": 0,
+        "candidate_records": 4,
+        "accepted_records": 2,
+        "rejected_records": 2,
+        "null_predicate_records": 0,
+        "failed_generation_records": 0,
+        "trimmed_accepted_records": 0,
+        "accepted_partition": str(partition.relative_to(stub_artifact_storage.base_dataset_path)),
+    }
+    stub_artifact_storage.write_selection_checkpoint(0, marker)
+
+    assert lazy.pq.read_metadata(partition).num_rows == 2
+    assert stub_artifact_storage.read_selection_checkpoints() == [marker]
+
+
+def test_selection_checkpoints_are_sorted_by_numeric_batch_id(stub_artifact_storage) -> None:
+    stub_artifact_storage.write_selection_checkpoint(100_000, {"candidate_batch_id": 100_000})
+    stub_artifact_storage.write_selection_checkpoint(10_001, {"candidate_batch_id": 10_001})
+
+    assert [marker["candidate_batch_id"] for marker in stub_artifact_storage.read_selection_checkpoints()] == [
+        10_001,
+        100_000,
+    ]
+
+
+def test_materialize_selection_dataset_from_partitions(stub_artifact_storage, stub_sample_dataframe) -> None:
+    stub_artifact_storage.write_selection_partition(0, stub_sample_dataframe.iloc[:2])
+    stub_artifact_storage.write_selection_partition(2, stub_sample_dataframe.iloc[2:])
+
+    published = stub_artifact_storage.materialize_selection_dataset()
+
+    assert sorted(path.name for path in published.glob("*.parquet")) == [
+        "batch_00000.parquet",
+        "batch_00001.parquet",
+    ]
+    assert len(stub_artifact_storage.load_dataset()) == 4
+
+
+def test_materialize_selection_dataset_preserves_numeric_order_after_five_digits(
+    stub_artifact_storage,
+) -> None:
+    stub_artifact_storage.write_selection_partition(100_000, lazy.pd.DataFrame({"value": [2]}))
+    stub_artifact_storage.write_selection_partition(10_001, lazy.pd.DataFrame({"value": [1]}))
+
+    published = stub_artifact_storage.materialize_selection_dataset()
+
+    assert sorted(path.name for path in published.glob("*.parquet")) == [
+        "batch_00000.parquet",
+        "batch_00001.parquet",
+    ]
+    assert stub_artifact_storage.load_dataset()["value"].tolist() == [1, 2]
+
+
+def test_fixed_width_selection_side_artifacts_remain_aligned_when_storage_is_reconstructed(tmp_path) -> None:
+    storage = ArtifactStorage(artifact_path=tmp_path)
+    storage.final_dataset_path.mkdir(parents=True)
+    storage.dropped_columns_dataset_path.mkdir()
+
+    lazy.pd.DataFrame({"value": [99_999]}).to_parquet(
+        storage.final_dataset_path / "batch_099999.parquet",
+        index=False,
+    )
+    lazy.pd.DataFrame({"value": [100_000]}).to_parquet(
+        storage.final_dataset_path / "batch_100000.parquet",
+        index=False,
+    )
+    lazy.pd.DataFrame({"dropped": ["five-digit"]}).to_parquet(
+        storage.dropped_columns_dataset_path / "batch_099999.parquet",
+        index=False,
+    )
+    lazy.pd.DataFrame({"dropped": ["six-digit"]}).to_parquet(
+        storage.dropped_columns_dataset_path / "batch_100000.parquet",
+        index=False,
+    )
+
+    reconstructed = ArtifactStorage(artifact_path=tmp_path, resume=ResumeMode.ALWAYS)
+    result = reconstructed.load_dataset_with_dropped_columns()
+
+    assert result[["value", "dropped"]].to_dict(orient="records") == [
+        {"value": 99_999, "dropped": "five-digit"},
+        {"value": 100_000, "dropped": "six-digit"},
+    ]
+
+
+def test_materialize_empty_selection_uses_schema_anchor(stub_artifact_storage, stub_sample_dataframe) -> None:
+    stub_artifact_storage.configure_selection_batch_file_width(
+        max_candidate_records=100_001,
+        candidate_batch_size=1,
+    )
+    stub_artifact_storage.write_selection_schema(stub_sample_dataframe.iloc[0:0])
+
+    published = stub_artifact_storage.materialize_selection_dataset()
+    dataset = lazy.pd.read_parquet(published / "batch_000000.parquet")
+
+    assert dataset.empty
+    assert dataset.columns.tolist() == stub_sample_dataframe.columns.tolist()
+
+
+def test_selection_media_staging_promotes_only_referenced_files(stub_artifact_storage) -> None:
+    stub_artifact_storage.begin_selection_media_batch(3)
+    staging = stub_artifact_storage.selection_media_staging_path / "batch_00003" / "images" / "picture"
+    staging.mkdir(parents=True)
+    (staging / "accepted.png").write_bytes(b"accepted")
+    (staging / "rejected.png").write_bytes(b"rejected")
+
+    promoted = stub_artifact_storage.promote_selection_media(
+        lazy.pd.DataFrame({"image": ["images/picture/accepted.png"]}),
+        3,
+    )
+
+    relative = promoted.loc[0, "image"]
+    assert relative == "images/selection_batch_00003/picture/accepted.png"
+    assert (stub_artifact_storage.base_dataset_path / relative).read_bytes() == b"accepted"
+    assert not stub_artifact_storage.selection_media_staging_path.joinpath("batch_00003").exists()
+    assert not stub_artifact_storage.base_dataset_path.joinpath(
+        "images/selection_batch_00003/picture/rejected.png"
+    ).exists()
+
+
+def test_selection_media_paths_use_configured_width_across_five_digit_boundary(
+    stub_artifact_storage: ArtifactStorage,
+) -> None:
+    stub_artifact_storage.configure_selection_batch_file_width(
+        max_candidate_records=100_001,
+        candidate_batch_size=1,
+    )
+
+    promoted_paths: list[str] = []
+    for batch_id, expected_name in ((99_999, "099999"), (100_000, "100000")):
+        stub_artifact_storage.begin_selection_media_batch(batch_id)
+        staging = stub_artifact_storage.selection_media_staging_path / f"batch_{expected_name}" / "images" / "picture"
+        staging.mkdir(parents=True)
+        (staging / "accepted.png").write_bytes(str(batch_id).encode())
+
+        promoted = stub_artifact_storage.promote_selection_media(
+            lazy.pd.DataFrame({"image": ["images/picture/accepted.png"]}),
+            batch_id,
+        )
+        promoted_paths.append(promoted.loc[0, "image"])
+
+    assert promoted_paths == [
+        "images/selection_batch_099999/picture/accepted.png",
+        "images/selection_batch_100000/picture/accepted.png",
+    ]
+
+
+def test_selection_media_promotion_rewrites_duplicate_references(stub_artifact_storage) -> None:
+    stub_artifact_storage.begin_selection_media_batch(3)
+    staging = stub_artifact_storage.selection_media_staging_path / "batch_00003" / "images" / "picture"
+    staging.mkdir(parents=True)
+    (staging / "shared.png").write_bytes(b"shared")
+
+    promoted = stub_artifact_storage.promote_selection_media(
+        lazy.pd.DataFrame(
+            {
+                "primary": ["images/picture/shared.png"],
+                "references": [["images/picture/shared.png", {"copy": "images/picture/shared.png"}]],
+            }
+        ),
+        3,
+    )
+
+    expected = "images/selection_batch_00003/picture/shared.png"
+    assert promoted.loc[0, "primary"] == expected
+    assert promoted.loc[0, "references"] == [expected, {"copy": expected}]
+    assert (stub_artifact_storage.base_dataset_path / expected).read_bytes() == b"shared"
+
+
+def test_clean_uncommitted_selection_batch_removes_promoted_media_and_side_artifacts(
+    stub_artifact_storage, stub_sample_dataframe
+) -> None:
+    stub_artifact_storage.media_storage.images_subdir = "custom-images"
+    stub_artifact_storage.begin_selection_media_batch(5)
+    staging = stub_artifact_storage.selection_media_staging_path / "batch_00005" / "custom-images" / "picture"
+    staging.mkdir(parents=True)
+    (staging / "accepted.png").write_bytes(b"accepted")
+    promoted = stub_artifact_storage.promote_selection_media(
+        lazy.pd.DataFrame({"image": ["custom-images/picture/accepted.png"]}),
+        5,
+    )
+    stub_artifact_storage.write_batch_to_parquet_file(
+        5,
+        stub_sample_dataframe,
+        BatchStage.DROPPED_COLUMNS,
+    )
+    stub_artifact_storage.write_batch_to_parquet_file(
+        5,
+        stub_sample_dataframe,
+        BatchStage.PROCESSORS_OUTPUTS,
+        subfolder="schema",
+    )
+
+    stub_artifact_storage.clean_uncommitted_selection_batch(5)
+
+    assert not (stub_artifact_storage.base_dataset_path / promoted.loc[0, "image"]).exists()
+    assert not (stub_artifact_storage.dropped_columns_dataset_path / "batch_00005.parquet").exists()
+    assert not (stub_artifact_storage.processors_outputs_path / "schema" / "batch_00005.parquet").exists()
+
+
+def test_selection_media_promotion_does_not_follow_path_traversal(stub_artifact_storage) -> None:
+    stub_artifact_storage.begin_selection_media_batch(4)
+    outside = stub_artifact_storage.selection_media_staging_path / "sensitive.png"
+    outside.parent.mkdir(parents=True, exist_ok=True)
+    outside.write_bytes(b"sensitive")
+
+    promoted = stub_artifact_storage.promote_selection_media(
+        lazy.pd.DataFrame({"image": ["images/../../sensitive.png"]}),
+        4,
+    )
+
+    assert promoted.loc[0, "image"] == "images/../../sensitive.png"
+    assert outside.read_bytes() == b"sensitive"

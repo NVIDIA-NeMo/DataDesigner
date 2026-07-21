@@ -104,7 +104,7 @@ class HuggingFaceHubClient:
         Uploads the complete dataset including:
         - Main parquet batch files from parquet-files/ → data/
         - Images from images/ → images/ (if present)
-        - Processor output batch files from processors-files/{name}/ → {name}/
+        - Processor outputs from processors-files/{name}/ or processors-files/{name}.parquet → {name}/
         - Existing builder_config.json and metadata.json files
         - Auto-generated README.md (dataset card)
 
@@ -260,12 +260,15 @@ class HuggingFaceHubClient:
         if not processors_folder.exists():
             return
 
-        processor_dirs = [d for d in processors_folder.iterdir() if d.is_dir()]
-        if not processor_dirs:
+        processor_dirs = [path for path in processors_folder.iterdir() if path.is_dir()]
+        processor_names = {path.name for path in processor_dirs}
+        processor_files = [path for path in processors_folder.glob("*.parquet") if path.stem not in processor_names]
+        if not processor_dirs and not processor_files:
             return
 
         logger.info(
-            f"{LOG_INDENT}{RandomEmoji.loading()} Uploading processor outputs ({len(processor_dirs)} processors)..."
+            f"{LOG_INDENT}{RandomEmoji.loading()} Uploading processor outputs "
+            f"({len(processor_dirs) + len(processor_files)} processors)..."
         )
         for processor_dir in processor_dirs:
             try:
@@ -279,6 +282,19 @@ class HuggingFaceHubClient:
             except Exception as e:
                 raise HuggingFaceHubClientUploadError(
                     f"Failed to upload processor outputs for '{processor_dir.name}': {e}"
+                ) from e
+        for processor_file in processor_files:
+            try:
+                self._api.upload_file(
+                    repo_id=repo_id,
+                    path_or_fileobj=str(processor_file),
+                    path_in_repo=f"{processor_file.stem}/{processor_file.name}",
+                    repo_type="dataset",
+                    commit_message=f"Upload {processor_file.stem} processor output",
+                )
+            except Exception as e:
+                raise HuggingFaceHubClientUploadError(
+                    f"Failed to upload processor output for '{processor_file.stem}': {e}"
                 ) from e
 
     def _upload_config_files(self, repo_id: str, metadata_path: Path, builder_config_path: Path) -> None:
@@ -414,6 +430,7 @@ class HuggingFaceHubClient:
         Local paths:
         - parquet-files/batch_00000.parquet → data/batch_00000.parquet
         - processors-files/processor1/batch_00000.parquet → processor1/batch_00000.parquet
+        - processors-files/processor2.parquet → processor2/processor2.parquet
 
         Args:
             metadata_path: Path to metadata.json file
@@ -439,7 +456,14 @@ class HuggingFaceHubClient:
                 updated_file_paths["processor-files"] = {}
                 for processor_name, paths in metadata["file_paths"]["processor-files"].items():
                     updated_file_paths["processor-files"][processor_name] = [
-                        path.replace(f"{PROCESSORS_OUTPUTS_FOLDER_NAME}/{processor_name}/", f"{processor_name}/")
+                        (
+                            f"{processor_name}/{processor_name}.parquet"
+                            if path == f"{PROCESSORS_OUTPUTS_FOLDER_NAME}/{processor_name}.parquet"
+                            else path.replace(
+                                f"{PROCESSORS_OUTPUTS_FOLDER_NAME}/{processor_name}/",
+                                f"{processor_name}/",
+                            )
+                        )
                         for path in paths
                     ]
 
@@ -487,9 +511,27 @@ class HuggingFaceHubClient:
 
         try:
             with open(metadata_path) as f:
-                json.load(f)
+                metadata = json.load(f)
         except json.JSONDecodeError as e:
             raise HuggingFaceHubClientUploadError(f"Invalid JSON in {METADATA_FILENAME}: {e}")
+
+        if not isinstance(metadata, dict):
+            raise HuggingFaceHubClientUploadError(f"{METADATA_FILENAME} must contain a JSON object")
+
+        selection = metadata.get("record_selection")
+        if "record_selection" in metadata and not isinstance(selection, dict):
+            raise HuggingFaceHubClientUploadError(
+                f"{METADATA_FILENAME} field 'record_selection' must contain a JSON object when present"
+            )
+        if isinstance(selection, dict):
+            terminal_selection = selection.get("selection_satisfied") is True or (
+                selection.get("selection_exhausted") is True and selection.get("on_exhausted") == "return_partial"
+            )
+            if not terminal_selection or metadata.get("post_generation_state") != "complete":
+                raise HuggingFaceHubClientUploadError(
+                    "Record-selection artifacts can be uploaded only after selection and publication are complete. "
+                    "Resume the dataset locally before pushing it to the Hub."
+                )
 
         builder_config_path = base_dataset_path / SDG_CONFIG_FILENAME
         if builder_config_path.exists():
