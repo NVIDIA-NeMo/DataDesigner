@@ -12,6 +12,7 @@ from data_designer.engine.mcp.errors import MCPConfigurationError, MCPToolError
 from data_designer.engine.models.clients.errors import ProviderError, ProviderErrorKind
 from data_designer.engine.models.clients.types import (
     AssistantMessage,
+    ChatCompletionChoice,
     ChatCompletionRequest,
     ChatCompletionResponse,
     EmbeddingResponse,
@@ -33,9 +34,51 @@ from data_designer.engine.models.utils import ChatMessage
 from data_designer.engine.testing import StubMCPFacade, StubMCPRegistry, make_stub_completion_response
 
 
-def _make_response(content: str | None = None, **kwargs: Any) -> ChatCompletionResponse:
+def _make_response(
+    content: str | None = None,
+    *,
+    finish_reason: str | None = None,
+    raw: Any | None = None,
+    **kwargs: Any,
+) -> ChatCompletionResponse:
     """Shorthand for creating a ChatCompletionResponse in tests."""
-    return make_stub_completion_response(content=content, **kwargs)
+    response = make_stub_completion_response(content=content, **kwargs)
+    first_choice: ChatCompletionChoice = response.choices[0]
+    first_choice.finish_reason = finish_reason
+    response.raw = raw
+    return response
+
+
+_MAX_TOKENS_SOLUTION = (
+    "The response appears to have been cut off because it reached max_tokens, causing the parse failure. "
+    "Increase inference_parameters.max_tokens in the model config and try again."
+)
+_CONTEXT_WINDOW_SOLUTION = (
+    "The response appears to have been cut off because the model context window was exhausted, causing the parse "
+    "failure. Reduce the prompt, context, or schema size, or use a model with a larger context window and try again; "
+    "increasing inference_parameters.max_tokens will not help."
+)
+_GENERIC_VALIDATION_SOLUTION = (
+    "This is most likely temporary as we make additional attempts. If you continue to see more of this, simplify "
+    "or modify the output schema for structured output and try again. If you are attempting token-intensive tasks "
+    "like generations with high-reasoning effort, ensure that max_tokens in the model config is high enough to "
+    "reach completion."
+)
+_PARSE_FAILURE_DETAIL = "invalid JSON response"
+
+
+def _failing_parser(_response: str) -> str:
+    raise ParserException(_PARSE_FAILURE_DETAIL)
+
+
+def _assert_public_parse_failure(
+    error: ModelGenerationValidationFailureError,
+    *,
+    expected_solution: str,
+) -> None:
+    assert f"Solution: {expected_solution}" in str(error)
+    assert error.detail == _PARSE_FAILURE_DETAIL
+    assert error.failure_kind == "parse_error"
 
 
 def _assert_no_multi_choice_request(
@@ -259,6 +302,175 @@ async def test_agenerate_includes_parser_validation_detail_in_user_facing_error(
 
     assert exc_info.value.detail == "Response doesn't match requested <response_schema> 'name' is a required property"
     assert exc_info.value.failure_kind == "schema_validation"
+
+
+@pytest.mark.parametrize(
+    "finish_reason",
+    [
+        pytest.param("length", id="openai-length"),
+        pytest.param("max_tokens", id="anthropic-max-tokens"),
+    ],
+)
+def test_generate_truncation_from_canonical_finish_reason_reports_max_tokens_solution(
+    stub_model_facade: ModelFacade,
+    stub_model_client: MagicMock,
+    finish_reason: str,
+) -> None:
+    stub_model_client.completion.return_value = _make_response(
+        "truncated response",
+        finish_reason=finish_reason,
+    )
+
+    with pytest.raises(ModelGenerationValidationFailureError) as exc_info:
+        stub_model_facade.generate(prompt="test", parser=_failing_parser)
+
+    _assert_public_parse_failure(exc_info.value, expected_solution=_MAX_TOKENS_SOLUTION)
+
+
+@pytest.mark.asyncio
+async def test_agenerate_truncation_from_canonical_finish_reason_reports_context_window_solution(
+    stub_model_facade: ModelFacade,
+    stub_model_client: MagicMock,
+) -> None:
+    stub_model_client.acompletion = AsyncMock(
+        return_value=_make_response(
+            "truncated response",
+            finish_reason="model_context_window_exceeded",
+        )
+    )
+
+    with pytest.raises(ModelGenerationValidationFailureError) as exc_info:
+        await stub_model_facade.agenerate(prompt="test", parser=_failing_parser)
+
+    _assert_public_parse_failure(exc_info.value, expected_solution=_CONTEXT_WINDOW_SOLUTION)
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        pytest.param({"choices": [{"finish_reason": "length"}]}, id="openai"),
+        pytest.param({"stop_reason": "max_tokens"}, id="anthropic"),
+    ],
+)
+def test_generate_truncation_uses_raw_finish_reason_fallback(
+    stub_model_facade: ModelFacade,
+    stub_model_client: MagicMock,
+    raw: dict[str, Any],
+) -> None:
+    stub_model_client.completion.return_value = _make_response("truncated response", raw=raw)
+
+    with pytest.raises(ModelGenerationValidationFailureError) as exc_info:
+        stub_model_facade.generate(prompt="test", parser=_failing_parser)
+
+    _assert_public_parse_failure(exc_info.value, expected_solution=_MAX_TOKENS_SOLUTION)
+
+
+@pytest.mark.asyncio
+async def test_agenerate_truncation_prefers_populated_canonical_reason_over_raw_fallback(
+    stub_model_facade: ModelFacade,
+    stub_model_client: MagicMock,
+) -> None:
+    stub_model_client.acompletion = AsyncMock(
+        return_value=_make_response(
+            "complete but invalid response",
+            finish_reason="stop",
+            raw={
+                "choices": [{"finish_reason": "length"}],
+                "stop_reason": "max_tokens",
+            },
+        )
+    )
+
+    with pytest.raises(ModelGenerationValidationFailureError) as exc_info:
+        await stub_model_facade.agenerate(prompt="test", parser=_failing_parser)
+
+    _assert_public_parse_failure(exc_info.value, expected_solution=_GENERIC_VALIDATION_SOLUTION)
+    assert _MAX_TOKENS_SOLUTION not in str(exc_info.value)
+
+
+def test_generate_truncation_accumulates_max_tokens_across_correction_attempts(
+    stub_model_facade: ModelFacade,
+    stub_model_client: MagicMock,
+) -> None:
+    stub_model_client.completion.side_effect = [
+        _make_response("first invalid response", finish_reason="max_tokens"),
+        _make_response("final invalid response", finish_reason="stop"),
+    ]
+
+    with pytest.raises(ModelGenerationValidationFailureError) as exc_info:
+        stub_model_facade.generate(
+            prompt="test",
+            parser=_failing_parser,
+            max_correction_steps=1,
+        )
+
+    _assert_public_parse_failure(exc_info.value, expected_solution=_MAX_TOKENS_SOLUTION)
+    assert stub_model_client.completion.call_count == 2
+
+
+@pytest.mark.parametrize(
+    "finish_reasons",
+    [
+        pytest.param(
+            ("model_context_window_exceeded", "max_tokens"),
+            id="context-window-then-max-tokens",
+        ),
+        pytest.param(
+            ("max_tokens", "model_context_window_exceeded"),
+            id="max-tokens-then-context-window",
+        ),
+    ],
+)
+@pytest.mark.asyncio
+async def test_agenerate_truncation_context_window_wins_across_conversation_restart(
+    stub_model_facade: ModelFacade,
+    stub_model_client: MagicMock,
+    finish_reasons: tuple[str, str],
+) -> None:
+    stub_model_client.acompletion = AsyncMock(
+        side_effect=[
+            _make_response("first invalid response", finish_reason=finish_reasons[0]),
+            _make_response("final invalid response", finish_reason=finish_reasons[1]),
+        ]
+    )
+
+    with pytest.raises(ModelGenerationValidationFailureError) as exc_info:
+        await stub_model_facade.agenerate(
+            prompt="test",
+            parser=_failing_parser,
+            max_conversation_restarts=1,
+        )
+
+    _assert_public_parse_failure(exc_info.value, expected_solution=_CONTEXT_WINDOW_SOLUTION)
+    assert stub_model_client.acompletion.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_agenerate_truncation_then_success_returns_normally(
+    stub_model_facade: ModelFacade,
+    stub_model_client: MagicMock,
+) -> None:
+    stub_model_client.acompletion = AsyncMock(
+        side_effect=[
+            _make_response("invalid response", finish_reason="max_tokens"),
+            _make_response("valid response", finish_reason="stop"),
+        ]
+    )
+
+    def _parse_valid_response(response: str) -> dict[str, str]:
+        if response != "valid response":
+            raise ParserException(_PARSE_FAILURE_DETAIL)
+        return {"parsed": response}
+
+    result, messages = await stub_model_facade.agenerate(
+        prompt="test",
+        parser=_parse_valid_response,
+        max_correction_steps=1,
+    )
+
+    assert result == {"parsed": "valid response"}
+    assert messages[-1] == ChatMessage.as_assistant(content="valid response")
+    assert stub_model_client.acompletion.await_count == 2
 
 
 @pytest.mark.parametrize(

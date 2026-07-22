@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from enum import Enum
 from functools import wraps
 from typing import Any, NoReturn
 
@@ -41,10 +42,16 @@ def get_exception_primary_cause(exception: BaseException) -> BaseException:
     return get_exception_primary_cause(exception.__cause__)
 
 
+class GenerationTruncationReason(str, Enum):
+    MAX_TOKENS = "max_tokens"
+    MODEL_CONTEXT_WINDOW_EXCEEDED = "model_context_window_exceeded"
+
+
 class GenerationValidationFailureError(Exception):
     summary: str
     detail: str | None
     failure_kind: str
+    truncation_reason: GenerationTruncationReason | None
 
     def __init__(
         self,
@@ -52,10 +59,12 @@ class GenerationValidationFailureError(Exception):
         *,
         detail: str | None = None,
         failure_kind: str = "validation_error",
+        truncation_reason: GenerationTruncationReason | None = None,
     ) -> None:
         self.summary = summary.strip()
         self.detail = _normalize_error_detail(detail)
         self.failure_kind = failure_kind
+        self.truncation_reason = truncation_reason
 
         message = self.summary
         if self.detail is not None:
@@ -216,13 +225,18 @@ def handle_llm_exceptions(
         case GenerationValidationFailureError():
             detail_text = exception.detail.rstrip(".") if exception.detail is not None else None
             validation_detail = f" Validation detail: {detail_text}." if detail_text is not None else ""
+            solution = "This is most likely temporary as we make additional attempts. If you continue to see more of this, simplify or modify the output schema for structured output and try again. If you are attempting token-intensive tasks like generations with high-reasoning effort, ensure that max_tokens in the model config is high enough to reach completion."
+            if exception.truncation_reason == GenerationTruncationReason.MAX_TOKENS:
+                solution = "The response appears to have been cut off because it reached max_tokens, causing the parse failure. Increase inference_parameters.max_tokens in the model config and try again."
+            elif exception.truncation_reason == GenerationTruncationReason.MODEL_CONTEXT_WINDOW_EXCEEDED:
+                solution = "The response appears to have been cut off because the model context window was exhausted, causing the parse failure. Reduce the prompt, context, or schema size, or use a model with a larger context window and try again; increasing inference_parameters.max_tokens will not help."
             raise ModelGenerationValidationFailureError(
                 FormattedLLMErrorMessage(
                     cause=(
                         f"The model output from {model_name!r} could not be parsed into the requested format "
                         f"while {purpose}.{validation_detail}"
                     ),
-                    solution="This is most likely temporary as we make additional attempts. If you continue to see more of this, simplify or modify the output schema for structured output and try again. If you are attempting token-intensive tasks like generations with high-reasoning effort, ensure that max_tokens in the model config is high enough to reach completion.",
+                    solution=solution,
                 ),
                 detail=exception.detail,
                 failure_kind=exception.failure_kind,
