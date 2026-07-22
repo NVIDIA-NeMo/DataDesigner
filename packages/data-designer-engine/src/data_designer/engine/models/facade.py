@@ -77,6 +77,8 @@ def _classify_generation_truncation_reason(
     if isinstance(canonical_reason, str):
         return _TRUNCATION_REASON_BY_FINISH_REASON.get(canonical_reason)
 
+    # Keep a raw fallback for custom or future adapters that have not populated
+    # the canonical choice finish reason yet.
     raw_choices = get_value_from(response.raw, "choices")
     raw_first_choice = get_first_value_or_none(raw_choices)
     raw_reason = get_value_from(raw_first_choice, "finish_reason")

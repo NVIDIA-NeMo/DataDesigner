@@ -154,4 +154,4 @@ Delivery proceeds in reviewable stages from current `main`:
 4. run the focused tests and repository-required validation;
 5. address review findings in additional commits that name the resolved concern.
 
-Production implementation remains paused until the plan has been submitted to the PR and its direction approved, as required by `CONTRIBUTING.md`.
+Implementation began only after Andrea approved this direction on 2026-07-15, satisfying the `CONTRIBUTING.md` plan gate.
