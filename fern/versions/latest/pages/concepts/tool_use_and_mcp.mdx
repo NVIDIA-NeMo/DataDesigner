@@ -7,9 +7,9 @@ Tool use lets LLM columns call external tools during generation (e.g., lookups, 
 
 ## Quick Start
 
-1. Configure an MCP provider ([Local](/concepts/tool-use-and-mcp/mcp-providers#localstdiomcpprovider-subprocess) or [Remote](/concepts/tool-use-and-mcp/mcp-providers#mcpprovider-remote-sse))
-2. Create a [ToolConfig](/concepts/tool-use-and-mcp/tool-configs) referencing your provider
-3. Add `tool_alias` to your [LLM column](/concepts/tool-use-and-mcp/enabling-tools)
+1. Configure an MCP provider ([Local](/concepts/tool-use-mcp/mcp-providers#localstdiomcpprovider-subprocess) or [Remote](/concepts/tool-use-mcp/mcp-providers#mcpprovider-remote))
+2. Create a [ToolConfig](/concepts/tool-use-mcp/tool-configs) referencing your provider
+3. Add `tool_alias` to your [LLM column](/concepts/tool-use-mcp/enabling-tools)
 
 ```python
 import data_designer.config as dd
@@ -56,12 +56,12 @@ builder.add_column(
 
 | Guide | Description |
 |-------|-------------|
-| **[MCP Providers](/concepts/tool-use-and-mcp/mcp-providers)** | Configure local subprocess or remote SSE providers |
-| **[Tool Configurations](/concepts/tool-use-and-mcp/tool-configs)** | Define tool permissions and limits |
-| **[Enabling Tools on Columns](/concepts/tool-use-and-mcp/enabling-tools)** | Use tools in LLM generation |
-| **[Configure via CLI](/concepts/tool-use-and-mcp/cli-configuration)** | Interactive CLI configuration |
+| **[MCP Providers](/concepts/tool-use-mcp/mcp-providers)** | Configure local subprocess or remote SSE providers |
+| **[Tool Configurations](/concepts/tool-use-mcp/tool-configs)** | Define tool permissions and limits |
+| **[Enabling Tools on Columns](/concepts/tool-use-mcp/enabling-tools)** | Use tools in LLM generation |
+| **[Configure via CLI](/concepts/tool-use-mcp/cli-configuration)** | Interactive CLI configuration |
 | **[Message Traces](/concepts/traces)** | Capture full conversation history |
-| **[Safety & Limits](/concepts/tool-use-and-mcp/safety-and-limits)** | Allowlists, budgets, timeouts |
+| **[Safety & Limits](/concepts/tool-use-mcp/safety-limits)** | Allowlists, budgets, timeouts |
 
 ## Example
 

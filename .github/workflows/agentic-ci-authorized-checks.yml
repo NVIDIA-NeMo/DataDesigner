@@ -79,12 +79,17 @@ jobs:
   DCOAssistant:
     needs: pr
     if: always()
+    permissions:
+      statuses: write
     timeout-minutes: 5
     runs-on: ubuntu-latest
     steps:
       - name: Validate authorization
         env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ inputs.expected_head_sha }}
           PR_RESULT: ${{ needs.pr.result }}
+          REPO: ${{ github.repository }}
           TRUSTED: ${{ needs.pr.outputs.trusted }}
         run: |
           if [ "$PR_RESULT" != "success" ] || [ "$TRUSTED" != "true" ]; then
@@ -92,6 +97,12 @@ jobs:
             exit 1
           fi
           echo "Trusted Agentic CI PR authorized by a maintainer."
+
+          gh api --method POST "repos/${REPO}/statuses/${HEAD_SHA}" \
+            -f state=success \
+            -f context=DCOAssistant \
+            -f description="Trusted Agentic CI PR authorized by a maintainer." \
+            -f target_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
 
   semantic-pull-request:
     name: semantic-pull-request / semantic-pull-request

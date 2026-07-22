@@ -4,6 +4,7 @@
 
 REPO_PATH := $(shell pwd)
 PRE_COMMIT ?= .venv/bin/pre-commit
+LICENSE_PYTHON_VERSION ?= 3.11
 
 # Package directories
 CONFIG_PKG := packages/data-designer-config
@@ -84,10 +85,12 @@ help:
 	@echo "  prepare-fern-release VERSION=X.Y.Z - Add or refresh Fern version files for release preview"
 	@echo "  check-fern-release-version VERSION=X.Y.Z - Verify Fern has a version entry for release publishing"
 	@echo "  prepare-fern-docs         - Generate local Fern artifacts"
-	@echo "  check-fern-docs           - Generate local Fern artifacts and run fern check"
+	@echo "  check-fern-links          - Validate latest navigation-derived internal Fern links"
+	@echo "  check-fern-docs           - Generate artifacts, validate links, and run fern check"
 	@echo "  check-fern-docs-locally   - Install deps, generate Fern artifacts, and run fern check"
 	@echo "  serve-fern-docs-locally   - Generate local Fern artifacts and serve Fern docs"
 	@echo "  check-license-headers     - Check if all files have license headers"
+	@echo "  check-dependency-licenses - Check runtime dependency license compatibility"
 	@echo "  update-license-headers    - Add license headers to all files"
 	@echo ""
 	@echo "⚡ Performance:"
@@ -449,8 +452,13 @@ show-versions:
 	@uv run python -c "from data_designer.interface._version import __version__; print(f'  data-designer:        {__version__}')" 2>/dev/null || echo "  data-designer: (not installed)"
 
 # ==============================================================================
-# LICENSE HEADERS
+# LICENSE CHECKS
 # ==============================================================================
+
+check-dependency-licenses:
+	@echo "🔍 Checking Python $(LICENSE_PYTHON_VERSION) locked runtime dependency licenses..."
+	uv run --isolated --python $(LICENSE_PYTHON_VERSION) --all-packages --no-dev --group license-check --locked \
+		python $(REPO_PATH)/scripts/check_dependency_licenses.py
 
 check-license-headers:
 	@echo "🔍 Checking license headers in all files..."
@@ -500,7 +508,11 @@ endif
 prepare-fern-docs: generate-fern-notebooks
 	@echo "✅ Fern local artifacts ready"
 
+check-fern-links:
+	$(DOCS_PYTHON) fern/scripts/check-internal-links.py --root fern --version latest
+
 check-fern-docs: prepare-fern-docs
+	@$(MAKE) check-fern-links
 	cd fern && $(FERN) check
 
 check-fern-docs-locally:
@@ -746,7 +758,7 @@ clean-test-coverage:
 .PHONY: bench-cli-startup bench-cli-startup-verbose \
         build build-config build-engine build-interface \
         check-all check-all-fix check-config check-engine check-interface \
-        check-fern-docs check-fern-docs-locally check-fern-release-version check-fern-theme-access check-license-headers \
+        check-dependency-licenses check-fern-docs check-fern-docs-locally check-fern-links check-fern-release-version check-fern-theme-access check-license-headers \
         clean clean-dist clean-notebooks clean-pycache clean-test-coverage \
         convert-execute-notebooks \
         coverage coverage-config coverage-engine coverage-interface \

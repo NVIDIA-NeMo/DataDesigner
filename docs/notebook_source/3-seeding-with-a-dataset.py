@@ -101,7 +101,7 @@ config_builder = dd.DataDesignerConfigBuilder(model_configs=model_configs)
 #
 # - We will _seed_ the generation process with a [symptom-to-diagnosis dataset](https://huggingface.co/datasets/gretelai/symptom_to_diagnosis).
 #
-# - We already have the dataset downloaded in the [data](../data) directory of this repository.
+# - The notebook downloads the source CSV before generation.
 #
 # <br>
 #
