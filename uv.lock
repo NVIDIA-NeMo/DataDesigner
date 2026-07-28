@@ -842,6 +842,7 @@ requires-dist = [
 name = "data-designer-config"
 source = { editable = "packages/data-designer-config" }
 dependencies = [
+    { name = "httpx" },
     { name = "idna" },
     { name = "jinja2" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
@@ -860,6 +861,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "httpx", specifier = ">=0.27.2,<1" },
     { name = "idna", specifier = ">=3.18,<4" },
     { name = "jinja2", specifier = ">=3.1.6,<4" },
     { name = "numpy", specifier = ">=1.23.5,<3" },
