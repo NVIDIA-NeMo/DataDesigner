@@ -45,6 +45,7 @@ from data_designer.engine.dataset_builders.scheduling.task_model import Task
 from data_designer.engine.dataset_builders.scheduling.task_policies import BoundedBorrowTaskAdmissionPolicyConfig
 from data_designer.engine.dataset_builders.utils.execution_graph import ExecutionGraph
 from data_designer.engine.dataset_builders.utils.row_group_buffer import RowGroupBufferManager
+from data_designer.engine.errors import DataDesignerRuntimeError
 from data_designer.engine.models.errors import (
     RETRYABLE_MODEL_ERRORS,
     ModelInternalServerError,
@@ -176,6 +177,63 @@ class MockFailingSeedGenerator(FromScratchColumnGenerator[ExpressionColumnConfig
 
     async def agenerate_from_scratch(self, num_records: int) -> lazy.pd.DataFrame:
         raise ValueError("permanent seed failure")
+
+
+class MockCoordinatedFailingRootGenerator(FromScratchColumnGenerator[ExpressionColumnConfig]):
+    """Root generator that fails after an independent root enters generation."""
+
+    def __init__(
+        self,
+        *args: Any,
+        independent_started: asyncio.Event,
+        failure_released: asyncio.Event,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self._independent_started = independent_started
+        self._failure_released = failure_released
+
+    @staticmethod
+    def get_generation_strategy() -> GenerationStrategy:
+        return GenerationStrategy.FULL_COLUMN
+
+    def generate(self, data: lazy.pd.DataFrame) -> lazy.pd.DataFrame:
+        return data
+
+    def generate_from_scratch(self, num_records: int) -> lazy.pd.DataFrame:
+        raise AssertionError("the scheduler must use the native async implementation")
+
+    async def agenerate_from_scratch(self, num_records: int) -> lazy.pd.DataFrame:
+        await self._independent_started.wait()
+        self._failure_released.set()
+        raise DataDesignerRuntimeError("coordinated root failure")
+
+
+class MockCoordinatedIndependentRootGenerator(ColumnGeneratorFullColumn[ExpressionColumnConfig]):
+    """Independent root that stays in flight until the failing root drops every row."""
+
+    def __init__(
+        self,
+        *args: Any,
+        independent_started: asyncio.Event,
+        failure_released: asyncio.Event,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self._independent_started = independent_started
+        self._failure_released = failure_released
+
+    def generate(self, data: lazy.pd.DataFrame) -> lazy.pd.DataFrame:
+        raise AssertionError("the scheduler must use the native async implementation")
+
+    async def agenerate(self, data: lazy.pd.DataFrame) -> lazy.pd.DataFrame:
+        self._independent_started.set()
+        await self._failure_released.wait()
+        # Let the failed worker publish its drop and wake the dispatch loop while
+        # this worker still owns a reference to the row-group buffer.
+        await asyncio.sleep(0)
+        data[self.config.name] = False
+        return data
 
 
 class MockFailingGenerator(ColumnGenerator[ExpressionColumnConfig]):
@@ -1299,6 +1357,62 @@ async def test_scheduler_non_retryable_seed_failure_no_keyerror_on_downstream() 
 
 
 @pytest.mark.asyncio(loop_scope="session")
+async def test_scheduler_does_not_free_row_group_with_independent_root_in_flight() -> None:
+    """An all-row drop waits for independently dispatched root workers before freeing the buffer."""
+    provider = _mock_provider()
+    storage = MagicMock()
+    storage.dataset_name = "test"
+    storage.get_file_paths.return_value = {}
+    independent_started = asyncio.Event()
+    failure_released = asyncio.Event()
+
+    configs = [
+        ExpressionColumnConfig(name="failed_root", expr="{{ false }}", dtype="bool"),
+        ExpressionColumnConfig(name="independent_root", expr="{{ false }}", dtype="bool"),
+    ]
+    strategies = {
+        "failed_root": GenerationStrategy.FULL_COLUMN,
+        "independent_root": GenerationStrategy.FULL_COLUMN,
+    }
+    generators: dict[str, ColumnGenerator] = {
+        "failed_root": MockCoordinatedFailingRootGenerator(
+            config=configs[0],
+            resource_provider=provider,
+            independent_started=independent_started,
+            failure_released=failure_released,
+        ),
+        "independent_root": MockCoordinatedIndependentRootGenerator(
+            config=configs[1],
+            resource_provider=provider,
+            independent_started=independent_started,
+            failure_released=failure_released,
+        ),
+    }
+    graph = ExecutionGraph.create(configs, strategies)
+    row_groups = [(0, 1)]
+    tracker = CompletionTracker.with_graph(graph, row_groups)
+    buffer_mgr = RowGroupBufferManager(storage)
+
+    scheduler = AsyncTaskScheduler(
+        generators=generators,
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        buffer_manager=buffer_mgr,
+        trace=True,
+        num_records=1,
+        buffer_size=1,
+    )
+
+    await scheduler.run()
+
+    assert tracker.is_dropped(0, 0)
+    assert not buffer_mgr.has_row_group(0)
+    independent_trace = next(trace for trace in scheduler.traces if trace.column == "independent_root")
+    assert independent_trace.status == "ok"
+
+
+@pytest.mark.asyncio(loop_scope="session")
 async def test_scheduler_pre_batch_failure_raises() -> None:
     """Pre-batch processor failure propagates as DatasetGenerationError."""
     provider = _mock_provider()
@@ -1831,7 +1945,7 @@ async def test_scheduler_on_finalize_row_group_callback_fires() -> None:
 
 @pytest.mark.asyncio(loop_scope="session")
 async def test_scheduler_on_finalize_skips_empty_row_group() -> None:
-    """on_finalize_row_group is not called when all rows are dropped."""
+    """Empty row groups are freed without finalization by default."""
     provider = _mock_provider()
     storage = MagicMock()
     storage.dataset_name = "test"
@@ -1850,6 +1964,7 @@ async def test_scheduler_on_finalize_skips_empty_row_group() -> None:
     tracker = CompletionTracker.with_graph(graph, row_groups)
     buffer_mgr = RowGroupBufferManager(storage)
     callback = MagicMock()
+    sink = InMemoryAdmissionEventSink()
 
     scheduler = AsyncTaskScheduler(
         generators=generators,
@@ -1858,11 +1973,160 @@ async def test_scheduler_on_finalize_skips_empty_row_group() -> None:
         row_groups=row_groups,
         buffer_manager=buffer_mgr,
         on_finalize_row_group=callback,
+        scheduler_event_sink=sink,
     )
     await scheduler.run()
 
     callback.assert_not_called()
     storage.write_batch_to_parquet_file.assert_not_called()
+    assert not buffer_mgr.has_row_group(0)
+    checkpointed = next(event for event in sink.scheduler_events if event.event_kind == "row_group_checkpointed")
+    assert checkpointed.diagnostics["result"] == "all_rows_dropped"
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_scheduler_can_retain_empty_row_group_result() -> None:
+    """Callers can retain an empty completed group for result-oriented processing."""
+    provider = _mock_provider()
+    storage = MagicMock()
+    storage.dataset_name = "test"
+    storage.get_file_paths.return_value = {}
+
+    configs = [
+        SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+    ]
+    strategies = {"seed": GenerationStrategy.FULL_COLUMN}
+    generators = {
+        "seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
+    }
+
+    graph = ExecutionGraph.create(configs, strategies)
+    row_groups = [(0, 3)]
+    tracker = CompletionTracker.with_graph(graph, row_groups)
+    buffer_mgr = RowGroupBufferManager(storage)
+    sink = InMemoryAdmissionEventSink()
+
+    def drop_all_rows(rg_id: int, rg_size: int) -> None:
+        for row_index in range(rg_size):
+            tracker.drop_row(rg_id, row_index)
+            buffer_mgr.drop_row(rg_id, row_index)
+
+    scheduler = AsyncTaskScheduler(
+        generators=generators,
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        buffer_manager=buffer_mgr,
+        retain_row_group_result=True,
+        on_before_checkpoint=drop_all_rows,
+        scheduler_event_sink=sink,
+    )
+    await scheduler.run()
+
+    storage.write_batch_to_parquet_file.assert_not_called()
+    assert buffer_mgr.has_row_group(0)
+    assert buffer_mgr.get_dataframe(0).empty
+    scheduler.emit_row_group_checkpointed(0, 3, surviving_rows=0, result="retained_empty")
+    scheduler.emit_deferred_job_completed()
+    checkpointed = next(event for event in sink.scheduler_events if event.event_kind == "row_group_checkpointed")
+    assert checkpointed.diagnostics["result"] == "retained_empty"
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_scheduler_can_retain_result_for_caller_managed_checkpoint() -> None:
+    """Result-oriented callers report a durable checkpoint before the terminal event."""
+    provider = _mock_provider()
+    storage = MagicMock()
+    storage.dataset_name = "test"
+    storage.get_file_paths.return_value = {}
+    config = SamplerColumnConfig(
+        name="seed",
+        sampler_type=SamplerType.CATEGORY,
+        params={"values": ["A"]},
+    )
+    graph = ExecutionGraph.create([config], {"seed": GenerationStrategy.FULL_COLUMN})
+    row_groups = [(0, 3)]
+    buffer_mgr = RowGroupBufferManager(storage)
+    sink = InMemoryAdmissionEventSink()
+    scheduler = AsyncTaskScheduler(
+        generators={"seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider)},
+        graph=graph,
+        tracker=CompletionTracker.with_graph(graph, row_groups),
+        row_groups=row_groups,
+        buffer_manager=buffer_mgr,
+        retain_row_group_result=True,
+        scheduler_event_sink=sink,
+    )
+
+    await scheduler.run()
+
+    deferred_kinds = {"row_group_checkpointed", "scheduler_job_completed"}
+    assert not any(event.event_kind in deferred_kinds for event in sink.scheduler_events)
+
+    scheduler.emit_row_group_checkpointed(
+        0,
+        3,
+        surviving_rows=2,
+        result="selection_committed",
+    )
+    scheduler.emit_deferred_job_completed()
+
+    checkpoint_events = [event for event in sink.scheduler_events if event.event_kind == "row_group_checkpointed"]
+    assert len(checkpoint_events) == 1
+    assert checkpoint_events[0].diagnostics["surviving_rows"] == 2
+    assert checkpoint_events[0].diagnostics["dropped_rows"] == 1
+    assert checkpoint_events[0].diagnostics["result"] == "selection_committed"
+    completion_kinds = [event.event_kind for event in sink.scheduler_events if event.event_kind in deferred_kinds]
+    assert completion_kinds == ["row_group_checkpointed", "scheduler_job_completed"]
+    buffer_mgr.free_row_group(0)
+
+
+def test_scheduler_rejects_result_retention_without_buffer_manager() -> None:
+    """Retaining an empty row group requires a buffer for the caller to inspect."""
+    config = ExpressionColumnConfig(name="seed", expr="'x'", dtype="str")
+    graph = ExecutionGraph.create([config], {"seed": GenerationStrategy.FULL_COLUMN})
+
+    with pytest.raises(ValueError, match="retain_row_group_result requires buffer_manager"):
+        AsyncTaskScheduler(
+            generators={"seed": MockSeedGenerator(config=config, resource_provider=_mock_provider())},
+            graph=graph,
+            tracker=CompletionTracker.with_graph(graph, [(0, 1)]),
+            row_groups=[(0, 1)],
+            retain_row_group_result=True,
+        )
+
+
+def test_scheduler_rejects_result_retention_with_row_group_finalizer() -> None:
+    """A run cannot split row-group ownership between retention and a finalizer."""
+    config = ExpressionColumnConfig(name="seed", expr="'x'", dtype="str")
+    graph = ExecutionGraph.create([config], {"seed": GenerationStrategy.FULL_COLUMN})
+
+    with pytest.raises(ValueError, match="retain_row_group_result cannot be combined with on_finalize_row_group"):
+        AsyncTaskScheduler(
+            generators={"seed": MockSeedGenerator(config=config, resource_provider=_mock_provider())},
+            graph=graph,
+            tracker=CompletionTracker.with_graph(graph, [(0, 1)]),
+            row_groups=[(0, 1)],
+            buffer_manager=RowGroupBufferManager(MagicMock()),
+            on_finalize_row_group=lambda _row_group_id: None,
+            retain_row_group_result=True,
+        )
+
+
+def test_scheduler_rejects_result_retention_for_multiple_row_groups() -> None:
+    config = ExpressionColumnConfig(name="seed", expr="'x'", dtype="str")
+    graph = ExecutionGraph.create([config], {"seed": GenerationStrategy.FULL_COLUMN})
+    row_groups = [(0, 1), (1, 1)]
+
+    with pytest.raises(ValueError, match="retain_row_group_result requires exactly one row group"):
+        AsyncTaskScheduler(
+            generators={"seed": MockSeedGenerator(config=config, resource_provider=_mock_provider())},
+            graph=graph,
+            tracker=CompletionTracker.with_graph(graph, row_groups),
+            row_groups=row_groups,
+            buffer_manager=RowGroupBufferManager(MagicMock()),
+            retain_row_group_result=True,
+        )
 
 
 @pytest.mark.asyncio(loop_scope="session")
@@ -5014,12 +5278,12 @@ async def test_scheduler_skip_full_column_batch() -> None:
             assert row["review"] == "batch_val", f"row {ri}: review should be generated (seed={seed_val})"
 
 
-# -- Post-batch (on_before_checkpoint) failure propagation --------------------
+# -- Before-checkpoint callback failure propagation ---------------------------
 
 
 @pytest.mark.asyncio(loop_scope="session")
-async def test_scheduler_post_batch_failure_raises() -> None:
-    """Post-batch processor failure propagates as DatasetGenerationError."""
+async def test_scheduler_before_checkpoint_failure_raises() -> None:
+    """Before-checkpoint callback failure propagates as DatasetGenerationError."""
     provider = _mock_provider()
     configs = [
         SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
@@ -5043,8 +5307,8 @@ async def test_scheduler_post_batch_failure_raises() -> None:
     storage.get_file_paths.return_value = {}
     buffer_mgr = RowGroupBufferManager(storage)
 
-    def fail_post_batch(rg_id: int, rg_size: int) -> None:
-        raise RuntimeError("post-batch processor exploded")
+    def fail_before_checkpoint(rg_id: int, rg_size: int) -> None:
+        raise RuntimeError("before-checkpoint callback exploded")
 
     scheduler = AsyncTaskScheduler(
         generators=generators,
@@ -5052,9 +5316,9 @@ async def test_scheduler_post_batch_failure_raises() -> None:
         tracker=tracker,
         row_groups=row_groups,
         buffer_manager=buffer_mgr,
-        on_before_checkpoint=fail_post_batch,
+        on_before_checkpoint=fail_before_checkpoint,
     )
-    with pytest.raises(DatasetGenerationError, match="Post-batch processor failed"):
+    with pytest.raises(DatasetGenerationError, match="Before-checkpoint callback failed"):
         await scheduler.run()
 
 

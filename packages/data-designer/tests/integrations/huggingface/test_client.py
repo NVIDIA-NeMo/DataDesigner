@@ -179,6 +179,40 @@ def test_upload_dataset_uploads_processor_outputs(
     assert len(calls) >= 1
 
 
+def test_upload_dataset_uploads_single_file_processor(
+    mock_hf_api: MagicMock,
+    mock_dataset_card: MagicMock,
+    sample_dataset_path: Path,
+) -> None:
+    processor_path = sample_dataset_path / "processors-files" / "summary.parquet"
+    processor_path.write_text("single-file processor output")
+    metadata_path = sample_dataset_path / "metadata.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata["file_paths"]["processor-files"]["summary"] = ["processors-files/summary.parquet"]
+    metadata_path.write_text(json.dumps(metadata))
+    uploaded_metadata: dict = {}
+
+    def capture_metadata(*, path_or_fileobj: str, path_in_repo: str, **_: object) -> None:
+        if path_in_repo == "metadata.json":
+            uploaded_metadata.update(json.loads(Path(path_or_fileobj).read_text()))
+
+    mock_hf_api.upload_file.side_effect = capture_metadata
+    HuggingFaceHubClient(token="test-token").upload_dataset(
+        repo_id="test/dataset",
+        base_dataset_path=sample_dataset_path,
+        description="Test dataset",
+    )
+
+    processor_uploads = [
+        call
+        for call in mock_hf_api.upload_file.call_args_list
+        if call.kwargs["path_in_repo"] == "summary/summary.parquet"
+    ]
+    assert len(processor_uploads) == 1
+    assert processor_uploads[0].kwargs["path_or_fileobj"] == str(processor_path)
+    assert uploaded_metadata["file_paths"]["processor-files"]["summary"] == ["summary/summary.parquet"]
+
+
 def test_upload_dataset_uploads_config_files(
     mock_hf_api: MagicMock, mock_dataset_card: MagicMock, sample_dataset_path: Path
 ) -> None:
@@ -445,6 +479,104 @@ def test_validate_dataset_path_invalid_metadata_json(tmp_path: Path) -> None:
 
     with pytest.raises(HuggingFaceHubClientUploadError, match="Invalid JSON"):
         client.upload_dataset("test/dataset", base_path, "Test")
+
+
+def test_upload_dataset_rejects_non_object_metadata_before_network(
+    mock_hf_api: MagicMock,
+    sample_dataset_path: Path,
+) -> None:
+    (sample_dataset_path / "metadata.json").write_text("[]")
+
+    with pytest.raises(HuggingFaceHubClientUploadError, match="metadata.json must contain a JSON object"):
+        HuggingFaceHubClient(token="test-token").upload_dataset(
+            repo_id="test/dataset",
+            base_dataset_path=sample_dataset_path,
+            description="Test dataset",
+        )
+
+    assert mock_hf_api.method_calls == []
+
+
+@pytest.mark.parametrize(
+    ("record_selection", "post_generation_state", "error"),
+    [
+        (
+            {
+                "selection_satisfied": True,
+                "selection_exhausted": False,
+                "on_exhausted": "raise",
+            },
+            "started",
+            "selection and publication are complete",
+        ),
+        (
+            {
+                "selection_satisfied": False,
+                "selection_exhausted": True,
+                "on_exhausted": "raise",
+            },
+            "complete",
+            "selection and publication are complete",
+        ),
+        ({}, "complete", "selection and publication are complete"),
+        ([], "complete", "record_selection.*JSON object"),
+    ],
+)
+def test_upload_dataset_rejects_unpublishable_record_selection_before_network(
+    mock_hf_api: MagicMock,
+    sample_dataset_path: Path,
+    record_selection: object,
+    post_generation_state: str,
+    error: str,
+) -> None:
+    metadata_path = sample_dataset_path / "metadata.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata["record_selection"] = record_selection
+    metadata["post_generation_state"] = post_generation_state
+    metadata_path.write_text(json.dumps(metadata))
+
+    with pytest.raises(HuggingFaceHubClientUploadError, match=error):
+        HuggingFaceHubClient(token="test-token").upload_dataset(
+            repo_id="test/dataset",
+            base_dataset_path=sample_dataset_path,
+            description="Test dataset",
+        )
+
+    assert mock_hf_api.method_calls == []
+
+
+@pytest.mark.parametrize(
+    ("selection_satisfied", "selection_exhausted", "on_exhausted"),
+    [
+        (True, False, "raise"),
+        (False, True, "return_partial"),
+    ],
+)
+def test_upload_dataset_accepts_terminal_record_selection(
+    mock_hf_api: MagicMock,
+    mock_dataset_card: MagicMock,
+    sample_dataset_path: Path,
+    selection_satisfied: bool,
+    selection_exhausted: bool,
+    on_exhausted: str,
+) -> None:
+    metadata_path = sample_dataset_path / "metadata.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata["record_selection"] = {
+        "selection_satisfied": selection_satisfied,
+        "selection_exhausted": selection_exhausted,
+        "on_exhausted": on_exhausted,
+    }
+    metadata["post_generation_state"] = "complete"
+    metadata_path.write_text(json.dumps(metadata))
+
+    HuggingFaceHubClient(token="test-token").upload_dataset(
+        repo_id="test/dataset",
+        base_dataset_path=sample_dataset_path,
+        description="Test dataset",
+    )
+
+    mock_hf_api.create_repo.assert_called_once()
 
 
 def test_validate_dataset_path_invalid_builder_config_json(tmp_path: Path) -> None:

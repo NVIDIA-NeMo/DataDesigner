@@ -28,6 +28,7 @@ from data_designer.config.fingerprint import (
 from data_designer.config.mcp import ToolConfig
 from data_designer.config.models import ChatCompletionInferenceParams, ModelConfig
 from data_designer.config.processors import DropColumnsProcessorConfig
+from data_designer.config.record_selection import RecordSelectionConfig, RecordSelectionExhaustion
 from data_designer.config.sampler_constraints import InequalityOperator, ScalarInequalityConstraint
 from data_designer.config.sampler_params import CategorySamplerParams, UniformSamplerParams
 from data_designer.config.seed import IndexRange, SamplingStrategy, SeedConfig
@@ -192,6 +193,42 @@ def test_changing_top_level_processor_changes_hash() -> None:
     a = _make_minimal_config()
     b = _make_minimal_config(processors=[DropColumnsProcessorConfig(name="drop", column_names=["x"])])
     assert _compute_hash(a) != _compute_hash(b)
+
+
+def test_adding_record_selection_changes_hash() -> None:
+    a = _make_minimal_config()
+    b = _make_minimal_config(
+        record_selection=RecordSelectionConfig(predicate_column="accepted", max_candidate_records=100)
+    )
+    assert _compute_hash(a) != _compute_hash(b)
+
+
+def test_absent_record_selection_preserves_legacy_v2_hash() -> None:
+    config = _make_minimal_config()
+
+    assert CONFIG_HASH_VERSION == 2
+    assert config.record_selection is None
+    assert _compute_hash(config) == "sha256:b21a98e06ea3c84c8fac9fe5231e68b0bfcffe03283952b03e807baba17139dc"
+
+
+@pytest.mark.parametrize(
+    "record_selection",
+    [
+        RecordSelectionConfig(predicate_column="other_predicate", max_candidate_records=100),
+        RecordSelectionConfig(predicate_column="accepted", max_candidate_records=200),
+        RecordSelectionConfig(
+            predicate_column="accepted",
+            max_candidate_records=100,
+            on_exhausted=RecordSelectionExhaustion.RETURN_PARTIAL,
+        ),
+    ],
+)
+def test_changing_record_selection_field_changes_hash(record_selection: RecordSelectionConfig) -> None:
+    baseline = RecordSelectionConfig(predicate_column="accepted", max_candidate_records=100)
+
+    assert _compute_hash(_make_minimal_config(record_selection=baseline)) != _compute_hash(
+        _make_minimal_config(record_selection=record_selection)
+    )
 
 
 def test_changing_extra_body_changes_hash() -> None:

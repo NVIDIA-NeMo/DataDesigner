@@ -1,0 +1,162 @@
+---
+title: "Record Selection"
+description: "Generate an exact number of rows that satisfy a declared boolean criterion."
+---
+
+# Record Selection
+
+Record selection lets one `DataDesigner.create()` call produce an exact number of rows that satisfy a declared
+boolean expression, custom column, or plugin column. Data Designer owns candidate generation, filtering, refill,
+deterministic trimming, checkpoints, and resume.
+
+Use record selection when filtering after generation would leave fewer rows than you requested. For example, you
+can derive a boolean expression from a judge score, validation result, safety decision, or nested structured model
+output before a row enters the output.
+
+## Configure an accepted-row target
+
+Declare the criterion as a boolean expression column, then attach `RecordSelectionConfig` to the builder:
+
+```python
+import data_designer.config as dd
+from data_designer.interface import DataDesigner
+
+builder = dd.DataDesignerConfigBuilder()
+builder.add_column(
+    dd.SamplerColumnConfig(
+        name="quality_score",
+        sampler_type=dd.SamplerType.UNIFORM,
+        params=dd.UniformSamplerParams(low=0.0, high=1.0),
+    )
+)
+builder.add_column(
+    dd.ExpressionColumnConfig(
+        name="meets_criteria",
+        expr="{{ quality_score >= 0.8 }}",
+        dtype="bool",
+        drop=True,
+    )
+)
+builder.with_record_selection(
+    dd.RecordSelectionConfig(
+        predicate_column="meets_criteria",
+        max_candidate_records=10_000,
+        on_exhausted="raise",
+    )
+)
+
+results = DataDesigner().create(builder, num_records=1_000)
+assert results.count_records() == 1_000
+```
+
+With record selection enabled, `num_records=1_000` means **1,000 accepted output rows**. Candidate generation stops
+after the completed batch that reaches that target, or when `max_candidate_records` is exhausted. Accepted rows keep
+candidate order; if the final candidate batch contains more passing rows than needed, Data Designer keeps the earliest
+rows.
+
+<Warning>
+  Candidate generation can invoke models for rows that are later rejected. Set `max_candidate_records` to a strict
+  positive integer that is greater than or equal to `num_records` and reflects your cost limit. Booleans, floats,
+  and numeric strings are rejected instead of being coerced into a budget.
+</Warning>
+
+## Predicate behavior
+
+The predicate column must exist in the dataset configuration. A direct built-in predicate must be an
+`ExpressionColumnConfig` with `dtype="bool"`. Custom and registered plugin columns may be direct predicates; their
+values are validated at runtime. Sampler, seed, validation, and built-in model columns are not direct predicates.
+Normalize their values through a boolean expression first. For example, extract a nested structured decision with:
+
+```python
+builder.add_column(
+    dd.ExpressionColumnConfig(
+        name="meets_criteria",
+        expr="{{ judgment.accepted }}",
+        dtype="bool",
+        drop=True,
+    )
+)
+```
+
+Here, `judgment` may be an `LLMStructuredColumnConfig`; record selection still reads only the top-level
+`meets_criteria` predicate column and does not interpret JSON paths itself.
+
+| Predicate value | Result |
+| --- | --- |
+| `True` | Accept the row |
+| `False` | Reject the row |
+| Null | Reject the row and increment `null_predicate_records` |
+| Any other value | Stop with a generation error instead of applying truthiness coercion |
+
+Selection runs after the complete candidate-row DAG and before post-batch processors. A predicate with `drop=True`
+still participates in selection, then follows the normal dropped-column artifact policy.
+
+## Selection limitations
+
+Selection predicates must be row-local: they can depend on columns in the current candidate record, but not on the
+current batch, previously generated candidates, or previously accepted records. Global ranking, top-N selection,
+quotas, cross-batch deduplication, and stateful plugin predicates are not supported.
+
+Data Designer tracks and stages media produced by engine-managed image generators. Custom and plugin code should be
+side-effect-free: external files or media that it creates are not tracked by record selection, so artifacts associated
+with rejected candidates may remain.
+
+## Choose exhaustion behavior
+
+The default `on_exhausted="raise"` raises `DataDesignerRecordSelectionExhaustedError`. The error exposes the target,
+accepted count, candidate count, and configured cap:
+
+```python
+from data_designer.interface import DataDesignerRecordSelectionExhaustedError
+
+try:
+    results = DataDesigner().create(builder, num_records=1_000)
+except DataDesignerRecordSelectionExhaustedError as error:
+    print(error.accepted_records, error.candidate_records)
+```
+
+Use `on_exhausted="return_partial"` when a smaller accepted-only dataset is useful. A valid all-rejected result is
+a schema-bearing zero-row dataset. In that case, profiling is skipped and `results.load_analysis()` returns `None`.
+Early shutdown remains an error. A zero-row run with a non-retryable generation failure is also an error rather than
+an empty partial result; resume replays its durable terminal state.
+
+## Resume an interrupted selection run
+
+Candidate batches and accepted partitions are checkpointed independently, including candidate batches that accept
+zero rows. Resume continues from the next candidate offset without regenerating committed work:
+
+```python
+from data_designer.interface import ResumeMode
+
+results = DataDesigner().create(
+    builder,
+    num_records=1_000,
+    dataset_name="quality-filtered",
+    resume=ResumeMode.ALWAYS,
+)
+```
+
+For record selection, `ResumeMode.ALWAYS` requires the same configuration, `num_records`, and `RunConfig.buffer_size`
+as the original run. A larger target is not compatible because rows trimmed from the original final batch were not
+committed. `ResumeMode.IF_POSSIBLE` clears engine-managed artifacts and starts the selection run again when those
+inputs differ.
+
+Published output is rebuilt from immutable accepted partitions after a crash. `push_to_hub()` accepts only terminal
+selection artifacts whose publication state is complete; internal candidate markers and accepted-partition staging
+are not uploaded.
+
+<Note>
+  `preview()` does not execute the accepted-row retry and checkpoint contract. Preview the configuration before
+  enabling record selection, then use `create()` for the accepted-row target.
+</Note>
+
+## Processor limitations
+
+Pre-batch processors run on candidates. Record selection runs before post-batch processors, so post-batch processors
+see accepted rows only, must preserve their count, and must retain at least one column for non-empty output.
+After-generation processors run once on the published accepted dataset and have the same count and non-empty schema
+requirements. Data Designer validates both contracts and raises if a plugin violates them.
+
+Selection diagnostics are stored under `record_selection` in `metadata.json`, including candidate attempts, accepted,
+rejected, null, failed, and trimmed rows, acceptance rate, and terminal state. Model usage includes both accepted and
+rejected candidate work.

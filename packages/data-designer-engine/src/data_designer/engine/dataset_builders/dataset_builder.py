@@ -3,13 +3,10 @@
 
 from __future__ import annotations
 
-import asyncio
-import concurrent.futures
 import contextlib
 import functools
 import json
 import logging
-import os
 import time
 import uuid
 from dataclasses import dataclass
@@ -19,7 +16,7 @@ from typing import TYPE_CHECKING, Any, Callable
 from pydantic import ValidationError
 
 import data_designer.lazy_heavy_imports as lazy
-from data_designer.config.column_types import ColumnConfigT, DataDesignerColumnType
+from data_designer.config.column_types import ColumnConfigT, DataDesignerColumnType, is_plugin_column_type
 from data_designer.config.config_builder import BuilderConfig
 from data_designer.config.data_designer_config import DataDesignerConfig
 from data_designer.config.processors import (
@@ -37,6 +34,10 @@ from data_designer.engine.compiler import compile_data_designer_config
 from data_designer.engine.dataset_builders.async_scheduler import AsyncTaskScheduler
 from data_designer.engine.dataset_builders.errors import DatasetGenerationError
 from data_designer.engine.dataset_builders.multi_column_configs import MultiColumnConfig
+from data_designer.engine.dataset_builders.record_selection_runner import (
+    RecordSelectionRunner,
+    RecordSelectionRunState,
+)
 from data_designer.engine.dataset_builders.row_group_plan import (
     CompactRowGroupPlan,
     RowGroupInput,
@@ -44,7 +45,10 @@ from data_designer.engine.dataset_builders.row_group_plan import (
     normalize_row_group_plan,
 )
 from data_designer.engine.dataset_builders.scheduling.completion import CompletionTracker, FrontierDelta
-from data_designer.engine.dataset_builders.utils.async_concurrency import ensure_async_engine_loop
+from data_designer.engine.dataset_builders.utils.async_concurrency import (
+    is_async_trace_enabled,
+    run_async_scheduler,
+)
 from data_designer.engine.dataset_builders.utils.config_compiler import compile_dataset_builder_column_configs
 from data_designer.engine.dataset_builders.utils.execution_graph import ExecutionGraph
 from data_designer.engine.dataset_builders.utils.processor_runner import ProcessorRunner, ProcessorStage
@@ -71,7 +75,6 @@ from data_designer.engine.storage.media_storage import StorageMode
 if TYPE_CHECKING:
     import pandas as pd
 
-    from data_designer.config.run_config import RunConfig
     from data_designer.engine.dataset_builders.scheduling.task_model import TaskTrace
     from data_designer.engine.models.usage import ModelUsageStats
 
@@ -80,24 +83,6 @@ logger = logging.getLogger(__name__)
 
 _CLIENT_VERSION: str = get_library_version()
 PRESERVE_DROPPED_COLUMNS_METADATA_KEY = "preserve_dropped_columns"
-
-
-def _is_async_trace_enabled(settings: RunConfig) -> bool:
-    return settings.async_trace or os.environ.get("DATA_DESIGNER_ASYNC_TRACE", "0") == "1"
-
-
-def _await_async_scheduler_result(future: concurrent.futures.Future[Any], scheduler: AsyncTaskScheduler) -> None:
-    try:
-        future.result()
-    except KeyboardInterrupt:
-        scheduler.request_cancel()
-        try:
-            future.result()
-        except concurrent.futures.CancelledError:
-            pass
-        except Exception:
-            logger.debug("Async scheduler raised while cancelling after KeyboardInterrupt", exc_info=True)
-        raise
 
 
 class _ConfigCompatibility(StrEnum):
@@ -202,6 +187,7 @@ class DatasetBuilder:
             artifact_storage=resource_provider.artifact_storage,
         )
         self._validate_column_configs()
+        self._validate_record_selection_config()
 
     @property
     def artifact_storage(self) -> ArtifactStorage:
@@ -260,7 +246,8 @@ class DatasetBuilder:
         """Build the dataset.
 
         Args:
-            num_records: Number of records to generate.
+            num_records: Number of output records to generate. When record selection is configured,
+                this is the exact accepted-row target rather than the number of candidate attempts.
             on_batch_complete: Optional callback function called when each batch completes.
             save_multimedia_to_disk: Whether to save generated multimedia (images, audio, video) to disk.
                 If False, multimedia is stored directly in the DataFrame (e.g., images as base64).
@@ -280,10 +267,19 @@ class DatasetBuilder:
                 In all resume modes, in-flight partial results from the interrupted run are
                 discarded before generation continues.
 
+                Record-selection runs additionally require the same ``num_records`` and
+                ``buffer_size`` used by the original run. ``IF_POSSIBLE`` clears engine-managed
+                selection artifacts and starts fresh when either runtime input changes.
+
         Returns:
             Path to the generated dataset directory.
         """
         self._reset_run_state()
+        self._validate_record_selection_request(num_records)
+        record_selection_runner = (
+            RecordSelectionRunner(self) if self._data_designer_config.record_selection is not None else None
+        )
+        requested_resume = resume
 
         run_readiness_check(
             self.single_column_configs,
@@ -300,7 +296,9 @@ class DatasetBuilder:
         # validator accesses base_dataset_path at construction time, which caches resolved_dataset_name
         # under the original resume mode semantics. Popping it forces a fresh resolution.
         if resume in (ResumeMode.IF_POSSIBLE, ResumeMode.ALWAYS):
-            compat = self._check_resume_config_compatibility()
+            compat = self._check_resume_config_compatibility(
+                unreadable_as_incompatible=(resume == ResumeMode.IF_POSSIBLE and record_selection_runner is not None)
+            )
             if resume == ResumeMode.ALWAYS and compat == _ConfigCompatibility.INCOMPATIBLE:
                 raise DatasetGenerationError(
                     "🛑 Cannot resume: the current config or dropped-column artifact policy does not match the "
@@ -314,6 +312,8 @@ class DatasetBuilder:
                         logger.info(
                             "▶️ Config has changed since the last run — starting a fresh generation (resume=IF_POSSIBLE)."
                         )
+                    if record_selection_runner is not None:
+                        record_selection_runner.clear_incompatible_artifacts()
                     resume = ResumeMode.NEVER
                     self.artifact_storage.resume = ResumeMode.NEVER
                     self.artifact_storage.__dict__.pop("resolved_dataset_name", None)
@@ -323,9 +323,37 @@ class DatasetBuilder:
                     self.artifact_storage.resume = ResumeMode.ALWAYS
                     self.artifact_storage.__dict__.pop("resolved_dataset_name", None)
 
+        buffer_size = self._resource_provider.run_config.buffer_size
+        if record_selection_runner is not None and resume in (
+            ResumeMode.IF_POSSIBLE,
+            ResumeMode.ALWAYS,
+        ):
+            runtime_compatible = record_selection_runner.runtime_inputs_are_compatible(
+                num_records,
+                buffer_size,
+            )
+            if not runtime_compatible:
+                if requested_resume == ResumeMode.ALWAYS:
+                    raise DatasetGenerationError(
+                        "🛑 Cannot resume record selection: num_records and buffer_size must exactly match "
+                        "the interrupted run. Use resume=ResumeMode.IF_POSSIBLE to start fresh automatically, "
+                        "or resume=ResumeMode.NEVER to force a new run."
+                    )
+                logger.info(
+                    "▶️ Record-selection runtime inputs changed — starting a fresh generation (resume=IF_POSSIBLE)."
+                )
+                record_selection_runner.clear_incompatible_artifacts()
+                resume = ResumeMode.NEVER
+                self.artifact_storage.resume = ResumeMode.NEVER
+                self.artifact_storage.__dict__.pop("resolved_dataset_name", None)
+                self.artifact_storage.refresh_media_storage_path()
+
         self._set_metadata_defaults()
 
-        if self._post_generation_processed_resume_result(resume, num_records) is not None:
+        if (
+            self._data_designer_config.record_selection is None
+            and self._post_generation_processed_resume_result(resume, num_records) is not None
+        ):
             return self.artifact_storage.final_dataset_path
 
         self._write_builder_config()
@@ -337,9 +365,12 @@ class DatasetBuilder:
 
         generators, self._graph = self._initialize_generators_and_graph()
         start_time = time.perf_counter()
-        buffer_size = self._resource_provider.run_config.buffer_size
 
-        if resume == ResumeMode.ALWAYS and not self.artifact_storage.metadata_file_path.exists():
+        if (
+            self._data_designer_config.record_selection is None
+            and resume == ResumeMode.ALWAYS
+            and not self.artifact_storage.metadata_file_path.exists()
+        ):
             # No metadata.json means the previous run was interrupted before any
             # row group completed. Nothing to resume, so discard leftover
             # partial results and start fresh.
@@ -350,6 +381,25 @@ class DatasetBuilder:
             self.artifact_storage.clear_partial_results()
             resume = ResumeMode.NEVER
             self.artifact_storage.resume = ResumeMode.NEVER
+
+        if record_selection_runner is not None:
+            for generator in generators:
+                generator.log_pre_generation()
+            try:
+                record_selection_runner.run(
+                    generators,
+                    target_num_records=num_records,
+                    buffer_size=buffer_size,
+                    on_batch_complete=on_batch_complete,
+                    resume=resume,
+                )
+            finally:
+                # Sync even on the raising paths (early shutdown, exhaustion): the interface
+                # reads these fields to classify the outcome, matching the pre-extraction
+                # behavior where the runner populated them in its own ``finally``.
+                self._apply_selection_run_state(record_selection_runner.run_state)
+                self._resource_provider.model_registry.log_model_usage(time.perf_counter() - start_time)
+            return self.artifact_storage.final_dataset_path
 
         self._build_async(generators, num_records, buffer_size, on_batch_complete, resume=resume)
 
@@ -539,6 +589,11 @@ class DatasetBuilder:
 
     def build_preview(self, *, num_records: int) -> pd.DataFrame:
         self._reset_run_state()
+        if self._data_designer_config.record_selection is not None:
+            raise DatasetGenerationError(
+                "🛑 preview() does not support record selection because preview has no accepted-row retry or "
+                "checkpoint contract. Use create(), or preview the same config with record selection disabled."
+            )
         run_readiness_check(
             self.single_column_configs,
             self._resource_provider,
@@ -565,12 +620,20 @@ class DatasetBuilder:
         self._first_non_retryable_error = None
         self._task_traces = []
 
+    def _apply_selection_run_state(self, run_state: RecordSelectionRunState) -> None:
+        """Adopt the record-selection runner's accumulated run outcome as this build's state."""
+        self._actual_num_records = run_state.actual_num_records
+        self._early_shutdown = run_state.early_shutdown
+        self._partial_row_groups = run_state.partial_row_groups
+        self._first_non_retryable_error = run_state.first_non_retryable_error
+        self._task_traces = run_state.task_traces
+
     def _build_async_preview(self, generators: list[ColumnGenerator], num_records: int) -> pd.DataFrame:
         """Async preview path - single row group, no disk writes, returns in-memory DataFrame."""
         logger.info("⚡ Using async task-queue preview")
 
         settings = self._resource_provider.run_config
-        trace_enabled = _is_async_trace_enabled(settings)
+        trace_enabled = is_async_trace_enabled(settings)
 
         scheduler, buffer_manager = self._prepare_async_run(
             generators,
@@ -580,10 +643,8 @@ class DatasetBuilder:
             trace=trace_enabled,
         )
 
-        loop = ensure_async_engine_loop()
-        future = asyncio.run_coroutine_threadsafe(scheduler.run(), loop)
         try:
-            _await_async_scheduler_result(future, scheduler)
+            run_async_scheduler(scheduler)
         finally:
             self._task_traces = scheduler.traces
             self._early_shutdown = scheduler.early_shutdown
@@ -643,8 +704,16 @@ class DatasetBuilder:
                 )
         return len(completed_row_groups), sum(completed_row_groups.values()), completed_row_groups
 
-    def _check_resume_config_compatibility(self) -> _ConfigCompatibility:
+    def _check_resume_config_compatibility(
+        self,
+        *,
+        unreadable_as_incompatible: bool = False,
+    ) -> _ConfigCompatibility:
         """Compare the current config fingerprint against stored resume identity.
+
+        Args:
+            unreadable_as_incompatible: Return ``INCOMPATIBLE`` for corrupt metadata instead of raising. This lets
+                ``IF_POSSIBLE`` preserve or clear the unresolved directory according to feature ownership.
 
         Returns:
             NO_PRIOR_DATASET  — directory absent or empty (no prior run to resume from).
@@ -662,8 +731,13 @@ class DatasetBuilder:
         metadata_path = dataset_dir / METADATA_FILENAME
         if metadata_path.exists():
             try:
-                metadata = json.loads(metadata_path.read_text())
-            except json.JSONDecodeError as exc:
+                metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            except (UnicodeError, json.JSONDecodeError) as exc:
+                if unreadable_as_incompatible:
+                    logger.warning(
+                        "⚠️ Stored metadata is unreadable — treating it as incompatible (resume=IF_POSSIBLE)."
+                    )
+                    return _ConfigCompatibility.INCOMPATIBLE
                 raise DatasetGenerationError(
                     "🛑 Cannot resume: metadata.json is corrupt or partially written. "
                     "Start a fresh run with resume=ResumeMode.NEVER, or restore a valid metadata.json."
@@ -674,6 +748,19 @@ class DatasetBuilder:
                     metadata_path,
                 )
                 return _ConfigCompatibility.INCOMPATIBLE
+
+            if not isinstance(metadata, dict):
+                if unreadable_as_incompatible:
+                    logger.warning(
+                        "⚠️ Metadata at %s does not contain a JSON object — treating it as incompatible "
+                        "(resume=IF_POSSIBLE).",
+                        metadata_path,
+                    )
+                    return _ConfigCompatibility.INCOMPATIBLE
+                raise DatasetGenerationError(
+                    "🛑 Cannot resume: metadata.json does not contain a JSON object. "
+                    "Start a fresh run with resume=ResumeMode.NEVER, or restore a valid metadata.json."
+                )
 
             if not self._dropped_column_artifact_policy_matches(metadata):
                 return _ConfigCompatibility.INCOMPATIBLE
@@ -756,7 +843,7 @@ class DatasetBuilder:
         logger.info("⚡ Using async task-queue builder")
 
         settings = self._resource_provider.run_config
-        trace_enabled = _is_async_trace_enabled(settings)
+        trace_enabled = is_async_trace_enabled(settings)
 
         precomputed_row_groups: RowGroupInput | None = None
         initial_actual_num_records = 0
@@ -843,10 +930,8 @@ class DatasetBuilder:
             # so the structured signal is preserved even if `scheduler.run()`
             # raises during the salvage path - otherwise callers see a generic
             # error and lose the early-shutdown context.
-            loop = ensure_async_engine_loop()
-            future = asyncio.run_coroutine_threadsafe(scheduler.run(), loop)
             try:
-                _await_async_scheduler_result(future, scheduler)
+                run_async_scheduler(scheduler)
             finally:
                 self._task_traces = scheduler.traces
                 self._early_shutdown = scheduler.early_shutdown
@@ -894,6 +979,7 @@ class DatasetBuilder:
         buffer_size: int,
         *,
         on_finalize_row_group: Callable[[int], None] | None = None,
+        retain_row_group_result: bool = False,
         run_post_batch_in_scheduler: bool = True,
         shutdown_error_rate: float = 0.5,
         shutdown_error_window: int = 10,
@@ -903,11 +989,13 @@ class DatasetBuilder:
         initial_actual_num_records: int = 0,
         initial_total_num_batches: int = 0,
         scheduler_event_sink: SchedulerAdmissionEventSink | None = None,
+        log_pre_generation: bool = True,
     ) -> tuple[AsyncTaskScheduler, RowGroupBufferManager]:
         """Build a fully-wired scheduler and buffer manager for async generation.
 
-        Shared setup for both build and preview paths. Processor hooks are always
-        wired when the config has processors, so callers cannot accidentally omit them.
+        Shared setup for build, preview, and result-producing candidate paths. Pre-batch
+        processors are always wired; callers may defer post-batch processing until after
+        the scheduler returns.
         """
         strategies: dict[str, GenerationStrategy] = {}
         gen_map: dict[str, ColumnGenerator] = {}
@@ -922,8 +1010,9 @@ class DatasetBuilder:
 
         graph = ExecutionGraph.create(self._column_configs, strategies)
 
-        for gen in generators:
-            gen.log_pre_generation()
+        if log_pre_generation:
+            for generator in generators:
+                generator.log_pre_generation()
 
         if precomputed_row_groups is not None:
             row_groups: RowGroupPlanLike = normalize_row_group_plan(precomputed_row_groups)
@@ -952,11 +1041,24 @@ class DatasetBuilder:
                 removed=tuple(task for delta in deltas for task in delta.removed),
             )
 
-        # Post-batch processor callback: runs after all columns, before finalization.
-        def on_before_checkpoint(rg_id: int, rg_size: int) -> None:
-            df = buffer_manager.get_dataframe(rg_id)
-            df = self._processor_runner.run_post_batch(df, current_batch_number=rg_id, strict_row_count=True)
-            buffer_manager.replace_dataframe(rg_id, df)
+        has_post_batch_processors = run_post_batch_in_scheduler and self._processor_runner.has_processors_for(
+            ProcessorStage.POST_BATCH
+        )
+
+        def on_before_checkpoint(rg_id: int, _rg_size: int) -> None:
+            if has_post_batch_processors:
+                try:
+                    dataframe = buffer_manager.get_dataframe(rg_id)
+                    dataframe = self._processor_runner.run_post_batch(
+                        dataframe,
+                        current_batch_number=rg_id,
+                        strict_row_count=True,
+                    )
+                    buffer_manager.replace_dataframe(rg_id, dataframe)
+                except DatasetGenerationError:
+                    raise
+                except Exception as exc:
+                    raise DatasetGenerationError(f"Post-batch processor failed for row group {rg_id}: {exc}") from exc
 
         max_in_flight_tasks = self._resource_provider.run_config.max_in_flight_tasks
         max_model_task_admission = max_in_flight_tasks
@@ -971,14 +1073,11 @@ class DatasetBuilder:
             max_in_flight_tasks=max_in_flight_tasks,
             max_model_task_admission=max_model_task_admission,
             on_finalize_row_group=on_finalize_row_group,
+            retain_row_group_result=retain_row_group_result,
             on_seeds_complete=(
                 on_seeds_complete if self._processor_runner.has_processors_for(ProcessorStage.PRE_BATCH) else None
             ),
-            on_before_checkpoint=(
-                on_before_checkpoint
-                if run_post_batch_in_scheduler and self._processor_runner.has_processors_for(ProcessorStage.POST_BATCH)
-                else None
-            ),
+            on_before_checkpoint=on_before_checkpoint if has_post_batch_processors else None,
             shutdown_error_rate=shutdown_error_rate,
             shutdown_error_window=shutdown_error_window,
             disable_early_shutdown=disable_early_shutdown,
@@ -1037,6 +1136,61 @@ class DatasetBuilder:
             type(self._column_configs[0])
         ).can_generate_from_scratch:
             raise DatasetGenerationError("🛑 The first column config must be a from-scratch column generator.")
+
+    def _validate_record_selection_config(self) -> None:
+        config = self._data_designer_config.record_selection
+        if config is None:
+            return
+        predicate_config: ColumnConfigT | None = None
+        predicate_owner: ColumnConfigT | None = None
+        available_columns: set[str] = set()
+        for column_config in self.single_column_configs:
+            available_columns.add(column_config.name)
+            available_columns.update(column_config.side_effect_columns)
+            if column_config.name == config.predicate_column:
+                predicate_config = column_config
+                predicate_owner = column_config
+            elif config.predicate_column in column_config.side_effect_columns:
+                predicate_owner = column_config
+        if config.predicate_column not in available_columns:
+            raise DatasetGenerationError(
+                f"🛑 Record-selection predicate column {config.predicate_column!r} does not exist in the "
+                "compiled dataset columns."
+            )
+        if predicate_owner is None:
+            raise DatasetGenerationError(
+                f"🛑 Record-selection predicate column {config.predicate_column!r} has no owning column config."
+            )
+
+        column_type = predicate_owner.column_type
+        if column_type == DataDesignerColumnType.EXPRESSION:
+            if predicate_config is not None and getattr(predicate_config, "dtype", None) == "bool":
+                return
+            raise DatasetGenerationError(
+                f"🛑 Record-selection predicate expression {config.predicate_column!r} must use dtype='bool'."
+            )
+
+        # Custom and plugin output types are intentionally runtime-defined. Their
+        # values remain subject to AcceptanceController's strict bool/null check.
+        if column_type == DataDesignerColumnType.CUSTOM or is_plugin_column_type(column_type):
+            return
+
+        raise DatasetGenerationError(
+            f"🛑 Record-selection predicate column {config.predicate_column!r} uses unsupported built-in "
+            f"column type {str(column_type)!r}; expected a boolean expression, custom column, or plugin column."
+        )
+
+    def _validate_record_selection_request(self, num_records: int) -> None:
+        config = self._data_designer_config.record_selection
+        if config is None:
+            return
+        if num_records <= 0:
+            raise DatasetGenerationError("🛑 num_records must be positive when record selection is configured.")
+        if config.max_candidate_records < num_records:
+            raise DatasetGenerationError(
+                "🛑 record_selection.max_candidate_records must be greater than or equal to "
+                f"num_records ({config.max_candidate_records} < {num_records})."
+            )
 
     def _initialize_processors(self, processor_configs: list[ProcessorConfig]) -> list[Processor]:
         # Check columns marked for drop

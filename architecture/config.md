@@ -8,23 +8,28 @@ Source: `packages/data-designer-config/src/data_designer/config/`
 
 The config layer provides:
 - **`DataDesignerConfigBuilder`** — fluent builder for constructing dataset configs
-- **`DataDesignerConfig`** — the root config object holding columns, models, constraints, processors, and profilers
+- **`DataDesignerConfig`** — the root config object holding columns, models, constraints, processors, profilers, and an optional record-selection policy
 - **Column configs** — a discriminated union of Pydantic models, one per column type
 - **Model configs** — LLM endpoint configuration with inference parameters
 - **Sampler params** — statistical generator parameters with their own discriminated union
+- **Record selection** — an optional bounded policy for accepting generated candidate records
 - **Plugin integration** — runtime extension of config unions via entry-point plugins
 
 ## Key Components
 
 ### Builder API
 
-`DataDesignerConfigBuilder` is the primary construction surface. It holds mutable state (column configs, constraints, processors) and produces an immutable `DataDesignerConfig` on `build()`.
+`DataDesignerConfigBuilder` is the primary construction surface. It holds mutable state (column configs, constraints, processors, and record selection) and produces an immutable `DataDesignerConfig` on `build()`.
 
-- **Fluent mutators**: `add_column`, `add_constraint`, `add_processor`, `add_profiler`, `add_model_config`, `add_tool_config`, `with_seed_dataset`
+- **Fluent mutators**: `add_column`, `add_constraint`, `add_processor`, `add_profiler`, `add_model_config`, `add_tool_config`, `with_seed_dataset`, `with_record_selection`
 - **Column shorthand**: pass `name` + `column_type` + kwargs instead of a full config instance; the builder resolves the correct config class via `get_column_config_from_kwargs`
 - **Config loading**: `from_config` accepts dicts, file paths, URLs, or `BuilderConfig` objects; normalizes shorthand formats into the full structure
 
 `BuilderConfig` wraps `DataDesignerConfig` with a `library_version` field validated against the running version.
+
+### Record Selection
+
+`RecordSelectionConfig` declares an optional, bounded policy for accepting generated candidate records. Its direct predicate must be a boolean `ExpressionColumnConfig`, a custom column, or a registered plugin column; other built-in outputs, including nested LLM structured data, are normalized through a boolean expression first. The config also sets a strict positive `max_candidate_records` budget and chooses the behavior when that budget is exhausted. It is stored on `DataDesignerConfig` and attached through `DataDesignerConfigBuilder.with_record_selection()`; it remains declarative and does not call engine code.
 
 ### Column Configs
 

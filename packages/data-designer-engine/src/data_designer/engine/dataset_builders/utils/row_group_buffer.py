@@ -36,6 +36,7 @@ class RowGroupBufferManager:
         self._buffers: dict[int, list[dict]] = {}
         self._row_group_sizes: dict[int, int] = {}
         self._dropped: dict[int, set[int]] = {}
+        self._empty_frames: dict[int, pd.DataFrame] = {}
         self._artifact_storage = artifact_storage
         self._actual_num_records: int = initial_actual_num_records
         self._total_num_batches: int = initial_total_num_batches
@@ -70,6 +71,8 @@ class RowGroupBufferManager:
         """Return the row group as a DataFrame (excluding dropped rows, stripping skip metadata)."""
         dropped = self._dropped.get(row_group, set())
         rows = [row for i, row in enumerate(self._buffers[row_group]) if i not in dropped]
+        if not rows and row_group in self._empty_frames:
+            return self._empty_frames[row_group].copy()
         return lazy.pd.DataFrame(strip_skip_metadata_from_records(rows))
 
     def replace_dataframe(self, row_group: int, df: pd.DataFrame) -> None:
@@ -78,6 +81,7 @@ class RowGroupBufferManager:
         If *df* has fewer rows than active slots, trailing slots are marked as dropped.
         """
         dropped = self._dropped.get(row_group, set())
+        self._empty_frames[row_group] = df.iloc[0:0].copy()
         records = df.to_dict(orient="records")
         buf_idx = 0
         for ri in range(self._row_group_sizes[row_group]):
@@ -100,6 +104,7 @@ class RowGroupBufferManager:
         self._buffers.pop(row_group, None)
         self._dropped.pop(row_group, None)
         self._row_group_sizes.pop(row_group, None)
+        self._empty_frames.pop(row_group, None)
 
     def checkpoint_row_group(
         self,
