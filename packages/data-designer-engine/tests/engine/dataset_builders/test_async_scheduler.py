@@ -1682,6 +1682,9 @@ def _build_model_outcome_scheduler(
     retryable_failures: int,
     num_records: int,
     scheduler_event_sink: InMemoryAdmissionEventSink | None = None,
+    degraded_warn_rate: float = async_scheduler_module.DEGRADED_WARN_RATE,
+    degraded_warn_window: int = async_scheduler_module.DEGRADED_WARN_WINDOW,
+    degraded_warn_interval_s: float = async_scheduler_module.DEGRADED_WARN_INTERVAL_S,
 ) -> AsyncTaskScheduler:
     cell = MockRetryableErrorGenerator(
         config=_expr_config("cell_out"),
@@ -1700,6 +1703,9 @@ def _build_model_outcome_scheduler(
         row_groups=row_groups,
         buffer_manager=buffer_mgr,
         scheduler_event_sink=scheduler_event_sink,
+        degraded_warn_rate=degraded_warn_rate,
+        degraded_warn_window=degraded_warn_window,
+        degraded_warn_interval_s=degraded_warn_interval_s,
     )
 
 
@@ -1755,6 +1761,27 @@ async def test_degraded_provider_warn_silent_under_threshold(caplog: pytest.LogC
     with caplog.at_level("WARNING"):
         await scheduler.run()
     assert _count_degraded_msgs(caplog) == 0
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_degraded_provider_warn_includes_triggering_deferred_task(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    scheduler = _build_model_outcome_scheduler(
+        error_factory=lambda: ModelTimeoutError("read timeout"),
+        retryable_failures=1,
+        num_records=1,
+        degraded_warn_rate=1.0,
+        degraded_warn_window=1,
+        degraded_warn_interval_s=0.0,
+    )
+
+    with caplog.at_level(logging.WARNING):
+        await scheduler.run()
+
+    messages = [record.getMessage() for record in caplog.records if "degraded performance" in record.getMessage()]
+    assert len(messages) == 1
+    assert "deferred_tasks=1" in messages[0]
 
 
 @pytest.mark.parametrize(
@@ -2143,6 +2170,13 @@ class MockLLMBoundCellGenerator(ColumnGenerator[ExpressionColumnConfig]):
     def generate(self, data: dict) -> dict:
         data[self.config.name] = f"llm_{data.get('seed', '?')}"
         return data
+
+
+class MockLLMBoundFullColumnGenerator(MockFullColumnGenerator):
+    """Mock full-column generator that reports model-stage scheduling metadata."""
+
+    def get_scheduling_metadata(self) -> SchedulingMetadata:
+        return SchedulingMetadata.custom_model("test", self.config.name, "v1")
 
 
 class MockConfiguredModelCellGenerator(ColumnGeneratorWithModelRegistry[LLMTextColumnConfig]):
@@ -4963,7 +4997,7 @@ async def test_scheduler_skip_cell_by_cell_with_propagation() -> None:
 
     generators: dict[str, ColumnGenerator] = {
         "seed": IntSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
-        "review": MockCellGenerator(config=_expr_config("review"), resource_provider=provider),
+        "review": MockLLMBoundCellGenerator(config=_expr_config("review"), resource_provider=provider),
         "complaint": MockCellGenerator(config=_expr_config("complaint"), resource_provider=provider),
     }
 
@@ -4989,6 +5023,7 @@ async def test_scheduler_skip_cell_by_cell_with_propagation() -> None:
     await asyncio.wait_for(scheduler.run(), timeout=10.0)
 
     assert tracker.is_row_group_complete(0, num_records, ["seed", "review", "complaint"])
+    assert scheduler.retryable_outcome_metrics["cumulative_counts"] == {"success": 2}
 
     for ri in range(num_records):
         row = buffer_mgr.get_row(0, ri)
@@ -5122,7 +5157,7 @@ async def test_scheduler_skip_full_column_batch() -> None:
 
     generators: dict[str, ColumnGenerator] = {
         "seed": IntSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
-        "review": MockFullColumnGenerator(config=_expr_config("review"), resource_provider=provider),
+        "review": MockLLMBoundFullColumnGenerator(config=_expr_config("review"), resource_provider=provider),
     }
 
     storage = MagicMock()
@@ -5147,6 +5182,7 @@ async def test_scheduler_skip_full_column_batch() -> None:
     await asyncio.wait_for(scheduler.run(), timeout=10.0)
 
     assert tracker.is_row_group_complete(0, num_records, ["seed", "review"])
+    assert scheduler.retryable_outcome_metrics["cumulative_counts"] == {"success": 1}
 
     for ri in range(num_records):
         row = buffer_mgr.get_row(0, ri)
@@ -5155,6 +5191,46 @@ async def test_scheduler_skip_full_column_batch() -> None:
             assert row.get("review") is None, f"row {ri}: review should be skipped (seed={seed_val})"
         else:
             assert row["review"] == "batch_val", f"row {ri}: review should be generated (seed={seed_val})"
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_scheduler_fully_skipped_model_batch_does_not_record_provider_outcome() -> None:
+    provider = _mock_provider()
+    num_records = 4
+    configs = [
+        SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        LLMTextColumnConfig(
+            name="review",
+            prompt="{{ seed }}",
+            model_alias=MODEL_ALIAS,
+            skip=SkipConfig(when="{{ seed >= 0 }}"),
+        ),
+    ]
+    strategies = {
+        "seed": GenerationStrategy.FULL_COLUMN,
+        "review": GenerationStrategy.FULL_COLUMN,
+    }
+    generators: dict[str, ColumnGenerator] = {
+        "seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
+        "review": MockLLMBoundFullColumnGenerator(config=_expr_config("review"), resource_provider=provider),
+    }
+    graph = ExecutionGraph.create(configs, strategies)
+    row_groups = [(0, num_records)]
+    tracker = CompletionTracker.with_graph(graph, row_groups)
+    buffer_mgr = RowGroupBufferManager(_make_storage())
+    scheduler = AsyncTaskScheduler(
+        generators=generators,
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        buffer_manager=buffer_mgr,
+    )
+
+    await scheduler.run()
+
+    assert tracker.is_row_group_complete(0, num_records, ["seed", "review"])
+    assert scheduler.retryable_outcome_metrics["cumulative_counts"] == {}
+    assert all(buffer_mgr.get_row(0, row_index).get("review") is None for row_index in range(num_records))
 
 
 # -- Post-batch (on_before_checkpoint) failure propagation --------------------

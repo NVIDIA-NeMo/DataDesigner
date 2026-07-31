@@ -166,6 +166,13 @@ class _DeferredAdmissionAnalysis:
     independent_candidate_columns: tuple[str, ...]
 
 
+@dataclass
+class _GeneratorCallState:
+    """Whether task execution reached user or provider generation code."""
+
+    invoked: bool = False
+
+
 class AsyncTaskScheduler:
     """Dependency-aware async task scheduler for the dataset builder.
 
@@ -1968,6 +1975,7 @@ class AsyncTaskScheduler:
         # from the frontier (it was never completed, so it stays in the frontier).
         skipped = False
         uses_model_stage_resource = "llm_wait" in lease.resources
+        generator_call_state = _GeneratorCallState()
         stateful_lock_acquired = False
 
         try:
@@ -1987,11 +1995,11 @@ class AsyncTaskScheduler:
 
             cell_skipped = False
             if task.task_type == "from_scratch":
-                await self._run_from_scratch(task, generator)
+                await self._run_from_scratch(task, generator, call_state=generator_call_state)
             elif task.task_type == "cell":
-                _result, cell_skipped = await self._run_cell(task, generator)
+                _result, cell_skipped = await self._run_cell(task, generator, call_state=generator_call_state)
             elif task.task_type == "batch":
-                await self._run_batch(task, generator)
+                await self._run_batch(task, generator, call_state=generator_call_state)
             else:
                 raise ValueError(f"Unknown task type: {task.task_type}")
 
@@ -2009,7 +2017,7 @@ class AsyncTaskScheduler:
             # window from LLM-bound tasks so a healthy non-model task mix
             # (samplers, expressions, non-LLM customs) doesn't dilute the
             # rate and silence the WARN under genuine provider stress.
-            if uses_model_stage_resource:
+            if uses_model_stage_resource and generator_call_state.invoked:
                 self._record_retryable_outcome(retryable=False)
             if self._reporter:
                 if cell_skipped:
@@ -2028,13 +2036,16 @@ class AsyncTaskScheduler:
 
         except Exception as exc:
             retryable = self._is_retryable(exc)
+            if retryable:
+                self._deferred.append(task)
+                self._deferred_errors[task] = exc
             # Only non-retryable errors (auth, schema, code bugs) count toward
             # the early-shutdown gate. Retryable errors (rate-limit, timeout,
             # transient 5xx, connection blips) cluster under provider degradation
             # and would otherwise trip the gate even when salvage could recover.
             if not retryable:
                 self._check_error_rate(success=False)
-            if uses_model_stage_resource:
+            if uses_model_stage_resource and generator_call_state.invoked:
                 self._record_retryable_outcome(retryable=retryable, exc=exc)
             if not retryable and self._reporter:
                 self._reporter.record_failure(task.column)
@@ -2056,8 +2067,6 @@ class AsyncTaskScheduler:
                 raise
 
             if retryable:
-                self._deferred.append(task)
-                self._deferred_errors[task] = exc
                 self._emit_scheduler_event(
                     "retry_deferred", task=task, lease=lease, task_execution_id=task_execution_id
                 )
@@ -2137,8 +2146,16 @@ class AsyncTaskScheduler:
             self._record_observed_task_state()
             self._wake_event.set()
 
-    async def _run_generator_call(self, task: Task, operation: str, call: Coroutine[Any, Any, Any]) -> Any:
+    async def _run_generator_call(
+        self,
+        task: Task,
+        operation: str,
+        call: Coroutine[Any, Any, Any],
+        *,
+        call_state: _GeneratorCallState,
+    ) -> Any:
         """Run user/plugin generator code while preserving scheduler-owned failures."""
+        call_state.invoked = True
         try:
             return await call
         except Exception as exc:
@@ -2186,7 +2203,13 @@ class AsyncTaskScheduler:
     ) -> bool:
         return self._task_supports_row_drops(task, generator) and isinstance(exc, UserTemplateError)
 
-    async def _run_from_scratch(self, task: Task, generator: ColumnGenerator) -> Any:
+    async def _run_from_scratch(
+        self,
+        task: Task,
+        generator: ColumnGenerator,
+        *,
+        call_state: _GeneratorCallState,
+    ) -> Any:
         """Execute a from_scratch task."""
         rg_size = self._get_rg_size(task.row_group)
         # Runtime import: needed for isinstance check; module-level would cause circular import
@@ -2197,6 +2220,7 @@ class AsyncTaskScheduler:
                 task,
                 "from-scratch generation",
                 generator.agenerate_from_scratch(rg_size),
+                call_state=call_state,
             )
             result_operation = "From-scratch generator"
         else:
@@ -2208,7 +2232,12 @@ class AsyncTaskScheduler:
             # raises ``UserTemplateError`` instead of silently dropping the
             # whole row group.
             if self._task_supports_row_drops(task, generator):
-                return await self._run_full_column_from_scratch_with_row_drops(task, generator, rg_size)
+                return await self._run_full_column_from_scratch_with_row_drops(
+                    task,
+                    generator,
+                    rg_size,
+                    call_state=call_state,
+                )
 
             # Non-FromScratch generators dispatched as seeds (no upstream columns)
             # operate on existing buffer rows. Pass an ``rg_size``-row snapshot
@@ -2224,6 +2253,7 @@ class AsyncTaskScheduler:
                 task,
                 "full-column generation",
                 generator.agenerate(input_df),
+                call_state=call_state,
             )
             result_operation = "Full-column generator"
         result_df = self._require_dataframe_result(
@@ -2248,6 +2278,8 @@ class AsyncTaskScheduler:
         task: Task,
         generator: ColumnGenerator,
         rg_size: int,
+        *,
+        call_state: _GeneratorCallState,
     ) -> Any:
         """Execute a row-drop-capable seed task (root expression columns).
 
@@ -2273,6 +2305,7 @@ class AsyncTaskScheduler:
             task,
             "full-column generation",
             generator.agenerate(input_df),
+            call_state=call_state,
         )
 
         result_df = self._require_expression_row_drop_result(
@@ -2302,7 +2335,13 @@ class AsyncTaskScheduler:
 
         return result_df
 
-    async def _run_cell(self, task: Task, generator: ColumnGenerator) -> tuple[Any, bool]:
+    async def _run_cell(
+        self,
+        task: Task,
+        generator: ColumnGenerator,
+        *,
+        call_state: _GeneratorCallState,
+    ) -> tuple[Any, bool]:
         """Execute a cell-by-cell task. Returns ``(result, skipped)``."""
         if task.row_index is None:
             raise ValueError(f"Cell task requires a row_index, got None for column '{task.column}'")
@@ -2328,6 +2367,7 @@ class AsyncTaskScheduler:
             task,
             "cell generation",
             generator.agenerate(dict(record)),
+            call_state=call_state,
         )
 
         # Write back to buffer (include side-effect columns)
@@ -2360,7 +2400,13 @@ class AsyncTaskScheduler:
             side_effect_columns=self._graph.get_side_effect_columns(task.column),
         )
 
-    async def _run_batch(self, task: Task, generator: ColumnGenerator) -> Any:
+    async def _run_batch(
+        self,
+        task: Task,
+        generator: ColumnGenerator,
+        *,
+        call_state: _GeneratorCallState,
+    ) -> Any:
         """Execute a full-column/batch task."""
         rg_size = self._get_rg_size(task.row_group)
 
@@ -2406,6 +2452,7 @@ class AsyncTaskScheduler:
             task,
             "batch generation",
             generator.agenerate(batch_df),
+            call_state=call_state,
         )
         if self._task_supports_row_drops(task, generator):
             result_df = self._require_expression_row_drop_result(
