@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 from pydantic import BaseModel, ConfigDict, PrivateAttr, field_validator, model_validator
 
 import data_designer.lazy_heavy_imports as lazy
+from data_designer.config.run_config import ResumeMode
 from data_designer.config.utils.io_helpers import list_processor_names, load_processor_dataset, read_parquet_dataset
 from data_designer.config.utils.type_helpers import StrEnum, resolve_string_enum
 from data_designer.engine.dataset_builders.errors import ArtifactStorageError
@@ -37,12 +38,6 @@ class BatchStage(StrEnum):
     FINAL_RESULT = "final_dataset_path"
     DROPPED_COLUMNS = "dropped_columns_dataset_path"
     PROCESSORS_OUTPUTS = "processors_outputs_path"
-
-
-class ResumeMode(StrEnum):
-    NEVER = "never"
-    ALWAYS = "always"
-    IF_POSSIBLE = "if_possible"
 
 
 class ArtifactStorage(BaseModel):

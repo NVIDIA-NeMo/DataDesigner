@@ -5,8 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import threading
-import time
+from types import SimpleNamespace
 
 import pytest
 
@@ -431,6 +430,11 @@ async def test_request_admission_zero_async_timeout_is_immediate() -> None:
 async def test_acquire_async_does_not_assign_expired_waiter_after_release(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    now = 100.0
+    monkeypatch.setattr(
+        "data_designer.engine.models.request_admission.controller.time",
+        SimpleNamespace(monotonic=lambda: now),
+    )
     controller = _controller(cap=1)
     monkeypatch.setattr(controller, "_wait_seconds_locked", lambda _item, _now, _deadline: 10.0)
     lease = controller.try_acquire(_item(RequestDomain.CHAT))
@@ -438,26 +442,15 @@ async def test_acquire_async_does_not_assign_expired_waiter_after_release(
     queued = _item(RequestDomain.EMBEDDING, timeout=0.01)
 
     queued_task = asyncio.create_task(controller.acquire_async(queued))
-    for _ in range(20):
-        snapshot = controller.pressure.snapshot(queued.resource)
-        if snapshot is not None and snapshot.waiters == 1:
-            break
-        await asyncio.sleep(0)
-    else:
-        raise AssertionError("async waiter did not enqueue")
+    await asyncio.sleep(0)
+    snapshot = controller.pressure.snapshot(queued.resource)
+    assert snapshot is not None
+    assert snapshot.waiters == 1
 
-    def release_after_deadline() -> None:
-        time.sleep(0.03)
-        controller.release(lease, RequestReleaseOutcome(kind="success"))
-
-    release_thread = threading.Thread(target=release_after_deadline)
-    release_thread.start()
-    try:
-        time.sleep(0.06)
-        with pytest.raises(RequestAdmissionError) as exc_info:
-            await asyncio.wait_for(queued_task, timeout=0.5)
-    finally:
-        release_thread.join()
+    now = 101.0
+    controller.release(lease, RequestReleaseOutcome(kind="success"))
+    with pytest.raises(RequestAdmissionError) as exc_info:
+        await asyncio.wait_for(queued_task, timeout=0.5)
 
     assert exc_info.value.decision.reason == "queue_timeout"
     snapshot = controller.pressure.snapshot(queued.resource)

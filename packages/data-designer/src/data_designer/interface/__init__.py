@@ -7,7 +7,7 @@ import importlib
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from data_designer.engine.storage.artifact_storage import ResumeMode  # noqa: F401
+    from data_designer.config.run_config import ResumeMode  # noqa: F401
     from data_designer.interface.composite_workflow import (  # noqa: F401
         CompositeWorkflow,
         CompositeWorkflowResults,
@@ -32,7 +32,7 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "DataDesignerProfilingError": ("data_designer.interface.errors", "DataDesignerProfilingError"),
     "DataDesignerWorkflowError": ("data_designer.interface.errors", "DataDesignerWorkflowError"),
     "DatasetCreationResults": ("data_designer.interface.results", "DatasetCreationResults"),
-    "ResumeMode": ("data_designer.engine.storage.artifact_storage", "ResumeMode"),
+    "ResumeMode": ("data_designer.config.run_config", "ResumeMode"),
     "SkippedStageResult": ("data_designer.interface.composite_workflow", "SkippedStageResult"),
     "SkippedStageStatus": ("data_designer.interface.composite_workflow", "SkippedStageStatus"),
 }

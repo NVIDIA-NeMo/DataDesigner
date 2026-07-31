@@ -171,6 +171,15 @@ jobs:
             exit 1
           fi
 
+          for WORKFLOW_PATH in .github/workflows/ci.yml .github/workflows/agentic-ci-authorized-checks.yml; do
+            MAIN_WORKFLOW_SHA=$(gh api "repos/${REPO}/contents/${WORKFLOW_PATH}?ref=main" --jq '.sha')
+            HEAD_WORKFLOW_SHA=$(gh api "repos/${REPO}/contents/${WORKFLOW_PATH}?ref=${HEAD_SHA}" --jq '.sha')
+            if [ "$HEAD_WORKFLOW_SHA" != "$MAIN_WORKFLOW_SHA" ]; then
+              comment "Agentic CI checks were not authorized because ${WORKFLOW_PATH} does not match main. Update the PR branch and try again."
+              exit 1
+            fi
+          done
+
           echo "Authorizing checks for ${HEAD_SHA}."
 
       - name: Dispatch checks
