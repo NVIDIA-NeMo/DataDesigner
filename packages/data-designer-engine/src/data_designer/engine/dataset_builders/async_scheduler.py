@@ -439,6 +439,18 @@ class AsyncTaskScheduler:
         """
         return self._first_non_retryable_error
 
+    @property
+    def retryable_outcome_metrics(self) -> dict[str, object]:
+        """Return sanitized rolling and cumulative model-task outcome counts."""
+        rolling = Counter(self._recent_retryable_kinds)
+        return {
+            "window_size": self._degraded_warn_window,
+            "rolling_total": len(self._recent_retryable_kinds),
+            "rolling_counts": dict(sorted(rolling.items())),
+            "cumulative_counts": dict(sorted(self._retryable_outcome_counts.items())),
+            "retryable_details": dict(sorted(self._retryable_detail_counts.items())),
+        }
+
     def request_cancel(self) -> None:
         """Signal cancellation to scheduler tasks and bridged sync generator work."""
         self._cancel_requested.set()
@@ -588,18 +600,6 @@ class AsyncTaskScheduler:
             "row_group_admission_blocked_reasons": dict(self._row_group_admission_blocked_reasons),
             "request_pressure": self._request_pressure_diagnostics(),
             "retryable_outcomes": self.retryable_outcome_metrics,
-        }
-
-    @property
-    def retryable_outcome_metrics(self) -> dict[str, object]:
-        """Return sanitized rolling and cumulative model-task outcome counts."""
-        rolling = Counter(self._recent_retryable_kinds)
-        return {
-            "window_size": self._degraded_warn_window,
-            "rolling_total": len(self._recent_retryable_kinds),
-            "rolling_counts": dict(sorted(rolling.items())),
-            "cumulative_counts": dict(sorted(self._retryable_outcome_counts.items())),
-            "retryable_details": dict(sorted(self._retryable_detail_counts.items())),
         }
 
     def _scheduler_job_diagnostics(self) -> dict[str, object]:
@@ -1814,7 +1814,13 @@ class AsyncTaskScheduler:
 
     @staticmethod
     def _provider_error_details(exc: Exception | None) -> tuple[int | None, float | None]:
-        """Extract only safe transport metadata from a wrapped provider error."""
+        """Extract only safe transport metadata from a wrapped provider error.
+
+        Model-error normalization raises ``from None`` to hide provider details,
+        but Python retains the originating error in ``__context__``. Walking both
+        chains preserves access to bounded transport metadata without exposing
+        provider messages.
+        """
         seen: set[int] = set()
         current: BaseException | None = exc
         while current is not None and id(current) not in seen:
@@ -1854,6 +1860,8 @@ class AsyncTaskScheduler:
                 detail = f"{detail}:http_{status_code}"
             self._retryable_detail_counts[detail] += 1
             if kind not in self._logged_retryable_kinds:
+                # Ongoing pressure is reported by the rate-limited degradation
+                # warning; this first-observation warning is once per scheduler.
                 self._logged_retryable_kinds.add(kind)
                 retry_after_text = f", retry_after={retry_after:g}s" if retry_after is not None else ""
                 status_text = f", http_status={status_code}" if status_code is not None else ""

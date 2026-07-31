@@ -49,6 +49,7 @@ from data_designer.engine.models.clients.errors import ProviderError, ProviderEr
 from data_designer.engine.models.errors import (
     RETRYABLE_MODEL_ERRORS,
     ModelAPIConnectionError,
+    ModelAuthenticationError,
     ModelInternalServerError,
     ModelRateLimitError,
     ModelRequestAdmissionTimeoutError,
@@ -365,6 +366,10 @@ class MockRetryableErrorGenerator(ColumnGenerator[ExpressionColumnConfig]):
             raise self._error_factory()
         data[self.config.name] = f"ok_{data.get('seed', '?')}"
         return data
+
+
+class MockUnclassifiedRetryableError(Exception):
+    """Retryable test error without a dedicated telemetry category."""
 
 
 class _BrokenSchedulerSink:
@@ -1671,6 +1676,33 @@ def _count_degraded_msgs(caplog: pytest.LogCaptureFixture) -> int:
     return sum(1 for r in caplog.records if "degraded performance" in r.getMessage())
 
 
+def _build_model_outcome_scheduler(
+    *,
+    error_factory: Callable[[], Exception],
+    retryable_failures: int,
+    num_records: int,
+    scheduler_event_sink: InMemoryAdmissionEventSink | None = None,
+) -> AsyncTaskScheduler:
+    cell = MockRetryableErrorGenerator(
+        config=_expr_config("cell_out"),
+        resource_provider=_mock_provider(),
+        error_factory=error_factory,
+        retryable_failures=retryable_failures,
+    )
+    generators, graph, row_groups, tracker, buffer_mgr, _storage = _seed_plus_cell_setup(
+        cell,
+        num_records=num_records,
+    )
+    return AsyncTaskScheduler(
+        generators=generators,
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        buffer_manager=buffer_mgr,
+        scheduler_event_sink=scheduler_event_sink,
+    )
+
+
 @pytest.mark.parametrize(
     "retryable_failures,num_records,window,interval_s,expected_count",
     [
@@ -1733,19 +1765,28 @@ async def test_degraded_provider_warn_silent_under_threshold(caplog: pytest.LogC
         (ModelTimeoutError, "timeout"),
         (ModelInternalServerError, "internal_server"),
         (ModelAPIConnectionError, "connection"),
+        (MockUnclassifiedRetryableError, "other_retryable"),
     ],
 )
-def test_retryable_outcome_metrics_classify_errors(
+@pytest.mark.asyncio(loop_scope="session")
+async def test_retryable_outcome_metrics_classify_errors(
     exc_cls: type[Exception],
     expected_kind: str,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    scheduler, _tracker = _build_simple_pipeline(num_records=1)
-
-    scheduler._record_retryable_outcome(
-        retryable=True,
-        exc=exc_cls("sensitive provider text"),
+    if exc_cls is MockUnclassifiedRetryableError:
+        monkeypatch.setattr(
+            async_scheduler_module,
+            "RETRYABLE_MODEL_ERRORS",
+            (*RETRYABLE_MODEL_ERRORS, MockUnclassifiedRetryableError),
+        )
+    scheduler = _build_model_outcome_scheduler(
+        error_factory=lambda: exc_cls("sensitive provider text"),
+        retryable_failures=1,
+        num_records=1,
     )
-    scheduler._record_retryable_outcome(retryable=False)
+
+    await scheduler.run()
 
     metrics = scheduler.retryable_outcome_metrics
     assert metrics["cumulative_counts"] == {expected_kind: 1, "success": 1}
@@ -1754,44 +1795,58 @@ def test_retryable_outcome_metrics_classify_errors(
     assert "sensitive provider text" not in str(metrics)
 
 
-def test_retryable_outcome_metrics_extract_provider_status_from_suppressed_context(
+@pytest.mark.asyncio(loop_scope="session")
+async def test_retryable_outcome_metrics_extract_provider_status_from_suppressed_context(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    scheduler, _tracker = _build_simple_pipeline(num_records=1)
-    provider_error = ProviderError(
-        kind=ProviderErrorKind.RATE_LIMIT,
-        message="sensitive provider text",
-        status_code=429,
-        retry_after=2.5,
+    def error_factory() -> Exception:
+        provider_error = ProviderError(
+            kind=ProviderErrorKind.RATE_LIMIT,
+            message="sensitive provider text",
+            status_code=429,
+            retry_after=2.5,
+        )
+        try:
+            raise provider_error
+        except ProviderError as exc:
+            with pytest.raises(ModelRateLimitError) as exc_info:
+                handle_llm_exceptions(exc, MODEL_ALIAS, "stub-provider")
+        assert exc_info.value.__cause__ is None
+        assert exc_info.value.__context__ is provider_error
+        return exc_info.value
+
+    scheduler = _build_model_outcome_scheduler(
+        error_factory=error_factory,
+        retryable_failures=2,
+        num_records=1,
     )
-
-    try:
-        raise provider_error
-    except ProviderError as exc:
-        with pytest.raises(ModelRateLimitError) as exc_info:
-            handle_llm_exceptions(exc, MODEL_ALIAS, "stub-provider")
-
-    assert exc_info.value.__cause__ is None
-    assert exc_info.value.__context__ is provider_error
     with caplog.at_level(logging.WARNING):
-        scheduler._record_retryable_outcome(retryable=True, exc=exc_info.value)
+        await scheduler.run()
 
     metrics = scheduler.retryable_outcome_metrics
-    assert metrics["retryable_details"] == {"rate_limit:http_429": 1}
+    assert metrics["cumulative_counts"] == {"rate_limit": 2, "success": 1}
+    assert metrics["retryable_details"] == {"rate_limit:http_429": 2}
     assert "http_status=429" in caplog.text
     assert "retry_after=2.5s" in caplog.text
+    observed_messages = [
+        record.getMessage() for record in caplog.records if "Observed retryable model-task error" in record.getMessage()
+    ]
+    assert len(observed_messages) == 1
     assert "sensitive provider text" not in str(metrics)
     assert "sensitive provider text" not in caplog.text
 
 
-def test_retryable_outcome_metrics_distinguish_non_retryable_failures() -> None:
-    scheduler, _tracker = _build_simple_pipeline(num_records=1)
-
-    scheduler._record_retryable_outcome(
-        retryable=False,
-        exc=RuntimeError("sensitive non-retryable text"),
+@pytest.mark.asyncio(loop_scope="session")
+async def test_retryable_outcome_metrics_distinguish_non_retryable_failures() -> None:
+    sink = InMemoryAdmissionEventSink()
+    scheduler = _build_model_outcome_scheduler(
+        error_factory=lambda: ModelAuthenticationError("sensitive non-retryable text"),
+        retryable_failures=1,
+        num_records=2,
+        scheduler_event_sink=sink,
     )
-    scheduler._record_retryable_outcome(retryable=False)
+
+    await scheduler.run()
 
     metrics = scheduler.retryable_outcome_metrics
     assert metrics["cumulative_counts"] == {"non_retryable_failure": 1, "success": 1}
@@ -1799,9 +1854,13 @@ def test_retryable_outcome_metrics_distinguish_non_retryable_failures() -> None:
     assert metrics["retryable_details"] == {}
     assert "sensitive non-retryable text" not in str(metrics)
 
-    diagnostics = scheduler._scheduler_health_diagnostics(reason="test")
-    assert diagnostics["deferred_tasks"] == 0
-    retryable_outcomes = diagnostics["retryable_outcomes"]
+    health = next(
+        event
+        for event in reversed(sink.scheduler_events)
+        if event.event_kind == "scheduler_health_snapshot" and event.diagnostics["reason"] == "completed"
+    )
+    assert health.diagnostics["deferred_tasks"] == 0
+    retryable_outcomes = health.diagnostics["retryable_outcomes"]
     assert isinstance(retryable_outcomes, dict)
     assert "deferred_tasks" not in retryable_outcomes
 
