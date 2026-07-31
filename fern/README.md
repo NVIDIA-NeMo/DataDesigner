@@ -159,7 +159,7 @@ Primary local commands:
 
 | Command | Purpose |
 |---------|---------|
-| `make check-fern-docs-locally` | Install docs dependencies, generate Fern artifacts, and run `fern check` |
+| `make check-fern-docs-locally` | Install docs dependencies, generate Fern artifacts, validate internal links, and run `fern check` |
 | `make serve-fern-docs-locally` | Generate local Fern artifacts and serve local docs |
 | `make generate-fern-notebooks-with-outputs` | Full notebook pipeline: execute (needs `NVIDIA_API_KEY`) → colabify → convert |
 | `make prepare-fern-release VERSION=X.Y.Z` | Add or refresh Fern version files for release preview |
@@ -172,7 +172,8 @@ Support and CI targets:
 | `make install-docs-deps` | Install docs and notebook dependencies |
 | `make generate-fern-notebooks` | Refresh gitignored notebook output from `docs/notebook_source/*.py` |
 | `make prepare-fern-docs` | Generate local Fern notebook artifacts |
-| `make check-fern-docs` | Generate local Fern notebook artifacts and run `fern check` |
+| `make check-fern-links` | Validate internal routes and fragments in `latest` against navigation-derived Fern URLs and configured redirects |
+| `make check-fern-docs` | Generate local Fern notebook artifacts, validate internal links, and run `fern check` |
 
 Raw Fern CLI commands, normally wrapped by Make:
 

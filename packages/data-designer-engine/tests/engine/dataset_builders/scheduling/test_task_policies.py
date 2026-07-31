@@ -107,7 +107,7 @@ def test_bounded_borrow_policy_defaults_to_ceil_strict_share_rounding() -> None:
 
     assert config.strict_share_rounding == "ceil"
     assert config.default_borrow_ceiling is None
-    assert config.dynamic_borrow_reserve_fraction == 0.125
+    assert config.dynamic_borrow_reserve_fraction == 0.0
     assert config.dynamic_borrow_max_reserved_slots == 8
 
 

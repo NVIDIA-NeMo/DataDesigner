@@ -174,6 +174,23 @@ def test_row_group_not_complete_missing_non_dropped() -> None:
     assert not tracker.is_row_group_complete(0, 3, ["col_a", "col_b"])
 
 
+def test_compact_row_group_releases_details_and_preserves_terminal_queries() -> None:
+    tracker = CompletionTracker()
+    tracker.mark_row_range_complete("col_a", 0, 4)
+    tracker.mark_row_range_complete("col_b", 0, 4)
+    tracker.drop_row(0, 1)
+    tracker.drop_row(0, 3)
+
+    tracker.compact_row_group(0)
+    tracker.compact_row_group(0)
+
+    assert tracker.is_row_group_complete(0, 4, ["col_a", "col_b"])
+    assert [tracker.is_dropped(0, row_index) for row_index in range(4)] == [False, True, False, True]
+    assert 0 not in tracker._completed
+    assert 0 not in tracker._dropped
+    assert 0 not in tracker._batch_complete
+
+
 # -- get_ready_tasks --------------------------------------------------------
 
 
