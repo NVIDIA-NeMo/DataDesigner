@@ -255,6 +255,10 @@ jobs:
           SOURCE_REPOSITORY: ${{ github.repository }}
         working-directory: website
         run: |
+          if [ ! -f fern/notebook-snapshot.json ]; then
+            echo "::error::No canonical notebook snapshot is published. Run the Build Fern docs workflow successfully once."
+            exit 1
+          fi
           release_tag=$(jq -er '.release_tag' fern/notebook-snapshot.json)
           asset=$(jq -er '.asset' fern/notebook-snapshot.json)
           snapshot_dir="$RUNNER_TEMP/fern-notebook-snapshot"

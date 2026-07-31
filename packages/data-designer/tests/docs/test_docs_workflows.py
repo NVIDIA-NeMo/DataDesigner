@@ -43,6 +43,7 @@ def test_fern_publish_persists_and_restores_notebook_snapshots() -> None:
     assert "Publish source notebook snapshot" in workflow
     assert 'source-fallback "$archive"' in workflow
     assert "Restore prepared notebook snapshot" in workflow
+    assert "Run the Build Fern docs workflow successfully once" in workflow
     assert 'gh release download "$release_tag"' in workflow
     assert "Publish executed notebook snapshot" in workflow
     assert 'executed "$archive"' in workflow

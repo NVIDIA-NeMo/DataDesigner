@@ -3,9 +3,11 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import subprocess
+import tarfile
 from pathlib import Path
 
 import pytest
@@ -68,4 +70,47 @@ def test_restore_rejects_invalid_checksum_without_replacing_notebooks(tmp_path: 
 
     assert result.returncode != 0
     assert "checksum mismatch" in result.stderr
+    assert (root / "fern" / "components" / "notebooks" / "example.json").exists()
+
+
+def test_restore_rejects_asset_name_mismatch(tmp_path: Path) -> None:
+    root = tmp_path / "website"
+    write_notebooks(root)
+    archive = tmp_path / "notebooks.tar.gz"
+    subprocess.run([SCRIPT_PATH, "create", root, "v1.2.3", "executed", archive], check=True)
+    renamed_archive = tmp_path / "different-name.tar.gz"
+    renamed_archive.write_bytes(archive.read_bytes())
+
+    result = subprocess.run(
+        [SCRIPT_PATH, "restore", root, renamed_archive],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "asset mismatch" in result.stderr
+    assert (root / "fern" / "components" / "notebooks" / "example.json").exists()
+
+
+def test_restore_rejects_unexpected_archive_paths_without_replacing_notebooks(tmp_path: Path) -> None:
+    root = tmp_path / "website"
+    write_notebooks(root)
+    archive = tmp_path / "notebooks.tar.gz"
+    subprocess.run([SCRIPT_PATH, "create", root, "v1.2.3", "executed", archive], check=True)
+
+    unexpected_file = tmp_path / "unexpected.txt"
+    unexpected_file.write_text("unexpected")
+    with tarfile.open(archive, "w:gz") as snapshot:
+        snapshot.add(unexpected_file, arcname="unexpected.txt")
+
+    metadata_path = root / "fern" / "notebook-snapshot.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata["sha256"] = hashlib.sha256(archive.read_bytes()).hexdigest()
+    metadata_path.write_text(json.dumps(metadata))
+
+    result = subprocess.run([SCRIPT_PATH, "restore", root, archive], check=False, capture_output=True, text=True)
+
+    assert result.returncode != 0
+    assert "unexpected paths" in result.stderr
     assert (root / "fern" / "components" / "notebooks" / "example.json").exists()
