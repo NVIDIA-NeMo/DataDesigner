@@ -580,7 +580,11 @@ endif
 
 generate-colab-notebooks:
 	@echo "📓 Generating Colab-compatible notebooks ($(DOCS_PYTHON))..."
+ifdef FILES
+	$(DOCS_PYTHON) docs/scripts/generate_colab_notebooks.py --files $(FILES)
+else
 	$(DOCS_PYTHON) docs/scripts/generate_colab_notebooks.py
+endif
 	@echo "✅ Colab notebooks created in docs/colab_notebooks/"
 
 generate-fern-notebooks:

@@ -21,6 +21,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
 
       - name: Install uv
         uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
@@ -32,19 +34,44 @@ jobs:
       - name: Install dependencies
         run: uv sync --all-packages --group notebooks --group docs
 
-      - name: Generate Colab notebooks
+      - name: Get changed notebook sources
+        id: changed
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: |
-          make generate-colab-notebooks
+          if [ -z "$BASE_SHA" ] || [ "$BASE_SHA" = "0000000000000000000000000000000000000000" ]; then
+            exit 0
+          fi
+
+          files=()
+          while IFS= read -r source_path; do
+            files+=("${source_path##*/}")
+          done < <(git diff --no-renames --name-only --diff-filter=ACDMT "$BASE_SHA" "$GITHUB_SHA" -- 'docs/notebook_source/*.py')
+
+          deleted=()
+          while IFS= read -r source_path; do
+            deleted+=("${source_path##*/}")
+          done < <(git diff --no-renames --name-only --diff-filter=D "$BASE_SHA" "$GITHUB_SHA" -- 'docs/notebook_source/*.py')
+
+          echo "files=${files[*]}" >> "$GITHUB_OUTPUT"
+          echo "deleted=${deleted[*]}" >> "$GITHUB_OUTPUT"
+
+      - name: Generate Colab notebooks
+        env:
+          DELETED_FILES: ${{ steps.changed.outputs.deleted }}
+          FILES: ${{ steps.changed.outputs.files }}
+        run: |
+          for file in $DELETED_FILES; do
+            rm -f "docs/colab_notebooks/${file%.py}.ipynb"
+          done
+          make generate-colab-notebooks FILES="$FILES"
 
       - name: Check for differences
         run: |
-          # Get the diff, filtering out cell ID changes (which are randomly generated)
-          # Filter out: file markers (--- and +++), and "id" lines
+          # Jupytext assigns random cell IDs, so ignore ID-only changes.
           MEANINGFUL_DIFF=$(git diff docs/colab_notebooks/ | grep -E '^[+-]' | grep -v '^---' | grep -v '^+++' | grep -vE '^[+-]\s*"id": "[0-9a-fA-F]+",?$' || true)
 
-          if [ -z "$MEANINGFUL_DIFF" ]; then
-            echo "✅ Colab notebooks are up-to-date (ignoring cell ID changes)"
-          else
+          if [ -n "$MEANINGFUL_DIFF" ]; then
             echo "❌ Colab notebooks are out of sync with source files"
             echo ""
             echo "The generated notebooks differ from the committed ones."
