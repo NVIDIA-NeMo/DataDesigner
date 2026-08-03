@@ -171,32 +171,32 @@ navigation:
     contents:
       - page: Overview
         path: ./latest/pages/devnotes/index.mdx
-      - page: Image Generation for Multimodal Data Pipelines
-        path: ./latest/pages/devnotes/posts/image-generation-for-multimodal-data-pipelines.mdx
       - page: Pause, Inspect, Resume
         path: ./latest/pages/devnotes/posts/annotate-hard-pages-review-gates.mdx
+      - page: Image Generation for Multimodal Data Pipelines
+        path: ./latest/pages/devnotes/posts/image-generation-for-multimodal-data-pipelines.mdx
       - page: Designing Nemotron-Personas
         path: ./latest/pages/devnotes/posts/nemotron-personas.mdx
       - page: Prompt Sensitivity
         path: ./latest/pages/devnotes/posts/prompt-sensitivity.mdx
       - page: Retriever SDG Toolkit
         path: ./latest/pages/devnotes/posts/retriever-sdg-toolkit.mdx
-      - page: Have It Your Way
-        path: ./latest/pages/devnotes/posts/have-it-your-way.mdx
-      - page: VLM Long Document Understanding
-        path: ./latest/pages/devnotes/posts/vlm-long-document-understanding.mdx
-      - page: Push Datasets to Hugging Face Hub
-        path: ./latest/pages/devnotes/posts/push-datasets-to-hugging-face-hub.mdx
-      - page: Text-to-SQL for Nemotron Super
-        path: ./latest/pages/devnotes/posts/text-to-sql.mdx
-      - page: Async All the Way Down
-        path: ./latest/pages/devnotes/posts/async-all-the-way-down.mdx
-      - page: Owning the Model Stack
-        path: ./latest/pages/devnotes/posts/owning-the-model-stack.mdx
       - section: Older Dev Notes
         collapsed: true
         skip-slug: true
         contents:
+          - page: Have It Your Way
+            path: ./latest/pages/devnotes/posts/have-it-your-way.mdx
+          - page: VLM Long Document Understanding
+            path: ./latest/pages/devnotes/posts/vlm-long-document-understanding.mdx
+          - page: Push Datasets to Hugging Face Hub
+            path: ./latest/pages/devnotes/posts/push-datasets-to-hugging-face-hub.mdx
+          - page: Text-to-SQL for Nemotron Super
+            path: ./latest/pages/devnotes/posts/text-to-sql.mdx
+          - page: Async All the Way Down
+            path: ./latest/pages/devnotes/posts/async-all-the-way-down.mdx
+          - page: Owning the Model Stack
+            path: ./latest/pages/devnotes/posts/owning-the-model-stack.mdx
           - page: Data Designer Got Skills
             path: ./latest/pages/devnotes/posts/data-designer-got-skills.mdx
           - page: Search Agent

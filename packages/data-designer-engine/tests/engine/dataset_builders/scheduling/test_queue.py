@@ -88,6 +88,22 @@ def test_fair_task_queue_weighted_groups() -> None:
     assert counts == {"a": 4, "b": 2}
 
 
+def test_fair_task_queue_ordering_state_stays_bounded_by_active_groups() -> None:
+    queue = FairTaskQueue()
+    group = _group("a")
+    queue.enqueue(_item("a", row_index, group) for row_index in range(1_000))
+
+    for remaining in reversed(range(1_000)):
+        assert _select_and_commit(queue) is not None
+        assert len(queue._active_entries) == min(remaining, 1)
+
+    discarded = _item("b", 0)
+    queue.enqueue([discarded])
+    queue.discard(discarded.task_id)
+
+    assert not queue._active_entries
+
+
 def test_select_next_is_non_mutating_until_commit() -> None:
     queue = FairTaskQueue()
     first = _item("a", 0)

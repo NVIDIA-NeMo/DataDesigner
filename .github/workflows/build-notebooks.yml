@@ -36,12 +36,13 @@ jobs:
       OPENROUTER_API_KEY: ${{ secrets.TEST_OPENROUTER_API_KEY }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.checkout_ref || github.ref }}
       - name: Compute notebook cache context
         run: echo "NOTEBOOK_CACHE_CONTEXT=${NOTEBOOK_EXECUTION_PROFILE}:${{ hashFiles('Makefile', 'docs/scripts/build_notebooks_cached.sh', 'uv.lock', 'packages/data-designer-config/src/**/*.py', 'packages/data-designer-engine/src/**/*.py', 'packages/data-designer/src/**/*.py') }}" >> "$GITHUB_ENV"
       - name: Install uv
+        # Keep v8.1.0 until manual workflow dispatch is verified on newer releases.
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
         with:
           version: "0.9.5"
