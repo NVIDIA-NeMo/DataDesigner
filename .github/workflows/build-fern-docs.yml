@@ -58,7 +58,7 @@ jobs:
             source_ref="${INPUT_SOURCE_REF:-$INPUT_RELEASE_TAG}"
             prepare_release_docs=1
           else
-            release_tag=$(gh release list --exclude-drafts --exclude-pre-releases --limit 1 --json tagName --jq '.[0].tagName // empty')
+            release_tag=$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --exclude-pre-releases --limit 1 --json tagName --jq '.[0].tagName // empty')
             if [ -z "$release_tag" ]; then
               echo "::error::Could not find the latest published release tag."
               exit 1

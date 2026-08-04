@@ -810,6 +810,7 @@ source = { editable = "packages/data-designer" }
 dependencies = [
     { name = "data-designer-config" },
     { name = "data-designer-engine" },
+    { name = "huggingface-hub" },
     { name = "opentelemetry-api" },
     { name = "opentelemetry-exporter-prometheus" },
     { name = "opentelemetry-sdk" },
@@ -818,7 +819,9 @@ dependencies = [
     { name = "prometheus-client" },
     { name = "prompt-toolkit" },
     { name = "pyarrow" },
+    { name = "pydantic" },
     { name = "pyyaml" },
+    { name = "rich" },
     { name = "typer" },
 ]
 
@@ -826,6 +829,7 @@ dependencies = [
 requires-dist = [
     { name = "data-designer-config", editable = "packages/data-designer-config" },
     { name = "data-designer-engine", editable = "packages/data-designer-engine" },
+    { name = "huggingface-hub", specifier = ">=1.0.1,<2" },
     { name = "opentelemetry-api", specifier = ">=1.43,<1.44" },
     { name = "opentelemetry-exporter-prometheus", specifier = ">=0.64b0,<0.65" },
     { name = "opentelemetry-sdk", specifier = ">=1.43,<1.44" },
@@ -834,7 +838,9 @@ requires-dist = [
     { name = "prometheus-client", specifier = ">=0.24,<1" },
     { name = "prompt-toolkit", specifier = ">=3.0.0,<4" },
     { name = "pyarrow", specifier = ">=24,<25" },
+    { name = "pydantic", specifier = ">=2.9.2,<3" },
     { name = "pyyaml", specifier = ">=6.0.1,<7" },
+    { name = "rich", specifier = ">=13.7.1,<15" },
     { name = "typer", specifier = ">=0.12.0,<1" },
 ]
 
