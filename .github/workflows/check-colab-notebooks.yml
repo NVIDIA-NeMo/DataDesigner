@@ -69,6 +69,7 @@ jobs:
       - name: Check for differences
         run: |
           # Jupytext assigns random cell IDs, so ignore ID-only changes.
+          git add -N docs/colab_notebooks/
           MEANINGFUL_DIFF=$(git diff docs/colab_notebooks/ | grep -E '^[+-]' | grep -v '^---' | grep -v '^+++' | grep -vE '^[+-]\s*"id": "[0-9a-fA-F]+",?$' || true)
 
           if [ -n "$MEANINGFUL_DIFF" ]; then
