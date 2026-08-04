@@ -43,7 +43,13 @@ from data_designer.engine.models.usage import (
     TokenUsageStats,
 )
 from data_designer.engine.models.usage_events import TokenUsageEvent, emit_token_usage_event
-from data_designer.engine.models.utils import ChatMessage, prompt_to_messages
+from data_designer.engine.models.utils import (
+    ChatMessage,
+    GenerationTruncationReason,
+    classify_generation_truncation_reason,
+    merge_conversation_truncation_reason,
+    prompt_to_messages,
+)
 from data_designer.engine.observability import runtime_correlation_provider
 
 if TYPE_CHECKING:
@@ -69,11 +75,17 @@ def _classify_generation_failure_kind(exc: ParserException) -> str:
     return "parse_error"
 
 
-def _build_generation_validation_error(summary: str, exc: ParserException) -> GenerationValidationFailureError:
+def _build_generation_validation_error(
+    summary: str,
+    exc: ParserException,
+    *,
+    truncation_reason: GenerationTruncationReason | None = None,
+) -> GenerationValidationFailureError:
     return GenerationValidationFailureError(
         summary,
         detail=str(get_exception_primary_cause(exc)),
         failure_kind=_classify_generation_failure_kind(exc),
+        truncation_reason=truncation_reason,
     )
 
 
@@ -349,6 +361,7 @@ class ModelFacade:
         # restart-or-raise. Reset to 0 on each conversation restart.
         parse_attempts = 0
         curr_num_restarts = 0
+        conversation_truncation_reason: GenerationTruncationReason | None = None
 
         mcp_facade = self._get_mcp_facade(tool_alias)
 
@@ -402,10 +415,15 @@ class ModelFacade:
                 output_obj = parser(response)  # type: ignore - if not a string will cause a ParserException below
                 break
             except ParserException as exc:
+                conversation_truncation_reason = merge_conversation_truncation_reason(
+                    conversation_truncation_reason,
+                    classify_generation_truncation_reason(completion_response),
+                )
                 if max_correction_steps == 0 and max_conversation_restarts == 0:
                     raise _build_generation_validation_error(
                         "Unsuccessful generation attempt. No retries were attempted.",
                         exc,
+                        truncation_reason=conversation_truncation_reason,
                     ) from exc
 
                 if parse_attempts <= max_correction_steps:
@@ -417,6 +435,9 @@ class ModelFacade:
                     curr_num_restarts += 1
                     messages = deepcopy(restart_checkpoint)
                     tool_call_turns = checkpoint_tool_call_turns
+                    # A restart drops the correction history that exhausted the context window,
+                    # so truncation precedence must start fresh with the new conversation.
+                    conversation_truncation_reason = None
 
                 else:
                     raise _build_generation_validation_error(
@@ -425,6 +446,7 @@ class ModelFacade:
                             f"and {max_conversation_restarts} conversation restarts."
                         ),
                         exc,
+                        truncation_reason=conversation_truncation_reason,
                     ) from exc
 
         if not skip_usage_tracking and mcp_facade is not None:
@@ -457,6 +479,7 @@ class ModelFacade:
         # See `generate` for a description of the parse-attempts counter semantics.
         parse_attempts = 0
         curr_num_restarts = 0
+        conversation_truncation_reason: GenerationTruncationReason | None = None
 
         mcp_facade = self._get_mcp_facade(tool_alias)
 
@@ -507,10 +530,15 @@ class ModelFacade:
                 output_obj = parser(response)
                 break
             except ParserException as exc:
+                conversation_truncation_reason = merge_conversation_truncation_reason(
+                    conversation_truncation_reason,
+                    classify_generation_truncation_reason(completion_response),
+                )
                 if max_correction_steps == 0 and max_conversation_restarts == 0:
                     raise _build_generation_validation_error(
                         "Unsuccessful generation attempt. No retries were attempted.",
                         exc,
+                        truncation_reason=conversation_truncation_reason,
                     ) from exc
 
                 if parse_attempts <= max_correction_steps:
@@ -521,6 +549,8 @@ class ModelFacade:
                     curr_num_restarts += 1
                     messages = deepcopy(restart_checkpoint)
                     tool_call_turns = checkpoint_tool_call_turns
+                    # Keep truncation precedence local to the restarted conversation.
+                    conversation_truncation_reason = None
 
                 else:
                     raise _build_generation_validation_error(
@@ -529,6 +559,7 @@ class ModelFacade:
                             f"and {max_conversation_restarts} conversation restarts."
                         ),
                         exc,
+                        truncation_reason=conversation_truncation_reason,
                     ) from exc
 
         if not skip_usage_tracking and mcp_facade is not None:
