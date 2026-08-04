@@ -4,7 +4,60 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from enum import Enum
+from typing import TYPE_CHECKING, Any, Literal
+
+if TYPE_CHECKING:
+    from data_designer.engine.models.clients.types import ChatCompletionResponse
+
+
+class GenerationTruncationReason(str, Enum):
+    """Canonical reasons that a model response ended before generation completed."""
+
+    MAX_TOKENS = "max_tokens"
+    MODEL_CONTEXT_WINDOW_EXCEEDED = "model_context_window_exceeded"
+
+
+_TRUNCATION_REASON_BY_FINISH_REASON = {
+    "length": GenerationTruncationReason.MAX_TOKENS,
+    "max_tokens": GenerationTruncationReason.MAX_TOKENS,
+    "model_context_window_exceeded": GenerationTruncationReason.MODEL_CONTEXT_WINDOW_EXCEEDED,
+}
+
+
+def classify_generation_truncation_reason(
+    response: ChatCompletionResponse,
+) -> GenerationTruncationReason | None:
+    """Classify canonical or raw provider termination metadata as a truncation reason."""
+    # Import lazily to keep this shared utility module lightweight and avoid loading
+    # the client package when callers only need the enum or merge helper.
+    from data_designer.engine.models.clients.parsing import get_first_value_or_none, get_value_from
+
+    first_choice = get_first_value_or_none(response.choices)
+    canonical_reason = get_value_from(first_choice, "finish_reason")
+    if isinstance(canonical_reason, str):
+        return _TRUNCATION_REASON_BY_FINISH_REASON.get(canonical_reason)
+
+    # Keep a raw fallback for custom or future adapters that have not populated
+    # the canonical choice finish reason yet.
+    raw_choices = get_value_from(response.raw, "choices")
+    raw_first_choice = get_first_value_or_none(raw_choices)
+    raw_reason = get_value_from(raw_first_choice, "finish_reason")
+    if not isinstance(raw_reason, str):
+        raw_reason = get_value_from(response.raw, "stop_reason")
+    if not isinstance(raw_reason, str):
+        return None
+    return _TRUNCATION_REASON_BY_FINISH_REASON.get(raw_reason)
+
+
+def merge_conversation_truncation_reason(
+    accumulated: GenerationTruncationReason | None,
+    current: GenerationTruncationReason | None,
+) -> GenerationTruncationReason | None:
+    """Combine reasons observed within one conversation using remediation-safe precedence."""
+    if GenerationTruncationReason.MODEL_CONTEXT_WINDOW_EXCEEDED in (accumulated, current):
+        return GenerationTruncationReason.MODEL_CONTEXT_WINDOW_EXCEEDED
+    return current or accumulated
 
 
 @dataclass
