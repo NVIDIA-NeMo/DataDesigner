@@ -3,10 +3,10 @@
 
 from __future__ import annotations
 
-import importlib
 from datetime import datetime, timezone
 
-import data_designer.engine.models.telemetry as telemetry
+import pytest
+
 from data_designer.engine.models.telemetry import (
     DeploymentTypeEnum,
     InferenceEvent,
@@ -14,6 +14,7 @@ from data_designer.engine.models.telemetry import (
     QueuedEvent,
     TaskStatusEnum,
     build_payload,
+    get_nemo_deployment_type,
 )
 
 
@@ -34,20 +35,7 @@ def test_nvidia_internal_deployment_type_uses_schema_version_1_9() -> None:
     assert payload["events"][0]["parameters"]["deploymentType"] == "nvidia-internal"
 
 
-def test_unrecognized_env_deployment_type_defaults_to_undefined(monkeypatch) -> None:
+def test_unrecognized_env_deployment_type_defaults_to_undefined(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("NEMO_DEPLOYMENT_TYPE", "unrecognized")
-    reloaded_telemetry = importlib.reload(telemetry)
 
-    try:
-        assert reloaded_telemetry.DEPLOYMENT_TYPE == DeploymentTypeEnum.UNDEFINED
-        event = reloaded_telemetry.InferenceEvent(
-            nemo_source=reloaded_telemetry.NemoSourceEnum.DATADESIGNER,
-            task="batch",
-            task_status=reloaded_telemetry.TaskStatusEnum.SUCCESS,
-            model="test-model",
-        )
-
-        assert event.deployment_type == reloaded_telemetry.DeploymentTypeEnum.UNDEFINED
-    finally:
-        monkeypatch.delenv("NEMO_DEPLOYMENT_TYPE", raising=False)
-        importlib.reload(telemetry)
+    assert get_nemo_deployment_type() == DeploymentTypeEnum.UNDEFINED

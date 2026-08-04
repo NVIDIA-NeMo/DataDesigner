@@ -65,7 +65,11 @@ def _normalize_deployment_type(value: str | None) -> DeploymentTypeEnum:
         return DeploymentTypeEnum.UNDEFINED
 
 
-DEPLOYMENT_TYPE = _normalize_deployment_type(os.getenv("NEMO_DEPLOYMENT_TYPE"))
+def get_nemo_deployment_type() -> DeploymentTypeEnum:
+    return _normalize_deployment_type(os.getenv("NEMO_DEPLOYMENT_TYPE"))
+
+
+DEPLOYMENT_TYPE = get_nemo_deployment_type()
 
 
 class TaskStatusEnum(str, Enum):
