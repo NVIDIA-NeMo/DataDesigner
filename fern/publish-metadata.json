@@ -4,8 +4,8 @@
   "action": "devnotes-patch",
   "source": {
     "repository": "NVIDIA-NeMo/DataDesigner",
-    "ref": "refs/heads/main",
-    "sha": "6fbdeb175bc3566f53da835e58ec97a2222edffe"
+    "ref": "refs/heads/andreatnvidia/fix/fern-release-resolution",
+    "sha": "04e194f4032e54c397d22e2ded6c496134f75572"
   },
   "published_branch": "docs-website"
 }
