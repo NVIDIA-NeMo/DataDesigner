@@ -42,6 +42,7 @@ path = "dev-tools/hatch_build.py"
 dependencies = [
     "data-designer-config=={{ version }}",
     "data-designer-engine=={{ version }}",
+    "huggingface-hub>=1.0.1,<2",
     "opentelemetry-api>=1.43,<1.44",
     "opentelemetry-exporter-prometheus>=0.64b0,<0.65",
     "opentelemetry-sdk>=1.43,<1.44",
@@ -50,7 +51,9 @@ dependencies = [
     "prometheus-client>=0.24,<1",
     "prompt-toolkit>=3.0.0,<4",
     "pyarrow>=24,<25",
+    "pydantic>=2.9.2,<3",
     "pyyaml>=6.0.1,<7",
+    "rich>=13.7.1,<15",
     "typer>=0.12.0,<1",
 ]
 
