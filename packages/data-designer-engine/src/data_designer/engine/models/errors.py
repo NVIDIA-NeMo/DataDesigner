@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from enum import Enum
 from functools import wraps
 from typing import Any, NoReturn
 
@@ -13,6 +12,7 @@ from pydantic import BaseModel
 
 from data_designer.engine.errors import DataDesignerError
 from data_designer.engine.models.clients.errors import ProviderError, ProviderErrorKind, SyncClientUnavailableError
+from data_designer.engine.models.utils import GenerationTruncationReason
 
 logger = logging.getLogger(__name__)
 
@@ -40,11 +40,6 @@ def get_exception_primary_cause(exception: BaseException) -> BaseException:
     if exception.__cause__ is None:
         return exception
     return get_exception_primary_cause(exception.__cause__)
-
-
-class GenerationTruncationReason(str, Enum):
-    MAX_TOKENS = "max_tokens"
-    MODEL_CONTEXT_WINDOW_EXCEEDED = "model_context_window_exceeded"
 
 
 class GenerationValidationFailureError(Exception):

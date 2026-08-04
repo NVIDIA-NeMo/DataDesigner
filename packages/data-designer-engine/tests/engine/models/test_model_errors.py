@@ -12,7 +12,6 @@ import pytest
 from data_designer.engine.models.clients.errors import ProviderError, ProviderErrorKind
 from data_designer.engine.models.errors import (
     DataDesignerError,
-    GenerationTruncationReason,
     GenerationValidationFailureError,
     ModelAPIConnectionError,
     ModelAPIError,
@@ -34,6 +33,7 @@ from data_designer.engine.models.errors import (
     get_exception_primary_cause,
     handle_llm_exceptions,
 )
+from data_designer.engine.models.utils import GenerationTruncationReason
 
 stub_model_name = "test-model"
 stub_model_provider_name = "nvbuild"

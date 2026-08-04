@@ -18,7 +18,6 @@ from data_designer.config.utils.constants import (
 from data_designer.config.utils.media_helpers import is_image_diffusion_model
 from data_designer.engine.mcp.errors import MCPConfigurationError
 from data_designer.engine.model_provider import ModelProviderRegistry
-from data_designer.engine.models.clients.parsing import get_first_value_or_none, get_value_from
 from data_designer.engine.models.clients.types import (
     ChatCompletionRequest,
     ChatCompletionResponse,
@@ -29,7 +28,6 @@ from data_designer.engine.models.clients.types import (
     Usage,
 )
 from data_designer.engine.models.errors import (
-    GenerationTruncationReason,
     GenerationValidationFailureError,
     ImageGenerationError,
     acatch_llm_exceptions,
@@ -45,7 +43,13 @@ from data_designer.engine.models.usage import (
     TokenUsageStats,
 )
 from data_designer.engine.models.usage_events import TokenUsageEvent, emit_token_usage_event
-from data_designer.engine.models.utils import ChatMessage, prompt_to_messages
+from data_designer.engine.models.utils import (
+    ChatMessage,
+    GenerationTruncationReason,
+    classify_generation_truncation_reason,
+    merge_conversation_truncation_reason,
+    prompt_to_messages,
+)
 from data_designer.engine.observability import runtime_correlation_provider
 
 if TYPE_CHECKING:
@@ -60,42 +64,6 @@ def _identity(x: Any) -> Any:
 
 
 logger = logging.getLogger(__name__)
-
-
-_TRUNCATION_REASON_BY_FINISH_REASON = {
-    "length": GenerationTruncationReason.MAX_TOKENS,
-    "max_tokens": GenerationTruncationReason.MAX_TOKENS,
-    "model_context_window_exceeded": GenerationTruncationReason.MODEL_CONTEXT_WINDOW_EXCEEDED,
-}
-
-
-def _classify_generation_truncation_reason(
-    response: ChatCompletionResponse,
-) -> GenerationTruncationReason | None:
-    first_choice = get_first_value_or_none(response.choices)
-    canonical_reason = get_value_from(first_choice, "finish_reason")
-    if isinstance(canonical_reason, str):
-        return _TRUNCATION_REASON_BY_FINISH_REASON.get(canonical_reason)
-
-    # Keep a raw fallback for custom or future adapters that have not populated
-    # the canonical choice finish reason yet.
-    raw_choices = get_value_from(response.raw, "choices")
-    raw_first_choice = get_first_value_or_none(raw_choices)
-    raw_reason = get_value_from(raw_first_choice, "finish_reason")
-    if not isinstance(raw_reason, str):
-        raw_reason = get_value_from(response.raw, "stop_reason")
-    if not isinstance(raw_reason, str):
-        return None
-    return _TRUNCATION_REASON_BY_FINISH_REASON.get(raw_reason)
-
-
-def _merge_generation_truncation_reason(
-    accumulated: GenerationTruncationReason | None,
-    current: GenerationTruncationReason | None,
-) -> GenerationTruncationReason | None:
-    if GenerationTruncationReason.MODEL_CONTEXT_WINDOW_EXCEEDED in (accumulated, current):
-        return GenerationTruncationReason.MODEL_CONTEXT_WINDOW_EXCEEDED
-    return current or accumulated
 
 
 def _classify_generation_failure_kind(exc: ParserException) -> str:
@@ -447,9 +415,9 @@ class ModelFacade:
                 output_obj = parser(response)  # type: ignore - if not a string will cause a ParserException below
                 break
             except ParserException as exc:
-                conversation_truncation_reason = _merge_generation_truncation_reason(
+                conversation_truncation_reason = merge_conversation_truncation_reason(
                     conversation_truncation_reason,
-                    _classify_generation_truncation_reason(completion_response),
+                    classify_generation_truncation_reason(completion_response),
                 )
                 if max_correction_steps == 0 and max_conversation_restarts == 0:
                     raise _build_generation_validation_error(
@@ -562,9 +530,9 @@ class ModelFacade:
                 output_obj = parser(response)
                 break
             except ParserException as exc:
-                conversation_truncation_reason = _merge_generation_truncation_reason(
+                conversation_truncation_reason = merge_conversation_truncation_reason(
                     conversation_truncation_reason,
-                    _classify_generation_truncation_reason(completion_response),
+                    classify_generation_truncation_reason(completion_response),
                 )
                 if max_correction_steps == 0 and max_conversation_restarts == 0:
                     raise _build_generation_validation_error(
