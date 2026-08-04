@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "release_tag": "v0.8.0",
+  "asset": "fern-notebooks-30910633145-1-executed.tar.gz",
+  "sha256": "ec4ee94d649baeed6bd827769d82be3c71f97a11434b339dd16d6861332bde7f",
+  "mode": "executed",
+  "run_id": "30910633145",
+  "run_attempt": "1"
+}
