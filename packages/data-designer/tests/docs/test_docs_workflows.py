@@ -37,6 +37,12 @@ def test_fern_publish_excludes_cancelled_notebook_builds() -> None:
     assert "if: needs.build-notebooks.result == 'failure'" in workflow
 
 
+def test_fern_release_resolution_sets_repository() -> None:
+    workflow = (WORKFLOWS_DIR / "build-fern-docs.yml").read_text()
+
+    assert 'gh release list --repo "$GITHUB_REPOSITORY"' in workflow
+
+
 def test_fern_publish_persists_and_restores_notebook_snapshots() -> None:
     workflow = (WORKFLOWS_DIR / "build-fern-docs.yml").read_text()
 
@@ -59,5 +65,5 @@ def test_devnotes_publish_does_not_reuse_notebook_artifacts() -> None:
     assert "Run the Build Fern docs workflow successfully once" in workflow
     assert "Restore published notebook snapshot" in workflow
     assert 'gh release download "$release_tag"' in workflow
-    assert "run: make check-fern-published-docs" in workflow
+    assert "run: make -f ../workflow/Makefile check-fern-published-docs" in workflow
     assert "run: make check-fern-docs\n" not in workflow

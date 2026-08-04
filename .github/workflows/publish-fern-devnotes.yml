@@ -122,7 +122,7 @@ jobs:
 
       - name: Check Fern docs
         working-directory: website
-        run: make check-fern-published-docs
+        run: make -f ../workflow/Makefile check-fern-published-docs
 
       - name: Commit published branch
         env:
