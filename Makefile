@@ -87,6 +87,7 @@ help:
 	@echo "  prepare-fern-docs         - Generate local Fern artifacts"
 	@echo "  check-fern-links          - Validate latest navigation-derived internal Fern links"
 	@echo "  check-fern-docs           - Generate artifacts, validate links, and run fern check"
+	@echo "  check-fern-published-docs - Check Fern docs using the restored notebook snapshot"
 	@echo "  check-fern-docs-locally   - Install deps, generate Fern artifacts, and run fern check"
 	@echo "  serve-fern-docs-locally   - Generate local Fern artifacts and serve Fern docs"
 	@echo "  check-license-headers     - Check if all files have license headers"
@@ -515,6 +516,9 @@ check-fern-docs: prepare-fern-docs
 	@$(MAKE) check-fern-links
 	cd fern && $(FERN) check
 
+check-fern-published-docs:
+	cd fern && $(FERN) check
+
 check-fern-docs-locally:
 	@$(MAKE) install-docs-deps
 	@$(MAKE) check-fern-docs
@@ -758,7 +762,7 @@ clean-test-coverage:
 .PHONY: bench-cli-startup bench-cli-startup-verbose \
         build build-config build-engine build-interface \
         check-all check-all-fix check-config check-engine check-interface \
-        check-dependency-licenses check-fern-docs check-fern-docs-locally check-fern-links check-fern-release-version check-fern-theme-access check-license-headers \
+        check-dependency-licenses check-fern-docs check-fern-docs-locally check-fern-links check-fern-published-docs check-fern-release-version check-fern-theme-access check-license-headers \
         clean clean-dist clean-notebooks clean-pycache clean-test-coverage \
         convert-execute-notebooks \
         coverage coverage-config coverage-engine coverage-interface \

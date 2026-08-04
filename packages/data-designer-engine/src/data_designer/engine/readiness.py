@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
@@ -38,6 +39,7 @@ logger = logging.getLogger(__name__)
 
 # Match the timeout the dataset builder's startup gate has always used.
 _MODEL_HEALTH_CHECK_TIMEOUT_SECONDS = 180
+_SKIP_MODEL_HEALTH_CHECKS_ENV = "DATA_DESIGNER_SKIP_MODEL_HEALTH_CHECKS"
 
 
 def run_readiness_check(
@@ -74,6 +76,10 @@ def _run_model_health_check(
     column_configs: Sequence[ColumnConfigT],
     resource_provider: ResourceProvider,
 ) -> None:
+    if os.environ.get(_SKIP_MODEL_HEALTH_CHECKS_ENV) == "1":
+        logger.info("Skipping model health checks because %s=1", _SKIP_MODEL_HEALTH_CHECKS_ENV)
+        return
+
     model_aliases: set[str] = set()
     for config in column_configs:
         model_aliases.update(config.get_model_aliases())
