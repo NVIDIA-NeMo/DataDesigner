@@ -409,23 +409,26 @@ def test_generate_truncation_accumulates_max_tokens_across_correction_attempts(
 
 
 @pytest.mark.parametrize(
-    "finish_reasons",
+    ("finish_reasons", "expected_solution"),
     [
         pytest.param(
             ("model_context_window_exceeded", "max_tokens"),
+            _MAX_TOKENS_SOLUTION,
             id="context-window-then-max-tokens",
         ),
         pytest.param(
             ("max_tokens", "model_context_window_exceeded"),
+            _CONTEXT_WINDOW_SOLUTION,
             id="max-tokens-then-context-window",
         ),
     ],
 )
 @pytest.mark.asyncio
-async def test_agenerate_truncation_context_window_wins_across_conversation_restart(
+async def test_agenerate_truncation_uses_latest_conversation_across_restart(
     stub_model_facade: ModelFacade,
     stub_model_client: MagicMock,
     finish_reasons: tuple[str, str],
+    expected_solution: str,
 ) -> None:
     stub_model_client.acompletion = AsyncMock(
         side_effect=[
@@ -441,8 +444,32 @@ async def test_agenerate_truncation_context_window_wins_across_conversation_rest
             max_conversation_restarts=1,
         )
 
-    _assert_public_parse_failure(exc_info.value, expected_solution=_CONTEXT_WINDOW_SOLUTION)
+    _assert_public_parse_failure(exc_info.value, expected_solution=expected_solution)
     assert stub_model_client.acompletion.await_count == 2
+
+
+def test_generate_truncation_resets_context_window_precedence_after_conversation_restart(
+    stub_model_facade: ModelFacade,
+    stub_model_client: MagicMock,
+) -> None:
+    stub_model_client.completion.side_effect = [
+        _make_response("first invalid response", finish_reason="max_tokens"),
+        _make_response("invalid correction", finish_reason="model_context_window_exceeded"),
+        _make_response("invalid response after restart", finish_reason="max_tokens"),
+        _make_response("final invalid correction", finish_reason="max_tokens"),
+    ]
+
+    with pytest.raises(ModelGenerationValidationFailureError) as exc_info:
+        stub_model_facade.generate(
+            prompt="test",
+            parser=_failing_parser,
+            max_correction_steps=1,
+            max_conversation_restarts=1,
+        )
+
+    _assert_public_parse_failure(exc_info.value, expected_solution=_MAX_TOKENS_SOLUTION)
+    assert _CONTEXT_WINDOW_SOLUTION not in str(exc_info.value)
+    assert stub_model_client.completion.call_count == 4
 
 
 @pytest.mark.asyncio
