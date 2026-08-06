@@ -103,6 +103,24 @@ def test_run_readiness_check_skips_model_probe_when_no_aliases(
     stub_resource_provider.model_registry.arun_health_check.assert_not_called()
 
 
+def test_run_readiness_check_skips_model_probe_from_environment(
+    monkeypatch,
+    stub_resource_provider,
+    stub_model_configs,
+    mock_async_readiness,
+) -> None:
+    stub_resource_provider.model_registry.arun_health_check = Mock()
+    stub_resource_provider.mcp_registry = None
+    monkeypatch.setenv("DATA_DESIGNER_SKIP_MODEL_HEALTH_CHECKS", "1")
+    columns = _build_columns(model_configs=stub_model_configs, llm_columns=[("col", "stub-text")])
+
+    run_readiness_check(columns, stub_resource_provider)
+
+    _, mock_submit = mock_async_readiness
+    stub_resource_provider.model_registry.arun_health_check.assert_not_called()
+    mock_submit.assert_not_called()
+
+
 def test_run_readiness_check_propagates_model_probe_error(
     stub_resource_provider,
     stub_model_configs,

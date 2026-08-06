@@ -256,8 +256,9 @@ def test_bounded_borrow_prevents_solo_heavy_group_from_consuming_all_typed_capac
     assert controller.view().policy_debt_by_group_resource[(group.key, "llm_wait")] == 1
 
 
-def test_bounded_borrow_dynamic_ceiling_reserves_capacity() -> None:
+def test_bounded_borrow_dynamic_ceiling_uses_full_solo_capacity_then_yields() -> None:
     group = TaskGroupSpec(TaskGroupKey(kind="model", identity=("provider", "hot")), weight=4.0, admitted_limit=8)
+    peer_group = TaskGroupSpec(TaskGroupKey(kind="model", identity=("provider", "peer")), admitted_limit=1)
     controller = TaskAdmissionController(
         TaskAdmissionConfig(
             submission_capacity=8,
@@ -265,19 +266,25 @@ def test_bounded_borrow_dynamic_ceiling_reserves_capacity() -> None:
             bounded_borrow=BoundedBorrowTaskAdmissionPolicyConfig(),
         )
     )
-    items = [_item("hot", row, group=group, resources={"submission": 1, "llm_wait": 1}) for row in range(8)]
-    for index in range(7):
+    items = [_item("hot", row, group=group, resources={"submission": 1, "llm_wait": 1}) for row in range(9)]
+    leases = []
+    for index in range(8):
         decision = controller.try_acquire(items[index], _queue_view(*items[index:]))
         assert isinstance(decision, TaskAdmissionLease)
+        leases.append(decision)
 
-    denied = controller.try_acquire(items[7], _queue_view(items[7]))
+    assert controller.view().resources_available["llm_wait"] == 0
+    assert controller.view().policy_debt_by_group_resource[(group.key, "llm_wait")] == 4
 
-    assert isinstance(denied, TaskAdmissionDenied)
-    assert denied.reason == "borrow_debt"
-    assert denied.diagnostics["ceiling"] == 3
-    assert denied.diagnostics["strict_share"] == 4
-    assert controller.view().resources_available["llm_wait"] == 1
-    assert controller.view().policy_debt_by_group_resource[(group.key, "llm_wait")] == 3
+    controller.release(leases[0])
+    peer = _item("peer", 0, group=peer_group, resources={"submission": 1, "llm_wait": 1})
+    queue = FairTaskQueue()
+    queue.enqueue((items[8], peer))
+
+    selection = queue.select_next(controller.is_eligible)
+
+    assert selection is not None
+    assert selection.item.task_id == peer.task_id
 
 
 def test_bounded_borrow_explicit_ceiling_counts_marginal_borrowed_slots() -> None:

@@ -26,15 +26,24 @@ jobs:
       actions: read
       contents: write
     env:
+      DATA_DESIGNER_FLUX_2_PRO_CREATE_NUM_RECORDS: ${{ github.event_name == 'schedule' && '2' || '5' }}
+      DATA_DESIGNER_SKIP_MODEL_HEALTH_CHECKS: "1"
       NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+      NOTEBOOK_CACHE_ENABLED: ${{ inputs.use_cache && '1' || '0' }}
+      NOTEBOOK_EXECUTION_PROFILE: ${{ github.event_name == 'schedule' && 'flux-2-pro-2-records' || 'flux-2-pro-5-records' }}
+      NOTEBOOK_EXECUTION_ATTEMPTS: "3"
+      NOTEBOOK_RETRY_DELAY_SECONDS: "15"
       OPENROUTER_API_KEY: ${{ secrets.TEST_OPENROUTER_API_KEY }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.checkout_ref || github.ref }}
+      - name: Compute notebook cache context
+        run: echo "NOTEBOOK_CACHE_CONTEXT=${NOTEBOOK_EXECUTION_PROFILE}:${{ hashFiles('Makefile', 'docs/scripts/build_notebooks_cached.sh', 'uv.lock', 'packages/data-designer-config/src/**/*.py', 'packages/data-designer-engine/src/**/*.py', 'packages/data-designer/src/**/*.py') }}" >> "$GITHUB_ENV"
       - name: Install uv
-        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        # Keep v8.1.0 until manual workflow dispatch is verified on newer releases.
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
         with:
           version: "0.9.5"
       - name: Set up Python
@@ -47,54 +56,97 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .notebook-cache
-          key: notebooks-${{ hashFiles('docs/notebook_source/*.py') }}
+          key: notebooks-${{ env.NOTEBOOK_EXECUTION_PROFILE }}-${{ hashFiles('docs/notebook_source/*.py', 'Makefile', 'docs/scripts/build_notebooks_cached.sh', 'uv.lock', 'packages/data-designer-config/src/**/*.py', 'packages/data-designer-engine/src/**/*.py', 'packages/data-designer/src/**/*.py') }}
           restore-keys: |
-            notebooks-
+            notebooks-${{ env.NOTEBOOK_EXECUTION_PROFILE }}-
       - name: Seed cache from last successful artifact
         if: inputs.use_cache && steps.cache.outputs.cache-hit != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Only seed when the cache dir is truly empty (no partial restore).
-          # A partial restore already has correct per-file hashes — seeding
-          # over it would write current hashes for old notebooks, masking changes.
-          if [ -d .notebook-cache ] && [ -n "$(ls -A .notebook-cache 2>/dev/null)" ]; then
-            echo "Partial cache restored — skipping artifact seed"
+          fingerprint_for() {
+            source_hash="$(sha256sum "$1" | cut -d' ' -f1)"
+            echo "${source_hash}:${NOTEBOOK_CACHE_CONTEXT}"
+          }
+
+          cache_complete() {
+            for src in docs/notebook_source/*.py; do
+              name="$(basename "$src" .py)"
+              fingerprint="$(fingerprint_for "$src")"
+              if [ ! -f ".notebook-cache/${name}.ipynb" ] \
+                || [ ! -f ".notebook-cache/${name}.sha256" ] \
+                || [ "$(cat ".notebook-cache/${name}.sha256")" != "$fingerprint" ]; then
+                return 1
+              fi
+            done
+          }
+
+          mkdir -p .notebook-cache
+          if cache_complete; then
+            echo "Restored cache already contains every current notebook."
             exit 0
           fi
-          echo "Empty cache — seeding from last successful build artifact..."
-          LAST_RUN_ID=$(gh run list --workflow build-notebooks.yml --status success --branch main --limit 1 --json databaseId -q '.[0].databaseId // empty' 2>/dev/null || true)
-          if [ -n "$LAST_RUN_ID" ]; then
-            SEED_TMPDIR=$(mktemp -d)
-            if gh run download "$LAST_RUN_ID" --name notebooks --dir "$SEED_TMPDIR" 2>/dev/null; then
-              mkdir -p .notebook-cache
-              for src in docs/notebook_source/*.py; do
-                name="$(basename "$src" .py)"
-                nb="$SEED_TMPDIR/${name}.ipynb"
-                if [ -f "$nb" ]; then
-                  hash="$(sha256sum "$src" | cut -d' ' -f1)"
-                  cp "$nb" ".notebook-cache/${name}.ipynb"
-                  echo "$hash" > ".notebook-cache/${name}.sha256"
-                  echo "  Seeded: ${name}"
-                fi
-              done
-              echo "Cache seeded from run $LAST_RUN_ID"
-            else
-              echo "Could not download artifact from run $LAST_RUN_ID, proceeding without cache"
+
+          echo "Seeding cache from verified build artifacts..."
+          mapfile -t RUN_IDS < <(
+            {
+              gh run list --workflow build-fern-docs.yml --status success --limit 10 \
+                --json databaseId -q '.[].databaseId' 2>/dev/null || true
+              gh run list --workflow build-notebooks.yml --status success --branch main --limit 10 \
+                --json databaseId -q '.[].databaseId' 2>/dev/null || true
+            } | awk 'NF && !seen[$0]++'
+          )
+
+          SEED_TMPDIR=$(mktemp -d)
+          trap 'rm -rf "$SEED_TMPDIR"' EXIT
+          for run_id in "${RUN_IDS[@]}"; do
+            rm -rf "$SEED_TMPDIR/notebooks" "$SEED_TMPDIR/hashes"
+            if ! gh run download "$run_id" --name notebooks --dir "$SEED_TMPDIR/notebooks" 2>/dev/null \
+              || ! gh run download "$run_id" --name notebook-source-hashes --dir "$SEED_TMPDIR/hashes" 2>/dev/null; then
+              continue
             fi
-            rm -rf "$SEED_TMPDIR"
-          else
-            echo "No previous successful run found, proceeding without cache"
+
+            for src in docs/notebook_source/*.py; do
+              name="$(basename "$src" .py)"
+              fingerprint="$(fingerprint_for "$src")"
+              if [ -f ".notebook-cache/${name}.ipynb" ] \
+                && [ -f ".notebook-cache/${name}.sha256" ] \
+                && [ "$(cat ".notebook-cache/${name}.sha256")" = "$fingerprint" ]; then
+                continue
+              fi
+
+              nb="$SEED_TMPDIR/notebooks/${name}.ipynb"
+              hash_file="$SEED_TMPDIR/hashes/${name}.sha256"
+              if [ -f "$nb" ] && [ -f "$hash_file" ] && [ "$(cat "$hash_file")" = "$fingerprint" ]; then
+                cp "$nb" ".notebook-cache/${name}.ipynb"
+                echo "$fingerprint" > ".notebook-cache/${name}.sha256"
+                echo "  Seeded: ${name} (run $run_id)"
+              fi
+            done
+
+            if cache_complete; then
+              echo "Cache completed from verified artifacts."
+              break
+            fi
+          done
+
+          if ! cache_complete; then
+            echo "No compatible artifact found for every notebook; unmatched notebooks will execute."
           fi
       - name: Convert and execute notebooks
         run: |
-          if [ "$GITHUB_EVENT_NAME" = "schedule" ]; then
-            export DATA_DESIGNER_SKIP_NVIDIA_VISION_HEALTH_CHECK=1
-            export DATA_DESIGNER_FLUX_2_PRO_CREATE_NUM_RECORDS=2
+          if [ "$NOTEBOOK_CACHE_ENABLED" != "1" ]; then
+            rm -rf .notebook-cache
           fi
-          make convert-execute-notebooks ${{ inputs.use_cache && 'USE_CACHE=1' || '' }}
+          make convert-execute-notebooks USE_CACHE=1
       - name: Upload notebooks as artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: notebooks
           path: docs/notebooks
+      - name: Upload notebook source hashes
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: notebook-source-hashes
+          path: .notebook-cache/*.sha256
+          include-hidden-files: true

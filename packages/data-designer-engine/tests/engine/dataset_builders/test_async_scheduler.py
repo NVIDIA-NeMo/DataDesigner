@@ -45,12 +45,18 @@ from data_designer.engine.dataset_builders.scheduling.task_model import Task
 from data_designer.engine.dataset_builders.scheduling.task_policies import BoundedBorrowTaskAdmissionPolicyConfig
 from data_designer.engine.dataset_builders.utils.execution_graph import ExecutionGraph
 from data_designer.engine.dataset_builders.utils.row_group_buffer import RowGroupBufferManager
+from data_designer.engine.models.clients.errors import ProviderError, ProviderErrorKind
 from data_designer.engine.models.errors import (
     RETRYABLE_MODEL_ERRORS,
+    FormattedLLMErrorMessage,
+    ModelAPIConnectionError,
+    ModelAuthenticationError,
+    ModelGenerationValidationFailureError,
     ModelInternalServerError,
     ModelRateLimitError,
     ModelRequestAdmissionTimeoutError,
     ModelTimeoutError,
+    handle_llm_exceptions,
 )
 from data_designer.engine.models.request_admission.config import RequestAdmissionConfig
 from data_designer.engine.models.request_admission.controller import (
@@ -202,6 +208,22 @@ class MockFailingGenerator(ColumnGenerator[ExpressionColumnConfig]):
             raise ValueError("permanent failure")
         data[self.config.name] = f"recovered_{data.get('seed', '?')}"
         return data
+
+
+class MockMaxTokensValidationFailureGenerator(ColumnGenerator[ExpressionColumnConfig]):
+    """Cell generator that surfaces formatted max-token parse guidance."""
+
+    @staticmethod
+    def get_generation_strategy() -> GenerationStrategy:
+        return GenerationStrategy.CELL_BY_CELL
+
+    def generate(self, _data: dict) -> dict:
+        raise ModelGenerationValidationFailureError(
+            FormattedLLMErrorMessage(
+                cause="The model output could not be parsed because it reached max_tokens.",
+                solution="Increase inference_parameters.max_tokens in the model config and try again.",
+            )
+        )
 
 
 class MockBuggyGenerator(ColumnGenerator[ExpressionColumnConfig]):
@@ -362,6 +384,10 @@ class MockRetryableErrorGenerator(ColumnGenerator[ExpressionColumnConfig]):
             raise self._error_factory()
         data[self.config.name] = f"ok_{data.get('seed', '?')}"
         return data
+
+
+class MockUnclassifiedRetryableError(Exception):
+    """Retryable test error without a dedicated telemetry category."""
 
 
 class _BrokenSchedulerSink:
@@ -779,6 +805,32 @@ async def test_scheduler_non_retryable_failure_drops_row() -> None:
     # Row group is "complete" because all non-dropped rows have all columns
     # (there are no non-dropped rows)
     assert tracker.is_row_group_complete(0, 2, ["seed", "fail_col"])
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_scheduler_characterization_logs_max_tokens_guidance_when_non_retryable_failure_drops_row(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Characterize existing warning propagation for formatted public model errors."""
+    provider = _mock_provider()
+    scheduler, tracker = _build_simple_pipeline(
+        num_records=1,
+        generators={
+            "seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
+            "cell_out": MockMaxTokensValidationFailureGenerator(
+                config=_expr_config("cell_out"),
+                resource_provider=provider,
+            ),
+        },
+    )
+
+    with caplog.at_level(logging.WARNING, logger="data_designer.engine.dataset_builders.async_scheduler"):
+        await scheduler.run()
+
+    assert tracker.is_dropped(0, 0)
+    assert "Non-retryable failure on cell_out[rg=0, row=0]:" in caplog.text
+    assert "max_tokens" in caplog.text
+    assert "inference_parameters.max_tokens" in caplog.text
 
 
 def test_scheduler_internal_bug_classifier_preserves_scheduler_builtin_failures() -> None:
@@ -1668,6 +1720,39 @@ def _count_degraded_msgs(caplog: pytest.LogCaptureFixture) -> int:
     return sum(1 for r in caplog.records if "degraded performance" in r.getMessage())
 
 
+def _build_model_outcome_scheduler(
+    *,
+    error_factory: Callable[[], Exception],
+    retryable_failures: int,
+    num_records: int,
+    scheduler_event_sink: InMemoryAdmissionEventSink | None = None,
+    degraded_warn_rate: float = async_scheduler_module.DEGRADED_WARN_RATE,
+    degraded_warn_window: int = async_scheduler_module.DEGRADED_WARN_WINDOW,
+    degraded_warn_interval_s: float = async_scheduler_module.DEGRADED_WARN_INTERVAL_S,
+) -> AsyncTaskScheduler:
+    cell = MockRetryableErrorGenerator(
+        config=_expr_config("cell_out"),
+        resource_provider=_mock_provider(),
+        error_factory=error_factory,
+        retryable_failures=retryable_failures,
+    )
+    generators, graph, row_groups, tracker, buffer_mgr, _storage = _seed_plus_cell_setup(
+        cell,
+        num_records=num_records,
+    )
+    return AsyncTaskScheduler(
+        generators=generators,
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        buffer_manager=buffer_mgr,
+        scheduler_event_sink=scheduler_event_sink,
+        degraded_warn_rate=degraded_warn_rate,
+        degraded_warn_window=degraded_warn_window,
+        degraded_warn_interval_s=degraded_warn_interval_s,
+    )
+
+
 @pytest.mark.parametrize(
     "retryable_failures,num_records,window,interval_s,expected_count",
     [
@@ -1720,6 +1805,135 @@ async def test_degraded_provider_warn_silent_under_threshold(caplog: pytest.LogC
     with caplog.at_level("WARNING"):
         await scheduler.run()
     assert _count_degraded_msgs(caplog) == 0
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_degraded_provider_warn_includes_triggering_deferred_task(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    scheduler = _build_model_outcome_scheduler(
+        error_factory=lambda: ModelTimeoutError("read timeout"),
+        retryable_failures=1,
+        num_records=1,
+        degraded_warn_rate=1.0,
+        degraded_warn_window=1,
+        degraded_warn_interval_s=0.0,
+    )
+
+    with caplog.at_level(logging.WARNING):
+        await scheduler.run()
+
+    messages = [record.getMessage() for record in caplog.records if "degraded performance" in record.getMessage()]
+    assert len(messages) == 1
+    assert "deferred_tasks=1" in messages[0]
+
+
+@pytest.mark.parametrize(
+    ("exc_cls", "expected_kind"),
+    [
+        (ModelRateLimitError, "rate_limit"),
+        (ModelRequestAdmissionTimeoutError, "request_admission_timeout"),
+        (ModelTimeoutError, "timeout"),
+        (ModelInternalServerError, "internal_server"),
+        (ModelAPIConnectionError, "connection"),
+        (MockUnclassifiedRetryableError, "other_retryable"),
+    ],
+)
+@pytest.mark.asyncio(loop_scope="session")
+async def test_retryable_outcome_metrics_classify_errors(
+    exc_cls: type[Exception],
+    expected_kind: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    if exc_cls is MockUnclassifiedRetryableError:
+        monkeypatch.setattr(
+            async_scheduler_module,
+            "RETRYABLE_MODEL_ERRORS",
+            (*RETRYABLE_MODEL_ERRORS, MockUnclassifiedRetryableError),
+        )
+    scheduler = _build_model_outcome_scheduler(
+        error_factory=lambda: exc_cls("sensitive provider text"),
+        retryable_failures=1,
+        num_records=1,
+    )
+
+    await scheduler.run()
+
+    metrics = scheduler.retryable_outcome_metrics
+    assert metrics["cumulative_counts"] == {expected_kind: 1, "success": 1}
+    assert metrics["rolling_counts"] == {expected_kind: 1, "success": 1}
+    assert metrics["retryable_details"] == {expected_kind: 1}
+    assert "sensitive provider text" not in str(metrics)
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_retryable_outcome_metrics_extract_provider_status_from_suppressed_context(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    def error_factory() -> Exception:
+        provider_error = ProviderError(
+            kind=ProviderErrorKind.RATE_LIMIT,
+            message="sensitive provider text",
+            status_code=429,
+            retry_after=2.5,
+        )
+        try:
+            raise provider_error
+        except ProviderError as exc:
+            with pytest.raises(ModelRateLimitError) as exc_info:
+                handle_llm_exceptions(exc, MODEL_ALIAS, "stub-provider")
+        assert exc_info.value.__cause__ is None
+        assert exc_info.value.__context__ is provider_error
+        return exc_info.value
+
+    scheduler = _build_model_outcome_scheduler(
+        error_factory=error_factory,
+        retryable_failures=2,
+        num_records=1,
+    )
+    with caplog.at_level(logging.WARNING):
+        await scheduler.run()
+
+    metrics = scheduler.retryable_outcome_metrics
+    assert metrics["cumulative_counts"] == {"rate_limit": 2, "success": 1}
+    assert metrics["retryable_details"] == {"rate_limit:http_429": 2}
+    assert "http_status=429" in caplog.text
+    assert "retry_after=2.5s" in caplog.text
+    observed_messages = [
+        record.getMessage() for record in caplog.records if "Observed retryable model-task error" in record.getMessage()
+    ]
+    assert len(observed_messages) == 1
+    assert "sensitive provider text" not in str(metrics)
+    assert "sensitive provider text" not in caplog.text
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_retryable_outcome_metrics_distinguish_non_retryable_failures() -> None:
+    sink = InMemoryAdmissionEventSink()
+    scheduler = _build_model_outcome_scheduler(
+        error_factory=lambda: ModelAuthenticationError("sensitive non-retryable text"),
+        retryable_failures=1,
+        num_records=2,
+        scheduler_event_sink=sink,
+    )
+
+    await scheduler.run()
+
+    metrics = scheduler.retryable_outcome_metrics
+    assert metrics["cumulative_counts"] == {"non_retryable_failure": 1, "success": 1}
+    assert metrics["rolling_counts"] == {"non_retryable_failure": 1, "success": 1}
+    assert metrics["retryable_details"] == {}
+    assert "sensitive non-retryable text" not in str(metrics)
+
+    health = next(
+        event
+        for event in reversed(sink.scheduler_events)
+        if event.event_kind == "scheduler_health_snapshot" and event.diagnostics["reason"] == "completed"
+    )
+    assert health.diagnostics["deferred_tasks"] == 0
+    retryable_outcomes = health.diagnostics["retryable_outcomes"]
+    assert isinstance(retryable_outcomes, dict)
+    assert "deferred_tasks" not in retryable_outcomes
 
 
 @pytest.mark.asyncio(loop_scope="session")
@@ -1789,7 +2003,7 @@ async def test_scheduler_on_before_checkpoint_callback() -> None:
 
 
 @pytest.mark.asyncio(loop_scope="session")
-async def test_scheduler_on_finalize_row_group_callback_fires() -> None:
+async def test_scheduler_on_finalize_row_group_callback_fires(monkeypatch: pytest.MonkeyPatch) -> None:
     """on_finalize_row_group is called for each completed row group."""
     provider = _mock_provider()
     configs = [
@@ -1810,6 +2024,8 @@ async def test_scheduler_on_finalize_row_group_callback_fires() -> None:
 
     buffer_mgr = RowGroupBufferManager(storage)
     finalized: list[int] = []
+    compact_row_group = MagicMock(wraps=tracker.compact_row_group)
+    monkeypatch.setattr(tracker, "compact_row_group", compact_row_group)
 
     def finalize_row_group(rg_id: int) -> None:
         buffer_mgr.checkpoint_row_group(rg_id)
@@ -1827,6 +2043,22 @@ async def test_scheduler_on_finalize_row_group_callback_fires() -> None:
 
     assert finalized == [0]
     assert storage.write_batch_to_parquet_file.call_count == 1
+    compact_row_group.assert_called_once_with(0)
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_scheduler_does_not_compact_row_group_when_checkpoint_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scheduler, tracker = _build_simple_pipeline(num_records=1)
+    compact_row_group = MagicMock(wraps=tracker.compact_row_group)
+    monkeypatch.setattr(tracker, "compact_row_group", compact_row_group)
+    scheduler._on_finalize_row_group = MagicMock(side_effect=RuntimeError("checkpoint failed"))
+
+    await scheduler.run()
+
+    compact_row_group.assert_not_called()
+    assert tracker.is_row_group_complete(0, 1, ["seed", "cell_out"])
 
 
 @pytest.mark.asyncio(loop_scope="session")
@@ -2000,6 +2232,13 @@ class MockLLMBoundCellGenerator(ColumnGenerator[ExpressionColumnConfig]):
     def generate(self, data: dict) -> dict:
         data[self.config.name] = f"llm_{data.get('seed', '?')}"
         return data
+
+
+class MockLLMBoundFullColumnGenerator(MockFullColumnGenerator):
+    """Mock full-column generator that reports model-stage scheduling metadata."""
+
+    def get_scheduling_metadata(self) -> SchedulingMetadata:
+        return SchedulingMetadata.custom_model("test", self.config.name, "v1")
 
 
 class MockConfiguredModelCellGenerator(ColumnGeneratorWithModelRegistry[LLMTextColumnConfig]):
@@ -3171,6 +3410,41 @@ class SlowCellGenerator(ColumnGenerator[ExpressionColumnConfig]):
     async def agenerate(self, data: dict) -> dict:
         await asyncio.sleep(self._delay)
         return self.generate(data)
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_scheduler_compacts_only_after_row_group_workers_finish() -> None:
+    """A dropped row must not checkpoint while a sibling worker is still running."""
+    provider = _mock_provider()
+    configs = [
+        SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        LLMTextColumnConfig(name="failing", prompt="{{ seed }}", model_alias=MODEL_ALIAS),
+        LLMTextColumnConfig(name="slow", prompt="{{ seed }}", model_alias=MODEL_ALIAS),
+    ]
+    strategies = {
+        "seed": GenerationStrategy.FULL_COLUMN,
+        "failing": GenerationStrategy.CELL_BY_CELL,
+        "slow": GenerationStrategy.CELL_BY_CELL,
+    }
+    generators = {
+        "seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
+        "failing": MockFailingGenerator(config=_expr_config("failing"), resource_provider=provider),
+        "slow": SlowCellGenerator(config=_expr_config("slow"), resource_provider=provider),
+    }
+    scheduler, tracker = _build_simple_pipeline(
+        num_records=1,
+        configs=configs,
+        strategies=strategies,
+        generators=generators,
+    )
+
+    await scheduler.run()
+
+    assert tracker.is_row_group_complete(0, 1, ["seed", "failing", "slow"])
+    assert tracker.is_dropped(0, 0)
+    assert 0 not in tracker._completed
+    assert 0 not in tracker._dropped
+    assert 0 not in tracker._batch_complete
 
 
 class SlowLLMBoundCellGenerator(SlowCellGenerator):
@@ -4820,7 +5094,7 @@ async def test_scheduler_skip_cell_by_cell_with_propagation() -> None:
 
     generators: dict[str, ColumnGenerator] = {
         "seed": IntSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
-        "review": MockCellGenerator(config=_expr_config("review"), resource_provider=provider),
+        "review": MockLLMBoundCellGenerator(config=_expr_config("review"), resource_provider=provider),
         "complaint": MockCellGenerator(config=_expr_config("complaint"), resource_provider=provider),
     }
 
@@ -4846,6 +5120,7 @@ async def test_scheduler_skip_cell_by_cell_with_propagation() -> None:
     await asyncio.wait_for(scheduler.run(), timeout=10.0)
 
     assert tracker.is_row_group_complete(0, num_records, ["seed", "review", "complaint"])
+    assert scheduler.retryable_outcome_metrics["cumulative_counts"] == {"success": 2}
 
     for ri in range(num_records):
         row = buffer_mgr.get_row(0, ri)
@@ -4979,7 +5254,7 @@ async def test_scheduler_skip_full_column_batch() -> None:
 
     generators: dict[str, ColumnGenerator] = {
         "seed": IntSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
-        "review": MockFullColumnGenerator(config=_expr_config("review"), resource_provider=provider),
+        "review": MockLLMBoundFullColumnGenerator(config=_expr_config("review"), resource_provider=provider),
     }
 
     storage = MagicMock()
@@ -5004,6 +5279,7 @@ async def test_scheduler_skip_full_column_batch() -> None:
     await asyncio.wait_for(scheduler.run(), timeout=10.0)
 
     assert tracker.is_row_group_complete(0, num_records, ["seed", "review"])
+    assert scheduler.retryable_outcome_metrics["cumulative_counts"] == {"success": 1}
 
     for ri in range(num_records):
         row = buffer_mgr.get_row(0, ri)
@@ -5012,6 +5288,46 @@ async def test_scheduler_skip_full_column_batch() -> None:
             assert row.get("review") is None, f"row {ri}: review should be skipped (seed={seed_val})"
         else:
             assert row["review"] == "batch_val", f"row {ri}: review should be generated (seed={seed_val})"
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_scheduler_fully_skipped_model_batch_does_not_record_provider_outcome() -> None:
+    provider = _mock_provider()
+    num_records = 4
+    configs = [
+        SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        LLMTextColumnConfig(
+            name="review",
+            prompt="{{ seed }}",
+            model_alias=MODEL_ALIAS,
+            skip=SkipConfig(when="{{ seed >= 0 }}"),
+        ),
+    ]
+    strategies = {
+        "seed": GenerationStrategy.FULL_COLUMN,
+        "review": GenerationStrategy.FULL_COLUMN,
+    }
+    generators: dict[str, ColumnGenerator] = {
+        "seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
+        "review": MockLLMBoundFullColumnGenerator(config=_expr_config("review"), resource_provider=provider),
+    }
+    graph = ExecutionGraph.create(configs, strategies)
+    row_groups = [(0, num_records)]
+    tracker = CompletionTracker.with_graph(graph, row_groups)
+    buffer_mgr = RowGroupBufferManager(_make_storage())
+    scheduler = AsyncTaskScheduler(
+        generators=generators,
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        buffer_manager=buffer_mgr,
+    )
+
+    await scheduler.run()
+
+    assert tracker.is_row_group_complete(0, num_records, ["seed", "review"])
+    assert scheduler.retryable_outcome_metrics["cumulative_counts"] == {}
+    assert all(buffer_mgr.get_row(0, row_index).get("review") is None for row_index in range(num_records))
 
 
 # -- Post-batch (on_before_checkpoint) failure propagation --------------------
