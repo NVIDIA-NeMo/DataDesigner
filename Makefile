@@ -580,8 +580,10 @@ endif
 
 generate-colab-notebooks:
 	@echo "📓 Generating Colab-compatible notebooks ($(DOCS_PYTHON))..."
-ifdef FILES
-	$(DOCS_PYTHON) docs/scripts/generate_colab_notebooks.py --files $(FILES)
+ifdef FILES_FILE
+	@if [ -s "$(FILES_FILE)" ]; then \
+		xargs -0 -n 1 $(DOCS_PYTHON) docs/scripts/generate_colab_notebooks.py --files < "$(FILES_FILE)"; \
+	fi
 else
 	$(DOCS_PYTHON) docs/scripts/generate_colab_notebooks.py
 endif

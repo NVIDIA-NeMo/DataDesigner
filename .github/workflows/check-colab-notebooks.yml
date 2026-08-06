@@ -40,31 +40,32 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: |
           if [ -z "$BASE_SHA" ] || [ "$BASE_SHA" = "0000000000000000000000000000000000000000" ]; then
+            echo "full=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          files=()
-          while IFS= read -r source_path; do
-            files+=("${source_path##*/}")
-          done < <(git diff --no-renames --name-only --diff-filter=ACDMT "$BASE_SHA" "$GITHUB_SHA" -- 'docs/notebook_source/*.py')
+          while IFS= read -r -d '' source_path; do
+            printf '%s\0' "${source_path##*/}"
+          done < <(git diff --no-renames --name-only -z --diff-filter=ACDMT "$BASE_SHA" "$GITHUB_SHA" -- 'docs/notebook_source/*.py') > "$RUNNER_TEMP/changed-notebook-sources"
 
-          deleted=()
-          while IFS= read -r source_path; do
-            deleted+=("${source_path##*/}")
-          done < <(git diff --no-renames --name-only --diff-filter=D "$BASE_SHA" "$GITHUB_SHA" -- 'docs/notebook_source/*.py')
-
-          echo "files=${files[*]}" >> "$GITHUB_OUTPUT"
-          echo "deleted=${deleted[*]}" >> "$GITHUB_OUTPUT"
+          while IFS= read -r -d '' source_path; do
+            printf '%s\0' "${source_path##*/}"
+          done < <(git diff --no-renames --name-only -z --diff-filter=D "$BASE_SHA" "$GITHUB_SHA" -- 'docs/notebook_source/*.py') > "$RUNNER_TEMP/deleted-notebook-sources"
 
       - name: Generate Colab notebooks
         env:
-          DELETED_FILES: ${{ steps.changed.outputs.deleted }}
-          FILES: ${{ steps.changed.outputs.files }}
+          FULL_REGENERATION: ${{ steps.changed.outputs.full }}
         run: |
-          for file in $DELETED_FILES; do
+          if [ "$FULL_REGENERATION" = "true" ]; then
+            make generate-colab-notebooks
+            exit 0
+          fi
+
+          while IFS= read -r -d '' file; do
             rm -f "docs/colab_notebooks/${file%.py}.ipynb"
-          done
-          make generate-colab-notebooks FILES="$FILES"
+          done < "$RUNNER_TEMP/deleted-notebook-sources"
+
+          make generate-colab-notebooks FILES_FILE="$RUNNER_TEMP/changed-notebook-sources"
 
       - name: Check for differences
         run: |
