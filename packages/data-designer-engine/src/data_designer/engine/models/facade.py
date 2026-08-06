@@ -14,6 +14,8 @@ from data_designer.config.utils.constants import (
     ATTRIBUTION_TITLE,
     OPENROUTER_ATTRIBUTION_HEADERS,
     OPENROUTER_PROVIDER_NAME,
+    ORCAROUTER_ATTRIBUTION_HEADERS,
+    ORCAROUTER_PROVIDER_NAME,
 )
 from data_designer.config.utils.media_helpers import is_image_diffusion_model
 from data_designer.engine.mcp.errors import MCPConfigurationError
@@ -207,6 +209,12 @@ class ModelFacade:
             if self.model_provider.name == OPENROUTER_PROVIDER_NAME:
                 headers = kwargs.get("extra_headers") or {}
                 merged = {**OPENROUTER_ATTRIBUTION_HEADERS, **headers}
+                kwargs["extra_headers"] = merged
+            # Inject OrcaRouter attribution headers when the provider is
+            # OrcaRouter, mirroring the OpenRouter behavior above.
+            if self.model_provider.name == ORCAROUTER_PROVIDER_NAME:
+                headers = kwargs.get("extra_headers") or {}
+                merged = {**ORCAROUTER_ATTRIBUTION_HEADERS, **headers}
                 kwargs["extra_headers"] = merged
         return kwargs
 

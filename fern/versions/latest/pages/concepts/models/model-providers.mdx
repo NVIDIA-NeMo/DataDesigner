@@ -15,7 +15,7 @@ The `ModelProvider` class has the following fields:
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `name` | `str` | Yes | Unique identifier for the provider (e.g., `"nvidia"`, `"openai"`, `"openrouter"`) |
+| `name` | `str` | Yes | Unique identifier for the provider (e.g., `"nvidia"`, `"openai"`, `"openrouter"`, `"orcarouter"`) |
 | `endpoint` | `str` | Yes | API endpoint URL (e.g., `"https://integrate.api.nvidia.com/v1"`) |
 | `provider_type` | `str` | No | Provider type: `"openai"` (default) or `"anthropic"`. See [Supported Provider Types](#supported-provider-types) below |
 | `api_key` | `str` | No | API key or environment variable name (e.g., `"NVIDIA_API_KEY"`) |
@@ -28,7 +28,7 @@ Data Designer supports two provider types:
 
 | Type | Description |
 |------|-------------|
-| `"openai"` | OpenAI-compatible chat completion API. This is the default and works with most providers, including NVIDIA NIM, vLLM, TGI, OpenRouter, Together AI, and OpenAI itself. |
+| `"openai"` | OpenAI-compatible chat completion API. This is the default and works with most providers, including NVIDIA NIM, vLLM, TGI, OpenRouter, OrcaRouter, Together AI, and OpenAI itself. |
 | `"anthropic"` | Anthropic's native Messages API for Claude models. Use this when connecting directly to Anthropic's API. |
 
 Most self-hosted and third-party endpoints expose an OpenAI-compatible API, so `provider_type="openai"` is the right choice in the majority of cases. Only use `"anthropic"` when connecting directly to Anthropic's API at `https://api.anthropic.com`.

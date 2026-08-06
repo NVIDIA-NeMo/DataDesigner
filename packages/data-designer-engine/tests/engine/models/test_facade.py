@@ -748,6 +748,61 @@ def test_consolidate_kwargs_openrouter_provider_headers_preserved(
     assert result["extra_headers"]["X-Title"] == "NeMo Data Designer"
 
 
+def test_consolidate_kwargs_orcarouter_attribution(
+    stub_model_configs: list[Any], stub_model_facade: ModelFacade
+) -> None:
+    """OrcaRouter-specific attribution headers are injected when provider is orcarouter."""
+    stub_model_facade.model_provider.name = "orcarouter"
+    stub_model_facade.model_provider.extra_headers = None
+    result = stub_model_facade.consolidate_kwargs()
+    assert result["extra_headers"] == {
+        "X-Title": "NeMo Data Designer",
+        "HTTP-Referer": "https://github.com/NVIDIA-NeMo/DataDesigner",
+    }
+
+
+def test_consolidate_kwargs_orcarouter_user_override_preserved(
+    stub_model_configs: list[Any], stub_model_facade: ModelFacade
+) -> None:
+    """User-supplied OrcaRouter headers take precedence over framework defaults."""
+    stub_model_facade.model_provider.name = "orcarouter"
+    stub_model_facade.model_provider.extra_headers = None
+    result = stub_model_facade.consolidate_kwargs(
+        extra_headers={"HTTP-Referer": "https://custom-site.example.com", "X-Custom": "value"}
+    )
+    # User-supplied HTTP-Referer should NOT be overwritten
+    assert result["extra_headers"]["HTTP-Referer"] == "https://custom-site.example.com"
+    assert result["extra_headers"]["X-Custom"] == "value"
+    # Framework defaults still fill in missing keys
+    assert result["extra_headers"]["X-Title"] == "NeMo Data Designer"
+
+
+def test_consolidate_kwargs_orcarouter_provider_headers_preserved(
+    stub_model_configs: list[Any], stub_model_facade: ModelFacade
+) -> None:
+    """Provider-level OrcaRouter headers override programmatic injection."""
+    stub_model_facade.model_provider.name = "orcarouter"
+    stub_model_facade.model_provider.extra_headers = {
+        "HTTP-Referer": "https://custom-site.example.com",
+        "X-Title": "Provider Title",
+    }
+    result = stub_model_facade.consolidate_kwargs()
+    # Provider-level values take precedence
+    assert result["extra_headers"]["HTTP-Referer"] == "https://custom-site.example.com"
+    assert result["extra_headers"]["X-Title"] == "Provider Title"
+
+
+@patch("data_designer.engine.models.facade.TELEMETRY_ENABLED", False)
+def test_consolidate_kwargs_orcarouter_no_attribution_when_telemetry_off(
+    stub_model_configs: list[Any], stub_model_facade: ModelFacade
+) -> None:
+    """OrcaRouter attribution headers are NOT injected when telemetry is disabled."""
+    stub_model_facade.model_provider.name = "orcarouter"
+    stub_model_facade.model_provider.extra_headers = None
+    result = stub_model_facade.consolidate_kwargs()
+    assert "extra_headers" not in result
+
+
 @patch("data_designer.engine.models.facade.TELEMETRY_ENABLED", False)
 def test_consolidate_kwargs_openrouter_no_attribution_when_telemetry_off(
     stub_model_configs: list[Any], stub_model_facade: ModelFacade
@@ -770,6 +825,17 @@ def test_consolidate_kwargs_non_openrouter_no_openrouter_headers(
     assert "HTTP-Referer" not in result["extra_headers"]
     assert "X-OpenRouter-Title" not in result["extra_headers"]
     assert "X-OpenRouter-Categories" not in result["extra_headers"]
+
+
+def test_consolidate_kwargs_non_orcarouter_no_orcarouter_headers(
+    stub_model_configs: list[Any], stub_model_facade: ModelFacade
+) -> None:
+    """Non-orcarouter providers do NOT get OrcaRouter-specific headers."""
+    stub_model_facade.model_provider.name = "nvidia"
+    stub_model_facade.model_provider.extra_headers = None
+    result = stub_model_facade.consolidate_kwargs()
+    assert result["extra_headers"] == {"X-Title": "NeMo Data Designer"}
+    assert "HTTP-Referer" not in result["extra_headers"]
 
 
 @pytest.mark.parametrize(

@@ -36,6 +36,15 @@ The OpenAI provider gives you access to GPT models and other OpenAI offerings.
 
 The OpenRouter provider gives you access to a unified interface for many different language models from various providers.
 
+### OrcaRouter Provider (`orcarouter`)
+
+- **Endpoint**: `https://api.orcarouter.ai/v1`
+- **API Key**: Set via `ORCAROUTER_API_KEY` environment variable
+- **Models**: Access to a wide variety of models through [OrcaRouter](https://www.orcarouter.ai)'s unified API
+- **Getting Started**: Get your API key from [orcarouter.ai](https://www.orcarouter.ai)
+
+The OrcaRouter provider gives you access to a unified interface for many different language models from various providers through an OpenAI-compatible gateway.
+
 ## Model Configurations
 
 Data Designer provides pre-configured model aliases for common use cases. When you create a `DataDesignerConfigBuilder` without specifying `model_configs`, these default configurations are automatically available.
@@ -73,6 +82,17 @@ The following model configurations are automatically available when `OPENROUTER_
 | `openrouter-reasoning` | `openai/gpt-oss-20b` | Reasoning and analysis tasks | `temperature=0.35, top_p=0.95` |
 | `openrouter-vision` | `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free` | Omni multimodal understanding for image, audio, and video inputs, subject to OpenRouter model support | `temperature=0.60, top_p=0.95` |
 | `openrouter-embedding` | `openai/text-embedding-3-large` | Text embeddings | `encoding_format="float"` |
+
+### OrcaRouter Models
+
+The following model configurations are automatically available when `ORCAROUTER_API_KEY` is set:
+
+| Alias | Model | Use Case | Inference Parameters |
+|-------|-------|----------|---------------------|
+| `orcarouter-text` | `openai/gpt-5.5` | General text generation | `temperature=0.85, top_p=0.95` |
+| `orcarouter-reasoning` | `openai/gpt-5.5` | Reasoning and analysis tasks | `extra_body={"reasoning_effort": "medium"}` |
+| `orcarouter-vision` | `openai/gpt-5.5` | Vision and image understanding | `extra_body={"reasoning_effort": "medium"}` |
+| `orcarouter-embedding` | `openai/text-embedding-3-large` | Text embeddings | `encoding_format="float"` |
 
 <Note title="Modality support depends on the model">
   The `multi_modal_context` field can include image, audio, and video contexts, but each model/provider combination has its own accepted input formats, media-size limits, and modality mix. Use an image-capable model for image-only workflows, and use an omni or otherwise multimodal model before sending audio or video context. Local audio/video paths require explicit URL mode (`data_type=url`) and require the model endpoint to have filesystem access to the same paths, typically a colocated vLLM server configured for local media access.
@@ -113,11 +133,11 @@ Both methods operate on the same files, ensuring consistency across your entire 
 ## Important Notes
 
 <Warning title="API Key Requirements">
-  While default model configurations are always available, you need to set the appropriate API key environment variable (`NVIDIA_API_KEY`, `OPENAI_API_KEY`, or `OPENROUTER_API_KEY`) to actually use the corresponding models for data generation. Without a valid API key, any attempt to generate data using that provider's models will fail.
+  While default model configurations are always available, you need to set the appropriate API key environment variable (`NVIDIA_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY`, or `ORCAROUTER_API_KEY`) to actually use the corresponding models for data generation. Without a valid API key, any attempt to generate data using that provider's models will fail.
 </Warning>
 
 <Warning title="Hosted Provider Data Handling">
-  The default model providers call hosted endpoints operated by NVIDIA, OpenAI, OpenRouter, or their upstream providers. Provider terms and privacy practices apply independently of Data Designer, and free or trial endpoints may log request data for security, operations, or product improvement. Do not submit confidential information or personal data, including faces, voices, screenshots, regulated data, or other sensitive content, unless the selected provider and endpoint are approved for your use case.
+  The default model providers call hosted endpoints operated by NVIDIA, OpenAI, OpenRouter, OrcaRouter, or their upstream providers. Provider terms and privacy practices apply independently of Data Designer, and free or trial endpoints may log request data for security, operations, or product improvement. Do not submit confidential information or personal data, including faces, voices, screenshots, regulated data, or other sensitive content, unless the selected provider and endpoint are approved for your use case.
 </Warning>
 
 <Tip title="Environment Variables">
@@ -128,6 +148,7 @@ Both methods operate on the same files, ensuring consistency across your entire 
 export NVIDIA_API_KEY="your-api-key-here"
 export OPENAI_API_KEY="your-openai-api-key-here"
 export OPENROUTER_API_KEY="your-openrouter-api-key-here"
+export ORCAROUTER_API_KEY="your-orcarouter-api-key-here"
 ```
 </Tip>
 

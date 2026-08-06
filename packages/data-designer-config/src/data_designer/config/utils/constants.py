@@ -299,6 +299,10 @@ OPENROUTER_PROVIDER_NAME = "openrouter"
 
 OPENROUTER_API_KEY_ENV_VAR_NAME = "OPENROUTER_API_KEY"
 
+ORCAROUTER_PROVIDER_NAME = "orcarouter"
+
+ORCAROUTER_API_KEY_ENV_VAR_NAME = "ORCAROUTER_API_KEY"
+
 ATTRIBUTION_TITLE = "NeMo Data Designer"
 ATTRIBUTION_REFERER = "https://github.com/NVIDIA-NeMo/DataDesigner"
 
@@ -308,8 +312,17 @@ OPENROUTER_ATTRIBUTION_HEADERS: dict[str, str] = {
     "X-OpenRouter-Categories": "programming-app",
 }
 
-# OpenRouter attribution is injected in the engine so telemetry opt-out can
-# suppress it cleanly for both default and existing provider configs.
+# OrcaRouter (https://www.orcarouter.ai) is an OpenAI-compatible gateway that
+# aggregates many upstream models behind a single endpoint. Attribution uses the
+# same HTTP-Referer header as OpenRouter, plus the standard X-Title header.
+ORCAROUTER_ATTRIBUTION_HEADERS: dict[str, str] = {
+    "HTTP-Referer": ATTRIBUTION_REFERER,
+    "X-Title": ATTRIBUTION_TITLE,
+}
+
+# OpenRouter/OrcaRouter attribution is injected in the engine so telemetry
+# opt-out can suppress it cleanly for both default and existing provider
+# configs.
 PREDEFINED_PROVIDERS = [
     {
         "name": NVIDIA_PROVIDER_NAME,
@@ -328,6 +341,12 @@ PREDEFINED_PROVIDERS = [
         "endpoint": "https://openrouter.ai/api/v1",
         "provider_type": "openai",
         "api_key": OPENROUTER_API_KEY_ENV_VAR_NAME,
+    },
+    {
+        "name": ORCAROUTER_PROVIDER_NAME,
+        "endpoint": "https://api.orcarouter.ai/v1",
+        "provider_type": "openai",
+        "api_key": ORCAROUTER_API_KEY_ENV_VAR_NAME,
     },
 ]
 
@@ -380,6 +399,15 @@ PREDEFINED_PROVIDERS_MODEL_MAP = {
             "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
             "inference_parameters": NEMOTRON_3_NANO_OMNI_30B_A3B_REASONING_INFERENCE_PARAMS,
         },
+        "embedding": {
+            "model": "openai/text-embedding-3-large",
+            "inference_parameters": DEFAULT_EMBEDDING_INFERENCE_PARAMS,
+        },
+    },
+    ORCAROUTER_PROVIDER_NAME: {
+        "text": {"model": "openai/gpt-5.5", "inference_parameters": DEFAULT_TEXT_INFERENCE_PARAMS},
+        "reasoning": {"model": "openai/gpt-5.5", "inference_parameters": GPT5_INFERENCE_PARAMS},
+        "vision": {"model": "openai/gpt-5.5", "inference_parameters": GPT5_INFERENCE_PARAMS},
         "embedding": {
             "model": "openai/text-embedding-3-large",
             "inference_parameters": DEFAULT_EMBEDDING_INFERENCE_PARAMS,

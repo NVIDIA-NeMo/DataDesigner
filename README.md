@@ -53,6 +53,7 @@ Start with one of our default model providers:
 - [NVIDIA Build API](https://build.nvidia.com)
 - [OpenAI](https://platform.openai.com/api-keys)
 - [OpenRouter](https://openrouter.ai)
+- [OrcaRouter](https://www.orcarouter.ai)
 
 Grab your API key(s) using the above links and set one or more of the following environment variables:
 ```bash
@@ -61,6 +62,8 @@ export NVIDIA_API_KEY="your-api-key-here"
 export OPENAI_API_KEY="your-openai-api-key-here"
 
 export OPENROUTER_API_KEY="your-openrouter-api-key-here"
+
+export ORCAROUTER_API_KEY="your-orcarouter-api-key-here"
 ```
 
 ### 3. Start generating data!
