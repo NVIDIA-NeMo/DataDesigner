@@ -26,7 +26,7 @@ from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.errors import InvalidConfigError
 from data_designer.config.models import ChatCompletionInferenceParams, ModelConfig, ModelProvider
 from data_designer.config.processors import DropColumnsProcessorConfig
-from data_designer.config.run_config import JinjaRenderingEngine, RequestAdmissionTuningConfig, RunConfig
+from data_designer.config.run_config import JinjaRenderingEngine, RequestAdmissionTuningConfig, ResumeMode, RunConfig
 from data_designer.config.sampler_params import CategorySamplerParams, DatetimeSamplerParams, SamplerType
 from data_designer.config.seed import IndexRange, PartitionBlock, SamplingStrategy
 from data_designer.config.seed_source import (
@@ -638,6 +638,253 @@ def test_create_forwards_on_batch_complete_callback(
     _, build_kwargs = mock_builder.build.call_args
     assert build_kwargs["num_records"] == 1
     assert build_kwargs["on_batch_complete"] is on_batch_complete
+
+
+def test_create_delegates_to_internal_create(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_sampler_only_config_builder: DataDesignerConfigBuilder,
+) -> None:
+    data_designer = DataDesigner(artifact_path=stub_artifact_path, model_providers=stub_model_providers)
+    callback = MagicMock()
+    expected_result = MagicMock()
+    artifact_override = stub_artifact_path / "override"
+
+    with patch.object(data_designer, "_create", return_value=expected_result) as internal_create:
+        result = data_designer.create(
+            stub_sampler_only_config_builder,
+            num_records=7,
+            dataset_name="delegated",
+            resume=ResumeMode.IF_POSSIBLE,
+            artifact_path=artifact_override,
+            on_batch_complete=callback,
+        )
+
+    assert result is expected_result
+    internal_create.assert_called_once_with(
+        stub_sampler_only_config_builder,
+        num_records=7,
+        dataset_name="delegated",
+        resume=ResumeMode.IF_POSSIBLE,
+        artifact_path=artifact_override,
+        on_batch_complete=callback,
+    )
+
+
+def test_internal_create_can_skip_profiling_and_capture_model_usage(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_sampler_only_config_builder: DataDesignerConfigBuilder,
+) -> None:
+    data_designer = DataDesigner(artifact_path=stub_artifact_path, model_providers=stub_model_providers)
+    serialized_usage = {
+        "token_usage": {"input_tokens": 10, "output_tokens": 4, "total_tokens": 14},
+        "request_usage": {"successful_requests": 2, "failed_requests": 0, "total_requests": 2},
+    }
+
+    with (
+        patch.object(data_designer, "_create_resource_provider") as create_resource_provider,
+        patch.object(data_designer, "_create_dataset_builder") as create_dataset_builder,
+        patch.object(data_designer, "_create_dataset_profiler") as create_dataset_profiler,
+    ):
+        usage = MagicMock()
+        usage.model_dump.return_value = serialized_usage
+        resource_provider = MagicMock()
+        resource_provider.model_registry.get_model_usage_snapshot.return_value = {"test-model": usage}
+        resource_provider.get_dataset_metadata.return_value = {}
+        create_resource_provider.return_value = resource_provider
+
+        builder = MagicMock()
+        builder.actual_num_records = 2
+        builder.task_traces = [MagicMock()]
+        create_dataset_builder.return_value = builder
+
+        result = data_designer._create(stub_sampler_only_config_builder, num_records=2, profile=False)
+
+    builder.build.assert_called_once()
+    builder.artifact_storage.load_dataset_with_dropped_columns.assert_not_called()
+    create_dataset_profiler.assert_not_called()
+    with pytest.raises(DataDesignerProfilingError, match="Profiling analysis is unavailable"):
+        result.load_analysis()
+    assert result.model_usage == {"test-model": serialized_usage}
+    usage.model_dump.assert_called_once_with(mode="json")
+
+
+def test_internal_create_allows_clean_completed_zero_record_build(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_sampler_only_config_builder: DataDesignerConfigBuilder,
+) -> None:
+    data_designer = DataDesigner(artifact_path=stub_artifact_path, model_providers=stub_model_providers)
+
+    with (
+        patch.object(data_designer, "_create_resource_provider") as create_resource_provider,
+        patch.object(data_designer, "_create_dataset_builder") as create_dataset_builder,
+        patch.object(data_designer, "_create_dataset_profiler") as create_dataset_profiler,
+    ):
+        resource_provider = MagicMock()
+        resource_provider.model_registry.get_model_usage_snapshot.return_value = {}
+        resource_provider.get_dataset_metadata.return_value = {}
+        create_resource_provider.return_value = resource_provider
+
+        builder = MagicMock()
+        builder.actual_num_records = 0
+        builder.early_shutdown = False
+        builder.first_non_retryable_error = None
+        builder.task_traces = []
+        builder.artifact_storage.load_dataset_with_dropped_columns.side_effect = FileNotFoundError
+        create_dataset_builder.return_value = builder
+
+        result = data_designer._create(stub_sampler_only_config_builder, num_records=2, allow_empty=True)
+
+    builder.build.assert_called_once()
+    builder.artifact_storage.load_dataset_with_dropped_columns.assert_not_called()
+    create_dataset_profiler.assert_not_called()
+    with pytest.raises(DataDesignerProfilingError, match="Profiling analysis is unavailable"):
+        result.load_analysis()
+    assert result.model_usage == {}
+
+
+def test_internal_create_allow_empty_does_not_hide_early_shutdown(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_sampler_only_config_builder: DataDesignerConfigBuilder,
+) -> None:
+    data_designer = DataDesigner(artifact_path=stub_artifact_path, model_providers=stub_model_providers)
+
+    with (
+        patch.object(data_designer, "_create_resource_provider") as create_resource_provider,
+        patch.object(data_designer, "_create_dataset_builder") as create_dataset_builder,
+        patch.object(data_designer, "_create_dataset_profiler") as create_dataset_profiler,
+    ):
+        resource_provider = MagicMock()
+        resource_provider.model_registry.get_model_usage_snapshot.return_value = {}
+        resource_provider.get_dataset_metadata.return_value = {}
+        create_resource_provider.return_value = resource_provider
+
+        builder = MagicMock()
+        builder.actual_num_records = 0
+        builder.early_shutdown = True
+        builder.first_non_retryable_error = None
+        builder.task_traces = []
+        create_dataset_builder.return_value = builder
+
+        with pytest.raises(DataDesignerEarlyShutdownError, match="early shutdown was triggered"):
+            data_designer._create(
+                stub_sampler_only_config_builder,
+                num_records=2,
+                allow_empty=True,
+            )
+
+    builder.build.assert_called_once()
+    builder.artifact_storage.load_dataset_with_dropped_columns.assert_not_called()
+    create_dataset_profiler.assert_not_called()
+
+
+def test_internal_create_allow_empty_surfaces_first_non_retryable_error(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_sampler_only_config_builder: DataDesignerConfigBuilder,
+) -> None:
+    data_designer = DataDesigner(artifact_path=stub_artifact_path, model_providers=stub_model_providers)
+    root_cause = ValueError("invalid seed source")
+
+    with (
+        patch.object(data_designer, "_create_resource_provider") as create_resource_provider,
+        patch.object(data_designer, "_create_dataset_builder") as create_dataset_builder,
+        patch.object(data_designer, "_create_dataset_profiler") as create_dataset_profiler,
+    ):
+        resource_provider = MagicMock()
+        resource_provider.model_registry.get_model_usage_snapshot.return_value = {}
+        resource_provider.get_dataset_metadata.return_value = {}
+        create_resource_provider.return_value = resource_provider
+
+        builder = MagicMock()
+        builder.actual_num_records = 0
+        builder.early_shutdown = False
+        builder.first_non_retryable_error = root_cause
+        builder.task_traces = []
+        create_dataset_builder.return_value = builder
+
+        with pytest.raises(DataDesignerGenerationError, match="ValueError: invalid seed source") as exc_info:
+            data_designer._create(
+                stub_sampler_only_config_builder,
+                num_records=2,
+                allow_empty=True,
+            )
+
+    assert exc_info.value.__cause__ is root_cause
+    builder.build.assert_called_once()
+    builder.artifact_storage.load_dataset_with_dropped_columns.assert_not_called()
+    create_dataset_profiler.assert_not_called()
+
+
+def test_internal_create_allow_empty_does_not_swallow_build_errors(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_sampler_only_config_builder: DataDesignerConfigBuilder,
+) -> None:
+    data_designer = DataDesigner(artifact_path=stub_artifact_path, model_providers=stub_model_providers)
+
+    with patch.object(data_designer, "_create_dataset_builder") as create_dataset_builder:
+        builder = MagicMock()
+        builder.build.side_effect = RuntimeError("build did not complete")
+        builder.actual_num_records = 0
+        create_dataset_builder.return_value = builder
+
+        with pytest.raises(DataDesignerGenerationError, match="build did not complete"):
+            data_designer._create(
+                stub_sampler_only_config_builder,
+                num_records=2,
+                profile=False,
+                allow_empty=True,
+            )
+
+
+def test_internal_create_uses_separate_profiling_config(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_sampler_only_config_builder: DataDesignerConfigBuilder,
+    stub_dataset_profiler_results,
+) -> None:
+    data_designer = DataDesigner(artifact_path=stub_artifact_path, model_providers=stub_model_providers)
+    profiling_builder = MagicMock(spec=DataDesignerConfigBuilder)
+    profiler_columns = [MagicMock()]
+    profiling_builder.get_column_configs.return_value = profiler_columns
+
+    with (
+        patch.object(data_designer, "_create_resource_provider") as create_resource_provider,
+        patch.object(data_designer, "_create_dataset_builder") as create_dataset_builder,
+        patch.object(data_designer, "_create_dataset_profiler") as create_dataset_profiler,
+    ):
+        resource_provider = MagicMock()
+        resource_provider.model_registry.get_model_usage_snapshot.return_value = {}
+        resource_provider.get_dataset_metadata.return_value = {}
+        create_resource_provider.return_value = resource_provider
+
+        builder = MagicMock()
+        builder.actual_num_records = 1
+        builder.task_traces = []
+        builder.artifact_storage.load_dataset_with_dropped_columns.return_value = lazy.pd.DataFrame({"value": [1]})
+        create_dataset_builder.return_value = builder
+
+        profiler = MagicMock()
+        profiler.profile_dataset.return_value = stub_dataset_profiler_results
+        create_dataset_profiler.return_value = profiler
+
+        result = data_designer._create(
+            stub_sampler_only_config_builder,
+            num_records=1,
+            profiling_config_builder=profiling_builder,
+        )
+
+    create_dataset_profiler.assert_called_once_with(
+        profiling_builder,
+        resource_provider,
+        column_configs=profiler_columns,
+    )
+    profiler.profile_dataset.assert_called_once()
+    assert result.load_analysis() is stub_dataset_profiler_results
 
 
 def test_run_config_rejects_invalid_buffer_size() -> None:

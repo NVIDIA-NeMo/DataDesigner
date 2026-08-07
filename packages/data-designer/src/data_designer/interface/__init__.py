@@ -20,19 +20,25 @@ if TYPE_CHECKING:
         DataDesignerGenerationError,
         DataDesignerProfilingError,
         DataDesignerWorkflowError,
+        RecordRetryExhaustedError,
     )
+    from data_designer.interface.record_retry import RetryExhaustion, RetryUntil, SamplerRetryMode  # noqa: F401
     from data_designer.interface.results import DatasetCreationResults  # noqa: F401
 
 _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "CompositeWorkflow": ("data_designer.interface.composite_workflow", "CompositeWorkflow"),
     "CompositeWorkflowResults": ("data_designer.interface.composite_workflow", "CompositeWorkflowResults"),
+    "RecordRetryExhaustedError": ("data_designer.interface.errors", "RecordRetryExhaustedError"),
     "DataDesigner": ("data_designer.interface.data_designer", "DataDesigner"),
     "DataDesignerEarlyShutdownError": ("data_designer.interface.errors", "DataDesignerEarlyShutdownError"),
     "DataDesignerGenerationError": ("data_designer.interface.errors", "DataDesignerGenerationError"),
     "DataDesignerProfilingError": ("data_designer.interface.errors", "DataDesignerProfilingError"),
     "DataDesignerWorkflowError": ("data_designer.interface.errors", "DataDesignerWorkflowError"),
     "DatasetCreationResults": ("data_designer.interface.results", "DatasetCreationResults"),
+    "RetryExhaustion": ("data_designer.interface.record_retry", "RetryExhaustion"),
+    "RetryUntil": ("data_designer.interface.record_retry", "RetryUntil"),
     "ResumeMode": ("data_designer.config.run_config", "ResumeMode"),
+    "SamplerRetryMode": ("data_designer.interface.record_retry", "SamplerRetryMode"),
     "SkippedStageResult": ("data_designer.interface.composite_workflow", "SkippedStageResult"),
     "SkippedStageStatus": ("data_designer.interface.composite_workflow", "SkippedStageStatus"),
 }

@@ -57,6 +57,74 @@ def test_from_metadata_minimal(stub_metadata: dict) -> None:
     assert "2" in str(card)  # Number of columns
 
 
+def test_from_metadata_prefers_final_profiler_record_count(stub_metadata: dict) -> None:
+    """Test final profiler counts override the pre-processor generated count."""
+    stub_metadata["target_num_records"] = 20_000
+    stub_metadata["actual_num_records"] = 20_000
+    stub_metadata["column_statistics"][0]["num_records"] = 500
+
+    card = DataDesignerDatasetCard.from_metadata(
+        metadata=stub_metadata,
+        builder_config=None,
+        repo_id="test/partial-dataset",
+        description="Partially generated dataset.",
+    )
+
+    card_str = str(card)
+    assert "**📈 Records**: 500" in card_str
+    assert "**✅ Completion**: 2.5% (20,000 requested)" in card_str
+    assert "size_categories: n<1K" in card_str
+
+
+def test_from_metadata_preserves_zero_actual_record_count(stub_metadata: dict) -> None:
+    """Test zero-row artifacts are not reported as fully generated datasets."""
+    stub_metadata["actual_num_records"] = 0
+    stub_metadata["column_statistics"] = []
+
+    card = DataDesignerDatasetCard.from_metadata(
+        metadata=stub_metadata,
+        builder_config=None,
+        repo_id="test/empty-dataset",
+        description="Empty generated dataset.",
+    )
+
+    card_str = str(card)
+    assert "**📈 Records**: 0" in card_str
+    assert "**✅ Completion**: 0.0% (100 requested)" in card_str
+
+
+def test_from_metadata_without_actual_record_count_uses_profiler_count(stub_metadata: dict) -> None:
+    """Test older artifacts retain the column-statistics count fallback."""
+    stub_metadata["column_statistics"][0]["num_records"] = 80
+
+    card = DataDesignerDatasetCard.from_metadata(
+        metadata=stub_metadata,
+        builder_config=None,
+        repo_id="test/legacy-partial-dataset",
+        description="Legacy partially generated dataset.",
+    )
+
+    card_str = str(card)
+    assert "**📈 Records**: 80" in card_str
+    assert "**✅ Completion**: 80.0% (100 requested)" in card_str
+
+
+def test_from_metadata_without_record_counts_uses_target(stub_metadata: dict) -> None:
+    """Test older unprofiled artifacts retain the requested-target fallback."""
+    stub_metadata["column_statistics"] = []
+
+    card = DataDesignerDatasetCard.from_metadata(
+        metadata=stub_metadata,
+        builder_config=None,
+        repo_id="test/legacy-unprofiled-dataset",
+        description="Legacy unprofiled dataset.",
+    )
+
+    card_str = str(card)
+    assert "**📈 Records**: 100" in card_str
+    assert "**✅ Completion**" not in card_str
+
+
 def test_from_metadata_with_builder_config(stub_metadata: dict) -> None:
     """Test creating dataset card with builder config."""
     # Customize for this test
