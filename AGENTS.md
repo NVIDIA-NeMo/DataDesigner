@@ -16,7 +16,7 @@ The `data_designer` namespace is split across four installable packages that mer
 | `data-designer` | `packages/data-designer/` | `data_designer.interface` — public `DataDesigner` class, results, errors; `data_designer.cli` — CLI entry point; `data_designer.integrations` |
 | `data-designer-slurm` | `packages/data-designer-slurm/` | `data_designer.slurm` — optional Slurm batch execution |
 
-**Dependency direction (left depends on right):** Slurm → interface → engine → config. Never import against this flow.
+**Import direction (left imports right):** Slurm → interface → engine → config. The `data-designer[slurm]` extra creates a packaging-only reverse edge; no code may import against this flow.
 
 ## Core Concepts
 
@@ -35,7 +35,7 @@ The `data_designer` namespace is split across four installable packages that mer
 
 ## Structural Invariants
 
-- **Import direction** — interface → engine → config (left depends on right). No reverse imports.
+- **Import direction** — Slurm → interface → engine → config (left imports right). No reverse imports.
 - **Fast imports** — heavy third-party libraries are lazy-loaded via `data_designer.lazy_heavy_imports`. See [STYLEGUIDE.md](STYLEGUIDE.md) for the pattern.
 - **No relative imports** — absolute imports only, enforced by ruff rule `TID`.
 - **Typed code** — all functions, methods, and class attributes require type annotations. Modern syntax: `list[str]`, `str | None`.

@@ -306,7 +306,7 @@ jobs:
   test-summary:
     name: Test (Python ${{ matrix.python-version }} on ${{ matrix.os }})
     runs-on: ubuntu-latest
-    needs: [validate-dispatch, test-config, test-engine, test-interface]
+    needs: [validate-dispatch, test-config, test-engine, test-interface, test-slurm-package]
     if: always()
     strategy:
       matrix:
@@ -319,12 +319,14 @@ jobs:
           if [[ "${{ needs.validate-dispatch.result }}" != "success" ]] || \
              [[ "${{ needs.test-config.result }}" != "success" ]] || \
              [[ "${{ needs.test-engine.result }}" != "success" ]] || \
-             [[ "${{ needs.test-interface.result }}" != "success" ]]; then
+             [[ "${{ needs.test-interface.result }}" != "success" ]] || \
+             [[ "${{ needs.test-slurm-package.result }}" != "success" ]]; then
             echo "One or more test jobs failed"
             echo "validate-dispatch: ${{ needs.validate-dispatch.result }}"
             echo "test-config: ${{ needs.test-config.result }}"
             echo "test-engine: ${{ needs.test-engine.result }}"
             echo "test-interface: ${{ needs.test-interface.result }}"
+            echo "test-slurm-package: ${{ needs.test-slurm-package.result }}"
             exit 1
           fi
           echo "All test jobs passed successfully"

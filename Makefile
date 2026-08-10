@@ -786,6 +786,7 @@ clean-dist:
 	rm -rf $(CONFIG_PKG)/dist
 	rm -rf $(ENGINE_PKG)/dist
 	rm -rf $(INTERFACE_PKG)/dist
+	rm -rf $(SLURM_PKG)/dist
 	rm -f packages/*/src/data_designer/*/_version.py
 	@echo "✅ Dist directories cleaned!"
 
@@ -804,20 +805,20 @@ clean-test-coverage:
 # ==============================================================================
 
 .PHONY: bench-cli-startup bench-cli-startup-verbose \
-        build build-config build-engine build-interface \
-        check-all check-all-fix check-config check-engine check-interface \
+        build build-config build-engine build-interface build-slurm \
+        check-all check-all-fix check-config check-engine check-interface check-slurm \
         check-dependency-licenses check-fern-docs check-fern-docs-locally check-fern-links check-fern-published-docs check-fern-release-version check-fern-theme-access check-license-headers \
         clean clean-dist clean-notebooks clean-pycache clean-test-coverage \
         convert-execute-notebooks \
         coverage coverage-config coverage-engine coverage-interface \
-        format format-check format-check-config format-check-engine format-check-interface \
-        format-config format-engine format-interface \
+        format format-check format-check-config format-check-engine format-check-interface format-check-slurm \
+        format-config format-engine format-interface format-slurm \
         generate-colab-notebooks generate-fern-notebooks generate-fern-notebooks-with-outputs help \
         install install-dev install-dev-notebooks install-dev-recipes install-docs-deps \
-        lint lint-config lint-engine lint-fix lint-fix-config lint-fix-engine lint-fix-interface lint-interface \
+        lint lint-config lint-engine lint-fix lint-fix-config lint-fix-engine lint-fix-interface lint-fix-slurm lint-interface lint-slurm \
         perf-import perf-import-runtime prepare-fern-docs prepare-fern-release publish serve-fern-docs-dev serve-fern-docs-local-theme serve-fern-docs-locally show-versions \
         health-checks \
         test test-config test-config-isolated test-e2e test-engine test-engine-isolated \
-        test-interface test-interface-isolated test-isolated \
+        test-interface test-interface-isolated test-isolated test-slurm test-slurm-wheel-install \
         test-run-all-examples test-run-recipes test-run-tutorials \
         update-license-headers verify-imports

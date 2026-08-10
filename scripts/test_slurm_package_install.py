@@ -168,7 +168,7 @@ def main() -> None:
             check=False,
         )
         assert result.returncode != 0
-        assert "data-designer" in (result.stdout + result.stderr)
+        assert f"data-designer=={version}" in (result.stdout + result.stderr)
 
 
 if __name__ == "__main__":
