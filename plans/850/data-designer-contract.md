@@ -105,12 +105,14 @@ Client preflight runs in a fresh process and performs these steps:
 3. Resolve `Plugin.config_cls` and `Plugin.impl_cls` so import failures stop preflight.
 4. Load the builder with `DataDesignerConfigBuilder.from_config()`.
 5. Materialize model bindings, per-model concurrency, seed input bindings, and MCP providers.
-6. Verify referenced model aliases through each column config's public `get_model_aliases()` method.
+6. Verify referenced model aliases through each column config's public `get_model_aliases()` method and each profiler
+   config's public `model_alias` field when present.
 7. Construct `DataDesigner`, apply `RunConfig`, and call `DataDesigner.validate(builder)`.
 
 The explicit entry-point load is required because normal plugin discovery logs and skips a failing entry point.
 `DataDesigner.validate()` validates config structure and seed-dependent compilation without contacting model endpoints.
-Endpoint readiness belongs after services are available; generation performs its normal readiness check.
+It does not verify that every referenced column or profiler alias has a matching model config, so client preflight owns
+that check. Endpoint readiness belongs after services are available; generation performs its normal readiness check.
 
 ## Model binding
 
@@ -259,6 +261,10 @@ Public failure behavior is:
 
 The caller must not inspect engine storage or task-trace types to classify an outcome.
 
+Failure exceptions do not carry a `DatasetCreationResults` object. The resolved dataset path, actual record count,
+early-shutdown state, and effective resume mode may therefore be unavailable after a failed invocation. A semantic
+failure record owned by an embedding package must make those facts optional rather than inspect engine storage.
+
 ## Output, resume, seed, and telemetry
 
 - `artifact_path`, `dataset_name`, and `ResumeMode` define the resumable workspace.
@@ -269,6 +275,20 @@ The caller must not inspect engine storage or task-trace types to classify an ou
 - `PartitionBlock` does not define a deterministic generation random seed. No public generation-seed API exists.
 - OpenTelemetry metrics are configured with `RunConfig.otel_metrics_port`; `None` disables metrics for the invocation.
 - Embedded callers should use `auto_configure_logging=False` when they own process logging.
+
+`DatasetCreationResults` does not expose per-invocation usage or phase timing. The public OpenTelemetry endpoint
+provides create duration, generated/dropped record counters, and request-duration histograms, but not token totals or
+separate generation and profiling durations. Callers must treat unavailable values as optional unless a future public
+result summary provides them; logs and engine usage types are not a supported substitute.
+
+## Sharded execution limits
+
+Public builder methods expose column, processor, and profiler configs through `get_column_configs()`,
+`get_processor_configs()`, and `get_profilers()`. Data Designer does not publish capability metadata that identifies
+whether a processor, profiler, media output, or plugin is safe to merge across independently generated partitions.
+An embedding package must use a conservative policy and reject multi-partition execution when those semantics are
+present or unknown. Ordered seed input can use `PartitionBlock`; `SamplingStrategy.SHUFFLE` has no deterministic
+partition-then-shuffle contract.
 
 ## Callable and plugin limits
 
@@ -299,10 +319,12 @@ The owning packages must cover:
 - Public root imports and absence of external `data_designer.engine` imports.
 - Builder file and inline mapping loading after plugin installation.
 - Plugin entry-point load failure before model services start.
-- Model binding by alias, order preservation, and per-model concurrency.
+- Model binding by alias, order preservation, per-model concurrency, profiler aliases, and plugin secondary aliases.
 - Compatibility-default merging from raw authored keys.
 - Complete, partial, partial early-shutdown, zero-record early-shutdown, generation-error, and profiling-error outcomes.
+- Failure records that allow result-only path, count, early-shutdown, and resume facts to be unavailable.
 - Resolved dataset paths for fresh, colliding, resumed, and incompatible `if_possible` invocations.
 - Explicit JSONL, CSV, and Parquet exports.
 - Remote and stdio MCP providers without persisted secret values.
+- Conservative multi-partition rejection for unsafe or unknown processor, profiler, media, and plugin semantics.
 - The existing import-performance threshold.
