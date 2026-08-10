@@ -36,6 +36,7 @@ from data_designer.config.seed_source import (
     FileContentsSeedSource,
     HuggingFaceSeedSource,
 )
+from data_designer.engine.dataset_builders.dataset_builder import DatasetBuilder
 from data_designer.engine.models.clients.adapters.http_model_client import ClientConcurrencyMode
 from data_designer.engine.models.errors import (
     RETRYABLE_MODEL_ERRORS,
@@ -681,6 +682,64 @@ def test_create_dataset_e2e_using_only_sampler_columns(
 
     # display report with no errors
     analysis.to_report()
+
+
+def test_create_reports_partial_early_shutdown(
+    stub_sampler_only_config_builder,
+    stub_artifact_path,
+    stub_model_providers,
+    stub_managed_assets_path,
+) -> None:
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+    )
+    data_designer.set_run_config(RunConfig(buffer_size=1, otel_metrics_port=None))
+    original_build = DatasetBuilder.build
+
+    def build_partial(builder: DatasetBuilder, **kwargs: Any) -> Path:
+        kwargs["num_records"] = 3
+        return original_build(builder, **kwargs)
+
+    with (
+        patch.object(DatasetBuilder, "build", new=build_partial),
+        patch.object(DatasetBuilder, "early_shutdown", new_callable=PropertyMock, return_value=True),
+    ):
+        results = data_designer.create(
+            stub_sampler_only_config_builder,
+            num_records=10,
+            dataset_name="partial",
+        )
+
+    assert results.requested_num_records == 10
+    assert results.actual_num_records == 3
+    assert results.is_partial is True
+    assert results.early_shutdown is True
+
+
+def test_create_reports_resolved_colliding_dataset_path(
+    stub_sampler_only_config_builder,
+    stub_artifact_path,
+    stub_model_providers,
+    stub_managed_assets_path,
+) -> None:
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+    )
+    data_designer.set_run_config(RunConfig(buffer_size=1, otel_metrics_port=None))
+
+    first = data_designer.create(stub_sampler_only_config_builder, num_records=1, dataset_name="collision")
+    second = data_designer.create(stub_sampler_only_config_builder, num_records=1, dataset_name="collision")
+
+    assert first.dataset_path == stub_artifact_path / "collision"
+    assert second.dataset_path.parent == stub_artifact_path
+    assert second.dataset_path.name.startswith("collision_")
+    assert second.dataset_path != first.dataset_path
 
 
 def test_create_reports_effective_resume_mode(

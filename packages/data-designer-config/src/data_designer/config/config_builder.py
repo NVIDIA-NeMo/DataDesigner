@@ -8,6 +8,7 @@ import json
 import logging
 from pathlib import Path
 
+import yaml
 from pydantic import model_validator
 from pygments import highlight
 from pygments.formatters import HtmlFormatter
@@ -24,7 +25,13 @@ from data_designer.config.column_types import (
 )
 from data_designer.config.data_designer_config import DataDesignerConfig
 from data_designer.config.default_model_settings import get_default_model_configs
-from data_designer.config.errors import BuilderConfigurationError, BuilderSerializationError, InvalidColumnTypeError
+from data_designer.config.errors import (
+    BuilderConfigurationError,
+    BuilderSerializationError,
+    InvalidColumnTypeError,
+    InvalidFileFormatError,
+    InvalidFilePathError,
+)
 from data_designer.config.exportable_config import ExportableConfigBase
 from data_designer.config.mcp import ToolConfig
 from data_designer.config.models import ModelConfig, load_model_configs
@@ -111,11 +118,19 @@ class DataDesignerConfigBuilder:
         Raises:
             ValueError: If the config format is invalid.
             ValidationError: If the builder config loaded from the config is invalid.
+            InvalidFilePathError: If a local config path cannot be read.
+            InvalidFileFormatError: If a local or inline config contains malformed YAML or JSON.
         """
         if isinstance(config, BuilderConfig):
             builder_config = config
         else:
-            json_config = json.loads(serialize_data(smart_load_yaml(config)))
+            try:
+                loaded_config = smart_load_yaml(config)
+            except OSError as e:
+                raise InvalidFilePathError(f"Failed to load builder config: {e}") from e
+            except yaml.YAMLError as e:
+                raise InvalidFileFormatError(f"Failed to parse builder config: {e}") from e
+            json_config = json.loads(serialize_data(loaded_config))
             # Normalize shorthand DataDesignerConfig into full BuilderConfig
             if "columns" in json_config and "data_designer" not in json_config:
                 json_config = {"data_designer": json_config}

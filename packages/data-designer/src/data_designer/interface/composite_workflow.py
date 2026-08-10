@@ -369,6 +369,9 @@ class CompositeWorkflow:
                     stage=stage,
                     stage_dir_name=stage_dir_name,
                     stage_builder=stage_builder,
+                    requested_num_records=stage_metadata.get(
+                        "num_records_actual" if stage.output_processors else "num_records_requested"
+                    ),
                 )
                 stage_results[stage.name] = output_result
                 stage_output_paths[stage.name] = output_seed_path
@@ -671,6 +674,7 @@ def _stage_result_from_metadata(
     stage: _WorkflowStage,
     stage_dir_name: str,
     stage_builder: DataDesignerConfigBuilder,
+    requested_num_records: int | None,
 ) -> DatasetCreationResults:
     main_storage = ArtifactStorage(artifact_path=workflow_path, dataset_name=stage_dir_name, resume=ResumeMode.ALWAYS)
     result_storage = main_storage
@@ -691,6 +695,7 @@ def _stage_result_from_metadata(
         analysis=_load_stage_analysis(result_storage),
         config_builder=result_builder,
         dataset_metadata=DatasetMetadata(),
+        requested_num_records=requested_num_records,
     )
 
 

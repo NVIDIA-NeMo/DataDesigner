@@ -26,6 +26,8 @@ The execution package may import these public symbols:
 from data_designer.config import (
     DataDesignerConfigBuilder,
     InvalidConfigError,
+    InvalidFileFormatError,
+    InvalidFilePathError,
     LocalStdioMCPProvider,
     MCPProvider,
     ModelConfig,
@@ -36,6 +38,7 @@ from data_designer.config import (
     SamplingStrategy,
 )
 from data_designer.interface import (
+    ArtifactStorageError,
     DataDesigner,
     DataDesignerEarlyShutdownError,
     DataDesignerGenerationError,
@@ -227,12 +230,12 @@ dataset contains exactly the requested number of records.
 | Field or method | Meaning |
 | --- | --- |
 | `dataset_path` | Resolved dataset directory, including collision or resume resolution. |
-| `requested_num_records` | Target passed to the current `create()` invocation. |
+| `requested_num_records` | Target passed to `create()`, or the persisted target for a reconstructed workflow result. |
 | `actual_num_records` | Current total rows in the final dataset, including rows from an earlier resumed invocation. |
-| `is_partial` | `True` when actual records are fewer than requested records. |
-| `early_shutdown` | Whether the current invocation stopped through the early-shutdown gate. |
-| `requested_resume_mode` | Resume mode passed to `create()`. |
-| `effective_resume_mode` | `always` when the invocation resumed, otherwise `never` after compatibility resolution. |
+| `is_partial` | `True` when actual records are fewer than requested records, or `None` when the target is unavailable. |
+| `early_shutdown` | Whether the current invocation stopped through the early-shutdown gate, or `None` when no generation invocation produced the result object. |
+| `requested_resume_mode` | Resume mode passed to `create()`, or `None` when no generation invocation produced the result object. |
+| `effective_resume_mode` | `always` when the invocation resumed, `never` when it started fresh, or `None` when no generation invocation produced the result object. |
 | `count_records()` | Metadata-only row count, equivalent to `actual_num_records`. |
 | `export(path, format=...)` | Stream the result to one JSONL, CSV, or Parquet file. |
 
@@ -243,12 +246,16 @@ Public failure behavior is:
 
 | Condition | Public behavior |
 | --- | --- |
-| Invalid serialized builder shape | `pydantic.ValidationError` or `ValueError` from `DataDesignerConfigBuilder.from_config()`. |
+| Missing or unreadable local builder file | `InvalidFilePathError` from `data_designer.config`. |
+| Malformed local or inline builder data | `InvalidFileFormatError` from `data_designer.config`. |
+| Invalid serialized builder shape or remote source | `pydantic.ValidationError` or `ValueError` from `DataDesignerConfigBuilder.from_config()`. |
 | Invalid compiled config | `InvalidConfigError` from `data_designer.config`. |
 | Generation failure | `DataDesignerGenerationError`. |
 | Profiling failure after generation | `DataDesignerProfilingError`. No successful result is returned. |
 | Early shutdown with zero records | `DataDesignerEarlyShutdownError`, a `DataDesignerGenerationError` subclass. |
 | Early shutdown with some records | A partial `DatasetCreationResults` with `early_shutdown=True`. |
+| Invalid export format or incompatible Parquet schemas | `InvalidFileFormatError` from `data_designer.config`. |
+| Missing dataset or processor artifacts | `ArtifactStorageError` from `data_designer.interface`. |
 
 The caller must not inspect engine storage or task-trace types to classify an outcome.
 

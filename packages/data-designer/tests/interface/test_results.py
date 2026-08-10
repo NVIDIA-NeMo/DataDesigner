@@ -18,8 +18,8 @@ from data_designer.config.preview_results import PreviewResults
 from data_designer.config.run_config import ResumeMode
 from data_designer.config.utils.errors import DatasetSampleDisplayError
 from data_designer.config.utils.visualization import display_sample_record as display_fn
-from data_designer.engine.dataset_builders.errors import ArtifactStorageError
 from data_designer.engine.storage.artifact_storage import ArtifactStorage
+from data_designer.interface import ArtifactStorageError
 from data_designer.interface.results import DatasetCreationResults
 
 

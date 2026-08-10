@@ -52,8 +52,8 @@ class DatasetCreationResults(WithRecordSamplerMixin):
         dataset_metadata: DatasetMetadata,
         task_traces: list[TaskTrace] | None = None,
         requested_num_records: int | None = None,
-        early_shutdown: bool = False,
-        requested_resume_mode: ResumeMode = ResumeMode.NEVER,
+        early_shutdown: bool | None = None,
+        requested_resume_mode: ResumeMode | None = None,
         effective_resume_mode: ResumeMode | None = None,
     ):
         """Creates a new instance with results based on a dataset creation run.
@@ -69,8 +69,11 @@ class DatasetCreationResults(WithRecordSamplerMixin):
                 retained.
             requested_num_records: Number of records requested for this invocation.
             early_shutdown: Whether generation stopped at the early-shutdown gate.
-            requested_resume_mode: Resume mode requested for this invocation.
-            effective_resume_mode: Resume mode selected after compatibility checks.
+                ``None`` when no generation invocation produced this result object.
+            requested_resume_mode: Resume mode requested for this invocation, or
+                ``None`` when no generation invocation produced this result object.
+            effective_resume_mode: Resume mode selected after compatibility checks,
+                or ``None`` when no generation invocation produced this result object.
         """
         self.artifact_storage = artifact_storage
         self._analysis = analysis
@@ -80,7 +83,7 @@ class DatasetCreationResults(WithRecordSamplerMixin):
         self.requested_num_records = requested_num_records
         self.early_shutdown = early_shutdown
         self.requested_resume_mode = requested_resume_mode
-        self.effective_resume_mode = effective_resume_mode or requested_resume_mode
+        self.effective_resume_mode = effective_resume_mode
 
     @property
     def dataset_path(self) -> Path:
@@ -93,9 +96,11 @@ class DatasetCreationResults(WithRecordSamplerMixin):
         return self.count_records()
 
     @property
-    def is_partial(self) -> bool:
+    def is_partial(self) -> bool | None:
         """Return whether the result contains fewer records than requested."""
-        return self.requested_num_records is not None and self.actual_num_records < self.requested_num_records
+        if self.requested_num_records is None:
+            return None
+        return self.actual_num_records < self.requested_num_records
 
     def load_analysis(self) -> DatasetProfilerResults:
         """Load the profiling analysis results for the generated dataset.

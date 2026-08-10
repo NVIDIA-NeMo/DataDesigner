@@ -32,7 +32,11 @@ if TYPE_CHECKING:
     from data_designer.config.config_builder import DataDesignerConfigBuilder  # noqa: F401
     from data_designer.config.custom_column import custom_column_generator  # noqa: F401
     from data_designer.config.data_designer_config import DataDesignerConfig  # noqa: F401
-    from data_designer.config.errors import InvalidConfigError  # noqa: F401
+    from data_designer.config.errors import (  # noqa: F401
+        InvalidConfigError,
+        InvalidFileFormatError,
+        InvalidFilePathError,
+    )
     from data_designer.config.mcp import (  # noqa: F401
         LocalStdioMCPProvider,
         MCPProvider,
@@ -163,6 +167,8 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "DataDesignerConfig": (f"{_MOD_BASE}.data_designer_config", "DataDesignerConfig"),
     # errors
     "InvalidConfigError": (f"{_MOD_BASE}.errors", "InvalidConfigError"),
+    "InvalidFileFormatError": (f"{_MOD_BASE}.errors", "InvalidFileFormatError"),
+    "InvalidFilePathError": (f"{_MOD_BASE}.errors", "InvalidFilePathError"),
     # mcp
     "LocalStdioMCPProvider": (_MOD_MCP, "LocalStdioMCPProvider"),
     "MCPProvider": (_MOD_MCP, "MCPProvider"),
