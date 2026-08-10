@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import heapq
 from collections import Counter, defaultdict, deque
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
@@ -50,9 +49,7 @@ class FairTaskQueue:
         self._queued_resource_demand_by_group: dict[TaskGroupKey, Counter[SchedulerResourceKey]] = defaultdict(Counter)
         self._queued_peer_demand_by_resource: Counter[SchedulerResourceKey] = Counter()
         self._group_finish: dict[TaskGroupKey, float] = {}
-        self._heap: list[tuple[float, int, TaskGroupKey]] = []
-        self._active_heap_keys: set[TaskGroupKey] = set()
-        self._active_heap_entries: dict[TaskGroupKey, tuple[float, int]] = {}
+        self._active_entries: dict[TaskGroupKey, tuple[float, int]] = {}
         self._sequence = 0
         self._sequence_version = 0
         self._virtual_time = 0.0
@@ -93,16 +90,8 @@ class FairTaskQueue:
     def select_next(self, is_eligible: Callable[[SchedulableTask, QueueView], bool]) -> QueueSelection | None:
         """Return the next eligible task without mutating queue state."""
         view = self.view()
-        heap_copy = list(self._heap)
-        heapq.heapify(heap_copy)
-        active_seen: set[TaskGroupKey] = set()
-        while heap_copy:
-            finish, sequence, key = heapq.heappop(heap_copy)
-            if key in active_seen:
-                continue
-            if self._active_heap_entries.get(key) != (finish, sequence):
-                continue
-            active_seen.add(key)
+        active_entries = sorted((finish, sequence, key) for key, (finish, sequence) in self._active_entries.items())
+        for _finish, _sequence, key in active_entries:
             item = self._first_valid_item(key)
             if item is None:
                 continue
@@ -128,8 +117,7 @@ class FairTaskQueue:
 
         queue.popleft()
         self._remove_queued_item(item.task_id)
-        self._active_heap_keys.discard(key)
-        self._active_heap_entries.pop(key, None)
+        self._active_entries.pop(key, None)
         group = self._group_specs[key]
         finish = self._group_finish.get(key, self._virtual_time)
         self._virtual_time = max(self._virtual_time, finish)
@@ -168,13 +156,11 @@ class FairTaskQueue:
     def _activate_group(self, key: TaskGroupKey) -> None:
         self._purge_queue_head(key)
         queue = self._queues.get(key)
-        if not queue or key in self._active_heap_keys:
+        if not queue or key in self._active_entries:
             return
         self._sequence += 1
         finish = self._group_finish.get(key, self._virtual_time)
-        heapq.heappush(self._heap, (finish, self._sequence, key))
-        self._active_heap_keys.add(key)
-        self._active_heap_entries[key] = (finish, self._sequence)
+        self._active_entries[key] = (finish, self._sequence)
 
     def _first_valid_item(self, key: TaskGroupKey) -> SchedulableTask | None:
         self._purge_queue_head(key)
@@ -206,6 +192,8 @@ class FairTaskQueue:
         if item is None or key is None:
             return item
         self._decrement_queue_accounting(item, key)
+        if key not in self._queued_by_group:
+            self._active_entries.pop(key, None)
         return item
 
     def _decrement_queue_accounting(self, item: SchedulableTask, key: TaskGroupKey) -> None:

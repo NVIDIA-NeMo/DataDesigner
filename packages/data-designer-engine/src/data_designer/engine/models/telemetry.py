@@ -55,14 +55,21 @@ class DeploymentTypeEnum(str, Enum):
     UNDEFINED = "undefined"
 
 
-_deployment_type_raw = os.getenv("NEMO_DEPLOYMENT_TYPE", "library").lower()
-try:
-    DEPLOYMENT_TYPE = DeploymentTypeEnum(_deployment_type_raw)
-except ValueError:
-    valid_values = [e.value for e in DeploymentTypeEnum]
-    raise ValueError(
-        f"Invalid NEMO_DEPLOYMENT_TYPE: {_deployment_type_raw!r}. Must be one of: {valid_values}"
-    ) from None
+def _normalize_deployment_type(value: str | None) -> DeploymentTypeEnum:
+    if value is None:
+        return DeploymentTypeEnum.LIBRARY
+
+    try:
+        return DeploymentTypeEnum(value.lower())
+    except ValueError:
+        return DeploymentTypeEnum.UNDEFINED
+
+
+def get_nemo_deployment_type() -> DeploymentTypeEnum:
+    return _normalize_deployment_type(os.getenv("NEMO_DEPLOYMENT_TYPE"))
+
+
+DEPLOYMENT_TYPE = get_nemo_deployment_type()
 
 
 class TaskStatusEnum(str, Enum):

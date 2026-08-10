@@ -5,6 +5,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import pytest
+
 from data_designer.engine.models.telemetry import (
     DeploymentTypeEnum,
     InferenceEvent,
@@ -12,6 +14,7 @@ from data_designer.engine.models.telemetry import (
     QueuedEvent,
     TaskStatusEnum,
     build_payload,
+    get_nemo_deployment_type,
 )
 
 
@@ -30,3 +33,9 @@ def test_nvidia_internal_deployment_type_uses_schema_version_1_9() -> None:
 
     assert payload["eventSchemaVer"] == "1.9"
     assert payload["events"][0]["parameters"]["deploymentType"] == "nvidia-internal"
+
+
+def test_unrecognized_env_deployment_type_defaults_to_undefined(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("NEMO_DEPLOYMENT_TYPE", "unrecognized")
+
+    assert get_nemo_deployment_type() == DeploymentTypeEnum.UNDEFINED

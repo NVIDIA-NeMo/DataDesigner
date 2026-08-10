@@ -58,7 +58,7 @@ jobs:
             source_ref="${INPUT_SOURCE_REF:-$INPUT_RELEASE_TAG}"
             prepare_release_docs=1
           else
-            release_tag=$(gh release list --exclude-drafts --exclude-pre-releases --limit 1 --json tagName --jq '.[0].tagName // empty')
+            release_tag=$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --exclude-pre-releases --limit 1 --json tagName --jq '.[0].tagName // empty')
             if [ -z "$release_tag" ]; then
               echo "::error::Could not find the latest published release tag."
               exit 1
@@ -73,29 +73,32 @@ jobs:
 
   prepare-published-release:
     if: needs.resolve-release.outputs.prepare_release_docs == '1'
-    needs:
-      - resolve-release
-      - build-notebooks
+    needs: resolve-release
     runs-on: ubuntu-latest
     permissions:
-      actions: read
       contents: write
     steps:
       - name: Checkout workflow
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           path: workflow
           ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || github.event.repository.default_branch }}
 
       - name: Checkout source
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           path: source
           ref: ${{ needs.resolve-release.outputs.source_ref }}
 
+      - name: Checkout rolling source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: rolling-source
+          ref: ${{ github.event.repository.default_branch }}
+
       - name: Checkout published branch
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           path: website
@@ -130,10 +133,18 @@ jobs:
           python3 workflow/fern/scripts/fern-release-version.py --root website/fern prepare --version "$RELEASE_TAG" --force
           python3 workflow/fern/scripts/fern-release-version.py --root website/fern check --version "$RELEASE_TAG" --require-latest-matches-release
 
+      - name: Restore rolling Dev Notes and Recipes
+        run: |
+          python3 workflow/fern/scripts/fern-published-branch.py patch-devnotes \
+            --source-root rolling-source \
+            --published-root website
+
       - name: Install uv
-        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        # Keep v8.1.0 until manual workflow dispatch is verified on newer releases.
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           version: "0.9.5"
+          prune-cache: true
 
       - name: Set up Python
         run: uv python install 3.13
@@ -142,18 +153,25 @@ jobs:
         working-directory: website
         run: uv sync --python 3.13 --all-packages --group docs --group notebooks
 
-      - name: Download executed notebooks
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: notebooks
-          path: website/docs/notebooks
-
       - name: Check Fern docs
         working-directory: website
         run: make check-fern-docs
 
+      - name: Publish source notebook snapshot
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.resolve-release.outputs.release_tag }}
+          SOURCE_REPOSITORY: ${{ github.repository }}
+        working-directory: website
+        run: |
+          archive="$RUNNER_TEMP/fern-notebooks-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-source-fallback.tar.gz"
+          bash ../workflow/docs/scripts/fern_notebook_snapshot.sh \
+            create . "$RELEASE_TAG" source-fallback "$archive"
+          gh release upload "$RELEASE_TAG" "$archive" --repo "$SOURCE_REPOSITORY"
+
       - name: Commit published branch
         env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           RELEASE_TAG: ${{ needs.resolve-release.outputs.release_tag }}
           SOURCE_REF: ${{ needs.resolve-release.outputs.source_ref }}
           SOURCE_REPOSITORY: ${{ github.repository }}
@@ -165,6 +183,7 @@ jobs:
           fi
 
           source_sha=$(git -C ../source rev-parse HEAD)
+          rolling_sha=$(git -C ../rolling-source rev-parse HEAD)
           previous_published_sha=$(git rev-parse HEAD)
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -172,6 +191,7 @@ jobs:
           git commit \
             -m "docs: publish Fern docs for $RELEASE_TAG" \
             -m "Source: $SOURCE_REPOSITORY@$SOURCE_REF ($source_sha)" \
+            -m "Rolling Dev Notes and Recipes: $SOURCE_REPOSITORY@$DEFAULT_BRANCH ($rolling_sha)" \
             -m "Previous docs-website head: $previous_published_sha"
           git push origin HEAD:"$FERN_PUBLISHED_BRANCH"
 
@@ -182,48 +202,125 @@ jobs:
       actions: read
       contents: write
     with:
-      use_cache: ${{ github.event_name == 'workflow_dispatch' && inputs.use_cache || false }}
+      use_cache: ${{ github.event_name == 'release' || inputs.use_cache }}
       checkout_ref: ${{ needs.resolve-release.outputs.prepare_release_docs == '1' && needs.resolve-release.outputs.source_ref || needs.resolve-release.outputs.release_tag }}
     secrets: inherit
 
   publish:
-    if: always() && needs.resolve-release.result == 'success' && needs.build-notebooks.result == 'success' && (needs.prepare-published-release.result == 'success' || needs.prepare-published-release.result == 'skipped')
+    if: always() && needs.resolve-release.result == 'success' && (needs.prepare-published-release.result == 'success' || needs.prepare-published-release.result == 'skipped') && (needs.build-notebooks.result == 'success' || needs.build-notebooks.result == 'failure')
     needs:
       - resolve-release
       - prepare-published-release
       - build-notebooks
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
     env:
       FERN_TOKEN: ${{ secrets.DOCS_FERN_TOKEN }}
     steps:
-      - name: Checkout published branch
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Checkout workflow
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          path: workflow
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || github.event.repository.default_branch }}
+
+      - name: Checkout published branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          path: website
           ref: ${{ env.FERN_PUBLISHED_BRANCH }}
 
       - name: Install uv
-        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        # Keep v8.1.0 until manual workflow dispatch is verified on newer releases.
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           version: "0.9.5"
+          prune-cache: true
 
       - name: Set up Python
         run: uv python install 3.13
 
       - name: Install docs dependencies
+        working-directory: website
         run: uv sync --python 3.13 --all-packages --group docs --group notebooks
 
       - name: Download executed notebooks
+        if: needs.build-notebooks.result == 'success'
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: notebooks
-          path: docs/notebooks
+          path: website/docs/notebooks
 
-      - name: Check Fern docs
+      - name: Restore prepared notebook snapshot
+        if: needs.build-notebooks.result == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_REPOSITORY: ${{ github.repository }}
+        working-directory: website
+        run: |
+          if [ ! -f fern/notebook-snapshot.json ]; then
+            echo "::error::No canonical notebook snapshot is published. Run the Build Fern docs workflow successfully once."
+            exit 1
+          fi
+          release_tag=$(jq -er '.release_tag' fern/notebook-snapshot.json)
+          asset=$(jq -er '.asset' fern/notebook-snapshot.json)
+          snapshot_dir="$RUNNER_TEMP/fern-notebook-snapshot"
+          mkdir -p "$snapshot_dir"
+          gh release download "$release_tag" --repo "$SOURCE_REPOSITORY" \
+            --pattern "$asset" --dir "$snapshot_dir"
+          bash ../workflow/docs/scripts/fern_notebook_snapshot.sh \
+            restore . "$snapshot_dir/$asset"
+
+      - name: Report notebook fallback
+        if: needs.build-notebooks.result == 'failure'
+        run: echo "::warning::Notebook execution failed; publishing the prepared source notebook snapshot."
+
+      - name: Check Fern docs with executed notebooks
+        if: needs.build-notebooks.result == 'success'
+        working-directory: website
         run: make check-fern-docs
 
+      - name: Check Fern docs with prepared notebooks
+        if: needs.build-notebooks.result == 'failure'
+        working-directory: website
+        run: make check-fern-published-docs
+
+      - name: Publish executed notebook snapshot
+        if: needs.build-notebooks.result == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.resolve-release.outputs.release_tag }}
+          SOURCE_REPOSITORY: ${{ github.repository }}
+        working-directory: website
+        run: |
+          archive="$RUNNER_TEMP/fern-notebooks-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-executed.tar.gz"
+          bash ../workflow/docs/scripts/fern_notebook_snapshot.sh \
+            create . "$RELEASE_TAG" executed "$archive"
+          gh release upload "$RELEASE_TAG" "$archive" --repo "$SOURCE_REPOSITORY"
+
+      - name: Commit executed notebook snapshot
+        if: needs.build-notebooks.result == 'success'
+        env:
+          RELEASE_TAG: ${{ needs.resolve-release.outputs.release_tag }}
+          SOURCE_REPOSITORY: ${{ github.repository }}
+        working-directory: website
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add fern/notebook-snapshot.json
+          if git diff --cached --quiet; then
+            echo "::notice::Fern notebook snapshot is already current for $RELEASE_TAG."
+            exit 0
+          fi
+          git commit \
+            -m "docs: update Fern notebooks for $RELEASE_TAG" \
+            -m "Source: $SOURCE_REPOSITORY@$RELEASE_TAG" \
+            -m "Snapshot mode: executed"
+          git push origin HEAD:"$FERN_PUBLISHED_BRANCH"
+
       - name: Publish Fern docs
+        working-directory: website
         run: |
           if [ -z "$FERN_TOKEN" ]; then
             echo "::error::DOCS_FERN_TOKEN secret is required to publish Fern docs."
@@ -238,3 +335,24 @@ jobs:
           fi
 
           npx -y "fern-api@$fern_version" generate --docs --no-prompt
+
+      - name: Verify published docs
+        env:
+          PREPARE_RELEASE_DOCS: ${{ needs.resolve-release.outputs.prepare_release_docs }}
+          RELEASE_TAG: ${{ needs.resolve-release.outputs.release_tag }}
+        run: |
+          urls=("https://docs.nvidia.com/nemo/datadesigner/latest/getting-started/welcome")
+          if [ "$PREPARE_RELEASE_DOCS" = "1" ]; then
+            release_slug="${RELEASE_TAG#refs/tags/}"
+            if [[ "$release_slug" != v* ]]; then
+              release_slug="v$release_slug"
+            fi
+            urls+=("https://docs.nvidia.com/nemo/datadesigner/$release_slug/getting-started/welcome")
+          fi
+
+          for url in "${urls[@]}"; do
+            curl --fail --location --silent --show-error \
+              --retry 12 --retry-all-errors --retry-delay 10 --retry-max-time 180 \
+              "$url" >/dev/null
+            echo "Verified $url"
+          done

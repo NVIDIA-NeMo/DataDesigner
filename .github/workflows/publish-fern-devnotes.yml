@@ -37,24 +37,23 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     permissions:
-      actions: read
       contents: write
     env:
       FERN_TOKEN: ${{ secrets.DOCS_FERN_TOKEN }}
     steps:
       - name: Checkout workflow
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           path: workflow
           ref: ${{ github.event.repository.default_branch }}
 
       - name: Checkout source
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           path: source
 
       - name: Checkout published branch
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           path: website
@@ -69,6 +68,14 @@ jobs:
 
           git fetch origin "$FERN_PUBLISHED_BRANCH" --depth=1
           git checkout -B "$FERN_PUBLISHED_BRANCH" FETCH_HEAD
+
+      - name: Require published notebook snapshot
+        working-directory: website
+        run: |
+          if [ ! -f fern/notebook-snapshot.json ]; then
+            echo "::error::No canonical notebook snapshot is published. Run the Build Fern docs workflow successfully once."
+            exit 1
+          fi
 
       - name: Patch Dev Notes into latest Fern docs
         env:
@@ -86,9 +93,11 @@ jobs:
             --metadata-published-branch "$PUBLISHED_BRANCH"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        # Keep v8.1.0 until manual workflow dispatch is verified on newer releases.
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           version: "0.9.5"
+          prune-cache: true
 
       - name: Set up Python
         run: uv python install 3.13
@@ -97,37 +106,24 @@ jobs:
         working-directory: website
         run: uv sync --python 3.13 --all-packages --group docs --group notebooks
 
-      - name: Reuse notebooks from last successful docs build
+      - name: Restore published notebook snapshot
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_REPOSITORY: ${{ github.repository }}
+        working-directory: website
         run: |
-          mkdir -p website/docs/notebooks
-
-          download_notebooks() {
-            workflow="$1"
-            shift
-
-            last_run_id=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow "$workflow" --status success "$@" --limit 1 --json databaseId -q '.[0].databaseId // empty' 2>/dev/null || true)
-            if [ -n "$last_run_id" ] && gh run download "$last_run_id" --repo "$GITHUB_REPOSITORY" --name notebooks --dir website/docs/notebooks; then
-              echo "::notice::Downloaded notebooks from $workflow run $last_run_id"
-              exit 0
-            fi
-          }
-
-          for workflow in build-fern-docs.yml; do
-            download_notebooks "$workflow" --event release
-          done
-
-          for workflow in build-fern-docs.yml; do
-            download_notebooks "$workflow" --event workflow_dispatch --branch main
-          done
-
-          echo "::error::No successful docs build run with notebook artifacts found."
-          exit 1
+          release_tag=$(jq -er '.release_tag' fern/notebook-snapshot.json)
+          asset=$(jq -er '.asset' fern/notebook-snapshot.json)
+          snapshot_dir="$RUNNER_TEMP/fern-notebook-snapshot"
+          mkdir -p "$snapshot_dir"
+          gh release download "$release_tag" --repo "$SOURCE_REPOSITORY" \
+            --pattern "$asset" --dir "$snapshot_dir"
+          bash ../workflow/docs/scripts/fern_notebook_snapshot.sh \
+            restore . "$snapshot_dir/$asset"
 
       - name: Check Fern docs
         working-directory: website
-        run: make check-fern-docs
+        run: make -f ../workflow/Makefile check-fern-published-docs
 
       - name: Commit published branch
         env:

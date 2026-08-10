@@ -52,6 +52,8 @@ class CompletionTracker:
         self._row_group_plan: RowGroupPlanLike | None = None
         self._batch_complete: dict[int, set[str]] = defaultdict(set)
         self._frontier: set[Task] = set()
+        # Checkpointed row group → compact bitset of dropped row indices.
+        self._compacted_dropped: dict[int, bytes] = {}
 
     @classmethod
     def with_graph(cls, graph: ExecutionGraph, row_groups: RowGroupInput) -> CompletionTracker:
@@ -134,7 +136,26 @@ class CompletionTracker:
         return self._record_delta(added=added, removed=removed)
 
     def is_dropped(self, row_group: int, row_index: int) -> bool:
+        dropped_mask = self._compacted_dropped.get(row_group)
+        if dropped_mask is not None:
+            byte_index, bit_index = divmod(row_index, 8)
+            return 0 <= byte_index < len(dropped_mask) and bool(dropped_mask[byte_index] & (1 << bit_index))
         return row_index in self._dropped.get(row_group, set())
+
+    def compact_row_group(self, row_group: int) -> None:
+        """Release detailed state while retaining terminal group and drop queries."""
+        if row_group in self._compacted_dropped:
+            return
+        self._validate_row_group(row_group)
+        dropped = self._dropped.pop(row_group, set())
+        dropped_mask = bytearray((max(dropped, default=-1) // 8) + 1)
+        for row_index in dropped:
+            byte_index, bit_index = divmod(row_index, 8)
+            dropped_mask[byte_index] |= 1 << bit_index
+        self._compacted_dropped[row_group] = bytes(dropped_mask)
+        self._completed.pop(row_group, None)
+        self._batch_complete.pop(row_group, None)
+        self._frontier = {task for task in self._frontier if task.row_group != row_group}
 
     def is_row_group_complete(
         self,
@@ -143,6 +164,8 @@ class CompletionTracker:
         all_columns: list[str],
     ) -> bool:
         """All non-dropped rows have all columns done."""
+        if row_group in self._compacted_dropped:
+            return True
         dropped = self._dropped.get(row_group, set())
         completed = self._completed.get(row_group, {})
         for ri in range(row_group_size):
