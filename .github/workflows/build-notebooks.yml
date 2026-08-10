@@ -43,9 +43,10 @@ jobs:
         run: echo "NOTEBOOK_CACHE_CONTEXT=${NOTEBOOK_EXECUTION_PROFILE}:${{ hashFiles('Makefile', 'docs/scripts/build_notebooks_cached.sh', 'uv.lock', 'packages/data-designer-config/src/**/*.py', 'packages/data-designer-engine/src/**/*.py', 'packages/data-designer/src/**/*.py') }}" >> "$GITHUB_ENV"
       - name: Install uv
         # Keep v8.1.0 until manual workflow dispatch is verified on newer releases.
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           version: "0.9.5"
+          prune-cache: true
       - name: Set up Python
         run: uv python install 3.11
       - name: Install notebook dependencies
