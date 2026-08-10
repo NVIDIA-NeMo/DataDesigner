@@ -45,6 +45,18 @@ class Foo(BaseModel):
     bar: Bar
 
 
+class OverallScore(BaseModel):
+    score: float
+
+
+class Evaluation(BaseModel):
+    overall: OverallScore
+
+
+class Evaluations(BaseModel):
+    evaluations: list[Evaluation]
+
+
 def test_pydantic_response():
     recipe = PydanticResponseRecipe(Foo)
     example = Foo(bar=Bar(baz=42))
@@ -106,6 +118,17 @@ def test_structured_response():
     example = Foo(bar=Bar(baz=42, unicode_math="a")).model_dump()
     response = "```json\n{bar: {baz: 42, unicode_math: a}}\n```"
     assert recipe.parse(response) == example
+
+
+def test_structured_response_normalizes_nested_number_types():
+    recipe = StructuredResponseRecipe(Evaluations.model_json_schema())
+    response = recipe.generate_response_example({"evaluations": [{"overall": {"score": 9}}]})
+
+    result = recipe.parse(response)
+
+    score = result["evaluations"][0]["overall"]["score"]
+    assert score == 9.0
+    assert isinstance(score, float)
 
 
 def test_structured_response_extra_fields():

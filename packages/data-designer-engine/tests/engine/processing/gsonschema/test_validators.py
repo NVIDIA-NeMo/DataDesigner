@@ -3,6 +3,7 @@
 
 import pytest
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.engine.processing.gsonschema.validators import JSONSchemaValidationError, validate
 
 
@@ -302,3 +303,60 @@ def test_normalize_decimal_anyof_fields() -> None:
     result3 = validate({"name": "Gizmo", "price": "249.99"}, schema)
     assert result3["price"] == 249.99
     assert isinstance(result3["price"], float)
+
+
+NESTED_EVALUATION_SCHEMA = {
+    "$defs": {
+        "Criterion": {
+            "type": "object",
+            "properties": {"score": {"type": "integer"}},
+            "required": ["score"],
+        },
+        "Overall": {
+            "type": "object",
+            "properties": {"score": {"type": "number"}},
+            "required": ["score"],
+        },
+        "Evaluation": {
+            "type": "object",
+            "properties": {
+                "criterion": {"$ref": "#/$defs/Criterion"},
+                "overall": {"$ref": "#/$defs/Overall"},
+            },
+            "required": ["criterion", "overall"],
+        },
+    },
+    "type": "object",
+    "properties": {
+        "evaluations": {
+            "type": "array",
+            "items": {"$ref": "#/$defs/Evaluation"},
+        }
+    },
+    "required": ["evaluations"],
+}
+
+
+def _evaluation_scores(overall_score: int | float) -> dict:
+    return {"evaluations": [{"criterion": {"score": 9.0}, "overall": {"score": overall_score}}]}
+
+
+def test_normalize_nested_json_schema_numeric_types() -> None:
+    result = validate(_evaluation_scores(9), NESTED_EVALUATION_SCHEMA)
+
+    criterion_score = result["evaluations"][0]["criterion"]["score"]
+    overall_score = result["evaluations"][0]["overall"]["score"]
+    assert criterion_score == 9
+    assert isinstance(criterion_score, int)
+    assert overall_score == 9.0
+    assert isinstance(overall_score, float)
+
+
+def test_normalized_nested_numbers_have_compatible_parquet_schemas(tmp_path) -> None:
+    for batch_number, score in enumerate((9, 9.5)):
+        normalized = validate(_evaluation_scores(score), NESTED_EVALUATION_SCHEMA)
+        dataframe = lazy.pd.DataFrame({"qa_evaluations": [normalized]})
+        dataframe.to_parquet(tmp_path / f"batch_{batch_number:05d}.parquet", index=False)
+
+    combined = lazy.pd.read_parquet(tmp_path, dtype_backend="pyarrow")
+    assert len(combined) == 2
