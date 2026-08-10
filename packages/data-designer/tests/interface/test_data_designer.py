@@ -26,7 +26,7 @@ from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.errors import InvalidConfigError
 from data_designer.config.models import ChatCompletionInferenceParams, ModelConfig, ModelProvider
 from data_designer.config.processors import DropColumnsProcessorConfig
-from data_designer.config.run_config import JinjaRenderingEngine, RequestAdmissionTuningConfig, RunConfig
+from data_designer.config.run_config import JinjaRenderingEngine, RequestAdmissionTuningConfig, ResumeMode, RunConfig
 from data_designer.config.sampler_params import CategorySamplerParams, DatetimeSamplerParams, SamplerType
 from data_designer.config.seed import IndexRange, PartitionBlock, SamplingStrategy
 from data_designer.config.seed_source import (
@@ -671,9 +671,56 @@ def test_create_dataset_e2e_using_only_sampler_columns(
 
     analysis = results.load_analysis()
     assert analysis.target_num_records == num_records
+    assert results.dataset_path == stub_artifact_path / "dataset"
+    assert results.requested_num_records == num_records
+    assert results.actual_num_records == num_records
+    assert results.is_partial is False
+    assert results.early_shutdown is False
+    assert results.requested_resume_mode == ResumeMode.NEVER
+    assert results.effective_resume_mode == ResumeMode.NEVER
 
     # display report with no errors
     analysis.to_report()
+
+
+def test_create_reports_effective_resume_mode(
+    stub_sampler_only_config_builder,
+    stub_artifact_path,
+    stub_model_providers,
+    stub_managed_assets_path,
+) -> None:
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+    )
+    data_designer.set_run_config(RunConfig(buffer_size=1, otel_metrics_port=None))
+
+    first = data_designer.create(stub_sampler_only_config_builder, num_records=2, dataset_name="resumable")
+    resumed = data_designer.create(
+        stub_sampler_only_config_builder,
+        num_records=3,
+        dataset_name="resumable",
+        resume=ResumeMode.IF_POSSIBLE,
+    )
+
+    assert resumed.requested_resume_mode == ResumeMode.IF_POSSIBLE
+    assert resumed.effective_resume_mode == ResumeMode.ALWAYS
+    assert resumed.dataset_path == first.dataset_path
+    assert resumed.actual_num_records == 3
+
+    _add_irrelevant_sampler_column(stub_sampler_only_config_builder)
+    restarted = data_designer.create(
+        stub_sampler_only_config_builder,
+        num_records=3,
+        dataset_name="resumable",
+        resume=ResumeMode.IF_POSSIBLE,
+    )
+
+    assert restarted.requested_resume_mode == ResumeMode.IF_POSSIBLE
+    assert restarted.effective_resume_mode == ResumeMode.NEVER
+    assert restarted.dataset_path != first.dataset_path
 
 
 def test_create_with_drop_true_can_skip_dropped_column_artifacts(

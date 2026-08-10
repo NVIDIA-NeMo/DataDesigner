@@ -15,6 +15,7 @@ from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.dataset_metadata import DatasetMetadata
 from data_designer.config.errors import InvalidFileFormatError
 from data_designer.config.preview_results import PreviewResults
+from data_designer.config.run_config import ResumeMode
 from data_designer.config.utils.errors import DatasetSampleDisplayError
 from data_designer.config.utils.visualization import display_sample_record as display_fn
 from data_designer.engine.dataset_builders.errors import ArtifactStorageError
@@ -387,6 +388,37 @@ def test_count_records(stub_dataset_creation_results, stub_dataframe, stub_batch
     """count_records() returns the total row count without loading data pages."""
     stub_dataset_creation_results.artifact_storage.final_dataset_path = stub_batch_dir
     assert stub_dataset_creation_results.count_records() == len(stub_dataframe)
+
+
+def test_public_creation_outcome_fields(
+    stub_artifact_storage,
+    stub_dataset_profiler_results,
+    stub_complete_builder,
+    stub_dataset_metadata,
+    stub_dataframe,
+    stub_batch_dir,
+    tmp_path,
+) -> None:
+    dataset_path = tmp_path / "dataset"
+    stub_artifact_storage.base_dataset_path = dataset_path
+    stub_artifact_storage.final_dataset_path = stub_batch_dir
+    results = DatasetCreationResults(
+        artifact_storage=stub_artifact_storage,
+        analysis=stub_dataset_profiler_results,
+        config_builder=stub_complete_builder,
+        dataset_metadata=stub_dataset_metadata,
+        requested_num_records=len(stub_dataframe) + 1,
+        early_shutdown=True,
+        requested_resume_mode=ResumeMode.IF_POSSIBLE,
+        effective_resume_mode=ResumeMode.NEVER,
+    )
+
+    assert results.dataset_path == dataset_path
+    assert results.actual_num_records == len(stub_dataframe)
+    assert results.is_partial is True
+    assert results.early_shutdown is True
+    assert results.requested_resume_mode == ResumeMode.IF_POSSIBLE
+    assert results.effective_resume_mode == ResumeMode.NEVER
 
 
 def test_export_uppercase_extension_is_recognised(stub_dataset_creation_results, stub_batch_dir, tmp_path) -> None:

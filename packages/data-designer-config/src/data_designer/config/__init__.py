@@ -32,6 +32,7 @@ if TYPE_CHECKING:
     from data_designer.config.config_builder import DataDesignerConfigBuilder  # noqa: F401
     from data_designer.config.custom_column import custom_column_generator  # noqa: F401
     from data_designer.config.data_designer_config import DataDesignerConfig  # noqa: F401
+    from data_designer.config.errors import InvalidConfigError  # noqa: F401
     from data_designer.config.mcp import (  # noqa: F401
         LocalStdioMCPProvider,
         MCPProvider,
@@ -160,6 +161,8 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "custom_column_generator": (f"{_MOD_BASE}.custom_column", "custom_column_generator"),
     # data_designer_config
     "DataDesignerConfig": (f"{_MOD_BASE}.data_designer_config", "DataDesignerConfig"),
+    # errors
+    "InvalidConfigError": (f"{_MOD_BASE}.errors", "InvalidConfigError"),
     # mcp
     "LocalStdioMCPProvider": (_MOD_MCP, "LocalStdioMCPProvider"),
     "MCPProvider": (_MOD_MCP, "MCPProvider"),

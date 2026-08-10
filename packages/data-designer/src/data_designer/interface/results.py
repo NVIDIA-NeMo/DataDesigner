@@ -11,6 +11,7 @@ from data_designer.config.analysis.dataset_profiler import DatasetProfilerResult
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.dataset_metadata import DatasetMetadata
 from data_designer.config.errors import InvalidFileFormatError
+from data_designer.config.run_config import ResumeMode
 from data_designer.config.seed_source_dataframe import DataFrameSeedSource
 from data_designer.config.utils.visualization import WithRecordSamplerMixin
 from data_designer.engine.dataset_builders.errors import ArtifactStorageError
@@ -50,6 +51,10 @@ class DatasetCreationResults(WithRecordSamplerMixin):
         config_builder: DataDesignerConfigBuilder,
         dataset_metadata: DatasetMetadata,
         task_traces: list[TaskTrace] | None = None,
+        requested_num_records: int | None = None,
+        early_shutdown: bool = False,
+        requested_resume_mode: ResumeMode = ResumeMode.NEVER,
+        effective_resume_mode: ResumeMode | None = None,
     ):
         """Creates a new instance with results based on a dataset creation run.
 
@@ -62,12 +67,35 @@ class DatasetCreationResults(WithRecordSamplerMixin):
                 Resume note: only contains traces for the current invocation; traces
                 from earlier ``create()`` calls that this run resumed are not
                 retained.
+            requested_num_records: Number of records requested for this invocation.
+            early_shutdown: Whether generation stopped at the early-shutdown gate.
+            requested_resume_mode: Resume mode requested for this invocation.
+            effective_resume_mode: Resume mode selected after compatibility checks.
         """
         self.artifact_storage = artifact_storage
         self._analysis = analysis
         self._config_builder = config_builder
         self.dataset_metadata = dataset_metadata
         self.task_traces: list[TaskTrace] = task_traces or []
+        self.requested_num_records = requested_num_records
+        self.early_shutdown = early_shutdown
+        self.requested_resume_mode = requested_resume_mode
+        self.effective_resume_mode = effective_resume_mode or requested_resume_mode
+
+    @property
+    def dataset_path(self) -> Path:
+        """Return the resolved dataset directory for this result."""
+        return self.artifact_storage.base_dataset_path
+
+    @property
+    def actual_num_records(self) -> int:
+        """Return the total number of records in the result dataset."""
+        return self.count_records()
+
+    @property
+    def is_partial(self) -> bool:
+        """Return whether the result contains fewer records than requested."""
+        return self.requested_num_records is not None and self.actual_num_records < self.requested_num_records
 
     def load_analysis(self) -> DatasetProfilerResults:
         """Load the profiling analysis results for the generated dataset.
