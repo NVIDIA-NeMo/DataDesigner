@@ -9,17 +9,20 @@ LICENSE_PYTHON_VERSION ?= 3.11
 # Package directories
 CONFIG_PKG := packages/data-designer-config
 ENGINE_PKG := packages/data-designer-engine
+SLURM_PKG := packages/data-designer-slurm
 INTERFACE_PKG := packages/data-designer
 
 # Package source and test paths
 CONFIG_PATHS := $(CONFIG_PKG)/src $(CONFIG_PKG)/tests
 ENGINE_PATHS := $(ENGINE_PKG)/src $(ENGINE_PKG)/tests
+SLURM_PATHS := $(SLURM_PKG)/src $(SLURM_PKG)/tests
 INTERFACE_PATHS := $(INTERFACE_PKG)/src $(INTERFACE_PKG)/tests $(INTERFACE_PKG)/dev-tools
 ALL_PKG_PATHS := packages/ scripts/ tests_e2e/
 
 # Test directories
 CONFIG_TESTS := $(CONFIG_PKG)/tests
 ENGINE_TESTS := $(ENGINE_PKG)/tests
+SLURM_TESTS := $(SLURM_PKG)/tests
 INTERFACE_TESTS := $(INTERFACE_PKG)/tests
 
 define install-pre-commit-hooks
@@ -50,6 +53,7 @@ help:
 	@echo "  test                      - Run all unit tests"
 	@echo "  coverage                  - Run tests with coverage report"
 	@echo "  test-e2e                  - Run e2e plugin tests"
+	@echo "  test-slurm-wheel-install  - Test optional Slurm package wheel installation"
 	@echo "  health-checks             - Run provider health checks"
 	@echo "  test-run-tutorials        - Run tutorial notebooks as e2e tests"
 	@echo "  test-run-recipes          - Run recipe scripts as e2e tests"
@@ -109,7 +113,7 @@ help:
 	@echo "  publish VERSION=X.Y.Z ALLOW_BRANCH=1         - Publish from non-main branch"
 	@echo "  publish VERSION=X.Y.Z FORCE_TAG=1            - Overwrite existing git tag"
 	@echo ""
-	@echo "📦 Per-Package Commands (use suffix: -config, -engine, -interface):"
+	@echo "📦 Per-Package Commands (use suffix: -config, -engine, -slurm, -interface):"
 	@echo "  test-<pkg>                - Run tests for a specific package"
 	@echo "  lint-<pkg>                - Lint a specific package"
 	@echo "  lint-fix-<pkg>            - Fix lint issues in a specific package"
@@ -129,7 +133,7 @@ help:
 
 install:
 	@echo "📦 Installing DataDesigner workspace (all packages in editable mode)..."
-	@echo "   Packages: data-designer-config → data-designer-engine → data-designer"
+	@echo "   Packages: data-designer-config → data-designer-engine → data-designer → data-designer-slurm"
 	uv sync --all-packages
 	@echo "✅ Installation complete!"
 	@echo ""
@@ -137,7 +141,7 @@ install:
 
 install-dev:
 	@echo "📦 Installing DataDesigner workspace in development mode..."
-	@echo "   Packages: data-designer-config → data-designer-engine → data-designer"
+	@echo "   Packages: data-designer-config → data-designer-engine → data-designer → data-designer-slurm"
 	@echo "   Groups: dev (pytest, coverage, etc.)"
 	uv sync --all-packages --group dev
 	$(call install-pre-commit-hooks)
@@ -148,17 +152,18 @@ install-dev:
 	@echo "   packages/data-designer-config/   - Configuration layer (lightweight)"
 	@echo "   packages/data-designer-engine/   - Generation engine (heavy deps)"
 	@echo "   packages/data-designer/          - Full package with CLI"
+	@echo "   packages/data-designer-slurm/    - Optional Slurm batch execution"
 	@echo ""
 	@echo "💡 Next steps:"
 	@echo "   make verify-imports     - Verify all packages are working"
 	@echo "   make test               - Run all tests across packages"
-	@echo "   make test-<pkg>         - Run tests for specific package (config, engine, interface)"
+	@echo "   make test-<pkg>         - Run tests for specific package (config, engine, slurm, interface)"
 	@echo "   make lint               - Lint all code"
 	@echo "   make build              - Build all package wheels"
 
 install-dev-notebooks:
 	@echo "📦 Installing DataDesigner workspace with notebook dependencies..."
-	@echo "   Packages: data-designer-config → data-designer-engine → data-designer"
+	@echo "   Packages: data-designer-config → data-designer-engine → data-designer → data-designer-slurm"
 	@echo "   Groups: dev + docs + notebooks (Jupyter, jupytext, etc.)"
 	uv sync --all-packages --group dev --group docs --group notebooks
 	$(call install-pre-commit-hooks)
@@ -168,7 +173,7 @@ install-dev-notebooks:
 
 install-dev-recipes:
 	@echo "📦 Installing DataDesigner workspace with recipe dependencies..."
-	@echo "   Packages: data-designer-config → data-designer-engine → data-designer"
+	@echo "   Packages: data-designer-config → data-designer-engine → data-designer → data-designer-slurm"
 	@echo "   Groups: dev + recipes (bm25s, pymupdf, etc.)"
 	uv sync --all-packages --group dev --group recipes
 	$(call install-pre-commit-hooks)
@@ -180,7 +185,7 @@ install-dev-recipes:
 # TESTING
 # ==============================================================================
 
-test: test-config test-engine test-interface
+test: test-config test-engine test-interface test-slurm
 	@echo "✅ All package tests complete!"
 
 test-config:
@@ -194,6 +199,14 @@ test-engine:
 test-interface:
 	@echo "🧪 Testing data-designer (interface)..."
 	uv run --group dev pytest $(INTERFACE_TESTS)
+
+test-slurm:
+	@echo "🧪 Testing data-designer-slurm..."
+	.venv/bin/pytest $(SLURM_TESTS)
+
+test-slurm-wheel-install:
+	@echo "🧪 Testing data-designer-slurm wheel installation..."
+	.venv/bin/python scripts/test_slurm_package_install.py
 
 # ------------------------------------------------------------------------------
 # Isolated Testing (mirrors CI behavior)
@@ -325,12 +338,12 @@ test-run-all-examples: test-run-tutorials test-run-recipes
 # CODE QUALITY - FORMATTING
 # ==============================================================================
 
-format: format-config format-engine format-interface
+format: format-config format-engine format-interface format-slurm
 	@echo "📐 Formatting scripts and tests_e2e..."
 	uv run ruff format scripts/ tests_e2e/
 	@echo "✅ Formatting complete!"
 
-format-check: format-check-config format-check-engine format-check-interface
+format-check: format-check-config format-check-engine format-check-interface format-check-slurm
 	@echo "📐 Checking scripts and tests_e2e formatting..."
 	uv run ruff format --check scripts/ tests_e2e/
 	@echo "✅ Formatting check complete! Run 'make format' to auto-fix issues."
@@ -347,6 +360,10 @@ format-interface:
 	@echo "📐 Formatting data-designer (interface)..."
 	uv run ruff format $(INTERFACE_PATHS) --exclude '**/_version.py'
 
+format-slurm:
+	@echo "📐 Formatting data-designer-slurm..."
+	.venv/bin/ruff format $(SLURM_PATHS)
+
 format-check-config:
 	@echo "📐 Checking data-designer-config formatting..."
 	uv run ruff format --check $(CONFIG_PATHS) --exclude '**/_version.py'
@@ -359,16 +376,20 @@ format-check-interface:
 	@echo "📐 Checking data-designer (interface) formatting..."
 	uv run ruff format --check $(INTERFACE_PATHS) --exclude '**/_version.py'
 
+format-check-slurm:
+	@echo "📐 Checking data-designer-slurm formatting..."
+	.venv/bin/ruff format --check $(SLURM_PATHS)
+
 # ==============================================================================
 # CODE QUALITY - LINTING
 # ==============================================================================
 
-lint: lint-config lint-engine lint-interface
+lint: lint-config lint-engine lint-interface lint-slurm
 	@echo "🔍 Linting scripts and tests_e2e..."
 	uv run ruff check --output-format=full scripts/ tests_e2e/
 	@echo "✅ Linting complete! Run 'make lint-fix' to auto-fix issues."
 
-lint-fix: lint-fix-config lint-fix-engine lint-fix-interface
+lint-fix: lint-fix-config lint-fix-engine lint-fix-interface lint-fix-slurm
 	@echo "🔍 Fixing lint issues in scripts and tests_e2e..."
 	uv run ruff check --fix scripts/ tests_e2e/
 	@echo "✅ Linting with autofix complete!"
@@ -385,6 +406,10 @@ lint-interface:
 	@echo "🔍 Linting data-designer (interface)..."
 	uv run ruff check --output-format=full $(INTERFACE_PATHS) --exclude '**/_version.py'
 
+lint-slurm:
+	@echo "🔍 Linting data-designer-slurm..."
+	.venv/bin/ruff check --output-format=full $(SLURM_PATHS)
+
 lint-fix-config:
 	@echo "🔍 Fixing lint issues in data-designer-config..."
 	uv run ruff check --fix $(CONFIG_PATHS) --exclude '**/_version.py'
@@ -396,6 +421,10 @@ lint-fix-engine:
 lint-fix-interface:
 	@echo "🔍 Fixing lint issues in data-designer (interface)..."
 	uv run ruff check --fix $(INTERFACE_PATHS) --exclude '**/_version.py'
+
+lint-fix-slurm:
+	@echo "🔍 Fixing lint issues in data-designer-slurm..."
+	.venv/bin/ruff check --fix $(SLURM_PATHS)
 
 # ==============================================================================
 # CODE QUALITY - COMBINED CHECKS
@@ -416,11 +445,14 @@ check-engine: format-check-engine lint-engine
 check-interface: format-check-interface lint-interface
 	@echo "✅ Checks complete for data-designer (interface)!"
 
+check-slurm: format-check-slurm lint-slurm
+	@echo "✅ Checks complete for data-designer-slurm!"
+
 # ==============================================================================
 # BUILD
 # ==============================================================================
 
-build: build-config build-engine build-interface
+build: build-config build-engine build-interface build-slurm
 	@echo "✅ All packages built!"
 
 build-config:
@@ -435,6 +467,10 @@ build-interface:
 	@echo "🏗️  Building data-designer (interface)..."
 	cd $(INTERFACE_PKG) && uv build -o dist
 
+build-slurm:
+	@echo "🏗️  Building data-designer-slurm..."
+	cd $(SLURM_PKG) && uv build -o dist
+
 # ==============================================================================
 # UTILITIES
 # ==============================================================================
@@ -444,6 +480,7 @@ verify-imports:
 	uv run python -c "from data_designer.config.config_builder import DataDesignerConfigBuilder; print('  ✓ config')"
 	uv run python -c "from data_designer.engine.compiler import compile_data_designer_config; print('  ✓ engine')"
 	uv run python -c "from data_designer.interface.data_designer import DataDesigner; print('  ✓ interface')"
+	.venv/bin/python -c "import data_designer.slurm; print('  ✓ slurm')"
 	@echo "✅ All imports verified!"
 
 show-versions:
@@ -451,6 +488,7 @@ show-versions:
 	@uv run python -c "from data_designer.config._version import __version__; print(f'  data-designer-config: {__version__}')" 2>/dev/null || echo "  data-designer-config: (not installed)"
 	@uv run python -c "from data_designer.engine._version import __version__; print(f'  data-designer-engine: {__version__}')" 2>/dev/null || echo "  data-designer-engine: (not installed)"
 	@uv run python -c "from data_designer.interface._version import __version__; print(f'  data-designer:        {__version__}')" 2>/dev/null || echo "  data-designer: (not installed)"
+	@.venv/bin/python -c 'from importlib.metadata import version; print("  data-designer-slurm:  " + version("data-designer-slurm"))' 2>/dev/null || echo "  data-designer-slurm: (not installed)"
 
 # ==============================================================================
 # LICENSE CHECKS

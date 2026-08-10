@@ -66,22 +66,29 @@ def requirement_dependencies(
     return dict(dependencies)
 
 
-def declared_dependencies(pyproject_path: Path) -> dict[str, set[str]]:
+def declared_dependencies(pyproject_path: Path, selected_extras: set[str] | None = None) -> dict[str, set[str]]:
     with pyproject_path.open("rb") as file:
         config = tomllib.load(file)
 
-    project_dependencies = config.get("project", {}).get("dependencies", [])
-    dynamic_dependencies = (
-        config.get("tool", {})
-        .get("hatch", {})
-        .get("metadata", {})
-        .get("hooks", {})
-        .get("uv-dynamic-versioning", {})
-        .get("dependencies", [])
+    project = config.get("project", {})
+    metadata_hook = (
+        config.get("tool", {}).get("hatch", {}).get("metadata", {}).get("hooks", {}).get("uv-dynamic-versioning", {})
     )
+    project_dependencies = project.get("dependencies", [])
+    dynamic_dependencies = metadata_hook.get("dependencies", [])
     dependencies = requirement_dependencies(project_dependencies)
     for name, extras in requirement_dependencies(dynamic_dependencies, allow_version_template=True).items():
         dependencies.setdefault(name, set()).update(extras)
+
+    for extra in selected_extras or set():
+        optional_dependencies = project.get("optional-dependencies", {}).get(extra, [])
+        dynamic_optional_dependencies = metadata_hook.get("optional-dependencies", {}).get(extra, [])
+        for name, extras in requirement_dependencies(optional_dependencies).items():
+            dependencies.setdefault(name, set()).update(extras)
+        for name, extras in requirement_dependencies(
+            dynamic_optional_dependencies, allow_version_template=True
+        ).items():
+            dependencies.setdefault(name, set()).update(extras)
     return dependencies
 
 
@@ -134,6 +141,7 @@ def audit_repository(
     repository_root: Path,
     module_distributions: dict[str, list[str]] | None = None,
     requirement_map: dict[str, list[str]] | None = None,
+    selected_extras_by_project: dict[str, set[str]] | None = None,
 ) -> dict[str, Any]:
     repository_root = repository_root.resolve()
     package_dirs = sorted(path.parent for path in repository_root.glob("packages/*/pyproject.toml"))
@@ -144,7 +152,10 @@ def audit_repository(
             project_name = normalize_name(tomllib.load(file)["project"]["name"])
         projects[project_name] = {
             "path": str(package_dir.relative_to(repository_root)),
-            "declarations": declared_dependencies(package_dir / "pyproject.toml"),
+            "declarations": declared_dependencies(
+                package_dir / "pyproject.toml",
+                (selected_extras_by_project or {}).get(project_name),
+            ),
             "imports": imported_modules(package_dir / "src", repository_root),
         }
 
@@ -243,9 +254,17 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Inventory package import/dependency gaps")
     parser.add_argument("--root", type=Path, default=Path.cwd())
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--extra", action="append", default=[], metavar="PACKAGE:EXTRA")
     args = parser.parse_args()
 
-    result = audit_repository(args.root)
+    selected_extras_by_project: dict[str, set[str]] = defaultdict(set)
+    for value in args.extra:
+        package, separator, extra = value.partition(":")
+        if not separator or not package or not extra:
+            parser.error("--extra must use PACKAGE:EXTRA format")
+        selected_extras_by_project[normalize_name(package)].add(extra)
+
+    result = audit_repository(args.root, selected_extras_by_project=dict(selected_extras_by_project))
     payload = json.dumps(result, indent=2) + "\n"
     if args.output:
         args.output.write_text(payload)

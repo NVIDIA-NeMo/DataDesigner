@@ -129,6 +129,31 @@ jobs:
           uv run --with pytest --with pytest-asyncio --with pytest-httpx --with pytest-env \
             pytest packages/data-designer/tests
 
+  test-slurm-package:
+    name: Test Slurm package wheels
+    needs: validate-dispatch
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "latest"
+          python-version: "3.11"
+          enable-cache: true
+
+      - name: Install development dependencies
+        run: make install-dev
+
+      - name: Run package tests
+        run: .venv/bin/pytest packages/data-designer-slurm/tests
+
+      - name: Run built-wheel installation tests
+        run: make test-slurm-wheel-install
+
   # ===========================================================================
   # Combined Coverage Check
   # Runs all tests together to verify overall coverage threshold

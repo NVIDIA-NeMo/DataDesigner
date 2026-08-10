@@ -45,10 +45,11 @@ def audit(
     workspace: Path,
     distributions: dict[str, list[str]],
     requirements: dict[str, list[str]] | None = None,
+    selected_extras: dict[str, set[str]] | None = None,
 ) -> dict:
     module = DEPENDENCY_AUDIT
     assert isinstance(module, ModuleType)
-    return module.audit_repository(workspace, distributions, requirements)
+    return module.audit_repository(workspace, distributions, requirements, selected_extras)
 
 
 def test_marks_transitively_guaranteed_gap_low(workspace: Path) -> None:
@@ -144,3 +145,36 @@ def test_applies_module_distribution_override(tmp_path: Path) -> None:
     result = audit(tmp_path, {})
 
     assert result["packages"][0]["missing"][0]["dependency"] == "pyyaml"
+
+
+def test_includes_selected_dynamic_optional_dependencies(tmp_path: Path) -> None:
+    base = tmp_path / "packages" / "data-designer"
+    leaf = tmp_path / "packages" / "data-designer-slurm"
+    (base / "src").mkdir(parents=True)
+    (leaf / "src").mkdir(parents=True)
+    (base / "pyproject.toml").write_text(
+        """
+[project]
+name = "data-designer"
+dynamic = ["optional-dependencies"]
+
+[tool.hatch.metadata.hooks.uv-dynamic-versioning]
+optional-dependencies = { slurm = ["data-designer-slurm=={{ version }}"] }
+""".lstrip()
+    )
+    (leaf / "pyproject.toml").write_text(
+        """
+[project]
+name = "data-designer-slurm"
+dynamic = ["dependencies"]
+
+[tool.hatch.metadata.hooks.uv-dynamic-versioning]
+dependencies = ["data-designer=={{ version }}"]
+""".lstrip()
+    )
+
+    result = audit(tmp_path, {}, selected_extras={"data-designer": {"slurm"}})
+
+    packages = {package["package"]: package for package in result["packages"]}
+    assert packages["data-designer"]["declared"] == ["data-designer-slurm"]
+    assert packages["data-designer-slurm"]["declared"] == ["data-designer"]
