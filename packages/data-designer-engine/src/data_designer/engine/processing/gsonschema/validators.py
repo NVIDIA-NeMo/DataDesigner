@@ -130,12 +130,12 @@ def _get_decimal_info_from_anyof(schema: dict) -> tuple[bool, int | None]:
     if not isinstance(any_of, list):
         return False, None
 
-    has_number = any(isinstance(item, dict) and item.get("type") == "number" for item in any_of)
+    has_number = any(item.get("type") == "number" for item in any_of)
     if not has_number:
         return False, None
 
     for item in any_of:
-        if isinstance(item, dict) and item.get("type") == "string" and "pattern" in item:
+        if item.get("type") == "string" and "pattern" in item:
             match = re.search(r"\\d\{0,(\d+)\}", item["pattern"])
             if match:
                 return True, int(match.group(1))
@@ -143,98 +143,33 @@ def _get_decimal_info_from_anyof(schema: dict) -> tuple[bool, int | None]:
     return False, None
 
 
-def _resolve_local_ref(schema: JSONSchemaT, root_schema: JSONSchemaT) -> JSONSchemaT:
-    """Resolve local JSON Pointer references while preserving sibling keywords."""
-    resolved_schema = schema
-    seen_refs: set[str] = set()
-
-    while isinstance(resolved_schema, dict) and (ref := resolved_schema.get("$ref")):
-        if not isinstance(ref, str) or ref in seen_refs or not (ref == "#" or ref.startswith("#/")):
-            break
-        seen_refs.add(ref)
-
-        target: Any = root_schema
-        if ref != "#":
-            for token in ref[2:].split("/"):
-                token = token.replace("~1", "/").replace("~0", "~")
-                if not isinstance(target, dict) or token not in target:
-                    return resolved_schema
-                target = target[token]
-        if not isinstance(target, dict):
-            return resolved_schema
-
-        siblings = {key: value for key, value in resolved_schema.items() if key != "$ref"}
-        resolved_schema = target | siblings
-
-    return resolved_schema
-
-
-def _normalize_numeric_fields(
-    obj: DataObjectT,
-    schema: JSONSchemaT | bool,
-    root_schema: JSONSchemaT,
-    validator: Any,
-) -> DataObjectT:
-    """Recursively canonicalize numeric values according to their JSON Schema types."""
-    if not isinstance(schema, dict):
+def normalize_decimal_fields(obj: DataObjectT, schema: JSONSchemaT) -> DataObjectT:
+    """Normalize Decimal-like anyOf fields to floats with proper precision."""
+    if not isinstance(obj, dict):
         return obj
 
-    schema = _resolve_local_ref(schema, root_schema)
+    defs = schema.get("$defs", {})
+    obj_schema = defs.get(schema.get("$ref", "")[len("#/$defs/") :], schema)
+    props = obj_schema.get("properties", {})
 
-    is_decimal, decimal_places = _get_decimal_info_from_anyof(schema)
-    if is_decimal and isinstance(obj, (int, float, str)) and not isinstance(obj, bool):
-        value = Decimal(str(obj))
-        if decimal_places is not None:
-            value = value.quantize(Decimal(f"0.{'0' * decimal_places}"), rounding=ROUND_HALF_UP)
-        return float(value)
+    for key, value in obj.items():
+        field_schema = props.get(key, {})
+        if "$ref" in field_schema:
+            field_schema = defs.get(field_schema["$ref"][len("#/$defs/") :], {})
 
-    for keyword in ("oneOf", "anyOf"):
-        alternatives = schema.get(keyword)
-        if isinstance(alternatives, list):
-            for alternative in alternatives:
-                # Full validation does not retain the matching union branch, so identify it again for normalization.
-                if validator.evolve(schema=alternative).is_valid(obj):
-                    obj = _normalize_numeric_fields(obj, alternative, root_schema, validator)
-                    break
-
-    all_of = schema.get("allOf")
-    if isinstance(all_of, list):
-        for subschema in all_of:
-            obj = _normalize_numeric_fields(obj, subschema, root_schema, validator)
-
-    schema_type = schema.get("type")
-    schema_types = {schema_type} if isinstance(schema_type, str) else set(schema_type or [])
-    if "integer" in schema_types and isinstance(obj, (int, float)) and not isinstance(obj, bool):
-        return int(obj)
-    if "number" in schema_types and isinstance(obj, (int, float)) and not isinstance(obj, bool):
-        return float(obj)
-
-    if isinstance(obj, dict):
-        properties = schema.get("properties", {})
-        additional_properties = schema.get("additionalProperties")
-        for key, value in obj.items():
-            field_schema = properties.get(key, additional_properties)
-            if not isinstance(field_schema, (dict, bool)):
-                continue
-            obj[key] = _normalize_numeric_fields(value, field_schema, root_schema, validator)
-        return obj
-
-    if isinstance(obj, list):
-        prefix_items = schema.get("prefixItems", [])
-        item_schema = schema.get("items")
-        for index, value in enumerate(obj):
-            field_schema = prefix_items[index] if index < len(prefix_items) else item_schema
-            if not isinstance(field_schema, (dict, bool)):
-                continue
-            obj[index] = _normalize_numeric_fields(value, field_schema, root_schema, validator)
+        if isinstance(value, dict):
+            obj[key] = normalize_decimal_fields(value, schema)
+        elif isinstance(value, list):
+            obj[key] = [normalize_decimal_fields(v, schema) if isinstance(v, dict) else v for v in value]
+        elif isinstance(value, (int, float, str)) and not isinstance(value, bool):
+            is_decimal, decimal_places = _get_decimal_info_from_anyof(field_schema)
+            if is_decimal:
+                d = Decimal(str(value))
+                if decimal_places is not None:
+                    d = d.quantize(Decimal(f"0.{'0' * decimal_places}"), rounding=ROUND_HALF_UP)
+                obj[key] = float(d)
 
     return obj
-
-
-def normalize_numeric_fields(obj: DataObjectT, schema: JSONSchemaT) -> DataObjectT:
-    """Normalize JSON Schema numbers and integers to stable Python numeric types."""
-    validator = _get_default_validator()(schema)
-    return _normalize_numeric_fields(obj, schema, schema, validator)
 
 
 ## We don't expect the outer data type (e.g. dict, list, or const) to be
@@ -307,6 +242,6 @@ def validate(
     except lazy.jsonschema.ValidationError as exc:
         raise JSONSchemaValidationError(str(exc)) from exc
 
-    final_object = normalize_numeric_fields(final_object, schema)
+    final_object = normalize_decimal_fields(final_object, schema)
 
     return final_object
