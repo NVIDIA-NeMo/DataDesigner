@@ -112,23 +112,29 @@ def load_processor_dataset(processors_outputs_path: Path, processor_name: str) -
 def read_parquet_dataset(path: Path) -> pd.DataFrame:
     """Read a parquet dataset from a path.
 
+    Directory schemas are unified permissively before reading so compatible
+    physical type drift across files, such as nested integers and floats, is
+    promoted to a common representation.
+
     Args:
         path: The path to the parquet dataset, can be either a file or a directory.
 
     Returns:
         The parquet dataset as a pandas DataFrame.
     """
-    try:
-        return lazy.pd.read_parquet(path, dtype_backend="pyarrow")
-    except Exception as e:
-        if path.is_dir() and "Unsupported cast" in str(e):
-            logger.warning("Failed to read parquets as folder, falling back to individual files")
+    if path.is_dir() and (parquet_files := sorted(path.glob("*.parquet"))):
+        schemas = [lazy.pq.read_schema(file) for file in parquet_files]
+        try:
+            unified_schema = lazy.pa.unify_schemas(schemas, promote_options="permissive")
+        except (lazy.pa.ArrowInvalid, lazy.pa.ArrowTypeError):
+            logger.warning("Failed to unify parquet schemas, falling back to individual files")
             return lazy.pd.concat(
-                [lazy.pd.read_parquet(file, dtype_backend="pyarrow") for file in sorted(path.glob("*.parquet"))],
+                [lazy.pd.read_parquet(file, dtype_backend="pyarrow") for file in parquet_files],
                 ignore_index=True,
             )
-        else:
-            raise e
+        return lazy.pd.read_parquet(path, dtype_backend="pyarrow", schema=unified_schema)
+
+    return lazy.pd.read_parquet(path, dtype_backend="pyarrow")
 
 
 def validate_dataset_file_path(file_path: str | Path, should_exist: bool = True) -> Path:
