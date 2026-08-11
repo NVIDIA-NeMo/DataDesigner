@@ -305,6 +305,59 @@ def test_normalize_decimal_anyof_fields() -> None:
     assert isinstance(result3["price"], float)
 
 
+@pytest.mark.parametrize(
+    "schema,data",
+    [
+        ({"type": "array", "items": True}, [1, "two"]),
+        (
+            {"type": "object", "properties": {"metadata": True}},
+            {"metadata": {"score": 9}},
+        ),
+    ],
+    ids=["boolean_items", "boolean_property"],
+)
+def test_boolean_subschema_does_not_crash_numeric_normalization(schema: dict, data: dict | list) -> None:
+    assert validate(data, schema) == data
+
+
+def test_boolean_anyof_schema_does_not_crash_decimal_detection() -> None:
+    schema = {"anyOf": [True, {"type": "number"}]}
+
+    assert validate(1, schema) == 1
+
+
+@pytest.mark.parametrize("keyword", ["oneOf", "anyOf"])
+def test_composition_normalization_includes_sibling_properties(keyword: str) -> None:
+    schema = {
+        "type": "object",
+        keyword: [{"required": ["a"]}, {"required": ["b"]}],
+        "properties": {
+            "a": {"type": "integer"},
+            "score": {"type": "number"},
+        },
+    }
+
+    result = validate({"a": 1, "score": 9}, schema)
+
+    assert result["a"] == 1
+    assert isinstance(result["a"], int)
+    assert result["score"] == 9.0
+    assert isinstance(result["score"], float)
+
+
+@pytest.mark.parametrize(
+    "value,expected_type",
+    [(9, float), (None, type(None))],
+    ids=["number", "null"],
+)
+def test_normalize_nullable_number(value, expected_type: type) -> None:
+    schema = {"anyOf": [{"type": "number"}, {"type": "null"}]}
+
+    result = validate(value, schema)
+
+    assert isinstance(result, expected_type)
+
+
 NESTED_EVALUATION_SCHEMA = {
     "$defs": {
         "Criterion": {

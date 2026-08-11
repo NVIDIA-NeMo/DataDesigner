@@ -130,12 +130,12 @@ def _get_decimal_info_from_anyof(schema: dict) -> tuple[bool, int | None]:
     if not isinstance(any_of, list):
         return False, None
 
-    has_number = any(item.get("type") == "number" for item in any_of)
+    has_number = any(isinstance(item, dict) and item.get("type") == "number" for item in any_of)
     if not has_number:
         return False, None
 
     for item in any_of:
-        if item.get("type") == "string" and "pattern" in item:
+        if isinstance(item, dict) and item.get("type") == "string" and "pattern" in item:
             match = re.search(r"\\d\{0,(\d+)\}", item["pattern"])
             if match:
                 return True, int(match.group(1))
@@ -171,11 +171,14 @@ def _resolve_local_ref(schema: JSONSchemaT, root_schema: JSONSchemaT) -> JSONSch
 
 def _normalize_numeric_fields(
     obj: DataObjectT,
-    schema: JSONSchemaT,
+    schema: JSONSchemaT | bool,
     root_schema: JSONSchemaT,
     validator: Any,
 ) -> DataObjectT:
     """Recursively canonicalize numeric values according to their JSON Schema types."""
+    if not isinstance(schema, dict):
+        return obj
+
     schema = _resolve_local_ref(schema, root_schema)
 
     is_decimal, decimal_places = _get_decimal_info_from_anyof(schema)
@@ -189,8 +192,10 @@ def _normalize_numeric_fields(
         alternatives = schema.get(keyword)
         if isinstance(alternatives, list):
             for alternative in alternatives:
+                # Full validation does not retain the matching union branch, so identify it again for normalization.
                 if validator.evolve(schema=alternative).is_valid(obj):
-                    return _normalize_numeric_fields(obj, alternative, root_schema, validator)
+                    obj = _normalize_numeric_fields(obj, alternative, root_schema, validator)
+                    break
 
     all_of = schema.get("allOf")
     if isinstance(all_of, list):
@@ -206,17 +211,21 @@ def _normalize_numeric_fields(
 
     if isinstance(obj, dict):
         properties = schema.get("properties", {})
-        additional_properties = schema.get("additionalProperties", {})
+        additional_properties = schema.get("additionalProperties")
         for key, value in obj.items():
-            field_schema = properties.get(key, additional_properties if isinstance(additional_properties, dict) else {})
+            field_schema = properties.get(key, additional_properties)
+            if not isinstance(field_schema, (dict, bool)):
+                continue
             obj[key] = _normalize_numeric_fields(value, field_schema, root_schema, validator)
         return obj
 
     if isinstance(obj, list):
         prefix_items = schema.get("prefixItems", [])
-        item_schema = schema.get("items", {})
+        item_schema = schema.get("items")
         for index, value in enumerate(obj):
             field_schema = prefix_items[index] if index < len(prefix_items) else item_schema
+            if not isinstance(field_schema, (dict, bool)):
+                continue
             obj[index] = _normalize_numeric_fields(value, field_schema, root_schema, validator)
 
     return obj
