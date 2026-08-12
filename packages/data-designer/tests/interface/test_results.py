@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 import data_designer.lazy_heavy_imports as lazy
+from data_designer.config import TerminalTaskFailure
 from data_designer.config.analysis.dataset_profiler import DatasetProfilerResults
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.dataset_metadata import DatasetMetadata
@@ -61,6 +62,29 @@ def test_init(stub_artifact_storage, stub_dataset_profiler_results, stub_complet
     assert results._analysis == stub_dataset_profiler_results
     assert results._config_builder == stub_complete_builder
     assert results.dataset_metadata == stub_dataset_metadata
+    assert results.terminal_failures == []
+    assert results.early_shutdown is False
+
+
+def test_results_expose_terminal_failures(
+    stub_artifact_storage,
+    stub_dataset_profiler_results,
+    stub_complete_builder,
+    stub_dataset_metadata,
+) -> None:
+    terminal_failures = [TerminalTaskFailure(seed_row_index=3, column="review")]
+
+    results = DatasetCreationResults(
+        artifact_storage=stub_artifact_storage,
+        analysis=stub_dataset_profiler_results,
+        config_builder=stub_complete_builder,
+        dataset_metadata=stub_dataset_metadata,
+        terminal_failures=terminal_failures,
+        early_shutdown=True,
+    )
+
+    assert results.terminal_failures == terminal_failures
+    assert results.early_shutdown is True
 
 
 def test_load_dataset(stub_dataset_creation_results, stub_artifact_storage, stub_dataframe):
@@ -430,16 +454,21 @@ def test_preview_results_dataset_metadata() -> None:
     config_builder.get_columns_of_type.return_value = []
 
     dataset_metadata = DatasetMetadata(seed_column_names=["name", "age"])
+    terminal_failures = [TerminalTaskFailure(seed_row_index=1, column="greeting")]
 
     results = PreviewResults(
         config_builder=config_builder,
         dataset=lazy.pd.DataFrame({"name": ["Alice"], "age": [25], "greeting": ["Hello"]}),
         dataset_metadata=dataset_metadata,
+        terminal_failures=terminal_failures,
+        early_shutdown=True,
     )
 
     # Verify metadata is stored as public attribute
     assert results.dataset_metadata == dataset_metadata
     assert results.dataset_metadata.seed_column_names == ["name", "age"]
+    assert results.terminal_failures == terminal_failures
+    assert results.early_shutdown is True
 
     # Patch display_sample_record to capture the seed_column_names argument
     with patch("data_designer.config.utils.visualization.display_sample_record", wraps=display_fn) as mock_display:

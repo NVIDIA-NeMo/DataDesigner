@@ -107,6 +107,7 @@ if TYPE_CHECKING:
         LocalFileSeedSource,
     )
     from data_designer.config.seed_source_dataframe import DataFrameSeedSource  # noqa: F401
+    from data_designer.config.terminal_failure import TerminalTaskFailure  # noqa: F401
     from data_designer.config.utils.code_lang import CodeLang  # noqa: F401
     from data_designer.config.utils.info import InfoType  # noqa: F401
     from data_designer.config.utils.media_helpers import AudioFormat, ImageFormat, VideoFormat  # noqa: F401
@@ -194,6 +195,7 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "ResumeMode": (f"{_MOD_BASE}.run_config", "ResumeMode"),
     "RunConfig": (f"{_MOD_BASE}.run_config", "RunConfig"),
     "ThrottleConfig": (f"{_MOD_BASE}.run_config", "ThrottleConfig"),
+    "TerminalTaskFailure": (f"{_MOD_BASE}.terminal_failure", "TerminalTaskFailure"),
     # script_params
     "DataDesignerScriptParams": (f"{_MOD_BASE}.script_params", "DataDesignerScriptParams"),
     # scheduling metadata
