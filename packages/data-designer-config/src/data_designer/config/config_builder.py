@@ -128,7 +128,7 @@ class DataDesignerConfigBuilder:
                 loaded_config = smart_load_yaml(config)
             except OSError as e:
                 raise InvalidFilePathError(f"Failed to load builder config: {e}") from e
-            except yaml.YAMLError as e:
+            except (UnicodeError, yaml.YAMLError) as e:
                 raise InvalidFileFormatError(f"Failed to parse builder config: {e}") from e
             json_config = json.loads(serialize_data(loaded_config))
             # Normalize shorthand DataDesignerConfig into full BuilderConfig

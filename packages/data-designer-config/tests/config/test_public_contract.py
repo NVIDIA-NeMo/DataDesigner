@@ -33,6 +33,32 @@ def test_from_config_normalizes_missing_file_error(tmp_path: Path, filename: str
     assert isinstance(exc_info.value.__cause__, FileNotFoundError)
 
 
+@pytest.mark.parametrize("extension", ["json", "yaml", "yml"])
+def test_from_config_accepts_inline_config_ending_in_supported_extension(extension: str) -> None:
+    builder = DataDesignerConfigBuilder.from_config(
+        f"""
+columns:
+  - name: category
+    column_type: sampler
+    sampler_type: category
+    params:
+      values:
+        - value.{extension}"""
+    )
+
+    assert builder.get_column_config("category").params.values == [f"value.{extension}"]
+
+
+def test_from_config_normalizes_undecodable_file_error(tmp_path: Path) -> None:
+    config_path = tmp_path / "invalid.yaml"
+    config_path.write_bytes(b"\xff")
+
+    with pytest.raises(InvalidFileFormatError) as exc_info:
+        DataDesignerConfigBuilder.from_config(config_path)
+
+    assert isinstance(exc_info.value.__cause__, UnicodeDecodeError)
+
+
 def test_from_config_normalizes_malformed_config_error() -> None:
     with pytest.raises(InvalidFileFormatError):
         DataDesignerConfigBuilder.from_config("data_designer: [")

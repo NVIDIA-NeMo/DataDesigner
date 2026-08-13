@@ -202,10 +202,7 @@ def test_display_sample_record_with_empty_dataset():
         dataset_metadata=DatasetMetadata(),
     )
 
-    # Empty DataFrame is still a valid DataFrame, so accessing _record_sampler_dataset succeeds
-    # but display_sample_record fails when trying to access index 0
-    # Note: Currently raises UnboundLocalError due to bug in error handling, but tests that it fails
-    with pytest.raises((DatasetSampleDisplayError, UnboundLocalError)):
+    with pytest.raises(ArtifactStorageError, match="No batch parquet files found"):
         results.display_sample_record()
 
 
@@ -388,6 +385,32 @@ def test_count_records(stub_dataset_creation_results, stub_dataframe, stub_batch
     """count_records() returns the total row count without loading data pages."""
     stub_dataset_creation_results.artifact_storage.final_dataset_path = stub_batch_dir
     assert stub_dataset_creation_results.count_records() == len(stub_dataframe)
+
+
+def test_missing_dataset_artifacts_raise_public_error(stub_dataset_creation_results, tmp_path) -> None:
+    empty_dir = tmp_path / "parquet-files"
+    empty_dir.mkdir()
+    stub_dataset_creation_results.artifact_storage.final_dataset_path = empty_dir
+    stub_dataset_creation_results.artifact_storage.load_dataset.return_value = lazy.pd.DataFrame()
+    stub_dataset_creation_results.requested_num_records = 1
+
+    with pytest.raises(ArtifactStorageError, match="No batch parquet files found"):
+        stub_dataset_creation_results.load_dataset()
+    with pytest.raises(ArtifactStorageError, match="No batch parquet files found"):
+        stub_dataset_creation_results.count_records()
+    with pytest.raises(ArtifactStorageError, match="No batch parquet files found"):
+        _ = stub_dataset_creation_results.actual_num_records
+    with pytest.raises(ArtifactStorageError, match="No batch parquet files found"):
+        _ = stub_dataset_creation_results.is_partial
+
+
+def test_load_dataset_normalizes_missing_artifact_error(stub_dataset_creation_results) -> None:
+    stub_dataset_creation_results.artifact_storage.load_dataset.side_effect = FileNotFoundError("missing")
+
+    with pytest.raises(ArtifactStorageError, match="Failed to load dataset artifacts") as exc_info:
+        stub_dataset_creation_results.load_dataset()
+
+    assert isinstance(exc_info.value.__cause__, FileNotFoundError)
 
 
 def test_public_creation_outcome_fields(
