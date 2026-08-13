@@ -190,8 +190,14 @@ def _smart_load_yaml_internal(yaml_in: str | Path | dict, *, from_url: bool) -> 
         with open(yaml_in) as file:
             yaml_out = yaml.safe_load(file)
     elif isinstance(yaml_in, str):
-        yaml_out = yaml.safe_load(yaml_in)
-        if not from_url and not isinstance(yaml_out, dict) and yaml_in.lower().endswith((".yaml", ".yml", ".json")):
+        is_local_config_path = not from_url and yaml_in.lower().endswith((".yaml", ".yml", ".json"))
+        try:
+            yaml_out = yaml.safe_load(yaml_in)
+        except yaml.YAMLError as e:
+            if is_local_config_path:
+                raise FileNotFoundError(f"File not found: {yaml_in}") from e
+            raise
+        if is_local_config_path and not isinstance(yaml_out, dict):
             raise FileNotFoundError(f"File not found: {yaml_in}")
     else:
         raise ValueError(
