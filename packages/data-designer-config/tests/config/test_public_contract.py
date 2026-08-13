@@ -37,6 +37,10 @@ def test_from_config_normalizes_missing_file_error(tmp_path: Path, filename: str
 def test_from_config_accepts_inline_config_ending_in_supported_extension(extension: str) -> None:
     builder = DataDesignerConfigBuilder.from_config(
         f"""
+model_configs:
+  - alias: stub-model
+    model: stub-model
+    provider: provider-1
 columns:
   - name: category
     column_type: sampler
