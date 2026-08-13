@@ -170,16 +170,20 @@ def audit_repository(
     requirement_cache: dict[tuple[str, frozenset[str]], dict[str, set[str]]] = {}
 
     def requirements_for(distribution_name: str, selected_extras: set[str]) -> dict[str, set[str]]:
-        if distribution_name in projects:
-            return projects[distribution_name]["declarations"]
-        if requirement_map is not None:
-            return requirement_dependencies(requirement_map.get(distribution_name, []), selected_extras)
         cache_key = (distribution_name, frozenset(selected_extras))
         if cache_key not in requirement_cache:
-            requirement_cache[cache_key] = installed_requirements(distribution_name, selected_extras)
+            if distribution_name in projects:
+                package_path = repository_root / projects[distribution_name]["path"] / "pyproject.toml"
+                requirement_cache[cache_key] = declared_dependencies(package_path, selected_extras)
+            elif requirement_map is not None:
+                requirement_cache[cache_key] = requirement_dependencies(
+                    requirement_map.get(distribution_name, []), selected_extras
+                )
+            else:
+                requirement_cache[cache_key] = installed_requirements(distribution_name, selected_extras)
         return requirement_cache[cache_key]
 
-    def dependency_closure(distribution_name: str, selected_extras: set[str]) -> set[str]:
+    def dependency_closure(distribution_name: str, selected_extras: set[str], project_name: str) -> set[str]:
         closure = set()
         pending = [(distribution_name, selected_extras)]
         visited: set[tuple[str, frozenset[str]]] = set()
@@ -189,6 +193,8 @@ def audit_repository(
             if current_key in visited:
                 continue
             visited.add(current_key)
+            if current == project_name:
+                continue
             for dependency, dependency_extras in requirements_for(current, extras).items():
                 closure.add(dependency)
                 pending.append((dependency, dependency_extras))
@@ -199,7 +205,8 @@ def audit_repository(
         declarations = project["declarations"]
         declared = set(declarations)
         dependency_closures = {
-            dependency: dependency_closure(dependency, extras) for dependency, extras in declarations.items()
+            dependency: dependency_closure(dependency, extras, project_name)
+            for dependency, extras in declarations.items()
         }
         resolved_imports: dict[str, dict[str, set[str]]] = defaultdict(lambda: {"modules": set(), "files": set()})
         unresolved = []
