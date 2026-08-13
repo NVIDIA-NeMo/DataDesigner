@@ -33,13 +33,19 @@ slurm = "data_designer.slurm.cli:create_cli"
 
 Extension distributions must declare a compatible dependency on
 `data-designer`. Compatibility and the loaded object are validated only when the
-extension command is selected. Built-in command names are reserved. A built-in
-collision or duplicate extension name remains visible as unavailable in root
-help and fails deterministically without loading any conflicting target.
+extension command is selected. The entry-point name is authoritative and is
+assigned to the returned command. Built-in command names are reserved. A
+built-in collision makes that command unavailable with a targeted error rather
+than allowing the extension to replace it. A duplicate extension name remains
+visible as unavailable in root help and fails deterministically without loading
+any conflicting target. Invalid extension names and discovery failures are
+reported as warnings without disabling built-in commands.
 
-The installed-wheel smoke test measures five warm root-help subprocesses for a
+The installed-wheel smoke test measures nine warm root-help subprocesses for a
 base-only environment and an environment with the Slurm extension. The accepted
-median overhead from installing the extension is at most 100 ms.
+base median is at most one second, and the median overhead from installing the
+extension is at most 100 ms. It also verifies that root help does not import the
+extension or compatibility-checking modules.
 
 ### Layering Pattern (Setup Workflows)
 

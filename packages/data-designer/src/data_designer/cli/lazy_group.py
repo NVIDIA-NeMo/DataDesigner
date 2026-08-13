@@ -10,8 +10,6 @@ from typing import Any
 
 import click
 import typer
-from packaging.requirements import InvalidRequirement, Requirement
-from packaging.utils import canonicalize_name
 from typer.core import TyperCommand, TyperGroup
 
 CLI_EXTENSION_ENTRY_POINT_GROUP = "data_designer.cli"
@@ -45,15 +43,29 @@ def _entry_point_help(entry_point: importlib.metadata.EntryPoint) -> str:
     return f"CLI extension provided by {_distribution_name(entry_point)}"
 
 
+def _entry_point_sort_key(entry_point: importlib.metadata.EntryPoint) -> tuple[str, str, str, str, str]:
+    distribution_name = _distribution_name(entry_point)
+    return (
+        entry_point.name,
+        distribution_name.casefold(),
+        distribution_name,
+        _distribution_version(entry_point),
+        entry_point.value,
+    )
+
+
 def _validate_entry_point_compatibility(entry_point: importlib.metadata.EntryPoint) -> None:
+    packaging_requirements = importlib.import_module("packaging.requirements")
+    packaging_utils = importlib.import_module("packaging.utils")
+
     distribution = getattr(entry_point, "dist", None)
     label = _entry_point_label(entry_point)
     if distribution is None:
         raise click.ClickException(f"CLI extension {entry_point.name!r} has no owning distribution: {label}.")
 
     try:
-        requirements = [Requirement(value) for value in distribution.requires or []]
-    except InvalidRequirement as e:
+        requirements = [packaging_requirements.Requirement(value) for value in distribution.requires or []]
+    except packaging_requirements.InvalidRequirement as e:
         raise click.ClickException(
             f"CLI extension {entry_point.name!r} from {label} has invalid dependency metadata: {e}."
         ) from None
@@ -61,7 +73,7 @@ def _validate_entry_point_compatibility(entry_point: importlib.metadata.EntryPoi
     data_designer_requirements = [
         requirement
         for requirement in requirements
-        if canonicalize_name(requirement.name) == _DATA_DESIGNER_DISTRIBUTION
+        if packaging_utils.canonicalize_name(requirement.name) == _DATA_DESIGNER_DISTRIBUTION
         and (requirement.marker is None or requirement.marker.evaluate())
     ]
     if not data_designer_requirements:
@@ -74,8 +86,8 @@ def _validate_entry_point_compatibility(entry_point: importlib.metadata.EntryPoi
     except importlib.metadata.PackageNotFoundError:
         raise click.ClickException("Unable to resolve the installed data-designer version.") from None
 
-    if not any(installed_version in requirement.specifier for requirement in data_designer_requirements):
-        expected = " or ".join(str(requirement) for requirement in data_designer_requirements)
+    if not all(installed_version in requirement.specifier for requirement in data_designer_requirements):
+        expected = " and ".join(str(requirement) for requirement in data_designer_requirements)
         raise click.ClickException(
             f"CLI extension {entry_point.name!r} from {label} is incompatible with "
             f"data-designer {installed_version}; requires {expected}."
@@ -230,17 +242,12 @@ def create_lazy_typer_group(
             try:
                 entry_points = sorted(
                     importlib.metadata.entry_points(group=entry_point_group),
-                    key=lambda entry_point: (
-                        entry_point.name,
-                        canonicalize_name(_distribution_name(entry_point)),
-                        _distribution_version(entry_point),
-                        entry_point.value,
-                    ),
+                    key=_entry_point_sort_key,
                 )
             except Exception as e:
-                raise click.ClickException(
-                    f"Failed to discover CLI extensions from {entry_point_group!r}: {e}."
-                ) from None
+                click.echo(f"Warning: Failed to discover CLI extensions from {entry_point_group!r}: {e}.", err=True)
+                self._extension_entry_points = {}
+                return self._extension_entry_points
 
             discovered: defaultdict[str, list[importlib.metadata.EntryPoint]] = defaultdict(list)
             for entry_point in entry_points:
@@ -249,9 +256,12 @@ def create_lazy_typer_group(
                     or entry_point.name.startswith("-")
                     or any(character.isspace() for character in entry_point.name)
                 ):
-                    raise click.ClickException(
-                        f"Invalid CLI extension command name {entry_point.name!r} from {_entry_point_label(entry_point)}."
+                    click.echo(
+                        f"Warning: Ignoring invalid CLI extension command name {entry_point.name!r} "
+                        f"from {_entry_point_label(entry_point)}.",
+                        err=True,
                     )
+                    continue
                 discovered[entry_point.name].append(entry_point)
             self._extension_entry_points = dict(discovered)
             return self._extension_entry_points

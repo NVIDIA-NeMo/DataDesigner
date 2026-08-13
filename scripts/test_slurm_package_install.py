@@ -25,6 +25,8 @@ PACKAGE_PATHS = (
     "packages/data-designer",
     "packages/data-designer-slurm",
 )
+CLI_HELP_SAMPLES = 9
+MAX_BASE_CLI_HELP_SECONDS = 1.0
 MAX_EXTENSION_CLI_HELP_OVERHEAD_SECONDS = 0.1
 
 
@@ -109,11 +111,13 @@ assert data_designer.__file__ is None
 assert version("data-designer") == {version!r}
 assert (find_spec("data_designer.slurm") is not None) is {slurm!r}
 assert "data_designer.slurm" not in sys.modules
+assert "packaging.requirements" not in sys.modules
 
 help_result = CliRunner().invoke(app, ["--help"])
 assert help_result.exit_code == 0, help_result.output
 assert ("slurm" in help_result.output) is {slurm!r}
 assert "data_designer.slurm" not in sys.modules
+assert "packaging.requirements" not in sys.modules
 """
     if slurm:
         statement += f"""
@@ -137,7 +141,7 @@ assert result.exit_code == 0, result.output
         run([str(python), "-c", statement], cwd=cwd)
 
     samples: dict[Path, list[float]] = {base_python: [], extension_python: []}
-    for index in range(5):
+    for index in range(CLI_HELP_SAMPLES):
         environments = (base_python, extension_python) if index % 2 == 0 else (extension_python, base_python)
         for python in environments:
             start = time.perf_counter()
@@ -184,6 +188,9 @@ def main() -> None:
         verify_install(extra_python, version, slurm=True, cwd=root)
         base_cli_help, extension_cli_help = cli_help_medians(base_python, extra_python, cwd=root)
         extension_overhead = extension_cli_help - base_cli_help
+        assert base_cli_help <= MAX_BASE_CLI_HELP_SECONDS, (
+            f"Base CLI root help took {base_cli_help:.3f}s; budget is {MAX_BASE_CLI_HELP_SECONDS:.3f}s"
+        )
         assert extension_overhead <= MAX_EXTENSION_CLI_HELP_OVERHEAD_SECONDS, (
             f"CLI extension added {extension_overhead:.3f}s to root help "
             f"(base={base_cli_help:.3f}s, extension={extension_cli_help:.3f}s)"
