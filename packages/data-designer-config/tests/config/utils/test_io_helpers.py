@@ -16,9 +16,31 @@ import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.utils.io_helpers import (
     _maybe_rewrite_url,
     is_http_url,
+    read_parquet_dataset,
     serialize_data,
     smart_load_yaml,
 )
+
+
+def test_read_parquet_dataset_unifies_nested_numeric_types(tmp_path) -> None:
+    evaluations = [
+        {"evaluations": [{"overall": {"score": 9}}]},
+        {"evaluations": [{"overall": {"score": 9.5}}]},
+    ]
+    for batch_number, evaluation in enumerate(evaluations):
+        lazy.pd.DataFrame({"qa_evaluations": [evaluation]}).to_parquet(
+            tmp_path / f"batch_{batch_number:05d}.parquet",
+            index=False,
+        )
+
+    schemas = [lazy.pq.read_schema(file) for file in sorted(tmp_path.glob("*.parquet"))]
+    assert schemas[0] != schemas[1]
+
+    result = read_parquet_dataset(tmp_path)
+
+    scores = [row["evaluations"][0]["overall"]["score"] for row in result["qa_evaluations"]]
+    assert scores == [9.0, 9.5]
+    assert all(isinstance(score, float) for score in scores)
 
 
 def test_smart_load_yaml():
