@@ -152,10 +152,13 @@ class DatasetCreationResults(WithRecordSamplerMixin):
             Total row count across all batch parquet files.
 
         Raises:
-            ArtifactStorageError: If the dataset artifacts are missing.
+            ArtifactStorageError: If the dataset artifacts are missing or unreadable.
         """
         batch_files = self._get_batch_files()
-        return sum(lazy.pq.read_metadata(f).num_rows for f in batch_files)
+        try:
+            return sum(lazy.pq.read_metadata(f).num_rows for f in batch_files)
+        except OSError as e:
+            raise ArtifactStorageError(f"Failed to read dataset artifacts: {e}") from e
 
     def _get_batch_files(self) -> list[Path]:
         batch_files = sorted(self.artifact_storage.final_dataset_path.glob("batch_*.parquet"))
@@ -212,7 +215,7 @@ class DatasetCreationResults(WithRecordSamplerMixin):
         Raises:
             InvalidFileFormatError: If the format cannot be determined or is not
                 one of the supported values.
-            ArtifactStorageError: If no batch parquet files are found.
+            ArtifactStorageError: If batch parquet files are missing or unreadable.
 
         Example:
             >>> results = data_designer.create(config, num_records=1000)
@@ -292,7 +295,10 @@ def _export_jsonl(batch_files: list[Path], output: Path) -> None:
     """
     with output.open("w", encoding="utf-8") as f:
         for batch_file in batch_files:
-            chunk = lazy.pd.read_parquet(batch_file)
+            try:
+                chunk = lazy.pd.read_parquet(batch_file)
+            except OSError as e:
+                raise ArtifactStorageError(f"Failed to read dataset artifact {batch_file}: {e}") from e
             content = chunk.to_json(orient="records", lines=True, force_ascii=False, date_format="iso")
             if content:
                 f.write(content)
@@ -301,7 +307,10 @@ def _export_jsonl(batch_files: list[Path], output: Path) -> None:
 def _export_csv(batch_files: list[Path], output: Path) -> None:
     """Write *batch_files* to *output* as CSV with a single header row."""
     for i, batch_file in enumerate(batch_files):
-        chunk = lazy.pd.read_parquet(batch_file)
+        try:
+            chunk = lazy.pd.read_parquet(batch_file)
+        except OSError as e:
+            raise ArtifactStorageError(f"Failed to read dataset artifact {batch_file}: {e}") from e
         chunk.to_csv(output, mode="a" if i > 0 else "w", header=(i == 0), index=False)
 
 
@@ -316,7 +325,10 @@ def _export_parquet(batch_files: list[Path], output: Path) -> None:
         InvalidFileFormatError: If batch schemas have incompatible column names or
             types that cannot be unified or cast.
     """
-    schemas = [lazy.pq.read_schema(f) for f in batch_files]
+    try:
+        schemas = [lazy.pq.read_schema(f) for f in batch_files]
+    except OSError as e:
+        raise ArtifactStorageError(f"Failed to read dataset artifacts: {e}") from e
     try:
         # promote_options="permissive" allows minor numeric type drift (e.g. int64 → double)
         unified_schema = lazy.pa.unify_schemas(schemas, promote_options="permissive")
@@ -324,7 +336,10 @@ def _export_parquet(batch_files: list[Path], output: Path) -> None:
         raise InvalidFileFormatError(f"Cannot unify batch schemas for parquet export: {e}") from e
     with lazy.pq.ParquetWriter(output, unified_schema) as writer:
         for batch_file in batch_files:
-            table = lazy.pq.read_table(batch_file)
+            try:
+                table = lazy.pq.read_table(batch_file)
+            except OSError as e:
+                raise ArtifactStorageError(f"Failed to read dataset artifact {batch_file}: {e}") from e
             try:
                 writer.write_table(table.cast(unified_schema))
             except (lazy.pa.ArrowInvalid, ValueError) as e:

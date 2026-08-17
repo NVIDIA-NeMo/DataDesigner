@@ -257,7 +257,7 @@ Public failure behavior is:
 | Early shutdown with zero records | `DataDesignerEarlyShutdownError`, a `DataDesignerGenerationError` subclass. |
 | Early shutdown with some records | A partial `DatasetCreationResults` with `early_shutdown=True`. |
 | Invalid export format or incompatible Parquet schemas | `InvalidFileFormatError` from `data_designer.config`. |
-| Missing dataset or processor artifacts | `ArtifactStorageError` from `data_designer.interface`. |
+| Missing or unreadable dataset or processor artifacts | `ArtifactStorageError` from `data_designer.interface`. |
 
 The caller must not inspect engine storage or task-trace types to classify an outcome.
 

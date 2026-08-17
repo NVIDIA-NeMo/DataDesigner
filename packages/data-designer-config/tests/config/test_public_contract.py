@@ -63,6 +63,7 @@ def test_from_config_normalizes_undecodable_file_error(tmp_path: Path) -> None:
     assert isinstance(exc_info.value.__cause__, UnicodeDecodeError)
 
 
-def test_from_config_normalizes_malformed_config_error() -> None:
+@pytest.mark.parametrize("extension", ["json", "yaml", "yml"])
+def test_from_config_normalizes_malformed_config_error(extension: str) -> None:
     with pytest.raises(InvalidFileFormatError):
-        DataDesignerConfigBuilder.from_config("data_designer: [")
+        DataDesignerConfigBuilder.from_config(f"data_designer: [/tmp/value.{extension}")

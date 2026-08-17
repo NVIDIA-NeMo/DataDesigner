@@ -387,6 +387,40 @@ def test_count_records(stub_dataset_creation_results, stub_dataframe, stub_batch
     assert stub_dataset_creation_results.count_records() == len(stub_dataframe)
 
 
+def test_count_records_normalizes_unreadable_artifact_error(stub_dataset_creation_results, stub_batch_dir) -> None:
+    stub_dataset_creation_results.artifact_storage.final_dataset_path = stub_batch_dir
+
+    with (
+        patch("data_designer.interface.results.lazy.pq.read_metadata", side_effect=PermissionError("denied")),
+        pytest.raises(ArtifactStorageError, match="Failed to read dataset artifacts") as exc_info,
+    ):
+        stub_dataset_creation_results.count_records()
+
+    assert isinstance(exc_info.value.__cause__, PermissionError)
+
+
+@pytest.mark.parametrize(
+    ("format", "reader"),
+    [
+        ("jsonl", "data_designer.interface.results.lazy.pd.read_parquet"),
+        ("csv", "data_designer.interface.results.lazy.pd.read_parquet"),
+        ("parquet", "data_designer.interface.results.lazy.pq.read_schema"),
+    ],
+)
+def test_export_normalizes_unreadable_artifact_error(
+    stub_dataset_creation_results, stub_batch_dir, tmp_path, format: str, reader: str
+) -> None:
+    stub_dataset_creation_results.artifact_storage.final_dataset_path = stub_batch_dir
+
+    with (
+        patch(reader, side_effect=PermissionError("denied")),
+        pytest.raises(ArtifactStorageError, match="Failed to read dataset artifact") as exc_info,
+    ):
+        stub_dataset_creation_results.export(tmp_path / f"out.{format}")
+
+    assert isinstance(exc_info.value.__cause__, PermissionError)
+
+
 def test_missing_dataset_artifacts_raise_public_error(stub_dataset_creation_results, tmp_path) -> None:
     empty_dir = tmp_path / "parquet-files"
     empty_dir.mkdir()
