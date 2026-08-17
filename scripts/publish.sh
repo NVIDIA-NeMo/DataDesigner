@@ -31,8 +31,9 @@ NC='\033[0m' # No Color
 PACKAGE_DIRS=(
     "packages/data-designer-config"
     "packages/data-designer-engine"
-    "packages/data-designer"
+    # Publish the provider before the package that advertises its exact-version extra.
     "packages/data-designer-slurm"
+    "packages/data-designer"
 )
 
 PYPIRC_FILE="$HOME/.pypirc"
