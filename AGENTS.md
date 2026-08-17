@@ -14,7 +14,7 @@ The `data_designer` namespace is split across four installable packages that mer
 | `data-designer-config` | `packages/data-designer-config/` | `data_designer.config` — column configs, model configs, sampler params, builder API, plugin system, lazy imports |
 | `data-designer-engine` | `packages/data-designer-engine/` | `data_designer.engine` — column generators, dataset builders, DAG execution, model facade, validators, sampling |
 | `data-designer` | `packages/data-designer/` | `data_designer.interface` — public `DataDesigner` class, results, errors; `data_designer.cli` — CLI entry point; `data_designer.integrations` |
-| `data-designer-slurm` | `packages/data-designer-slurm/` | `data_designer.slurm` — optional Slurm batch execution |
+| `data-designer-slurm` | `packages/data-designer-slurm/` | `data_designer.slurm` — optional Slurm execution |
 
 **Import direction (left imports right):** Slurm → interface → engine → config. The `data-designer[slurm]` extra creates a packaging-only reverse edge; no code may import against this flow.
 

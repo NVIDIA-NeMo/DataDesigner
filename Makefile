@@ -152,7 +152,7 @@ install-dev:
 	@echo "   packages/data-designer-config/   - Configuration layer (lightweight)"
 	@echo "   packages/data-designer-engine/   - Generation engine (heavy deps)"
 	@echo "   packages/data-designer/          - Full package with CLI"
-	@echo "   packages/data-designer-slurm/    - Optional Slurm batch execution"
+	@echo "   packages/data-designer-slurm/    - Optional Slurm execution"
 	@echo ""
 	@echo "💡 Next steps:"
 	@echo "   make verify-imports     - Verify all packages are working"

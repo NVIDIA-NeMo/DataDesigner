@@ -1,7 +1,7 @@
 [project]
 name = "data-designer-slurm"
 dynamic = ["version", "dependencies"]
-description = "Slurm batch execution for Data Designer"
+description = "Slurm execution for Data Designer"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "Apache-2.0"
