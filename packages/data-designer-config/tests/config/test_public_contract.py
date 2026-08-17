@@ -25,7 +25,9 @@ def test_builder_file_errors_are_publicly_exported() -> None:
     assert InvalidFilePathError is config_errors.InvalidFilePathError
 
 
-@pytest.mark.parametrize("filename", ["missing.yaml", "missing.json", "missing.YAML", "missing.JsOn", "[broken.JSON"])
+@pytest.mark.parametrize(
+    "filename", ["missing.yaml", "missing.json", "missing.YAML", "missing.JsOn", "[broken.JSON", "missing: config.JSON"]
+)
 def test_from_config_normalizes_missing_file_error(tmp_path: Path, filename: str) -> None:
     with pytest.raises(InvalidFilePathError) as exc_info:
         DataDesignerConfigBuilder.from_config(str(tmp_path / filename))

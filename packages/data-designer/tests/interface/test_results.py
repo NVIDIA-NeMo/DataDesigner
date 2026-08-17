@@ -387,16 +387,19 @@ def test_count_records(stub_dataset_creation_results, stub_dataframe, stub_batch
     assert stub_dataset_creation_results.count_records() == len(stub_dataframe)
 
 
-def test_count_records_normalizes_unreadable_artifact_error(stub_dataset_creation_results, stub_batch_dir) -> None:
+@pytest.mark.parametrize("error_type", [PermissionError, lazy.pa.ArrowInvalid])
+def test_count_records_normalizes_unreadable_artifact_error(
+    stub_dataset_creation_results, stub_batch_dir, error_type
+) -> None:
     stub_dataset_creation_results.artifact_storage.final_dataset_path = stub_batch_dir
 
     with (
-        patch("data_designer.interface.results.lazy.pq.read_metadata", side_effect=PermissionError("denied")),
+        patch("data_designer.interface.results.lazy.pq.read_metadata", side_effect=error_type("unreadable")),
         pytest.raises(ArtifactStorageError, match="Failed to read dataset artifacts") as exc_info,
     ):
         stub_dataset_creation_results.count_records()
 
-    assert isinstance(exc_info.value.__cause__, PermissionError)
+    assert isinstance(exc_info.value.__cause__, error_type)
 
 
 @pytest.mark.parametrize(
@@ -407,18 +410,19 @@ def test_count_records_normalizes_unreadable_artifact_error(stub_dataset_creatio
         ("parquet", "data_designer.interface.results.lazy.pq.read_schema"),
     ],
 )
+@pytest.mark.parametrize("error_type", [PermissionError, lazy.pa.ArrowInvalid])
 def test_export_normalizes_unreadable_artifact_error(
-    stub_dataset_creation_results, stub_batch_dir, tmp_path, format: str, reader: str
+    stub_dataset_creation_results, stub_batch_dir, tmp_path, format: str, reader: str, error_type
 ) -> None:
     stub_dataset_creation_results.artifact_storage.final_dataset_path = stub_batch_dir
 
     with (
-        patch(reader, side_effect=PermissionError("denied")),
+        patch(reader, side_effect=error_type("unreadable")),
         pytest.raises(ArtifactStorageError, match="Failed to read dataset artifact") as exc_info,
     ):
         stub_dataset_creation_results.export(tmp_path / f"out.{format}")
 
-    assert isinstance(exc_info.value.__cause__, PermissionError)
+    assert isinstance(exc_info.value.__cause__, error_type)
 
 
 def test_missing_dataset_artifacts_raise_public_error(stub_dataset_creation_results, tmp_path) -> None:
@@ -438,13 +442,24 @@ def test_missing_dataset_artifacts_raise_public_error(stub_dataset_creation_resu
         _ = stub_dataset_creation_results.is_partial
 
 
-def test_load_dataset_normalizes_missing_artifact_error(stub_dataset_creation_results) -> None:
-    stub_dataset_creation_results.artifact_storage.load_dataset.side_effect = FileNotFoundError("missing")
+@pytest.mark.parametrize("error_type", [PermissionError, lazy.pa.ArrowInvalid])
+def test_load_dataset_normalizes_artifact_error(stub_dataset_creation_results, error_type) -> None:
+    stub_dataset_creation_results.artifact_storage.load_dataset.side_effect = error_type("unreadable")
 
     with pytest.raises(ArtifactStorageError, match="Failed to load dataset artifacts") as exc_info:
         stub_dataset_creation_results.load_dataset()
 
-    assert isinstance(exc_info.value.__cause__, FileNotFoundError)
+    assert isinstance(exc_info.value.__cause__, error_type)
+
+
+@pytest.mark.parametrize("error_type", [PermissionError, lazy.pa.ArrowInvalid])
+def test_load_processor_dataset_normalizes_artifact_error(stub_dataset_creation_results, error_type) -> None:
+    stub_dataset_creation_results.artifact_storage.load_processor_dataset.side_effect = error_type("unreadable")
+
+    with pytest.raises(ArtifactStorageError, match="Failed to load processor dataset artifacts") as exc_info:
+        stub_dataset_creation_results.load_processor_dataset("processor")
+
+    assert isinstance(exc_info.value.__cause__, error_type)
 
 
 def test_public_creation_outcome_fields(
