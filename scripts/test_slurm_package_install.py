@@ -125,6 +125,8 @@ slurm_help_result = CliRunner().invoke(app, ["slurm", "--help"])
 assert slurm_help_result.exit_code == 0, (slurm_help_result.output, repr(slurm_help_result.exception))
 assert "data_designer.slurm.cli" in sys.modules
 assert version("data-designer-slurm") == {version!r}
+from data_designer.slurm.state import RunManifest
+assert RunManifest.__name__ == "RunManifest"
 """
     run([str(python), "-c", statement], cwd=cwd)
 
@@ -170,8 +172,10 @@ def main() -> None:
 
         base_leaf_requirement = requirement(base_metadata, "data-designer-slurm")
         leaf_base_requirement = requirement(leaf_metadata, "data-designer")
+        leaf_pydantic_requirement = requirement(leaf_metadata, "pydantic")
         assert str(base_leaf_requirement.specifier) == f"=={version}"
         assert str(leaf_base_requirement.specifier) == f"=={version}"
+        assert leaf_pydantic_requirement.specifier == Requirement("pydantic>=2.9.2,<3").specifier
         assert base_leaf_requirement.marker is not None
         assert base_leaf_requirement.marker.evaluate({"extra": "slurm"})
         assert not base_leaf_requirement.marker.evaluate({"extra": ""})

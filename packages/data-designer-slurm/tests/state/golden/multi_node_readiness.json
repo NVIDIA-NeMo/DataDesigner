@@ -1,0 +1,39 @@
+{
+  "attempt_id": "attempt-0001",
+  "deployments": [
+    {
+      "deployment_name": "generator-model",
+      "endpoint_publication": "pending",
+      "expected_backends": 2,
+      "last_probe": {
+        "observed_at": "2026-08-18T14:02:00Z",
+        "outcome": "failure",
+        "reason_code": "backend_starting",
+        "redacted_message": "One of two backends is ready"
+      },
+      "model_alias": "generator",
+      "ready_backends": 1,
+      "state": "starting"
+    },
+    {
+      "deployment_name": "judge-model",
+      "endpoint_publication": "published",
+      "expected_backends": 2,
+      "last_probe": {
+        "observed_at": "2026-08-18T14:02:00Z",
+        "outcome": "success",
+        "reason_code": "backends_ready",
+        "redacted_message": "All backends are ready"
+      },
+      "model_alias": "judge",
+      "ready_backends": 2,
+      "state": "ready"
+    }
+  ],
+  "revision": 4,
+  "run_id": "run-multi",
+  "schema_version": 1,
+  "shard_id": "shard-0000",
+  "state": "starting",
+  "updated_at": "2026-08-18T14:02:00Z"
+}

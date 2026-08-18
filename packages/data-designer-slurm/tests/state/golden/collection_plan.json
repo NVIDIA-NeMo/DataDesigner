@@ -1,0 +1,23 @@
+{
+  "collection_id": "collection-0001",
+  "container_destination": "/mnt/data/run-0001.parquet",
+  "created_at": "2026-08-18T12:06:00Z",
+  "host_destination": "/workspace/runs/run-0001/collection/run-0001.parquet",
+  "num_partitions": 1,
+  "overwrite": false,
+  "planned_shards": [
+    {
+      "shard_id": "shard-0000",
+      "winner_manifest": {
+        "path": "/workspace/runs/run-0001/shards/shard-0000/winner.json",
+        "sha256": "089139c096a31edcd65aa06a1bc79734860bef3fdb5253dda972b1ca805f79b5"
+      }
+    }
+  ],
+  "resolved_plan": {
+    "path": "/workspace/runs/run-0001/resolved-plan.json",
+    "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "run_id": "run-0001",
+  "schema_version": 1
+}

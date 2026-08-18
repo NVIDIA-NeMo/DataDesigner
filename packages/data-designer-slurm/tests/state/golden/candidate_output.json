@@ -1,0 +1,23 @@
+{
+  "actual_records": 100,
+  "attempt_id": "attempt-0001",
+  "attempt_ordinal": 1,
+  "created_at": "2026-08-18T12:05:00Z",
+  "dataset_path": "/workspace/runs/run-0001/shards/shard-0000/attempts/attempt-0001/dataset",
+  "dataset_schema_digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "files": [
+    {
+      "byte_size": 4096,
+      "record_count": 100,
+      "relative_path": "part-00000.parquet",
+      "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    }
+  ],
+  "outcome": "complete",
+  "provenance_digest": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+  "requested_records": 100,
+  "require_exact_record_count": true,
+  "run_id": "run-0001",
+  "schema_version": 1,
+  "shard_id": "shard-0000"
+}
