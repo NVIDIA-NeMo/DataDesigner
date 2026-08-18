@@ -15,10 +15,11 @@ from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.dataset_metadata import DatasetMetadata
 from data_designer.config.errors import InvalidFileFormatError
 from data_designer.config.preview_results import PreviewResults
+from data_designer.config.run_config import ResumeMode
 from data_designer.config.utils.errors import DatasetSampleDisplayError
 from data_designer.config.utils.visualization import display_sample_record as display_fn
-from data_designer.engine.dataset_builders.errors import ArtifactStorageError
 from data_designer.engine.storage.artifact_storage import ArtifactStorage
+from data_designer.interface import ArtifactStorageError
 from data_designer.interface.results import DatasetCreationResults
 
 
@@ -46,6 +47,7 @@ def stub_dataset_creation_results(
         analysis=stub_dataset_profiler_results,
         config_builder=stub_complete_builder,
         dataset_metadata=stub_dataset_metadata,
+        requested_num_records=len(stub_artifact_storage.load_dataset.return_value),
     )
 
 
@@ -56,11 +58,25 @@ def test_init(stub_artifact_storage, stub_dataset_profiler_results, stub_complet
         analysis=stub_dataset_profiler_results,
         config_builder=stub_complete_builder,
         dataset_metadata=stub_dataset_metadata,
+        requested_num_records=1,
     )
     assert results.artifact_storage == stub_artifact_storage
     assert results._analysis == stub_dataset_profiler_results
     assert results._config_builder == stub_complete_builder
     assert results.dataset_metadata == stub_dataset_metadata
+    assert results.requested_num_records == 1
+
+
+def test_init_requires_requested_num_records(
+    stub_artifact_storage, stub_dataset_profiler_results, stub_complete_builder, stub_dataset_metadata
+) -> None:
+    with pytest.raises(TypeError, match="requested_num_records"):
+        DatasetCreationResults(
+            artifact_storage=stub_artifact_storage,
+            analysis=stub_dataset_profiler_results,
+            config_builder=stub_complete_builder,
+            dataset_metadata=stub_dataset_metadata,
+        )
 
 
 def test_load_dataset(stub_dataset_creation_results, stub_artifact_storage, stub_dataframe):
@@ -199,12 +215,10 @@ def test_display_sample_record_with_empty_dataset():
         analysis=MagicMock(spec=DatasetProfilerResults),
         config_builder=MagicMock(spec=DataDesignerConfigBuilder),
         dataset_metadata=DatasetMetadata(),
+        requested_num_records=1,
     )
 
-    # Empty DataFrame is still a valid DataFrame, so accessing _record_sampler_dataset succeeds
-    # but display_sample_record fails when trying to access index 0
-    # Note: Currently raises UnboundLocalError due to bug in error handling, but tests that it fails
-    with pytest.raises((DatasetSampleDisplayError, UnboundLocalError)):
+    with pytest.raises(ArtifactStorageError, match="No batch parquet files found"):
         results.display_sample_record()
 
 
@@ -218,6 +232,7 @@ def test_display_sample_record_with_none_dataset():
         analysis=MagicMock(spec=DatasetProfilerResults),
         config_builder=MagicMock(spec=DataDesignerConfigBuilder),
         dataset_metadata=DatasetMetadata(),
+        requested_num_records=1,
     )
 
     # Mixin raises DatasetSampleDisplayError when dataset is None
@@ -387,6 +402,112 @@ def test_count_records(stub_dataset_creation_results, stub_dataframe, stub_batch
     """count_records() returns the total row count without loading data pages."""
     stub_dataset_creation_results.artifact_storage.final_dataset_path = stub_batch_dir
     assert stub_dataset_creation_results.count_records() == len(stub_dataframe)
+
+
+@pytest.mark.parametrize("error_type", [PermissionError, lazy.pa.ArrowInvalid])
+def test_count_records_normalizes_unreadable_artifact_error(
+    stub_dataset_creation_results, stub_batch_dir, error_type
+) -> None:
+    stub_dataset_creation_results.artifact_storage.final_dataset_path = stub_batch_dir
+
+    with (
+        patch("data_designer.interface.results.lazy.pq.read_metadata", side_effect=error_type("unreadable")),
+        pytest.raises(ArtifactStorageError, match="Failed to read dataset artifacts") as exc_info,
+    ):
+        stub_dataset_creation_results.count_records()
+
+    assert isinstance(exc_info.value.__cause__, error_type)
+
+
+@pytest.mark.parametrize(
+    ("format", "reader"),
+    [
+        ("jsonl", "data_designer.interface.results.lazy.pd.read_parquet"),
+        ("csv", "data_designer.interface.results.lazy.pd.read_parquet"),
+        ("parquet", "data_designer.interface.results.lazy.pq.read_schema"),
+    ],
+)
+@pytest.mark.parametrize("error_type", [PermissionError, lazy.pa.ArrowInvalid])
+def test_export_normalizes_unreadable_artifact_error(
+    stub_dataset_creation_results, stub_batch_dir, tmp_path, format: str, reader: str, error_type
+) -> None:
+    stub_dataset_creation_results.artifact_storage.final_dataset_path = stub_batch_dir
+
+    with (
+        patch(reader, side_effect=error_type("unreadable")),
+        pytest.raises(ArtifactStorageError, match="Failed to read dataset artifact") as exc_info,
+    ):
+        stub_dataset_creation_results.export(tmp_path / f"out.{format}")
+
+    assert isinstance(exc_info.value.__cause__, error_type)
+
+
+def test_missing_dataset_artifacts_raise_public_error(stub_dataset_creation_results, tmp_path) -> None:
+    empty_dir = tmp_path / "parquet-files"
+    empty_dir.mkdir()
+    stub_dataset_creation_results.artifact_storage.final_dataset_path = empty_dir
+    stub_dataset_creation_results.artifact_storage.load_dataset.return_value = lazy.pd.DataFrame()
+    stub_dataset_creation_results.requested_num_records = 1
+
+    with pytest.raises(ArtifactStorageError, match="No batch parquet files found"):
+        stub_dataset_creation_results.load_dataset()
+    with pytest.raises(ArtifactStorageError, match="No batch parquet files found"):
+        stub_dataset_creation_results.count_records()
+    with pytest.raises(ArtifactStorageError, match="No batch parquet files found"):
+        _ = stub_dataset_creation_results.actual_num_records
+    with pytest.raises(ArtifactStorageError, match="No batch parquet files found"):
+        _ = stub_dataset_creation_results.is_partial
+
+
+@pytest.mark.parametrize("error_type", [PermissionError, lazy.pa.ArrowInvalid])
+def test_load_dataset_normalizes_artifact_error(stub_dataset_creation_results, error_type) -> None:
+    stub_dataset_creation_results.artifact_storage.load_dataset.side_effect = error_type("unreadable")
+
+    with pytest.raises(ArtifactStorageError, match="Failed to load dataset artifacts") as exc_info:
+        stub_dataset_creation_results.load_dataset()
+
+    assert isinstance(exc_info.value.__cause__, error_type)
+
+
+@pytest.mark.parametrize("error_type", [PermissionError, lazy.pa.ArrowInvalid])
+def test_load_processor_dataset_normalizes_artifact_error(stub_dataset_creation_results, error_type) -> None:
+    stub_dataset_creation_results.artifact_storage.load_processor_dataset.side_effect = error_type("unreadable")
+
+    with pytest.raises(ArtifactStorageError, match="Failed to load processor dataset artifacts") as exc_info:
+        stub_dataset_creation_results.load_processor_dataset("processor")
+
+    assert isinstance(exc_info.value.__cause__, error_type)
+
+
+def test_public_creation_outcome_fields(
+    stub_artifact_storage,
+    stub_dataset_profiler_results,
+    stub_complete_builder,
+    stub_dataset_metadata,
+    stub_dataframe,
+    stub_batch_dir,
+    tmp_path,
+) -> None:
+    dataset_path = tmp_path / "dataset"
+    stub_artifact_storage.base_dataset_path = dataset_path
+    stub_artifact_storage.final_dataset_path = stub_batch_dir
+    results = DatasetCreationResults(
+        artifact_storage=stub_artifact_storage,
+        analysis=stub_dataset_profiler_results,
+        config_builder=stub_complete_builder,
+        dataset_metadata=stub_dataset_metadata,
+        requested_num_records=len(stub_dataframe) + 1,
+        early_shutdown=True,
+        requested_resume_mode=ResumeMode.IF_POSSIBLE,
+        effective_resume_mode=ResumeMode.NEVER,
+    )
+
+    assert results.dataset_path == dataset_path
+    assert results.actual_num_records == len(stub_dataframe)
+    assert results.is_partial is True
+    assert results.early_shutdown is True
+    assert results.requested_resume_mode == ResumeMode.IF_POSSIBLE
+    assert results.effective_resume_mode == ResumeMode.NEVER
 
 
 def test_export_uppercase_extension_is_recognised(stub_dataset_creation_results, stub_batch_dir, tmp_path) -> None:
