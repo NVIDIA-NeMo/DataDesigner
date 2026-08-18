@@ -13,6 +13,7 @@ from data_designer.config.analysis.dataset_profiler import DatasetProfilerResult
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.dataset_metadata import DatasetMetadata
 from data_designer.config.errors import InvalidFileFormatError
+from data_designer.config.run_config import ResumeMode
 from data_designer.config.seed_source_dataframe import DataFrameSeedSource
 from data_designer.config.utils.io_helpers import read_parquet_dataset, serialize_data
 from data_designer.config.utils.storage_encoding import (
@@ -59,7 +60,11 @@ class DatasetCreationResults(WithRecordSamplerMixin):
         analysis: DatasetProfilerResults,
         config_builder: DataDesignerConfigBuilder,
         dataset_metadata: DatasetMetadata,
+        requested_num_records: int,
         task_traces: list[TaskTrace] | None = None,
+        early_shutdown: bool | None = None,
+        requested_resume_mode: ResumeMode | None = None,
+        effective_resume_mode: ResumeMode | None = None,
     ):
         """Creates a new instance with results based on a dataset creation run.
 
@@ -68,16 +73,42 @@ class DatasetCreationResults(WithRecordSamplerMixin):
             analysis: Profiling results for the generated dataset.
             config_builder: Configuration builder used to create the dataset.
             dataset_metadata: Metadata about the generated dataset (e.g., seed column names).
+            requested_num_records: Number of records requested for this invocation.
             task_traces: Optional list of TaskTrace objects from the async scheduler.
                 Resume note: only contains traces for the current invocation; traces
                 from earlier ``create()`` calls that this run resumed are not
                 retained.
+            early_shutdown: Whether generation stopped at the early-shutdown gate.
+                ``None`` when no generation invocation produced this result object.
+            requested_resume_mode: Resume mode requested for this invocation, or
+                ``None`` when no generation invocation produced this result object.
+            effective_resume_mode: Resume mode selected after compatibility checks,
+                or ``None`` when no generation invocation produced this result object.
         """
         self.artifact_storage = artifact_storage
         self._analysis = analysis
         self._config_builder = config_builder
         self.dataset_metadata = dataset_metadata
         self.task_traces: list[TaskTrace] = task_traces or []
+        self.requested_num_records = requested_num_records
+        self.early_shutdown = early_shutdown
+        self.requested_resume_mode = requested_resume_mode
+        self.effective_resume_mode = effective_resume_mode
+
+    @property
+    def dataset_path(self) -> Path:
+        """Return the resolved dataset directory for this result."""
+        return self.artifact_storage.base_dataset_path
+
+    @property
+    def actual_num_records(self) -> int:
+        """Return the total number of records in the result dataset."""
+        return self.count_records()
+
+    @property
+    def is_partial(self) -> bool:
+        """Return whether the result contains fewer records than requested."""
+        return self.actual_num_records < self.requested_num_records
 
     def load_analysis(self) -> DatasetProfilerResults:
         """Load the profiling analysis results for the generated dataset.
@@ -93,8 +124,17 @@ class DatasetCreationResults(WithRecordSamplerMixin):
 
         Returns:
             A pandas DataFrame containing the full generated dataset.
+
+        Raises:
+            ArtifactStorageError: If the dataset artifacts are missing or unreadable.
         """
-        return self.artifact_storage.load_dataset()
+        try:
+            dataset = self.artifact_storage.load_dataset()
+        except (OSError, lazy.pa.ArrowException) as e:
+            raise ArtifactStorageError(f"Failed to load dataset artifacts: {e}") from e
+        if dataset is not None and dataset.empty:
+            self._get_batch_files()
+        return dataset
 
     def to_config_builder(self, columns: list[str] | None = None) -> DataDesignerConfigBuilder:
         """Create a new config builder seeded from this result dataset.
@@ -120,9 +160,21 @@ class DatasetCreationResults(WithRecordSamplerMixin):
 
         Returns:
             Total row count across all batch parquet files.
+
+        Raises:
+            ArtifactStorageError: If the dataset artifacts are missing or unreadable.
         """
+        batch_files = self._get_batch_files()
+        try:
+            return sum(lazy.pq.read_metadata(f).num_rows for f in batch_files)
+        except (OSError, lazy.pa.ArrowException) as e:
+            raise ArtifactStorageError(f"Failed to read dataset artifacts: {e}") from e
+
+    def _get_batch_files(self) -> list[Path]:
         batch_files = sorted(self.artifact_storage.final_dataset_path.glob("batch_*.parquet"))
-        return sum(lazy.pq.read_metadata(f).num_rows for f in batch_files)
+        if not batch_files:
+            raise ArtifactStorageError("No batch parquet files found.")
+        return batch_files
 
     def load_processor_dataset(self, processor_name: str) -> pd.DataFrame:
         """Load the dataset generated by a processor.
@@ -134,8 +186,14 @@ class DatasetCreationResults(WithRecordSamplerMixin):
 
         Returns:
             A pandas DataFrame containing the dataset generated by the processor.
+
+        Raises:
+            ArtifactStorageError: If the processor artifacts are missing or unreadable.
         """
-        return self.artifact_storage.load_processor_dataset(processor_name)
+        try:
+            return self.artifact_storage.load_processor_dataset(processor_name)
+        except (OSError, lazy.pa.ArrowException) as e:
+            raise ArtifactStorageError(f"Failed to load processor dataset artifacts: {e}") from e
 
     def get_path_to_processor_artifacts(self, processor_name: str) -> Path:
         """Get the path to the artifacts generated by a processor.
@@ -173,7 +231,7 @@ class DatasetCreationResults(WithRecordSamplerMixin):
         Raises:
             InvalidFileFormatError: If the format cannot be determined or is not
                 one of the supported values.
-            ArtifactStorageError: If no batch parquet files are found.
+            ArtifactStorageError: If batch parquet files are missing or unreadable.
 
         Example:
             >>> results = data_designer.create(config, num_records=1000)
@@ -190,9 +248,7 @@ class DatasetCreationResults(WithRecordSamplerMixin):
             raise InvalidFileFormatError(
                 f"Unsupported export format: {resolved_format!r}. Choose one of: {', '.join(SUPPORTED_EXPORT_FORMATS)}."
             )
-        batch_files = sorted(self.artifact_storage.final_dataset_path.glob("batch_*.parquet"))
-        if not batch_files:
-            raise ArtifactStorageError("No batch parquet files found to export.")
+        batch_files = self._get_batch_files()
         if resolved_format == "jsonl":
             _export_jsonl(batch_files, path)
         elif resolved_format == "csv":
@@ -255,9 +311,12 @@ def _export_jsonl(batch_files: list[Path], output: Path) -> None:
     """
     with output.open("w", encoding="utf-8") as f:
         for batch_file in batch_files:
-            table = lazy.pq.ParquetFile(batch_file).read()
-            plan = read_storage_plan(table.schema)
-            chunk = table.to_pandas()
+            try:
+                table = lazy.pq.ParquetFile(batch_file).read()
+                plan = read_storage_plan(table.schema)
+                chunk = table.to_pandas()
+            except (OSError, lazy.pa.ArrowException) as e:
+                raise ArtifactStorageError(f"Failed to read dataset artifact {batch_file}: {e}") from e
             content = chunk.to_json(orient="records", lines=True, force_ascii=False, date_format="iso")
             if content and plan.columns:
                 # Keep encoded leaves as text through pandas' JSON conversion,
@@ -274,7 +333,10 @@ def _export_jsonl(batch_files: list[Path], output: Path) -> None:
 def _export_csv(batch_files: list[Path], output: Path) -> None:
     """Write *batch_files* to *output* as CSV with a single header row."""
     for i, batch_file in enumerate(batch_files):
-        chunk = read_parquet_dataset(batch_file)
+        try:
+            chunk = read_parquet_dataset(batch_file)
+        except (OSError, lazy.pa.ArrowException) as e:
+            raise ArtifactStorageError(f"Failed to read dataset artifact {batch_file}: {e}") from e
         for name in chunk.attrs.get(JSON_STORAGE_RUN_KEY, {}).get("columns", {}):
             chunk[name] = lazy.pd.Series(
                 [
@@ -310,7 +372,10 @@ def _export_parquet(batch_files: list[Path], output: Path) -> None:
         InvalidFileFormatError: If batch schemas have incompatible column names or
             types that cannot be unified or cast.
     """
-    schemas = [lazy.pq.read_schema(f) for f in batch_files]
+    try:
+        schemas = [lazy.pq.read_schema(f) for f in batch_files]
+    except (OSError, lazy.pa.ArrowException) as e:
+        raise ArtifactStorageError(f"Failed to read dataset artifacts: {e}") from e
     plan = validate_storage_plans(schemas)
     try:
         # promote_options="permissive" allows minor numeric type drift (e.g. int64 → double)
@@ -323,7 +388,10 @@ def _export_parquet(batch_files: list[Path], output: Path) -> None:
         )
     with lazy.pq.ParquetWriter(output, unified_schema) as writer:
         for batch_file in batch_files:
-            table = lazy.pq.read_table(batch_file)
+            try:
+                table = lazy.pq.read_table(batch_file)
+            except (OSError, lazy.pa.ArrowException) as e:
+                raise ArtifactStorageError(f"Failed to read dataset artifact {batch_file}: {e}") from e
             try:
                 writer.write_table(table.cast(unified_schema))
             except (lazy.pa.ArrowInvalid, ValueError) as e:
