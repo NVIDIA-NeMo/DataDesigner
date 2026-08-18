@@ -271,7 +271,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
 
         Raises:
             DataDesignerGenerationError: If an error occurs during dataset generation.
-            DataDesignerEarlyShutdownError: If early shutdown produces no records.
+            DataDesignerEarlyShutdownError: If early shutdown is triggered before any records are produced.
             DataDesignerProfilingError: If an error occurs during dataset profiling.
         """
         logger.info("🎨 Creating Data Designer dataset")

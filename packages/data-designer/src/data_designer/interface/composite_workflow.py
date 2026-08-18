@@ -369,9 +369,9 @@ class CompositeWorkflow:
                     stage=stage,
                     stage_dir_name=stage_dir_name,
                     stage_builder=stage_builder,
-                    requested_num_records=stage_metadata.get(
+                    requested_num_records=stage_metadata[
                         "num_records_actual" if stage.output_processors else "num_records_requested"
-                    ),
+                    ],
                 )
                 stage_results[stage.name] = output_result
                 stage_output_paths[stage.name] = output_seed_path
@@ -633,6 +633,9 @@ def _get_prior_stage_metadata(
 def _can_skip_prior_stage(stage: _WorkflowStage, prior_stage_metadata: dict[str, Any], workflow_path: Path) -> bool:
     if prior_stage_metadata.get("status") not in COMPLETED_STAGE_STATUSES:
         return False
+    requested_records_key = "num_records_actual" if stage.output_processors else "num_records_requested"
+    if not isinstance(prior_stage_metadata.get(requested_records_key), int):
+        return False
     if stage.on_success is not None and stage.on_success_version is None:
         return False
     output_seed_path = prior_stage_metadata.get("output_seed_path")
@@ -674,7 +677,7 @@ def _stage_result_from_metadata(
     stage: _WorkflowStage,
     stage_dir_name: str,
     stage_builder: DataDesignerConfigBuilder,
-    requested_num_records: int | None,
+    requested_num_records: int,
 ) -> DatasetCreationResults:
     main_storage = ArtifactStorage(artifact_path=workflow_path, dataset_name=stage_dir_name, resume=ResumeMode.ALWAYS)
     result_storage = main_storage

@@ -50,8 +50,8 @@ class DatasetCreationResults(WithRecordSamplerMixin):
         analysis: DatasetProfilerResults,
         config_builder: DataDesignerConfigBuilder,
         dataset_metadata: DatasetMetadata,
+        requested_num_records: int,
         task_traces: list[TaskTrace] | None = None,
-        requested_num_records: int | None = None,
         early_shutdown: bool | None = None,
         requested_resume_mode: ResumeMode | None = None,
         effective_resume_mode: ResumeMode | None = None,
@@ -63,11 +63,11 @@ class DatasetCreationResults(WithRecordSamplerMixin):
             analysis: Profiling results for the generated dataset.
             config_builder: Configuration builder used to create the dataset.
             dataset_metadata: Metadata about the generated dataset (e.g., seed column names).
+            requested_num_records: Number of records requested for this invocation.
             task_traces: Optional list of TaskTrace objects from the async scheduler.
                 Resume note: only contains traces for the current invocation; traces
                 from earlier ``create()`` calls that this run resumed are not
                 retained.
-            requested_num_records: Number of records requested for this invocation.
             early_shutdown: Whether generation stopped at the early-shutdown gate.
                 ``None`` when no generation invocation produced this result object.
             requested_resume_mode: Resume mode requested for this invocation, or
@@ -96,10 +96,8 @@ class DatasetCreationResults(WithRecordSamplerMixin):
         return self.count_records()
 
     @property
-    def is_partial(self) -> bool | None:
+    def is_partial(self) -> bool:
         """Return whether the result contains fewer records than requested."""
-        if self.requested_num_records is None:
-            return None
         return self.actual_num_records < self.requested_num_records
 
     def load_analysis(self) -> DatasetProfilerResults:

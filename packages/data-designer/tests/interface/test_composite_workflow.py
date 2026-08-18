@@ -60,6 +60,7 @@ def _result_from_df(
         analysis=stub_dataset_profiler_results,
         config_builder=config_builder,
         dataset_metadata=DatasetMetadata(),
+        requested_num_records=len(df),
     )
 
 
@@ -598,6 +599,32 @@ def test_composite_workflow_resume_if_possible_skips_completed_stages(
     assert base_result.early_shutdown is None
     assert base_result.requested_resume_mode is None
     assert base_result.effective_resume_mode is None
+
+
+def test_composite_workflow_resume_if_possible_missing_requested_count_reruns_stages(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_model_configs: list[ModelConfig],
+    stub_dataset_profiler_results,
+) -> None:
+    data_designer = _data_designer(stub_artifact_path, stub_model_providers)
+    create_mock = _patch_create(data_designer, stub_dataset_profiler_results)
+    workflow = data_designer.compose_workflow(name="resume-missing-count")
+    workflow.add_stage("base", _category_builder(stub_model_configs), num_records=3)
+    workflow.add_stage("copy", _copy_builder(stub_model_configs))
+    workflow.run()
+    metadata_path = stub_artifact_path / "resume-missing-count" / "workflow-metadata.json"
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    metadata["stages"][0].pop("num_records_requested")
+    metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+    create_mock.reset_mock()
+
+    resumed = data_designer.compose_workflow(name="resume-missing-count")
+    resumed.add_stage("base", _category_builder(stub_model_configs), num_records=3)
+    resumed.add_stage("copy", _copy_builder(stub_model_configs))
+    resumed.run(resume=ResumeMode.IF_POSSIBLE)
+
+    assert [call.kwargs["dataset_name"] for call in create_mock.call_args_list] == ["stage-0-base", "stage-1-copy"]
 
 
 def test_composite_workflow_reused_stage_reports_partial_result(

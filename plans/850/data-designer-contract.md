@@ -234,7 +234,7 @@ dataset contains exactly the requested number of records.
 | `dataset_path` | Resolved dataset directory, including collision or resume resolution. |
 | `requested_num_records` | Target passed to `create()`, or the persisted target for a reconstructed workflow result. |
 | `actual_num_records` | Current total rows in the final dataset, including rows from an earlier resumed invocation. |
-| `is_partial` | `True` when actual records are fewer than requested records, or `None` when the target is unavailable. |
+| `is_partial` | `True` when actual records are fewer than requested records. |
 | `early_shutdown` | Whether the current invocation stopped through the early-shutdown gate, or `None` when no generation invocation produced the result object. |
 | `requested_resume_mode` | Resume mode passed to `create()`, or `None` when no generation invocation produced the result object. |
 | `effective_resume_mode` | `always` when the invocation resumed, `never` when it started fresh, or `None` when no generation invocation produced the result object. |

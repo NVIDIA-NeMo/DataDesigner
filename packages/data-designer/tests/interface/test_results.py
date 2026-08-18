@@ -47,6 +47,7 @@ def stub_dataset_creation_results(
         analysis=stub_dataset_profiler_results,
         config_builder=stub_complete_builder,
         dataset_metadata=stub_dataset_metadata,
+        requested_num_records=len(stub_artifact_storage.load_dataset.return_value),
     )
 
 
@@ -57,11 +58,25 @@ def test_init(stub_artifact_storage, stub_dataset_profiler_results, stub_complet
         analysis=stub_dataset_profiler_results,
         config_builder=stub_complete_builder,
         dataset_metadata=stub_dataset_metadata,
+        requested_num_records=1,
     )
     assert results.artifact_storage == stub_artifact_storage
     assert results._analysis == stub_dataset_profiler_results
     assert results._config_builder == stub_complete_builder
     assert results.dataset_metadata == stub_dataset_metadata
+    assert results.requested_num_records == 1
+
+
+def test_init_requires_requested_num_records(
+    stub_artifact_storage, stub_dataset_profiler_results, stub_complete_builder, stub_dataset_metadata
+) -> None:
+    with pytest.raises(TypeError, match="requested_num_records"):
+        DatasetCreationResults(
+            artifact_storage=stub_artifact_storage,
+            analysis=stub_dataset_profiler_results,
+            config_builder=stub_complete_builder,
+            dataset_metadata=stub_dataset_metadata,
+        )
 
 
 def test_load_dataset(stub_dataset_creation_results, stub_artifact_storage, stub_dataframe):
@@ -200,6 +215,7 @@ def test_display_sample_record_with_empty_dataset():
         analysis=MagicMock(spec=DatasetProfilerResults),
         config_builder=MagicMock(spec=DataDesignerConfigBuilder),
         dataset_metadata=DatasetMetadata(),
+        requested_num_records=1,
     )
 
     with pytest.raises(ArtifactStorageError, match="No batch parquet files found"):
@@ -216,6 +232,7 @@ def test_display_sample_record_with_none_dataset():
         analysis=MagicMock(spec=DatasetProfilerResults),
         config_builder=MagicMock(spec=DataDesignerConfigBuilder),
         dataset_metadata=DatasetMetadata(),
+        requested_num_records=1,
     )
 
     # Mixin raises DatasetSampleDisplayError when dataset is None
