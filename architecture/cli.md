@@ -20,6 +20,33 @@ The CLI is built on Typer with lazy command loading to keep startup fast. Config
 
 `create_lazy_typer_group` and `_LazyCommand` stubs defer importing command modules until a command is actually invoked. This keeps `data-designer --help` fast — only the command names and descriptions are loaded eagerly; the full module (and its dependencies) loads on first use.
 
+The root group also discovers optional command groups from the `data_designer.cli`
+entry-point group. The entry-point name is the top-level command name. Its target
+must be a zero-argument callable that returns a `click.Command`, normally a Click
+group produced from a Typer application. Root help uses the providing
+distribution's `Summary` metadata and does not load the target.
+
+```toml
+[project.entry-points."data_designer.cli"]
+slurm = "data_designer.slurm.cli:create_cli"
+```
+
+Extension distributions must declare a compatible dependency on
+`data-designer`. Compatibility and the loaded object are validated only when the
+extension command is selected. The entry-point name is authoritative and is
+assigned to the returned command. Built-in command names are reserved. A
+built-in collision makes that command unavailable with a targeted error rather
+than allowing the extension to replace it. A duplicate extension name remains
+visible as unavailable in root help and fails deterministically without loading
+any conflicting target. Invalid extension names and discovery failures are
+reported as warnings without disabling built-in commands.
+
+The installed-wheel smoke test measures nine warm root-help subprocesses for a
+base-only environment and an environment with the Slurm extension. The accepted
+base median is at most one second, and the median overhead from installing the
+extension is at most 100 ms. It also verifies that root help does not import the
+extension or compatibility-checking modules.
+
 ### Layering Pattern (Setup Workflows)
 
 Config management commands (models, providers, MCP providers, tools) follow a consistent four-layer pattern:

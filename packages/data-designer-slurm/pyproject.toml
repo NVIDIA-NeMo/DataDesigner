@@ -19,6 +19,9 @@ classifiers = [
     "Programming Language :: Python :: 3.14",
 ]
 
+[project.entry-points."data_designer.cli"]
+slurm = "data_designer.slurm.cli:create_cli"
+
 [build-system]
 requires = ["hatchling", "uv-dynamic-versioning>=0.7.0"]
 build-backend = "hatchling.build"
