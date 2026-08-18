@@ -13,6 +13,117 @@ import typer
 from typer.core import TyperCommand, TyperGroup
 
 CLI_EXTENSION_ENTRY_POINT_GROUP = "data_designer.cli"
+
+
+def create_lazy_typer_group(
+    lazy_subcommands: dict[str, dict[str, str]],
+    *,
+    entry_point_group: str | None = None,
+) -> type[TyperGroup]:
+    """Factory that returns a ``TyperGroup`` subclass with lazy-loaded commands.
+
+    ``list_commands`` includes lazy command names so that ``--help`` works
+    without importing any command module.  ``get_command`` returns a lightweight
+    ``_LazyCommand`` stub for lazy entries; the real Typer/Click command is only
+    built when the stub is invoked.
+
+    Args:
+        lazy_subcommands: Mapping of command names to metadata dicts with keys:
+            - ``module``: Dotted module path (e.g. ``data_designer.cli.commands.preview``)
+            - ``attr``:   Function attribute name in the module (e.g. ``preview_command``)
+            - ``help``:   (optional) Short help text for group listing
+            - ``rich_help_panel``: (optional) Rich help panel name
+        entry_point_group: Optional entry-point group for lazy top-level command
+            extensions. Entry-point targets must be zero-argument callables that
+            return a ``click.Command``.
+
+    Returns:
+        A ``TyperGroup`` subclass.
+    """
+
+    class LazyTyperGroup(TyperGroup):
+        _extension_entry_points: dict[str, list[importlib.metadata.EntryPoint]] | None = None
+
+        def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
+            if not args and self.no_args_is_help and not ctx.resilient_parsing:
+                click.echo(ctx.get_help(), color=ctx.color)
+                ctx.exit(0)
+            return super().parse_args(ctx, args)
+
+        def list_commands(self, ctx: click.Context) -> list[str]:
+            eager = super().list_commands(ctx)
+            lazy_names = [name for name in lazy_subcommands if name not in eager]
+            built_in_names = set(eager) | set(lazy_names)
+            extension_names = [name for name in self._discover_extension_entry_points() if name not in built_in_names]
+            return eager + sorted(lazy_names) + sorted(extension_names)
+
+        def get_command(self, ctx: click.Context, cmd_name: str) -> click.Command | None:
+            cmd = super().get_command(ctx, cmd_name)
+            extension_entry_points = self._discover_extension_entry_points().get(cmd_name, [])
+            if extension_entry_points and (cmd is not None or cmd_name in lazy_subcommands):
+                providers = ", ".join(_entry_point_label(entry_point) for entry_point in extension_entry_points)
+                return _UnavailableCommand(
+                    cmd_name,
+                    f"CLI extension command {cmd_name!r} from {providers} conflicts with a built-in command.",
+                )
+            if len(extension_entry_points) > 1:
+                providers = ", ".join(_entry_point_label(entry_point) for entry_point in extension_entry_points)
+                return _UnavailableCommand(
+                    cmd_name,
+                    f"CLI command {cmd_name!r} is provided by multiple extensions: {providers}.",
+                )
+            if cmd is not None:
+                return cmd
+            if cmd_name in lazy_subcommands:
+                info = lazy_subcommands[cmd_name]
+                return _LazyCommand(
+                    name=cmd_name,
+                    module_path=info["module"],
+                    attr_name=info["attr"],
+                    help=info.get("help"),
+                    rich_help_panel=info.get("rich_help_panel"),
+                )
+            if extension_entry_points:
+                return _LazyEntryPointCommand(extension_entry_points[0])
+            return None
+
+        def _discover_extension_entry_points(self) -> dict[str, list[importlib.metadata.EntryPoint]]:
+            if self._extension_entry_points is not None:
+                return self._extension_entry_points
+            if entry_point_group is None:
+                self._extension_entry_points = {}
+                return self._extension_entry_points
+
+            try:
+                entry_points = sorted(
+                    importlib.metadata.entry_points(group=entry_point_group),
+                    key=_entry_point_sort_key,
+                )
+            except Exception as e:
+                click.echo(f"Warning: Failed to discover CLI extensions from {entry_point_group!r}: {e}.", err=True)
+                self._extension_entry_points = {}
+                return self._extension_entry_points
+
+            discovered: defaultdict[str, list[importlib.metadata.EntryPoint]] = defaultdict(list)
+            for entry_point in entry_points:
+                if (
+                    not entry_point.name
+                    or entry_point.name.startswith("-")
+                    or any(character.isspace() for character in entry_point.name)
+                ):
+                    click.echo(
+                        f"Warning: Ignoring invalid CLI extension command name {entry_point.name!r} "
+                        f"from {_entry_point_label(entry_point)}.",
+                        err=True,
+                    )
+                    continue
+                discovered[entry_point.name].append(entry_point)
+            self._extension_entry_points = dict(discovered)
+            return self._extension_entry_points
+
+    return LazyTyperGroup
+
+
 _DATA_DESIGNER_DISTRIBUTION = "data-designer"
 
 
@@ -118,6 +229,15 @@ class _LazyCommand(click.Command):
         self._resolved: click.Command | None = None
         self.rich_help_panel = rich_help_panel
 
+    def make_context(
+        self,
+        info_name: str,
+        args: list[str],
+        parent: click.Context | None = None,
+        **extra: Any,
+    ) -> click.Context:
+        return self._resolve().make_context(info_name, args, parent, **extra)
+
     def _resolve(self) -> click.Command:
         if self._resolved is not None:
             return self._resolved
@@ -134,6 +254,14 @@ class _LazyCommand(click.Command):
             self._resolved = click_cmd
         return self._resolved
 
+
+class _LazyEntryPointCommand(click.Command):
+    def __init__(self, entry_point: importlib.metadata.EntryPoint) -> None:
+        super().__init__(name=entry_point.name, help=_entry_point_help(entry_point))
+        self._entry_point = entry_point
+        self._resolved: click.Command | None = None
+        self.rich_help_panel = "Extensions"
+
     def make_context(
         self,
         info_name: str,
@@ -142,14 +270,6 @@ class _LazyCommand(click.Command):
         **extra: Any,
     ) -> click.Context:
         return self._resolve().make_context(info_name, args, parent, **extra)
-
-
-class _LazyEntryPointCommand(click.Command):
-    def __init__(self, entry_point: importlib.metadata.EntryPoint) -> None:
-        super().__init__(name=entry_point.name, help=_entry_point_help(entry_point))
-        self._entry_point = entry_point
-        self._resolved: click.Command | None = None
-        self.rich_help_panel = "Extensions"
 
     def _resolve(self) -> click.Command:
         if self._resolved is not None:
@@ -177,15 +297,6 @@ class _LazyEntryPointCommand(click.Command):
         self._resolved = command
         return command
 
-    def make_context(
-        self,
-        info_name: str,
-        args: list[str],
-        parent: click.Context | None = None,
-        **extra: Any,
-    ) -> click.Context:
-        return self._resolve().make_context(info_name, args, parent, **extra)
-
 
 class _UnavailableCommand(click.Command):
     def __init__(self, name: str, message: str) -> None:
@@ -201,112 +312,3 @@ class _UnavailableCommand(click.Command):
         **extra: Any,
     ) -> click.Context:
         raise click.ClickException(self._message)
-
-
-def create_lazy_typer_group(
-    lazy_subcommands: dict[str, dict[str, str]],
-    *,
-    entry_point_group: str | None = None,
-) -> type[TyperGroup]:
-    """Factory that returns a ``TyperGroup`` subclass with lazy-loaded commands.
-
-    ``list_commands`` includes lazy command names so that ``--help`` works
-    without importing any command module.  ``get_command`` returns a lightweight
-    ``_LazyCommand`` stub for lazy entries; the real Typer/Click command is only
-    built when the stub is invoked.
-
-    Args:
-        lazy_subcommands: Mapping of command names to metadata dicts with keys:
-            - ``module``: Dotted module path (e.g. ``data_designer.cli.commands.preview``)
-            - ``attr``:   Function attribute name in the module (e.g. ``preview_command``)
-            - ``help``:   (optional) Short help text for group listing
-            - ``rich_help_panel``: (optional) Rich help panel name
-        entry_point_group: Optional entry-point group for lazy top-level command
-            extensions. Entry-point targets must be zero-argument callables that
-            return a ``click.Command``.
-
-    Returns:
-        A ``TyperGroup`` subclass.
-    """
-
-    class LazyTyperGroup(TyperGroup):
-        _extension_entry_points: dict[str, list[importlib.metadata.EntryPoint]] | None = None
-
-        def _discover_extension_entry_points(self) -> dict[str, list[importlib.metadata.EntryPoint]]:
-            if self._extension_entry_points is not None:
-                return self._extension_entry_points
-            if entry_point_group is None:
-                self._extension_entry_points = {}
-                return self._extension_entry_points
-
-            try:
-                entry_points = sorted(
-                    importlib.metadata.entry_points(group=entry_point_group),
-                    key=_entry_point_sort_key,
-                )
-            except Exception as e:
-                click.echo(f"Warning: Failed to discover CLI extensions from {entry_point_group!r}: {e}.", err=True)
-                self._extension_entry_points = {}
-                return self._extension_entry_points
-
-            discovered: defaultdict[str, list[importlib.metadata.EntryPoint]] = defaultdict(list)
-            for entry_point in entry_points:
-                if (
-                    not entry_point.name
-                    or entry_point.name.startswith("-")
-                    or any(character.isspace() for character in entry_point.name)
-                ):
-                    click.echo(
-                        f"Warning: Ignoring invalid CLI extension command name {entry_point.name!r} "
-                        f"from {_entry_point_label(entry_point)}.",
-                        err=True,
-                    )
-                    continue
-                discovered[entry_point.name].append(entry_point)
-            self._extension_entry_points = dict(discovered)
-            return self._extension_entry_points
-
-        def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
-            if not args and self.no_args_is_help and not ctx.resilient_parsing:
-                click.echo(ctx.get_help(), color=ctx.color)
-                ctx.exit(0)
-            return super().parse_args(ctx, args)
-
-        def list_commands(self, ctx: click.Context) -> list[str]:
-            eager = super().list_commands(ctx)
-            lazy_names = [name for name in lazy_subcommands if name not in eager]
-            built_in_names = set(eager) | set(lazy_names)
-            extension_names = [name for name in self._discover_extension_entry_points() if name not in built_in_names]
-            return eager + sorted(lazy_names) + sorted(extension_names)
-
-        def get_command(self, ctx: click.Context, cmd_name: str) -> click.Command | None:
-            cmd = super().get_command(ctx, cmd_name)
-            extension_entry_points = self._discover_extension_entry_points().get(cmd_name, [])
-            if extension_entry_points and (cmd is not None or cmd_name in lazy_subcommands):
-                providers = ", ".join(_entry_point_label(entry_point) for entry_point in extension_entry_points)
-                return _UnavailableCommand(
-                    cmd_name,
-                    f"CLI extension command {cmd_name!r} from {providers} conflicts with a built-in command.",
-                )
-            if len(extension_entry_points) > 1:
-                providers = ", ".join(_entry_point_label(entry_point) for entry_point in extension_entry_points)
-                return _UnavailableCommand(
-                    cmd_name,
-                    f"CLI command {cmd_name!r} is provided by multiple extensions: {providers}.",
-                )
-            if cmd is not None:
-                return cmd
-            if cmd_name in lazy_subcommands:
-                info = lazy_subcommands[cmd_name]
-                return _LazyCommand(
-                    name=cmd_name,
-                    module_path=info["module"],
-                    attr_name=info["attr"],
-                    help=info.get("help"),
-                    rich_help_panel=info.get("rich_help_panel"),
-                )
-            if extension_entry_points:
-                return _LazyEntryPointCommand(extension_entry_points[0])
-            return None
-
-    return LazyTyperGroup
