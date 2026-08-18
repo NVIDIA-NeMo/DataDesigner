@@ -49,7 +49,6 @@ class CandidateOutputManifest(StateRecord):
     dataset_path: str
     requested_records: PositiveInt
     actual_records: NonNegativeInt
-    require_exact_record_count: bool
     outcome: CandidateOutcome
     files: tuple[CandidateOutputFile, ...]
     dataset_schema_digest: Sha256Digest
@@ -60,10 +59,8 @@ class CandidateOutputManifest(StateRecord):
 
     @property
     def winner_eligible(self) -> bool:
-        """Whether policy permits publishing this candidate as the shard winner."""
-        return self.actual_records > 0 and (
-            not self.require_exact_record_count or self.actual_records == self.requested_records
-        )
+        """Whether this complete candidate may be published as the shard winner."""
+        return self.outcome is CandidateOutcome.COMPLETE
 
     @model_validator(mode="after")
     def validate_output(self) -> CandidateOutputManifest:

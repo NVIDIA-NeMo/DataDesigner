@@ -16,7 +16,6 @@
   "outcome": "complete",
   "provenance_digest": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
   "requested_records": 100,
-  "require_exact_record_count": true,
   "run_id": "run-0001",
   "schema_version": 1,
   "shard_id": "shard-0000"

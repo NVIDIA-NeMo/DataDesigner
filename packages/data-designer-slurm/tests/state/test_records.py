@@ -29,6 +29,7 @@ def _golden_payload(filename: str) -> dict[str, Any]:
 
 def test_direct_construction_and_json_loading_produce_identical_record() -> None:
     record = RunManifest(
+        schema_version=1,
         run_id="run-direct",
         created_at=datetime(2026, 8, 18, 12, tzinfo=timezone.utc),
         authored_config=ArtifactReference(path="/workspace/run/authored.json", sha256="a" * 64),
@@ -64,6 +65,14 @@ def test_records_reject_unknown_fields() -> None:
     payload["unreviewed"] = True
 
     with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+        RunManifest.model_validate_json(json.dumps(payload))
+
+
+def test_records_require_explicit_schema_version() -> None:
+    payload = _golden_payload("run_manifest.json")
+    payload.pop("schema_version")
+
+    with pytest.raises(ValidationError, match="Field required"):
         RunManifest.model_validate_json(json.dumps(payload))
 
 
@@ -187,18 +196,14 @@ def test_pending_and_stopped_deployments_reject_ready_backends(
         AttemptReadiness.model_validate_json(json.dumps(payload))
 
 
-def test_candidate_output_counts_and_policy_are_explicit() -> None:
+def test_partial_candidate_is_never_winner_eligible() -> None:
     payload = _golden_payload("candidate_output.json")
     payload["actual_records"] = 99
     payload["outcome"] = "partial"
     payload["files"][0]["record_count"] = 99
 
-    exact_candidate = CandidateOutputManifest.model_validate_json(json.dumps(payload))
-    assert not exact_candidate.winner_eligible
-
-    payload["require_exact_record_count"] = False
     partial_candidate = CandidateOutputManifest.model_validate_json(json.dumps(payload))
-    assert partial_candidate.winner_eligible
+    assert not partial_candidate.winner_eligible
 
 
 def test_candidate_output_rejects_count_and_file_mismatches() -> None:

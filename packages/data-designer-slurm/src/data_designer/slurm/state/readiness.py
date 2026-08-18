@@ -121,6 +121,11 @@ class AttemptReadiness(StateRecord):
             raise ValueError("deployment names must be unique")
         if len(model_aliases) != len(set(model_aliases)):
             raise ValueError("model aliases must be unique")
+        if any(
+            deployment.last_probe is not None and deployment.last_probe.observed_at > self.updated_at
+            for deployment in self.deployments
+        ):
+            raise ValueError("probe observations must not be later than the readiness snapshot")
 
         deployment_states = tuple(deployment.state for deployment in self.deployments)
         if self.state is ReadinessState.PENDING:

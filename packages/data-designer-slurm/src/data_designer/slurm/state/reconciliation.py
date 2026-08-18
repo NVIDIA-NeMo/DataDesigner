@@ -98,6 +98,17 @@ def validate_readiness_transition(
             new_deployment.endpoint_publication in _ALLOWED_ENDPOINT_TRANSITIONS[old_deployment.endpoint_publication],
             f"deployment {old_deployment.deployment_name!r} endpoint publication cannot move backward",
         )
+        old_probe = old_deployment.last_probe
+        new_probe = new_deployment.last_probe
+        if old_probe is not None:
+            if new_probe is None:
+                raise StateContractError(
+                    f"deployment {old_deployment.deployment_name!r} probe evidence cannot be removed"
+                )
+            _require(
+                new_probe.observed_at >= old_probe.observed_at,
+                f"deployment {old_deployment.deployment_name!r} probe observation cannot move backward",
+            )
     return current
 
 
@@ -111,11 +122,15 @@ def reconcile_attempt_observation(
     """Apply scheduler terminal precedence without treating readiness as success."""
     _require_utc(current_time, "current_time")
     _require(current_time >= scheduler.observed_at, "current_time cannot precede scheduler observation")
+    _require(current_time >= attempt.updated_at, "current_time cannot precede attempt update")
+    _require(current_time >= readiness.updated_at, "current_time cannot precede readiness update")
     _require(readiness.run_id == attempt.run_id, "readiness run_id does not match attempt")
     _require(readiness.shard_id == attempt.shard_id, "readiness shard_id does not match attempt")
     _require(readiness.attempt_id == attempt.attempt_id, "readiness attempt_id does not match attempt")
     _require(attempt.scheduler is not None, "attempt has no scheduler identity")
     _require(scheduler.scheduler == attempt.scheduler, "scheduler identity does not match attempt")
+    _require(scheduler.observed_at >= attempt.created_at, "scheduler observation cannot precede attempt creation")
+    _require(readiness.updated_at >= attempt.created_at, "readiness update cannot precede attempt creation")
 
     if scheduler.state in _SCHEDULER_FAILURE_STATES:
         return EffectiveAttemptState.FAILED
@@ -132,13 +147,13 @@ def reconcile_attempt_observation(
         if current_time <= deadline:
             return EffectiveAttemptState.ACCOUNTING_LAG
         return EffectiveAttemptState.UNKNOWN
+    if readiness.state is ReadinessState.FAILED:
+        return EffectiveAttemptState.FAILED
     if scheduler.state is SchedulerState.PENDING:
         return EffectiveAttemptState.PENDING
     if scheduler.state is SchedulerState.RUNNING:
         return EffectiveAttemptState.RUNNING
 
-    if readiness.state is ReadinessState.FAILED:
-        return EffectiveAttemptState.FAILED
     if readiness.state is ReadinessState.PENDING:
         return EffectiveAttemptState.PENDING
     if readiness.state in {ReadinessState.STARTING, ReadinessState.READY}:

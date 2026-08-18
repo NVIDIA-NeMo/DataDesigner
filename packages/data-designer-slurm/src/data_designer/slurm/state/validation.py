@@ -39,12 +39,19 @@ def validate_shard_set(
         validate_shard_manifest(run, shard)
 
     shard_ids = tuple(shard.shard_id for shard in shards)
+    resume_workspace_ids = tuple(shard.resume_workspace_id for shard in shards)
     shard_indices = tuple(shard.shard_index for shard in shards)
     _require(len(set(shard_ids)) == len(shards), "shard IDs must be unique")
+    _require(len(set(resume_workspace_ids)) == len(shards), "resume workspace IDs must be unique")
     _require(
         shard_indices == tuple(range(run.shard_count)),
         "shards must be ordered by a complete zero-based shard index",
     )
+    for previous, current in zip(shards, shards[1:]):
+        _require(
+            current.record_range.start_index >= previous.record_range.end_index_exclusive,
+            "shard record ranges must not overlap",
+        )
     return shards
 
 

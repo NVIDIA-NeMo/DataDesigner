@@ -3,7 +3,7 @@
   "attempt_ordinal": 1,
   "candidate_manifest": {
     "path": "/workspace/runs/run-0001/shards/shard-0000/attempts/attempt-0001/candidate-output.json",
-    "sha256": "f1ddf26dbe8af3c6a8f486646ea9c8a42102709b15c10fe43adc1d69f4b952af"
+    "sha256": "01eb18e264e6d2c39b1e5807e5a9cdab78ca30554cc94c1e4ac316feed02f9b6"
   },
   "published_at": "2026-08-18T12:05:02Z",
   "run_id": "run-0001",

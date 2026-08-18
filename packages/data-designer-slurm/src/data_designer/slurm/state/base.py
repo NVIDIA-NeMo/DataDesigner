@@ -37,7 +37,7 @@ class StateValue(BaseModel):
 class StateRecord(StateValue):
     """Base for immutable, strictly versioned Slurm state records."""
 
-    schema_version: Literal[1] = 1
+    schema_version: Literal[1]
 
     def serialize_canonical_json(self) -> bytes:
         """Serialize the record to stable bytes suitable for hashing."""
