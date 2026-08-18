@@ -19,21 +19,24 @@ to `/tmp/audit-{{suite}}.md`.
 Before starting, read the authoritative sources for the structural rules:
 
 1. **`AGENTS.md`** (repo root) - "The Layering Is Structural" section defines
-   the three packages, their ownership, and the dependency direction rule.
+   the four packages, their ownership, and the dependency direction rule.
 2. **`architecture/overview.md`** - system architecture diagram, package layout,
    and the "no reverse imports" rule.
 
 The canonical rules:
 
 ```
-data-designer (interface) -> data-designer-engine -> data-designer-config
+data-designer-slurm -> data-designer (interface) -> data-designer-engine -> data-designer-config
 ```
 
 - `packages/data-designer-config/` must NOT import from `data_designer.engine`,
-  `data_designer.interface`, or `data_designer.cli`
+  `data_designer.interface`, `data_designer.cli`, or `data_designer.slurm`
 - `packages/data-designer-engine/` must NOT import from
-  `data_designer.interface` or `data_designer.cli`
-- `packages/data-designer/` CAN import from both engine and config
+  `data_designer.interface`, `data_designer.cli`, or `data_designer.slurm`
+- `packages/data-designer/` CAN import from engine and config but must NOT
+  import from `data_designer.slurm`
+- `packages/data-designer-slurm/` uses public interface/config APIs and must
+  NOT import engine internals
 
 **What CI already enforces**: ruff rule `TID` catches relative imports. The
 CI test matrix runs config, engine, and interface tests in isolation (separate

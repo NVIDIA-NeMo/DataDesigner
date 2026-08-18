@@ -13,6 +13,7 @@ members = [
     "data-designer",
     "data-designer-config",
     "data-designer-engine",
+    "data-designer-slurm",
     "data-designer-workspace",
 ]
 
@@ -825,10 +826,16 @@ dependencies = [
     { name = "typer" },
 ]
 
+[package.optional-dependencies]
+slurm = [
+    { name = "data-designer-slurm" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "data-designer-config", editable = "packages/data-designer-config" },
     { name = "data-designer-engine", editable = "packages/data-designer-engine" },
+    { name = "data-designer-slurm", marker = "extra == 'slurm'", editable = "packages/data-designer-slurm" },
     { name = "huggingface-hub", specifier = ">=1.0.1,<2" },
     { name = "opentelemetry-api", specifier = ">=1.43,<1.44" },
     { name = "opentelemetry-exporter-prometheus", specifier = ">=0.64b0,<0.65" },
@@ -843,6 +850,7 @@ requires-dist = [
     { name = "rich", specifier = ">=13.7.1,<15" },
     { name = "typer", specifier = ">=0.12.0,<1" },
 ]
+provides-extras = ["slurm"]
 
 [[package]]
 name = "data-designer-config"
@@ -957,6 +965,16 @@ requires-dist = [
     { name = "tiktoken", specifier = ">=0.8.0,<1" },
     { name = "wcwidth", specifier = ">=0.2.13,<1" },
 ]
+
+[[package]]
+name = "data-designer-slurm"
+source = { editable = "packages/data-designer-slurm" }
+dependencies = [
+    { name = "data-designer" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "data-designer", editable = "packages/data-designer" }]
 
 [[package]]
 name = "data-designer-workspace"

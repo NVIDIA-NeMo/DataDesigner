@@ -4,7 +4,7 @@
 
 #
 # Publish script for DataDesigner
-# Publishes all three subpackages to PyPI with the same version.
+# Publishes all four subpackages to PyPI with the same version.
 #
 # Usage:
 #   ./scripts/publish.sh 0.3.9rc1             # Full publish
@@ -31,6 +31,8 @@ NC='\033[0m' # No Color
 PACKAGE_DIRS=(
     "packages/data-designer-config"
     "packages/data-designer-engine"
+    # Publish the provider before the package that advertises its exact-version extra.
+    "packages/data-designer-slurm"
     "packages/data-designer"
 )
 
@@ -544,6 +546,7 @@ main() {
         echo "  https://test.pypi.org/project/data-designer-config/$VERSION/"
         echo "  https://test.pypi.org/project/data-designer-engine/$VERSION/"
         echo "  https://test.pypi.org/project/data-designer/$VERSION/"
+        echo "  https://test.pypi.org/project/data-designer-slurm/$VERSION/"
         echo ""
         echo "Test installation with:"
         echo "  pip install --index-url $TEST_PYPI_URL data-designer==$VERSION"
@@ -564,6 +567,7 @@ main() {
         echo "  https://pypi.org/project/data-designer-config/$VERSION/"
         echo "  https://pypi.org/project/data-designer-engine/$VERSION/"
         echo "  https://pypi.org/project/data-designer/$VERSION/"
+        echo "  https://pypi.org/project/data-designer-slurm/$VERSION/"
     fi
 }
 
