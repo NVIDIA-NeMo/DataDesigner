@@ -222,6 +222,9 @@ results = designer.create(
     dataset_name="training_data",
     resume=ResumeMode.IF_POSSIBLE,
 )
+
+print(results.dataset_path)
+print(results.requested_resume_mode, results.effective_resume_mode)
 ```
 
 Resume modes:
@@ -241,7 +244,7 @@ Resume has a few important invariants:
 - Once `process_after_generation()` has run, the dataset is considered terminal for resume. Re-running with the same target returns the existing dataset; extending requires a fresh run.
 - If a run crashed after every row group was written but before `process_after_generation()` could start, resume runs after-generation on the existing on-disk dataset (the parquet files are still clean) and marks it terminal afterwards. A crash _during_ `process_after_generation()` still raises — the parquet files may have been partially rewritten and starting fresh is the only safe option.
 
-The `DatasetCreationResults` returned by a resume invocation reflects the full dataset on disk for anything that reads the artifact directory (`load_dataset`, `count_records`, `load_analysis`, `export`, `push_to_hub`). Per-run observability — `task_traces`, model-usage logs, and telemetry events emitted during the call — is scoped to the resume invocation only; the original run's in-memory traces are not persisted across process boundaries.
+The `DatasetCreationResults` returned by a resume invocation reflects the full dataset on disk for anything that reads the artifact directory (`load_dataset`, `count_records`, `load_analysis`, `export`, `push_to_hub`). `dataset_path` is the resolved output directory, which may differ from the requested name when Data Designer starts fresh. Compare `requested_resume_mode` with `effective_resume_mode` to determine whether the invocation resumed or started fresh. Per-run observability — `task_traces`, model-usage logs, and telemetry events emitted during the call — is scoped to the resume invocation only; the original run's in-memory traces are not persisted across process boundaries.
 
 <Warning>
 Only resume datasets from trusted artifact directories. Resume reads local `metadata.json`, `builder_config.json`, and parquet files to determine checkpoint state.
@@ -385,18 +388,23 @@ config_builder.add_model_config(
 
 ### Run outcomes
 
-A run can finish with fewer records than requested when non-retryable errors drop rows. Inspect `len(result.load_dataset())` to detect.
+A run can finish with fewer records than requested when non-retryable errors drop rows. Compare `actual_num_records` with `requested_num_records`, or inspect `is_partial`, without loading the dataset.
 
-If the rate of non-retryable errors crosses `RunConfig.shutdown_error_rate`, generation stops early and raises `DataDesignerEarlyShutdownError` (a subclass of `DataDesignerGenerationError`). Catch it separately when a typed retry path is appropriate:
+If the rate of non-retryable errors crosses `RunConfig.shutdown_error_rate`, generation stops early. A run with no surviving records raises `DataDesignerEarlyShutdownError` (a subclass of `DataDesignerGenerationError`). If some records survive, `create()` returns a partial result with `early_shutdown=True`.
 
 ```python
-from data_designer.interface.errors import DataDesignerEarlyShutdownError
+from data_designer.interface import DataDesignerEarlyShutdownError
 
 try:
     result = dd_instance.create(config_builder, num_records=1000)
 except DataDesignerEarlyShutdownError:
     # e.g. retry against a different model alias
     ...
+else:
+    if result.early_shutdown:
+        print(f"Early shutdown preserved {result.actual_num_records} records")
+    if result.is_partial:
+        print(f"Generated {result.actual_num_records} of {result.requested_num_records} requested records")
 ```
 
 ## Local OpenTelemetry Metrics
