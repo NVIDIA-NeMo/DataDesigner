@@ -266,10 +266,12 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
 
         Returns:
             DatasetCreationResults object with methods for loading the generated dataset,
-            analysis results, and displaying sample records for inspection.
+            analysis results, displaying sample records, and inspecting completion,
+            artifact, and resume metadata.
 
         Raises:
             DataDesignerGenerationError: If an error occurs during dataset generation.
+            DataDesignerEarlyShutdownError: If early shutdown is triggered before any records are produced.
             DataDesignerProfilingError: If an error occurs during dataset profiling.
         """
         logger.info("🎨 Creating Data Designer dataset")
@@ -378,6 +380,10 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             config_builder=config_builder,
             dataset_metadata=dataset_metadata,
             task_traces=task_traces,
+            requested_num_records=num_records,
+            early_shutdown=builder.early_shutdown,
+            requested_resume_mode=resume,
+            effective_resume_mode=builder.artifact_storage.resume,
         )
 
     async def acreate(
