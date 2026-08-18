@@ -135,6 +135,7 @@ jobs:
         if: matrix.suite == 'dependencies'
         run: |
           .venv/bin/python scripts/audit_package_dependencies.py \
+            --extra data-designer:slurm \
             --output /tmp/dependency-inventory.json
           jq '.packages[] | {package, missing, unresolved_modules}' \
             /tmp/dependency-inventory.json
