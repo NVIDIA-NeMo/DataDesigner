@@ -5,9 +5,11 @@ from __future__ import annotations
 
 import os
 import shutil
+import statistics
 import subprocess
 import sys
 import tempfile
+import time
 from email.message import Message
 from email.parser import BytesParser
 from pathlib import Path
@@ -23,6 +25,9 @@ PACKAGE_PATHS = (
     "packages/data-designer",
     "packages/data-designer-slurm",
 )
+CLI_HELP_SAMPLES = 9
+MAX_BASE_CLI_HELP_SECONDS = 1.0
+MAX_EXTENSION_CLI_HELP_OVERHEAD_SECONDS = 0.1
 
 
 def run(command: list[str], *, cwd: Path, check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -90,6 +95,7 @@ def install(uv: str, python: Path, wheel_directory: Path, package: str, *, cwd: 
 
 def verify_install(python: Path, version: str, *, slurm: bool, cwd: Path) -> None:
     statement = f"""
+import sys
 from importlib.metadata import version
 from importlib.util import find_spec
 
@@ -97,14 +103,51 @@ import data_designer
 import data_designer.config
 import data_designer.engine
 import data_designer.interface
+from typer.testing import CliRunner
+
+from data_designer.cli.main import app
 
 assert data_designer.__file__ is None
 assert version("data-designer") == {version!r}
 assert (find_spec("data_designer.slurm") is not None) is {slurm!r}
+assert "data_designer.slurm" not in sys.modules
+assert "packaging.requirements" not in sys.modules
+
+help_result = CliRunner().invoke(app, ["--help"])
+assert help_result.exit_code == 0, help_result.output
+assert ("slurm" in help_result.output) is {slurm!r}
+assert "data_designer.slurm" not in sys.modules
+assert "packaging.requirements" not in sys.modules
 """
     if slurm:
-        statement += f'\nimport data_designer.slurm\nassert version("data-designer-slurm") == {version!r}\n'
+        statement += f"""
+slurm_help_result = CliRunner().invoke(app, ["slurm", "--help"])
+assert slurm_help_result.exit_code == 0, (slurm_help_result.output, repr(slurm_help_result.exception))
+assert "data_designer.slurm.cli" in sys.modules
+assert version("data-designer-slurm") == {version!r}
+"""
     run([str(python), "-c", statement], cwd=cwd)
+
+
+def cli_help_medians(base_python: Path, extension_python: Path, *, cwd: Path) -> tuple[float, float]:
+    statement = """
+from typer.testing import CliRunner
+from data_designer.cli.main import app
+
+result = CliRunner().invoke(app, ["--help"])
+assert result.exit_code == 0, result.output
+"""
+    for python in (base_python, extension_python):
+        run([str(python), "-c", statement], cwd=cwd)
+
+    samples: dict[Path, list[float]] = {base_python: [], extension_python: []}
+    for index in range(CLI_HELP_SAMPLES):
+        environments = (base_python, extension_python) if index % 2 == 0 else (extension_python, base_python)
+        for python in environments:
+            start = time.perf_counter()
+            run([str(python), "-c", statement], cwd=cwd)
+            samples[python].append(time.perf_counter() - start)
+    return statistics.median(samples[base_python]), statistics.median(samples[extension_python])
 
 
 def main() -> None:
@@ -143,6 +186,19 @@ def main() -> None:
         extra_python = create_environment(uv, root / "extra", cwd=root)
         install(uv, extra_python, wheel_directory, f"data-designer[slurm]=={version}", cwd=root)
         verify_install(extra_python, version, slurm=True, cwd=root)
+        base_cli_help, extension_cli_help = cli_help_medians(base_python, extra_python, cwd=root)
+        extension_overhead = extension_cli_help - base_cli_help
+        assert base_cli_help <= MAX_BASE_CLI_HELP_SECONDS, (
+            f"Base CLI root help took {base_cli_help:.3f}s; budget is {MAX_BASE_CLI_HELP_SECONDS:.3f}s"
+        )
+        assert extension_overhead <= MAX_EXTENSION_CLI_HELP_OVERHEAD_SECONDS, (
+            f"CLI extension added {extension_overhead:.3f}s to root help "
+            f"(base={base_cli_help:.3f}s, extension={extension_cli_help:.3f}s)"
+        )
+        print(
+            f"CLI help median: base={base_cli_help:.3f}s, extension={extension_cli_help:.3f}s, "
+            f"overhead={extension_overhead:.3f}s"
+        )
 
         leaf_python = create_environment(uv, root / "leaf", cwd=root)
         install(uv, leaf_python, wheel_directory, f"data-designer-slurm=={version}", cwd=root)
