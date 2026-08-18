@@ -38,6 +38,7 @@ def _creation_result(
         analysis=stub_dataset_profiler_results,
         config_builder=config_builder,
         dataset_metadata=DatasetMetadata(),
+        requested_num_records=1,
     )
 
 
