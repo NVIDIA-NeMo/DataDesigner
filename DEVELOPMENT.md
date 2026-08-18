@@ -105,16 +105,17 @@ uv run ruff format --check       # Check formatting
 
 ### Running Tests
 
-`make test` runs all three package test suites in sequence (config, engine, interface). When iterating on a single package, run its tests directly:
+`make test` runs all four package test suites in sequence (config, engine, interface, Slurm). When iterating on a single package, run its tests directly:
 
 ```bash
-# Run all tests (config + engine + interface)
+# Run all tests (config + engine + interface + Slurm)
 make test
 
 # Run a single package's tests
 make test-config       # data-designer-config
 make test-engine       # data-designer-engine
 make test-interface    # data-designer (interface)
+make test-slurm        # data-designer-slurm
 
 # Run a specific test file
 uv run pytest tests/config/test_sampler_constraints.py
