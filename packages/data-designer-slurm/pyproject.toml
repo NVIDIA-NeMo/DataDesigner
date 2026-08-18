@@ -1,0 +1,50 @@
+[project]
+name = "data-designer-slurm"
+dynamic = ["version", "dependencies"]
+description = "Slurm execution for Data Designer"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+]
+
+[build-system]
+requires = ["hatchling", "uv-dynamic-versioning>=0.7.0"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "uv-dynamic-versioning"
+
+[tool.uv-dynamic-versioning]
+vcs = "git"
+style = "pep440"
+bump = true
+
+[tool.hatch.metadata.hooks.uv-dynamic-versioning]
+dependencies = ["data-designer=={{ version }}"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/data_designer"]
+
+[tool.ruff]
+extend = "../../pyproject.toml"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.uv]
+package = true
+
+[tool.uv.sources]
+data-designer = { workspace = true }

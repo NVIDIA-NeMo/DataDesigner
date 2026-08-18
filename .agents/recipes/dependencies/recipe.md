@@ -11,7 +11,7 @@ permissions:
 
 # Dependency Audit
 
-Audit the dependency graph across all three packages. Write findings to
+Audit the dependency graph across all four packages. Write findings to
 `/tmp/audit-{{suite}}.md`.
 
 Dependabot handles version bump PRs. This recipe focuses on what Dependabot
@@ -39,11 +39,12 @@ Read the `pyproject.toml` for each package:
 cat packages/data-designer-config/pyproject.toml
 cat packages/data-designer-engine/pyproject.toml
 cat packages/data-designer/pyproject.toml
+cat packages/data-designer-slurm/pyproject.toml
 ```
 
-Note: engine and interface packages use `uv-dynamic-versioning` to inject
-dependencies. Check both static declarations and the dynamic versioning
-config.
+Note: engine, interface, and Slurm packages use `uv-dynamic-versioning` to
+inject dependencies. Check both static declarations and the dynamic
+versioning config, including selected optional dependencies.
 
 ### 2. Direct dependency declaration gaps
 
@@ -79,7 +80,7 @@ intentionally deferred but still need to be declared as dependencies.
 
 Check that shared dependencies use consistent version constraints:
 ```bash
-# Extract dependency specs from all three pyproject.toml files
+# Extract dependency specs from all four pyproject.toml files
 grep -E "^\s+\"[a-zA-Z]" packages/*/pyproject.toml
 ```
 
