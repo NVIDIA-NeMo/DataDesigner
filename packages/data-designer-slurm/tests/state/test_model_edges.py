@@ -32,6 +32,8 @@ def _golden_payload(filename: str) -> dict[str, Any]:
     "path",
     (
         "/",
+        "//",
+        "//host/path",
         "/workspace/control\ncharacter",
         "/workspace//unnormalized",
     ),
@@ -122,14 +124,14 @@ def test_candidate_output_rejects_remaining_invalid_inventory_forms() -> None:
 def test_collection_plan_rejects_duplicate_shards_and_winner_paths() -> None:
     payload = _golden_payload("collection_plan.json")
     duplicate_shard = json.loads(json.dumps(payload["planned_shards"][0]))
-    duplicate_shard["winner_manifest"]["path"] = "/workspace/runs/run-0001/shards/shard-0001/winner.json"
+    duplicate_shard["winner_manifest"]["path"] = "/workspace/runs/run-0001/shards/shard-00001/winner.json"
     payload["planned_shards"].append(duplicate_shard)
     with pytest.raises(ValidationError, match="shard IDs must be unique"):
         CollectionPlan.model_validate_json(json.dumps(payload))
 
     payload = _golden_payload("collection_plan.json")
     duplicate_winner = json.loads(json.dumps(payload["planned_shards"][0]))
-    duplicate_winner["shard_id"] = "shard-0001"
+    duplicate_winner["shard_id"] = "shard-00001"
     payload["planned_shards"].append(duplicate_winner)
     with pytest.raises(ValidationError, match="winner manifest paths must be unique"):
         CollectionPlan.model_validate_json(json.dumps(payload))
@@ -174,11 +176,11 @@ def test_readiness_rejects_remaining_contradictory_states(
         AttemptReadiness.model_validate_json(json.dumps(payload))
 
 
-def test_readiness_rejects_duplicate_deployment_names() -> None:
+def test_readiness_rejects_duplicate_deployment_ids() -> None:
     payload = _golden_payload("multi_node_readiness.json")
-    payload["deployments"][1]["deployment_name"] = payload["deployments"][0]["deployment_name"]
+    payload["deployments"][1]["deployment_id"] = payload["deployments"][0]["deployment_id"]
 
-    with pytest.raises(ValidationError, match="deployment names must be unique"):
+    with pytest.raises(ValidationError, match="deployment IDs must be unique"):
         AttemptReadiness.model_validate_json(json.dumps(payload))
 
 

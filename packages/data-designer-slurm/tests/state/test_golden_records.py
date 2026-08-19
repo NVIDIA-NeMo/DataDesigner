@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 import pytest
@@ -44,5 +45,19 @@ def test_golden_record_round_trip_is_deterministic(filename: str, model: type[St
 
     assert direct_record == record
     assert record.serialize_json() == serialized
+    assert model.model_validate_json(record.serialize_canonical_json()) == record
     assert model.model_validate_json(record.serialize_json()) == record
-    assert len(record.compute_sha256()) == 64
+    assert record.compute_sha256() == hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
+def test_golden_artifact_references_hash_exact_persisted_bytes() -> None:
+    candidate_bytes = (GOLDEN_DIRECTORY / "candidate_output.json").read_bytes()
+    winner_bytes = (GOLDEN_DIRECTORY / "shard_winner.json").read_bytes()
+    attempt = AttemptManifest.model_validate_json((GOLDEN_DIRECTORY / "successful_attempt.json").read_text())
+    winner = ShardWinner.model_validate_json(winner_bytes)
+    collection = CollectionPlan.model_validate_json((GOLDEN_DIRECTORY / "collection_plan.json").read_text())
+
+    assert attempt.candidate_output is not None
+    assert attempt.candidate_output.sha256 == hashlib.sha256(candidate_bytes).hexdigest()
+    assert winner.candidate_manifest.sha256 == hashlib.sha256(candidate_bytes).hexdigest()
+    assert collection.planned_shards[0].winner_manifest.sha256 == hashlib.sha256(winner_bytes).hexdigest()

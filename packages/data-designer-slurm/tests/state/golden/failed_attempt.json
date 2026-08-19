@@ -1,5 +1,5 @@
 {
-  "attempt_id": "attempt-failed",
+  "attempt_id": "attempt-0002",
   "attempt_ordinal": 2,
   "candidate_output": null,
   "created_at": "2026-08-18T13:00:00Z",
@@ -13,7 +13,7 @@
     "array_task_id": 0
   },
   "schema_version": 1,
-  "shard_id": "shard-0000",
+  "shard_id": "shard-00000",
   "state": "failed",
   "terminal_classification": "node_failed",
   "updated_at": "2026-08-18T13:05:00Z"

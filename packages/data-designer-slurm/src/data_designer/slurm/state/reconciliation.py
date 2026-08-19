@@ -76,8 +76,8 @@ def validate_readiness_transition(
 
     for old_deployment, new_deployment in zip(previous.deployments, current.deployments, strict=True):
         _require(
-            old_deployment.deployment_name == new_deployment.deployment_name,
-            "readiness deployment order or name cannot change",
+            old_deployment.deployment_id == new_deployment.deployment_id,
+            "readiness deployment order or ID cannot change",
         )
         _require(
             old_deployment.model_alias == new_deployment.model_alias,
@@ -90,24 +90,24 @@ def validate_readiness_transition(
         _require(
             new_deployment.state in _ALLOWED_READINESS_TRANSITIONS[old_deployment.state],
             (
-                f"deployment {old_deployment.deployment_name!r} cannot move from "
+                f"deployment {old_deployment.deployment_id!r} cannot move from "
                 f"{old_deployment.state.value} to {new_deployment.state.value}"
             ),
         )
         _require(
             new_deployment.endpoint_publication in _ALLOWED_ENDPOINT_TRANSITIONS[old_deployment.endpoint_publication],
-            f"deployment {old_deployment.deployment_name!r} endpoint publication cannot move backward",
+            f"deployment {old_deployment.deployment_id!r} endpoint publication cannot move backward",
         )
         old_probe = old_deployment.last_probe
         new_probe = new_deployment.last_probe
         if old_probe is not None:
             if new_probe is None:
                 raise StateContractError(
-                    f"deployment {old_deployment.deployment_name!r} probe evidence cannot be removed"
+                    f"deployment {old_deployment.deployment_id!r} probe evidence cannot be removed"
                 )
             _require(
                 new_probe.observed_at >= old_probe.observed_at,
-                f"deployment {old_deployment.deployment_name!r} probe observation cannot move backward",
+                f"deployment {old_deployment.deployment_id!r} probe observation cannot move backward",
             )
     return current
 
@@ -147,18 +147,15 @@ def reconcile_attempt_observation(
         if current_time <= deadline:
             return EffectiveAttemptState.ACCOUNTING_LAG
         return EffectiveAttemptState.UNKNOWN
+    if scheduler.state is SchedulerState.UNKNOWN:
+        return EffectiveAttemptState.UNKNOWN
     if readiness.state is ReadinessState.FAILED:
         return EffectiveAttemptState.FAILED
     if scheduler.state is SchedulerState.PENDING:
         return EffectiveAttemptState.PENDING
     if scheduler.state is SchedulerState.RUNNING:
         return EffectiveAttemptState.RUNNING
-
-    if readiness.state is ReadinessState.PENDING:
-        return EffectiveAttemptState.PENDING
-    if readiness.state in {ReadinessState.STARTING, ReadinessState.READY}:
-        return EffectiveAttemptState.RUNNING
-    return EffectiveAttemptState.UNKNOWN
+    raise AssertionError(f"unhandled scheduler state: {scheduler.state}")  # pragma: no cover
 
 
 def _require(condition: bool, message: str) -> None:

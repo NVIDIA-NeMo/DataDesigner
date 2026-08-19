@@ -7,10 +7,10 @@
   "overwrite": false,
   "planned_shards": [
     {
-      "shard_id": "shard-0000",
+      "shard_id": "shard-00000",
       "winner_manifest": {
-        "path": "/workspace/runs/run-0001/shards/shard-0000/winner.json",
-        "sha256": "40ea4f22e70929b7311dfd81a3d67bd83277a035a5d4390872a5c3bd1ef29f74"
+        "path": "/workspace/runs/run-0001/shards/shard-00000/winner.json",
+        "sha256": "e6efb5fd97b97c36e7dd1c4e5ab61dc954b611fd68d5e85956e357b36d2a8930"
       }
     }
   ],

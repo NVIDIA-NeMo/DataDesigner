@@ -15,6 +15,20 @@ from data_designer.slurm.state.outputs import (
     CollectionPlan,
     ShardWinner,
 )
+from data_designer.slurm.state.scheduler import SchedulerObservation, SchedulerState
+
+_ATTEMPT_STATE_ORDER = {
+    AttemptLifecycleState.CREATED: 0,
+    AttemptLifecycleState.SUBMITTED: 1,
+    AttemptLifecycleState.PENDING: 2,
+    AttemptLifecycleState.RUNNING: 3,
+}
+_TERMINAL_ATTEMPT_STATES = frozenset(
+    {
+        AttemptLifecycleState.SUCCEEDED,
+        AttemptLifecycleState.FAILED,
+    }
+)
 
 
 class StateContractError(ValueError):
@@ -33,7 +47,7 @@ def validate_shard_set(
     run: RunManifest,
     shards: tuple[ShardManifest, ...],
 ) -> tuple[ShardManifest, ...]:
-    """Validate the exact, ordered set of shards belonging to a run."""
+    """Validate ordered run state shards without duplicating resolved-plan coverage."""
     _require(len(shards) == run.shard_count, "shard set must include exactly the run shard count")
     for shard in shards:
         validate_shard_manifest(run, shard)
@@ -70,6 +84,94 @@ def validate_attempt_manifest(
     )
     _require(attempt.created_at >= shard.created_at, "attempt creation cannot precede shard creation")
     return attempt
+
+
+def validate_attempt_set(
+    run: RunManifest,
+    shards: tuple[ShardManifest, ...],
+    attempts: tuple[AttemptManifest, ...],
+) -> tuple[AttemptManifest, ...]:
+    """Validate attempt identities and scheduler ownership across a run."""
+    validate_shard_set(run, shards)
+    shard_by_id = {shard.shard_id: shard for shard in shards}
+
+    for attempt in attempts:
+        shard = shard_by_id.get(attempt.shard_id)
+        _require(shard is not None, f"attempt references unknown shard {attempt.shard_id!r}")
+        validate_attempt_manifest(run, shard, attempt)
+
+    attempt_ids = tuple((attempt.shard_id, attempt.attempt_id) for attempt in attempts)
+    shard_ordinals = tuple((attempt.shard_id, attempt.attempt_ordinal) for attempt in attempts)
+    scheduler_identities = tuple(attempt.scheduler for attempt in attempts if attempt.scheduler is not None)
+    _require(len(set(attempt_ids)) == len(attempts), "attempt IDs must be unique within each shard")
+    _require(
+        len(set(shard_ordinals)) == len(attempts),
+        "attempt ordinals must be unique within each shard",
+    )
+    _require(
+        len(set(scheduler_identities)) == len(scheduler_identities),
+        "scheduler identities must be unique across attempts",
+    )
+    return attempts
+
+
+def validate_attempt_transition(
+    previous: AttemptManifest,
+    current: AttemptManifest,
+) -> AttemptManifest:
+    """Validate immutable identity and monotonic lifecycle updates for an attempt."""
+    for field_name in (
+        "run_id",
+        "shard_id",
+        "attempt_id",
+        "attempt_ordinal",
+        "resolved_plan",
+        "created_at",
+    ):
+        _require(
+            getattr(previous, field_name) == getattr(current, field_name),
+            f"attempt {field_name} cannot change",
+        )
+    _require(current.updated_at >= previous.updated_at, "attempt updated_at cannot move backward")
+
+    if previous.state in _TERMINAL_ATTEMPT_STATES:
+        _require(current == previous, "terminal attempt manifests are immutable")
+        return current
+
+    if current.state not in _TERMINAL_ATTEMPT_STATES:
+        _require(
+            _ATTEMPT_STATE_ORDER[current.state] >= _ATTEMPT_STATE_ORDER[previous.state],
+            f"attempt state cannot move from {previous.state.value} to {current.state.value}",
+        )
+    if previous.scheduler is not None:
+        _require(current.scheduler == previous.scheduler, "attempt scheduler identity cannot change")
+    if previous.candidate_output is not None:
+        _require(current.candidate_output == previous.candidate_output, "attempt candidate output cannot change")
+    return current
+
+
+def validate_scheduler_observation_transition(
+    previous: SchedulerObservation,
+    current: SchedulerObservation,
+) -> SchedulerObservation:
+    """Validate scheduler identity, chronology, and a fixed accounting-lag deadline."""
+    _require(current.scheduler == previous.scheduler, "scheduler identity cannot change between observations")
+    _require(current.observed_at >= previous.observed_at, "scheduler observed_at cannot move backward")
+
+    if previous.state is SchedulerState.ACCOUNTING_LAG:
+        deadline = previous.reconciliation_deadline
+        _require(deadline is not None, "accounting lag has no reconciliation deadline")
+        if current.state is SchedulerState.ACCOUNTING_LAG:
+            _require(
+                current.reconciliation_deadline == deadline,
+                "accounting-lag reconciliation deadline cannot change",
+            )
+        elif current.state is SchedulerState.UNKNOWN:
+            _require(
+                current.observed_at > deadline,
+                "accounting lag cannot become unknown before its reconciliation deadline expires",
+            )
+    return current
 
 
 def validate_shard_winner(

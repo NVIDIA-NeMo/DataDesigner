@@ -31,8 +31,11 @@ from data_designer.slurm.state import (
     StateValue,
     reconcile_attempt_observation,
     validate_attempt_manifest,
+    validate_attempt_set,
+    validate_attempt_transition,
     validate_collection_plan,
     validate_readiness_transition,
+    validate_scheduler_observation_transition,
     validate_shard_manifest,
     validate_shard_set,
     validate_shard_winner,
@@ -112,10 +115,10 @@ def test_shard_set_rejects_overlapping_ranges_and_shared_resume_workspace() -> N
     )
     second = _validated_copy(
         first,
-        shard_id="shard-0001",
+        shard_id="shard-00001",
         shard_index=1,
         record_range=second_range,
-        resume_workspace_id="resume-shard-0001",
+        resume_workspace_id="resume-shard-00001",
     )
 
     assert validate_shard_set(run, (first, second)) == (first, second)
@@ -131,6 +134,70 @@ def test_shard_set_rejects_overlapping_ranges_and_shared_resume_workspace() -> N
     shared_workspace = _validated_copy(second, resume_workspace_id=first.resume_workspace_id)
     with pytest.raises(StateContractError, match="workspace IDs must be unique"):
         validate_shard_set(run, (first, shared_workspace))
+
+
+def test_attempt_set_rejects_scheduler_identity_collisions() -> None:
+    run = _validated_copy(_load(RunManifest, "run_manifest.json"), shard_count=2)
+    first_shard = _load(ShardManifest, "shard_manifest.json")
+    second_shard = _validated_copy(
+        first_shard,
+        shard_id="shard-00001",
+        shard_index=1,
+        record_range=_validated_copy(first_shard.record_range, start_index=100, end_index_exclusive=200),
+        resume_workspace_id="resume-shard-00001",
+    )
+    first_attempt = _validated_copy(
+        _load(AttemptManifest, "successful_attempt.json"),
+        state=AttemptLifecycleState.RUNNING,
+        terminal_classification=None,
+        candidate_output=None,
+    )
+    second_attempt = _validated_copy(
+        first_attempt,
+        shard_id=second_shard.shard_id,
+    )
+    assert first_attempt.scheduler is not None
+
+    with pytest.raises(StateContractError, match="scheduler identities must be unique"):
+        validate_attempt_set(run, (first_shard, second_shard), (first_attempt, second_attempt))
+
+    unique_scheduler = _validated_copy(first_attempt.scheduler, array_task_id=1)
+    unique_second_attempt = _validated_copy(second_attempt, scheduler=unique_scheduler)
+    assert validate_attempt_set(
+        run,
+        (first_shard, second_shard),
+        (first_attempt, unique_second_attempt),
+    ) == (first_attempt, unique_second_attempt)
+
+
+def test_attempt_transitions_preserve_identity_and_terminal_state() -> None:
+    succeeded = _load(AttemptManifest, "successful_attempt.json")
+    running = _validated_copy(
+        succeeded,
+        state=AttemptLifecycleState.RUNNING,
+        terminal_classification=None,
+        candidate_output=None,
+        updated_at=datetime(2026, 8, 18, 12, 4, tzinfo=timezone.utc),
+    )
+
+    assert validate_attempt_transition(running, succeeded) is succeeded
+    assert validate_attempt_transition(succeeded, succeeded) is succeeded
+    with pytest.raises(StateContractError, match="state cannot move"):
+        validate_attempt_transition(running, _validated_copy(running, state=AttemptLifecycleState.PENDING))
+
+    changed_scheduler = _validated_copy(running.scheduler, array_job_id=9999)
+    with pytest.raises(StateContractError, match="scheduler identity cannot change"):
+        validate_attempt_transition(running, _validated_copy(running, scheduler=changed_scheduler))
+
+    candidate_running = _validated_copy(running, candidate_output=succeeded.candidate_output)
+    with pytest.raises(StateContractError, match="candidate output cannot change"):
+        validate_attempt_transition(candidate_running, _validated_copy(candidate_running, candidate_output=None))
+
+    with pytest.raises(StateContractError, match="terminal attempt manifests are immutable"):
+        validate_attempt_transition(
+            succeeded,
+            _validated_copy(succeeded, updated_at=datetime(2026, 8, 18, 12, 6, tzinfo=timezone.utc)),
+        )
 
 
 def test_failed_partial_and_existing_winners_are_rejected() -> None:
@@ -204,7 +271,7 @@ def test_readiness_revisions_are_monotonic_and_preserve_authored_order() -> None
         revision=5,
         deployments=tuple(reversed(multi.deployments)),
     )
-    with pytest.raises(StateContractError, match="order or name"):
+    with pytest.raises(StateContractError, match="order or ID"):
         validate_readiness_transition(multi, reordered)
 
 
@@ -477,7 +544,7 @@ def test_reconciliation_covers_nonterminal_and_fallback_states() -> None:
         (attempt, ready, SchedulerState.PENDING, EffectiveAttemptState.PENDING),
         (attempt, ready, SchedulerState.RUNNING, EffectiveAttemptState.RUNNING),
         (attempt, ready, SchedulerState.COMPLETED, EffectiveAttemptState.FAILED),
-        (attempt, pending, SchedulerState.UNKNOWN, EffectiveAttemptState.PENDING),
+        (attempt, pending, SchedulerState.UNKNOWN, EffectiveAttemptState.UNKNOWN),
         (attempt, stopped, SchedulerState.UNKNOWN, EffectiveAttemptState.UNKNOWN),
         (successful_attempt, ready, SchedulerState.UNKNOWN, EffectiveAttemptState.SUCCEEDED),
     )
@@ -529,7 +596,34 @@ def test_accounting_lag_is_nonterminal_until_its_deadline() -> None:
     )
 
 
-def test_readiness_never_declares_success() -> None:
+def test_accounting_lag_deadline_is_fixed_across_observations() -> None:
+    previous = _load(SchedulerObservation, "accounting_lag.json")
+    continued = _validated_copy(
+        previous,
+        observed_at=datetime(2026, 8, 18, 12, 6, tzinfo=timezone.utc),
+    )
+    refreshed = _validated_copy(
+        continued,
+        reconciliation_deadline=datetime(2026, 8, 18, 12, 11, tzinfo=timezone.utc),
+    )
+    expired = SchedulerObservation(
+        schema_version=1,
+        scheduler=previous.scheduler,
+        observed_at=datetime(2026, 8, 18, 12, 10, 3, tzinfo=timezone.utc),
+        state=SchedulerState.UNKNOWN,
+    )
+
+    assert validate_scheduler_observation_transition(previous, continued) is continued
+    assert validate_scheduler_observation_transition(previous, expired) is expired
+    with pytest.raises(StateContractError, match="deadline cannot change"):
+        validate_scheduler_observation_transition(previous, refreshed)
+
+    early_unknown = _validated_copy(expired, observed_at=datetime(2026, 8, 18, 12, 9, tzinfo=timezone.utc))
+    with pytest.raises(StateContractError, match="before its reconciliation deadline expires"):
+        validate_scheduler_observation_transition(previous, early_unknown)
+
+
+def test_unknown_scheduler_state_overrides_stale_ready_readiness() -> None:
     attempt = _validated_copy(
         _load(AttemptManifest, "successful_attempt.json"),
         state=AttemptLifecycleState.RUNNING,
@@ -541,7 +635,7 @@ def test_readiness_never_declares_success() -> None:
     scheduler = SchedulerObservation(
         schema_version=1,
         scheduler=attempt.scheduler,
-        observed_at=datetime(2026, 8, 18, 12, 6, tzinfo=timezone.utc),
+        observed_at=datetime(2026, 8, 18, 12, 11, tzinfo=timezone.utc),
         state=SchedulerState.UNKNOWN,
     )
 
@@ -550,7 +644,7 @@ def test_readiness_never_declares_success() -> None:
             attempt,
             readiness,
             scheduler,
-            current_time=datetime(2026, 8, 18, 12, 6, tzinfo=timezone.utc),
+            current_time=datetime(2026, 8, 18, 12, 11, tzinfo=timezone.utc),
         )
-        is EffectiveAttemptState.RUNNING
+        is EffectiveAttemptState.UNKNOWN
     )

@@ -3,7 +3,7 @@
   "attempt_id": "attempt-0001",
   "attempt_ordinal": 1,
   "created_at": "2026-08-18T12:05:00Z",
-  "dataset_path": "/workspace/runs/run-0001/shards/shard-0000/attempts/attempt-0001/dataset",
+  "dataset_path": "/workspace/runs/run-0001/shards/shard-00000/attempts/attempt-0001/dataset",
   "dataset_schema_digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
   "files": [
     {
@@ -18,5 +18,5 @@
   "requested_records": 100,
   "run_id": "run-0001",
   "schema_version": 1,
-  "shard_id": "shard-0000"
+  "shard_id": "shard-00000"
 }

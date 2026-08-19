@@ -40,7 +40,7 @@ class StateRecord(StateValue):
     schema_version: Literal[1]
 
     def serialize_canonical_json(self) -> bytes:
-        """Serialize the record to stable bytes suitable for hashing."""
+        """Serialize the record to a stable compact JSON representation."""
         return json.dumps(
             self.model_dump(mode="json"),
             allow_nan=False,
@@ -63,8 +63,8 @@ class StateRecord(StateValue):
         )
 
     def compute_sha256(self) -> Sha256Digest:
-        """Compute the digest of the canonical JSON representation."""
-        return hashlib.sha256(self.serialize_canonical_json()).hexdigest()
+        """Compute the digest of the exact bytes written by ``serialize_json``."""
+        return hashlib.sha256(self.serialize_json().encode("utf-8")).hexdigest()
 
 
 def validate_utc_timestamp(value: datetime) -> datetime:
@@ -87,6 +87,8 @@ def validate_absolute_path(value: str) -> str:
     """Validate a normalized, absolute POSIX path below the filesystem root."""
     if not value.startswith("/"):
         raise ValueError("path must be absolute")
+    if value.startswith("//"):
+        raise ValueError("path must have exactly one leading slash")
     if value == "/":
         raise ValueError("path must not be the filesystem root")
     if any(ord(character) < 32 or ord(character) == 127 for character in value):

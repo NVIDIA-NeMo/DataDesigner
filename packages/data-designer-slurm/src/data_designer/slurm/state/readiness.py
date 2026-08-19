@@ -61,8 +61,8 @@ class ProbeEvidence(StateValue):
 class DeploymentReadiness(StateValue):
     """Readiness state for one authored-order model deployment."""
 
-    deployment_name: Identifier
-    model_alias: Identifier
+    deployment_id: Identifier
+    model_alias: str
     state: ReadinessState
     expected_backends: PositiveInt
     ready_backends: NonNegativeInt
@@ -115,10 +115,10 @@ class AttemptReadiness(StateRecord):
 
     @model_validator(mode="after")
     def validate_deployments(self) -> AttemptReadiness:
-        deployment_names = [deployment.deployment_name for deployment in self.deployments]
+        deployment_ids = [deployment.deployment_id for deployment in self.deployments]
         model_aliases = [deployment.model_alias for deployment in self.deployments]
-        if len(deployment_names) != len(set(deployment_names)):
-            raise ValueError("deployment names must be unique")
+        if len(deployment_ids) != len(set(deployment_ids)):
+            raise ValueError("deployment IDs must be unique")
         if len(model_aliases) != len(set(model_aliases)):
             raise ValueError("model aliases must be unique")
         if any(

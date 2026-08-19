@@ -142,6 +142,16 @@ def test_readiness_rejects_duplicate_deployment_identity() -> None:
         AttemptReadiness.model_validate_json(json.dumps(payload))
 
 
+def test_readiness_preserves_the_public_model_alias_contract() -> None:
+    payload = _golden_payload("single_node_readiness.json")
+    model_alias = "model/模型 alias " + "x" * 140
+    payload["deployments"][0]["model_alias"] = model_alias
+
+    readiness = AttemptReadiness.model_validate_json(json.dumps(payload))
+
+    assert readiness.deployments[0].model_alias == model_alias
+
+
 def test_probe_evidence_is_bounded_and_single_line() -> None:
     payload = _golden_payload("single_node_readiness.json")
     payload["deployments"][0]["last_probe"]["redacted_message"] = "line one\nline two"

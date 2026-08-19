@@ -2,7 +2,7 @@
   "attempt_id": "attempt-0001",
   "deployments": [
     {
-      "deployment_name": "primary-model",
+      "deployment_id": "deployment-00000",
       "endpoint_publication": "published",
       "expected_backends": 1,
       "last_probe": {
@@ -19,7 +19,7 @@
   "revision": 3,
   "run_id": "run-0001",
   "schema_version": 1,
-  "shard_id": "shard-0000",
+  "shard_id": "shard-00000",
   "state": "ready",
   "updated_at": "2026-08-18T12:01:30Z"
 }

@@ -2,8 +2,8 @@
   "attempt_id": "attempt-0001",
   "attempt_ordinal": 1,
   "candidate_output": {
-    "path": "/workspace/runs/run-0001/shards/shard-0000/attempts/attempt-0001/candidate-output.json",
-    "sha256": "01eb18e264e6d2c39b1e5807e5a9cdab78ca30554cc94c1e4ac316feed02f9b6"
+    "path": "/workspace/runs/run-0001/shards/shard-00000/attempts/attempt-0001/output-manifest.json",
+    "sha256": "c639099f85b3cdd2759d3b74c792f06dc4a61a8550622b50ba2a3512c10fdb68"
   },
   "created_at": "2026-08-18T12:00:02Z",
   "resolved_plan": {
@@ -16,7 +16,7 @@
     "array_task_id": 0
   },
   "schema_version": 1,
-  "shard_id": "shard-0000",
+  "shard_id": "shard-00000",
   "state": "succeeded",
   "terminal_classification": "succeeded",
   "updated_at": "2026-08-18T12:05:01Z"
