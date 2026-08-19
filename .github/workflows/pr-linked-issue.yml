@@ -9,9 +9,9 @@ on:
     types: [opened, edited, synchronize, reopened]
     branches: [main]
 
-  # Re-check open PRs when a maintainer adds the "triaged" label to an open issue.
+  # Re-check open PRs when linked-issue validity changes.
   issues:
-    types: [labeled]
+    types: [labeled, unlabeled, closed, reopened]
 
 permissions:
   contents: read
@@ -233,13 +233,20 @@ jobs:
           echo "::error::Linked issue check failed. See the PR comment for details."
           exit 1
 
-  # ── Job 2: re-trigger check when an issue gets triaged ────────────────
+  # ── Job 2: re-trigger check when linked-issue validity changes ───────
   retrigger:
     if: >-
       github.repository_owner == 'NVIDIA-NeMo'
       && github.event_name == 'issues'
-      && github.event.label.name == 'triaged'
-      && github.event.issue.state == 'open'
+      && (
+        github.event.action == 'closed'
+        || github.event.action == 'reopened'
+        || (
+          (github.event.action == 'labeled' || github.event.action == 'unlabeled')
+          && github.event.label.name == 'triaged'
+          && github.event.issue.state == 'open'
+        )
+      )
     runs-on: ubuntu-latest
     steps:
       - name: Find PRs referencing this issue
@@ -271,10 +278,30 @@ jobs:
         if: steps.find-prs.outputs.prs != ''
         env:
           GH_TOKEN: ${{ github.token }}
+          ISSUE_ACTION: ${{ github.event.action }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           PR_NUMBERS: ${{ steps.find-prs.outputs.prs }}
         run: |
           TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+          case "$ISSUE_ACTION" in
+            labeled)
+              EVENT_DESCRIPTION='received the `triaged` label'
+              ;;
+            unlabeled)
+              EVENT_DESCRIPTION='lost the `triaged` label'
+              ;;
+            closed)
+              EVENT_DESCRIPTION="was closed"
+              ;;
+            reopened)
+              EVENT_DESCRIPTION="was reopened"
+              ;;
+            *)
+              echo "::error::Unsupported issue action: ${ISSUE_ACTION}"
+              exit 1
+              ;;
+          esac
 
           for PR_NUM in $PR_NUMBERS; do
             echo "Re-triggering check for PR #${PR_NUM}..."
@@ -297,5 +324,5 @@ jobs:
 
             # Post a visible comment so the author knows what happened.
             gh pr comment "$PR_NUM" --repo "${{ github.repository }}" --body \
-              "Issue #${ISSUE_NUMBER} has been triaged. The linked issue check is being re-evaluated."
+              "Issue #${ISSUE_NUMBER} ${EVENT_DESCRIPTION}. The linked issue check is being re-evaluated."
           done
