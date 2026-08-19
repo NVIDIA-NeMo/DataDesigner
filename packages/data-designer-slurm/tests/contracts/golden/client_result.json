@@ -6,7 +6,7 @@
     "sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
   },
   "completed_at": "2026-08-19T12:00:00Z",
-  "dataset_path": "/workspace/primary/runs/run-001/shards/shard-00000/dataset",
+  "dataset_path": "/workspace/primary/runs/run-001/shards/shard-00000/attempts/attempt-0001/dataset",
   "early_shutdown": false,
   "effective_resume_mode": "never",
   "error_code": null,

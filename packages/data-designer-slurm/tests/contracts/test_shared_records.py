@@ -29,7 +29,7 @@ def test_client_result_allows_partial_and_failure_facts_to_differ() -> None:
         "requested_records": 50,
         "actual_records": 25,
         "outcome": "partial",
-        "dataset_path": "/workspace/runs/run-001/shards/shard-00000/dataset",
+        "dataset_path": "/workspace/runs/run-001/shards/shard-00000/attempts/attempt-0001/dataset",
         "early_shutdown": True,
         "requested_resume_mode": "if_possible",
         "effective_resume_mode": "never",
@@ -110,6 +110,28 @@ def client_result_payload() -> dict[str, object]:
             "sha256": "a" * 64,
         },
     }
+
+
+@pytest.mark.parametrize(
+    ("effective_resume_mode", "dataset_path"),
+    [
+        ("never", "/workspace/runs/run-001/shards/shard-00000/attempts/attempt-0001/dataset"),
+        ("always", "/workspace/runs/run-001/shards/shard-00000/dataset"),
+    ],
+)
+def test_if_possible_uses_effective_resume_dataset_location(
+    effective_resume_mode: str,
+    dataset_path: str,
+    client_result_payload: dict[str, object],
+) -> None:
+    payload = deepcopy(client_result_payload)
+    payload.update(
+        requested_resume_mode="if_possible",
+        effective_resume_mode=effective_resume_mode,
+        dataset_path=dataset_path,
+    )
+
+    assert ClientResult.model_validate_json(json.dumps(payload)).dataset_path == dataset_path
 
 
 def test_benchmark_manifest_rejects_duplicate_child_identity() -> None:

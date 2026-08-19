@@ -71,6 +71,9 @@ class ClientResult(ContractRecord):
             self.requested_resume_mode,
         }:
             raise ValueError("effective resume mode must match a fixed requested mode")
+        if self.outcome is not ClientOutcome.FAILED:
+            if self.early_shutdown is None or self.effective_resume_mode is None:
+                raise ValueError("non-failed client results require resume and early-shutdown facts")
         if self.outcome is ClientOutcome.COMPLETE:
             if self.actual_records != self.requested_records:
                 raise ValueError("complete client results require the requested record count")
@@ -84,9 +87,6 @@ class ClientResult(ContractRecord):
                 raise ValueError("failed client results cannot reference a candidate output manifest")
             if self.error_code is None:
                 raise ValueError("failed client results require error_code")
-        if self.outcome is not ClientOutcome.FAILED:
-            if self.early_shutdown is None or self.effective_resume_mode is None:
-                raise ValueError("non-failed client results require resume and early-shutdown facts")
         return self
 
     def _require_success_artifacts(self) -> None:
@@ -95,7 +95,7 @@ class ClientResult(ContractRecord):
         if self.error_code is not None or self.redacted_message is not None:
             raise ValueError("successful client results cannot contain failure details")
         shard_root = f"/runs/{self.run_id}/shards/{self.shard_id}"
-        if self.requested_resume_mode == "never":
+        if self.effective_resume_mode == "never":
             expected_dataset = f"{shard_root}/attempts/{self.attempt_id}/dataset"
         else:
             expected_dataset = f"{shard_root}/dataset"
