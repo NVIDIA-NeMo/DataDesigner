@@ -1,0 +1,91 @@
+{
+  "schema_version": 1,
+  "name": "two-model-generation",
+  "builder": {
+    "inline": {
+      "data_designer": {
+        "columns": [],
+        "model_configs": []
+      }
+    }
+  },
+  "invocation": {
+    "num_records": 100,
+    "dataset_name": "training-data",
+    "resume": "if_possible",
+    "run_config": {
+      "buffer_size": 8192
+    },
+    "model_concurrency": {
+      "generator": 64,
+      "judge": 32
+    }
+  },
+  "client": {
+    "image": {
+      "name": "dd-client-0.9"
+    },
+    "dependencies": {
+      "requirements": [
+        "data-designer-speech==0.2.0"
+      ],
+      "index_credentials": {
+        "private-index": {
+          "type": "secret",
+          "environment": "PACKAGE_INDEX_TOKEN"
+        }
+      }
+    }
+  },
+  "deployments": [
+    {
+      "model_alias": "generator",
+      "model": "example/generator",
+      "server": {
+        "type": "vllm",
+        "image": {
+          "name": "vllm-0-21"
+        },
+        "queue_backpressure": {
+          "max_waiting_requests": 1024,
+          "retry_after_seconds": 2
+        },
+        "extra_args": [
+          "--max-model-len",
+          "32768"
+        ],
+        "environment": {
+          "HF_TOKEN": {
+            "type": "secret",
+            "environment": "HF_TOKEN"
+          }
+        }
+      },
+      "resources": {
+        "nodes": 2
+      },
+      "topology": {
+        "tensor_parallel": 8,
+        "nodes_per_replica": 2
+      }
+    },
+    {
+      "model_alias": "judge",
+      "served_model_name": "judge-api",
+      "model": "/models/judge",
+      "server": {
+        "type": "vllm",
+        "image": {
+          "path": "/images/vllm-0-22.sqsh"
+        }
+      }
+    }
+  ],
+  "array_tasks": {
+    "count": 2,
+    "max_concurrent": 2
+  },
+  "submission": {
+    "job_name": "dd-two-model"
+  }
+}

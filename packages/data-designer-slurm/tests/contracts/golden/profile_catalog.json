@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "default_cluster": "primary",
+  "clusters": {
+    "primary": {
+      "schema_version": 1,
+      "host_patterns": [
+        "login*.primary.example",
+        "primary-login-*"
+      ],
+      "scheduler": {
+        "account": "research",
+        "partition": "batch"
+      },
+      "gpus_per_node": 8,
+      "workspace_root": "/workspace/primary",
+      "container_mounts": [
+        {
+          "source": "/workspace",
+          "target": "/workspace",
+          "read_only": false
+        }
+      ],
+      "image_build": {
+        "partition": "cpu"
+      }
+    },
+    "lab": {
+      "schema_version": 1,
+      "host_patterns": [
+        "lab-login-*"
+      ],
+      "scheduler": {
+        "account": "lab",
+        "partition": "gpu"
+      },
+      "gpus_per_node": "auto",
+      "workspace_root": "/workspace/lab",
+      "image_build": {
+        "partition": "cpu"
+      },
+      "gpu_request_mode": "visible"
+    }
+  }
+}

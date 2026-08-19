@@ -1,0 +1,194 @@
+{
+  "schema_version": 1,
+  "plan_id": "plan-single",
+  "package_version": "0.9.2",
+  "authored_config": {
+    "path": "/workspace/primary/runs/run-single/run.json",
+    "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "selected_profile": {
+    "schema_version": 1,
+    "cluster_name": "primary",
+    "selection_source": "explicit",
+    "catalog_path": "/workspace/profile.json",
+    "catalog_sha256": "c747bdf94fe8c638c94f25522e2213d38fa904a6a448e8e1162ef1bb2eef4cc9",
+    "profile_sha256": "afaa20b6bcb7233d35b2ad4c9ca82864e7f92ce060442112f6c5e7a5c735cce4",
+    "profile": {
+      "schema_version": 1,
+      "host_patterns": [
+        "login*.primary.example",
+        "primary-login-*"
+      ],
+      "scheduler": {
+        "account": "research",
+        "partition": "batch"
+      },
+      "gpus_per_node": 8,
+      "workspace_root": "/workspace/primary",
+      "container_mounts": [
+        {
+          "source": "/workspace",
+          "target": "/workspace",
+          "read_only": false
+        }
+      ],
+      "image_build": {
+        "partition": "cpu"
+      }
+    }
+  },
+  "resolved_gpus_per_node": 8,
+  "builder": {
+    "inline": {
+      "data_designer": {
+        "columns": [],
+        "model_configs": []
+      }
+    },
+    "content_sha256": "26631b9b95ed99ac227eff0dfc64fb0c35c8cb9b9b7717d7dc2f2702055e0c4e"
+  },
+  "invocation": {
+    "authored": {
+      "num_records": 8,
+      "dataset_name": "single-node",
+      "model_concurrency": {
+        "generator": 8
+      }
+    },
+    "effective_run_config": {}
+  },
+  "client": {
+    "authored": {
+      "image": {
+        "name": "dd-client-0.9"
+      }
+    },
+    "image": {
+      "authored_ref": {
+        "name": "dd-client-0.9"
+      },
+      "path": "/images/dd-client-0.9.sqsh",
+      "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "inspection": {
+        "schema_version": 1,
+        "inspector_version": "inspector-1",
+        "sqsh_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "inspection": {
+          "kind": "client",
+          "python_implementation": "cpython",
+          "python_version": "3.12.12",
+          "python_abi": "cp312",
+          "distributions": [
+            {
+              "name": "data-designer",
+              "version": "0.9.2"
+            }
+          ],
+          "installer_path": "/usr/bin/pip",
+          "installer_version": "26.1"
+        }
+      }
+    },
+    "dependency_lock": {
+      "path": "/workspace/primary/runs/run-single/dependency-lock.json",
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "host_node_index": 0,
+    "gpu_count": 0
+  },
+  "deployments": [
+    {
+      "deployment_id": "generator",
+      "authored": {
+        "model_alias": "generator",
+        "model": "example/generator",
+        "server": {
+          "type": "vllm",
+          "image": {
+            "name": "vllm-0-21"
+          }
+        },
+        "topology": {
+          "tensor_parallel": 8,
+          "nodes_per_replica": 1
+        }
+      },
+      "image": {
+        "authored_ref": {
+          "name": "vllm-0-21"
+        },
+        "path": "/images/vllm-0-21.sqsh",
+        "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "inspection": {
+          "schema_version": 1,
+          "inspector_version": "inspector-1",
+          "sqsh_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "inspection": {
+            "kind": "serving",
+            "server_type": "vllm",
+            "runtime_version": "0.21.0",
+            "executable_path": "/usr/local/bin/vllm"
+          }
+        }
+      },
+      "node_indices": [
+        0
+      ],
+      "gpus_per_node": 8,
+      "topology": {
+        "tensor_parallel": 8,
+        "nodes_per_replica": 1,
+        "pipeline_parallel": 1,
+        "node_group_count": 1,
+        "replicas_per_node_group": 1,
+        "replica_count": 1,
+        "gpus_per_replica": 8
+      },
+      "ports": [
+        {
+          "name": "generator-http",
+          "node_index": 0,
+          "port": 18000
+        }
+      ]
+    }
+  ],
+  "array_tasks": {
+    "count": 1,
+    "max_concurrent": 1
+  },
+  "shards": [
+    {
+      "shard_id": "shard-00000",
+      "shard_index": 0,
+      "array_task_index": 0,
+      "start_index": 0,
+      "end_index_exclusive": 8,
+      "requested_records": 8,
+      "resume_workspace": "/workspace/primary/runs/run-single/shards/shard-00000/dataset"
+    }
+  ],
+  "submission": {
+    "account": "research",
+    "partition": "batch",
+    "job_name": "data-designer",
+    "time_limit": "03:55:00"
+  },
+  "output": {
+    "root": "/workspace/primary/runs/run-single/output",
+    "format": "parquet",
+    "partitions": 1,
+    "require_exact_record_count": false
+  },
+  "container_mounts": [
+    {
+      "source": "/workspace",
+      "target": "/workspace",
+      "read_only": false
+    }
+  ],
+  "runtime_bundle": {
+    "path": "/workspace/primary/runtime/runtime.tar.gz",
+    "sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+  }
+}

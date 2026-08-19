@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "resolver_version": "resolver-1",
+  "python_abi": "cp312",
+  "client_image_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "authored_requirements": [
+    "data-designer-speech==0.2.0"
+  ],
+  "image_distributions": [
+    {
+      "name": "data-designer",
+      "version": "0.9.2"
+    },
+    {
+      "name": "pip",
+      "version": "26.1"
+    }
+  ],
+  "overlay_packages": [
+    {
+      "name": "data-designer-speech",
+      "version": "0.2.0",
+      "artifact": {
+        "path": "/workspace/primary/runs/run-001/dependencies/data_designer_speech-0.2.0.whl",
+        "sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+      }
+    }
+  ]
+}
