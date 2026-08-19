@@ -4,18 +4,28 @@
     "max_concurrent": 1
   },
   "authored_config": {
-    "path": "/workspace/primary/runs/run-single/run.json",
-    "sha256": "1ca141405769834f7b1e53461861d9ae349417008306e5fea80402d2a368bfa8"
+    "path": "/workspace/primary/runs/run-single/authored-config.json",
+    "sha256": "fa6ca55eac5075455193628e481b09789566d8f4c54926f45bbf837c20e5ba47"
   },
   "builder": {
     "authored_source": null,
-    "content_sha256": "26631b9b95ed99ac227eff0dfc64fb0c35c8cb9b9b7717d7dc2f2702055e0c4e",
+    "content_sha256": "b3ef5fc1fe675a8e004633f84842ac60cf82d5ba3dc68b4d50ee4438448b0570",
     "inline": {
       "data_designer": {
         "columns": [],
-        "model_configs": []
+        "model_configs": [
+          {
+            "alias": "generator",
+            "model": "example/generator",
+            "provider": "openai"
+          }
+        ]
       }
     },
+    "model_aliases": [
+      "generator"
+    ],
+    "referenced_model_aliases": [],
     "source": null
   },
   "client": {
@@ -33,7 +43,7 @@
     },
     "dependency_lock": {
       "path": "/workspace/primary/runs/run-single/dependency-lock.json",
-      "sha256": "9b4e1db6dbcc62df9ee90e329578cfeb727e4060d7423c79c52558a69a42c156"
+      "sha256": "4349a233e932c09effba025d7983bfdc0b1c3f7ddbd264676942fee9ec9c3cb1"
     },
     "gpu_count": 0,
     "host_node_index": 0,
@@ -63,7 +73,15 @@
       },
       "path": "/images/dd-client-0.9.sqsh",
       "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
-    }
+    },
+    "ports": [
+      {
+        "name": "deployment-00000-logical-endpoint",
+        "node_index": 0,
+        "port": 17000,
+        "role": "logical_endpoint"
+      }
+    ]
   },
   "container_mounts": [
     {
@@ -103,7 +121,7 @@
           "tensor_parallel": 8
         }
       },
-      "deployment_id": "generator",
+      "deployment_id": "deployment-00000",
       "gpus_per_node": 8,
       "image": {
         "authored_ref": {
@@ -129,12 +147,13 @@
       ],
       "ports": [
         {
-          "name": "generator-http",
+          "name": "deployment-00000-http-00000",
           "node_index": 0,
           "port": 18000,
           "role": "http"
         }
       ],
+      "served_model_name": "example/generator",
       "topology": {
         "gpus_per_replica": 8,
         "node_group_count": 1,
@@ -193,6 +212,7 @@
   "package_version": "0.9.2",
   "plan_id": "plan-single",
   "resolved_gpus_per_node": 8,
+  "run_id": "run-single",
   "runtime_bundle": {
     "path": "/workspace/primary/runtime/runtime.tar.gz",
     "sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
@@ -235,12 +255,16 @@
   "shards": [
     {
       "array_task_index": 0,
-      "end_index_exclusive": 8,
-      "requested_records": 8,
-      "resume_workspace": "/workspace/primary/runs/run-single/shards/shard-00000/dataset",
+      "input_partition": null,
+      "record_range": {
+        "end_index_exclusive": 8,
+        "start_index": 0
+      },
+      "resume_workspace": {
+        "path": "/workspace/primary/runs/run-single/shards/shard-00000/dataset"
+      },
       "shard_id": "shard-00000",
-      "shard_index": 0,
-      "start_index": 0
+      "shard_index": 0
     }
   ],
   "submission": {

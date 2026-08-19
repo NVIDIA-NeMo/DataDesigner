@@ -9,8 +9,14 @@ from copy import deepcopy
 import pytest
 from pydantic import ValidationError
 
+from data_designer.slurm._contracts import ArtifactReference as CommonArtifactReference
 from data_designer.slurm.benchmark import BenchmarkManifest, BenchmarkReport
 from data_designer.slurm.client import ClientResult
+from data_designer.slurm.planning import ArtifactReference as PlanningArtifactReference
+
+
+def test_planning_reexports_common_artifact_reference() -> None:
+    assert PlanningArtifactReference is CommonArtifactReference
 
 
 def test_client_result_allows_partial_and_failure_facts_to_differ() -> None:
@@ -23,11 +29,14 @@ def test_client_result_allows_partial_and_failure_facts_to_differ() -> None:
         "requested_records": 50,
         "actual_records": 25,
         "outcome": "partial",
-        "dataset_path": "/workspace/dataset",
+        "dataset_path": "/workspace/runs/run-001/shards/shard-00000/dataset",
         "early_shutdown": True,
         "requested_resume_mode": "if_possible",
         "effective_resume_mode": "never",
-        "candidate_output_manifest": {"path": "/workspace/output.json", "sha256": "a" * 64},
+        "candidate_output_manifest": {
+            "path": "/workspace/runs/run-001/shards/shard-00000/attempts/attempt-0001/output-manifest.json",
+            "sha256": "a" * 64,
+        },
     }
     failed = {
         "schema_version": 1,
@@ -57,6 +66,15 @@ def test_client_result_allows_partial_and_failure_facts_to_differ() -> None:
         {"outcome": "partial", "actual_records": 0},
         {"outcome": "failed", "candidate_output_manifest": {"path": "/x", "sha256": "a" * 64}},
         {"outcome": "failed", "candidate_output_manifest": None, "error_code": None},
+        {"effective_resume_mode": "always"},
+        {"early_shutdown": None},
+        {"dataset_path": "/workspace/other/dataset"},
+        {
+            "candidate_output_manifest": {
+                "path": "/workspace/runs/run-001/shards/shard-00000/attempts/attempt-0002/output-manifest.json",
+                "sha256": "a" * 64,
+            }
+        },
         {"completed_at": "2026-08-19T12:00:00+01:00"},
         {"redacted_message": "bad\nmessage"},
     ],
@@ -83,11 +101,14 @@ def client_result_payload() -> dict[str, object]:
         "requested_records": 50,
         "actual_records": 50,
         "outcome": "complete",
-        "dataset_path": "/workspace/dataset",
+        "dataset_path": "/workspace/runs/run-001/shards/shard-00000/attempts/attempt-0001/dataset",
         "early_shutdown": False,
         "requested_resume_mode": "never",
         "effective_resume_mode": "never",
-        "candidate_output_manifest": {"path": "/workspace/output.json", "sha256": "a" * 64},
+        "candidate_output_manifest": {
+            "path": "/workspace/runs/run-001/shards/shard-00000/attempts/attempt-0001/output-manifest.json",
+            "sha256": "a" * 64,
+        },
     }
 
 
@@ -100,12 +121,18 @@ def test_benchmark_manifest_rejects_duplicate_child_identity() -> None:
             {
                 "case_id": "case",
                 "child_run_id": "run",
-                "child_config": {"path": "/workspace/run-1.json", "sha256": "b" * 64},
+                "child_authored_config": {
+                    "path": "/workspace/runs/run/authored-config.json",
+                    "sha256": "b" * 64,
+                },
             },
             {
                 "case_id": "case",
                 "child_run_id": "run-2",
-                "child_config": {"path": "/workspace/run-2.json", "sha256": "c" * 64},
+                "child_authored_config": {
+                    "path": "/workspace/runs/run-2/authored-config.json",
+                    "sha256": "c" * 64,
+                },
             },
         ],
     }

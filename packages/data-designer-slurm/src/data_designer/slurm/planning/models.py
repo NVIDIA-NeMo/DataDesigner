@@ -10,12 +10,18 @@ from pydantic import Field, JsonValue, NonNegativeInt, PositiveInt, StringConstr
 
 from data_designer.config import RunConfig
 from data_designer.slurm._contracts import (
+    ArtifactReference,
     ContractRecord,
     ContractValue,
     Identifier,
+    ModelAlias,
+    RecordRange,
+    ResumeWorkspace,
     Sha256Digest,
+    ShardId,
     compute_sha256,
     validate_absolute_path,
+    validate_plain_text,
 )
 from data_designer.slurm.config.images import (
     DistributionName,
@@ -32,15 +38,6 @@ from data_designer.slurm.config.run import (
     ServerDeploymentConfig,
     SubmissionConfig,
 )
-
-
-class ArtifactReference(ContractValue):
-    """Immutable reference to a persisted artifact and its digest."""
-
-    path: str
-    sha256: Sha256Digest
-
-    _path_is_absolute = field_validator("path")(validate_absolute_path)
 
 
 class ResolvedImage(ContractValue):
@@ -113,6 +110,8 @@ class ResolvedBuilderInput(ContractValue):
     source: ArtifactReference | None = None
     inline: dict[str, JsonValue] | None = None
     content_sha256: Sha256Digest
+    model_aliases: tuple[ModelAlias, ...]
+    referenced_model_aliases: tuple[ModelAlias, ...] = ()
 
     @model_validator(mode="after")
     def validate_input(self) -> ResolvedBuilderInput:
@@ -122,10 +121,19 @@ class ResolvedBuilderInput(ContractValue):
             if self.authored_source is not None:
                 raise ValueError("inline builder input cannot contain authored_source")
             expected_digest = compute_sha256(self.inline)
+            model_aliases, referenced_aliases = _extract_builder_aliases(self.inline)
+            if self.model_aliases != model_aliases:
+                raise ValueError("resolved model aliases do not match the inline builder")
+            if self.referenced_model_aliases != referenced_aliases:
+                raise ValueError("resolved referenced aliases do not match the inline builder")
         else:
             if self.authored_source is None:
                 raise ValueError("resolved builder source requires authored_source")
             expected_digest = self.source.sha256
+        if len(self.model_aliases) != len(set(self.model_aliases)):
+            raise ValueError("resolved builder model aliases must be unique")
+        if len(self.referenced_model_aliases) != len(set(self.referenced_model_aliases)):
+            raise ValueError("resolved builder referenced aliases must be unique")
         if self.content_sha256 != expected_digest:
             raise ValueError("builder content digest does not match the resolved input")
         return self
@@ -146,7 +154,7 @@ class ResolvedInvocation(ContractValue):
 
 class PortClaim(ContractValue):
     name: Identifier
-    role: Literal["http", "rendezvous"]
+    role: Literal["http", "rendezvous", "logical_endpoint"]
     node_index: NonNegativeInt
     port: Annotated[int, Field(ge=1024, le=65535)]
 
@@ -164,6 +172,7 @@ class ResolvedTopology(ContractValue):
 class ResolvedDeployment(ContractValue):
     deployment_id: Identifier
     authored: ServerDeploymentConfig
+    served_model_name: str
     image: ResolvedImage
     node_indices: tuple[NonNegativeInt, ...] = Field(min_length=1)
     gpus_per_node: PositiveInt
@@ -172,6 +181,9 @@ class ResolvedDeployment(ContractValue):
 
     @model_validator(mode="after")
     def validate_deployment(self) -> ResolvedDeployment:
+        validate_plain_text(self.served_model_name, field_name="served model name")
+        if self.served_model_name != (self.authored.served_model_name or self.authored.model):
+            raise ValueError("resolved served model name does not match the authored deployment")
         if self.image.kind is not ImageKind.SERVING:
             raise ValueError("server deployments require serving images")
         if self.image.authored_ref != self.authored.server.image:
@@ -199,17 +211,35 @@ class ResolvedDeployment(ContractValue):
         names = tuple(port.name for port in self.ports)
         if len(names) != len(set(names)):
             raise ValueError("deployment port claim names must be unique")
+        if any(not name.startswith(f"{self.deployment_id}-") for name in names):
+            raise ValueError("deployment port claim names must use the deployment ID")
+        if any(port.role == "logical_endpoint" for port in self.ports):
+            raise ValueError("logical endpoint ports belong to the resolved client")
 
         group_heads = self.node_indices[:: self.topology.nodes_per_replica]
         expected_http_nodes = tuple(head for head in group_heads for _ in range(self.topology.replicas_per_node_group))
-        http_nodes = tuple(port.node_index for port in self.ports if port.role == "http")
+        http_ports = tuple(port for port in self.ports if port.role == "http")
+        http_nodes = tuple(port.node_index for port in http_ports)
         if http_nodes != expected_http_nodes:
             raise ValueError("deployment requires one ordered HTTP port claim per replica lane")
+        expected_http_names = tuple(f"{self.deployment_id}-http-{index:05d}" for index in range(len(http_ports)))
+        if tuple(port.name for port in http_ports) != expected_http_names:
+            raise ValueError("deployment HTTP port names must match their ordered replica lane")
 
-        expected_rendezvous_nodes = group_heads if self.topology.nodes_per_replica > 1 else ()
-        rendezvous_nodes = tuple(port.node_index for port in self.ports if port.role == "rendezvous")
+        expected_rendezvous_nodes = (
+            tuple(head for head in group_heads for _ in range(self.topology.replicas_per_node_group))
+            if self.topology.nodes_per_replica > 1
+            else ()
+        )
+        rendezvous_ports = tuple(port for port in self.ports if port.role == "rendezvous")
+        rendezvous_nodes = tuple(port.node_index for port in rendezvous_ports)
         if rendezvous_nodes != expected_rendezvous_nodes:
-            raise ValueError("deployment requires one ordered rendezvous port claim per multi-node group")
+            raise ValueError("deployment requires one ordered rendezvous port claim per multi-node replica lane")
+        expected_rendezvous_names = tuple(
+            f"{self.deployment_id}-rendezvous-{index:05d}" for index in range(len(rendezvous_ports))
+        )
+        if tuple(port.name for port in rendezvous_ports) != expected_rendezvous_names:
+            raise ValueError("deployment rendezvous port names must match their ordered replica lane")
         return self
 
 
@@ -219,6 +249,7 @@ class ResolvedClient(ContractValue):
     dependency_lock: ArtifactReference
     host_node_index: NonNegativeInt
     gpu_count: Literal[0]
+    ports: tuple[PortClaim, ...] = ()
 
     @model_validator(mode="after")
     def validate_client(self) -> ResolvedClient:
@@ -226,27 +257,27 @@ class ResolvedClient(ContractValue):
             raise ValueError("Data Designer client requires a client image")
         if self.image.authored_ref != self.authored.image:
             raise ValueError("resolved client image does not match the authored image reference")
+        if any(port.role != "logical_endpoint" for port in self.ports):
+            raise ValueError("resolved client ports must be logical endpoints")
+        if any(port.node_index != self.host_node_index for port in self.ports):
+            raise ValueError("logical endpoint ports must use the client host")
+        names = tuple(port.name for port in self.ports)
+        if len(names) != len(set(names)):
+            raise ValueError("logical endpoint port claim names must be unique")
         return self
 
 
 class PlannedShard(ContractValue):
-    shard_id: Identifier
+    shard_id: ShardId
     shard_index: NonNegativeInt
     array_task_index: NonNegativeInt
-    start_index: NonNegativeInt
-    end_index_exclusive: PositiveInt
-    requested_records: PositiveInt
-    resume_workspace: str
+    record_range: RecordRange
+    input_partition: ArtifactReference | None = None
+    resume_workspace: ResumeWorkspace
 
-    _workspace_is_absolute = field_validator("resume_workspace")(validate_absolute_path)
-
-    @model_validator(mode="after")
-    def validate_range(self) -> PlannedShard:
-        if self.end_index_exclusive <= self.start_index:
-            raise ValueError("shard end_index_exclusive must be greater than start_index")
-        if self.requested_records != self.end_index_exclusive - self.start_index:
-            raise ValueError("shard requested_records must match its record range")
-        return self
+    @property
+    def requested_records(self) -> int:
+        return self.record_range.record_count
 
 
 class ResolvedSubmission(ContractValue):
@@ -274,6 +305,7 @@ class ResolvedOutput(ContractValue):
 class ResolvedSlurmRunPlan(ContractRecord):
     """Immutable allocation input consumed without ambient configuration."""
 
+    run_id: Identifier
     plan_id: Identifier
     package_version: Annotated[str, StringConstraints(min_length=1, max_length=128)]
     authored_config: ArtifactReference
@@ -302,10 +334,15 @@ class ResolvedSlurmRunPlan(ContractRecord):
 
         deployment_ids = tuple(deployment.deployment_id for deployment in self.deployments)
         aliases = tuple(deployment.authored.model_alias for deployment in self.deployments)
-        if len(deployment_ids) != len(set(deployment_ids)):
-            raise ValueError("resolved deployment IDs must be unique")
+        expected_deployment_ids = tuple(f"deployment-{index:05d}" for index in range(len(self.deployments)))
+        if deployment_ids != expected_deployment_ids:
+            raise ValueError("resolved deployment IDs must use complete ordered zero-based identities")
         if len(aliases) != len(set(aliases)):
             raise ValueError("resolved deployment aliases must be unique")
+        if not set(aliases).issubset(self.builder.model_aliases):
+            raise ValueError("each deployment alias must match a resolved Data Designer model alias")
+        if not set(self.builder.referenced_model_aliases).issubset(aliases):
+            raise ValueError("each referenced Data Designer model alias requires a deployment")
 
         node_indices = tuple(index for deployment in self.deployments for index in deployment.node_indices)
         if node_indices != tuple(range(len(node_indices))):
@@ -313,25 +350,47 @@ class ResolvedSlurmRunPlan(ContractRecord):
         if self.client.host_node_index != self.deployments[0].node_indices[0]:
             raise ValueError("client must be colocated on the first node of the first deployment")
 
-        port_keys = tuple((port.node_index, port.port) for deployment in self.deployments for port in deployment.ports)
+        expected_logical_names = tuple(
+            f"{deployment.deployment_id}-logical-endpoint" for deployment in self.deployments
+        )
+        logical_names = tuple(port.name for port in self.client.ports)
+        if logical_names != expected_logical_names:
+            raise ValueError("client requires one ordered logical endpoint port per deployment")
+
+        ports = self.client.ports + tuple(port for deployment in self.deployments for port in deployment.ports)
+        port_keys = tuple((port.node_index, port.port) for port in ports)
         if len(port_keys) != len(set(port_keys)):
             raise ValueError("plan port claims must be unique per node")
+        port_names = tuple(port.name for port in ports)
+        if len(port_names) != len(set(port_names)):
+            raise ValueError("plan port claim names must be unique")
 
-        self._validate_shards()
+        run_root = posixpath.join(profile.workspace_root, "runs", self.run_id)
+        if self.authored_config.path != posixpath.join(run_root, "authored-config.json"):
+            raise ValueError("authored config reference must use the plan run root")
+        if self.client.dependency_lock.path != posixpath.join(run_root, "dependency-lock.json"):
+            raise ValueError("dependency lock reference must use the plan run root")
+        self._validate_shards(run_root)
         if not _is_below(self.output.root, profile.workspace_root):
             raise ValueError("resolved output root must be below the selected workspace_root")
         return self
 
-    def _validate_shards(self) -> None:
+    def _validate_shards(self, run_root: str) -> None:
         if len(self.shards) != self.array_tasks.count:
             raise ValueError("plan must contain exactly one shard per array task")
         requested_records = self.invocation.authored.num_records
         floor_count = requested_records // self.array_tasks.count
         expected_start = 0
+        shard_ids: list[ShardId] = []
+        workspace_paths: list[str] = []
+        partition_paths: list[str] = []
+        requires_partition = self.invocation.authored.input_bindings.seed_path is not None
         for index, shard in enumerate(self.shards):
             if shard.shard_index != index or shard.array_task_index != index:
                 raise ValueError("shards must use complete ordered zero-based identities")
-            if shard.start_index != expected_start:
+            if shard.shard_id != f"shard-{index:05d}":
+                raise ValueError("shard IDs must match their zero-based shard index")
+            if shard.record_range.start_index != expected_start:
                 raise ValueError("shard record ranges must be contiguous")
             expected_count = (
                 requested_records - floor_count * (self.array_tasks.count - 1)
@@ -340,10 +399,68 @@ class ResolvedSlurmRunPlan(ContractRecord):
             )
             if shard.requested_records != expected_count:
                 raise ValueError("shards must use deterministic floor/remainder record counts")
-            expected_start = shard.end_index_exclusive
+            expected_workspace = posixpath.join(run_root, "shards", shard.shard_id, "dataset")
+            if shard.resume_workspace.path != expected_workspace:
+                raise ValueError("shard resume workspace must match the run and shard identity")
+            if (shard.input_partition is not None) != requires_partition:
+                raise ValueError("shard input partition presence must match the authored seed input")
+            if shard.input_partition is not None:
+                expected_partition = posixpath.join(run_root, "shards", shard.shard_id, "input-partition.json")
+                if shard.input_partition.path != expected_partition:
+                    raise ValueError("shard input partition must match the run and shard identity")
+                partition_paths.append(shard.input_partition.path)
+            shard_ids.append(shard.shard_id)
+            workspace_paths.append(shard.resume_workspace.path)
+            expected_start = shard.record_range.end_index_exclusive
         if expected_start != requested_records:
             raise ValueError("shard record ranges must cover the requested records")
+        if len(shard_ids) != len(set(shard_ids)):
+            raise ValueError("shard IDs must be unique")
+        if len(workspace_paths) != len(set(workspace_paths)):
+            raise ValueError("shard resume workspaces must be unique")
+        if len(partition_paths) != len(set(partition_paths)):
+            raise ValueError("shard input partitions must be unique")
 
 
 def _is_below(path: str, root: str) -> bool:
     return path != root and posixpath.commonpath((path, root)) == root
+
+
+def _extract_builder_aliases(builder: dict[str, JsonValue]) -> tuple[tuple[ModelAlias, ...], tuple[ModelAlias, ...]]:
+    data_designer = builder.get("data_designer", builder)
+    if not isinstance(data_designer, dict):
+        raise ValueError("builder data_designer value must be an object")
+    model_configs = data_designer.get("model_configs") or []
+    if not isinstance(model_configs, list):
+        raise ValueError("builder model_configs must be a list")
+
+    model_aliases: list[ModelAlias] = []
+    for model_config in model_configs:
+        if not isinstance(model_config, dict) or not isinstance(model_config.get("alias"), str):
+            raise ValueError("each builder model config must contain a string alias")
+        model_aliases.append(model_config["alias"])
+
+    referenced_aliases: list[ModelAlias] = []
+
+    def collect(value: JsonValue, *, key: str | None = None) -> None:
+        if key == "model_configs":
+            return
+        if key == "model_alias" or (key is not None and key.endswith("_model_alias")):
+            if not isinstance(value, str):
+                raise ValueError(f"builder {key} must be a string")
+            referenced_aliases.append(value)
+            return
+        if key == "model_aliases":
+            if not isinstance(value, list) or any(not isinstance(alias, str) for alias in value):
+                raise ValueError("builder model_aliases must be a list of strings")
+            referenced_aliases.extend(value)
+            return
+        if isinstance(value, dict):
+            for child_key, child in value.items():
+                collect(child, key=child_key)
+        elif isinstance(value, list):
+            for child in value:
+                collect(child)
+
+    collect(data_designer)
+    return tuple(model_aliases), tuple(dict.fromkeys(referenced_aliases))

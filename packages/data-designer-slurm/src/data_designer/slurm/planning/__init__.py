@@ -10,6 +10,7 @@ from data_designer.slurm.planning.models import (
     LockedPackage,
     PlannedShard,
     PortClaim,
+    RecordRange,
     ResolvedBuilderInput,
     ResolvedClient,
     ResolvedDependencyLock,
@@ -20,6 +21,7 @@ from data_designer.slurm.planning.models import (
     ResolvedSlurmRunPlan,
     ResolvedSubmission,
     ResolvedTopology,
+    ResumeWorkspace,
 )
 from data_designer.slurm.planning.validation import PlanContractError, validate_resolved_plan
 
@@ -29,6 +31,7 @@ __all__ = [
     "PlanContractError",
     "PlannedShard",
     "PortClaim",
+    "RecordRange",
     "ResolvedBuilderInput",
     "ResolvedClient",
     "ResolvedDependencyLock",
@@ -39,5 +42,6 @@ __all__ = [
     "ResolvedSlurmRunPlan",
     "ResolvedSubmission",
     "ResolvedTopology",
+    "ResumeWorkspace",
     "validate_resolved_plan",
 ]

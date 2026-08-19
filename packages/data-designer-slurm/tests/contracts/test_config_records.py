@@ -9,7 +9,7 @@ from copy import deepcopy
 import pytest
 from pydantic import ValidationError
 
-from data_designer.config import DataDesignerConfigBuilder
+from data_designer.config import DataDesignerConfigBuilder, ModelConfig
 from data_designer.slurm.config import (
     ArrayTasksConfig,
     BenchmarkBaseRun,
@@ -135,6 +135,21 @@ def test_deployment_rejects_invalid_topology() -> None:
         ServerDeploymentConfig.model_validate(payload)
 
 
+def test_model_alias_preserves_public_data_designer_values() -> None:
+    alias = "judge/v2"
+    ModelConfig(alias=alias, model="example/judge", provider="openai")
+
+    deployment = ServerDeploymentConfig.model_validate(
+        {
+            "model_alias": alias,
+            "model": "example/judge",
+            "server": {"type": "vllm", "image": {"name": "vllm"}},
+        }
+    )
+
+    assert deployment.model_alias == alias
+
+
 def test_run_rejects_duplicate_alias_and_unknown_concurrency(authored_run: DataDesignerSlurmConfig) -> None:
     payload = authored_run.model_dump(mode="json")
     payload["deployments"][1]["model_alias"] = "generator"
@@ -160,6 +175,12 @@ def test_builder_input_accepts_exported_and_shorthand_configs() -> None:
 
     assert BuilderInput(inline=exported).inline == exported
     assert BuilderInput(inline={"columns": []}).inline == {"columns": []}
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+def test_builder_input_rejects_non_finite_json(value: float) -> None:
+    with pytest.raises(ValidationError):
+        BuilderInput(inline={"columns": [], "value": value})
 
 
 @pytest.mark.parametrize(

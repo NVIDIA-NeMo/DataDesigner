@@ -3,13 +3,13 @@
 
 from __future__ import annotations
 
-import json
+import hashlib
 from pathlib import Path
 
 import pytest
 from pydantic import BaseModel
 
-from data_designer.slurm._contracts import ContractRecord
+from data_designer.slurm._contracts import AuthoredConfig, ContractRecord
 from data_designer.slurm.benchmark import BenchmarkManifest, BenchmarkReport
 from data_designer.slurm.client import ClientResult
 from data_designer.slurm.config import (
@@ -46,10 +46,11 @@ def test_golden_record_round_trip(record_type: type[BaseModel], filename: str) -
     record = record_type.model_validate_json(fixture)
 
     assert record_type.model_validate_json(record.model_dump_json()) == record
+    if isinstance(record, (AuthoredConfig, ContractRecord)):
+        assert record_type.model_validate_json(record.serialize_json()) == record
+        assert record.compute_sha256() == hashlib.sha256(record.serialize_json().encode()).hexdigest()
     if isinstance(record, ContractRecord):
         assert record.serialize_json() == fixture
-        assert record_type.model_validate_json(record.serialize_json()) == record
-        assert record.compute_sha256() == record.compute_sha256()
 
 
 def test_golden_records_are_sanitized() -> None:
@@ -65,6 +66,5 @@ def test_canonical_serialization_ignores_mapping_order(authored_run: DataDesigne
     payload["invocation"]["model_concurrency"] = {"judge": 32, "generator": 64}
     reordered = DataDesignerSlurmConfig.model_validate(payload)
 
-    first = json.dumps(authored_run.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
-    second = json.dumps(reordered.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
-    assert first == second
+    assert authored_run.serialize_json() == reordered.serialize_json()
+    assert authored_run.compute_sha256() == reordered.compute_sha256()

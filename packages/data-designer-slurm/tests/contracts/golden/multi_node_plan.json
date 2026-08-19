@@ -4,18 +4,34 @@
     "max_concurrent": 2
   },
   "authored_config": {
-    "path": "/workspace/primary/runs/run-001/run.json",
-    "sha256": "a8d4be425bccdd56c4cef65a63b1bda372a28075f4e91e8c9cb724fbea5a3251"
+    "path": "/workspace/primary/runs/run-001/authored-config.json",
+    "sha256": "9bfdbcb1ddd374a5d43eea44890d13c08798ea9e18c30ff5d5258fa0d27f539d"
   },
   "builder": {
     "authored_source": null,
-    "content_sha256": "26631b9b95ed99ac227eff0dfc64fb0c35c8cb9b9b7717d7dc2f2702055e0c4e",
+    "content_sha256": "f37227ca7c67e203abe881c0228b4308a8e741364296d293159a1201949732f2",
     "inline": {
       "data_designer": {
         "columns": [],
-        "model_configs": []
+        "model_configs": [
+          {
+            "alias": "generator",
+            "model": "example/generator",
+            "provider": "openai"
+          },
+          {
+            "alias": "judge",
+            "model": "/models/judge",
+            "provider": "openai"
+          }
+        ]
       }
     },
+    "model_aliases": [
+      "generator",
+      "judge"
+    ],
+    "referenced_model_aliases": [],
     "source": null
   },
   "client": {
@@ -40,7 +56,7 @@
     },
     "dependency_lock": {
       "path": "/workspace/primary/runs/run-001/dependency-lock.json",
-      "sha256": "0db59e7c2db1f1ea4123299a40ca6e42b50d2a27192902721d30fd8bc32a1f8a"
+      "sha256": "fd80a86f035fd1d7cab2e4988722eb7441fe07922f809d4a07e73a0c75190a75"
     },
     "gpu_count": 0,
     "host_node_index": 0,
@@ -74,7 +90,21 @@
       },
       "path": "/images/dd-client-0.9.sqsh",
       "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
-    }
+    },
+    "ports": [
+      {
+        "name": "deployment-00000-logical-endpoint",
+        "node_index": 0,
+        "port": 17000,
+        "role": "logical_endpoint"
+      },
+      {
+        "name": "deployment-00001-logical-endpoint",
+        "node_index": 0,
+        "port": 17001,
+        "role": "logical_endpoint"
+      }
+    ]
   },
   "container_mounts": [
     {
@@ -122,7 +152,7 @@
           "tensor_parallel": 8
         }
       },
-      "deployment_id": "generator",
+      "deployment_id": "deployment-00000",
       "gpus_per_node": 8,
       "image": {
         "authored_ref": {
@@ -149,18 +179,19 @@
       ],
       "ports": [
         {
-          "name": "generator-http",
+          "name": "deployment-00000-http-00000",
           "node_index": 0,
           "port": 18000,
           "role": "http"
         },
         {
-          "name": "generator-rendezvous",
+          "name": "deployment-00000-rendezvous-00000",
           "node_index": 0,
           "port": 19000,
           "role": "rendezvous"
         }
       ],
+      "served_model_name": "example/generator",
       "topology": {
         "gpus_per_replica": 16,
         "node_group_count": 1,
@@ -201,7 +232,7 @@
           "tensor_parallel": 1
         }
       },
-      "deployment_id": "judge",
+      "deployment_id": "deployment-00001",
       "gpus_per_node": 8,
       "image": {
         "authored_ref": {
@@ -227,54 +258,55 @@
       ],
       "ports": [
         {
-          "name": "judge-http-0",
+          "name": "deployment-00001-http-00000",
           "node_index": 2,
           "port": 18000,
           "role": "http"
         },
         {
-          "name": "judge-http-1",
+          "name": "deployment-00001-http-00001",
           "node_index": 2,
           "port": 18001,
           "role": "http"
         },
         {
-          "name": "judge-http-2",
+          "name": "deployment-00001-http-00002",
           "node_index": 2,
           "port": 18002,
           "role": "http"
         },
         {
-          "name": "judge-http-3",
+          "name": "deployment-00001-http-00003",
           "node_index": 2,
           "port": 18003,
           "role": "http"
         },
         {
-          "name": "judge-http-4",
+          "name": "deployment-00001-http-00004",
           "node_index": 2,
           "port": 18004,
           "role": "http"
         },
         {
-          "name": "judge-http-5",
+          "name": "deployment-00001-http-00005",
           "node_index": 2,
           "port": 18005,
           "role": "http"
         },
         {
-          "name": "judge-http-6",
+          "name": "deployment-00001-http-00006",
           "node_index": 2,
           "port": 18006,
           "role": "http"
         },
         {
-          "name": "judge-http-7",
+          "name": "deployment-00001-http-00007",
           "node_index": 2,
           "port": 18007,
           "role": "http"
         }
       ],
+      "served_model_name": "judge-api",
       "topology": {
         "gpus_per_replica": 1,
         "node_group_count": 1,
@@ -336,6 +368,7 @@
   "package_version": "0.9.2",
   "plan_id": "plan-001",
   "resolved_gpus_per_node": 8,
+  "run_id": "run-001",
   "runtime_bundle": {
     "path": "/workspace/primary/runtime/runtime.tar.gz",
     "sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
@@ -378,21 +411,29 @@
   "shards": [
     {
       "array_task_index": 0,
-      "end_index_exclusive": 50,
-      "requested_records": 50,
-      "resume_workspace": "/workspace/primary/runs/run-001/shards/shard-00000/dataset",
+      "input_partition": null,
+      "record_range": {
+        "end_index_exclusive": 50,
+        "start_index": 0
+      },
+      "resume_workspace": {
+        "path": "/workspace/primary/runs/run-001/shards/shard-00000/dataset"
+      },
       "shard_id": "shard-00000",
-      "shard_index": 0,
-      "start_index": 0
+      "shard_index": 0
     },
     {
       "array_task_index": 1,
-      "end_index_exclusive": 100,
-      "requested_records": 50,
-      "resume_workspace": "/workspace/primary/runs/run-001/shards/shard-00001/dataset",
+      "input_partition": null,
+      "record_range": {
+        "end_index_exclusive": 100,
+        "start_index": 50
+      },
+      "resume_workspace": {
+        "path": "/workspace/primary/runs/run-001/shards/shard-00001/dataset"
+      },
       "shard_id": "shard-00001",
-      "shard_index": 1,
-      "start_index": 50
+      "shard_index": 1
     }
   ],
   "submission": {

@@ -10,11 +10,12 @@ import pytest
 from pydantic import ValidationError
 
 from data_designer.slurm._contracts import compute_sha256
-from data_designer.slurm.config import DataDesignerSlurmConfig
+from data_designer.slurm.config import BuilderInput, DataDesignerSlurmConfig
 from data_designer.slurm.planning import (
     ArtifactReference,
     PlanContractError,
     ResolvedDependencyLock,
+    ResolvedDeployment,
     ResolvedSlurmRunPlan,
     ResolvedSubmission,
     validate_resolved_plan,
@@ -27,7 +28,7 @@ def test_multi_node_plan_matches_authored_inputs(
     multi_node_plan: ResolvedSlurmRunPlan,
 ) -> None:
     assert validate_resolved_plan(authored_run, dependency_lock, multi_node_plan) is multi_node_plan
-    assert multi_node_plan.authored_config.sha256 == compute_sha256(authored_run.model_dump(mode="json"))
+    assert multi_node_plan.authored_config.sha256 == authored_run.compute_sha256()
     assert [deployment.topology.replica_count for deployment in multi_node_plan.deployments] == [1, 8]
     assert multi_node_plan.client.gpu_count == 0
 
@@ -38,7 +39,7 @@ def test_single_node_plan_matches_authored_inputs(
     single_node_plan: ResolvedSlurmRunPlan,
 ) -> None:
     assert validate_resolved_plan(authored_run_single, dependency_lock_single, single_node_plan) is single_node_plan
-    assert single_node_plan.authored_config.sha256 == compute_sha256(authored_run_single.model_dump(mode="json"))
+    assert single_node_plan.authored_config.sha256 == authored_run_single.compute_sha256()
     assert [deployment.topology.replica_count for deployment in single_node_plan.deployments] == [1]
     assert single_node_plan.client.gpu_count == 0
 
@@ -60,10 +61,15 @@ def test_plan_canonical_json_is_byte_stable(multi_node_plan: ResolvedSlurmRunPla
         lambda payload: payload.update(resolved_gpus_per_node=4),
         lambda payload: payload["client"].update(host_node_index=1),
         lambda payload: payload["deployments"][1].update(node_indices=[1]),
+        lambda payload: payload["deployments"][0].update(deployment_id="unrelated-runtime-name"),
         lambda payload: payload["deployments"][0]["ports"][1].update(port=18000),
         lambda payload: payload["deployments"][1].update(ports=payload["deployments"][1]["ports"][:1]),
+        lambda payload: payload["client"].update(ports=payload["client"]["ports"][:1]),
         lambda payload: payload.update(shards=payload["shards"][:1]),
-        lambda payload: payload["shards"][1].update(start_index=49),
+        lambda payload: payload["shards"][1]["record_range"].update(start_index=49),
+        lambda payload: payload["shards"][1].update(shard_id="shard-00002"),
+        lambda payload: payload["shards"][1].update(resume_workspace=payload["shards"][0]["resume_workspace"]),
+        lambda payload: payload.update(run_id="run-other"),
         lambda payload: payload["output"].update(root="/outside/output"),
         lambda payload: payload.update(container_mounts=[]),
         lambda payload: payload["deployments"][0]["topology"].update(replica_count=2),
@@ -83,6 +89,104 @@ def test_plan_rejects_unmaterialized_run_config(multi_node_plan: ResolvedSlurmRu
 
     with pytest.raises(ValidationError, match="fully materialized"):
         ResolvedSlurmRunPlan.model_validate(payload)
+
+
+def test_plan_rejects_deployment_alias_missing_from_builder(multi_node_plan: ResolvedSlurmRunPlan) -> None:
+    payload = multi_node_plan.model_dump(mode="json")
+    payload["builder"]["inline"]["data_designer"]["model_configs"] = payload["builder"]["inline"]["data_designer"][
+        "model_configs"
+    ][:1]
+    payload["builder"]["model_aliases"] = ["generator"]
+    payload["builder"]["content_sha256"] = compute_sha256(payload["builder"]["inline"])
+
+    with pytest.raises(ValidationError, match="deployment alias"):
+        ResolvedSlurmRunPlan.model_validate_json(json.dumps(payload))
+
+
+def test_plan_rejects_referenced_alias_without_deployment(multi_node_plan: ResolvedSlurmRunPlan) -> None:
+    payload = multi_node_plan.model_dump(mode="json")
+    payload["builder"]["inline"]["data_designer"]["columns"] = [{"model_alias": "missing"}]
+    payload["builder"]["referenced_model_aliases"] = ["missing"]
+    payload["builder"]["content_sha256"] = compute_sha256(payload["builder"]["inline"])
+
+    with pytest.raises(ValidationError, match="referenced Data Designer model alias"):
+        ResolvedSlurmRunPlan.model_validate_json(json.dumps(payload))
+
+
+def test_multi_node_tp4_requires_rendezvous_per_replica_lane(multi_node_plan: ResolvedSlurmRunPlan) -> None:
+    payload = multi_node_plan.deployments[0].model_dump(mode="json")
+    payload["authored"]["topology"]["tensor_parallel"] = 4
+    payload["topology"].update(
+        tensor_parallel=4,
+        replicas_per_node_group=2,
+        replica_count=2,
+        gpus_per_replica=8,
+    )
+    payload["ports"] = [
+        {
+            "name": "deployment-00000-http-00000",
+            "role": "http",
+            "node_index": 0,
+            "port": 18000,
+        },
+        {
+            "name": "deployment-00000-http-00001",
+            "role": "http",
+            "node_index": 0,
+            "port": 18001,
+        },
+        {
+            "name": "deployment-00000-rendezvous-00000",
+            "role": "rendezvous",
+            "node_index": 0,
+            "port": 19000,
+        },
+    ]
+
+    with pytest.raises(ValidationError, match="rendezvous"):
+        ResolvedDeployment.model_validate_json(json.dumps(payload))
+
+    payload["ports"].append(
+        {
+            "name": "deployment-00000-rendezvous-00001",
+            "role": "rendezvous",
+            "node_index": 0,
+            "port": 19001,
+        }
+    )
+    assert ResolvedDeployment.model_validate_json(json.dumps(payload)).topology.replica_count == 2
+
+
+def test_sourced_builder_validation_requires_resolved_payload(
+    authored_run: DataDesignerSlurmConfig,
+    dependency_lock: ResolvedDependencyLock,
+    multi_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    sourced_authored = authored_run.model_copy(update={"builder": BuilderInput(source="builder.json")})
+    payload = multi_node_plan.model_dump(mode="json")
+    payload["authored_config"]["sha256"] = sourced_authored.compute_sha256()
+    payload["builder"] = {
+        "authored_source": "builder.json",
+        "source": {"path": "/workspace/primary/runs/run-001/builder.json", "sha256": "a" * 64},
+        "inline": None,
+        "content_sha256": "a" * 64,
+        "model_aliases": ["generator", "judge"],
+        "referenced_model_aliases": [],
+    }
+    sourced_plan = ResolvedSlurmRunPlan.model_validate_json(json.dumps(payload))
+
+    with pytest.raises(PlanContractError, match="resolved payload"):
+        validate_resolved_plan(sourced_authored, dependency_lock, sourced_plan)
+
+    assert (
+        validate_resolved_plan(
+            sourced_authored,
+            dependency_lock,
+            sourced_plan,
+            builder_payload=authored_run.builder.inline,
+        )
+        is sourced_plan
+    )
 
 
 @pytest.mark.parametrize(

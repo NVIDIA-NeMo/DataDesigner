@@ -3,10 +3,15 @@
 
 from __future__ import annotations
 
-from data_designer.slurm._contracts import compute_sha256
+from pydantic import JsonValue
+
 from data_designer.slurm.config.images import ClientImageInspection
 from data_designer.slurm.config.run import DataDesignerSlurmConfig
-from data_designer.slurm.planning.models import ResolvedDependencyLock, ResolvedSlurmRunPlan
+from data_designer.slurm.planning.models import (
+    ResolvedDependencyLock,
+    ResolvedSlurmRunPlan,
+    _extract_builder_aliases,
+)
 
 
 class PlanContractError(ValueError):
@@ -17,10 +22,12 @@ def validate_resolved_plan(
     authored: DataDesignerSlurmConfig,
     dependency_lock: ResolvedDependencyLock,
     plan: ResolvedSlurmRunPlan,
+    *,
+    builder_payload: dict[str, JsonValue] | None = None,
 ) -> ResolvedSlurmRunPlan:
     """Validate cross-record identities and digests for one resolved plan."""
     _require(
-        plan.authored_config.sha256 == compute_sha256(authored.model_dump(mode="json")),
+        plan.authored_config.sha256 == authored.compute_sha256(),
         "authored config digest does not match the resolved plan",
     )
     _require(plan.invocation.authored == authored.invocation, "resolved invocation does not match authored input")
@@ -39,6 +46,14 @@ def validate_resolved_plan(
         _require(
             plan.builder.authored_source == authored.builder.source,
             "resolved builder source does not match authored input",
+        )
+        if builder_payload is None:
+            raise PlanContractError("sourced builder validation requires its resolved payload")
+        model_aliases, referenced_aliases = _extract_builder_aliases(builder_payload)
+        _require(plan.builder.model_aliases == model_aliases, "resolved model aliases do not match builder source")
+        _require(
+            plan.builder.referenced_model_aliases == referenced_aliases,
+            "resolved referenced aliases do not match builder source",
         )
 
     expected_account = authored.submission.account or plan.selected_profile.profile.scheduler.account

@@ -7,16 +7,16 @@
   "children": [
     {
       "case_id": "two-independent-replicas-c32",
-      "child_config": {
-        "path": "/workspace/primary/runs/run-benchmark-001-c32/run.json",
+      "child_authored_config": {
+        "path": "/workspace/primary/runs/run-benchmark-001-c32/authored-config.json",
         "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
       },
       "child_run_id": "run-benchmark-001-c32"
     },
     {
       "case_id": "one-two-node-replica-c32",
-      "child_config": {
-        "path": "/workspace/primary/runs/run-benchmark-002-c32/run.json",
+      "child_authored_config": {
+        "path": "/workspace/primary/runs/run-benchmark-002-c32/authored-config.json",
         "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
       },
       "child_run_id": "run-benchmark-002-c32"

@@ -5,7 +5,13 @@
     "inline": {
       "data_designer": {
         "columns": [],
-        "model_configs": []
+        "model_configs": [
+          {
+            "alias": "generator",
+            "model": "example/generator",
+            "provider": "openai"
+          }
+        ]
       }
     }
   },

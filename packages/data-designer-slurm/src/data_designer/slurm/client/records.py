@@ -9,8 +9,14 @@ from typing import Annotated, Literal
 
 from pydantic import NonNegativeInt, PositiveInt, StringConstraints, field_validator, model_validator
 
-from data_designer.slurm._contracts import ContractRecord, Identifier, validate_absolute_path
-from data_designer.slurm.planning import ArtifactReference
+from data_designer.slurm._contracts import (
+    ArtifactReference,
+    AttemptId,
+    ContractRecord,
+    Identifier,
+    ShardId,
+    validate_absolute_path,
+)
 
 
 class ClientOutcome(str, Enum):
@@ -23,8 +29,8 @@ class ClientResult(ContractRecord):
     """Semantic Data Designer outcome independent of engine-internal result types."""
 
     run_id: Identifier
-    shard_id: Identifier
-    attempt_id: Identifier
+    shard_id: ShardId
+    attempt_id: AttemptId
     completed_at: datetime
     requested_records: PositiveInt
     actual_records: NonNegativeInt | None
@@ -60,6 +66,11 @@ class ClientResult(ContractRecord):
     def validate_outcome(self) -> ClientResult:
         if self.actual_records is not None and self.actual_records > self.requested_records:
             raise ValueError("actual_records must not exceed requested_records")
+        if self.requested_resume_mode != "if_possible" and self.effective_resume_mode not in {
+            None,
+            self.requested_resume_mode,
+        }:
+            raise ValueError("effective resume mode must match a fixed requested mode")
         if self.outcome is ClientOutcome.COMPLETE:
             if self.actual_records != self.requested_records:
                 raise ValueError("complete client results require the requested record count")
@@ -73,6 +84,9 @@ class ClientResult(ContractRecord):
                 raise ValueError("failed client results cannot reference a candidate output manifest")
             if self.error_code is None:
                 raise ValueError("failed client results require error_code")
+        if self.outcome is not ClientOutcome.FAILED:
+            if self.early_shutdown is None or self.effective_resume_mode is None:
+                raise ValueError("non-failed client results require resume and early-shutdown facts")
         return self
 
     def _require_success_artifacts(self) -> None:
@@ -80,3 +94,13 @@ class ClientResult(ContractRecord):
             raise ValueError("successful client results require dataset and candidate manifest paths")
         if self.error_code is not None or self.redacted_message is not None:
             raise ValueError("successful client results cannot contain failure details")
+        shard_root = f"/runs/{self.run_id}/shards/{self.shard_id}"
+        if self.requested_resume_mode == "never":
+            expected_dataset = f"{shard_root}/attempts/{self.attempt_id}/dataset"
+        else:
+            expected_dataset = f"{shard_root}/dataset"
+        if not self.dataset_path.endswith(expected_dataset):
+            raise ValueError("dataset path must match the run, shard, attempt, and resume policy")
+        expected_manifest = f"{shard_root}/attempts/{self.attempt_id}/output-manifest.json"
+        if not self.candidate_output_manifest.path.endswith(expected_manifest):
+            raise ValueError("candidate output reference must match the run, shard, and attempt")

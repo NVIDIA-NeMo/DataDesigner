@@ -13,6 +13,7 @@ from data_designer.slurm._contracts import (
     AuthoredConfig,
     ContractRecord,
     Identifier,
+    SchemaVersion,
     Sha256Digest,
     compute_sha256,
     validate_absolute_path,
@@ -46,7 +47,7 @@ class ContainerMount(AuthoredConfig):
 class SlurmProfile(AuthoredConfig):
     """Strict facts for one Slurm cluster."""
 
-    schema_version: Literal[1]
+    schema_version: SchemaVersion
     host_patterns: list[str] = Field(default_factory=list)
     scheduler: SchedulerProfile = Field(default_factory=SchedulerProfile)
     gpus_per_node: PositiveInt | Literal["auto"]
@@ -81,7 +82,7 @@ class SlurmProfile(AuthoredConfig):
 class SlurmProfileCatalog(AuthoredConfig):
     """Versioned catalog of independently complete cluster profiles."""
 
-    schema_version: Literal[1]
+    schema_version: SchemaVersion
     default_cluster: Identifier
     clusters: dict[Identifier, SlurmProfile] = Field(min_length=1)
 

@@ -7,7 +7,14 @@ from typing import Annotated, Literal
 
 from pydantic import Field, PositiveFloat, PositiveInt, field_validator, model_validator
 
-from data_designer.slurm._contracts import AuthoredConfig, Duration, Identifier, validate_local_config_path
+from data_designer.slurm._contracts import (
+    AuthoredConfig,
+    Duration,
+    Identifier,
+    ModelAlias,
+    SchemaVersion,
+    validate_local_config_path,
+)
 from data_designer.slurm.config.run import DataDesignerSlurmConfig
 
 
@@ -47,7 +54,7 @@ class BenchmarkDeploymentOverride(AuthoredConfig):
 
 class BenchmarkDeploymentCase(AuthoredConfig):
     name: Identifier
-    deployments: dict[Identifier, BenchmarkDeploymentOverride] = Field(min_length=1)
+    deployments: dict[ModelAlias, BenchmarkDeploymentOverride] = Field(min_length=1)
 
 
 class FixedRecordPolicy(AuthoredConfig):
@@ -79,10 +86,10 @@ class BenchmarkAnalysisTargets(AuthoredConfig):
 class DataDesignerSlurmBenchmarkConfig(AuthoredConfig):
     """Authored benchmark intent expanded into ordinary Slurm run configs."""
 
-    schema_version: Literal[1]
+    schema_version: SchemaVersion
     name: Identifier
     base_run: BenchmarkBaseRun
-    model_aliases: Literal["all"] | list[Identifier]
+    model_aliases: Literal["all"] | list[ModelAlias]
     concurrency_values: list[PositiveInt] = Field(min_length=1)
     deployment_cases: list[BenchmarkDeploymentCase] = Field(min_length=1)
     record_policy: BenchmarkRecordPolicy

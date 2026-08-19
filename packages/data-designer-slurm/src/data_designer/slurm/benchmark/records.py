@@ -17,14 +17,20 @@ from pydantic import (
     model_validator,
 )
 
-from data_designer.slurm._contracts import ContractRecord, ContractValue, Identifier
-from data_designer.slurm.planning import ArtifactReference
+from data_designer.slurm._contracts import ArtifactReference, ContractRecord, ContractValue, Identifier
 
 
 class BenchmarkChildRun(ContractValue):
     case_id: Identifier
     child_run_id: Identifier
-    child_config: ArtifactReference
+    child_authored_config: ArtifactReference
+
+    @model_validator(mode="after")
+    def validate_authored_config(self) -> BenchmarkChildRun:
+        expected_suffix = f"/runs/{self.child_run_id}/authored-config.json"
+        if not self.child_authored_config.path.endswith(expected_suffix):
+            raise ValueError("child authored config path must match the child run identity")
+        return self
 
 
 class BenchmarkManifest(ContractRecord):

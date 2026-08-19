@@ -23,6 +23,8 @@ from data_designer.slurm._contracts import (
     Duration,
     EnvironmentName,
     Identifier,
+    ModelAlias,
+    SchemaVersion,
     validate_absolute_path,
     validate_local_config_path,
     validate_plain_text,
@@ -156,7 +158,7 @@ class InvocationConfig(AuthoredConfig):
     run_config: dict[str, JsonValue] = Field(default_factory=dict)
     input_bindings: InputBindings = Field(default_factory=InputBindings)
     mcp_providers: list[MCPProviderConfig] = Field(default_factory=list)
-    model_concurrency: dict[Identifier, PositiveInt] = Field(default_factory=dict)
+    model_concurrency: dict[ModelAlias, PositiveInt] = Field(default_factory=dict)
     diagnostics: InvocationDiagnostics = Field(default_factory=InvocationDiagnostics)
 
     @field_validator("run_config")
@@ -276,8 +278,8 @@ class DeploymentTopology(AuthoredConfig):
 
 
 class ServerDeploymentConfig(AuthoredConfig):
-    model_alias: Identifier
-    served_model_name: Identifier | None = None
+    model_alias: ModelAlias
+    served_model_name: str | None = None
     model: str
     server: VllmServerConfig
     resources: DeploymentResources = Field(default_factory=DeploymentResources)
@@ -292,6 +294,11 @@ class ServerDeploymentConfig(AuthoredConfig):
         if any(character.isspace() for character in value):
             raise ValueError("Hugging Face model identifiers must not contain whitespace")
         return value
+
+    @field_validator("served_model_name")
+    @classmethod
+    def validate_served_model_name(cls, value: str | None) -> str | None:
+        return None if value is None else validate_plain_text(value, field_name="served model name")
 
     @model_validator(mode="after")
     def validate_topology(self) -> ServerDeploymentConfig:
@@ -350,7 +357,7 @@ class OutputConfig(AuthoredConfig):
 class DataDesignerSlurmConfig(AuthoredConfig):
     """Complete portable intent for one Data Designer Slurm run."""
 
-    schema_version: Literal[1]
+    schema_version: SchemaVersion
     name: Identifier
     builder: BuilderInput
     invocation: InvocationConfig

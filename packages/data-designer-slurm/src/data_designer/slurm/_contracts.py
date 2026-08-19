@@ -9,7 +9,15 @@ import posixpath
 import re
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, StringConstraints
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    NonNegativeInt,
+    PositiveInt,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
 
 Identifier = Annotated[
     str,
@@ -19,6 +27,10 @@ Identifier = Annotated[
         pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$",
     ),
 ]
+ModelAlias = str
+ShardId = Annotated[str, StringConstraints(pattern=r"^shard-[0-9]{5,}$")]
+AttemptId = Annotated[str, StringConstraints(pattern=r"^attempt-[0-9]{4,}$")]
+SchemaVersion = Literal[1]
 EnvironmentName = Annotated[str, StringConstraints(pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")]
 Sha256Digest = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
 Duration = Annotated[str, StringConstraints(pattern=r"^[1-9][0-9]*(?:s|m|h|d)$")]
@@ -30,10 +42,20 @@ class AuthoredConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
         frozen=True,
+        allow_inf_nan=False,
         protected_namespaces=(),
         strict=True,
         validate_default=True,
     )
+
+    def serialize_canonical_json(self) -> bytes:
+        return canonical_json(self.model_dump(mode="json"))
+
+    def serialize_json(self) -> str:
+        return pretty_json(self.model_dump(mode="json"))
+
+    def compute_sha256(self) -> Sha256Digest:
+        return hashlib.sha256(self.serialize_json().encode("utf-8")).hexdigest()
 
 
 class ContractValue(BaseModel):
@@ -42,6 +64,7 @@ class ContractValue(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
         frozen=True,
+        allow_inf_nan=False,
         protected_namespaces=(),
         strict=True,
         validate_default=True,
@@ -51,25 +74,16 @@ class ContractValue(BaseModel):
 class ContractRecord(ContractValue):
     """Base for explicitly versioned records with stable serialization."""
 
-    schema_version: Literal[1]
+    schema_version: SchemaVersion
 
     def serialize_canonical_json(self) -> bytes:
         return canonical_json(self.model_dump(mode="json"))
 
     def serialize_json(self) -> str:
-        return (
-            json.dumps(
-                self.model_dump(mode="json"),
-                allow_nan=False,
-                ensure_ascii=False,
-                indent=2,
-                sort_keys=True,
-            )
-            + "\n"
-        )
+        return pretty_json(self.model_dump(mode="json"))
 
     def compute_sha256(self) -> Sha256Digest:
-        return hashlib.sha256(self.serialize_canonical_json()).hexdigest()
+        return hashlib.sha256(self.serialize_json().encode("utf-8")).hexdigest()
 
 
 def canonical_json(value: object) -> bytes:
@@ -81,6 +95,20 @@ def canonical_json(value: object) -> bytes:
         separators=(",", ":"),
         sort_keys=True,
     ).encode("utf-8")
+
+
+def pretty_json(value: object) -> str:
+    """Serialize a JSON-compatible value to deterministic persisted text."""
+    return (
+        json.dumps(
+            value,
+            allow_nan=False,
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n"
+    )
 
 
 def compute_sha256(value: object) -> Sha256Digest:
@@ -126,3 +154,37 @@ def validate_url(value: str, *, field_name: str) -> str:
     if not re.fullmatch(r"https?://[^\s]+", value):
         raise ValueError(f"{field_name} must be an HTTP(S) URL")
     return value
+
+
+class ArtifactReference(ContractValue):
+    """Immutable reference to persisted file bytes and their digest."""
+
+    path: str
+    sha256: Sha256Digest
+
+    _path_is_absolute = field_validator("path")(validate_absolute_path)
+
+
+class RecordRange(ContractValue):
+    """Half-open global record range assigned to one shard."""
+
+    start_index: NonNegativeInt
+    end_index_exclusive: PositiveInt
+
+    @property
+    def record_count(self) -> int:
+        return self.end_index_exclusive - self.start_index
+
+    @model_validator(mode="after")
+    def validate_bounds(self) -> RecordRange:
+        if self.end_index_exclusive <= self.start_index:
+            raise ValueError("end_index_exclusive must be greater than start_index")
+        return self
+
+
+class ResumeWorkspace(ContractValue):
+    """Canonical shard-owned dataset workspace."""
+
+    path: str
+
+    _path_is_absolute = field_validator("path")(validate_absolute_path)
