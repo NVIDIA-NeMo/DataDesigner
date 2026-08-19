@@ -82,7 +82,14 @@ class BuilderInput(AuthoredConfig):
             retired = {"dependencies", "sandbox_config", "server_configs"}.intersection(self.inline)
             if retired:
                 raise ValueError(f"builder input contains retired Big Iron fields: {', '.join(sorted(retired))}")
-            if set(self.inline) != {"data_designer"} or not isinstance(self.inline["data_designer"], dict):
+            if "data_designer" in self.inline:
+                unknown = set(self.inline).difference({"data_designer", "library_version"})
+                library_version = self.inline.get("library_version")
+                valid = not unknown and isinstance(self.inline["data_designer"], dict)
+                valid = valid and (library_version is None or isinstance(library_version, str))
+            else:
+                valid = isinstance(self.inline.get("columns"), list)
+            if not valid:
                 raise ValueError("inline builder input must be one complete serialized Data Designer config")
         return self
 

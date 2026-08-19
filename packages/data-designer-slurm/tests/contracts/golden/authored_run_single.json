@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "name": "single-node-generation",
+  "builder": {
+    "inline": {
+      "data_designer": {
+        "columns": [],
+        "model_configs": []
+      }
+    }
+  },
+  "invocation": {
+    "num_records": 8,
+    "dataset_name": "single-node",
+    "model_concurrency": {
+      "generator": 8
+    }
+  },
+  "client": {
+    "image": {
+      "name": "dd-client-0.9"
+    }
+  },
+  "deployments": [
+    {
+      "model_alias": "generator",
+      "model": "example/generator",
+      "server": {
+        "type": "vllm",
+        "image": {
+          "name": "vllm-0-21"
+        }
+      },
+      "topology": {
+        "tensor_parallel": 8,
+        "nodes_per_replica": 1
+      }
+    }
+  ]
+}

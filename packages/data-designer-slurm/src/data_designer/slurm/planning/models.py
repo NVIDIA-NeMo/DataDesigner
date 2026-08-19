@@ -30,6 +30,7 @@ from data_designer.slurm.config.run import (
     ClientConfig,
     InvocationConfig,
     ServerDeploymentConfig,
+    SubmissionConfig,
 )
 
 
@@ -134,14 +135,18 @@ class ResolvedInvocation(ContractValue):
     authored: InvocationConfig
     effective_run_config: dict[str, JsonValue]
 
-    @field_validator("effective_run_config", mode="before")
+    @field_validator("effective_run_config")
     @classmethod
-    def materialize_run_config(cls, value: object) -> dict[str, JsonValue]:
-        return RunConfig.model_validate(value).model_dump(mode="json")
+    def validate_run_config_is_materialized(cls, value: dict[str, JsonValue]) -> dict[str, JsonValue]:
+        materialized = RunConfig.model_validate(value).model_dump(mode="json")
+        if value != materialized:
+            raise ValueError("effective_run_config must contain the fully materialized Data Designer RunConfig")
+        return value
 
 
 class PortClaim(ContractValue):
     name: Identifier
+    role: Literal["http", "rendezvous"]
     node_index: NonNegativeInt
     port: Annotated[int, Field(ge=1024, le=65535)]
 
@@ -191,6 +196,20 @@ class ResolvedDeployment(ContractValue):
             raise ValueError("resolved topology does not match deployment resources")
         if any(port.node_index not in self.node_indices for port in self.ports):
             raise ValueError("deployment port claims must use deployment nodes")
+        names = tuple(port.name for port in self.ports)
+        if len(names) != len(set(names)):
+            raise ValueError("deployment port claim names must be unique")
+
+        group_heads = self.node_indices[:: self.topology.nodes_per_replica]
+        expected_http_nodes = tuple(head for head in group_heads for _ in range(self.topology.replicas_per_node_group))
+        http_nodes = tuple(port.node_index for port in self.ports if port.role == "http")
+        if http_nodes != expected_http_nodes:
+            raise ValueError("deployment requires one ordered HTTP port claim per replica lane")
+
+        expected_rendezvous_nodes = group_heads if self.topology.nodes_per_replica > 1 else ()
+        rendezvous_nodes = tuple(port.node_index for port in self.ports if port.role == "rendezvous")
+        if rendezvous_nodes != expected_rendezvous_nodes:
+            raise ValueError("deployment requires one ordered rendezvous port claim per multi-node group")
         return self
 
 
@@ -236,6 +255,11 @@ class ResolvedSubmission(ContractValue):
     job_name: Identifier
     time_limit: str
     comment: str | None = None
+
+    @model_validator(mode="after")
+    def validate_submission(self) -> ResolvedSubmission:
+        SubmissionConfig.model_validate(self.model_dump(mode="python"))
+        return self
 
 
 class ResolvedOutput(ContractValue):

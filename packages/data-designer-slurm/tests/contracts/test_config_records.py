@@ -9,9 +9,11 @@ from copy import deepcopy
 import pytest
 from pydantic import ValidationError
 
+from data_designer.config import DataDesignerConfigBuilder
 from data_designer.slurm.config import (
     ArrayTasksConfig,
     BenchmarkBaseRun,
+    BuilderInput,
     ClientDependencies,
     DataDesignerSlurmBenchmarkConfig,
     DataDesignerSlurmConfig,
@@ -151,6 +153,26 @@ def test_run_rejects_retired_builder_fields(authored_run: DataDesignerSlurmConfi
 
     with pytest.raises(ValidationError, match="retired"):
         DataDesignerSlurmConfig.model_validate(payload)
+
+
+def test_builder_input_accepts_exported_and_shorthand_configs() -> None:
+    exported = DataDesignerConfigBuilder(model_configs=[]).get_builder_config().to_dict()
+
+    assert BuilderInput(inline=exported).inline == exported
+    assert BuilderInput(inline={"columns": []}).inline == {"columns": []}
+
+
+@pytest.mark.parametrize(
+    "inline",
+    [
+        {"data_designer": {}, "library_version": 1},
+        {"data_designer": {}, "unknown": True},
+        {"model_configs": []},
+    ],
+)
+def test_builder_input_rejects_invalid_serialized_shapes(inline: dict[str, object]) -> None:
+    with pytest.raises(ValidationError, match="complete serialized"):
+        BuilderInput.model_validate({"inline": inline})
 
 
 def test_run_validates_public_run_config_and_shard_count(authored_run: DataDesignerSlurmConfig) -> None:

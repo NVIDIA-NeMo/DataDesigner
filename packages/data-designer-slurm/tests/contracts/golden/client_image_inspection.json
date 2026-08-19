@@ -1,12 +1,5 @@
 {
-  "schema_version": 1,
-  "inspector_version": "inspector-1",
-  "sqsh_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
   "inspection": {
-    "kind": "client",
-    "python_implementation": "cpython",
-    "python_version": "3.12.12",
-    "python_abi": "cp312",
     "distributions": [
       {
         "name": "data-designer",
@@ -18,6 +11,13 @@
       }
     ],
     "installer_path": "/usr/bin/pip",
-    "installer_version": "26.1"
-  }
+    "installer_version": "26.1",
+    "kind": "client",
+    "python_abi": "cp312",
+    "python_implementation": "cpython",
+    "python_version": "3.12.12"
+  },
+  "inspector_version": "inspector-1",
+  "schema_version": 1,
+  "sqsh_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
 }

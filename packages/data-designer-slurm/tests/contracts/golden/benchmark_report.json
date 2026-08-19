@@ -1,47 +1,58 @@
 {
-  "schema_version": 1,
-  "benchmark_id": "benchmark-001",
   "analysis_id": "analysis-001",
+  "benchmark_id": "benchmark-001",
   "benchmark_manifest": {
     "path": "/workspace/primary/benchmarks/benchmark-001/benchmark.json",
     "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
   },
-  "created_at": "2026-08-19T12:00:00Z",
   "cases": [
     {
-      "case_id": "two-independent-replicas-c32",
-      "child_run_id": "run-benchmark-001-c32",
-      "outcome": "succeeded",
-      "topology_digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
-      "requested_records": 1000,
       "actual_records": 1000,
       "boot_seconds": 60.0,
+      "case_id": "two-independent-replicas-c32",
+      "child_run_id": "run-benchmark-001-c32",
+      "feasible": true,
       "generation_seconds": 120.0,
-      "wall_seconds": 180.0,
-      "rows_per_second": 8.333333333333334,
-      "request_count": 1000,
-      "token_count": 200000,
+      "gpu_hours_per_job": 0.8,
       "gpus_per_job": 16,
       "nodes_per_job": 2,
-      "gpu_hours_per_job": 0.8,
-      "total_gpu_hours": 800.0,
+      "outcome": "succeeded",
+      "request_count": 1000,
+      "requested_records": 1000,
+      "rows_per_second": 8.333333333333334,
       "target_jobs": 1000,
-      "feasible": true
+      "token_count": 200000,
+      "topology_digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "total_gpu_hours": 800.0,
+      "wall_seconds": 180.0
     },
     {
+      "actual_records": null,
+      "boot_seconds": null,
       "case_id": "one-two-node-replica-c32",
       "child_run_id": "run-benchmark-002-c32",
-      "outcome": "pending",
-      "topology_digest": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-      "requested_records": 1000,
+      "feasible": null,
+      "generation_seconds": null,
+      "gpu_hours_per_job": null,
       "gpus_per_job": 16,
-      "nodes_per_job": 2
+      "nodes_per_job": 2,
+      "outcome": "pending",
+      "request_count": null,
+      "requested_records": 1000,
+      "rows_per_second": null,
+      "target_jobs": null,
+      "token_count": null,
+      "topology_digest": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "total_gpu_hours": null,
+      "wall_seconds": null
     }
   ],
+  "created_at": "2026-08-19T12:00:00Z",
   "recommendations": [
     {
-      "kind": "minimum_gpu_hours",
-      "case_id": "two-independent-replicas-c32"
+      "case_id": "two-independent-replicas-c32",
+      "kind": "minimum_gpu_hours"
     }
-  ]
+  ],
+  "schema_version": 1
 }

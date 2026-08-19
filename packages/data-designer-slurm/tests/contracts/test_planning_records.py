@@ -16,6 +16,7 @@ from data_designer.slurm.planning import (
     PlanContractError,
     ResolvedDependencyLock,
     ResolvedSlurmRunPlan,
+    ResolvedSubmission,
     validate_resolved_plan,
 )
 
@@ -29,6 +30,17 @@ def test_multi_node_plan_matches_authored_inputs(
     assert multi_node_plan.authored_config.sha256 == compute_sha256(authored_run.model_dump(mode="json"))
     assert [deployment.topology.replica_count for deployment in multi_node_plan.deployments] == [1, 8]
     assert multi_node_plan.client.gpu_count == 0
+
+
+def test_single_node_plan_matches_authored_inputs(
+    authored_run_single: DataDesignerSlurmConfig,
+    dependency_lock_single: ResolvedDependencyLock,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    assert validate_resolved_plan(authored_run_single, dependency_lock_single, single_node_plan) is single_node_plan
+    assert single_node_plan.authored_config.sha256 == compute_sha256(authored_run_single.model_dump(mode="json"))
+    assert [deployment.topology.replica_count for deployment in single_node_plan.deployments] == [1]
+    assert single_node_plan.client.gpu_count == 0
 
 
 def test_plan_canonical_json_is_byte_stable(multi_node_plan: ResolvedSlurmRunPlan) -> None:
@@ -49,6 +61,7 @@ def test_plan_canonical_json_is_byte_stable(multi_node_plan: ResolvedSlurmRunPla
         lambda payload: payload["client"].update(host_node_index=1),
         lambda payload: payload["deployments"][1].update(node_indices=[1]),
         lambda payload: payload["deployments"][0]["ports"][1].update(port=18000),
+        lambda payload: payload["deployments"][1].update(ports=payload["deployments"][1]["ports"][:1]),
         lambda payload: payload.update(shards=payload["shards"][:1]),
         lambda payload: payload["shards"][1].update(start_index=49),
         lambda payload: payload["output"].update(root="/outside/output"),
@@ -62,6 +75,28 @@ def test_plan_rejects_invalid_boundaries(multi_node_plan: ResolvedSlurmRunPlan, 
 
     with pytest.raises(ValidationError):
         ResolvedSlurmRunPlan.model_validate_json(json.dumps(payload))
+
+
+def test_plan_rejects_unmaterialized_run_config(multi_node_plan: ResolvedSlurmRunPlan) -> None:
+    payload = multi_node_plan.model_dump(mode="json")
+    payload["invocation"]["effective_run_config"] = {}
+
+    with pytest.raises(ValidationError, match="fully materialized"):
+        ResolvedSlurmRunPlan.model_validate(payload)
+
+
+@pytest.mark.parametrize(
+    "update",
+    [
+        {"time_limit": "invalid"},
+        {"comment": "bad\ncomment"},
+    ],
+)
+def test_resolved_submission_preserves_authored_validation(update: dict[str, object]) -> None:
+    payload = {"job_name": "data-designer", "time_limit": "03:55:00", **update}
+
+    with pytest.raises(ValidationError):
+        ResolvedSubmission.model_validate(payload)
 
 
 def test_resolved_image_rejects_digest_mismatch(multi_node_plan: ResolvedSlurmRunPlan) -> None:

@@ -1,117 +1,56 @@
 {
-  "schema_version": 1,
-  "plan_id": "plan-001",
-  "package_version": "0.9.2",
+  "array_tasks": {
+    "count": 2,
+    "max_concurrent": 2
+  },
   "authored_config": {
     "path": "/workspace/primary/runs/run-001/run.json",
     "sha256": "a8d4be425bccdd56c4cef65a63b1bda372a28075f4e91e8c9cb724fbea5a3251"
   },
-  "selected_profile": {
-    "schema_version": 1,
-    "cluster_name": "primary",
-    "selection_source": "explicit",
-    "catalog_path": "/workspace/profile.json",
-    "catalog_sha256": "c747bdf94fe8c638c94f25522e2213d38fa904a6a448e8e1162ef1bb2eef4cc9",
-    "profile_sha256": "afaa20b6bcb7233d35b2ad4c9ca82864e7f92ce060442112f6c5e7a5c735cce4",
-    "profile": {
-      "schema_version": 1,
-      "host_patterns": [
-        "login*.primary.example",
-        "primary-login-*"
-      ],
-      "scheduler": {
-        "account": "research",
-        "partition": "batch"
-      },
-      "gpus_per_node": 8,
-      "workspace_root": "/workspace/primary",
-      "container_mounts": [
-        {
-          "source": "/workspace",
-          "target": "/workspace",
-          "read_only": false
-        }
-      ],
-      "image_build": {
-        "partition": "cpu"
-      }
-    }
-  },
-  "resolved_gpus_per_node": 8,
   "builder": {
+    "authored_source": null,
+    "content_sha256": "26631b9b95ed99ac227eff0dfc64fb0c35c8cb9b9b7717d7dc2f2702055e0c4e",
     "inline": {
       "data_designer": {
         "columns": [],
         "model_configs": []
       }
     },
-    "content_sha256": "26631b9b95ed99ac227eff0dfc64fb0c35c8cb9b9b7717d7dc2f2702055e0c4e"
-  },
-  "invocation": {
-    "authored": {
-      "num_records": 100,
-      "dataset_name": "training-data",
-      "resume": "if_possible",
-      "run_config": {
-        "buffer_size": 8192
-      },
-      "model_concurrency": {
-        "generator": 64,
-        "judge": 32
-      }
-    },
-    "effective_run_config": {
-      "disable_early_shutdown": true,
-      "shutdown_error_rate": 1.0,
-      "shutdown_error_window": 10,
-      "buffer_size": 8192,
-      "max_concurrent_row_groups": 3,
-      "max_in_flight_tasks": 1024,
-      "non_inference_max_parallel_workers": 4,
-      "max_conversation_restarts": 0,
-      "max_conversation_correction_steps": 0,
-      "async_trace": false,
-      "write_scheduler_events": false,
-      "display_tui": false,
-      "progress_interval": 5.0,
-      "otel_metrics_port": null,
-      "preserve_dropped_columns": true,
-      "jinja_rendering_engine": "secure",
-      "request_admission": null
-    }
+    "source": null
   },
   "client": {
     "authored": {
-      "image": {
-        "name": "dd-client-0.9"
-      },
+      "cpus": 32,
       "dependencies": {
-        "requirements": [
-          "data-designer-speech==0.2.0"
-        ],
         "index_credentials": {
           "private-index": {
-            "type": "secret",
-            "environment": "PACKAGE_INDEX_TOKEN"
+            "environment": "PACKAGE_INDEX_TOKEN",
+            "type": "secret"
           }
-        }
+        },
+        "lock_file": null,
+        "requirements": [
+          "data-designer-speech==0.2.0"
+        ]
+      },
+      "image": {
+        "name": "dd-client-0.9",
+        "path": null
       }
     },
+    "dependency_lock": {
+      "path": "/workspace/primary/runs/run-001/dependency-lock.json",
+      "sha256": "0db59e7c2db1f1ea4123299a40ca6e42b50d2a27192902721d30fd8bc32a1f8a"
+    },
+    "gpu_count": 0,
+    "host_node_index": 0,
     "image": {
       "authored_ref": {
-        "name": "dd-client-0.9"
+        "name": "dd-client-0.9",
+        "path": null
       },
-      "path": "/images/dd-client-0.9.sqsh",
-      "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
       "inspection": {
-        "schema_version": 1,
-        "inspector_version": "inspector-1",
-        "sqsh_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
         "inspection": {
-          "kind": "client",
-          "python_implementation": "cpython",
-          "python_version": "3.12.12",
-          "python_abi": "cp312",
           "distributions": [
             {
               "name": "data-designer",
@@ -123,194 +62,344 @@
             }
           ],
           "installer_path": "/usr/bin/pip",
-          "installer_version": "26.1"
-        }
-      }
-    },
-    "dependency_lock": {
-      "path": "/workspace/primary/runs/run-001/dependency-lock.json",
-      "sha256": "0db59e7c2db1f1ea4123299a40ca6e42b50d2a27192902721d30fd8bc32a1f8a"
-    },
-    "host_node_index": 0,
-    "gpu_count": 0
+          "installer_version": "26.1",
+          "kind": "client",
+          "python_abi": "cp312",
+          "python_implementation": "cpython",
+          "python_version": "3.12.12"
+        },
+        "inspector_version": "inspector-1",
+        "schema_version": 1,
+        "sqsh_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      },
+      "path": "/images/dd-client-0.9.sqsh",
+      "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    }
   },
+  "container_mounts": [
+    {
+      "read_only": false,
+      "source": "/workspace",
+      "target": "/workspace"
+    }
+  ],
   "deployments": [
     {
-      "deployment_id": "generator",
       "authored": {
-        "model_alias": "generator",
         "model": "example/generator",
+        "model_alias": "generator",
+        "resources": {
+          "nodes": 2
+        },
+        "served_model_name": null,
         "server": {
-          "type": "vllm",
-          "image": {
-            "name": "vllm-0-21"
-          },
-          "queue_backpressure": {
-            "max_waiting_requests": 1024,
-            "retry_after_seconds": 2
+          "distributed_init_timeout": "10m",
+          "enable_expert_parallel": false,
+          "environment": {
+            "HF_TOKEN": {
+              "environment": "HF_TOKEN",
+              "type": "secret"
+            }
           },
           "extra_args": [
             "--max-model-len",
             "32768"
           ],
-          "environment": {
-            "HF_TOKEN": {
-              "type": "secret",
-              "environment": "HF_TOKEN"
-            }
-          }
-        },
-        "resources": {
-          "nodes": 2
+          "image": {
+            "name": "vllm-0-21",
+            "path": null
+          },
+          "queue_backpressure": {
+            "max_waiting_requests": 1024,
+            "retry_after_seconds": 2
+          },
+          "readiness_path": "/health",
+          "startup_timeout": "15m",
+          "type": "vllm"
         },
         "topology": {
-          "tensor_parallel": 8,
-          "nodes_per_replica": 2
+          "nodes_per_replica": 2,
+          "tensor_parallel": 8
         }
       },
+      "deployment_id": "generator",
+      "gpus_per_node": 8,
       "image": {
         "authored_ref": {
-          "name": "vllm-0-21"
+          "name": "vllm-0-21",
+          "path": null
+        },
+        "inspection": {
+          "inspection": {
+            "executable_path": "/usr/local/bin/vllm",
+            "kind": "serving",
+            "runtime_version": "0.21.0",
+            "server_type": "vllm"
+          },
+          "inspector_version": "inspector-1",
+          "schema_version": 1,
+          "sqsh_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
         },
         "path": "/images/vllm-0-21.sqsh",
-        "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
-        "inspection": {
-          "schema_version": 1,
-          "inspector_version": "inspector-1",
-          "sqsh_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
-          "inspection": {
-            "kind": "serving",
-            "server_type": "vllm",
-            "runtime_version": "0.21.0",
-            "executable_path": "/usr/local/bin/vllm"
-          }
-        }
+        "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
       },
       "node_indices": [
         0,
         1
       ],
-      "gpus_per_node": 8,
-      "topology": {
-        "tensor_parallel": 8,
-        "nodes_per_replica": 2,
-        "pipeline_parallel": 2,
-        "node_group_count": 1,
-        "replicas_per_node_group": 1,
-        "replica_count": 1,
-        "gpus_per_replica": 16
-      },
       "ports": [
         {
           "name": "generator-http",
           "node_index": 0,
-          "port": 18000
+          "port": 18000,
+          "role": "http"
         },
         {
           "name": "generator-rendezvous",
           "node_index": 0,
-          "port": 19000
+          "port": 19000,
+          "role": "rendezvous"
         }
-      ]
+      ],
+      "topology": {
+        "gpus_per_replica": 16,
+        "node_group_count": 1,
+        "nodes_per_replica": 2,
+        "pipeline_parallel": 2,
+        "replica_count": 1,
+        "replicas_per_node_group": 1,
+        "tensor_parallel": 8
+      }
     },
     {
-      "deployment_id": "judge",
       "authored": {
-        "model_alias": "judge",
-        "served_model_name": "judge-api",
         "model": "/models/judge",
+        "model_alias": "judge",
+        "resources": {
+          "nodes": 1
+        },
+        "served_model_name": "judge-api",
         "server": {
-          "type": "vllm",
+          "distributed_init_timeout": "10m",
+          "enable_expert_parallel": false,
+          "environment": {},
+          "extra_args": [],
           "image": {
+            "name": null,
             "path": "/images/vllm-0-22.sqsh"
-          }
+          },
+          "queue_backpressure": {
+            "max_waiting_requests": 128,
+            "retry_after_seconds": 1
+          },
+          "readiness_path": "/health",
+          "startup_timeout": "15m",
+          "type": "vllm"
+        },
+        "topology": {
+          "nodes_per_replica": 1,
+          "tensor_parallel": 1
         }
       },
+      "deployment_id": "judge",
+      "gpus_per_node": 8,
       "image": {
         "authored_ref": {
+          "name": null,
           "path": "/images/vllm-0-22.sqsh"
         },
-        "path": "/images/vllm-0-22.sqsh",
-        "sha256": "9999999999999999999999999999999999999999999999999999999999999999",
         "inspection": {
-          "schema_version": 1,
-          "inspector_version": "inspector-1",
-          "sqsh_sha256": "9999999999999999999999999999999999999999999999999999999999999999",
           "inspection": {
+            "executable_path": "/usr/local/bin/vllm",
             "kind": "serving",
-            "server_type": "vllm",
             "runtime_version": "0.22.0",
-            "executable_path": "/usr/local/bin/vllm"
-          }
-        }
+            "server_type": "vllm"
+          },
+          "inspector_version": "inspector-1",
+          "schema_version": 1,
+          "sqsh_sha256": "9999999999999999999999999999999999999999999999999999999999999999"
+        },
+        "path": "/images/vllm-0-22.sqsh",
+        "sha256": "9999999999999999999999999999999999999999999999999999999999999999"
       },
       "node_indices": [
         2
       ],
-      "gpus_per_node": 8,
-      "topology": {
-        "tensor_parallel": 1,
-        "nodes_per_replica": 1,
-        "pipeline_parallel": 1,
-        "node_group_count": 1,
-        "replicas_per_node_group": 8,
-        "replica_count": 8,
-        "gpus_per_replica": 1
-      },
       "ports": [
         {
-          "name": "judge-http",
+          "name": "judge-http-0",
           "node_index": 2,
-          "port": 18000
+          "port": 18000,
+          "role": "http"
+        },
+        {
+          "name": "judge-http-1",
+          "node_index": 2,
+          "port": 18001,
+          "role": "http"
+        },
+        {
+          "name": "judge-http-2",
+          "node_index": 2,
+          "port": 18002,
+          "role": "http"
+        },
+        {
+          "name": "judge-http-3",
+          "node_index": 2,
+          "port": 18003,
+          "role": "http"
+        },
+        {
+          "name": "judge-http-4",
+          "node_index": 2,
+          "port": 18004,
+          "role": "http"
+        },
+        {
+          "name": "judge-http-5",
+          "node_index": 2,
+          "port": 18005,
+          "role": "http"
+        },
+        {
+          "name": "judge-http-6",
+          "node_index": 2,
+          "port": 18006,
+          "role": "http"
+        },
+        {
+          "name": "judge-http-7",
+          "node_index": 2,
+          "port": 18007,
+          "role": "http"
         }
-      ]
+      ],
+      "topology": {
+        "gpus_per_replica": 1,
+        "node_group_count": 1,
+        "nodes_per_replica": 1,
+        "pipeline_parallel": 1,
+        "replica_count": 8,
+        "replicas_per_node_group": 8,
+        "tensor_parallel": 1
+      }
     }
   ],
-  "array_tasks": {
-    "count": 2,
-    "max_concurrent": 2
+  "invocation": {
+    "authored": {
+      "dataset_name": "training-data",
+      "diagnostics": {
+        "log_requests": false
+      },
+      "input_bindings": {
+        "managed_assets_path": null,
+        "seed_path": null
+      },
+      "mcp_providers": [],
+      "model_concurrency": {
+        "generator": 64,
+        "judge": 32
+      },
+      "num_records": 100,
+      "resume": "if_possible",
+      "run_config": {
+        "buffer_size": 8192
+      }
+    },
+    "effective_run_config": {
+      "async_trace": false,
+      "buffer_size": 8192,
+      "disable_early_shutdown": true,
+      "display_tui": false,
+      "jinja_rendering_engine": "secure",
+      "max_concurrent_row_groups": 3,
+      "max_conversation_correction_steps": 0,
+      "max_conversation_restarts": 0,
+      "max_in_flight_tasks": 1024,
+      "non_inference_max_parallel_workers": 4,
+      "otel_metrics_port": null,
+      "preserve_dropped_columns": true,
+      "progress_interval": 5.0,
+      "request_admission": null,
+      "shutdown_error_rate": 1.0,
+      "shutdown_error_window": 10,
+      "write_scheduler_events": false
+    }
+  },
+  "output": {
+    "format": "parquet",
+    "partitions": 1,
+    "require_exact_record_count": false,
+    "root": "/workspace/primary/runs/run-001/output"
+  },
+  "package_version": "0.9.2",
+  "plan_id": "plan-001",
+  "resolved_gpus_per_node": 8,
+  "runtime_bundle": {
+    "path": "/workspace/primary/runtime/runtime.tar.gz",
+    "sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+  },
+  "schema_version": 1,
+  "selected_profile": {
+    "catalog_path": "/workspace/profile.json",
+    "catalog_sha256": "c747bdf94fe8c638c94f25522e2213d38fa904a6a448e8e1162ef1bb2eef4cc9",
+    "cluster_name": "primary",
+    "matched_pattern": null,
+    "profile": {
+      "container_mounts": [
+        {
+          "read_only": false,
+          "source": "/workspace",
+          "target": "/workspace"
+        }
+      ],
+      "gpu_request_mode": "gres",
+      "gpus_per_node": 8,
+      "host_patterns": [
+        "login*.primary.example",
+        "primary-login-*"
+      ],
+      "image_build": {
+        "partition": "cpu"
+      },
+      "scheduler": {
+        "account": "research",
+        "mem_per_gpu": null,
+        "partition": "batch"
+      },
+      "schema_version": 1,
+      "workspace_root": "/workspace/primary"
+    },
+    "profile_sha256": "afaa20b6bcb7233d35b2ad4c9ca82864e7f92ce060442112f6c5e7a5c735cce4",
+    "schema_version": 1,
+    "selection_source": "explicit"
   },
   "shards": [
     {
-      "shard_id": "shard-00000",
-      "shard_index": 0,
       "array_task_index": 0,
-      "start_index": 0,
       "end_index_exclusive": 50,
       "requested_records": 50,
-      "resume_workspace": "/workspace/primary/runs/run-001/shards/shard-00000/dataset"
+      "resume_workspace": "/workspace/primary/runs/run-001/shards/shard-00000/dataset",
+      "shard_id": "shard-00000",
+      "shard_index": 0,
+      "start_index": 0
     },
     {
-      "shard_id": "shard-00001",
-      "shard_index": 1,
       "array_task_index": 1,
-      "start_index": 50,
       "end_index_exclusive": 100,
       "requested_records": 50,
-      "resume_workspace": "/workspace/primary/runs/run-001/shards/shard-00001/dataset"
+      "resume_workspace": "/workspace/primary/runs/run-001/shards/shard-00001/dataset",
+      "shard_id": "shard-00001",
+      "shard_index": 1,
+      "start_index": 50
     }
   ],
   "submission": {
     "account": "research",
-    "partition": "batch",
+    "comment": null,
     "job_name": "dd-two-model",
+    "partition": "batch",
     "time_limit": "03:55:00"
-  },
-  "output": {
-    "root": "/workspace/primary/runs/run-001/output",
-    "format": "parquet",
-    "partitions": 1,
-    "require_exact_record_count": false
-  },
-  "container_mounts": [
-    {
-      "source": "/workspace",
-      "target": "/workspace",
-      "read_only": false
-    }
-  ],
-  "runtime_bundle": {
-    "path": "/workspace/primary/runtime/runtime.tar.gz",
-    "sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
   }
 }

@@ -19,6 +19,11 @@ def authored_run() -> DataDesignerSlurmConfig:
 
 
 @pytest.fixture
+def authored_run_single() -> DataDesignerSlurmConfig:
+    return DataDesignerSlurmConfig.model_validate_json((GOLDEN_DIR / "authored_run_single.json").read_text())
+
+
+@pytest.fixture
 def profile_catalog() -> SlurmProfileCatalog:
     return SlurmProfileCatalog.model_validate_json((GOLDEN_DIR / "profile_catalog.json").read_text())
 
@@ -26,6 +31,16 @@ def profile_catalog() -> SlurmProfileCatalog:
 @pytest.fixture
 def dependency_lock() -> ResolvedDependencyLock:
     return ResolvedDependencyLock.model_validate_json((GOLDEN_DIR / "dependency_lock.json").read_text())
+
+
+@pytest.fixture
+def dependency_lock_single() -> ResolvedDependencyLock:
+    return ResolvedDependencyLock.model_validate_json((GOLDEN_DIR / "dependency_lock_single.json").read_text())
+
+
+@pytest.fixture
+def single_node_plan() -> ResolvedSlurmRunPlan:
+    return ResolvedSlurmRunPlan.model_validate_json((GOLDEN_DIR / "single_node_plan.json").read_text())
 
 
 @pytest.fixture

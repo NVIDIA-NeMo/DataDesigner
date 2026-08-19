@@ -1,11 +1,11 @@
 {
-  "schema_version": 1,
-  "inspector_version": "inspector-1",
-  "sqsh_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
   "inspection": {
+    "executable_path": "/usr/local/bin/vllm",
     "kind": "serving",
-    "server_type": "vllm",
     "runtime_version": "0.21.0",
-    "executable_path": "/usr/local/bin/vllm"
-  }
+    "server_type": "vllm"
+  },
+  "inspector_version": "inspector-1",
+  "schema_version": 1,
+  "sqsh_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
 }

@@ -1,0 +1,14 @@
+{
+  "authored_requirements": [],
+  "client_image_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "image_distributions": [
+    {
+      "name": "data-designer",
+      "version": "0.9.2"
+    }
+  ],
+  "overlay_packages": [],
+  "python_abi": "cp312",
+  "resolver_version": "resolver-1",
+  "schema_version": 1
+}

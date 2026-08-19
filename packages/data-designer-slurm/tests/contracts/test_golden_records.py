@@ -27,10 +27,12 @@ GOLDEN_DIR = Path(__file__).parent / "golden"
     ("record_type", "filename"),
     [
         (DataDesignerSlurmConfig, "authored_run.json"),
+        (DataDesignerSlurmConfig, "authored_run_single.json"),
         (SlurmProfileCatalog, "profile_catalog.json"),
         (ImageInspectionRecord, "client_image_inspection.json"),
         (ImageInspectionRecord, "serving_image_inspection.json"),
         (ResolvedDependencyLock, "dependency_lock.json"),
+        (ResolvedDependencyLock, "dependency_lock_single.json"),
         (ResolvedSlurmRunPlan, "single_node_plan.json"),
         (ResolvedSlurmRunPlan, "multi_node_plan.json"),
         (ClientResult, "client_result.json"),
@@ -40,10 +42,12 @@ GOLDEN_DIR = Path(__file__).parent / "golden"
     ],
 )
 def test_golden_record_round_trip(record_type: type[BaseModel], filename: str) -> None:
-    record = record_type.model_validate_json((GOLDEN_DIR / filename).read_text())
+    fixture = (GOLDEN_DIR / filename).read_text()
+    record = record_type.model_validate_json(fixture)
 
     assert record_type.model_validate_json(record.model_dump_json()) == record
     if isinstance(record, ContractRecord):
+        assert record.serialize_json() == fixture
         assert record_type.model_validate_json(record.serialize_json()) == record
         assert record.compute_sha256() == record.compute_sha256()
 
