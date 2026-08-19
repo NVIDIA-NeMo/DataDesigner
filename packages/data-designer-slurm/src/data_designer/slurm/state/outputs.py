@@ -9,14 +9,18 @@ from typing import Literal
 
 from pydantic import Field, NonNegativeInt, PositiveInt, field_validator, model_validator
 
-from data_designer.slurm.state.base import (
+from data_designer.slurm.contracts import (
     ArtifactReference,
+    AttemptId,
     Identifier,
     Sha256Digest,
-    StateRecord,
-    StateValue,
+    ShardId,
     validate_absolute_path,
     validate_relative_path,
+)
+from data_designer.slurm.state.base import (
+    StateRecord,
+    StateValue,
     validate_utc_timestamp,
 )
 
@@ -42,8 +46,8 @@ class CandidateOutputManifest(StateRecord):
     """Attempt-local output that may become the immutable shard winner."""
 
     run_id: Identifier
-    shard_id: Identifier
-    attempt_id: Identifier
+    shard_id: ShardId
+    attempt_id: AttemptId
     attempt_ordinal: PositiveInt
     created_at: datetime
     dataset_path: str
@@ -91,8 +95,8 @@ class ShardWinner(StateRecord):
     """Immutable pointer selecting exactly one candidate for a shard."""
 
     run_id: Identifier
-    shard_id: Identifier
-    attempt_id: Identifier
+    shard_id: ShardId
+    attempt_id: AttemptId
     attempt_ordinal: PositiveInt
     candidate_manifest: ArtifactReference
     published_at: datetime
@@ -103,7 +107,7 @@ class ShardWinner(StateRecord):
 class CollectionShard(StateValue):
     """Winner manifest selected for one shard in a collection plan."""
 
-    shard_id: Identifier
+    shard_id: ShardId
     winner_manifest: ArtifactReference
 
 

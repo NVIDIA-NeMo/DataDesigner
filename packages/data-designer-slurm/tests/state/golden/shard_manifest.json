@@ -8,7 +8,9 @@
     "end_index_exclusive": 100,
     "start_index": 0
   },
-  "resume_workspace_id": "resume-shard-00000",
+  "resume_workspace": {
+    "path": "/workspace/runs/run-0001/shards/shard-00000/dataset"
+  },
   "run_id": "run-0001",
   "schema_version": 1,
   "shard_id": "shard-00000",

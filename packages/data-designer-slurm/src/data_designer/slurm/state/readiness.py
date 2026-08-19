@@ -9,7 +9,8 @@ from typing import Annotated
 
 from pydantic import Field, NonNegativeInt, PositiveInt, StringConstraints, field_validator, model_validator
 
-from data_designer.slurm.state.base import Identifier, StateRecord, StateValue, validate_utc_timestamp
+from data_designer.slurm.contracts import AttemptId, Identifier, ModelAlias, ShardId
+from data_designer.slurm.state.base import StateRecord, StateValue, validate_utc_timestamp
 
 ReasonCode = Annotated[
     str,
@@ -62,7 +63,7 @@ class DeploymentReadiness(StateValue):
     """Readiness state for one authored-order model deployment."""
 
     deployment_id: Identifier
-    model_alias: str
+    model_alias: ModelAlias
     state: ReadinessState
     expected_backends: PositiveInt
     ready_backends: NonNegativeInt
@@ -104,8 +105,8 @@ class AttemptReadiness(StateRecord):
     """Revisioned readiness snapshot for all deployments in one attempt."""
 
     run_id: Identifier
-    shard_id: Identifier
-    attempt_id: Identifier
+    shard_id: ShardId
+    attempt_id: AttemptId
     revision: PositiveInt
     updated_at: datetime
     state: ReadinessState

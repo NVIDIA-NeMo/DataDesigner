@@ -118,7 +118,7 @@ def test_shard_set_rejects_overlapping_ranges_and_shared_resume_workspace() -> N
         shard_id="shard-00001",
         shard_index=1,
         record_range=second_range,
-        resume_workspace_id="resume-shard-00001",
+        resume_workspace={"path": "/workspace/runs/run-0001/shards/shard-00001/dataset"},
     )
 
     assert validate_shard_set(run, (first, second)) == (first, second)
@@ -131,8 +131,8 @@ def test_shard_set_rejects_overlapping_ranges_and_shared_resume_workspace() -> N
     with pytest.raises(StateContractError, match="must not overlap"):
         validate_shard_set(run, (first, overlapping))
 
-    shared_workspace = _validated_copy(second, resume_workspace_id=first.resume_workspace_id)
-    with pytest.raises(StateContractError, match="workspace IDs must be unique"):
+    shared_workspace = _validated_copy(second, resume_workspace=first.resume_workspace)
+    with pytest.raises(StateContractError, match="workspace paths must be unique"):
         validate_shard_set(run, (first, shared_workspace))
 
 
@@ -144,7 +144,7 @@ def test_attempt_set_rejects_scheduler_identity_collisions() -> None:
         shard_id="shard-00001",
         shard_index=1,
         record_range=_validated_copy(first_shard.record_range, start_index=100, end_index_exclusive=200),
-        resume_workspace_id="resume-shard-00001",
+        resume_workspace={"path": "/workspace/runs/run-0001/shards/shard-00001/dataset"},
     )
     first_attempt = _validated_copy(
         _load(AttemptManifest, "successful_attempt.json"),
@@ -376,14 +376,14 @@ def test_collection_rejects_an_invented_shard_even_when_its_digest_matches() -> 
     run = _load(RunManifest, "run_manifest.json")
     shard = _load(ShardManifest, "shard_manifest.json")
     plan = _load(CollectionPlan, "collection_plan.json")
-    winner = _validated_copy(_load(ShardWinner, "shard_winner.json"), shard_id="invented-shard")
+    winner = _validated_copy(_load(ShardWinner, "shard_winner.json"), shard_id="shard-99999")
     winner_reference = ArtifactReference(
         path=plan.planned_shards[0].winner_manifest.path,
         sha256=winner.compute_sha256(),
     )
     planned_shard = _validated_copy(
         plan.planned_shards[0],
-        shard_id="invented-shard",
+        shard_id="shard-99999",
         winner_manifest=winner_reference,
     )
     altered_plan = _validated_copy(plan, planned_shards=(planned_shard,))

@@ -125,8 +125,14 @@ slurm_help_result = CliRunner().invoke(app, ["slurm", "--help"])
 assert slurm_help_result.exit_code == 0, (slurm_help_result.output, repr(slurm_help_result.exception))
 assert "data_designer.slurm.cli" in sys.modules
 assert version("data-designer-slurm") == {version!r}
+from data_designer.slurm.contracts import ArtifactReference as ContractArtifactReference
+from data_designer.slurm.contracts import RecordRange as ContractRecordRange
+from data_designer.slurm.state import ArtifactReference as StateArtifactReference
+from data_designer.slurm.state import RecordRange as StateRecordRange
 from data_designer.slurm.state import RunManifest
 assert RunManifest.__name__ == "RunManifest"
+assert StateArtifactReference is ContractArtifactReference
+assert StateRecordRange is ContractRecordRange
 """
     run([str(python), "-c", statement], cwd=cwd)
 

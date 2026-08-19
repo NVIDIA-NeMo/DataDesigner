@@ -5,11 +5,20 @@
 
 from __future__ import annotations
 
-from data_designer.slurm.state.base import (
+from data_designer.slurm.contracts import (
     ArtifactReference,
+    AttemptId,
+    ContractRecord,
+    ContractValue,
     Identifier,
-    SchedulerIdentity,
+    ModelAlias,
+    RecordRange,
+    ResumeWorkspace,
     Sha256Digest,
+    ShardId,
+)
+from data_designer.slurm.state.base import (
+    SchedulerIdentity,
     StateRecord,
     StateValue,
 )
@@ -17,7 +26,6 @@ from data_designer.slurm.state.execution import (
     AttemptLifecycleState,
     AttemptManifest,
     AttemptTerminalClassification,
-    RecordRange,
     RunManifest,
     ShardManifest,
 )
@@ -63,6 +71,7 @@ __all__ = [
     "ArtifactReference",
     "AttemptLifecycleState",
     "AttemptManifest",
+    "AttemptId",
     "AttemptReadiness",
     "AttemptTerminalClassification",
     "CandidateOutcome",
@@ -70,21 +79,26 @@ __all__ = [
     "CandidateOutputManifest",
     "CollectionPlan",
     "CollectionShard",
+    "ContractRecord",
+    "ContractValue",
     "DeploymentReadiness",
     "EffectiveAttemptState",
     "EndpointPublicationState",
     "Identifier",
+    "ModelAlias",
     "ProbeEvidence",
     "ProbeOutcome",
     "ReadinessState",
     "ReasonCode",
     "RecordRange",
     "RunManifest",
+    "ResumeWorkspace",
     "SchedulerIdentity",
     "SchedulerObservation",
     "SchedulerState",
     "Sha256Digest",
     "ShardManifest",
+    "ShardId",
     "ShardWinner",
     "StateContractError",
     "StateRecord",

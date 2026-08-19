@@ -53,10 +53,10 @@ def validate_shard_set(
         validate_shard_manifest(run, shard)
 
     shard_ids = tuple(shard.shard_id for shard in shards)
-    resume_workspace_ids = tuple(shard.resume_workspace_id for shard in shards)
+    resume_workspace_paths = tuple(shard.resume_workspace.path for shard in shards)
     shard_indices = tuple(shard.shard_index for shard in shards)
     _require(len(set(shard_ids)) == len(shards), "shard IDs must be unique")
-    _require(len(set(resume_workspace_ids)) == len(shards), "resume workspace IDs must be unique")
+    _require(len(set(resume_workspace_paths)) == len(shards), "resume workspace paths must be unique")
     _require(
         shard_indices == tuple(range(run.shard_count)),
         "shards must be ordered by a complete zero-based shard index",

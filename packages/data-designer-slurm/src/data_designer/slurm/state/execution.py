@@ -8,31 +8,19 @@ from enum import Enum
 
 from pydantic import NonNegativeInt, PositiveInt, field_validator, model_validator
 
-from data_designer.slurm.state.base import (
+from data_designer.slurm.contracts import (
     ArtifactReference,
+    AttemptId,
     Identifier,
+    RecordRange,
+    ResumeWorkspace,
+    ShardId,
+)
+from data_designer.slurm.state.base import (
     SchedulerIdentity,
     StateRecord,
-    StateValue,
     validate_utc_timestamp,
 )
-
-
-class RecordRange(StateValue):
-    """Half-open global record range assigned to a shard."""
-
-    start_index: NonNegativeInt
-    end_index_exclusive: PositiveInt
-
-    @property
-    def record_count(self) -> int:
-        return self.end_index_exclusive - self.start_index
-
-    @model_validator(mode="after")
-    def validate_bounds(self) -> RecordRange:
-        if self.end_index_exclusive <= self.start_index:
-            raise ValueError("end_index_exclusive must be greater than start_index")
-        return self
 
 
 class RunManifest(StateRecord):
@@ -51,11 +39,11 @@ class ShardManifest(StateRecord):
     """Stable shard identity and planner-owned input partition reference."""
 
     run_id: Identifier
-    shard_id: Identifier
+    shard_id: ShardId
     shard_index: NonNegativeInt
     record_range: RecordRange
     input_partition: ArtifactReference | None = None
-    resume_workspace_id: Identifier
+    resume_workspace: ResumeWorkspace
     created_at: datetime
 
     _created_at_is_utc = field_validator("created_at")(validate_utc_timestamp)
@@ -86,8 +74,8 @@ class AttemptManifest(StateRecord):
     """Attempt identity, lifecycle, scheduler identity, and output reference."""
 
     run_id: Identifier
-    shard_id: Identifier
-    attempt_id: Identifier
+    shard_id: ShardId
+    attempt_id: AttemptId
     attempt_ordinal: PositiveInt
     resolved_plan: ArtifactReference
     state: AttemptLifecycleState
