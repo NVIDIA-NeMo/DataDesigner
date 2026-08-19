@@ -5,7 +5,9 @@ from __future__ import annotations
 
 import posixpath
 import re
+from collections.abc import Mapping
 from typing import Annotated, Literal
+from urllib.parse import urlsplit
 
 from pydantic import (
     Field,
@@ -33,15 +35,57 @@ from data_designer.slurm._contracts import (
 from data_designer.slurm.config.images import ImageRef
 
 _OWNED_VLLM_FLAGS = {
+    "--api-key",
     "--distributed-executor-backend",
+    "--distributed-init-address",
     "--enable-expert-parallel",
     "--headless",
     "--host",
+    "--middleware",
+    "--model",
     "--pipeline-parallel-size",
     "--port",
     "--served-model-name",
     "--tensor-parallel-size",
 }
+_DURATION_FACTORS = {"s": 1, "m": 60, "h": 3600, "d": 86400}
+_SECRET_NAME_PARTS = frozenset({"credential", "credentials", "password", "secret", "token"})
+
+
+def _duration_seconds(value: Duration) -> int:
+    return int(value[:-1]) * _DURATION_FACTORS[value[-1]]
+
+
+def _is_secret_name(value: str) -> bool:
+    snake_case = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", value)
+    normalized = re.sub(r"[^a-z0-9]+", "_", snake_case.casefold()).strip("_")
+    segments = normalized.split("_")
+    return bool(
+        _SECRET_NAME_PARTS.intersection(segments)
+        or {"access", "key"}.issubset(segments)
+        or segments[-1] in {"auth", "key"}
+    )
+
+
+def _contains_secret_key(value: object) -> bool:
+    if isinstance(value, Mapping):
+        return any(_is_secret_name(str(key)) or _contains_secret_key(item) for key, item in value.items())
+    if isinstance(value, list | tuple):
+        return any(_contains_secret_key(item) for item in value)
+    return False
+
+
+def _validate_environment_bindings(
+    values: dict[EnvironmentName, EnvironmentBinding],
+) -> dict[EnvironmentName, EnvironmentBinding]:
+    literal_secrets = [
+        name
+        for name, binding in values.items()
+        if _is_secret_name(name) and isinstance(binding, LiteralEnvironmentBinding)
+    ]
+    if literal_secrets:
+        raise ValueError("secret-shaped environment names require external secret references")
+    return values
 
 
 class LiteralEnvironmentBinding(AuthoredConfig):
@@ -93,6 +137,8 @@ class BuilderInput(AuthoredConfig):
                 valid = isinstance(self.inline.get("columns"), list)
             if not valid:
                 raise ValueError("inline builder input must be one complete serialized Data Designer config")
+            if _contains_secret_key(self.inline):
+                raise ValueError("inline builder input must not contain secret values")
         return self
 
 
@@ -115,7 +161,11 @@ class RemoteMCPProviderConfig(AuthoredConfig):
     @field_validator("endpoint")
     @classmethod
     def validate_endpoint(cls, value: str) -> str:
-        return validate_url(value, field_name="MCP endpoint")
+        validate_url(value, field_name="MCP endpoint")
+        parsed = urlsplit(value)
+        if parsed.username is not None or parsed.password is not None or parsed.query or parsed.fragment:
+            raise ValueError("MCP endpoint must not embed credentials, query parameters, or fragments")
+        return value
 
 
 class LocalStdioMCPProviderConfig(AuthoredConfig):
@@ -138,7 +188,12 @@ class LocalStdioMCPProviderConfig(AuthoredConfig):
     def validate_args(cls, values: list[str]) -> list[str]:
         for value in values:
             validate_plain_text(value, field_name="MCP argument")
+            option = value.partition("=")[0].lstrip("-")
+            if _is_secret_name(option):
+                raise ValueError("secret-shaped MCP arguments must use an environment secret reference")
         return values
+
+    _environment_uses_secret_references = field_validator("environment")(_validate_environment_bindings)
 
 
 MCPProviderConfig = Annotated[
@@ -195,7 +250,17 @@ class ClientDependencies(AuthoredConfig):
                 raise ValueError(f"dependency requirement must identify a package or immutable wheel: {value!r}")
             if " @ " in value:
                 _, source = value.split(" @ ", maxsplit=1)
-                if not re.fullmatch(r"https://[^\s]+\.whl#sha256=[0-9a-f]{64}", source):
+                parsed = urlsplit(source)
+                valid_wheel = (
+                    parsed.scheme == "https"
+                    and parsed.hostname is not None
+                    and parsed.username is None
+                    and parsed.password is None
+                    and not parsed.query
+                    and parsed.path.endswith(".whl")
+                    and re.fullmatch(r"sha256=[0-9a-f]{64}", parsed.fragment) is not None
+                )
+                if not valid_wheel:
                     raise ValueError("direct dependency URLs must be HTTPS wheels with a SHA-256 fragment")
             elif "://" in value or not re.match(r"^[A-Za-z0-9][A-Za-z0-9._-]*", value):
                 raise ValueError(f"invalid dependency requirement: {value!r}")
@@ -266,6 +331,14 @@ class VllmServerConfig(AuthoredConfig):
             if flag in _OWNED_VLLM_FLAGS:
                 raise ValueError(f"vLLM argument {flag!r} is owned by the compiler or runtime")
         return values
+
+    _environment_uses_secret_references = field_validator("environment")(_validate_environment_bindings)
+
+    @model_validator(mode="after")
+    def validate_timeouts(self) -> VllmServerConfig:
+        if _duration_seconds(self.distributed_init_timeout) > _duration_seconds(self.startup_timeout):
+            raise ValueError("distributed_init_timeout must not exceed startup_timeout")
+        return self
 
 
 class DeploymentResources(AuthoredConfig):

@@ -96,6 +96,11 @@ class BenchmarkCaseResult(ContractValue):
         )
         if self.outcome is BenchmarkOutcome.SUCCEEDED and any(value is None for value in required):
             raise ValueError("successful benchmark cases require complete timing and feasibility metrics")
+        if self.outcome is BenchmarkOutcome.SUCCEEDED:
+            if self.actual_records != self.requested_records:
+                raise ValueError("successful benchmark cases require the requested record count")
+            if self.generation_seconds == 0 or self.wall_seconds == 0 or self.rows_per_second == 0:
+                raise ValueError("successful benchmark generation, wall time, and throughput must be positive")
         return self
 
 
@@ -130,12 +135,28 @@ class BenchmarkReport(ContractRecord):
     @model_validator(mode="after")
     def validate_report(self) -> BenchmarkReport:
         case_ids = tuple(case.case_id for case in self.cases)
+        child_run_ids = tuple(case.child_run_id for case in self.cases)
         if len(case_ids) != len(set(case_ids)):
             raise ValueError("benchmark report case IDs must be unique")
+        if len(child_run_ids) != len(set(child_run_ids)):
+            raise ValueError("benchmark report child run IDs must be unique")
         unknown = {recommendation.case_id for recommendation in self.recommendations}.difference(case_ids)
         if unknown:
             raise ValueError(f"recommendations reference unknown cases: {', '.join(sorted(unknown))}")
-        kinds = tuple(recommendation.kind for recommendation in self.recommendations)
-        if len(kinds) != len(set(kinds)):
-            raise ValueError("benchmark recommendation kinds must be unique")
+        recommendable = {
+            case.case_id for case in self.cases if case.outcome is BenchmarkOutcome.SUCCEEDED and case.feasible is True
+        }
+        identities: set[tuple[BenchmarkRecommendationKind, str]] = set()
+        singleton_kinds: set[BenchmarkRecommendationKind] = set()
+        for recommendation in self.recommendations:
+            if recommendation.case_id not in recommendable:
+                raise ValueError("benchmark recommendations must reference successful feasible cases")
+            identity = (recommendation.kind, recommendation.case_id)
+            if identity in identities:
+                raise ValueError("benchmark recommendations must be unique")
+            identities.add(identity)
+            if recommendation.kind is not BenchmarkRecommendationKind.PARETO:
+                if recommendation.kind in singleton_kinds:
+                    raise ValueError("minimum benchmark recommendation kinds must be unique")
+                singleton_kinds.add(recommendation.kind)
         return self

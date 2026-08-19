@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 from copy import deepcopy
+from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
@@ -13,6 +14,8 @@ from data_designer.slurm._contracts import ArtifactReference as CommonArtifactRe
 from data_designer.slurm.benchmark import BenchmarkManifest, BenchmarkReport
 from data_designer.slurm.client import ClientResult
 from data_designer.slurm.planning import ArtifactReference as PlanningArtifactReference
+
+GOLDEN_DIR = Path(__file__).parent / "golden"
 
 
 def test_planning_reexports_common_artifact_reference() -> None:
@@ -68,6 +71,7 @@ def test_client_result_allows_partial_and_failure_facts_to_differ() -> None:
         {"outcome": "failed", "candidate_output_manifest": None, "error_code": None},
         {"effective_resume_mode": "always"},
         {"early_shutdown": None},
+        {"early_shutdown": True},
         {"dataset_path": "/workspace/other/dataset"},
         {
             "candidate_output_manifest": {
@@ -163,7 +167,7 @@ def test_benchmark_manifest_rejects_duplicate_child_identity() -> None:
         BenchmarkManifest.model_validate_json(json.dumps(payload))
 
 
-def test_benchmark_report_rejects_unknown_and_duplicate_recommendations() -> None:
+def test_benchmark_report_rejects_unknown_or_incomplete_recommendations() -> None:
     payload = {
         "schema_version": 1,
         "benchmark_id": "bench",
@@ -187,11 +191,8 @@ def test_benchmark_report_rejects_unknown_and_duplicate_recommendations() -> Non
     with pytest.raises(ValidationError, match="unknown cases"):
         BenchmarkReport.model_validate_json(json.dumps(payload))
 
-    payload["recommendations"] = [
-        {"kind": "pareto", "case_id": "case"},
-        {"kind": "pareto", "case_id": "case"},
-    ]
-    with pytest.raises(ValidationError, match="kinds"):
+    payload["recommendations"] = [{"kind": "pareto", "case_id": "case"}]
+    with pytest.raises(ValidationError, match="successful feasible"):
         BenchmarkReport.model_validate_json(json.dumps(payload))
 
 
@@ -216,4 +217,49 @@ def test_successful_benchmark_case_requires_metrics() -> None:
     }
 
     with pytest.raises(ValidationError, match="complete"):
+        BenchmarkReport.model_validate_json(json.dumps(payload))
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("actual_records", 999),
+        ("generation_seconds", 0),
+        ("wall_seconds", 0),
+        ("rows_per_second", 0),
+    ],
+)
+def test_successful_benchmark_case_requires_complete_positive_output(field: str, value: int) -> None:
+    payload = json.loads((GOLDEN_DIR / "benchmark_report.json").read_text())
+    payload["cases"][0][field] = value
+
+    with pytest.raises(ValidationError):
+        BenchmarkReport.model_validate_json(json.dumps(payload))
+
+
+def test_benchmark_report_allows_pareto_frontier_but_singleton_minima() -> None:
+    payload = json.loads((GOLDEN_DIR / "benchmark_report.json").read_text())
+    second_case = deepcopy(payload["cases"][0])
+    second_case.update(case_id="second-case", child_run_id="second-run", topology_digest="f" * 64)
+    payload["cases"].append(second_case)
+    payload["recommendations"] = [
+        {"kind": "pareto", "case_id": payload["cases"][0]["case_id"]},
+        {"kind": "pareto", "case_id": second_case["case_id"]},
+    ]
+
+    assert len(BenchmarkReport.model_validate_json(json.dumps(payload)).recommendations) == 2
+
+    payload["recommendations"] = [
+        {"kind": "minimum_jobs", "case_id": payload["cases"][0]["case_id"]},
+        {"kind": "minimum_jobs", "case_id": second_case["case_id"]},
+    ]
+    with pytest.raises(ValidationError, match="minimum"):
+        BenchmarkReport.model_validate_json(json.dumps(payload))
+
+
+def test_benchmark_report_rejects_duplicate_child_runs() -> None:
+    payload = json.loads((GOLDEN_DIR / "benchmark_report.json").read_text())
+    payload["cases"][1]["child_run_id"] = payload["cases"][0]["child_run_id"]
+
+    with pytest.raises(ValidationError, match="child run IDs"):
         BenchmarkReport.model_validate_json(json.dumps(payload))

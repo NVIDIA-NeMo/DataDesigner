@@ -21,7 +21,9 @@ from data_designer.slurm.config import (
     ImageInspectionRecord,
     ImageRef,
     LiteralEnvironmentBinding,
+    LocalStdioMCPProviderConfig,
     QueueBackpressureConfig,
+    RemoteMCPProviderConfig,
     SecretRef,
     ServerDeploymentConfig,
     SubmissionConfig,
@@ -71,6 +73,8 @@ def test_image_ref_requires_one_registered_alias_or_absolute_sqsh(payload: dict[
         {"requirements": ["-e ./plugin"]},
         {"requirements": ["plugin @ git+https://example.test/plugin.git"]},
         {"requirements": ["plugin @ https://example.test/plugin.whl"]},
+        {"requirements": ["plugin @ https://user:secret@example.test/plugin.whl#sha256=" + "a" * 64]},
+        {"requirements": ["plugin @ https://example.test/plugin.whl?token=secret#sha256=" + "a" * 64]},
         {"requirements": ["my_pkg==1", "my-pkg==2"]},
         {"requirements": None, "lock_file": "../lock.json"},
     ],
@@ -99,6 +103,48 @@ def test_literal_environment_rejects_control_characters() -> None:
         LiteralEnvironmentBinding(type="literal", value="line\nbreak")
 
 
+def test_secret_shaped_environment_requires_external_reference() -> None:
+    literal = LiteralEnvironmentBinding(type="literal", value="plaintext-secret")
+
+    with pytest.raises(ValidationError, match="external secret references"):
+        LocalStdioMCPProviderConfig(
+            provider_type="stdio",
+            name="provider",
+            command="provider",
+            environment={"API_TOKEN": literal},
+        )
+    with pytest.raises(ValidationError, match="external secret references"):
+        VllmServerConfig(
+            type="vllm",
+            image=ImageRef(name="vllm"),
+            environment={"MODEL_PASSWORD": literal},
+        )
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        "https://user:password@example.test/mcp",
+        "https://example.test/mcp?token=plaintext-secret",
+        "https://example.test/mcp#secret",
+    ],
+)
+def test_remote_mcp_endpoint_rejects_embedded_credentials(endpoint: str) -> None:
+    with pytest.raises(ValidationError, match="must not embed"):
+        RemoteMCPProviderConfig(provider_type="sse", name="provider", endpoint=endpoint)
+
+
+@pytest.mark.parametrize("argument", ["--api-key", "--access-token=plaintext-secret", "password"])
+def test_stdio_mcp_rejects_secret_shaped_arguments(argument: str) -> None:
+    with pytest.raises(ValidationError, match="secret-shaped"):
+        LocalStdioMCPProviderConfig(
+            provider_type="stdio",
+            name="provider",
+            command="provider",
+            args=[argument],
+        )
+
+
 def test_vllm_defaults_and_backpressure_override() -> None:
     server = VllmServerConfig(type="vllm", image=ImageRef(name="vllm"))
     overridden = VllmServerConfig(
@@ -111,10 +157,31 @@ def test_vllm_defaults_and_backpressure_override() -> None:
     assert overridden.queue_backpressure.model_dump() == {"max_waiting_requests": 0, "retry_after_seconds": None}
 
 
-@pytest.mark.parametrize("argument", ["--port", "--host=0.0.0.0", "--tensor-parallel-size"])
+@pytest.mark.parametrize(
+    "argument",
+    [
+        "--api-key=plaintext-secret",
+        "--distributed-init-address",
+        "--host=0.0.0.0",
+        "--middleware",
+        "--model",
+        "--port",
+        "--tensor-parallel-size",
+    ],
+)
 def test_vllm_rejects_runtime_owned_arguments(argument: str) -> None:
     with pytest.raises(ValidationError, match="owned"):
         VllmServerConfig(type="vllm", image=ImageRef(name="vllm"), extra_args=[argument])
+
+
+def test_vllm_rejects_distributed_timeout_beyond_startup_timeout() -> None:
+    with pytest.raises(ValidationError, match="must not exceed"):
+        VllmServerConfig(
+            type="vllm",
+            image=ImageRef(name="vllm"),
+            startup_timeout="10m",
+            distributed_init_timeout="11m",
+        )
 
 
 def test_deployment_rejects_invalid_topology() -> None:
@@ -168,6 +235,12 @@ def test_run_rejects_retired_builder_fields(authored_run: DataDesignerSlurmConfi
 
     with pytest.raises(ValidationError, match="retired"):
         DataDesignerSlurmConfig.model_validate(payload)
+
+
+@pytest.mark.parametrize("secret_key", ["api_key", "accessToken", "client-secret", "password"])
+def test_builder_input_rejects_secret_values(secret_key: str) -> None:
+    with pytest.raises(ValidationError, match="secret values"):
+        BuilderInput(inline={"columns": [], secret_key: "plaintext-secret"})
 
 
 def test_builder_input_accepts_exported_and_shorthand_configs() -> None:
@@ -283,3 +356,19 @@ def test_config_models_do_not_mutate_input(authored_run: DataDesignerSlurmConfig
     DataDesignerSlurmConfig.model_validate(payload)
 
     assert payload == original
+
+
+def test_config_models_are_deeply_immutable(authored_run: DataDesignerSlurmConfig) -> None:
+    inline = authored_run.builder.inline
+    assert inline is not None
+    data_designer = inline["data_designer"]
+    assert isinstance(data_designer, dict)
+    columns = data_designer["columns"]
+    assert isinstance(columns, list)
+
+    with pytest.raises(TypeError, match="frozen list"):
+        authored_run.deployments.clear()
+    with pytest.raises(TypeError, match="frozen dictionary"):
+        authored_run.invocation.run_config["buffer_size"] = 1
+    with pytest.raises(TypeError, match="frozen list"):
+        columns.append({})

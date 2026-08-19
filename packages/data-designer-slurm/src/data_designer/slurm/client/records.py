@@ -77,6 +77,8 @@ class ClientResult(ContractRecord):
         if self.outcome is ClientOutcome.COMPLETE:
             if self.actual_records != self.requested_records:
                 raise ValueError("complete client results require the requested record count")
+            if self.early_shutdown:
+                raise ValueError("complete client results cannot report early shutdown")
             self._require_success_artifacts()
         elif self.outcome is ClientOutcome.PARTIAL:
             if self.actual_records is None or not 0 < self.actual_records < self.requested_records:

@@ -52,6 +52,20 @@ def test_plan_canonical_json_is_byte_stable(multi_node_plan: ResolvedSlurmRunPla
     assert reordered.serialize_canonical_json() == multi_node_plan.serialize_canonical_json()
 
 
+def test_resolved_plan_is_deeply_immutable(multi_node_plan: ResolvedSlurmRunPlan) -> None:
+    inline = multi_node_plan.builder.inline
+    assert inline is not None
+    data_designer = inline["data_designer"]
+    assert isinstance(data_designer, dict)
+    columns = data_designer["columns"]
+    assert isinstance(columns, list)
+
+    with pytest.raises(TypeError, match="frozen dictionary"):
+        multi_node_plan.invocation.effective_run_config["buffer_size"] = 1
+    with pytest.raises(TypeError, match="frozen list"):
+        columns.append({})
+
+
 @pytest.mark.parametrize(
     "mutator",
     [

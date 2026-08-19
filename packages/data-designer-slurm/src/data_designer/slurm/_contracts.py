@@ -7,7 +7,8 @@ import hashlib
 import json
 import posixpath
 import re
-from typing import Annotated, Literal
+from collections.abc import Mapping
+from typing import Annotated, Literal, TypeVar
 
 from pydantic import (
     BaseModel,
@@ -35,6 +36,57 @@ EnvironmentName = Annotated[str, StringConstraints(pattern=r"^[A-Za-z_][A-Za-z0-
 Sha256Digest = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
 Duration = Annotated[str, StringConstraints(pattern=r"^[1-9][0-9]*(?:s|m|h|d)$")]
 
+_Key = TypeVar("_Key")
+_Value = TypeVar("_Value")
+
+
+class _FrozenList(list[_Value]):
+    """List that retains JSON compatibility without exposing mutation."""
+
+    def _immutable(self, *args: object, **kwargs: object) -> None:
+        del args, kwargs
+        raise TypeError("frozen list cannot be modified")
+
+    __delitem__ = _immutable
+    __iadd__ = _immutable
+    __imul__ = _immutable
+    __setitem__ = _immutable
+    append = _immutable
+    clear = _immutable
+    extend = _immutable
+    insert = _immutable
+    pop = _immutable
+    remove = _immutable
+    reverse = _immutable
+    sort = _immutable
+
+
+class _FrozenDict(dict[_Key, _Value]):
+    """Dictionary that retains JSON compatibility without exposing mutation."""
+
+    def _immutable(self, *args: object, **kwargs: object) -> None:
+        del args, kwargs
+        raise TypeError("frozen dictionary cannot be modified")
+
+    __delitem__ = _immutable
+    __ior__ = _immutable
+    __setitem__ = _immutable
+    clear = _immutable
+    pop = _immutable
+    popitem = _immutable
+    setdefault = _immutable
+    update = _immutable
+
+
+def _freeze_collections(value: object) -> object:
+    if isinstance(value, Mapping):
+        return _FrozenDict({key: _freeze_collections(item) for key, item in value.items()})
+    if isinstance(value, list):
+        return _FrozenList(_freeze_collections(item) for item in value)
+    if isinstance(value, tuple):
+        return tuple(_freeze_collections(item) for item in value)
+    return value
+
 
 class AuthoredConfig(BaseModel):
     """Base for strict authored configuration values."""
@@ -47,6 +99,11 @@ class AuthoredConfig(BaseModel):
         strict=True,
         validate_default=True,
     )
+
+    @field_validator("*", mode="after")
+    @classmethod
+    def freeze_collections(cls, value: object) -> object:
+        return _freeze_collections(value)
 
     def serialize_canonical_json(self) -> bytes:
         return canonical_json(self.model_dump(mode="json"))
@@ -69,6 +126,11 @@ class ContractValue(BaseModel):
         strict=True,
         validate_default=True,
     )
+
+    @field_validator("*", mode="after")
+    @classmethod
+    def freeze_collections(cls, value: object) -> object:
+        return _freeze_collections(value)
 
 
 class ContractRecord(ContractValue):
