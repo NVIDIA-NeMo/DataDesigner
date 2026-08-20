@@ -973,10 +973,14 @@ name = "data-designer-slurm"
 source = { editable = "packages/data-designer-slurm" }
 dependencies = [
     { name = "data-designer" },
+    { name = "pydantic" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "data-designer", editable = "packages/data-designer" }]
+requires-dist = [
+    { name = "data-designer", editable = "packages/data-designer" },
+    { name = "pydantic", specifier = ">=2.9.2,<3" },
+]
 
 [[package]]
 name = "data-designer-workspace"
