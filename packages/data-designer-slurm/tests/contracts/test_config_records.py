@@ -75,6 +75,7 @@ def test_image_ref_requires_one_registered_alias_or_absolute_sqsh(payload: dict[
         {"requirements": ["plugin @ https://example.test/plugin.whl"]},
         {"requirements": ["plugin @ https://user:secret@example.test/plugin.whl#sha256=" + "a" * 64]},
         {"requirements": ["plugin @ https://example.test/plugin.whl?token=secret#sha256=" + "a" * 64]},
+        {"requirements": ["plugin @ https://example.test:invalid/plugin.whl#sha256=" + "a" * 64]},
         {"requirements": ["my_pkg==1", "my-pkg==2"]},
         {"requirements": ["not valid !!!"]},
         {"requirements": ["plugin=="]},
@@ -142,7 +143,16 @@ def test_remote_mcp_endpoint_requires_valid_host_and_port(endpoint: str) -> None
         RemoteMCPProviderConfig(provider_type="sse", name="provider", endpoint=endpoint)
 
 
-@pytest.mark.parametrize("argument", ["--api-key", "--access-token=plaintext-secret", "password"])
+@pytest.mark.parametrize(
+    "argument",
+    [
+        "--api-key",
+        "--api-key plaintext-secret",
+        " --api-key plaintext-secret",
+        "--access-token=plaintext-secret",
+        "password",
+    ],
+)
 def test_stdio_mcp_rejects_secret_shaped_arguments(argument: str) -> None:
     with pytest.raises(ValidationError, match="secret-shaped"):
         LocalStdioMCPProviderConfig(
@@ -169,11 +179,14 @@ def test_vllm_defaults_and_backpressure_override() -> None:
     "argument",
     [
         "--api-key=plaintext-secret",
+        "--api-key plaintext-secret",
         "--distributed-init-address",
         "--host=0.0.0.0",
         "--middleware",
         "--model",
         "--port",
+        "--port 9000",
+        " --port 9000",
         "--tensor-parallel-size",
     ],
 )
@@ -187,6 +200,7 @@ def test_vllm_rejects_runtime_owned_arguments(argument: str) -> None:
     [
         ["--hf-token=plaintext-secret"],
         ["--hf-token", "plaintext-secret"],
+        ["--hf-token plaintext-secret"],
     ],
 )
 def test_vllm_rejects_secret_shaped_arguments(extra_args: list[str]) -> None:

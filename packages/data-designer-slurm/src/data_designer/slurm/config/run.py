@@ -69,6 +69,10 @@ def _is_secret_name(value: str) -> bool:
     )
 
 
+def _option_flag(value: str) -> str:
+    return re.split(r"[=\s]", value.lstrip(), maxsplit=1)[0]
+
+
 def _contains_secret_key(value: object) -> bool:
     if isinstance(value, Mapping):
         return any(
@@ -193,7 +197,7 @@ class LocalStdioMCPProviderConfig(AuthoredConfig):
     def validate_args(cls, values: list[str]) -> list[str]:
         for value in values:
             validate_plain_text(value, field_name="MCP argument")
-            option = value.partition("=")[0].lstrip("-")
+            option = _option_flag(value).lstrip("-")
             if _is_secret_name(option):
                 raise ValueError("secret-shaped MCP arguments must use an environment secret reference")
         return values
@@ -258,6 +262,7 @@ class ClientDependencies(AuthoredConfig):
             except InvalidRequirement as error:
                 raise ValueError(f"invalid dependency requirement: {value!r}") from error
             if requirement.url is not None:
+                validate_url(requirement.url, field_name="direct dependency URL")
                 parsed = urlsplit(requirement.url)
                 valid_wheel = (
                     parsed.scheme == "https"
@@ -332,7 +337,7 @@ class VllmServerConfig(AuthoredConfig):
     def validate_extra_args(cls, values: list[str]) -> list[str]:
         for value in values:
             validate_plain_text(value, field_name="vLLM argument")
-            flag = value.split("=", maxsplit=1)[0]
+            flag = _option_flag(value)
             if flag in _OWNED_VLLM_FLAGS:
                 raise ValueError(f"vLLM argument {flag!r} is owned by the compiler or runtime")
             if _is_secret_name(flag.lstrip("-")):
