@@ -35,7 +35,10 @@ style = "pep440"
 bump = true
 
 [tool.hatch.metadata.hooks.uv-dynamic-versioning]
-dependencies = ["data-designer=={{ version }}"]
+dependencies = [
+    "data-designer=={{ version }}",
+    "pydantic>=2.9.2,<3",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/data_designer"]

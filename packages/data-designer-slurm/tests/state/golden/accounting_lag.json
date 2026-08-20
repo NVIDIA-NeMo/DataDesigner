@@ -1,0 +1,10 @@
+{
+  "observed_at": "2026-08-18T12:05:02Z",
+  "reconciliation_deadline": "2026-08-18T12:10:02Z",
+  "scheduler": {
+    "array_job_id": 4101,
+    "array_task_id": 0
+  },
+  "schema_version": 1,
+  "state": "accounting_lag"
+}
