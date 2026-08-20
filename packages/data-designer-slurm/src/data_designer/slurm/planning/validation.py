@@ -99,10 +99,21 @@ def validate_resolved_plan(
         dependency_lock.image_distributions == inspection.distributions,
         "dependency lock image inventory does not match client image inspection",
     )
-    if authored.client.dependencies.requirements is not None:
+    authored_requirements = authored.client.dependencies.requirements
+    if authored_requirements is not None:
         _require(
-            dependency_lock.authored_requirements == tuple(authored.client.dependencies.requirements),
+            dependency_lock.authored_source is None and dependency_lock.source is None,
+            "dependency lock source is present for authored requirements",
+        )
+        _require(
+            dependency_lock.authored_requirements == tuple(authored_requirements),
             "dependency lock requirements do not match authored requirements",
+        )
+    else:
+        _require(
+            dependency_lock.authored_source == authored.client.dependencies.lock_file
+            and dependency_lock.source is not None,
+            "dependency lock source does not match the authored lock file",
         )
     return plan
 

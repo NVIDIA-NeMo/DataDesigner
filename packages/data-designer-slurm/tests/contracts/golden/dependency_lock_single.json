@@ -1,5 +1,6 @@
 {
   "authored_requirements": [],
+  "authored_source": null,
   "client_image_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
   "image_distributions": [
     {
@@ -10,5 +11,6 @@
   "overlay_packages": [],
   "python_abi": "cp312",
   "resolver_version": "resolver-1",
-  "schema_version": 1
+  "schema_version": 1,
+  "source": null
 }

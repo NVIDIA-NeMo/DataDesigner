@@ -9,6 +9,8 @@ from collections.abc import Mapping
 from typing import Annotated, Literal
 from urllib.parse import urlsplit
 
+from packaging.requirements import InvalidRequirement, Requirement
+from packaging.utils import canonicalize_name
 from pydantic import (
     Field,
     JsonValue,
@@ -69,7 +71,10 @@ def _is_secret_name(value: str) -> bool:
 
 def _contains_secret_key(value: object) -> bool:
     if isinstance(value, Mapping):
-        return any(_is_secret_name(str(key)) or _contains_secret_key(item) for key, item in value.items())
+        return any(
+            (_is_secret_name(str(key)) and item is not None) or _contains_secret_key(item)
+            for key, item in value.items()
+        )
     if isinstance(value, list | tuple):
         return any(_contains_secret_key(item) for item in value)
     return False
@@ -248,9 +253,12 @@ class ClientDependencies(AuthoredConfig):
             validate_plain_text(value, field_name="dependency requirement")
             if value != value.strip() or value.startswith(("-e ", "/", "./", "../")) or "git+" in value:
                 raise ValueError(f"dependency requirement must identify a package or immutable wheel: {value!r}")
-            if " @ " in value:
-                _, source = value.split(" @ ", maxsplit=1)
-                parsed = urlsplit(source)
+            try:
+                requirement = Requirement(value)
+            except InvalidRequirement as error:
+                raise ValueError(f"invalid dependency requirement: {value!r}") from error
+            if requirement.url is not None:
+                parsed = urlsplit(requirement.url)
                 valid_wheel = (
                     parsed.scheme == "https"
                     and parsed.hostname is not None
@@ -262,10 +270,7 @@ class ClientDependencies(AuthoredConfig):
                 )
                 if not valid_wheel:
                     raise ValueError("direct dependency URLs must be HTTPS wheels with a SHA-256 fragment")
-            elif "://" in value or not re.match(r"^[A-Za-z0-9][A-Za-z0-9._-]*", value):
-                raise ValueError(f"invalid dependency requirement: {value!r}")
-            name = re.split(r"\s|\[|[<>=!~@]", value, maxsplit=1)[0].lower().replace("_", "-").replace(".", "-")
-            names.append(name)
+            names.append(canonicalize_name(requirement.name))
         if len(names) != len(set(names)):
             raise ValueError("dependency requirements must have unique normalized names")
         return values
@@ -330,6 +335,8 @@ class VllmServerConfig(AuthoredConfig):
             flag = value.split("=", maxsplit=1)[0]
             if flag in _OWNED_VLLM_FLAGS:
                 raise ValueError(f"vLLM argument {flag!r} is owned by the compiler or runtime")
+            if _is_secret_name(flag.lstrip("-")):
+                raise ValueError("secret-shaped vLLM arguments must use an environment secret reference")
         return values
 
     _environment_uses_secret_references = field_validator("environment")(_validate_environment_bindings)

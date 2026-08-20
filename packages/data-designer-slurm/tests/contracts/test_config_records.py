@@ -9,7 +9,7 @@ from copy import deepcopy
 import pytest
 from pydantic import ValidationError
 
-from data_designer.config import DataDesignerConfigBuilder, ModelConfig
+from data_designer.config import DataDesignerConfigBuilder, HuggingFaceSeedSource, ModelConfig
 from data_designer.slurm.config import (
     ArrayTasksConfig,
     BenchmarkBaseRun,
@@ -76,6 +76,8 @@ def test_image_ref_requires_one_registered_alias_or_absolute_sqsh(payload: dict[
         {"requirements": ["plugin @ https://user:secret@example.test/plugin.whl#sha256=" + "a" * 64]},
         {"requirements": ["plugin @ https://example.test/plugin.whl?token=secret#sha256=" + "a" * 64]},
         {"requirements": ["my_pkg==1", "my-pkg==2"]},
+        {"requirements": ["not valid !!!"]},
+        {"requirements": ["plugin=="]},
         {"requirements": None, "lock_file": "../lock.json"},
     ],
 )
@@ -134,6 +136,12 @@ def test_remote_mcp_endpoint_rejects_embedded_credentials(endpoint: str) -> None
         RemoteMCPProviderConfig(provider_type="sse", name="provider", endpoint=endpoint)
 
 
+@pytest.mark.parametrize("endpoint", ["https:///missing-host", "https://example.test:invalid/mcp"])
+def test_remote_mcp_endpoint_requires_valid_host_and_port(endpoint: str) -> None:
+    with pytest.raises(ValidationError, match=r"HTTP\(S\)"):
+        RemoteMCPProviderConfig(provider_type="sse", name="provider", endpoint=endpoint)
+
+
 @pytest.mark.parametrize("argument", ["--api-key", "--access-token=plaintext-secret", "password"])
 def test_stdio_mcp_rejects_secret_shaped_arguments(argument: str) -> None:
     with pytest.raises(ValidationError, match="secret-shaped"):
@@ -172,6 +180,18 @@ def test_vllm_defaults_and_backpressure_override() -> None:
 def test_vllm_rejects_runtime_owned_arguments(argument: str) -> None:
     with pytest.raises(ValidationError, match="owned"):
         VllmServerConfig(type="vllm", image=ImageRef(name="vllm"), extra_args=[argument])
+
+
+@pytest.mark.parametrize(
+    "extra_args",
+    [
+        ["--hf-token=plaintext-secret"],
+        ["--hf-token", "plaintext-secret"],
+    ],
+)
+def test_vllm_rejects_secret_shaped_arguments(extra_args: list[str]) -> None:
+    with pytest.raises(ValidationError, match="secret-shaped"):
+        VllmServerConfig(type="vllm", image=ImageRef(name="vllm"), extra_args=extra_args)
 
 
 def test_vllm_rejects_distributed_timeout_beyond_startup_timeout() -> None:
@@ -248,6 +268,16 @@ def test_builder_input_accepts_exported_and_shorthand_configs() -> None:
 
     assert BuilderInput(inline=exported).inline == exported
     assert BuilderInput(inline={"columns": []}).inline == {"columns": []}
+
+
+def test_builder_input_accepts_null_secret_fields_from_canonical_export() -> None:
+    builder = DataDesignerConfigBuilder(model_configs=[]).with_seed_dataset(
+        HuggingFaceSeedSource(path="datasets/example/seed/*.parquet")
+    )
+    exported = builder.get_builder_config().to_dict()
+
+    assert exported["data_designer"]["seed_config"]["source"]["token"] is None
+    assert BuilderInput(inline=exported).inline == exported
 
 
 @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])

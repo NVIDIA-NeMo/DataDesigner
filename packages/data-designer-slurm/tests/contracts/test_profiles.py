@@ -51,6 +51,20 @@ def test_catalog_selection_digest_validation(profile_catalog: SlurmProfileCatalo
         validate_selected_profile(changed, selected)
 
 
+def test_catalog_selection_revalidates_provenance(profile_catalog: SlurmProfileCatalog) -> None:
+    forged_default = select_profile(profile_catalog, cluster="lab").model_copy(
+        update={"selection_source": ProfileSelectionSource.DEFAULT}
+    )
+    with pytest.raises(ValueError, match="catalog default"):
+        validate_selected_profile(profile_catalog, forged_default)
+
+    forged_pattern = select_profile(profile_catalog, hostnames=("primary-login-1",)).model_copy(
+        update={"matched_pattern": "lab-*"}
+    )
+    with pytest.raises(ValueError, match="pattern"):
+        validate_selected_profile(profile_catalog, forged_pattern)
+
+
 def test_unselected_profile_edit_keeps_selected_profile_digest(profile_catalog: SlurmProfileCatalog) -> None:
     first = select_profile(profile_catalog, cluster="primary")
     payload = profile_catalog.model_dump(mode="json")

@@ -222,6 +222,13 @@ def validate_selected_profile(
         raise ValueError("selected cluster is absent from the catalog")
     if selected.profile != catalog.clusters[selected.cluster_name]:
         raise ValueError("selected profile does not match its catalog entry")
+    if selected.selection_source is ProfileSelectionSource.DEFAULT and selected.cluster_name != catalog.default_cluster:
+        raise ValueError("default profile selection does not match the catalog default")
+    if (
+        selected.selection_source is ProfileSelectionSource.HOSTNAME
+        and selected.matched_pattern not in selected.profile.host_patterns
+    ):
+        raise ValueError("hostname selection pattern is absent from the selected profile")
     return selected
 
 

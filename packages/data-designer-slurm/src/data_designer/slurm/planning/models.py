@@ -21,6 +21,7 @@ from data_designer.slurm._contracts import (
     ShardId,
     compute_sha256,
     validate_absolute_path,
+    validate_local_config_path,
     validate_plain_text,
 )
 from data_designer.slurm.config.images import (
@@ -88,11 +89,25 @@ class ResolvedDependencyLock(ContractRecord):
     python_abi: Identifier
     client_image_sha256: Sha256Digest
     authored_requirements: tuple[str, ...]
+    authored_source: str | None = None
+    source: ArtifactReference | None = None
     image_distributions: tuple[InstalledDistribution, ...]
     overlay_packages: tuple[LockedPackage, ...]
 
+    @field_validator("authored_source")
+    @classmethod
+    def validate_authored_source(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = validate_local_config_path(value)
+        if not normalized.endswith(".json"):
+            raise ValueError("dependency lock source must end in .json")
+        return normalized
+
     @model_validator(mode="after")
     def validate_packages(self) -> ResolvedDependencyLock:
+        if (self.authored_source is None) != (self.source is None):
+            raise ValueError("dependency lock authored and resolved sources must be provided together")
         image_names = tuple(distribution.name for distribution in self.image_distributions)
         overlay_names = tuple(package.name for package in self.overlay_packages)
         if image_names != tuple(sorted(image_names)) or overlay_names != tuple(sorted(overlay_names)):

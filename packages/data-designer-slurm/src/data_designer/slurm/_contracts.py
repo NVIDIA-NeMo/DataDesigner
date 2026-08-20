@@ -6,9 +6,9 @@ from __future__ import annotations
 import hashlib
 import json
 import posixpath
-import re
 from collections.abc import Mapping
 from typing import Annotated, Literal, TypeVar
+from urllib.parse import urlsplit
 
 from pydantic import (
     BaseModel,
@@ -213,7 +213,16 @@ def validate_plain_text(value: str, *, field_name: str) -> str:
 
 def validate_url(value: str, *, field_name: str) -> str:
     validate_plain_text(value, field_name=field_name)
-    if not re.fullmatch(r"https?://[^\s]+", value):
+    try:
+        parsed = urlsplit(value)
+        parsed.port
+    except ValueError as error:
+        raise ValueError(f"{field_name} must be an HTTP(S) URL with a valid host and port") from error
+    if (
+        parsed.scheme not in {"http", "https"}
+        or parsed.hostname is None
+        or any(character.isspace() for character in value)
+    ):
         raise ValueError(f"{field_name} must be an HTTP(S) URL")
     return value
 

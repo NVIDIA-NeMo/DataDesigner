@@ -10,7 +10,7 @@ import pytest
 from pydantic import ValidationError
 
 from data_designer.slurm._contracts import compute_sha256
-from data_designer.slurm.config import BuilderInput, DataDesignerSlurmConfig
+from data_designer.slurm.config import BuilderInput, ClientDependencies, DataDesignerSlurmConfig
 from data_designer.slurm.planning import (
     ArtifactReference,
     PlanContractError,
@@ -237,9 +237,14 @@ def test_resolved_image_rejects_digest_mismatch(multi_node_plan: ResolvedSlurmRu
         ),
         lambda payload: payload.update(image_distributions=list(reversed(payload["image_distributions"]))),
         lambda payload: payload["overlay_packages"][0]["artifact"].update(path="/wheels/plugin.tar.gz"),
+        lambda payload: payload.update(authored_source="lock.json"),
+        lambda payload: payload.update(
+            authored_source="lock.yaml",
+            source={"path": "/workspace/lock.yaml", "sha256": "a" * 64},
+        ),
     ],
 )
-def test_dependency_lock_rejects_overlap_order_and_non_wheel(
+def test_dependency_lock_rejects_invalid_boundaries(
     dependency_lock: ResolvedDependencyLock,
     mutator: object,
 ) -> None:
@@ -285,6 +290,61 @@ def test_cross_record_validation_rejects_dependency_lock_digest(
 
     with pytest.raises(PlanContractError, match="dependency lock digest"):
         validate_resolved_plan(authored_run, dependency_lock, invalid)
+
+
+def test_cross_record_validation_binds_authored_lock_source(
+    authored_run: DataDesignerSlurmConfig,
+    dependency_lock: ResolvedDependencyLock,
+    multi_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    dependencies = ClientDependencies(requirements=None, lock_file="locks/user-lock.json")
+    authored = authored_run.model_copy(
+        update={"client": authored_run.client.model_copy(update={"dependencies": dependencies})}
+    )
+    plan_payload = multi_node_plan.model_dump(mode="json")
+    plan_payload["authored_config"]["sha256"] = authored.compute_sha256()
+    plan_payload["client"]["authored"] = authored.client.model_dump(mode="json")
+    plan = ResolvedSlurmRunPlan.model_validate_json(json.dumps(plan_payload))
+
+    with pytest.raises(PlanContractError, match="authored lock file"):
+        validate_resolved_plan(authored, dependency_lock, plan)
+
+    lock_payload = dependency_lock.model_dump(mode="json")
+    lock_payload.update(
+        authored_source="locks/user-lock.json",
+        source={
+            "path": "/workspace/primary/runs/run-001/inputs/user-lock.json",
+            "sha256": "a" * 64,
+        },
+    )
+    matching_lock = ResolvedDependencyLock.model_validate_json(json.dumps(lock_payload))
+    unexpected_source_plan = multi_node_plan.model_copy(
+        update={
+            "client": multi_node_plan.client.model_copy(
+                update={
+                    "dependency_lock": multi_node_plan.client.dependency_lock.model_copy(
+                        update={"sha256": matching_lock.compute_sha256()}
+                    )
+                }
+            )
+        }
+    )
+    with pytest.raises(PlanContractError, match="present for authored requirements"):
+        validate_resolved_plan(authored_run, matching_lock, unexpected_source_plan)
+
+    matching_plan = plan.model_copy(
+        update={
+            "client": plan.client.model_copy(
+                update={
+                    "dependency_lock": plan.client.dependency_lock.model_copy(
+                        update={"sha256": matching_lock.compute_sha256()}
+                    )
+                }
+            )
+        }
+    )
+
+    assert validate_resolved_plan(authored, matching_lock, matching_plan) is matching_plan
 
 
 def test_cross_record_validation_rejects_python_abi(
