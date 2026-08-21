@@ -125,6 +125,23 @@ slurm_help_result = CliRunner().invoke(app, ["slurm", "--help"])
 assert slurm_help_result.exit_code == 0, (slurm_help_result.output, repr(slurm_help_result.exception))
 assert "data_designer.slurm.cli" in sys.modules
 assert version("data-designer-slurm") == {version!r}
+from data_designer.slurm.contracts import ArtifactReference as ContractArtifactReference
+from data_designer.slurm.contracts import RecordRange as ContractRecordRange
+from data_designer.slurm.contracts import ResumeWorkspace as ContractResumeWorkspace
+from data_designer.slurm.planning import ArtifactReference as PlanningArtifactReference
+from data_designer.slurm.planning import RecordRange as PlanningRecordRange
+from data_designer.slurm.planning import ResumeWorkspace as PlanningResumeWorkspace
+from data_designer.slurm.state import ArtifactReference as StateArtifactReference
+from data_designer.slurm.state import RecordRange as StateRecordRange
+from data_designer.slurm.state import ResumeWorkspace as StateResumeWorkspace
+from data_designer.slurm.state import RunManifest
+assert RunManifest.__name__ == "RunManifest"
+assert PlanningArtifactReference is ContractArtifactReference
+assert PlanningRecordRange is ContractRecordRange
+assert PlanningResumeWorkspace is ContractResumeWorkspace
+assert StateArtifactReference is ContractArtifactReference
+assert StateRecordRange is ContractRecordRange
+assert StateResumeWorkspace is ContractResumeWorkspace
 """
     run([str(python), "-c", statement], cwd=cwd)
 
@@ -170,8 +187,12 @@ def main() -> None:
 
         base_leaf_requirement = requirement(base_metadata, "data-designer-slurm")
         leaf_base_requirement = requirement(leaf_metadata, "data-designer")
+        leaf_packaging_requirement = requirement(leaf_metadata, "packaging")
+        leaf_pydantic_requirement = requirement(leaf_metadata, "pydantic")
         assert str(base_leaf_requirement.specifier) == f"=={version}"
         assert str(leaf_base_requirement.specifier) == f"=={version}"
+        assert leaf_packaging_requirement.specifier == Requirement("packaging>=25,<27").specifier
+        assert leaf_pydantic_requirement.specifier == Requirement("pydantic>=2.9.2,<3").specifier
         assert base_leaf_requirement.marker is not None
         assert base_leaf_requirement.marker.evaluate({"extra": "slurm"})
         assert not base_leaf_requirement.marker.evaluate({"extra": ""})

@@ -5,11 +5,31 @@ from __future__ import annotations
 
 import posixpath
 from typing import Annotated, Literal
+from urllib.parse import urlsplit
 
+from packaging.requirements import Requirement
+from packaging.utils import canonicalize_name
+from packaging.version import InvalidVersion
 from pydantic import Field, JsonValue, NonNegativeInt, PositiveInt, StringConstraints, field_validator, model_validator
 
 from data_designer.config import RunConfig
-from data_designer.slurm._contracts import (
+from data_designer.slurm.config.images import (
+    DistributionName,
+    ImageInspectionRecord,
+    ImageKind,
+    ImageRef,
+    InstalledDistribution,
+)
+from data_designer.slurm.config.profiles import ContainerMount, SelectedSlurmProfile
+from data_designer.slurm.config.run import (
+    ArrayTasksConfig,
+    ClientConfig,
+    ClientDependencies,
+    InvocationConfig,
+    ServerDeploymentConfig,
+    SubmissionConfig,
+)
+from data_designer.slurm.contracts import (
     ArtifactReference,
     ContractRecord,
     ContractValue,
@@ -23,21 +43,6 @@ from data_designer.slurm._contracts import (
     validate_absolute_path,
     validate_local_config_path,
     validate_plain_text,
-)
-from data_designer.slurm.config.images import (
-    DistributionName,
-    ImageInspectionRecord,
-    ImageKind,
-    ImageRef,
-    InstalledDistribution,
-)
-from data_designer.slurm.config.profiles import ContainerMount, SelectedSlurmProfile
-from data_designer.slurm.config.run import (
-    ArrayTasksConfig,
-    ClientConfig,
-    InvocationConfig,
-    ServerDeploymentConfig,
-    SubmissionConfig,
 )
 
 
@@ -108,6 +113,7 @@ class ResolvedDependencyLock(ContractRecord):
     def validate_packages(self) -> ResolvedDependencyLock:
         if (self.authored_source is None) != (self.source is None):
             raise ValueError("dependency lock authored and resolved sources must be provided together")
+        ClientDependencies(requirements=list(self.authored_requirements))
         image_names = tuple(distribution.name for distribution in self.image_distributions)
         overlay_names = tuple(package.name for package in self.overlay_packages)
         if image_names != tuple(sorted(image_names)) or overlay_names != tuple(sorted(overlay_names)):
@@ -117,6 +123,26 @@ class ResolvedDependencyLock(ContractRecord):
         overlap = set(image_names).intersection(overlay_names)
         if overlap:
             raise ValueError(f"overlay packages overlap image-owned distributions: {', '.join(sorted(overlap))}")
+        image_packages = {distribution.name: distribution for distribution in self.image_distributions}
+        overlay_packages = {package.name: package for package in self.overlay_packages}
+        for value in self.authored_requirements:
+            requirement = Requirement(value)
+            name = canonicalize_name(requirement.name)
+            if requirement.url is not None:
+                package = overlay_packages.get(name)
+                digest = urlsplit(requirement.url).fragment.removeprefix("sha256=")
+                if package is None or package.artifact.sha256 != digest:
+                    raise ValueError(f"direct requirement {name!r} must match one locked overlay artifact")
+                continue
+            package = overlay_packages.get(name) or image_packages.get(name)
+            if package is None:
+                raise ValueError(f"authored requirement {name!r} is missing from the dependency lock")
+            try:
+                satisfied = requirement.specifier.contains(package.version, prereleases=True)
+            except InvalidVersion as error:
+                raise ValueError(f"locked package {name!r} has an invalid version") from error
+            if not satisfied:
+                raise ValueError(f"locked package {name!r} does not satisfy its authored requirement")
         return self
 
 
@@ -321,7 +347,6 @@ class ResolvedSlurmRunPlan(ContractRecord):
     """Immutable allocation input consumed without ambient configuration."""
 
     run_id: Identifier
-    plan_id: Identifier
     package_version: Annotated[str, StringConstraints(min_length=1, max_length=128)]
     authored_config: ArtifactReference
     selected_profile: SelectedSlurmProfile
@@ -364,6 +389,10 @@ class ResolvedSlurmRunPlan(ContractRecord):
             raise ValueError("deployment nodes must be disjoint and contiguous in authored order")
         if self.client.host_node_index != self.deployments[0].node_indices[0]:
             raise ValueError("client must be colocated on the first node of the first deployment")
+        if "non_inference_max_parallel_workers" not in self.invocation.authored.run_config:
+            workers = self.invocation.effective_run_config["non_inference_max_parallel_workers"]
+            if workers != self.client.authored.cpus:
+                raise ValueError("default non-inference worker count must match the client CPU count")
 
         expected_logical_names = tuple(
             f"{deployment.deployment_id}-logical-endpoint" for deployment in self.deployments
@@ -379,6 +408,11 @@ class ResolvedSlurmRunPlan(ContractRecord):
         port_names = tuple(port.name for port in ports)
         if len(port_names) != len(set(port_names)):
             raise ValueError("plan port claim names must be unique")
+        otel_port = self.invocation.effective_run_config.get("otel_metrics_port")
+        if type(otel_port) is int and any(
+            port.node_index == self.client.host_node_index and port.port == otel_port for port in ports
+        ):
+            raise ValueError("client OTEL metrics port collides with a plan port claim")
 
         run_root = posixpath.join(profile.workspace_root, "runs", self.run_id)
         if self.authored_config.path != posixpath.join(run_root, "authored-config.json"):
@@ -388,6 +422,9 @@ class ResolvedSlurmRunPlan(ContractRecord):
         self._validate_shards(run_root)
         if not _is_below(self.output.root, profile.workspace_root):
             raise ValueError("resolved output root must be below the selected workspace_root")
+        shards_root = posixpath.join(run_root, "shards")
+        if self.output.root == shards_root or _is_below(self.output.root, shards_root):
+            raise ValueError("resolved output root must not overlap the run shard workspace")
         return self
 
     def _validate_shards(self, run_root: str) -> None:

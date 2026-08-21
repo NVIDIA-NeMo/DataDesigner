@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from pydantic import JsonValue
 
+from data_designer.config import RunConfig
 from data_designer.slurm.config.images import ClientImageInspection
 from data_designer.slurm.config.run import DataDesignerSlurmConfig
 from data_designer.slurm.planning.models import (
@@ -31,6 +32,11 @@ def validate_resolved_plan(
         "authored config digest does not match the resolved plan",
     )
     _require(plan.invocation.authored == authored.invocation, "resolved invocation does not match authored input")
+    explicit_run_config = RunConfig.model_validate(authored.invocation.run_config).model_dump(
+        mode="json",
+        exclude_unset=True,
+    )
+    _require_json_subset(plan.invocation.effective_run_config, explicit_run_config, path="run_config")
     _require(plan.client.authored == authored.client, "resolved client does not match authored input")
     _require(
         tuple(deployment.authored for deployment in plan.deployments) == tuple(authored.deployments),
@@ -121,3 +127,13 @@ def validate_resolved_plan(
 def _require(condition: bool, message: str) -> None:
     if not condition:
         raise PlanContractError(message)
+
+
+def _require_json_subset(actual: JsonValue, expected: JsonValue, *, path: str) -> None:
+    if isinstance(expected, dict):
+        _require(isinstance(actual, dict), f"explicit {path} value does not match the resolved plan")
+        for key, value in expected.items():
+            _require(key in actual, f"explicit {path}.{key} value is missing from the resolved plan")
+            _require_json_subset(actual[key], value, path=f"{path}.{key}")
+        return
+    _require(actual == expected, f"explicit {path} value does not match the resolved plan")

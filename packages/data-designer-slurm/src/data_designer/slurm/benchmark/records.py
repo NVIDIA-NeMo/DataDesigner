@@ -17,7 +17,7 @@ from pydantic import (
     model_validator,
 )
 
-from data_designer.slurm._contracts import ArtifactReference, ContractRecord, ContractValue, Identifier
+from data_designer.slurm.contracts import ArtifactReference, ContractRecord, ContractValue, Identifier
 
 
 class BenchmarkChildRun(ContractValue):

@@ -1,6 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+"""Shared immutable contracts for Slurm planning and runtime state."""
+
 from __future__ import annotations
 
 import hashlib
@@ -88,8 +90,8 @@ def _freeze_collections(value: object) -> object:
     return value
 
 
-class AuthoredConfig(BaseModel):
-    """Base for strict authored configuration values."""
+class ContractValue(BaseModel):
+    """Base for strict immutable values shared across Slurm boundaries."""
 
     model_config = ConfigDict(
         extra="forbid",
@@ -104,6 +106,10 @@ class AuthoredConfig(BaseModel):
     @classmethod
     def freeze_collections(cls, value: object) -> object:
         return _freeze_collections(value)
+
+
+class AuthoredConfig(ContractValue):
+    """Base for strict authored configuration values."""
 
     def serialize_canonical_json(self) -> bytes:
         return canonical_json(self.model_dump(mode="json"))
@@ -115,36 +121,21 @@ class AuthoredConfig(BaseModel):
         return hashlib.sha256(self.serialize_json().encode("utf-8")).hexdigest()
 
 
-class ContractValue(BaseModel):
-    """Base for strict immutable cross-process values."""
-
-    model_config = ConfigDict(
-        extra="forbid",
-        frozen=True,
-        allow_inf_nan=False,
-        protected_namespaces=(),
-        strict=True,
-        validate_default=True,
-    )
-
-    @field_validator("*", mode="after")
-    @classmethod
-    def freeze_collections(cls, value: object) -> object:
-        return _freeze_collections(value)
-
-
 class ContractRecord(ContractValue):
-    """Base for explicitly versioned records with stable serialization."""
+    """Base for immutable, explicitly versioned Slurm records."""
 
     schema_version: SchemaVersion
 
     def serialize_canonical_json(self) -> bytes:
+        """Serialize the record to stable compact UTF-8 bytes."""
         return canonical_json(self.model_dump(mode="json"))
 
     def serialize_json(self) -> str:
+        """Serialize the record to deterministic persisted text."""
         return pretty_json(self.model_dump(mode="json"))
 
     def compute_sha256(self) -> Sha256Digest:
+        """Compute the digest of the exact bytes written by ``serialize_json``."""
         return hashlib.sha256(self.serialize_json().encode("utf-8")).hexdigest()
 
 
@@ -179,14 +170,30 @@ def compute_sha256(value: object) -> Sha256Digest:
 
 
 def validate_absolute_path(value: str) -> str:
+    """Validate a normalized, absolute POSIX path below the filesystem root."""
     if not value.startswith("/"):
         raise ValueError("path must be absolute")
+    if value.startswith("//"):
+        raise ValueError("path must have exactly one leading slash")
     if value == "/":
         raise ValueError("path must not be the filesystem root")
     validate_plain_text(value, field_name="path")
     if ".." in value.split("/"):
         raise ValueError("path must not contain parent-directory components")
     if posixpath.normpath(value) != value:
+        raise ValueError("path must be normalized")
+    return value
+
+
+def validate_relative_path(value: str) -> str:
+    """Validate a normalized relative POSIX path without parent traversal."""
+    if not value or value.startswith("/"):
+        raise ValueError("path must be a non-empty relative path")
+    if any(ord(character) < 32 or ord(character) == 127 for character in value):
+        raise ValueError("path must not contain control characters")
+    if ".." in value.split("/"):
+        raise ValueError("path must not contain parent-directory components")
+    if posixpath.normpath(value) != value or value == ".":
         raise ValueError("path must be normalized")
     return value
 
@@ -259,3 +266,29 @@ class ResumeWorkspace(ContractValue):
     path: str
 
     _path_is_absolute = field_validator("path")(validate_absolute_path)
+
+
+__all__ = [
+    "ArtifactReference",
+    "AttemptId",
+    "AuthoredConfig",
+    "ContractRecord",
+    "ContractValue",
+    "Duration",
+    "EnvironmentName",
+    "Identifier",
+    "ModelAlias",
+    "RecordRange",
+    "ResumeWorkspace",
+    "SchemaVersion",
+    "Sha256Digest",
+    "ShardId",
+    "canonical_json",
+    "compute_sha256",
+    "pretty_json",
+    "validate_absolute_path",
+    "validate_local_config_path",
+    "validate_plain_text",
+    "validate_relative_path",
+    "validate_url",
+]

@@ -7,7 +7,8 @@ from typing import Annotated, Literal
 
 from pydantic import Field, PositiveFloat, PositiveInt, field_validator, model_validator
 
-from data_designer.slurm._contracts import (
+from data_designer.slurm.config.run import DataDesignerSlurmConfig
+from data_designer.slurm.contracts import (
     AuthoredConfig,
     Duration,
     Identifier,
@@ -15,7 +16,6 @@ from data_designer.slurm._contracts import (
     SchemaVersion,
     validate_local_config_path,
 )
-from data_designer.slurm.config.run import DataDesignerSlurmConfig
 
 
 class BenchmarkBaseRun(AuthoredConfig):

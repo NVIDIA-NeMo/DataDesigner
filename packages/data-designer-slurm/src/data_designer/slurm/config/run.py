@@ -22,7 +22,8 @@ from pydantic import (
 )
 
 from data_designer.config import RunConfig
-from data_designer.slurm._contracts import (
+from data_designer.slurm.config.images import ImageRef
+from data_designer.slurm.contracts import (
     AuthoredConfig,
     Duration,
     EnvironmentName,
@@ -34,7 +35,6 @@ from data_designer.slurm._contracts import (
     validate_plain_text,
     validate_url,
 )
-from data_designer.slurm.config.images import ImageRef
 
 _OWNED_VLLM_FLAGS = {
     "--api-key",
@@ -51,6 +51,9 @@ _OWNED_VLLM_FLAGS = {
     "--tensor-parallel-size",
 }
 _DURATION_FACTORS = {"s": 1, "m": 60, "h": 3600, "d": 86400}
+_SECRET_KEY_QUALIFIERS = frozenset(
+    {"access", "api", "auth", "bearer", "client", "encryption", "hmac", "private", "secret", "signing"}
+)
 _SECRET_NAME_PARTS = frozenset({"credential", "credentials", "password", "secret", "token"})
 
 
@@ -58,14 +61,28 @@ def _duration_seconds(value: Duration) -> int:
     return int(value[:-1]) * _DURATION_FACTORS[value[-1]]
 
 
-def _is_secret_name(value: str) -> bool:
+def _secret_name_segments(value: str) -> list[str]:
     snake_case = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", value)
     normalized = re.sub(r"[^a-z0-9]+", "_", snake_case.casefold()).strip("_")
-    segments = normalized.split("_")
+    return normalized.split("_")
+
+
+def _is_secret_name(value: str) -> bool:
+    segments = _secret_name_segments(value)
     return bool(
         _SECRET_NAME_PARTS.intersection(segments)
         or {"access", "key"}.issubset(segments)
         or segments[-1] in {"auth", "key"}
+    )
+
+
+def _is_secret_payload_name(value: str) -> bool:
+    segments = _secret_name_segments(value)
+    if _SECRET_NAME_PARTS.intersection(segments) or {"access", "key"}.issubset(segments):
+        return True
+    return any(
+        segment in {"auth", "key"} and (index == 0 or segments[index - 1] in _SECRET_KEY_QUALIFIERS)
+        for index, segment in enumerate(segments)
     )
 
 
@@ -76,7 +93,7 @@ def _option_flag(value: str) -> str:
 def _contains_secret_key(value: object) -> bool:
     if isinstance(value, Mapping):
         return any(
-            (_is_secret_name(str(key)) and item is not None) or _contains_secret_key(item)
+            (_is_secret_payload_name(str(key)) and item is not None) or _contains_secret_key(item)
             for key, item in value.items()
         )
     if isinstance(value, list | tuple):
@@ -261,6 +278,8 @@ class ClientDependencies(AuthoredConfig):
                 requirement = Requirement(value)
             except InvalidRequirement as error:
                 raise ValueError(f"invalid dependency requirement: {value!r}") from error
+            if requirement.marker is not None:
+                raise ValueError("dependency requirement environment markers are not supported")
             if requirement.url is not None:
                 validate_url(requirement.url, field_name="direct dependency URL")
                 parsed = urlsplit(requirement.url)

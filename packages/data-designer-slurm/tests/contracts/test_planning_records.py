@@ -9,8 +9,8 @@ from copy import deepcopy
 import pytest
 from pydantic import ValidationError
 
-from data_designer.slurm._contracts import compute_sha256
 from data_designer.slurm.config import BuilderInput, ClientDependencies, DataDesignerSlurmConfig
+from data_designer.slurm.contracts import compute_sha256
 from data_designer.slurm.planning import (
     ArtifactReference,
     PlanContractError,
@@ -103,6 +103,44 @@ def test_plan_rejects_unmaterialized_run_config(multi_node_plan: ResolvedSlurmRu
 
     with pytest.raises(ValidationError, match="fully materialized"):
         ResolvedSlurmRunPlan.model_validate(payload)
+
+
+def test_plan_derives_default_non_inference_workers_from_client_cpus(
+    multi_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    payload = multi_node_plan.model_dump(mode="json")
+    payload["invocation"]["effective_run_config"]["non_inference_max_parallel_workers"] = 4
+
+    with pytest.raises(ValidationError, match="worker count must match"):
+        ResolvedSlurmRunPlan.model_validate_json(json.dumps(payload))
+
+
+def test_plan_preserves_explicit_non_inference_worker_override(
+    multi_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    payload = multi_node_plan.model_dump(mode="json")
+    payload["invocation"]["authored"]["run_config"]["non_inference_max_parallel_workers"] = 4
+    payload["invocation"]["effective_run_config"]["non_inference_max_parallel_workers"] = 4
+
+    plan = ResolvedSlurmRunPlan.model_validate_json(json.dumps(payload))
+
+    assert plan.invocation.effective_run_config["non_inference_max_parallel_workers"] == 4
+
+
+def test_plan_rejects_otel_port_collision(multi_node_plan: ResolvedSlurmRunPlan) -> None:
+    payload = multi_node_plan.model_dump(mode="json")
+    payload["invocation"]["effective_run_config"]["otel_metrics_port"] = 18000
+
+    with pytest.raises(ValidationError, match="OTEL metrics port collides"):
+        ResolvedSlurmRunPlan.model_validate_json(json.dumps(payload))
+
+
+def test_plan_rejects_output_inside_shard_workspace(multi_node_plan: ResolvedSlurmRunPlan) -> None:
+    payload = multi_node_plan.model_dump(mode="json")
+    payload["output"]["root"] = "/workspace/primary/runs/run-001/shards/shard-00000/dataset"
+
+    with pytest.raises(ValidationError, match="must not overlap"):
+        ResolvedSlurmRunPlan.model_validate_json(json.dumps(payload))
 
 
 def test_plan_rejects_deployment_alias_missing_from_builder(multi_node_plan: ResolvedSlurmRunPlan) -> None:
@@ -255,6 +293,35 @@ def test_dependency_lock_rejects_invalid_boundaries(
         ResolvedDependencyLock.model_validate_json(json.dumps(payload))
 
 
+def test_dependency_lock_requires_every_authored_package(dependency_lock: ResolvedDependencyLock) -> None:
+    payload = dependency_lock.model_dump(mode="json")
+    payload["overlay_packages"] = []
+
+    with pytest.raises(ValidationError, match="missing from the dependency lock"):
+        ResolvedDependencyLock.model_validate_json(json.dumps(payload))
+
+
+def test_dependency_lock_requires_compatible_versions(dependency_lock: ResolvedDependencyLock) -> None:
+    payload = dependency_lock.model_dump(mode="json")
+    payload["overlay_packages"][0]["version"] = "0.3.0"
+
+    with pytest.raises(ValidationError, match="does not satisfy"):
+        ResolvedDependencyLock.model_validate_json(json.dumps(payload))
+
+
+def test_dependency_lock_binds_direct_wheel_digest(dependency_lock: ResolvedDependencyLock) -> None:
+    payload = dependency_lock.model_dump(mode="json")
+    payload["authored_requirements"] = [
+        "data-designer-speech @ https://example.test/data_designer_speech.whl#sha256=" + "a" * 64
+    ]
+
+    with pytest.raises(ValidationError, match="locked overlay artifact"):
+        ResolvedDependencyLock.model_validate_json(json.dumps(payload))
+
+    payload["overlay_packages"][0]["artifact"]["sha256"] = "a" * 64
+    assert ResolvedDependencyLock.model_validate_json(json.dumps(payload)).overlay_packages
+
+
 def test_cross_record_validation_rejects_authored_digest(
     authored_run: DataDesignerSlurmConfig,
     dependency_lock: ResolvedDependencyLock,
@@ -396,4 +463,17 @@ def test_cross_record_validation_rejects_changed_invocation(
     invalid = multi_node_plan.model_copy(update={"invocation": invocation})
 
     with pytest.raises(PlanContractError, match="invocation"):
+        validate_resolved_plan(authored_run, dependency_lock, invalid)
+
+
+def test_cross_record_validation_preserves_explicit_run_config(
+    authored_run: DataDesignerSlurmConfig,
+    dependency_lock: ResolvedDependencyLock,
+    multi_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    payload = multi_node_plan.model_dump(mode="json")
+    payload["invocation"]["effective_run_config"]["buffer_size"] = 16384
+    invalid = ResolvedSlurmRunPlan.model_validate_json(json.dumps(payload))
+
+    with pytest.raises(PlanContractError, match="run_config.buffer_size"):
         validate_resolved_plan(authored_run, dependency_lock, invalid)

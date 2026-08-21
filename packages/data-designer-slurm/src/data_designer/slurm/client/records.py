@@ -9,7 +9,7 @@ from typing import Annotated, Literal
 
 from pydantic import NonNegativeInt, PositiveInt, StringConstraints, field_validator, model_validator
 
-from data_designer.slurm._contracts import (
+from data_designer.slurm.contracts import (
     ArtifactReference,
     AttemptId,
     ContractRecord,
@@ -81,8 +81,8 @@ class ClientResult(ContractRecord):
                 raise ValueError("complete client results cannot report early shutdown")
             self._require_success_artifacts()
         elif self.outcome is ClientOutcome.PARTIAL:
-            if self.actual_records is None or not 0 < self.actual_records < self.requested_records:
-                raise ValueError("partial client results require a positive partial record count")
+            if self.actual_records is None or self.actual_records >= self.requested_records:
+                raise ValueError("partial client results require fewer than the requested record count")
             self._require_success_artifacts()
         else:
             if self.candidate_output_manifest is not None:

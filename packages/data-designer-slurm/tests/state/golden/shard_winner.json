@@ -1,0 +1,12 @@
+{
+  "attempt_id": "attempt-0001",
+  "attempt_ordinal": 1,
+  "candidate_manifest": {
+    "path": "/workspace/runs/run-0001/shards/shard-00000/attempts/attempt-0001/output-manifest.json",
+    "sha256": "c639099f85b3cdd2759d3b74c792f06dc4a61a8550622b50ba2a3512c10fdb68"
+  },
+  "published_at": "2026-08-18T12:05:02Z",
+  "run_id": "run-0001",
+  "schema_version": 1,
+  "shard_id": "shard-00000"
+}

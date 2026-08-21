@@ -9,7 +9,6 @@ from pathlib import Path
 import pytest
 from pydantic import BaseModel
 
-from data_designer.slurm._contracts import AuthoredConfig, ContractRecord
 from data_designer.slurm.benchmark import BenchmarkManifest, BenchmarkReport
 from data_designer.slurm.client import ClientResult
 from data_designer.slurm.config import (
@@ -18,6 +17,7 @@ from data_designer.slurm.config import (
     ImageInspectionRecord,
     SlurmProfileCatalog,
 )
+from data_designer.slurm.contracts import AuthoredConfig, ContractRecord
 from data_designer.slurm.planning import ResolvedDependencyLock, ResolvedSlurmRunPlan
 
 GOLDEN_DIR = Path(__file__).parent / "golden"
@@ -49,7 +49,6 @@ def test_golden_record_round_trip(record_type: type[BaseModel], filename: str) -
     if isinstance(record, (AuthoredConfig, ContractRecord)):
         assert record_type.model_validate_json(record.serialize_json()) == record
         assert record.compute_sha256() == hashlib.sha256(record.serialize_json().encode()).hexdigest()
-    if isinstance(record, ContractRecord):
         assert record.serialize_json() == fixture
 
 

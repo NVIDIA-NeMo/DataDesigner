@@ -79,6 +79,7 @@ def test_image_ref_requires_one_registered_alias_or_absolute_sqsh(payload: dict[
         {"requirements": ["my_pkg==1", "my-pkg==2"]},
         {"requirements": ["not valid !!!"]},
         {"requirements": ["plugin=="]},
+        {"requirements": ["plugin==1; python_version >= '3.12'"]},
         {"requirements": None, "lock_file": "../lock.json"},
     ],
 )
@@ -271,10 +272,20 @@ def test_run_rejects_retired_builder_fields(authored_run: DataDesignerSlurmConfi
         DataDesignerSlurmConfig.model_validate(payload)
 
 
-@pytest.mark.parametrize("secret_key", ["api_key", "accessToken", "client-secret", "password"])
+@pytest.mark.parametrize(
+    "secret_key",
+    ["api_key", "accessToken", "client-secret", "password", "private_key", "signing_key"],
+)
 def test_builder_input_rejects_secret_values(secret_key: str) -> None:
     with pytest.raises(ValidationError, match="secret values"):
         BuilderInput(inline={"columns": [], secret_key: "plaintext-secret"})
+
+
+@pytest.mark.parametrize("plugin_key", ["sort_key", "partition_key", "primary_key", "idempotency_key"])
+def test_builder_input_allows_non_secret_plugin_keys(plugin_key: str) -> None:
+    inline = {"columns": [{"column_type": "plugin", plugin_key: "value"}]}
+
+    assert BuilderInput(inline=inline).inline == inline
 
 
 def test_builder_input_accepts_exported_and_shorthand_configs() -> None:

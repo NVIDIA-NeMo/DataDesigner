@@ -10,19 +10,38 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from data_designer.slurm._contracts import ArtifactReference as CommonArtifactReference
 from data_designer.slurm.benchmark import BenchmarkManifest, BenchmarkReport
 from data_designer.slurm.client import ClientResult
-from data_designer.slurm.planning import ArtifactReference as PlanningArtifactReference
+from data_designer.slurm.contracts import (
+    ArtifactReference as CommonArtifactReference,
+)
+from data_designer.slurm.contracts import (
+    RecordRange as CommonRecordRange,
+)
+from data_designer.slurm.contracts import (
+    ResumeWorkspace as CommonResumeWorkspace,
+)
+from data_designer.slurm.planning import (
+    ArtifactReference as PlanningArtifactReference,
+)
+from data_designer.slurm.planning import (
+    RecordRange as PlanningRecordRange,
+)
+from data_designer.slurm.planning import (
+    ResumeWorkspace as PlanningResumeWorkspace,
+)
 
 GOLDEN_DIR = Path(__file__).parent / "golden"
 
 
-def test_planning_reexports_common_artifact_reference() -> None:
+def test_planning_reexports_common_contract_types() -> None:
     assert PlanningArtifactReference is CommonArtifactReference
+    assert PlanningRecordRange is CommonRecordRange
+    assert PlanningResumeWorkspace is CommonResumeWorkspace
 
 
-def test_client_result_allows_partial_and_failure_facts_to_differ() -> None:
+@pytest.mark.parametrize("actual_records", [0, 25])
+def test_client_result_allows_partial_and_failure_facts_to_differ(actual_records: int) -> None:
     partial = {
         "schema_version": 1,
         "run_id": "run-001",
@@ -30,7 +49,7 @@ def test_client_result_allows_partial_and_failure_facts_to_differ() -> None:
         "attempt_id": "attempt-0001",
         "completed_at": "2026-08-19T12:00:00Z",
         "requested_records": 50,
-        "actual_records": 25,
+        "actual_records": actual_records,
         "outcome": "partial",
         "dataset_path": "/workspace/runs/run-001/shards/shard-00000/attempts/attempt-0001/dataset",
         "early_shutdown": True,
@@ -57,7 +76,7 @@ def test_client_result_allows_partial_and_failure_facts_to_differ() -> None:
         "redacted_message": "generation failed",
     }
 
-    assert ClientResult.model_validate_json(json.dumps(partial)).actual_records == 25
+    assert ClientResult.model_validate_json(json.dumps(partial)).actual_records == actual_records
     assert ClientResult.model_validate_json(json.dumps(failed)).dataset_path is None
 
 
@@ -66,7 +85,6 @@ def test_client_result_allows_partial_and_failure_facts_to_differ() -> None:
     [
         {"actual_records": 51},
         {"outcome": "complete", "actual_records": 49},
-        {"outcome": "partial", "actual_records": 0},
         {"outcome": "failed", "candidate_output_manifest": {"path": "/x", "sha256": "a" * 64}},
         {"outcome": "failed", "candidate_output_manifest": None, "error_code": None},
         {"effective_resume_mode": "always"},

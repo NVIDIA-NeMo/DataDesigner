@@ -349,7 +349,7 @@
       "max_conversation_correction_steps": 0,
       "max_conversation_restarts": 0,
       "max_in_flight_tasks": 1024,
-      "non_inference_max_parallel_workers": 4,
+      "non_inference_max_parallel_workers": 32,
       "otel_metrics_port": null,
       "preserve_dropped_columns": true,
       "progress_interval": 5.0,
@@ -366,7 +366,6 @@
     "root": "/workspace/primary/runs/run-001/output"
   },
   "package_version": "0.9.2",
-  "plan_id": "plan-001",
   "resolved_gpus_per_node": 8,
   "run_id": "run-001",
   "runtime_bundle": {

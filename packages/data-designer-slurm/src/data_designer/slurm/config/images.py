@@ -9,7 +9,7 @@ from typing import Annotated, Literal
 
 from pydantic import Field, StringConstraints, field_validator, model_validator
 
-from data_designer.slurm._contracts import (
+from data_designer.slurm.contracts import (
     AuthoredConfig,
     ContractRecord,
     ContractValue,
