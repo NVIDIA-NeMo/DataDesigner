@@ -35,6 +35,9 @@ from data_designer.slurm.state import (
     RecordRange as StateRecordRange,
 )
 from data_designer.slurm.state import (
+    ResumeWorkspace as StateResumeWorkspace,
+)
+from data_designer.slurm.state import (
     StateRecord,
     StateValue,
 )
@@ -43,6 +46,7 @@ from data_designer.slurm.state import (
 def test_state_exports_exact_shared_contract_types() -> None:
     assert StateArtifactReference is ContractArtifactReference
     assert StateRecordRange is ContractRecordRange
+    assert StateResumeWorkspace is ResumeWorkspace
     assert StateContractValue is ContractValue
     assert StateContractRecord is ContractRecord
     assert StateValue is ContractValue

@@ -37,7 +37,7 @@ GOLDEN_MODELS: tuple[tuple[str, type[StateRecord]], ...] = (
 
 
 @pytest.mark.parametrize(("filename", "model"), GOLDEN_MODELS)
-def test_golden_record_round_trip_is_deterministic(filename: str, model: type[StateRecord]) -> None:
+def test_state_golden_record_round_trip_is_deterministic(filename: str, model: type[StateRecord]) -> None:
     serialized = (GOLDEN_DIRECTORY / filename).read_text()
 
     record = model.model_validate_json(serialized)
