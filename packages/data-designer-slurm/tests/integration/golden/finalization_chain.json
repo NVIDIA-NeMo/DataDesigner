@@ -1,0 +1,128 @@
+{
+  "attempt": {
+    "attempt_id": "attempt-0001",
+    "attempt_ordinal": 1,
+    "candidate_output": {
+      "path": "/workspace/primary/runs/run-single/shards/shard-00000/attempts/attempt-0001/output-manifest.json",
+      "sha256": "f2d8428ea0c36860cb835af1a2b602058c1f4b668d081c525258f5857b400398"
+    },
+    "created_at": "2026-08-19T12:00:02Z",
+    "resolved_plan": {
+      "path": "/workspace/primary/runs/run-single/resolved-plan.json",
+      "sha256": "d9155dd04ad439b4cd091eaec9b7b4d938bbdf133a03b4a751defb8ea9329425"
+    },
+    "run_id": "run-single",
+    "scheduler": {
+      "array_job_id": 4101,
+      "array_task_id": 0
+    },
+    "schema_version": 1,
+    "shard_id": "shard-00000",
+    "state": "succeeded",
+    "terminal_classification": "succeeded",
+    "updated_at": "2026-08-19T12:05:02Z"
+  },
+  "candidate": {
+    "actual_records": 8,
+    "attempt_id": "attempt-0001",
+    "attempt_ordinal": 1,
+    "created_at": "2026-08-19T12:05:00Z",
+    "dataset_path": "/workspace/primary/runs/run-single/shards/shard-00000/attempts/attempt-0001/dataset",
+    "dataset_schema_digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "files": [
+      {
+        "byte_size": 4096,
+        "record_count": 8,
+        "relative_path": "part-00000.parquet",
+        "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      }
+    ],
+    "outcome": "complete",
+    "provenance_digest": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "requested_records": 8,
+    "run_id": "run-single",
+    "schema_version": 1,
+    "shard_id": "shard-00000"
+  },
+  "client_result": {
+    "actual_records": 8,
+    "attempt_id": "attempt-0001",
+    "candidate_output_manifest": {
+      "path": "/workspace/primary/runs/run-single/shards/shard-00000/attempts/attempt-0001/output-manifest.json",
+      "sha256": "f2d8428ea0c36860cb835af1a2b602058c1f4b668d081c525258f5857b400398"
+    },
+    "completed_at": "2026-08-19T12:05:01Z",
+    "dataset_path": "/workspace/primary/runs/run-single/shards/shard-00000/attempts/attempt-0001/dataset",
+    "early_shutdown": false,
+    "effective_resume_mode": "never",
+    "outcome": "complete",
+    "requested_records": 8,
+    "requested_resume_mode": "never",
+    "run_id": "run-single",
+    "schema_version": 1,
+    "shard_id": "shard-00000"
+  },
+  "readiness": {
+    "attempt_id": "attempt-0001",
+    "deployments": [
+      {
+        "deployment_id": "deployment-00000",
+        "endpoint_publication": "pending",
+        "expected_backends": 1,
+        "last_probe": null,
+        "model_alias": "generator",
+        "ready_backends": 0,
+        "state": "pending"
+      }
+    ],
+    "revision": 1,
+    "run_id": "run-single",
+    "schema_version": 1,
+    "shard_id": "shard-00000",
+    "state": "pending",
+    "updated_at": "2026-08-19T12:00:03Z"
+  },
+  "run": {
+    "authored_config": {
+      "path": "/workspace/primary/runs/run-single/authored-config.json",
+      "sha256": "fa6ca55eac5075455193628e481b09789566d8f4c54926f45bbf837c20e5ba47"
+    },
+    "created_at": "2026-08-19T12:00:00Z",
+    "resolved_plan": {
+      "path": "/workspace/primary/runs/run-single/resolved-plan.json",
+      "sha256": "d9155dd04ad439b4cd091eaec9b7b4d938bbdf133a03b4a751defb8ea9329425"
+    },
+    "run_id": "run-single",
+    "schema_version": 1,
+    "shard_count": 1
+  },
+  "shards": [
+    {
+      "created_at": "2026-08-19T12:00:01Z",
+      "input_partition": null,
+      "record_range": {
+        "end_index_exclusive": 8,
+        "start_index": 0
+      },
+      "resume_workspace": {
+        "path": "/workspace/primary/runs/run-single/shards/shard-00000/dataset"
+      },
+      "run_id": "run-single",
+      "schema_version": 1,
+      "shard_id": "shard-00000",
+      "shard_index": 0
+    }
+  ],
+  "winner": {
+    "attempt_id": "attempt-0001",
+    "attempt_ordinal": 1,
+    "candidate_manifest": {
+      "path": "/workspace/primary/runs/run-single/shards/shard-00000/attempts/attempt-0001/output-manifest.json",
+      "sha256": "f2d8428ea0c36860cb835af1a2b602058c1f4b668d081c525258f5857b400398"
+    },
+    "published_at": "2026-08-19T12:05:03Z",
+    "run_id": "run-single",
+    "schema_version": 1,
+    "shard_id": "shard-00000"
+  }
+}
