@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import posixpath
 from collections.abc import Mapping
-from dataclasses import dataclass, field
 from types import MappingProxyType
 
 from data_designer.slurm.client import ClientOutcome, ClientResult
@@ -32,32 +31,27 @@ class IntegrationContractError(ValueError):
     """Raised when reviewed plan and state records disagree."""
 
 
-@dataclass(frozen=True, slots=True)
 class PlanStateValidator:
     """Validate records against one resolved plan with reusable derived state.
 
     This is an in-process validation service, not a persisted contract record.
     """
 
-    plan: ResolvedSlurmRunPlan
-    _plan_reference: ArtifactReference = field(init=False, repr=False)
-    _shards_by_id: Mapping[ShardId, PlannedShard] = field(init=False, repr=False)
+    def __init__(self, plan: ResolvedSlurmRunPlan) -> None:
+        self._plan: ResolvedSlurmRunPlan = plan
+        run_root = posixpath.dirname(plan.authored_config.path)
+        self._plan_reference: ArtifactReference = ArtifactReference(
+            path=posixpath.join(run_root, "resolved-plan.json"),
+            sha256=plan.compute_sha256(),
+        )
+        self._shards_by_id: Mapping[ShardId, PlannedShard] = MappingProxyType(
+            {planned_shard.shard_id: planned_shard for planned_shard in plan.shards}
+        )
 
-    def __post_init__(self) -> None:
-        run_root = posixpath.dirname(self.plan.authored_config.path)
-        object.__setattr__(
-            self,
-            "_plan_reference",
-            ArtifactReference(
-                path=posixpath.join(run_root, "resolved-plan.json"),
-                sha256=self.plan.compute_sha256(),
-            ),
-        )
-        object.__setattr__(
-            self,
-            "_shards_by_id",
-            MappingProxyType({planned_shard.shard_id: planned_shard for planned_shard in self.plan.shards}),
-        )
+    @property
+    def plan(self) -> ResolvedSlurmRunPlan:
+        """The resolved plan used to build this validation context."""
+        return self._plan
 
     def validate_plan_shards(
         self,
