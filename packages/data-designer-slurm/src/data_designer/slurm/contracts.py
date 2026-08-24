@@ -199,6 +199,7 @@ def validate_relative_path(value: str) -> str:
 
 
 def validate_local_config_path(value: str) -> str:
+    """Validate a local JSON or YAML configuration path."""
     validate_plain_text(value, field_name="path")
     if "://" in value:
         raise ValueError("builder and config sources must be local paths")
@@ -211,6 +212,7 @@ def validate_local_config_path(value: str) -> str:
 
 
 def validate_plain_text(value: str, *, field_name: str) -> str:
+    """Reject empty text and control characters at persisted boundaries."""
     if not value:
         raise ValueError(f"{field_name} must not be empty")
     if any(ord(character) < 32 or ord(character) == 127 for character in value):
@@ -219,6 +221,7 @@ def validate_plain_text(value: str, *, field_name: str) -> str:
 
 
 def validate_url(value: str, *, field_name: str) -> str:
+    """Validate an HTTP(S) URL with a valid host and port."""
     validate_plain_text(value, field_name=field_name)
     try:
         parsed = urlsplit(value)
