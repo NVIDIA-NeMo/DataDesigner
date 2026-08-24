@@ -1,0 +1,148 @@
+{
+  "array_tasks": {
+    "count": 2,
+    "max_concurrent": 2
+  },
+  "builder": {
+    "inline": {
+      "data_designer": {
+        "columns": [],
+        "model_configs": [
+          {
+            "alias": "generator",
+            "model": "example/generator",
+            "provider": "openai"
+          },
+          {
+            "alias": "judge",
+            "model": "/models/judge",
+            "provider": "openai"
+          }
+        ]
+      }
+    },
+    "source": null
+  },
+  "client": {
+    "cpus": 32,
+    "dependencies": {
+      "index_credentials": {
+        "private-index": {
+          "environment": "PACKAGE_INDEX_TOKEN",
+          "type": "secret"
+        }
+      },
+      "lock_file": null,
+      "requirements": [
+        "data-designer-speech==0.2.0"
+      ]
+    },
+    "image": {
+      "name": "dd-client-0.9",
+      "path": null
+    }
+  },
+  "deployments": [
+    {
+      "model": "example/generator",
+      "model_alias": "generator",
+      "resources": {
+        "nodes": 2
+      },
+      "served_model_name": null,
+      "server": {
+        "distributed_init_timeout": "10m",
+        "enable_expert_parallel": false,
+        "environment": {
+          "HF_TOKEN": {
+            "environment": "HF_TOKEN",
+            "type": "secret"
+          }
+        },
+        "extra_args": [
+          "--max-model-len",
+          "32768"
+        ],
+        "image": {
+          "name": "vllm-0-21",
+          "path": null
+        },
+        "queue_backpressure": {
+          "max_waiting_requests": 1024,
+          "retry_after_seconds": 2
+        },
+        "readiness_path": "/health",
+        "startup_timeout": "15m",
+        "type": "vllm"
+      },
+      "topology": {
+        "nodes_per_replica": 2,
+        "tensor_parallel": 8
+      }
+    },
+    {
+      "model": "/models/judge",
+      "model_alias": "judge",
+      "resources": {
+        "nodes": 1
+      },
+      "served_model_name": "judge-api",
+      "server": {
+        "distributed_init_timeout": "10m",
+        "enable_expert_parallel": false,
+        "environment": {},
+        "extra_args": [],
+        "image": {
+          "name": null,
+          "path": "/images/vllm-0-22.sqsh"
+        },
+        "queue_backpressure": {
+          "max_waiting_requests": 128,
+          "retry_after_seconds": 1
+        },
+        "readiness_path": "/health",
+        "startup_timeout": "15m",
+        "type": "vllm"
+      },
+      "topology": {
+        "nodes_per_replica": 1,
+        "tensor_parallel": 1
+      }
+    }
+  ],
+  "invocation": {
+    "dataset_name": "training-data",
+    "diagnostics": {
+      "log_requests": false
+    },
+    "input_bindings": {
+      "managed_assets_path": null,
+      "seed_path": null
+    },
+    "mcp_providers": [],
+    "model_concurrency": {
+      "generator": 64,
+      "judge": 32
+    },
+    "num_records": 100,
+    "resume": "if_possible",
+    "run_config": {
+      "buffer_size": 8192
+    }
+  },
+  "name": "two-model-generation",
+  "output": {
+    "format": "parquet",
+    "partitions": 1,
+    "require_exact_record_count": false,
+    "root": null
+  },
+  "schema_version": 1,
+  "submission": {
+    "account": null,
+    "comment": null,
+    "job_name": "dd-two-model",
+    "partition": null,
+    "time_limit": "03:55:00"
+  }
+}
