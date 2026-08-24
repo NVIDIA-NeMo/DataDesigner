@@ -137,7 +137,6 @@ from data_designer.slurm.state import RecordRange as StateRecordRange
 from data_designer.slurm.state import ResumeWorkspace as StateResumeWorkspace
 from data_designer.slurm.state import RunManifest
 assert RunManifest.__name__ == "RunManifest"
-assert PlanStateValidator.__name__ == "PlanStateValidator"
 assert PlanningArtifactReference is ContractArtifactReference
 assert PlanningRecordRange is ContractRecordRange
 assert PlanningResumeWorkspace is ContractResumeWorkspace

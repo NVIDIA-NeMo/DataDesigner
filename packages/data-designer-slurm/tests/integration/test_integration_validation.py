@@ -6,14 +6,14 @@ from __future__ import annotations
 import json
 import posixpath
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TypeVar
 
 import pytest
 
 from data_designer.slurm.client import ClientOutcome, ClientResult
-from data_designer.slurm.contracts import ArtifactReference, ContractValue, RecordRange
+from data_designer.slurm.contracts import ArtifactReference, ContractValue, RecordRange, ResumeWorkspace
 from data_designer.slurm.integration import (
     IntegrationContractError,
     PlanStateValidator,
@@ -34,6 +34,7 @@ from data_designer.slurm.state import (
     AttemptManifest,
     AttemptReadiness,
     AttemptTerminalClassification,
+    CandidateOutcome,
     CandidateOutputManifest,
     DeploymentReadiness,
     EndpointPublicationState,
@@ -47,7 +48,7 @@ from data_designer.slurm.state import (
 TEST_ROOT = Path(__file__).parents[1]
 CONTRACT_GOLDEN_DIR = TEST_ROOT / "contracts" / "golden"
 INTEGRATION_GOLDEN_DIR = Path(__file__).parent / "golden"
-CREATED_AT = datetime(2026, 8, 19, 12, 0, tzinfo=UTC)
+CREATED_AT = datetime(2026, 8, 19, 12, 0, tzinfo=timezone.utc)
 _RecordT = TypeVar("_RecordT", bound=ContractValue)
 
 
@@ -104,17 +105,91 @@ def test_golden_records_validate_every_plan_state_join(records: IntegrationRecor
     )
 
 
-def test_plan_shards_reject_missing_extra_and_mismatched_state(records: IntegrationRecords) -> None:
+def test_plan_shards_reject_missing_and_extra_state(records: IntegrationRecords) -> None:
     with pytest.raises(IntegrationContractError, match="exactly the run shard count"):
         validate_plan_shards(records.plan, records.run, ())
     with pytest.raises(IntegrationContractError, match="exactly the run shard count"):
         validate_plan_shards(records.plan, records.run, records.shards + records.shards)
 
-    mismatched = records.shards[0].model_copy(
-        update={"record_range": RecordRange(start_index=1, end_index_exclusive=8)}
-    )
-    with pytest.raises(IntegrationContractError, match="record range"):
-        validate_plan_shards(records.plan, records.run, (mismatched,))
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    [
+        ("run_id", "run manifest identity"),
+        ("authored_config", "authored config"),
+        ("plan_path", "reference path"),
+        ("plan_digest", "reference digest"),
+        ("shard_count", "run shard count"),
+        ("shard_id", "shard identity"),
+        ("shard_index", "outside the run shard count"),
+        ("record_range", "record range"),
+        ("input_partition", "input partition"),
+        ("resume_workspace", "resume workspace"),
+        ("created_at", "cannot precede"),
+    ],
+)
+def test_plan_shards_reject_one_field_drift(
+    records: IntegrationRecords,
+    mutation: str,
+    message: str,
+) -> None:
+    run = records.run
+    shard = records.shards[0]
+    if mutation == "run_id":
+        run = run.model_copy(update={"run_id": "run-other"})
+    elif mutation == "authored_config":
+        run = run.model_copy(
+            update={
+                "authored_config": ArtifactReference(
+                    path=run.authored_config.path,
+                    sha256="a" * 64,
+                )
+            }
+        )
+    elif mutation == "plan_path":
+        run = run.model_copy(
+            update={
+                "resolved_plan": ArtifactReference(
+                    path=posixpath.join(posixpath.dirname(run.resolved_plan.path), "other-plan.json"),
+                    sha256=run.resolved_plan.sha256,
+                )
+            }
+        )
+    elif mutation == "plan_digest":
+        run = run.model_copy(
+            update={
+                "resolved_plan": ArtifactReference(
+                    path=run.resolved_plan.path,
+                    sha256="a" * 64,
+                )
+            }
+        )
+    elif mutation == "shard_count":
+        run = run.model_copy(update={"shard_count": 2})
+    elif mutation == "shard_id":
+        shard = shard.model_copy(update={"shard_id": "shard-99999"})
+    elif mutation == "shard_index":
+        shard = shard.model_copy(update={"shard_index": 1})
+    elif mutation == "record_range":
+        shard = shard.model_copy(update={"record_range": RecordRange(start_index=1, end_index_exclusive=8)})
+    elif mutation == "input_partition":
+        shard = shard.model_copy(
+            update={
+                "input_partition": ArtifactReference(
+                    path=posixpath.join(posixpath.dirname(shard.resume_workspace.path), "input-partition.json"),
+                    sha256="a" * 64,
+                )
+            }
+        )
+    elif mutation == "resume_workspace":
+        shard = shard.model_copy(
+            update={"resume_workspace": ResumeWorkspace(path=f"{shard.resume_workspace.path}-other")}
+        )
+    else:
+        shard = shard.model_copy(update={"created_at": run.created_at - timedelta(seconds=1)})
+
+    with pytest.raises(IntegrationContractError, match=message):
+        validate_plan_shards(records.plan, run, (shard,))
 
 
 def test_plan_shards_reject_reordered_state() -> None:
@@ -143,6 +218,38 @@ def test_initial_readiness_rejects_plan_order_alias_and_backend_count(records: I
     reordered = readiness.model_copy(update={"deployments": tuple(reversed(readiness.deployments))})
     with pytest.raises(IntegrationContractError, match="deployments"):
         validate_initial_readiness(multi_plan, attempt, reordered)
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    [
+        ("run_id", "readiness run_id"),
+        ("shard_id", "readiness shard_id"),
+        ("attempt_id", "readiness attempt_id"),
+        ("updated_at", "cannot precede"),
+        ("deployment_id", "deployments"),
+    ],
+)
+def test_initial_readiness_rejects_one_field_identity_and_time_drift(
+    records: IntegrationRecords,
+    mutation: str,
+    message: str,
+) -> None:
+    readiness = records.readiness
+    if mutation == "run_id":
+        readiness = readiness.model_copy(update={"run_id": "run-other"})
+    elif mutation == "shard_id":
+        readiness = readiness.model_copy(update={"shard_id": "shard-99999"})
+    elif mutation == "attempt_id":
+        readiness = readiness.model_copy(update={"attempt_id": "attempt-0002"})
+    elif mutation == "updated_at":
+        readiness = readiness.model_copy(update={"updated_at": records.attempt.created_at - timedelta(seconds=1)})
+    else:
+        deployment = readiness.deployments[0].model_copy(update={"deployment_id": "deployment-99999"})
+        readiness = readiness.model_copy(update={"deployments": (deployment,)})
+
+    with pytest.raises(IntegrationContractError, match=message):
+        validate_initial_readiness(records.plan, records.attempt, readiness)
 
 
 def test_initial_readiness_requires_first_pending_revision(records: IntegrationRecords) -> None:
@@ -208,8 +315,12 @@ def test_initial_readiness_rejects_invalid_planned_attempt(
         validate_initial_readiness(records.plan, attempt, readiness)
 
 
-def test_planned_attempt_rejects_task_identity_and_unsubmitted_state(records: IntegrationRecords) -> None:
+def test_planned_attempt_rejects_identity_task_and_unsubmitted_state(records: IntegrationRecords) -> None:
     planned_shard = records.plan.shards[0]
+    wrong_run = records.attempt.model_copy(update={"run_id": "run-other"})
+    with pytest.raises(IntegrationContractError, match="attempt run_id"):
+        validate_planned_attempt(records.plan, planned_shard, wrong_run)
+
     wrong_task = records.attempt.model_copy(update={"scheduler": SchedulerIdentity(array_job_id=4101, array_task_id=1)})
     with pytest.raises(IntegrationContractError, match="array task"):
         validate_planned_attempt(records.plan, planned_shard, wrong_task)
@@ -235,6 +346,10 @@ def test_planned_attempt_rejects_task_identity_and_unsubmitted_state(records: In
     with pytest.raises(IntegrationContractError, match="submitted"):
         validate_planned_attempt(records.plan, planned_shard, created_with_scheduler)
 
+    multi_plan = _load_plan("multi_node_plan.json")
+    with pytest.raises(IntegrationContractError, match="canonical shard"):
+        validate_planned_attempt(multi_plan, multi_plan.shards[1], _attempt_for_plan(multi_plan))
+
 
 def test_plan_state_validator_reuses_one_context_for_an_attempt_batch() -> None:
     plan = _load_plan("multi_node_plan.json")
@@ -256,6 +371,8 @@ def test_plan_state_validator_reuses_one_context_for_an_attempt_batch() -> None:
         ("partial_result", "complete client results"),
         ("failed_result", "complete client results"),
         ("failed_attempt", "successful attempts"),
+        ("wrong_terminal_classification", "successfully classified"),
+        ("ineligible_candidate", "complete candidate outputs"),
         ("stale_winner", "winner attempt_id"),
         ("digest_mismatch", "digest"),
         ("dataset_path_mismatch", "dataset path"),
@@ -299,6 +416,10 @@ def test_finalization_rejects_invalid_chains(
                 "candidate_output": None,
             }
         )
+    elif mutation == "wrong_terminal_classification":
+        attempt = attempt.model_copy(update={"terminal_classification": AttemptTerminalClassification.FAILED})
+    elif mutation == "ineligible_candidate":
+        candidate = candidate.model_copy(update={"outcome": CandidateOutcome.PARTIAL})
     elif mutation == "stale_winner":
         winner = winner.model_copy(update={"attempt_id": "attempt-0002"})
     elif mutation == "digest_mismatch":
@@ -321,17 +442,144 @@ def test_finalization_rejects_invalid_chains(
         )
 
 
-def test_finalization_rejects_plan_reference_drift(records: IntegrationRecords) -> None:
-    drifted = records.attempt.model_copy(
-        update={
-            "resolved_plan": ArtifactReference(
-                path=records.attempt.resolved_plan.path,
-                sha256="a" * 64,
-            )
-        }
-    )
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    [
+        ("client_run_id", "client result run_id"),
+        ("candidate_run_id", "candidate run_id"),
+        ("winner_run_id", "winner run_id"),
+        ("client_shard_id", "client result shard_id"),
+        ("candidate_shard_id", "candidate shard_id"),
+        ("winner_shard_id", "winner shard_id"),
+        ("client_attempt_id", "client result attempt_id"),
+        ("candidate_attempt_id", "candidate attempt_id"),
+        ("candidate_ordinal", "attempt ordinals"),
+        ("winner_ordinal", "attempt ordinals"),
+        ("client_requested_records", "requested records"),
+        ("candidate_requested_records", "requested records"),
+        ("client_actual_records", "actual records"),
+        ("candidate_actual_records", "actual records"),
+        ("requested_resume_mode", "resume mode"),
+        ("effective_resume_mode", "client dataset path"),
+        ("client_dataset_path", "client dataset path"),
+        ("missing_candidate_reference", "no candidate manifest"),
+        ("candidate_reference_path", "candidate manifest path"),
+        ("attempt_candidate_reference", "attempt candidate reference"),
+        ("winner_candidate_reference", "winner candidate reference"),
+        ("candidate_before_attempt", "candidate creation"),
+        ("attempt_before_client", "attempt completion"),
+    ],
+)
+def test_finalization_rejects_one_field_join_drift(
+    records: IntegrationRecords,
+    mutation: str,
+    message: str,
+) -> None:
+    attempt = records.attempt
+    client_result = records.client_result
+    candidate = records.candidate
+    winner = records.winner
+    candidate_reference = client_result.candidate_output_manifest
+    assert candidate_reference is not None
+    if mutation == "client_run_id":
+        client_result = client_result.model_copy(update={"run_id": "run-other"})
+    elif mutation == "candidate_run_id":
+        candidate = candidate.model_copy(update={"run_id": "run-other"})
+    elif mutation == "winner_run_id":
+        winner = winner.model_copy(update={"run_id": "run-other"})
+    elif mutation == "client_shard_id":
+        client_result = client_result.model_copy(update={"shard_id": "shard-99999"})
+    elif mutation == "candidate_shard_id":
+        candidate = candidate.model_copy(update={"shard_id": "shard-99999"})
+    elif mutation == "winner_shard_id":
+        winner = winner.model_copy(update={"shard_id": "shard-99999"})
+    elif mutation == "client_attempt_id":
+        client_result = client_result.model_copy(update={"attempt_id": "attempt-0002"})
+    elif mutation == "candidate_attempt_id":
+        candidate = candidate.model_copy(update={"attempt_id": "attempt-0002"})
+    elif mutation == "candidate_ordinal":
+        candidate = candidate.model_copy(update={"attempt_ordinal": 2})
+    elif mutation == "winner_ordinal":
+        winner = winner.model_copy(update={"attempt_ordinal": 2})
+    elif mutation == "client_requested_records":
+        client_result = client_result.model_copy(update={"requested_records": 7})
+    elif mutation == "candidate_requested_records":
+        candidate = candidate.model_copy(update={"requested_records": 7})
+    elif mutation == "client_actual_records":
+        client_result = client_result.model_copy(update={"actual_records": 7})
+    elif mutation == "candidate_actual_records":
+        candidate = candidate.model_copy(update={"actual_records": 7})
+    elif mutation == "requested_resume_mode":
+        client_result = client_result.model_copy(update={"requested_resume_mode": "if_possible"})
+    elif mutation == "effective_resume_mode":
+        client_result = client_result.model_copy(update={"effective_resume_mode": "always"})
+    elif mutation == "client_dataset_path":
+        client_result = client_result.model_copy(update={"dataset_path": "/workspace/other/dataset"})
+    elif mutation == "missing_candidate_reference":
+        client_result = client_result.model_copy(update={"candidate_output_manifest": None})
+    elif mutation == "candidate_reference_path":
+        client_result = client_result.model_copy(
+            update={
+                "candidate_output_manifest": ArtifactReference(
+                    path=posixpath.join(posixpath.dirname(candidate_reference.path), "other-manifest.json"),
+                    sha256=candidate_reference.sha256,
+                )
+            }
+        )
+    elif mutation == "attempt_candidate_reference":
+        attempt = attempt.model_copy(
+            update={
+                "candidate_output": ArtifactReference(
+                    path=candidate_reference.path,
+                    sha256="a" * 64,
+                )
+            }
+        )
+    elif mutation == "winner_candidate_reference":
+        winner = winner.model_copy(
+            update={
+                "candidate_manifest": ArtifactReference(
+                    path=candidate_reference.path,
+                    sha256="a" * 64,
+                )
+            }
+        )
+    elif mutation == "candidate_before_attempt":
+        candidate = candidate.model_copy(update={"created_at": attempt.created_at - timedelta(seconds=1)})
+        candidate_reference = ArtifactReference(
+            path=candidate_reference.path,
+            sha256=candidate.compute_sha256(),
+        )
+        client_result = client_result.model_copy(update={"candidate_output_manifest": candidate_reference})
+        attempt = attempt.model_copy(update={"candidate_output": candidate_reference})
+        winner = winner.model_copy(update={"candidate_manifest": candidate_reference})
+    else:
+        attempt = attempt.model_copy(update={"updated_at": client_result.completed_at - timedelta(seconds=1)})
 
-    with pytest.raises(IntegrationContractError, match="digest"):
+    with pytest.raises(IntegrationContractError, match=message):
+        validate_finalization_chain(
+            records.plan,
+            records.plan.shards[0],
+            attempt,
+            client_result,
+            candidate,
+            winner,
+        )
+
+
+@pytest.mark.parametrize("mutation", ["path", "digest"])
+def test_planned_attempt_rejects_plan_reference_drift(records: IntegrationRecords, mutation: str) -> None:
+    reference = records.attempt.resolved_plan
+    if mutation == "path":
+        reference = ArtifactReference(
+            path=posixpath.join(posixpath.dirname(reference.path), "other-plan.json"),
+            sha256=reference.sha256,
+        )
+    else:
+        reference = ArtifactReference(path=reference.path, sha256="a" * 64)
+    drifted = records.attempt.model_copy(update={"resolved_plan": reference})
+
+    with pytest.raises(IntegrationContractError, match=mutation):
         validate_planned_attempt(records.plan, records.plan.shards[0], drifted)
 
 
