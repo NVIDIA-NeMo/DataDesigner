@@ -167,6 +167,7 @@ def test_initial_readiness_requires_first_pending_revision(records: IntegrationR
         ("wrong_array_task", "array task"),
         ("nondeterministic_attempt_id", "ordinal"),
         ("unsubmitted_attempt", "scheduler"),
+        ("unsubmitted_attempt_with_scheduler", "submitted"),
     ],
 )
 def test_initial_readiness_rejects_invalid_planned_attempt(
@@ -184,11 +185,20 @@ def test_initial_readiness_rejects_invalid_planned_attempt(
     elif mutation == "nondeterministic_attempt_id":
         attempt = attempt.model_copy(update={"attempt_id": "attempt-0002"})
         readiness = readiness.model_copy(update={"attempt_id": attempt.attempt_id})
-    else:
+    elif mutation == "unsubmitted_attempt":
         attempt = attempt.model_copy(
             update={
                 "state": AttemptLifecycleState.CREATED,
                 "scheduler": None,
+                "terminal_classification": None,
+                "candidate_output": None,
+            }
+        )
+    else:
+        attempt = AttemptManifest.model_validate(
+            attempt.model_dump(mode="python")
+            | {
+                "state": AttemptLifecycleState.CREATED,
                 "terminal_classification": None,
                 "candidate_output": None,
             }
@@ -198,7 +208,7 @@ def test_initial_readiness_rejects_invalid_planned_attempt(
         validate_initial_readiness(records.plan, attempt, readiness)
 
 
-def test_planned_attempt_rejects_task_and_deterministic_identity_mismatch(records: IntegrationRecords) -> None:
+def test_planned_attempt_rejects_task_identity_and_unsubmitted_state(records: IntegrationRecords) -> None:
     planned_shard = records.plan.shards[0]
     wrong_task = records.attempt.model_copy(update={"scheduler": SchedulerIdentity(array_job_id=4101, array_task_id=1)})
     with pytest.raises(IntegrationContractError, match="array task"):
@@ -218,6 +228,12 @@ def test_planned_attempt_rejects_task_and_deterministic_identity_mismatch(record
     )
     with pytest.raises(IntegrationContractError, match="scheduler"):
         validate_planned_attempt(records.plan, planned_shard, no_scheduler)
+
+    created_with_scheduler = AttemptManifest.model_validate(
+        no_scheduler.model_dump(mode="python") | {"scheduler": records.attempt.scheduler}
+    )
+    with pytest.raises(IntegrationContractError, match="submitted"):
+        validate_planned_attempt(records.plan, planned_shard, created_with_scheduler)
 
 
 def test_plan_state_validator_reuses_one_context_for_an_attempt_batch() -> None:

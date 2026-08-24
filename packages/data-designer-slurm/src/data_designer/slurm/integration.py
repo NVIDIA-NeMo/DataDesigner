@@ -34,7 +34,10 @@ class IntegrationContractError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class PlanStateValidator:
-    """Validate records against one resolved plan with reusable derived state."""
+    """Validate records against one resolved plan with reusable derived state.
+
+    This is an in-process validation service, not a persisted contract record.
+    """
 
     plan: ResolvedSlurmRunPlan
     _plan_reference: ArtifactReference = field(init=False, repr=False)
@@ -131,6 +134,10 @@ class PlanStateValidator:
         _require(canonical_shard == planned_shard, "planned shard is not the canonical shard for the attempt")
         expected_attempt_id = f"attempt-{attempt.attempt_ordinal:04d}"
         _require(attempt.attempt_id == expected_attempt_id, "attempt ID does not match its ordinal")
+        _require(
+            attempt.state is not AttemptLifecycleState.CREATED,
+            "planned attempts must be submitted before scheduler task validation",
+        )
         _require(attempt.scheduler is not None, "planned attempts require scheduler array-task identity")
         _require(
             attempt.scheduler.array_task_id == planned_shard.array_task_index,
