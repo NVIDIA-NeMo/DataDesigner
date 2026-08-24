@@ -12,19 +12,19 @@ from data_designer.slurm.planning import ResolvedSlurmRunPlan
 GOLDEN_DIRECTORY = Path(__file__).parent / "golden" / "rendered"
 
 
-def test_rendered_scripts_are_deterministic_and_bound_to_canonical_plans(
-    single_node_render_plan: ResolvedSlurmRunPlan,
-    multi_node_render_plan: ResolvedSlurmRunPlan,
+def test_rendered_script_fixtures_are_pinned_and_bound_to_canonical_plans(
+    single_node_plan: ResolvedSlurmRunPlan,
+    multi_node_plan: ResolvedSlurmRunPlan,
 ) -> None:
     _assert_script_matches_plan(
-        single_node_render_plan,
+        single_node_plan,
         "single_node.sbatch",
-        expected_sha256="ba4c0d07f9771242e33f29e0bc82dcb83b5502ed12258231548b7037ad8754fd",
+        expected_fixture_sha256="faa1dac9b9b0423423c9d06a13d71bee339932ffa45d1e02a8a95012a7934520",
     )
     _assert_script_matches_plan(
-        multi_node_render_plan,
+        multi_node_plan,
         "multi_node.sbatch",
-        expected_sha256="d4ac042c1eac5be34dc467686dc93e9c77c7ec5a4c0a16656b5892a1ca47b4c6",
+        expected_fixture_sha256="a4542e56b124c2346d0a92ebadc4e89b45d94c9355d7b86a4a1b05180d331a48",
     )
 
 
@@ -35,8 +35,6 @@ def test_rendered_scripts_contain_no_site_or_user_data() -> None:
         "nvidia",
         "cluster",
         "login",
-        "account",
-        "partition",
         "lustre",
         "/home/",
         "/users/",
@@ -48,15 +46,21 @@ def _assert_script_matches_plan(
     plan: ResolvedSlurmRunPlan,
     filename: str,
     *,
-    expected_sha256: str,
+    expected_fixture_sha256: str,
 ) -> None:
     script = (GOLDEN_DIRECTORY / filename).read_text()
-    node_count = max(index for deployment in plan.deployments for index in deployment.node_indices) + 1
+    node_indices = (
+        plan.client.host_node_index,
+        *(index for deployment in plan.deployments for index in deployment.node_indices),
+    )
+    node_count = max(node_indices) + 1
     array = "0" if plan.array_tasks.count == 1 else f"0-{plan.array_tasks.count - 1}%{plan.array_tasks.max_concurrent}"
     plan_path = posixpath.join(posixpath.dirname(plan.authored_config.path), "resolved-plan.json")
     run_root = posixpath.dirname(plan.authored_config.path)
 
     assert f"#SBATCH --job-name={plan.submission.job_name}\n" in script
+    assert f"#SBATCH --account={plan.submission.account}\n" in script
+    assert f"#SBATCH --partition={plan.submission.partition}\n" in script
     assert f"#SBATCH --nodes={node_count}\n" in script
     assert f"#SBATCH --time={plan.submission.time_limit}\n" in script
     assert f"#SBATCH --array={array}\n" in script
@@ -68,4 +72,4 @@ def _assert_script_matches_plan(
     assert f'readonly DD_RUN_ROOT="{run_root}"\n' in script
     assert script.count("dd_slurm_run_allocation") == 1
     assert script.endswith("\n")
-    assert hashlib.sha256(script.encode()).hexdigest() == expected_sha256
+    assert hashlib.sha256(script.encode()).hexdigest() == expected_fixture_sha256

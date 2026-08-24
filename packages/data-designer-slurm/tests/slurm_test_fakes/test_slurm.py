@@ -12,6 +12,8 @@ from data_designer.slurm.state import SchedulerIdentity
 from slurm_test_fakes import FakeCommandResponse, FakeSlurmArray, FakeSlurmRunner, FakeSlurmTask
 
 GOLDEN_DIRECTORY = Path(__file__).parent / "golden" / "slurm"
+SQUEUE_ARGUMENTS = ("--noheader", "--format=%i|%T")
+SACCT_ARGUMENTS = ("--noheader", "--parsable2", "--format=%i|%State|%ExitCode")
 
 
 def _submit(runner: FakeSlurmRunner) -> None:
@@ -24,12 +26,12 @@ def test_fake_slurm_runner_models_array_submission_and_active_states(
 ) -> None:
     _submit(fake_slurm_runner)
 
-    observed = fake_slurm_runner.run(("squeue", "--noheader"), check=True)
+    observed = fake_slurm_runner.run(("squeue", *SQUEUE_ARGUMENTS), check=True)
 
     assert observed.stdout == (GOLDEN_DIRECTORY / "squeue_active.txt").read_text()
     assert fake_slurm_runner.calls == [
         ("sbatch", "--parsable", "run.sbatch"),
-        ("squeue", "--noheader"),
+        ("squeue", *SQUEUE_ARGUMENTS),
     ]
 
 
@@ -49,8 +51,11 @@ def test_fake_slurm_runner_exposes_terminal_accounting_precedence(
         exit_code="1:0",
     )
 
-    assert "4101_1|RUNNING" in fake_slurm_runner.run(("squeue",)).stdout
-    assert fake_slurm_runner.run(("sacct",)).stdout == (GOLDEN_DIRECTORY / "sacct_terminal.txt").read_text()
+    assert "4101_1|RUNNING" in fake_slurm_runner.run(("squeue", *SQUEUE_ARGUMENTS)).stdout
+    assert (
+        fake_slurm_runner.run(("sacct", *SACCT_ARGUMENTS)).stdout
+        == (GOLDEN_DIRECTORY / "sacct_terminal.txt").read_text()
+    )
 
 
 def test_fake_slurm_runner_models_accounting_lag_and_later_terminal_state(
@@ -64,15 +69,15 @@ def test_fake_slurm_runner_models_accounting_lag_and_later_terminal_state(
         accounting_state=None,
     )
 
-    assert "4101_0" not in fake_slurm_runner.run(("squeue",)).stdout
-    assert "4101_0" not in fake_slurm_runner.run(("sacct",)).stdout
+    assert "4101_0" not in fake_slurm_runner.run(("squeue", *SQUEUE_ARGUMENTS)).stdout
+    assert fake_slurm_runner.run(("sacct", *SACCT_ARGUMENTS)).stdout == ""
 
     fake_slurm_runner.set_task_state(
         scheduler,
         queue_state=None,
         accounting_state="COMPLETED",
     )
-    assert "4101_0|COMPLETED|0:0" in fake_slurm_runner.run(("sacct",)).stdout
+    assert "4101_0|COMPLETED|0:0" in fake_slurm_runner.run(("sacct", *SACCT_ARGUMENTS)).stdout
 
 
 def test_fake_slurm_runner_filters_job_scoped_queries() -> None:
@@ -91,8 +96,8 @@ def test_fake_slurm_runner_filters_job_scoped_queries() -> None:
     runner.run(("sbatch", "first.sbatch"), check=True)
     runner.run(("sbatch", "second.sbatch"), check=True)
 
-    first_queue = runner.run(("squeue", "--jobs", "4101")).stdout
-    second_accounting = runner.run(("sacct", "--jobs=4201")).stdout
+    first_queue = runner.run(("squeue", *SQUEUE_ARGUMENTS, "--jobs", "4101")).stdout
+    second_accounting = runner.run(("sacct", *SACCT_ARGUMENTS, "--jobs=4201")).stdout
 
     assert first_queue == "4101_0|PENDING\n"
     assert second_accounting == "4201_0|FAILED|1:0\n"
@@ -101,8 +106,8 @@ def test_fake_slurm_runner_filters_job_scoped_queries() -> None:
 @pytest.mark.parametrize(
     "command",
     (
-        ("squeue", "--jobs", "--noheader"),
-        ("sacct", "--jobs="),
+        ("squeue", *SQUEUE_ARGUMENTS, "--jobs", "--noheader"),
+        ("sacct", *SACCT_ARGUMENTS, "--jobs="),
     ),
 )
 def test_fake_slurm_runner_rejects_malformed_job_selectors(
@@ -123,7 +128,7 @@ def test_fake_slurm_runner_models_cancellation(
     _submit(fake_slurm_runner)
 
     assert fake_slurm_runner.run(("scancel", target), check=True).returncode == 0
-    accounting = fake_slurm_runner.run(("sacct",), check=True).stdout
+    accounting = fake_slurm_runner.run(("sacct", *SACCT_ARGUMENTS), check=True).stdout
 
     expected_tasks = (0, 1) if target == "4101" else (1,)
     for task_id in expected_tasks:
@@ -145,6 +150,73 @@ def test_fake_slurm_runner_supports_malformed_output_and_command_failures(
 
     assert error.value.stderr == "accounting unavailable\n"
     fake_slurm_runner.assert_scripts_consumed()
+
+
+@pytest.mark.parametrize(
+    ("arguments", "expected_stdout"),
+    (
+        (("run.sbatch",), "Submitted batch job 4101\n"),
+        (("--parsable", "run.sbatch"), "4101\n"),
+    ),
+)
+def test_fake_slurm_runner_matches_sbatch_parsable_mode(
+    arguments: tuple[str, ...],
+    expected_stdout: str,
+) -> None:
+    runner = FakeSlurmRunner(
+        (FakeSlurmArray(tasks=(FakeSlurmTask(SchedulerIdentity(array_job_id=4101, array_task_id=0)),)),)
+    )
+
+    assert runner.run(("sbatch", *arguments), check=True).stdout == expected_stdout
+
+
+@pytest.mark.parametrize(
+    "command",
+    (
+        ("squeue", "--noheader"),
+        ("sacct", "--noheader", "--format=%i|%State|%ExitCode"),
+    ),
+)
+def test_fake_slurm_runner_rejects_underspecified_state_queries(
+    fake_slurm_runner: FakeSlurmRunner,
+    command: tuple[str, ...],
+) -> None:
+    _submit(fake_slurm_runner)
+
+    with pytest.raises(AssertionError, match="missing required arguments"):
+        fake_slurm_runner.run(command)
+
+
+def test_fake_slurm_runner_exposes_retry_terminal_spellings() -> None:
+    states = (
+        ("TIMEOUT", "0:125"),
+        ("NODE_FAIL", "1:0"),
+        ("PREEMPTED", "0:0"),
+        ("REQUEUED", "0:0"),
+        ("OUT_OF_MEMORY", "0:125"),
+        ("CANCELLED by 1234", "0:15"),
+    )
+    runner = FakeSlurmRunner(
+        (
+            FakeSlurmArray(
+                tasks=tuple(
+                    FakeSlurmTask(
+                        SchedulerIdentity(array_job_id=4101, array_task_id=task_id),
+                        queue_state=None,
+                        accounting_state=state,
+                        exit_code=exit_code,
+                    )
+                    for task_id, (state, exit_code) in enumerate(states)
+                )
+            ),
+        )
+    )
+    _submit(runner)
+
+    assert (
+        runner.run(("sacct", *SACCT_ARGUMENTS), check=True).stdout
+        == (GOLDEN_DIRECTORY / "sacct_retry_terminal.txt").read_text()
+    )
 
 
 def test_fake_slurm_runner_bounds_sinfo_queries(fake_slurm_runner: FakeSlurmRunner) -> None:

@@ -171,6 +171,35 @@ def test_backend_failure_injection_is_explicit() -> None:
         client.post("/v1/chat/completions")
 
 
+@pytest.mark.parametrize("terminal_state", (FakeServingState.FAILED, FakeServingState.STOPPED))
+def test_backend_rejects_restart_from_terminal_state(terminal_state: FakeServingState) -> None:
+    backend = FakeVllmBackend("http://127.0.0.1:31001", rank=0)
+    if terminal_state is FakeServingState.FAILED:
+        backend.fail("rank exited")
+    else:
+        backend.cleanup()
+
+    with pytest.raises(RuntimeError, match=f"cannot start from {terminal_state.value}"):
+        backend.start()
+
+
+@pytest.mark.parametrize("terminal_state", (FakeServingState.FAILED, FakeServingState.STOPPED))
+def test_logical_endpoint_rejects_restart_from_terminal_state(terminal_state: FakeServingState) -> None:
+    endpoint = FakeLogicalEndpoint(
+        "http://127.0.0.1:31000",
+        (FakeVllmBackend("http://127.0.0.1:31001", rank=0),),
+    )
+    if terminal_state is FakeServingState.FAILED:
+        endpoint.start()
+        endpoint.backends[0].fail("rank exited")
+        endpoint.refresh_readiness()
+    else:
+        endpoint.cleanup()
+
+    with pytest.raises(RuntimeError, match=f"cannot start from {terminal_state.value}"):
+        endpoint.start()
+
+
 def test_cleanup_is_idempotent_and_unpublishes_endpoint(
     fake_logical_endpoint: FakeLogicalEndpoint,
 ) -> None:

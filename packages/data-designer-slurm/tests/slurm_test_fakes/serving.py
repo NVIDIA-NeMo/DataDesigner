@@ -44,8 +44,9 @@ class FakeVllmBackend:
     def start(self) -> None:
         """Enter the explicit startup state."""
         self.start_calls += 1
-        if self.state is FakeServingState.CREATED:
-            self.state = FakeServingState.STARTING
+        if self.state is not FakeServingState.CREATED:
+            raise RuntimeError(f"backend cannot start from {self.state.value}")
+        self.state = FakeServingState.STARTING
 
     def mark_ready(self) -> None:
         """Mark startup complete."""
@@ -110,7 +111,7 @@ class FakeLogicalEndpoint:
     def start(self) -> None:
         """Start every backend and the readiness aggregator."""
         if self.state is not FakeServingState.CREATED:
-            return
+            raise RuntimeError(f"logical endpoint cannot start from {self.state.value}")
         for backend in self.backends:
             backend.start()
         self.state = FakeServingState.STARTING
@@ -171,7 +172,7 @@ class FakeLogicalEndpoint:
         return response
 
     def cleanup(self) -> None:
-        """Stop every backend and unpublish the endpoint idempotently."""
+        """Stop every backend and unpublish the process-local endpoint idempotently."""
         self.cleanup_calls += 1
         if self.state is FakeServingState.STOPPED:
             return

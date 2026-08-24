@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=data-designer
+#SBATCH --account=research
+#SBATCH --partition=batch
 #SBATCH --nodes=1
 #SBATCH --time=03:55:00
 #SBATCH --array=0
@@ -9,7 +11,7 @@ set -Eeuo pipefail
 readonly DD_RUNTIME_ARCHIVE="/workspace/primary/runtime/runtime.tar.gz"
 readonly DD_RUNTIME_SHA256="eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
 readonly DD_PLAN="/workspace/primary/runs/run-single/resolved-plan.json"
-readonly DD_PLAN_SHA256="541e532f7e668e862fc7732decef887d404d15290bb943f7cf1920746cde8720"
+readonly DD_PLAN_SHA256="d9155dd04ad439b4cd091eaec9b7b4d938bbdf133a03b4a751defb8ea9329425"
 readonly DD_RUN_ROOT="/workspace/primary/runs/run-single"
 readonly DD_ATTEMPT_ORDINAL="0001"
 

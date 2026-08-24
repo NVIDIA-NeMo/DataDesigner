@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=dd-two-model
+#SBATCH --account=research
+#SBATCH --partition=batch
 #SBATCH --nodes=3
 #SBATCH --time=03:55:00
 #SBATCH --array=0-1%2
@@ -9,7 +11,7 @@ set -Eeuo pipefail
 readonly DD_RUNTIME_ARCHIVE="/workspace/primary/runtime/runtime.tar.gz"
 readonly DD_RUNTIME_SHA256="eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
 readonly DD_PLAN="/workspace/primary/runs/run-001/resolved-plan.json"
-readonly DD_PLAN_SHA256="e101840b0ba888fd0f2d9feef70cb6bb2a668dc4dff4c2198a0f8ba2e8a1eb0a"
+readonly DD_PLAN_SHA256="dbcae1da6ce8ef6799faf2add8e08b1b093390ae08a37dd13e336da522b9a3fd"
 readonly DD_RUN_ROOT="/workspace/primary/runs/run-001"
 readonly DD_ATTEMPT_ORDINAL="0001"
 

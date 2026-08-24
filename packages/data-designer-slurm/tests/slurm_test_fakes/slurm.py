@@ -14,6 +14,8 @@ from pathlib import Path
 from data_designer.slurm.state import SchedulerIdentity
 
 _JOB_SELECTOR_PATTERN = re.compile(r"^[0-9]+(?:_[0-9]+)?$")
+_SQUEUE_REQUIRED_ARGUMENTS = ("--noheader", "--format=%i|%T")
+_SACCT_REQUIRED_ARGUMENTS = ("--noheader", "--parsable2", "--format=%i|%State|%ExitCode")
 
 
 @dataclass(frozen=True)
@@ -139,14 +141,16 @@ class FakeSlurmRunner:
         return handler(argv)
 
     def _run_sbatch(self, argv: tuple[str, ...]) -> FakeCommandResponse:
-        del argv
         if not self._pending_arrays:
             return FakeCommandResponse(stderr="no scripted submission\n", returncode=1)
         array = self._pending_arrays.popleft()
         self._submitted_arrays[array.array_job_id] = array
-        return FakeCommandResponse(stdout=f"{array.array_job_id}\n")
+        if "--parsable" in argv[1:]:
+            return FakeCommandResponse(stdout=f"{array.array_job_id}\n")
+        return FakeCommandResponse(stdout=f"Submitted batch job {array.array_job_id}\n")
 
     def _run_squeue(self, argv: tuple[str, ...]) -> FakeCommandResponse:
+        self._require_arguments(argv, _SQUEUE_REQUIRED_ARGUMENTS)
         rows = [
             f"{task.scheduler.array_job_id}_{task.scheduler.array_task_id}|{task.queue_state}"
             for task in self._selected_submitted_tasks(argv)
@@ -155,6 +159,7 @@ class FakeSlurmRunner:
         return FakeCommandResponse(stdout="".join(f"{row}\n" for row in rows))
 
     def _run_sacct(self, argv: tuple[str, ...]) -> FakeCommandResponse:
+        self._require_arguments(argv, _SACCT_REQUIRED_ARGUMENTS)
         rows = [
             (f"{task.scheduler.array_job_id}_{task.scheduler.array_task_id}|{task.accounting_state}|{task.exit_code}")
             for task in self._selected_submitted_tasks(argv)
@@ -182,6 +187,12 @@ class FakeSlurmRunner:
             return self._sinfo_responses[key]
         except KeyError:
             raise AssertionError(f"unexpected sinfo query {key!r}") from None
+
+    @staticmethod
+    def _require_arguments(argv: tuple[str, ...], required: tuple[str, ...]) -> None:
+        missing = tuple(argument for argument in required if argument not in argv[1:])
+        if missing:
+            raise AssertionError(f"missing required arguments {missing!r} in {argv!r}")
 
     def _tasks_for_target(self, target: str) -> tuple[FakeSlurmTask, ...]:
         if "_" not in target:

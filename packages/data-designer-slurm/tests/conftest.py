@@ -19,15 +19,23 @@ from slurm_test_fakes import (
     FakeVllmBackend,
 )
 
+from data_designer.slurm.benchmark import BenchmarkManifest, BenchmarkReport
 from data_designer.slurm.client import ClientResult
-from data_designer.slurm.config import DataDesignerSlurmConfig, SlurmProfileCatalog
+from data_designer.slurm.config import (
+    DataDesignerSlurmBenchmarkConfig,
+    DataDesignerSlurmConfig,
+    ImageInspectionRecord,
+    SlurmProfileCatalog,
+)
 from data_designer.slurm.planning import ResolvedDependencyLock, ResolvedSlurmRunPlan
 from data_designer.slurm.state import (
     AttemptManifest,
     AttemptReadiness,
     CandidateOutputManifest,
+    CollectionPlan,
     RunManifest,
     SchedulerIdentity,
+    SchedulerObservation,
     ShardManifest,
     ShardWinner,
 )
@@ -36,6 +44,7 @@ TEST_DIRECTORY = Path(__file__).parent
 CONTRACT_GOLDEN_DIRECTORY = TEST_DIRECTORY / "contracts" / "golden"
 INTEGRATION_GOLDEN_PATH = TEST_DIRECTORY / "integration" / "golden" / "finalization_chain.json"
 SLURM_GOLDEN_DIRECTORY = TEST_DIRECTORY / "slurm_test_fakes" / "golden" / "slurm"
+STATE_GOLDEN_DIRECTORY = TEST_DIRECTORY / "state" / "golden"
 
 
 @pytest.fixture
@@ -78,22 +87,49 @@ def multi_node_plan() -> ResolvedSlurmRunPlan:
 
 
 @pytest.fixture
-def single_node_render_plan(single_node_plan: ResolvedSlurmRunPlan) -> ResolvedSlurmRunPlan:
-    return single_node_plan.model_copy(
-        update={"submission": single_node_plan.submission.model_copy(update={"account": None, "partition": None})}
-    )
-
-
-@pytest.fixture
-def multi_node_render_plan(multi_node_plan: ResolvedSlurmRunPlan) -> ResolvedSlurmRunPlan:
-    return multi_node_plan.model_copy(
-        update={"submission": multi_node_plan.submission.model_copy(update={"account": None, "partition": None})}
-    )
-
-
-@pytest.fixture
 def client_result() -> ClientResult:
     return ClientResult.model_validate_json((CONTRACT_GOLDEN_DIRECTORY / "client_result.json").read_text())
+
+
+@pytest.fixture
+def benchmark_config() -> DataDesignerSlurmBenchmarkConfig:
+    return DataDesignerSlurmBenchmarkConfig.model_validate_json(
+        (CONTRACT_GOLDEN_DIRECTORY / "benchmark_config.json").read_text()
+    )
+
+
+@pytest.fixture
+def benchmark_manifest() -> BenchmarkManifest:
+    return BenchmarkManifest.model_validate_json((CONTRACT_GOLDEN_DIRECTORY / "benchmark_manifest.json").read_text())
+
+
+@pytest.fixture
+def benchmark_report() -> BenchmarkReport:
+    return BenchmarkReport.model_validate_json((CONTRACT_GOLDEN_DIRECTORY / "benchmark_report.json").read_text())
+
+
+@pytest.fixture
+def client_image_inspection() -> ImageInspectionRecord:
+    return ImageInspectionRecord.model_validate_json(
+        (CONTRACT_GOLDEN_DIRECTORY / "client_image_inspection.json").read_text()
+    )
+
+
+@pytest.fixture
+def serving_image_inspection() -> ImageInspectionRecord:
+    return ImageInspectionRecord.model_validate_json(
+        (CONTRACT_GOLDEN_DIRECTORY / "serving_image_inspection.json").read_text()
+    )
+
+
+@pytest.fixture
+def collection_plan() -> CollectionPlan:
+    return CollectionPlan.model_validate_json((STATE_GOLDEN_DIRECTORY / "collection_plan.json").read_text())
+
+
+@pytest.fixture
+def accounting_lag_observation() -> SchedulerObservation:
+    return SchedulerObservation.model_validate_json((STATE_GOLDEN_DIRECTORY / "accounting_lag.json").read_text())
 
 
 @pytest.fixture
@@ -146,24 +182,20 @@ def fake_clock() -> FakeClock:
 
 
 @pytest.fixture
-def fake_slurm_array() -> FakeSlurmArray:
-    """Return a two-task array copied when the fake runner is constructed."""
-    return FakeSlurmArray(
-        tasks=(
-            FakeSlurmTask(SchedulerIdentity(array_job_id=4101, array_task_id=0)),
-            FakeSlurmTask(
-                SchedulerIdentity(array_job_id=4101, array_task_id=1),
-                queue_state="RUNNING",
-            ),
-        )
-    )
-
-
-@pytest.fixture
-def fake_slurm_runner(fake_slurm_array: FakeSlurmArray) -> FakeSlurmRunner:
+def fake_slurm_runner() -> FakeSlurmRunner:
     """Return an isolated Slurm runner with one array and one bounded sinfo query."""
     return FakeSlurmRunner(
-        arrays=(fake_slurm_array,),
+        arrays=(
+            FakeSlurmArray(
+                tasks=(
+                    FakeSlurmTask(SchedulerIdentity(array_job_id=4101, array_task_id=0)),
+                    FakeSlurmTask(
+                        SchedulerIdentity(array_job_id=4101, array_task_id=1),
+                        queue_state="RUNNING",
+                    ),
+                )
+            ),
+        ),
         sinfo_responses={
             ("sinfo", "--noheader", "--format=%G"): FakeCommandResponse(
                 stdout=(SLURM_GOLDEN_DIRECTORY / "sinfo_gres.txt").read_text()
