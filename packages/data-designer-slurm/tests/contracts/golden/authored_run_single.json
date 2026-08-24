@@ -1,0 +1,96 @@
+{
+  "array_tasks": {
+    "count": 1,
+    "max_concurrent": 1
+  },
+  "builder": {
+    "inline": {
+      "data_designer": {
+        "columns": [],
+        "model_configs": [
+          {
+            "alias": "generator",
+            "model": "example/generator",
+            "provider": "openai"
+          }
+        ]
+      }
+    },
+    "source": null
+  },
+  "client": {
+    "cpus": 32,
+    "dependencies": {
+      "index_credentials": {},
+      "lock_file": null,
+      "requirements": []
+    },
+    "image": {
+      "name": "dd-client-0.9",
+      "path": null
+    }
+  },
+  "deployments": [
+    {
+      "model": "example/generator",
+      "model_alias": "generator",
+      "resources": {
+        "nodes": 1
+      },
+      "served_model_name": null,
+      "server": {
+        "distributed_init_timeout": "10m",
+        "enable_expert_parallel": false,
+        "environment": {},
+        "extra_args": [],
+        "image": {
+          "name": "vllm-0-21",
+          "path": null
+        },
+        "queue_backpressure": {
+          "max_waiting_requests": 128,
+          "retry_after_seconds": 1
+        },
+        "readiness_path": "/health",
+        "startup_timeout": "15m",
+        "type": "vllm"
+      },
+      "topology": {
+        "nodes_per_replica": 1,
+        "tensor_parallel": 8
+      }
+    }
+  ],
+  "invocation": {
+    "dataset_name": "single-node",
+    "diagnostics": {
+      "log_requests": false
+    },
+    "input_bindings": {
+      "managed_assets_path": null,
+      "seed_path": null
+    },
+    "mcp_providers": [],
+    "model_concurrency": {
+      "generator": 8
+    },
+    "num_records": 8,
+    "resume": "never",
+    "run_config": {}
+  },
+  "name": "single-node-generation",
+  "output": {
+    "format": "parquet",
+    "partitions": 1,
+    "require_exact_record_count": false,
+    "root": null
+  },
+  "schema_version": 1,
+  "submission": {
+    "account": null,
+    "comment": null,
+    "job_name": "data-designer",
+    "partition": null,
+    "time_limit": "03:55:00"
+  }
+}

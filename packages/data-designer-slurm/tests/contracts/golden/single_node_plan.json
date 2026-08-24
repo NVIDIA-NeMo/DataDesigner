@@ -1,0 +1,276 @@
+{
+  "array_tasks": {
+    "count": 1,
+    "max_concurrent": 1
+  },
+  "authored_config": {
+    "path": "/workspace/primary/runs/run-single/authored-config.json",
+    "sha256": "fa6ca55eac5075455193628e481b09789566d8f4c54926f45bbf837c20e5ba47"
+  },
+  "builder": {
+    "authored_source": null,
+    "content_sha256": "b3ef5fc1fe675a8e004633f84842ac60cf82d5ba3dc68b4d50ee4438448b0570",
+    "inline": {
+      "data_designer": {
+        "columns": [],
+        "model_configs": [
+          {
+            "alias": "generator",
+            "model": "example/generator",
+            "provider": "openai"
+          }
+        ]
+      }
+    },
+    "model_aliases": [
+      "generator"
+    ],
+    "referenced_model_aliases": [],
+    "source": null
+  },
+  "client": {
+    "authored": {
+      "cpus": 32,
+      "dependencies": {
+        "index_credentials": {},
+        "lock_file": null,
+        "requirements": []
+      },
+      "image": {
+        "name": "dd-client-0.9",
+        "path": null
+      }
+    },
+    "dependency_lock": {
+      "path": "/workspace/primary/runs/run-single/dependency-lock.json",
+      "sha256": "2600c1944897a8e3c9a9410fe912bdee0e169e09769e58180cadebe94f3da52c"
+    },
+    "gpu_count": 0,
+    "host_node_index": 0,
+    "image": {
+      "authored_ref": {
+        "name": "dd-client-0.9",
+        "path": null
+      },
+      "inspection": {
+        "inspection": {
+          "distributions": [
+            {
+              "name": "data-designer",
+              "version": "0.9.2"
+            }
+          ],
+          "installer_path": "/usr/bin/pip",
+          "installer_version": "26.1",
+          "kind": "client",
+          "python_abi": "cp312",
+          "python_implementation": "cpython",
+          "python_version": "3.12.12"
+        },
+        "inspector_version": "inspector-1",
+        "schema_version": 1,
+        "sqsh_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      },
+      "path": "/images/dd-client-0.9.sqsh",
+      "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    },
+    "ports": [
+      {
+        "name": "deployment-00000-logical-endpoint",
+        "node_index": 0,
+        "port": 17000,
+        "role": "logical_endpoint"
+      }
+    ]
+  },
+  "container_mounts": [
+    {
+      "read_only": false,
+      "source": "/workspace",
+      "target": "/workspace"
+    }
+  ],
+  "deployments": [
+    {
+      "authored": {
+        "model": "example/generator",
+        "model_alias": "generator",
+        "resources": {
+          "nodes": 1
+        },
+        "served_model_name": null,
+        "server": {
+          "distributed_init_timeout": "10m",
+          "enable_expert_parallel": false,
+          "environment": {},
+          "extra_args": [],
+          "image": {
+            "name": "vllm-0-21",
+            "path": null
+          },
+          "queue_backpressure": {
+            "max_waiting_requests": 128,
+            "retry_after_seconds": 1
+          },
+          "readiness_path": "/health",
+          "startup_timeout": "15m",
+          "type": "vllm"
+        },
+        "topology": {
+          "nodes_per_replica": 1,
+          "tensor_parallel": 8
+        }
+      },
+      "deployment_id": "deployment-00000",
+      "gpus_per_node": 8,
+      "image": {
+        "authored_ref": {
+          "name": "vllm-0-21",
+          "path": null
+        },
+        "inspection": {
+          "inspection": {
+            "executable_path": "/usr/local/bin/vllm",
+            "kind": "serving",
+            "runtime_version": "0.21.0",
+            "server_type": "vllm"
+          },
+          "inspector_version": "inspector-1",
+          "schema_version": 1,
+          "sqsh_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+        },
+        "path": "/images/vllm-0-21.sqsh",
+        "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      },
+      "node_indices": [
+        0
+      ],
+      "ports": [
+        {
+          "name": "deployment-00000-http-00000",
+          "node_index": 0,
+          "port": 18000,
+          "role": "http"
+        }
+      ],
+      "served_model_name": "example/generator",
+      "topology": {
+        "gpus_per_replica": 8,
+        "node_group_count": 1,
+        "nodes_per_replica": 1,
+        "pipeline_parallel": 1,
+        "replica_count": 1,
+        "replicas_per_node_group": 1,
+        "tensor_parallel": 8
+      }
+    }
+  ],
+  "invocation": {
+    "authored": {
+      "dataset_name": "single-node",
+      "diagnostics": {
+        "log_requests": false
+      },
+      "input_bindings": {
+        "managed_assets_path": null,
+        "seed_path": null
+      },
+      "mcp_providers": [],
+      "model_concurrency": {
+        "generator": 8
+      },
+      "num_records": 8,
+      "resume": "never",
+      "run_config": {}
+    },
+    "effective_run_config": {
+      "async_trace": false,
+      "buffer_size": 16384,
+      "disable_early_shutdown": true,
+      "display_tui": false,
+      "jinja_rendering_engine": "secure",
+      "max_concurrent_row_groups": 3,
+      "max_conversation_correction_steps": 0,
+      "max_conversation_restarts": 0,
+      "max_in_flight_tasks": 1024,
+      "non_inference_max_parallel_workers": 4,
+      "otel_metrics_port": null,
+      "preserve_dropped_columns": true,
+      "progress_interval": 5.0,
+      "request_admission": null,
+      "shutdown_error_rate": 1.0,
+      "shutdown_error_window": 10,
+      "write_scheduler_events": false
+    }
+  },
+  "output": {
+    "format": "parquet",
+    "partitions": 1,
+    "require_exact_record_count": false,
+    "root": "/workspace/primary/runs/run-single/output"
+  },
+  "package_version": "0.9.2",
+  "resolved_gpus_per_node": 8,
+  "run_id": "run-single",
+  "runtime_bundle": {
+    "path": "/workspace/primary/runtime/runtime.tar.gz",
+    "sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+  },
+  "schema_version": 1,
+  "selected_profile": {
+    "catalog_path": "/workspace/profile.json",
+    "catalog_sha256": "c747bdf94fe8c638c94f25522e2213d38fa904a6a448e8e1162ef1bb2eef4cc9",
+    "cluster_name": "primary",
+    "matched_pattern": null,
+    "profile": {
+      "container_mounts": [
+        {
+          "read_only": false,
+          "source": "/workspace",
+          "target": "/workspace"
+        }
+      ],
+      "gpu_request_mode": "gres",
+      "gpus_per_node": 8,
+      "host_patterns": [
+        "login*.primary.example",
+        "primary-login-*"
+      ],
+      "image_build": {
+        "partition": "cpu"
+      },
+      "scheduler": {
+        "account": "research",
+        "mem_per_gpu": null,
+        "partition": "batch"
+      },
+      "schema_version": 1,
+      "workspace_root": "/workspace/primary"
+    },
+    "profile_sha256": "afaa20b6bcb7233d35b2ad4c9ca82864e7f92ce060442112f6c5e7a5c735cce4",
+    "schema_version": 1,
+    "selection_source": "explicit"
+  },
+  "shards": [
+    {
+      "array_task_index": 0,
+      "input_partition": null,
+      "record_range": {
+        "end_index_exclusive": 8,
+        "start_index": 0
+      },
+      "resume_workspace": {
+        "path": "/workspace/primary/runs/run-single/shards/shard-00000/dataset"
+      },
+      "shard_id": "shard-00000",
+      "shard_index": 0
+    }
+  ],
+  "submission": {
+    "account": "research",
+    "comment": null,
+    "job_name": "data-designer",
+    "partition": "batch",
+    "time_limit": "03:55:00"
+  }
+}

@@ -8,7 +8,9 @@ from __future__ import annotations
 import hashlib
 import json
 import posixpath
-from typing import Annotated, Literal
+from collections.abc import Mapping
+from typing import Annotated, Literal, TypeVar
+from urllib.parse import urlsplit
 
 from pydantic import (
     BaseModel,
@@ -32,7 +34,60 @@ ModelAlias = str
 ShardId = Annotated[str, StringConstraints(pattern=r"^shard-[0-9]{5,}$")]
 AttemptId = Annotated[str, StringConstraints(pattern=r"^attempt-[0-9]{4,}$")]
 SchemaVersion = Literal[1]
+EnvironmentName = Annotated[str, StringConstraints(pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")]
 Sha256Digest = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
+Duration = Annotated[str, StringConstraints(pattern=r"^[1-9][0-9]*(?:s|m|h|d)$")]
+
+_Key = TypeVar("_Key")
+_Value = TypeVar("_Value")
+
+
+class _FrozenList(list[_Value]):
+    """List that retains JSON compatibility without exposing mutation."""
+
+    def _immutable(self, *args: object, **kwargs: object) -> None:
+        del args, kwargs
+        raise TypeError("frozen list cannot be modified")
+
+    __delitem__ = _immutable
+    __iadd__ = _immutable
+    __imul__ = _immutable
+    __setitem__ = _immutable
+    append = _immutable
+    clear = _immutable
+    extend = _immutable
+    insert = _immutable
+    pop = _immutable
+    remove = _immutable
+    reverse = _immutable
+    sort = _immutable
+
+
+class _FrozenDict(dict[_Key, _Value]):
+    """Dictionary that retains JSON compatibility without exposing mutation."""
+
+    def _immutable(self, *args: object, **kwargs: object) -> None:
+        del args, kwargs
+        raise TypeError("frozen dictionary cannot be modified")
+
+    __delitem__ = _immutable
+    __ior__ = _immutable
+    __setitem__ = _immutable
+    clear = _immutable
+    pop = _immutable
+    popitem = _immutable
+    setdefault = _immutable
+    update = _immutable
+
+
+def _freeze_collections(value: object) -> object:
+    if isinstance(value, Mapping):
+        return _FrozenDict({key: _freeze_collections(item) for key, item in value.items()})
+    if isinstance(value, list):
+        return _FrozenList(_freeze_collections(item) for item in value)
+    if isinstance(value, tuple):
+        return tuple(_freeze_collections(item) for item in value)
+    return value
 
 
 class ContractValue(BaseModel):
@@ -46,6 +101,24 @@ class ContractValue(BaseModel):
         strict=True,
         validate_default=True,
     )
+
+    @field_validator("*", mode="after")
+    @classmethod
+    def freeze_collections(cls, value: object) -> object:
+        return _freeze_collections(value)
+
+
+class AuthoredConfig(ContractValue):
+    """Base for strict authored configuration values."""
+
+    def serialize_canonical_json(self) -> bytes:
+        return canonical_json(self.model_dump(mode="json"))
+
+    def serialize_json(self) -> str:
+        return pretty_json(self.model_dump(mode="json"))
+
+    def compute_sha256(self) -> Sha256Digest:
+        return hashlib.sha256(self.serialize_json().encode("utf-8")).hexdigest()
 
 
 class ContractRecord(ContractValue):
@@ -104,8 +177,7 @@ def validate_absolute_path(value: str) -> str:
         raise ValueError("path must have exactly one leading slash")
     if value == "/":
         raise ValueError("path must not be the filesystem root")
-    if any(ord(character) < 32 or ord(character) == 127 for character in value):
-        raise ValueError("path must not contain control characters")
+    validate_plain_text(value, field_name="path")
     if ".." in value.split("/"):
         raise ValueError("path must not contain parent-directory components")
     if posixpath.normpath(value) != value:
@@ -123,6 +195,42 @@ def validate_relative_path(value: str) -> str:
         raise ValueError("path must not contain parent-directory components")
     if posixpath.normpath(value) != value or value == ".":
         raise ValueError("path must be normalized")
+    return value
+
+
+def validate_local_config_path(value: str) -> str:
+    validate_plain_text(value, field_name="path")
+    if "://" in value:
+        raise ValueError("builder and config sources must be local paths")
+    if ".." in value.split("/"):
+        raise ValueError("path must not contain parent-directory components")
+    normalized = posixpath.normpath(value)
+    if posixpath.splitext(normalized)[1] not in {".json", ".yaml", ".yml"}:
+        raise ValueError("config path must end in .json, .yaml, or .yml")
+    return normalized
+
+
+def validate_plain_text(value: str, *, field_name: str) -> str:
+    if not value:
+        raise ValueError(f"{field_name} must not be empty")
+    if any(ord(character) < 32 or ord(character) == 127 for character in value):
+        raise ValueError(f"{field_name} must not contain control characters")
+    return value
+
+
+def validate_url(value: str, *, field_name: str) -> str:
+    validate_plain_text(value, field_name=field_name)
+    try:
+        parsed = urlsplit(value)
+        parsed.port
+    except ValueError as error:
+        raise ValueError(f"{field_name} must be an HTTP(S) URL with a valid host and port") from error
+    if (
+        parsed.scheme not in {"http", "https"}
+        or parsed.hostname is None
+        or any(character.isspace() for character in value)
+    ):
+        raise ValueError(f"{field_name} must be an HTTP(S) URL")
     return value
 
 
@@ -163,8 +271,11 @@ class ResumeWorkspace(ContractValue):
 __all__ = [
     "ArtifactReference",
     "AttemptId",
+    "AuthoredConfig",
     "ContractRecord",
     "ContractValue",
+    "Duration",
+    "EnvironmentName",
     "Identifier",
     "ModelAlias",
     "RecordRange",
@@ -176,5 +287,8 @@ __all__ = [
     "compute_sha256",
     "pretty_json",
     "validate_absolute_path",
+    "validate_local_config_path",
+    "validate_plain_text",
     "validate_relative_path",
+    "validate_url",
 ]
