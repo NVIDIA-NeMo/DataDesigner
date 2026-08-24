@@ -14,14 +14,7 @@ import pytest
 
 from data_designer.slurm.client import ClientOutcome, ClientResult
 from data_designer.slurm.contracts import ArtifactReference, ContractValue, RecordRange, ResumeWorkspace
-from data_designer.slurm.integration import (
-    IntegrationContractError,
-    PlanStateValidator,
-    validate_finalization_chain,
-    validate_initial_readiness,
-    validate_plan_shards,
-    validate_planned_attempt,
-)
+from data_designer.slurm.integration import IntegrationContractError, PlanStateValidator
 from data_designer.slurm.planning import (
     ArtifactReference as PlanningArtifactReference,
 )
@@ -107,9 +100,9 @@ def test_golden_records_validate_every_plan_state_join(records: IntegrationRecor
 
 def test_plan_shards_reject_missing_and_extra_state(records: IntegrationRecords) -> None:
     with pytest.raises(IntegrationContractError, match="exactly the run shard count"):
-        validate_plan_shards(records.plan, records.run, ())
+        records.validator.validate_plan_shards(records.run, ())
     with pytest.raises(IntegrationContractError, match="exactly the run shard count"):
-        validate_plan_shards(records.plan, records.run, records.shards + records.shards)
+        records.validator.validate_plan_shards(records.run, records.shards + records.shards)
 
 
 @pytest.mark.parametrize(
@@ -189,15 +182,16 @@ def test_plan_shards_reject_one_field_drift(
         shard = shard.model_copy(update={"created_at": run.created_at - timedelta(seconds=1)})
 
     with pytest.raises(IntegrationContractError, match=message):
-        validate_plan_shards(records.plan, run, (shard,))
+        records.validator.validate_plan_shards(run, (shard,))
 
 
 def test_plan_shards_reject_reordered_state() -> None:
     plan = _load_plan("multi_node_plan.json")
+    validator = PlanStateValidator(plan)
     run, shards = _state_shards_for_plan(plan)
 
     with pytest.raises(IntegrationContractError, match="ordered"):
-        validate_plan_shards(plan, run, tuple(reversed(shards)))
+        validator.validate_plan_shards(run, tuple(reversed(shards)))
 
 
 def test_initial_readiness_rejects_plan_order_alias_and_backend_count(records: IntegrationRecords) -> None:
@@ -205,19 +199,20 @@ def test_initial_readiness_rejects_plan_order_alias_and_backend_count(records: I
     wrong_alias = deployment.model_copy(update={"model_alias": "other"})
     readiness = records.readiness.model_copy(update={"deployments": (wrong_alias,)})
     with pytest.raises(IntegrationContractError, match="deployments"):
-        validate_initial_readiness(records.plan, records.attempt, readiness)
+        records.validator.validate_initial_readiness(records.attempt, readiness)
 
     wrong_count = deployment.model_copy(update={"expected_backends": 2})
     readiness = records.readiness.model_copy(update={"deployments": (wrong_count,)})
     with pytest.raises(IntegrationContractError, match="deployments"):
-        validate_initial_readiness(records.plan, records.attempt, readiness)
+        records.validator.validate_initial_readiness(records.attempt, readiness)
 
     multi_plan = _load_plan("multi_node_plan.json")
+    validator = PlanStateValidator(multi_plan)
     attempt = _attempt_for_plan(multi_plan)
     readiness = _pending_readiness(multi_plan, attempt)
     reordered = readiness.model_copy(update={"deployments": tuple(reversed(readiness.deployments))})
     with pytest.raises(IntegrationContractError, match="deployments"):
-        validate_initial_readiness(multi_plan, attempt, reordered)
+        validator.validate_initial_readiness(attempt, reordered)
 
 
 @pytest.mark.parametrize(
@@ -249,19 +244,17 @@ def test_initial_readiness_rejects_one_field_identity_and_time_drift(
         readiness = readiness.model_copy(update={"deployments": (deployment,)})
 
     with pytest.raises(IntegrationContractError, match=message):
-        validate_initial_readiness(records.plan, records.attempt, readiness)
+        records.validator.validate_initial_readiness(records.attempt, readiness)
 
 
 def test_initial_readiness_requires_first_pending_revision(records: IntegrationRecords) -> None:
     with pytest.raises(IntegrationContractError, match="revision 1"):
-        validate_initial_readiness(
-            records.plan,
+        records.validator.validate_initial_readiness(
             records.attempt,
             records.readiness.model_copy(update={"revision": 2}),
         )
     with pytest.raises(IntegrationContractError, match="must be pending"):
-        validate_initial_readiness(
-            records.plan,
+        records.validator.validate_initial_readiness(
             records.attempt,
             records.readiness.model_copy(update={"state": ReadinessState.READY}),
         )
@@ -312,22 +305,22 @@ def test_initial_readiness_rejects_invalid_planned_attempt(
         )
 
     with pytest.raises(IntegrationContractError, match=message):
-        validate_initial_readiness(records.plan, attempt, readiness)
+        records.validator.validate_initial_readiness(attempt, readiness)
 
 
 def test_planned_attempt_rejects_identity_task_and_unsubmitted_state(records: IntegrationRecords) -> None:
     planned_shard = records.plan.shards[0]
     wrong_run = records.attempt.model_copy(update={"run_id": "run-other"})
     with pytest.raises(IntegrationContractError, match="attempt run_id"):
-        validate_planned_attempt(records.plan, planned_shard, wrong_run)
+        records.validator.validate_planned_attempt(planned_shard, wrong_run)
 
     wrong_task = records.attempt.model_copy(update={"scheduler": SchedulerIdentity(array_job_id=4101, array_task_id=1)})
     with pytest.raises(IntegrationContractError, match="array task"):
-        validate_planned_attempt(records.plan, planned_shard, wrong_task)
+        records.validator.validate_planned_attempt(planned_shard, wrong_task)
 
     wrong_id = records.attempt.model_copy(update={"attempt_id": "attempt-0002"})
     with pytest.raises(IntegrationContractError, match="ordinal"):
-        validate_planned_attempt(records.plan, planned_shard, wrong_id)
+        records.validator.validate_planned_attempt(planned_shard, wrong_id)
 
     no_scheduler = records.attempt.model_copy(
         update={
@@ -338,17 +331,18 @@ def test_planned_attempt_rejects_identity_task_and_unsubmitted_state(records: In
         }
     )
     with pytest.raises(IntegrationContractError, match="scheduler"):
-        validate_planned_attempt(records.plan, planned_shard, no_scheduler)
+        records.validator.validate_planned_attempt(planned_shard, no_scheduler)
 
     created_with_scheduler = AttemptManifest.model_validate(
         no_scheduler.model_dump(mode="python") | {"scheduler": records.attempt.scheduler}
     )
     with pytest.raises(IntegrationContractError, match="submitted"):
-        validate_planned_attempt(records.plan, planned_shard, created_with_scheduler)
+        records.validator.validate_planned_attempt(planned_shard, created_with_scheduler)
 
     multi_plan = _load_plan("multi_node_plan.json")
+    validator = PlanStateValidator(multi_plan)
     with pytest.raises(IntegrationContractError, match="canonical shard"):
-        validate_planned_attempt(multi_plan, multi_plan.shards[1], _attempt_for_plan(multi_plan))
+        validator.validate_planned_attempt(multi_plan.shards[1], _attempt_for_plan(multi_plan))
 
 
 def test_plan_state_validator_reuses_one_context_for_an_attempt_batch() -> None:
@@ -432,8 +426,7 @@ def test_finalization_rejects_invalid_chains(
         winner = winner.model_copy(update={"published_at": records.attempt.updated_at - timedelta(seconds=1)})
 
     with pytest.raises(IntegrationContractError, match=message):
-        validate_finalization_chain(
-            records.plan,
+        records.validator.validate_finalization_chain(
             records.plan.shards[0],
             attempt,
             client_result,
@@ -557,8 +550,7 @@ def test_finalization_rejects_one_field_join_drift(
         attempt = attempt.model_copy(update={"updated_at": client_result.completed_at - timedelta(seconds=1)})
 
     with pytest.raises(IntegrationContractError, match=message):
-        validate_finalization_chain(
-            records.plan,
+        records.validator.validate_finalization_chain(
             records.plan.shards[0],
             attempt,
             client_result,
@@ -580,7 +572,7 @@ def test_planned_attempt_rejects_plan_reference_drift(records: IntegrationRecord
     drifted = records.attempt.model_copy(update={"resolved_plan": reference})
 
     with pytest.raises(IntegrationContractError, match=mutation):
-        validate_planned_attempt(records.plan, records.plan.shards[0], drifted)
+        records.validator.validate_planned_attempt(records.plan.shards[0], drifted)
 
 
 def test_finalization_accepts_effective_resume_always(records: IntegrationRecords) -> None:
@@ -613,10 +605,10 @@ def test_finalization_accepts_effective_resume_always(records: IntegrationRecord
     winner = ShardWinner.model_validate(
         records.winner.model_dump(mode="python") | {"candidate_manifest": candidate_reference}
     )
+    validator = PlanStateValidator(plan)
 
     assert (
-        validate_finalization_chain(
-            plan,
+        validator.validate_finalization_chain(
             planned_shard,
             attempt,
             client_result,

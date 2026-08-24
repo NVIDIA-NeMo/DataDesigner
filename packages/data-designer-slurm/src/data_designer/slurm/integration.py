@@ -269,51 +269,6 @@ class PlanStateValidator:
         )
 
 
-def validate_plan_shards(
-    plan: ResolvedSlurmRunPlan,
-    run: RunManifest,
-    shards: tuple[ShardManifest, ...],
-) -> tuple[ShardManifest, ...]:
-    """Validate state shards for a one-off plan; reuse ``PlanStateValidator`` for batches."""
-    return PlanStateValidator(plan).validate_plan_shards(run, shards)
-
-
-def validate_initial_readiness(
-    plan: ResolvedSlurmRunPlan,
-    attempt: AttemptManifest,
-    readiness: AttemptReadiness,
-) -> AttemptReadiness:
-    """Validate initial readiness for a one-off plan; reuse ``PlanStateValidator`` for batches."""
-    return PlanStateValidator(plan).validate_initial_readiness(attempt, readiness)
-
-
-def validate_planned_attempt(
-    plan: ResolvedSlurmRunPlan,
-    planned_shard: PlannedShard,
-    attempt: AttemptManifest,
-) -> AttemptManifest:
-    """Validate one planned attempt; reuse ``PlanStateValidator`` for batches."""
-    return PlanStateValidator(plan).validate_planned_attempt(planned_shard, attempt)
-
-
-def validate_finalization_chain(
-    plan: ResolvedSlurmRunPlan,
-    planned_shard: PlannedShard,
-    attempt: AttemptManifest,
-    client_result: ClientResult,
-    candidate: CandidateOutputManifest,
-    winner: ShardWinner,
-) -> ShardWinner:
-    """Validate one finalization chain; reuse ``PlanStateValidator`` for batches."""
-    return PlanStateValidator(plan).validate_finalization_chain(
-        planned_shard,
-        attempt,
-        client_result,
-        candidate,
-        winner,
-    )
-
-
 def _require(condition: bool, message: str) -> None:
     if not condition:
         raise IntegrationContractError(message)
@@ -322,8 +277,4 @@ def _require(condition: bool, message: str) -> None:
 __all__ = [
     "IntegrationContractError",
     "PlanStateValidator",
-    "validate_finalization_chain",
-    "validate_initial_readiness",
-    "validate_plan_shards",
-    "validate_planned_attempt",
 ]
