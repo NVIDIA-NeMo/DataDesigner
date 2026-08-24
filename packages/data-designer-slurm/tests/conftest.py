@@ -3,8 +3,10 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import cast
 
 import pytest
 from slurm_test_fakes import (
@@ -17,10 +19,124 @@ from slurm_test_fakes import (
     FakeVllmBackend,
 )
 
-from data_designer.slurm.state import SchedulerIdentity
+from data_designer.slurm.client import ClientResult
+from data_designer.slurm.config import DataDesignerSlurmConfig, SlurmProfileCatalog
+from data_designer.slurm.planning import ResolvedDependencyLock, ResolvedSlurmRunPlan
+from data_designer.slurm.state import (
+    AttemptManifest,
+    AttemptReadiness,
+    CandidateOutputManifest,
+    RunManifest,
+    SchedulerIdentity,
+    ShardManifest,
+    ShardWinner,
+)
 
 TEST_DIRECTORY = Path(__file__).parent
+CONTRACT_GOLDEN_DIRECTORY = TEST_DIRECTORY / "contracts" / "golden"
+INTEGRATION_GOLDEN_PATH = TEST_DIRECTORY / "integration" / "golden" / "finalization_chain.json"
 SLURM_GOLDEN_DIRECTORY = TEST_DIRECTORY / "slurm_test_fakes" / "golden" / "slurm"
+
+
+@pytest.fixture
+def authored_run() -> DataDesignerSlurmConfig:
+    return DataDesignerSlurmConfig.model_validate_json((CONTRACT_GOLDEN_DIRECTORY / "authored_run.json").read_text())
+
+
+@pytest.fixture
+def authored_run_single() -> DataDesignerSlurmConfig:
+    return DataDesignerSlurmConfig.model_validate_json(
+        (CONTRACT_GOLDEN_DIRECTORY / "authored_run_single.json").read_text()
+    )
+
+
+@pytest.fixture
+def profile_catalog() -> SlurmProfileCatalog:
+    return SlurmProfileCatalog.model_validate_json((CONTRACT_GOLDEN_DIRECTORY / "profile_catalog.json").read_text())
+
+
+@pytest.fixture
+def dependency_lock() -> ResolvedDependencyLock:
+    return ResolvedDependencyLock.model_validate_json((CONTRACT_GOLDEN_DIRECTORY / "dependency_lock.json").read_text())
+
+
+@pytest.fixture
+def dependency_lock_single() -> ResolvedDependencyLock:
+    return ResolvedDependencyLock.model_validate_json(
+        (CONTRACT_GOLDEN_DIRECTORY / "dependency_lock_single.json").read_text()
+    )
+
+
+@pytest.fixture
+def single_node_plan() -> ResolvedSlurmRunPlan:
+    return ResolvedSlurmRunPlan.model_validate_json((CONTRACT_GOLDEN_DIRECTORY / "single_node_plan.json").read_text())
+
+
+@pytest.fixture
+def multi_node_plan() -> ResolvedSlurmRunPlan:
+    return ResolvedSlurmRunPlan.model_validate_json((CONTRACT_GOLDEN_DIRECTORY / "multi_node_plan.json").read_text())
+
+
+@pytest.fixture
+def single_node_render_plan(single_node_plan: ResolvedSlurmRunPlan) -> ResolvedSlurmRunPlan:
+    return single_node_plan.model_copy(
+        update={"submission": single_node_plan.submission.model_copy(update={"account": None, "partition": None})}
+    )
+
+
+@pytest.fixture
+def multi_node_render_plan(multi_node_plan: ResolvedSlurmRunPlan) -> ResolvedSlurmRunPlan:
+    return multi_node_plan.model_copy(
+        update={"submission": multi_node_plan.submission.model_copy(update={"account": None, "partition": None})}
+    )
+
+
+@pytest.fixture
+def client_result() -> ClientResult:
+    return ClientResult.model_validate_json((CONTRACT_GOLDEN_DIRECTORY / "client_result.json").read_text())
+
+
+@pytest.fixture
+def finalization_chain_payload() -> dict[str, object]:
+    return cast(dict[str, object], json.loads(INTEGRATION_GOLDEN_PATH.read_text()))
+
+
+@pytest.fixture
+def run_manifest(finalization_chain_payload: dict[str, object]) -> RunManifest:
+    return RunManifest.model_validate_json(json.dumps(finalization_chain_payload["run"]))
+
+
+@pytest.fixture
+def shard_manifests(finalization_chain_payload: dict[str, object]) -> tuple[ShardManifest, ...]:
+    return tuple(
+        ShardManifest.model_validate_json(json.dumps(payload))
+        for payload in cast(list[object], finalization_chain_payload["shards"])
+    )
+
+
+@pytest.fixture
+def attempt_manifest(finalization_chain_payload: dict[str, object]) -> AttemptManifest:
+    return AttemptManifest.model_validate_json(json.dumps(finalization_chain_payload["attempt"]))
+
+
+@pytest.fixture
+def attempt_readiness(finalization_chain_payload: dict[str, object]) -> AttemptReadiness:
+    return AttemptReadiness.model_validate_json(json.dumps(finalization_chain_payload["readiness"]))
+
+
+@pytest.fixture
+def finalization_client_result(finalization_chain_payload: dict[str, object]) -> ClientResult:
+    return ClientResult.model_validate_json(json.dumps(finalization_chain_payload["client_result"]))
+
+
+@pytest.fixture
+def candidate_output_manifest(finalization_chain_payload: dict[str, object]) -> CandidateOutputManifest:
+    return CandidateOutputManifest.model_validate_json(json.dumps(finalization_chain_payload["candidate"]))
+
+
+@pytest.fixture
+def shard_winner(finalization_chain_payload: dict[str, object]) -> ShardWinner:
+    return ShardWinner.model_validate_json(json.dumps(finalization_chain_payload["winner"]))
 
 
 @pytest.fixture
