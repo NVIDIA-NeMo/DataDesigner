@@ -1,0 +1,440 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+from __future__ import annotations
+
+import json
+from copy import deepcopy
+
+import pytest
+from pydantic import ValidationError
+
+from data_designer.config import DataDesignerConfigBuilder, HuggingFaceSeedSource, ModelConfig
+from data_designer.slurm.config import (
+    ArrayTasksConfig,
+    BenchmarkBaseRun,
+    BuilderInput,
+    ClientDependencies,
+    DataDesignerSlurmBenchmarkConfig,
+    DataDesignerSlurmConfig,
+    ImageBuildRequest,
+    ImageInspectionRecord,
+    ImageRef,
+    LiteralEnvironmentBinding,
+    LocalStdioMCPProviderConfig,
+    QueueBackpressureConfig,
+    RemoteMCPProviderConfig,
+    SecretRef,
+    ServerDeploymentConfig,
+    SubmissionConfig,
+    VllmServerConfig,
+)
+
+
+@pytest.mark.parametrize("version", [None, 0, 2, "1"])
+def test_run_config_requires_supported_version(authored_run: DataDesignerSlurmConfig, version: object) -> None:
+    payload = authored_run.model_dump(mode="json")
+    if version is None:
+        payload.pop("schema_version")
+    else:
+        payload["schema_version"] = version
+
+    with pytest.raises(ValidationError):
+        DataDesignerSlurmConfig.model_validate(payload)
+
+
+def test_run_config_rejects_unknown_fields(authored_run: DataDesignerSlurmConfig) -> None:
+    payload = authored_run.model_dump(mode="json")
+    payload["placement"] = {"gpu_ids": [0]}
+
+    with pytest.raises(ValidationError, match="placement"):
+        DataDesignerSlurmConfig.model_validate(payload)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {},
+        {"name": "image", "path": "/images/image.sqsh"},
+        {"path": "relative.sqsh"},
+        {"path": "/images/image.tar"},
+    ],
+)
+def test_image_ref_requires_one_registered_alias_or_absolute_sqsh(payload: dict[str, str]) -> None:
+    with pytest.raises(ValidationError):
+        ImageRef.model_validate(payload)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"requirements": None},
+        {"requirements": [], "lock_file": "lock.json"},
+        {"requirements": ["-e ./plugin"]},
+        {"requirements": ["plugin @ git+https://example.test/plugin.git"]},
+        {"requirements": ["plugin @ https://example.test/plugin.whl"]},
+        {"requirements": ["plugin @ https://user:secret@example.test/plugin.whl#sha256=" + "a" * 64]},
+        {"requirements": ["plugin @ https://example.test/plugin.whl?token=secret#sha256=" + "a" * 64]},
+        {"requirements": ["plugin @ https://example.test:invalid/plugin.whl#sha256=" + "a" * 64]},
+        {"requirements": ["my_pkg==1", "my-pkg==2"]},
+        {"requirements": ["not valid !!!"]},
+        {"requirements": ["plugin=="]},
+        {"requirements": ["plugin==1; python_version >= '3.12'"]},
+        {"requirements": None, "lock_file": "../lock.json"},
+    ],
+)
+def test_client_dependencies_reject_mutable_or_ambiguous_sources(payload: dict[str, object]) -> None:
+    with pytest.raises(ValidationError):
+        ClientDependencies.model_validate(payload)
+
+
+def test_client_dependencies_accept_digest_bound_wheel() -> None:
+    dependencies = ClientDependencies(requirements=["plugin @ https://example.test/plugin.whl#sha256=" + "a" * 64])
+
+    assert dependencies.requirements is not None
+
+
+def test_secret_reference_serializes_only_external_binding() -> None:
+    secret = SecretRef(type="secret", environment="HF_TOKEN")
+
+    assert secret.model_dump(mode="json") == {"type": "secret", "environment": "HF_TOKEN"}
+    with pytest.raises(ValidationError):
+        SecretRef.model_validate({"type": "secret", "environment": "HF_TOKEN", "value": "secret-value"})
+
+
+def test_literal_environment_rejects_control_characters() -> None:
+    with pytest.raises(ValidationError, match="control"):
+        LiteralEnvironmentBinding(type="literal", value="line\nbreak")
+
+
+def test_secret_shaped_environment_requires_external_reference() -> None:
+    literal = LiteralEnvironmentBinding(type="literal", value="plaintext-secret")
+
+    with pytest.raises(ValidationError, match="external secret references"):
+        LocalStdioMCPProviderConfig(
+            provider_type="stdio",
+            name="provider",
+            command="provider",
+            environment={"API_TOKEN": literal},
+        )
+    with pytest.raises(ValidationError, match="external secret references"):
+        VllmServerConfig(
+            type="vllm",
+            image=ImageRef(name="vllm"),
+            environment={"MODEL_PASSWORD": literal},
+        )
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        "https://user:password@example.test/mcp",
+        "https://example.test/mcp?token=plaintext-secret",
+        "https://example.test/mcp#secret",
+    ],
+)
+def test_remote_mcp_endpoint_rejects_embedded_credentials(endpoint: str) -> None:
+    with pytest.raises(ValidationError, match="must not embed"):
+        RemoteMCPProviderConfig(provider_type="sse", name="provider", endpoint=endpoint)
+
+
+@pytest.mark.parametrize("endpoint", ["https:///missing-host", "https://example.test:invalid/mcp"])
+def test_remote_mcp_endpoint_requires_valid_host_and_port(endpoint: str) -> None:
+    with pytest.raises(ValidationError, match=r"HTTP\(S\)"):
+        RemoteMCPProviderConfig(provider_type="sse", name="provider", endpoint=endpoint)
+
+
+@pytest.mark.parametrize(
+    "argument",
+    [
+        "--api-key",
+        "--api-key plaintext-secret",
+        " --api-key plaintext-secret",
+        "--access-token=plaintext-secret",
+        "password",
+    ],
+)
+def test_stdio_mcp_rejects_secret_shaped_arguments(argument: str) -> None:
+    with pytest.raises(ValidationError, match="secret-shaped"):
+        LocalStdioMCPProviderConfig(
+            provider_type="stdio",
+            name="provider",
+            command="provider",
+            args=[argument],
+        )
+
+
+def test_vllm_defaults_and_backpressure_override() -> None:
+    server = VllmServerConfig(type="vllm", image=ImageRef(name="vllm"))
+    overridden = VllmServerConfig(
+        type="vllm",
+        image=ImageRef(name="vllm"),
+        queue_backpressure=QueueBackpressureConfig(max_waiting_requests=0, retry_after_seconds=None),
+    )
+
+    assert server.queue_backpressure.model_dump() == {"max_waiting_requests": 128, "retry_after_seconds": 1}
+    assert overridden.queue_backpressure.model_dump() == {"max_waiting_requests": 0, "retry_after_seconds": None}
+
+
+@pytest.mark.parametrize(
+    "argument",
+    [
+        "--api-key=plaintext-secret",
+        "--api-key plaintext-secret",
+        "--distributed-init-address",
+        "--host=0.0.0.0",
+        "--middleware",
+        "--model",
+        "--port",
+        "--port 9000",
+        " --port 9000",
+        "--tensor-parallel-size",
+    ],
+)
+def test_vllm_rejects_runtime_owned_arguments(argument: str) -> None:
+    with pytest.raises(ValidationError, match="owned"):
+        VllmServerConfig(type="vllm", image=ImageRef(name="vllm"), extra_args=[argument])
+
+
+@pytest.mark.parametrize(
+    "extra_args",
+    [
+        ["--hf-token=plaintext-secret"],
+        ["--hf-token", "plaintext-secret"],
+        ["--hf-token plaintext-secret"],
+    ],
+)
+def test_vllm_rejects_secret_shaped_arguments(extra_args: list[str]) -> None:
+    with pytest.raises(ValidationError, match="secret-shaped"):
+        VllmServerConfig(type="vllm", image=ImageRef(name="vllm"), extra_args=extra_args)
+
+
+def test_vllm_rejects_distributed_timeout_beyond_startup_timeout() -> None:
+    with pytest.raises(ValidationError, match="must not exceed"):
+        VllmServerConfig(
+            type="vllm",
+            image=ImageRef(name="vllm"),
+            startup_timeout="10m",
+            distributed_init_timeout="11m",
+        )
+
+
+def test_deployment_rejects_invalid_topology() -> None:
+    payload = {
+        "model_alias": "generator",
+        "model": "example/generator",
+        "server": {"type": "vllm", "image": {"name": "vllm"}},
+        "resources": {"nodes": 3},
+        "topology": {"tensor_parallel": 8, "nodes_per_replica": 2},
+    }
+
+    with pytest.raises(ValidationError, match="divide"):
+        ServerDeploymentConfig.model_validate(payload)
+
+    payload["resources"]["nodes"] = 2
+    payload["server"]["enable_expert_parallel"] = True
+    with pytest.raises(ValidationError, match="expert"):
+        ServerDeploymentConfig.model_validate(payload)
+
+
+def test_model_alias_preserves_public_data_designer_values() -> None:
+    alias = "judge/v2"
+    ModelConfig(alias=alias, model="example/judge", provider="openai")
+
+    deployment = ServerDeploymentConfig.model_validate(
+        {
+            "model_alias": alias,
+            "model": "example/judge",
+            "server": {"type": "vllm", "image": {"name": "vllm"}},
+        }
+    )
+
+    assert deployment.model_alias == alias
+
+
+def test_run_rejects_duplicate_alias_and_unknown_concurrency(authored_run: DataDesignerSlurmConfig) -> None:
+    payload = authored_run.model_dump(mode="json")
+    payload["deployments"][1]["model_alias"] = "generator"
+    with pytest.raises(ValidationError, match="aliases"):
+        DataDesignerSlurmConfig.model_validate(payload)
+
+    payload = authored_run.model_dump(mode="json")
+    payload["invocation"]["model_concurrency"]["missing"] = 1
+    with pytest.raises(ValidationError, match="undeclared"):
+        DataDesignerSlurmConfig.model_validate(payload)
+
+
+def test_run_rejects_retired_builder_fields(authored_run: DataDesignerSlurmConfig) -> None:
+    payload = authored_run.model_dump(mode="json")
+    payload["builder"]["inline"]["server_configs"] = []
+
+    with pytest.raises(ValidationError, match="retired"):
+        DataDesignerSlurmConfig.model_validate(payload)
+
+
+@pytest.mark.parametrize(
+    "secret_key",
+    [
+        "api_key",
+        "accessToken",
+        "client-secret",
+        "consumer_key",
+        "license_key",
+        "password",
+        "private_key",
+        "signing_key",
+        "ssh_key",
+        "subscription_key",
+    ],
+)
+def test_builder_input_rejects_secret_values(secret_key: str) -> None:
+    with pytest.raises(ValidationError, match="secret values"):
+        BuilderInput(inline={"columns": [], secret_key: "plaintext-secret"})
+
+
+@pytest.mark.parametrize("plugin_key", ["sort_key", "partition_key", "primary_key", "idempotency_key"])
+def test_builder_input_allows_non_secret_plugin_keys(plugin_key: str) -> None:
+    inline = {"columns": [{"column_type": "plugin", plugin_key: "value"}]}
+
+    assert BuilderInput(inline=inline).inline == inline
+
+
+def test_builder_input_accepts_exported_and_shorthand_configs() -> None:
+    exported = DataDesignerConfigBuilder(model_configs=[]).get_builder_config().to_dict()
+
+    assert BuilderInput(inline=exported).inline == exported
+    assert BuilderInput(inline={"columns": []}).inline == {"columns": []}
+
+
+def test_builder_input_accepts_null_secret_fields_from_canonical_export() -> None:
+    builder = DataDesignerConfigBuilder(model_configs=[]).with_seed_dataset(
+        HuggingFaceSeedSource(path="datasets/example/seed/*.parquet")
+    )
+    exported = builder.get_builder_config().to_dict()
+
+    assert exported["data_designer"]["seed_config"]["source"]["token"] is None
+    assert BuilderInput(inline=exported).inline == exported
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+def test_builder_input_rejects_non_finite_json(value: float) -> None:
+    with pytest.raises(ValidationError):
+        BuilderInput(inline={"columns": [], "value": value})
+
+
+@pytest.mark.parametrize(
+    "inline",
+    [
+        {"data_designer": {}, "library_version": 1},
+        {"data_designer": {}, "unknown": True},
+        {"model_configs": []},
+    ],
+)
+def test_builder_input_rejects_invalid_serialized_shapes(inline: dict[str, object]) -> None:
+    with pytest.raises(ValidationError, match="complete serialized"):
+        BuilderInput.model_validate({"inline": inline})
+
+
+def test_run_validates_public_run_config_and_shard_count(authored_run: DataDesignerSlurmConfig) -> None:
+    payload = authored_run.model_dump(mode="json")
+    payload["invocation"]["run_config"]["buffer_size"] = 0
+    with pytest.raises(ValidationError, match="buffer_size"):
+        DataDesignerSlurmConfig.model_validate(payload)
+
+    payload = authored_run.model_dump(mode="json")
+    payload["array_tasks"]["count"] = 101
+    payload["array_tasks"]["max_concurrent"] = 1
+    with pytest.raises(ValidationError, match="requested records"):
+        DataDesignerSlurmConfig.model_validate(payload)
+
+
+def test_small_config_values_validate_at_boundary() -> None:
+    with pytest.raises(ValidationError, match="concurrency"):
+        ArrayTasksConfig(count=2, max_concurrent=3)
+    with pytest.raises(ValidationError, match="minutes"):
+        SubmissionConfig(time_limit="00:60:00")
+    with pytest.raises(ValidationError, match="readiness_path"):
+        VllmServerConfig(type="vllm", image=ImageRef(name="vllm"), readiness_path="health")
+
+
+@pytest.mark.parametrize(
+    "source",
+    ["nvcr.io/example/vllm:latest", "relative.sqsh"],
+)
+def test_image_build_request_rejects_mutable_or_relative_source(source: str) -> None:
+    with pytest.raises(ValidationError):
+        ImageBuildRequest(name="vllm", kind="serving", source=source)
+
+
+def test_image_inspection_rejects_duplicate_distribution_names() -> None:
+    payload = {
+        "schema_version": 1,
+        "inspector_version": "v1",
+        "sqsh_sha256": "a" * 64,
+        "inspection": {
+            "kind": "client",
+            "python_implementation": "cpython",
+            "python_version": "3.12.1",
+            "python_abi": "cp312",
+            "distributions": [
+                {"name": "plugin", "version": "1"},
+                {"name": "plugin", "version": "2"},
+            ],
+            "installer_path": "/usr/bin/pip",
+            "installer_version": "1",
+        },
+    }
+
+    with pytest.raises(ValidationError, match="unique"):
+        ImageInspectionRecord.model_validate_json(json.dumps(payload))
+
+
+def test_benchmark_config_rejects_duplicate_axes() -> None:
+    payload = {
+        "schema_version": 1,
+        "name": "bench",
+        "base_run": "./run.yaml",
+        "model_aliases": ["generator", "generator"],
+        "concurrency_values": [32, 32],
+        "deployment_cases": [{"name": "case", "deployments": {"generator": {"nodes": 1, "nodes_per_replica": 1}}}],
+        "record_policy": {"type": "fixed", "records": 100},
+        "analysis": {"target_total_records": 1000, "target_runtime": "1h"},
+    }
+
+    with pytest.raises(ValidationError, match="aliases"):
+        DataDesignerSlurmBenchmarkConfig.model_validate(payload)
+
+    payload["model_aliases"] = ["generator"]
+    with pytest.raises(ValidationError, match="concurrency"):
+        DataDesignerSlurmBenchmarkConfig.model_validate(payload)
+
+
+def test_benchmark_base_run_normalizes_local_source() -> None:
+    base_run = BenchmarkBaseRun.model_validate("./run.yaml")
+
+    assert base_run.source == "run.yaml"
+
+
+def test_config_models_do_not_mutate_input(authored_run: DataDesignerSlurmConfig) -> None:
+    payload = authored_run.model_dump(mode="json")
+    original = deepcopy(payload)
+
+    DataDesignerSlurmConfig.model_validate(payload)
+
+    assert payload == original
+
+
+def test_config_models_are_deeply_immutable(authored_run: DataDesignerSlurmConfig) -> None:
+    inline = authored_run.builder.inline
+    assert inline is not None
+    data_designer = inline["data_designer"]
+    assert isinstance(data_designer, dict)
+    columns = data_designer["columns"]
+    assert isinstance(columns, list)
+
+    with pytest.raises(TypeError, match="frozen list"):
+        authored_run.deployments.clear()
+    with pytest.raises(TypeError, match="frozen dictionary"):
+        authored_run.invocation.run_config["buffer_size"] = 1
+    with pytest.raises(TypeError, match="frozen list"):
+        columns.append({})
