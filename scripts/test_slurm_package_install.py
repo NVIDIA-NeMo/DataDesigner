@@ -128,6 +128,7 @@ assert version("data-designer-slurm") == {version!r}
 from data_designer.slurm.contracts import ArtifactReference as ContractArtifactReference
 from data_designer.slurm.contracts import RecordRange as ContractRecordRange
 from data_designer.slurm.contracts import ResumeWorkspace as ContractResumeWorkspace
+from data_designer.slurm.integration import PlanStateValidator
 from data_designer.slurm.planning import ArtifactReference as PlanningArtifactReference
 from data_designer.slurm.planning import RecordRange as PlanningRecordRange
 from data_designer.slurm.planning import ResumeWorkspace as PlanningResumeWorkspace
