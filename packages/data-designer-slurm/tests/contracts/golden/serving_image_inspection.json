@@ -1,0 +1,11 @@
+{
+  "inspection": {
+    "executable_path": "/usr/local/bin/vllm",
+    "kind": "serving",
+    "runtime_version": "0.21.0",
+    "server_type": "vllm"
+  },
+  "inspector_version": "inspector-1",
+  "schema_version": 1,
+  "sqsh_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+}
