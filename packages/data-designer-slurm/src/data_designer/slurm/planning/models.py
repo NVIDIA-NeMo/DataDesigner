@@ -391,8 +391,8 @@ class ResolvedSlurmRunPlan(ContractRecord):
             raise ValueError("client must be colocated on the first node of the first deployment")
         if "non_inference_max_parallel_workers" not in self.invocation.authored.run_config:
             workers = self.invocation.effective_run_config["non_inference_max_parallel_workers"]
-            if workers != self.client.authored.cpus:
-                raise ValueError("default non-inference worker count must match the client CPU count")
+            if workers != RunConfig().non_inference_max_parallel_workers:
+                raise ValueError("default non-inference worker count must match the Data Designer RunConfig default")
 
         expected_logical_names = tuple(
             f"{deployment.deployment_id}-logical-endpoint" for deployment in self.deployments
@@ -423,7 +423,11 @@ class ResolvedSlurmRunPlan(ContractRecord):
         if not _is_below(self.output.root, profile.workspace_root):
             raise ValueError("resolved output root must be below the selected workspace_root")
         shards_root = posixpath.join(run_root, "shards")
-        if self.output.root == shards_root or _is_below(self.output.root, shards_root):
+        if (
+            self.output.root == shards_root
+            or _is_below(self.output.root, shards_root)
+            or _is_below(shards_root, self.output.root)
+        ):
             raise ValueError("resolved output root must not overlap the run shard workspace")
         return self
 

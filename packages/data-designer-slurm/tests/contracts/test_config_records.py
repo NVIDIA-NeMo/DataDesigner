@@ -274,7 +274,18 @@ def test_run_rejects_retired_builder_fields(authored_run: DataDesignerSlurmConfi
 
 @pytest.mark.parametrize(
     "secret_key",
-    ["api_key", "accessToken", "client-secret", "password", "private_key", "signing_key"],
+    [
+        "api_key",
+        "accessToken",
+        "client-secret",
+        "consumer_key",
+        "license_key",
+        "password",
+        "private_key",
+        "signing_key",
+        "ssh_key",
+        "subscription_key",
+    ],
 )
 def test_builder_input_rejects_secret_values(secret_key: str) -> None:
     with pytest.raises(ValidationError, match="secret values"):

@@ -51,9 +51,7 @@ _OWNED_VLLM_FLAGS = {
     "--tensor-parallel-size",
 }
 _DURATION_FACTORS = {"s": 1, "m": 60, "h": 3600, "d": 86400}
-_SECRET_KEY_QUALIFIERS = frozenset(
-    {"access", "api", "auth", "bearer", "client", "encryption", "hmac", "private", "secret", "signing"}
-)
+_NON_SECRET_PAYLOAD_KEYS = frozenset({"idempotency_key", "partition_key", "primary_key", "sort_key"})
 _SECRET_NAME_PARTS = frozenset({"credential", "credentials", "password", "secret", "token"})
 
 
@@ -78,12 +76,8 @@ def _is_secret_name(value: str) -> bool:
 
 def _is_secret_payload_name(value: str) -> bool:
     segments = _secret_name_segments(value)
-    if _SECRET_NAME_PARTS.intersection(segments) or {"access", "key"}.issubset(segments):
-        return True
-    return any(
-        segment in {"auth", "key"} and (index == 0 or segments[index - 1] in _SECRET_KEY_QUALIFIERS)
-        for index, segment in enumerate(segments)
-    )
+    normalized = "_".join(segments)
+    return normalized not in _NON_SECRET_PAYLOAD_KEYS and _is_secret_name(value)
 
 
 def _option_flag(value: str) -> str:

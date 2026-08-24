@@ -105,13 +105,13 @@ def test_plan_rejects_unmaterialized_run_config(multi_node_plan: ResolvedSlurmRu
         ResolvedSlurmRunPlan.model_validate(payload)
 
 
-def test_plan_derives_default_non_inference_workers_from_client_cpus(
+def test_plan_preserves_default_non_inference_worker_count(
     multi_node_plan: ResolvedSlurmRunPlan,
 ) -> None:
     payload = multi_node_plan.model_dump(mode="json")
-    payload["invocation"]["effective_run_config"]["non_inference_max_parallel_workers"] = 4
+    payload["invocation"]["effective_run_config"]["non_inference_max_parallel_workers"] = 32
 
-    with pytest.raises(ValidationError, match="worker count must match"):
+    with pytest.raises(ValidationError, match="RunConfig default"):
         ResolvedSlurmRunPlan.model_validate_json(json.dumps(payload))
 
 
@@ -119,12 +119,12 @@ def test_plan_preserves_explicit_non_inference_worker_override(
     multi_node_plan: ResolvedSlurmRunPlan,
 ) -> None:
     payload = multi_node_plan.model_dump(mode="json")
-    payload["invocation"]["authored"]["run_config"]["non_inference_max_parallel_workers"] = 4
-    payload["invocation"]["effective_run_config"]["non_inference_max_parallel_workers"] = 4
+    payload["invocation"]["authored"]["run_config"]["non_inference_max_parallel_workers"] = 32
+    payload["invocation"]["effective_run_config"]["non_inference_max_parallel_workers"] = 32
 
     plan = ResolvedSlurmRunPlan.model_validate_json(json.dumps(payload))
 
-    assert plan.invocation.effective_run_config["non_inference_max_parallel_workers"] == 4
+    assert plan.invocation.effective_run_config["non_inference_max_parallel_workers"] == 32
 
 
 def test_plan_rejects_otel_port_collision(multi_node_plan: ResolvedSlurmRunPlan) -> None:
@@ -135,9 +135,20 @@ def test_plan_rejects_otel_port_collision(multi_node_plan: ResolvedSlurmRunPlan)
         ResolvedSlurmRunPlan.model_validate_json(json.dumps(payload))
 
 
-def test_plan_rejects_output_inside_shard_workspace(multi_node_plan: ResolvedSlurmRunPlan) -> None:
+@pytest.mark.parametrize(
+    "output_root",
+    [
+        "/workspace/primary/runs/run-001/shards/shard-00000/dataset",
+        "/workspace/primary/runs/run-001",
+        "/workspace/primary/runs",
+    ],
+)
+def test_plan_rejects_output_overlapping_shard_workspace(
+    multi_node_plan: ResolvedSlurmRunPlan,
+    output_root: str,
+) -> None:
     payload = multi_node_plan.model_dump(mode="json")
-    payload["output"]["root"] = "/workspace/primary/runs/run-001/shards/shard-00000/dataset"
+    payload["output"]["root"] = output_root
 
     with pytest.raises(ValidationError, match="must not overlap"):
         ResolvedSlurmRunPlan.model_validate_json(json.dumps(payload))
