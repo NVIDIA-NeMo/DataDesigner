@@ -254,7 +254,7 @@ jobs:
           claude \
             --model "$AGENTIC_CI_MODEL" \
             -p "$PROMPT" \
-            --max-turns 30 \
+            --max-turns 50 \
             --output-format text \
             --verbose \
             2>&1 | tee /tmp/claude-review-log.txt
@@ -263,6 +263,9 @@ jobs:
       - name: Report incomplete review
         if: steps.review.outcome != 'success'
         env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           TIMEOUT_MINUTES: ${{ needs.gate.outputs.timeout_minutes }}
         run: |
           echo "::warning::Agentic review failed or exceeded the ${TIMEOUT_MINUTES}-minute limit."
@@ -271,6 +274,8 @@ jobs:
             echo
             echo "The advisory review failed or timed out. This does not block merging."
           } >> "$GITHUB_STEP_SUMMARY"
+          gh pr comment "$PR_NUMBER" --body "Agentic review did not complete. [View the workflow run]($RUN_URL) for details." || \
+            echo "::warning::Could not post incomplete review comment."
 
       - name: Post review comment
         if: steps.review.outcome == 'success'
