@@ -105,11 +105,11 @@ class ImageRegistry:
         return removed
 
     def _load(self) -> ImageRegistrySnapshot:
-        if not self._registry_path.exists():
-            return ImageRegistrySnapshot()
         try:
             payload = yaml.safe_load(_read_regular_text(self._registry_path))
             return ImageRegistrySnapshot.model_validate_json(json.dumps(payload))
+        except FileNotFoundError:
+            return ImageRegistrySnapshot()
         except (OSError, TypeError, UnicodeError, ValidationError, yaml.YAMLError) as error:
             raise ImageRegistryError(f"cannot load image registry {self._registry_path}") from error
 
@@ -186,6 +186,8 @@ def acquire_file_lock(path: Path) -> Iterator[None]:
     descriptor: int | None = None
     try:
         descriptor = os.open(path, os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0), _FILE_MODE)
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise OSError(f"lock path {path} is not a regular file")
         os.fchmod(descriptor, _FILE_MODE)
         fcntl.flock(descriptor, fcntl.LOCK_EX)
     except OSError as error:
@@ -222,12 +224,16 @@ def _sync_directory(path: Path) -> None:
 def _read_regular_text(path: Path) -> str:
     descriptor: int | None = None
     try:
+        before_open = path.lstat()
+        if not stat.S_ISREG(before_open.st_mode):
+            raise OSError(f"registry path {path} is not a regular file")
         descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        after_open = os.fstat(descriptor)
+        if (before_open.st_dev, before_open.st_ino) != (after_open.st_dev, after_open.st_ino):
+            raise OSError(f"registry path {path} changed while it was being opened")
         registry_file = os.fdopen(descriptor, "r", encoding="utf-8")
         descriptor = None
         with registry_file:
-            if not stat.S_ISREG(os.fstat(registry_file.fileno()).st_mode):
-                raise OSError(f"registry path {path} is not a regular file")
             return registry_file.read()
     finally:
         if descriptor is not None:

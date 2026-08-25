@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import os
 import stat
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -203,6 +204,15 @@ def test_registry_rejects_symlinked_state_file(tmp_path: Path) -> None:
         service.list_images()
 
 
+def test_registry_rejects_nonregular_state_file_without_blocking(tmp_path: Path) -> None:
+    service = SlurmImageService(tmp_path / "workspace")
+    service.registry_path.parent.mkdir(parents=True)
+    os.mkfifo(service.registry_path)
+
+    with pytest.raises(ImageRegistryError, match="cannot load"):
+        service.list_images()
+
+
 def test_registry_rejects_symlinked_lock_file_without_changing_target(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     lock_directory = workspace / "images" / ".locks"
@@ -220,6 +230,20 @@ def test_registry_rejects_symlinked_lock_file_without_changing_target(tmp_path: 
         )
 
     assert stat.S_IMODE(target.stat().st_mode) == 0o640
+
+
+def test_registry_rejects_nonregular_lock_file(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    lock_directory = workspace / "images" / ".locks"
+    lock_directory.mkdir(parents=True)
+    os.mkfifo(lock_directory / "alias-client.lock")
+    image_path = _write_sqsh(tmp_path / "client.sqsh", b"client")
+
+    with pytest.raises(ImageRegistryError, match="cannot lock"):
+        SlurmImageService(workspace).register_existing(
+            ImageBuildRequest(name="client", kind="client", source=image_path.as_posix()),
+            _inspect_client(image_path),
+        )
 
 
 def test_registry_uses_restrictive_atomic_workspace_storage(tmp_path: Path) -> None:
