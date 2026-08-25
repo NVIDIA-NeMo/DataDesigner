@@ -11,7 +11,7 @@ from typing import Annotated
 from packaging.version import InvalidVersion, Version
 from pydantic import StringConstraints, model_validator
 
-from data_designer.slurm.contracts import ContractValue, Identifier
+from data_designer.slurm.contracts import ContractValue, Identifier, validate_plain_text
 
 RuntimeVersion = Annotated[str, StringConstraints(min_length=1, max_length=128)]
 
@@ -88,9 +88,12 @@ def resolve_vllm_compatibility(runtime_version: str) -> VllmRuntimeCompatibility
 
 def _resolve_supported_version(runtime_version: str) -> tuple[Version, _VllmCapabilities]:
     try:
+        validate_plain_text(runtime_version, field_name="vLLM version")
         version = Version(runtime_version)
-    except InvalidVersion as error:
+    except (InvalidVersion, ValueError) as error:
         raise UnsupportedServingRuntimeError(f"invalid inspected vLLM version: {runtime_version!r}") from error
+    if runtime_version != str(version):
+        raise UnsupportedServingRuntimeError(f"noncanonical inspected vLLM version: {runtime_version!r}")
     series = version.release[:2]
     if version.epoch or version.is_prerelease or version.is_devrelease or series not in _SUPPORTED_VLLM_CAPABILITIES:
         raise UnsupportedServingRuntimeError(f"unsupported inspected vLLM version: {runtime_version!r}")

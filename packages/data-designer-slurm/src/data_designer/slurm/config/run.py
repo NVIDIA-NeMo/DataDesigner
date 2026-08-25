@@ -104,6 +104,7 @@ _OWNED_VLLM_FLAG_PREFIXES = (
     "--ssl-",
     "--tensor-parallel-",
 )
+_OWNED_VLLM_ATTACHED_VALUE_FLAGS = ("-n", "-r")
 _DURATION_FACTORS = {"s": 1, "m": 60, "h": 3600, "d": 86400}
 _NON_SECRET_PAYLOAD_KEYS = frozenset({"idempotency_key", "partition_key", "primary_key", "sort_key"})
 _SECRET_NAME_PARTS = frozenset({"credential", "credentials", "password", "secret", "token"})
@@ -143,6 +144,11 @@ def _option_flag(value: str) -> str:
 
 def _is_owned_vllm_flag(flag: str) -> bool:
     if flag in _OWNED_VLLM_FLAGS or flag.startswith(_OWNED_VLLM_FLAG_PREFIXES):
+        return True
+    if any(
+        flag.startswith(owned_flag) and re.fullmatch(r"[+-]?[0-9]+", flag[len(owned_flag) :]) is not None
+        for owned_flag in _OWNED_VLLM_ATTACHED_VALUE_FLAGS
+    ):
         return True
     return flag.startswith("--") and any(
         owned_flag.startswith(flag) for owned_flag in _OWNED_VLLM_FLAGS if owned_flag.startswith("--")
@@ -485,7 +491,7 @@ class ServerDeploymentConfig(AuthoredConfig):
     def validate_topology(self) -> ServerDeploymentConfig:
         if self.resources.nodes % self.topology.nodes_per_replica:
             raise ValueError("nodes_per_replica must divide deployment nodes")
-        if self.server.enable_expert_parallel and self.resources.nodes > 1:
+        if self.server.enable_expert_parallel and self.topology.nodes_per_replica > 1:
             raise ValueError("multi-node expert parallel is not supported in v1")
         return self
 

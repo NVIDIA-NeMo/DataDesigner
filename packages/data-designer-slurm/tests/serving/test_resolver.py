@@ -183,6 +183,20 @@ def test_resolution_rejects_multi_node_expert_parallel(multi_node_plan: Resolved
         resolve_server(authored, context)
 
 
+def test_resolution_allows_independent_single_node_expert_parallel_replicas(
+    multi_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    placement = _independent_replica_placement(multi_node_plan)
+    context = ServerResolutionContext.from_plan(placement, multi_node_plan.client)
+
+    resolved = resolve_server(placement.authored, context)
+
+    assert resolved.launch_policy.enable_expert_parallel
+    assert resolved.topology.pipeline_parallel == 1
+    assert [process.node_index for process in resolved.processes] == [0, 1]
+    assert all(process.rendezvous is None for process in resolved.processes)
+
+
 def test_dispatch_rejects_unimplemented_server_type(single_node_plan: ResolvedSlurmRunPlan) -> None:
     placement = single_node_plan.deployments[0]
     authored = ServerDeploymentConfig.model_construct(
@@ -453,6 +467,21 @@ def test_launch_policy_rejects_invalid_readiness_or_deadlines(update: dict[str, 
         VllmLaunchPolicy.model_validate(payload)
 
 
+@pytest.mark.parametrize("argument", ["-n2", "-n+2", "-r1", "-r0"])
+def test_launch_policy_rejects_attached_runtime_owned_short_arguments(argument: str) -> None:
+    with pytest.raises(ValidationError, match="owned by the compiler or runtime"):
+        VllmLaunchPolicy(
+            startup_timeout_seconds=900,
+            distributed_init_timeout_seconds=600,
+            lead_boot_standoff_seconds=60,
+            rank_launch_stagger_seconds=5,
+            readiness_path="/health",
+            enable_expert_parallel=False,
+            queue_backpressure=QueueBackpressureConfig(),
+            extra_args=(argument,),
+        )
+
+
 def test_single_node_process_rejects_rendezvous(single_node_plan: ResolvedSlurmRunPlan) -> None:
     placement = single_node_plan.deployments[0]
     resolved = resolve_server(placement.authored, ServerResolutionContext.from_plan(placement, single_node_plan.client))
@@ -580,6 +609,34 @@ def _multi_lane_placement(plan: ResolvedSlurmRunPlan) -> ResolvedDeployment:
             "role": "rendezvous",
             "node_index": 0,
             "port": 19001,
+        },
+    ]
+    return ResolvedDeployment.model_validate_json(json.dumps(payload))
+
+
+def _independent_replica_placement(plan: ResolvedSlurmRunPlan) -> ResolvedDeployment:
+    payload = plan.deployments[0].model_dump(mode="json")
+    payload["authored"]["server"]["enable_expert_parallel"] = True
+    payload["authored"]["topology"]["nodes_per_replica"] = 1
+    payload["topology"].update(
+        nodes_per_replica=1,
+        pipeline_parallel=1,
+        node_group_count=2,
+        replica_count=2,
+        gpus_per_replica=8,
+    )
+    payload["ports"] = [
+        {
+            "name": "deployment-00000-http-00000",
+            "role": "http",
+            "node_index": 0,
+            "port": 18000,
+        },
+        {
+            "name": "deployment-00000-http-00001",
+            "role": "http",
+            "node_index": 1,
+            "port": 18001,
         },
     ]
     return ResolvedDeployment.model_validate_json(json.dumps(payload))

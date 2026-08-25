@@ -199,8 +199,12 @@ def test_vllm_defaults_and_backpressure_override() -> None:
         "-dpr",
         "-ep",
         "-n",
+        "-n+2",
+        "-n2",
         "-pp=2",
         "-r",
+        "-r0",
+        "-r1",
         "-tp",
         "--api-server-count=2",
         "--config=/tmp/vllm.yaml",
@@ -332,6 +336,12 @@ def test_deployment_rejects_invalid_topology() -> None:
     payload["resources"]["nodes"] = 2
     payload["topology"]["nodes_per_replica"] = 1
     payload["server"]["enable_expert_parallel"] = True
+
+    deployment = ServerDeploymentConfig.model_validate(payload)
+
+    assert deployment.topology.nodes_per_replica == 1
+
+    payload["topology"]["nodes_per_replica"] = 2
     with pytest.raises(ValidationError, match="expert"):
         ServerDeploymentConfig.model_validate(payload)
 

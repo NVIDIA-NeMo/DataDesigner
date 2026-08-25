@@ -92,7 +92,7 @@ class ResolvedServerDeployment(ContractValue):
             and self.compatibility.supports_coordinated_failure
         ):
             raise ValueError("serving runtime does not provide the required V1 behavior")
-        if self.launch_policy.enable_expert_parallel and len(self.node_indices) > 1:
+        if self.launch_policy.enable_expert_parallel and self.topology.pipeline_parallel > 1:
             raise ValueError("multi-node expert parallel is not supported in v1")
         if self.logical_endpoint.model_alias != self.model_alias:
             raise ValueError("logical endpoint model alias must match the deployment")

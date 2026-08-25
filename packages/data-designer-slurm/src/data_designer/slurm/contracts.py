@@ -282,6 +282,7 @@ __all__ = [
     "EnvironmentName",
     "Identifier",
     "ModelAlias",
+    "NonNegativeDuration",
     "RecordRange",
     "ResumeWorkspace",
     "SchemaVersion",
