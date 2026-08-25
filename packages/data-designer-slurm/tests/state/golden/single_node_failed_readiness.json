@@ -1,0 +1,25 @@
+{
+  "attempt_id": "attempt-0001",
+  "deployments": [
+    {
+      "deployment_id": "deployment-00000",
+      "endpoint_publication": "published",
+      "expected_backends": 1,
+      "last_probe": {
+        "observed_at": "2026-08-18T12:02:00Z",
+        "outcome": "failure",
+        "reason_code": "backend_failed",
+        "redacted_message": "Backend rank failed"
+      },
+      "model_alias": "primary",
+      "ready_backends": 0,
+      "state": "failed"
+    }
+  ],
+  "revision": 4,
+  "run_id": "run-0001",
+  "schema_version": 1,
+  "shard_id": "shard-00000",
+  "state": "failed",
+  "updated_at": "2026-08-18T12:02:00Z"
+}
