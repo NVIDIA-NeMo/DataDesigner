@@ -22,7 +22,17 @@ def test_supported_vllm_release_series_have_complete_v1_capabilities(runtime_ver
 
 @pytest.mark.parametrize(
     "runtime_version",
-    ["invalid", " 0.21.0 ", "\n0.21.0\n", "v0.21.0", "0.20.0", "0.21.0rc1", "0.24.0", "1!0.21.0"],
+    [
+        "invalid",
+        " 0.21.0 ",
+        "\n0.21.0\n",
+        "v0.21.0",
+        "0.20.0",
+        "0.21.0rc1",
+        "0.24.0",
+        "1!0.21.0",
+        f"0.21.0+{'a' * 129}",
+    ],
 )
 def test_unsupported_vllm_versions_fail_before_runtime(runtime_version: str) -> None:
     with pytest.raises(UnsupportedServingRuntimeError, match="vLLM version"):

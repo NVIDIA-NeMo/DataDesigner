@@ -191,9 +191,11 @@ def test_vllm_defaults_and_backpressure_override() -> None:
         "-dp",
         "-dpa=127.0.0.1",
         "-dpb",
+        "-dcp=2",
         "-dpe",
         "-dph",
         "-dpl",
+        "-dpm",
         "-dpn=1",
         "-dpp",
         "-dpr",
@@ -201,6 +203,7 @@ def test_vllm_defaults_and_backpressure_override() -> None:
         "-n",
         "-n+2",
         "-n2",
+        "-pcp=2",
         "-pp=2",
         "-r",
         "-r0",
@@ -208,6 +211,9 @@ def test_vllm_defaults_and_backpressure_override() -> None:
         "-tp",
         "--api-server-count=2",
         "--config=/tmp/vllm.yaml",
+        "--cpu-distributed-timeout-seconds=120",
+        "--cp-kv-cache-interleave-size=2",
+        "--cpunodebind=0",
         "--data-parallel-address",
         "--data-parallel-backend=mp",
         "--data-parallel-external-lb",
@@ -218,11 +224,30 @@ def test_vllm_defaults_and_backpressure_override() -> None:
         "--data-parallel-size",
         "--data-parallel-size-local",
         "--data-parallel-start-rank=1",
+        "--data-parallel-supervisor-port=9256",
+        "--dcp-comm-backend=a2a",
+        "--dcp-kv-cache-interleave-size=2",
+        "--decode-context-parallel-size=2",
+        "--default-mm-loras={}",
+        "--distributed-executor-backend=mp",
         "--distributed-init-address",
         "--distributed-timeout-seconds",
+        "--dp-supervisor-probe-interval-s=1",
+        "--ec-transfer-config={}",
+        "--enable-elastic-ep",
+        "--enable-expert-parallel",
+        "--enable-lora",
         "--enable-ssl-refresh",
         "--grpc",
+        "--headless",
         "--host=0.0.0.0",
+        "--io-processor-plugin=custom",
+        "--kv-events-config={}",
+        "--kv-transfer-config={}",
+        "--logits-processors=custom.LogitsProcessor",
+        "--lora-modules=adapter=/models/adapter",
+        "--max-cpu-loras=2",
+        "--max-loras=2",
         "--master-addr",
         "--master-port=29501",
         "--middleware",
@@ -231,12 +256,24 @@ def test_vllm_defaults_and_backpressure_override() -> None:
         "--node-rank=1",
         "--no-data-parallel-external-lb",
         "--no-data-parallel-hybrid-lb",
+        "--no-enable-elastic-ep",
         "--no-enable-expert-parallel",
+        "--no-enable-lora",
         "--no-enable-ssl-refresh",
+        "--no-numa-bind",
+        "--numa-bind",
+        "--numa_bind_nodes=[0,1]",
+        "--physcpubind=0-7",
+        "--pipeline-parallel-size=2",
         "--port",
         "--port 9000",
         " --port 9000",
+        "--prefill-context-parallel-size=2",
+        "--reasoning-parser-plugin=/tmp/reasoning.py",
         "--root-path=/v1",
+        "--served-model-name=example/model",
+        "--spec-model=example/draft-model",
+        "--speculative-config={}",
         "--ssl-ca-certs=/tmp/ca.pem",
         "--ssl-cert-reqs=2",
         "--ssl-certfile=/tmp/cert.pem",
@@ -245,12 +282,125 @@ def test_vllm_defaults_and_backpressure_override() -> None:
         "--tensor-parallel-size",
         "--tensor_parallel_size=2",
         "--tensor=2",
+        "--tool-parser-plugin=/tmp/tools.py",
         "--uds=/tmp/vllm.sock",
+        "--weight-transfer-config={}",
+        "--worker-cls=custom.Worker",
+        "--worker-extension-cls=custom.Extension",
     ],
 )
 def test_vllm_rejects_runtime_owned_arguments(argument: str) -> None:
     with pytest.raises(ValidationError, match="owned"):
         VllmServerConfig(type="vllm", image=ImageRef(name="vllm"), extra_args=[argument])
+
+
+def test_vllm_allows_builtin_parser_selection() -> None:
+    config = VllmServerConfig(
+        type="vllm",
+        image=ImageRef(name="vllm"),
+        extra_args=["--reasoning_parser", "deepseek_r1", "--tool-call-parser", "hermes"],
+    )
+
+    assert config.extra_args == ["--reasoning_parser", "deepseek_r1", "--tool-call-parser", "hermes"]
+
+
+@pytest.mark.parametrize(
+    "extra_args",
+    [
+        ["--structured-outputs-config.reasoning-parser-plugin=/tmp/reasoning.py"],
+        ["--structured-outputs-config", '{"reasoning_parser_plugin":"/tmp/reasoning.py"}'],
+        ['--structured-outputs-config={"reasoning_parser_plugin":"/tmp/reasoning.py"}'],
+        ['--additional-config={"nested":{"worker_cls":"custom.Worker"}}'],
+    ],
+)
+def test_vllm_rejects_plugin_hooks_nested_in_json_arguments(extra_args: list[str]) -> None:
+    with pytest.raises(ValidationError, match="owned"):
+        VllmServerConfig(type="vllm", image=ImageRef(name="vllm"), extra_args=extra_args)
+
+
+@pytest.mark.parametrize(
+    "extra_args",
+    [
+        ["--hf-overrides", '{"api_key":"plaintext-secret"}'],
+        ['--hf-overrides={"nested":{"access_token":"plaintext-secret"}}'],
+    ],
+)
+def test_vllm_rejects_secret_shaped_json_arguments(extra_args: list[str]) -> None:
+    with pytest.raises(ValidationError, match="secret-shaped"):
+        VllmServerConfig(type="vllm", image=ImageRef(name="vllm"), extra_args=extra_args)
+
+
+def test_vllm_allows_nonsecret_json_arguments() -> None:
+    config = VllmServerConfig(
+        type="vllm",
+        image=ImageRef(name="vllm"),
+        extra_args=['--hf-overrides={"model_type":"custom"}'],
+    )
+
+    assert config.extra_args == ['--hf-overrides={"model_type":"custom"}']
+
+
+@pytest.mark.parametrize(
+    "extra_args",
+    [
+        ["--hf-overrides", "{'model_type':'custom'}"],
+        ['--hf-overrides={"model_type":"custom"'],
+    ],
+)
+def test_vllm_rejects_invalid_json_arguments(extra_args: list[str]) -> None:
+    with pytest.raises(ValidationError, match="valid JSON"):
+        VllmServerConfig(type="vllm", image=ImageRef(name="vllm"), extra_args=extra_args)
+
+
+@pytest.mark.parametrize(
+    "environment_name",
+    [
+        "CUDA_VISIBLE_DEVICES",
+        "GROUP_RANK",
+        "LOCAL_RANK",
+        "MASTER_ADDR",
+        "MASTER_PORT",
+        "NVIDIA_VISIBLE_DEVICES",
+        "PYTHON_EXEC",
+        "RANK",
+        "ROLE_WORLD_SIZE",
+        "SLURM_PROCID",
+        "TORCHELASTIC_RUN_ID",
+        "VLLM_ALLOW_RUNTIME_LORA_UPDATING",
+        "VLLM_DP_RANK",
+        "VLLM_HOST_IP",
+        "VLLM_LORA_RESOLVER_HF_REPO_LIST",
+        "VLLM_MODEL_REDIRECT_PATH",
+        "VLLM_MOONCAKE_BOOTSTRAP_PORT",
+        "VLLM_NIXL_SIDE_CHANNEL_PORT",
+        "VLLM_PLUGINS",
+        "VLLM_PORT",
+        "VLLM_RAY_PER_WORKER_GPUS",
+        "VLLM_RPC_BASE_PATH",
+        "WORLD_SIZE",
+    ],
+)
+def test_vllm_rejects_runtime_owned_environment_names(environment_name: str) -> None:
+    with pytest.raises(ValidationError, match="owned by the compiler or runtime"):
+        VllmServerConfig(
+            type="vllm",
+            image=ImageRef(name="vllm"),
+            environment={environment_name: SecretRef(type="secret", environment="EXTERNAL_VALUE")},
+        )
+
+
+def test_vllm_allows_explicit_tuning_environment() -> None:
+    config = VllmServerConfig(
+        type="vllm",
+        image=ImageRef(name="vllm"),
+        environment={
+            "NCCL_DEBUG": LiteralEnvironmentBinding(type="literal", value="INFO"),
+            "VLLM_API_KEY": SecretRef(type="secret", environment="EXTERNAL_VLLM_API_KEY"),
+            "VLLM_WORKER_MULTIPROC_METHOD": LiteralEnvironmentBinding(type="literal", value="spawn"),
+        },
+    )
+
+    assert set(config.environment) == {"NCCL_DEBUG", "VLLM_API_KEY", "VLLM_WORKER_MULTIPROC_METHOD"}
 
 
 @pytest.mark.parametrize(
@@ -457,13 +607,13 @@ def test_run_validates_public_run_config_and_shard_count(authored_run: DataDesig
         DataDesignerSlurmConfig.model_validate(payload)
 
 
-@pytest.mark.parametrize("readiness_path", ["health", "/health check"])
+@pytest.mark.parametrize("readiness_path", ["health", "//other-host/health", "/health check"])
 def test_small_config_values_validate_at_boundary(readiness_path: str) -> None:
     with pytest.raises(ValidationError, match="concurrency"):
         ArrayTasksConfig(count=2, max_concurrent=3)
     with pytest.raises(ValidationError, match="minutes"):
         SubmissionConfig(time_limit="00:60:00")
-    with pytest.raises(ValidationError, match="readiness_path"):
+    with pytest.raises(ValidationError, match="absolute URL path"):
         VllmServerConfig(type="vllm", image=ImageRef(name="vllm"), readiness_path=readiness_path)
 
 

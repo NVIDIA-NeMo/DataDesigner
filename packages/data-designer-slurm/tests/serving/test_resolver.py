@@ -448,6 +448,7 @@ def test_compatibility_rejects_capabilities_outside_package_mapping() -> None:
     ("update", "message"),
     [
         ({"readiness_path": "health"}, "absolute URL path"),
+        ({"readiness_path": "//other-host/health"}, "absolute URL path"),
         ({"readiness_path": "/health check"}, "without whitespace"),
         ({"startup_timeout_seconds": 10, "distributed_init_timeout_seconds": 11}, "must not exceed"),
     ],
@@ -467,8 +468,22 @@ def test_launch_policy_rejects_invalid_readiness_or_deadlines(update: dict[str, 
         VllmLaunchPolicy.model_validate(payload)
 
 
-@pytest.mark.parametrize("argument", ["-n2", "-n+2", "-r1", "-r0"])
-def test_launch_policy_rejects_attached_runtime_owned_short_arguments(argument: str) -> None:
+@pytest.mark.parametrize(
+    "argument",
+    [
+        "-dcp=2",
+        "-n2",
+        "-n+2",
+        "-pcp=2",
+        "-r1",
+        "-r0",
+        "--kv-transfer-config={}",
+        "--numa-bind",
+        "--reasoning-parser-plugin=/tmp/reasoning.py",
+        "--worker-cls=custom.Worker",
+    ],
+)
+def test_launch_policy_rejects_runtime_owned_arguments(argument: str) -> None:
     with pytest.raises(ValidationError, match="owned by the compiler or runtime"):
         VllmLaunchPolicy(
             startup_timeout_seconds=900,
@@ -479,6 +494,21 @@ def test_launch_policy_rejects_attached_runtime_owned_short_arguments(argument: 
             enable_expert_parallel=False,
             queue_backpressure=QueueBackpressureConfig(),
             extra_args=(argument,),
+        )
+
+
+@pytest.mark.parametrize("environment_name", ["CUDA_VISIBLE_DEVICES", "VLLM_DP_RANK", "VLLM_HOST_IP"])
+def test_launch_policy_rejects_runtime_owned_environment_names(environment_name: str) -> None:
+    with pytest.raises(ValidationError, match="owned by the compiler or runtime"):
+        VllmLaunchPolicy(
+            startup_timeout_seconds=900,
+            distributed_init_timeout_seconds=600,
+            lead_boot_standoff_seconds=60,
+            rank_launch_stagger_seconds=5,
+            readiness_path="/health",
+            enable_expert_parallel=False,
+            queue_backpressure=QueueBackpressureConfig(),
+            environment={environment_name: {"type": "secret", "environment": "EXTERNAL_VALUE"}},
         )
 
 

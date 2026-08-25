@@ -13,7 +13,8 @@ from pydantic import StringConstraints, model_validator
 
 from data_designer.slurm.contracts import ContractValue, Identifier, validate_plain_text
 
-RuntimeVersion = Annotated[str, StringConstraints(min_length=1, max_length=128)]
+_MAX_RUNTIME_VERSION_LENGTH = 128
+RuntimeVersion = Annotated[str, StringConstraints(min_length=1, max_length=_MAX_RUNTIME_VERSION_LENGTH)]
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,6 +90,8 @@ def resolve_vllm_compatibility(runtime_version: str) -> VllmRuntimeCompatibility
 def _resolve_supported_version(runtime_version: str) -> tuple[Version, _VllmCapabilities]:
     try:
         validate_plain_text(runtime_version, field_name="vLLM version")
+        if len(runtime_version) > _MAX_RUNTIME_VERSION_LENGTH:
+            raise ValueError("vLLM version is too long")
         version = Version(runtime_version)
     except (InvalidVersion, ValueError) as error:
         raise UnsupportedServingRuntimeError(f"invalid inspected vLLM version: {runtime_version!r}") from error
