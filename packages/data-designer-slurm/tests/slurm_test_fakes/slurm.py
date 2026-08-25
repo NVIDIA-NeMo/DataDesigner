@@ -14,7 +14,7 @@ from pathlib import Path
 from data_designer.slurm.state import SchedulerIdentity
 
 _JOB_SELECTOR_PATTERN = re.compile(r"^[0-9]+(?:_[0-9]+)?$")
-_SQUEUE_REQUIRED_ARGUMENTS = ("--noheader", "--format=%i|%T")
+_SQUEUE_REQUIRED_ARGUMENTS = ("--noheader", "--array", "--format=%i|%T")
 _SACCT_REQUIRED_ARGUMENTS = (
     "--noheader",
     "--array",

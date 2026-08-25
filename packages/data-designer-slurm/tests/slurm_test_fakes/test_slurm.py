@@ -12,7 +12,7 @@ from data_designer.slurm.state import SchedulerIdentity
 from slurm_test_fakes import FakeCommandResponse, FakeSlurmArray, FakeSlurmRunner, FakeSlurmTask
 
 GOLDEN_DIRECTORY = Path(__file__).parent / "golden" / "slurm"
-SQUEUE_ARGUMENTS = ("--noheader", "--format=%i|%T")
+SQUEUE_ARGUMENTS = ("--noheader", "--array", "--format=%i|%T")
 SACCT_ARGUMENTS = (
     "--noheader",
     "--array",
