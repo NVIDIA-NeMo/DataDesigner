@@ -92,7 +92,7 @@ class ResolvedServerDeployment(ContractValue):
             and self.compatibility.supports_coordinated_failure
         ):
             raise ValueError("serving runtime does not provide the required V1 behavior")
-        if self.launch_policy.enable_expert_parallel and self.topology.pipeline_parallel > 1:
+        if self.launch_policy.enable_expert_parallel and len(self.node_indices) > 1:
             raise ValueError("multi-node expert parallel is not supported in v1")
         if self.logical_endpoint.model_alias != self.model_alias:
             raise ValueError("logical endpoint model alias must match the deployment")
@@ -116,14 +116,23 @@ class ResolvedServerDeployment(ContractValue):
         if len({process.process_id for process in self.processes}) != len(self.processes):
             raise ValueError("resolved process IDs must be unique")
 
+        expected_process_count = self.topology.replica_count * self.topology.pipeline_parallel
+        if len(self.processes) != expected_process_count:
+            raise ValueError("resolved process count must match replica and pipeline topology")
+        process_identities = tuple((process.replica_index, process.pipeline_rank) for process in self.processes)
+        expected_process_identities = tuple(
+            (replica_index, pipeline_rank)
+            for replica_index in range(self.topology.replica_count)
+            for pipeline_rank in range(self.topology.pipeline_parallel)
+        )
+        if process_identities != expected_process_identities:
+            raise ValueError("resolved processes must use complete ordered replica and pipeline identities")
+
         probes_by_backend = {probe.backend_id: probe for probe in self.readiness_probes}
         if len(self.readiness_probes) != len(self.backend_endpoints) or tuple(probes_by_backend) != backend_ids:
             raise ValueError("readiness probes must match the resolved backend order")
         for endpoint in self.backend_endpoints:
             self._validate_replica(endpoint, probes_by_backend[endpoint.backend_id])
-        expected_process_count = self.topology.replica_count * self.topology.pipeline_parallel
-        if len(self.processes) != expected_process_count:
-            raise ValueError("resolved process count must match replica and pipeline topology")
         self._validate_network_addresses()
         return self
 
@@ -148,10 +157,6 @@ class ResolvedServerDeployment(ContractValue):
         replica_processes = tuple(
             process for process in self.processes if process.replica_index == endpoint.replica_index
         )
-        if tuple(process.pipeline_rank for process in replica_processes) != tuple(
-            range(self.topology.pipeline_parallel)
-        ):
-            raise ValueError("each replica must contain one process per ordered pipeline rank")
         expected_gpu_start = expected_lane * self.topology.tensor_parallel
         expected_gpus = tuple(range(expected_gpu_start, expected_gpu_start + self.topology.tensor_parallel))
         expected_delay = (

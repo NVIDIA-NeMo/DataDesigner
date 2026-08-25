@@ -6,7 +6,7 @@ from __future__ import annotations
 import posixpath
 import re
 from collections.abc import Mapping
-from typing import Annotated, Literal
+from typing import Annotated, Literal, TypeVar
 from urllib.parse import urlsplit
 
 from packaging.requirements import InvalidRequirement, Requirement
@@ -38,6 +38,7 @@ from data_designer.slurm.contracts import (
 )
 
 _OWNED_VLLM_FLAGS = {
+    "-asc",
     "-dp",
     "-dpa",
     "-dpb",
@@ -53,6 +54,8 @@ _OWNED_VLLM_FLAGS = {
     "-r",
     "-tp",
     "--api-key",
+    "--api-server-count",
+    "--config",
     "--data-parallel-address",
     "--data-parallel-backend",
     "--data-parallel-external-lb",
@@ -66,6 +69,8 @@ _OWNED_VLLM_FLAGS = {
     "--distributed-init-address",
     "--distributed-timeout-seconds",
     "--enable-expert-parallel",
+    "--enable-ssl-refresh",
+    "--grpc",
     "--headless",
     "--host",
     "--master-addr",
@@ -77,14 +82,33 @@ _OWNED_VLLM_FLAGS = {
     "--no-data-parallel-external-lb",
     "--no-data-parallel-hybrid-lb",
     "--no-enable-expert-parallel",
+    "--no-enable-ssl-refresh",
     "--pipeline-parallel-size",
     "--port",
+    "--root-path",
     "--served-model-name",
+    "--ssl-ca-certs",
+    "--ssl-cert-reqs",
+    "--ssl-certfile",
+    "--ssl-ciphers",
+    "--ssl-keyfile",
     "--tensor-parallel-size",
+    "--uds",
 }
+_OWNED_VLLM_FLAG_PREFIXES = (
+    "--api-server-",
+    "--data-parallel-",
+    "--distributed-",
+    "--master-",
+    "--pipeline-parallel-",
+    "--ssl-",
+    "--tensor-parallel-",
+)
 _DURATION_FACTORS = {"s": 1, "m": 60, "h": 3600, "d": 86400}
 _NON_SECRET_PAYLOAD_KEYS = frozenset({"idempotency_key", "partition_key", "primary_key", "sort_key"})
 _SECRET_NAME_PARTS = frozenset({"credential", "credentials", "password", "secret", "token"})
+
+_Arguments = TypeVar("_Arguments", list[str], tuple[str, ...])
 
 
 def _duration_seconds(value: Duration) -> int:
@@ -113,7 +137,16 @@ def _is_secret_payload_name(value: str) -> bool:
 
 
 def _option_flag(value: str) -> str:
-    return re.split(r"[=\s]", value.lstrip(), maxsplit=1)[0]
+    flag = re.split(r"[=\s]", value.lstrip(), maxsplit=1)[0]
+    return flag.replace("_", "-") if flag.startswith("--") else flag
+
+
+def _is_owned_vllm_flag(flag: str) -> bool:
+    if flag in _OWNED_VLLM_FLAGS or flag.startswith(_OWNED_VLLM_FLAG_PREFIXES):
+        return True
+    return flag.startswith("--") and any(
+        owned_flag.startswith(flag) for owned_flag in _OWNED_VLLM_FLAGS if owned_flag.startswith("--")
+    )
 
 
 def _contains_secret_key(value: object) -> bool:
@@ -127,9 +160,10 @@ def _contains_secret_key(value: object) -> bool:
     return False
 
 
-def _validate_environment_bindings(
+def validate_environment_bindings(
     values: dict[EnvironmentName, EnvironmentBinding],
 ) -> dict[EnvironmentName, EnvironmentBinding]:
+    """Reject literal values for environment variables that look secret-bearing."""
     literal_secrets = [
         name
         for name, binding in values.items()
@@ -137,6 +171,28 @@ def _validate_environment_bindings(
     ]
     if literal_secrets:
         raise ValueError("secret-shaped environment names require external secret references")
+    return values
+
+
+def validate_vllm_extra_args(values: _Arguments) -> _Arguments:
+    """Validate shell-free vLLM arguments without allowing structured-input overrides."""
+    seen_flags: set[str] = set()
+    for value in values:
+        validate_plain_text(value, field_name="vLLM argument")
+        flag = _option_flag(value)
+        if flag == "--":
+            raise ValueError("vLLM argument option terminators are not supported")
+        if _is_owned_vllm_flag(flag):
+            raise ValueError(f"vLLM argument {flag!r} is owned by the compiler or runtime")
+        if _is_secret_name(flag.lstrip("-")):
+            raise ValueError("secret-shaped vLLM arguments must use an environment secret reference")
+        if any(character.isspace() for character in value):
+            raise ValueError("each vLLM argument must be one token")
+        if re.match(r"^--?[A-Za-z]", flag) is not None:
+            canonical_flag = f"--{flag.removeprefix('--no-')}" if flag.startswith("--no-") else flag
+            if canonical_flag in seen_flags:
+                raise ValueError(f"duplicate or conflicting vLLM argument {flag!r}")
+            seen_flags.add(canonical_flag)
     return values
 
 
@@ -245,7 +301,7 @@ class LocalStdioMCPProviderConfig(AuthoredConfig):
                 raise ValueError("secret-shaped MCP arguments must use an environment secret reference")
         return values
 
-    _environment_uses_secret_references = field_validator("environment")(_validate_environment_bindings)
+    _environment_uses_secret_references = field_validator("environment")(validate_environment_bindings)
 
 
 MCPProviderConfig = Annotated[
@@ -375,30 +431,16 @@ class VllmServerConfig(AuthoredConfig):
     @classmethod
     def validate_readiness_path(cls, value: str) -> str:
         validate_plain_text(value, field_name="readiness path")
-        if not value.startswith("/") or "?" in value or "#" in value:
-            raise ValueError("readiness_path must be an absolute URL path without query or fragment")
+        if not value.startswith("/") or any(character.isspace() for character in value) or "?" in value or "#" in value:
+            raise ValueError("readiness_path must be an absolute URL path without whitespace, query, or fragment")
         return value
 
     @field_validator("extra_args")
     @classmethod
     def validate_extra_args(cls, values: list[str]) -> list[str]:
-        seen_flags: set[str] = set()
-        for value in values:
-            validate_plain_text(value, field_name="vLLM argument")
-            flag = _option_flag(value)
-            if flag in _OWNED_VLLM_FLAGS:
-                raise ValueError(f"vLLM argument {flag!r} is owned by the compiler or runtime")
-            if _is_secret_name(flag.lstrip("-")):
-                raise ValueError("secret-shaped vLLM arguments must use an environment secret reference")
-            if any(character.isspace() for character in value):
-                raise ValueError("each vLLM argument must be one token")
-            if flag.startswith("-"):
-                if flag in seen_flags:
-                    raise ValueError(f"duplicate vLLM argument {flag!r}")
-                seen_flags.add(flag)
-        return values
+        return validate_vllm_extra_args(values)
 
-    _environment_uses_secret_references = field_validator("environment")(_validate_environment_bindings)
+    _environment_uses_secret_references = field_validator("environment")(validate_environment_bindings)
 
     @model_validator(mode="after")
     def validate_timeouts(self) -> VllmServerConfig:
@@ -443,7 +485,7 @@ class ServerDeploymentConfig(AuthoredConfig):
     def validate_topology(self) -> ServerDeploymentConfig:
         if self.resources.nodes % self.topology.nodes_per_replica:
             raise ValueError("nodes_per_replica must divide deployment nodes")
-        if self.server.enable_expert_parallel and self.topology.nodes_per_replica > 1:
+        if self.server.enable_expert_parallel and self.resources.nodes > 1:
             raise ValueError("multi-node expert parallel is not supported in v1")
         return self
 

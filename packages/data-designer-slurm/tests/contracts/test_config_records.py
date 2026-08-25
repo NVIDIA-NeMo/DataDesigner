@@ -187,6 +187,7 @@ def test_vllm_defaults_and_backpressure_override() -> None:
     [
         "--api-key=plaintext-secret",
         "--api-key plaintext-secret",
+        "-asc=2",
         "-dp",
         "-dpa=127.0.0.1",
         "-dpb",
@@ -201,10 +202,13 @@ def test_vllm_defaults_and_backpressure_override() -> None:
         "-pp=2",
         "-r",
         "-tp",
+        "--api-server-count=2",
+        "--config=/tmp/vllm.yaml",
         "--data-parallel-address",
         "--data-parallel-backend=mp",
         "--data-parallel-external-lb",
         "--data-parallel-hybrid-lb",
+        "--data_parallel_master_ip=127.0.0.1",
         "--data-parallel-rank=1",
         "--data-parallel-rpc-port 29502",
         "--data-parallel-size",
@@ -212,6 +216,8 @@ def test_vllm_defaults_and_backpressure_override() -> None:
         "--data-parallel-start-rank=1",
         "--distributed-init-address",
         "--distributed-timeout-seconds",
+        "--enable-ssl-refresh",
+        "--grpc",
         "--host=0.0.0.0",
         "--master-addr",
         "--master-port=29501",
@@ -222,10 +228,20 @@ def test_vllm_defaults_and_backpressure_override() -> None:
         "--no-data-parallel-external-lb",
         "--no-data-parallel-hybrid-lb",
         "--no-enable-expert-parallel",
+        "--no-enable-ssl-refresh",
         "--port",
         "--port 9000",
         " --port 9000",
+        "--root-path=/v1",
+        "--ssl-ca-certs=/tmp/ca.pem",
+        "--ssl-cert-reqs=2",
+        "--ssl-certfile=/tmp/cert.pem",
+        "--ssl-ciphers=ECDHE-RSA-AES256-GCM-SHA384",
+        "--ssl-keyfile=/tmp/key.pem",
         "--tensor-parallel-size",
+        "--tensor_parallel_size=2",
+        "--tensor=2",
+        "--uds=/tmp/vllm.sock",
     ],
 )
 def test_vllm_rejects_runtime_owned_arguments(argument: str) -> None:
@@ -263,6 +279,27 @@ def test_vllm_rejects_duplicate_arguments() -> None:
             extra_args=["--max-model-len", "32768", "--max-model-len=16384"],
         )
 
+    with pytest.raises(ValidationError, match="duplicate or conflicting"):
+        VllmServerConfig(
+            type="vllm",
+            image=ImageRef(name="vllm"),
+            extra_args=["--max_model_len=4096", "--max-model-len=8192"],
+        )
+
+
+def test_vllm_rejects_conflicting_boolean_arguments() -> None:
+    with pytest.raises(ValidationError, match="duplicate or conflicting"):
+        VllmServerConfig(
+            type="vllm",
+            image=ImageRef(name="vllm"),
+            extra_args=["--enable-prefix-caching", "--no-enable-prefix-caching"],
+        )
+
+
+def test_vllm_rejects_option_terminator() -> None:
+    with pytest.raises(ValidationError, match="option terminators"):
+        VllmServerConfig(type="vllm", image=ImageRef(name="vllm"), extra_args=["--"])
+
 
 def test_vllm_rejects_distributed_timeout_beyond_startup_timeout() -> None:
     with pytest.raises(ValidationError, match="must not exceed"):
@@ -293,6 +330,7 @@ def test_deployment_rejects_invalid_topology() -> None:
         ServerDeploymentConfig.model_validate(payload)
 
     payload["resources"]["nodes"] = 2
+    payload["topology"]["nodes_per_replica"] = 1
     payload["server"]["enable_expert_parallel"] = True
     with pytest.raises(ValidationError, match="expert"):
         ServerDeploymentConfig.model_validate(payload)
@@ -409,13 +447,14 @@ def test_run_validates_public_run_config_and_shard_count(authored_run: DataDesig
         DataDesignerSlurmConfig.model_validate(payload)
 
 
-def test_small_config_values_validate_at_boundary() -> None:
+@pytest.mark.parametrize("readiness_path", ["health", "/health check"])
+def test_small_config_values_validate_at_boundary(readiness_path: str) -> None:
     with pytest.raises(ValidationError, match="concurrency"):
         ArrayTasksConfig(count=2, max_concurrent=3)
     with pytest.raises(ValidationError, match="minutes"):
         SubmissionConfig(time_limit="00:60:00")
     with pytest.raises(ValidationError, match="readiness_path"):
-        VllmServerConfig(type="vllm", image=ImageRef(name="vllm"), readiness_path="health")
+        VllmServerConfig(type="vllm", image=ImageRef(name="vllm"), readiness_path=readiness_path)
 
 
 @pytest.mark.parametrize(

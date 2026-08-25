@@ -85,6 +85,9 @@ def test_two_deployments_keep_images_and_endpoint_identities_isolated(
     assert resolved[0].model_alias != resolved[1].model_alias
     assert resolved[0].model != resolved[1].model
     assert resolved[0].served_model_name != resolved[1].served_model_name
+    assert resolved[0].compatibility.runtime_version != resolved[1].compatibility.runtime_version
+    node_indices = [node_index for deployment in resolved for node_index in deployment.node_indices]
+    assert len(node_indices) == len(set(node_indices))
     process_ids = [process.process_id for deployment in resolved for process in deployment.processes]
     assert len(process_ids) == len(set(process_ids))
     backend_addresses = [
@@ -95,6 +98,14 @@ def test_two_deployments_keep_images_and_endpoint_identities_isolated(
         (deployment.logical_endpoint.node_index, deployment.logical_endpoint.port) for deployment in resolved
     ]
     assert len(logical_addresses) == len(set(logical_addresses))
+    rendezvous_addresses = [
+        (process.rendezvous.master_node_index, process.rendezvous.port)
+        for deployment in resolved
+        for process in deployment.processes
+        if process.pipeline_rank == 0 and process.rendezvous is not None
+    ]
+    network_addresses = backend_addresses + logical_addresses + rendezvous_addresses
+    assert len(network_addresses) == len(set(network_addresses))
 
 
 def test_resolution_context_rejects_wrong_logical_endpoint(single_node_plan: ResolvedSlurmRunPlan) -> None:
@@ -127,7 +138,7 @@ def test_resolution_rejects_unsupported_inspected_version(single_node_plan: Reso
     placement = ResolvedDeployment.model_validate_json(json.dumps(payload))
     context = ServerResolutionContext.from_plan(placement, single_node_plan.client)
 
-    with pytest.raises(ValueError, match="unsupported inspected vLLM version"):
+    with pytest.raises(ServerResolutionError, match="unsupported inspected vLLM version"):
         resolve_server(placement.authored, context)
 
 
@@ -282,16 +293,19 @@ def test_process_specs_reject_one_field_topology_drift(
         ("backend_id", "endpoint IDs"),
         ("logical_backends", "resolved backend order"),
         ("process_ids", "process IDs"),
+        ("process_order", "ordered replica and pipeline identities"),
         ("readiness_count", "readiness probes"),
         ("backend_placement", "replica placement"),
         ("readiness_target", "readiness probes"),
-        ("pipeline_ranks", "ordered pipeline rank"),
+        ("pipeline_ranks", "ordered replica and pipeline identities"),
         ("process_topology", "topology and launch policy"),
         ("head_endpoint", "head process"),
         ("rendezvous_consistency", "share one rendezvous"),
         ("rendezvous_master", "group head and distributed timeout"),
         ("rendezvous_timeout", "group head and distributed timeout"),
         ("network_address", "network addresses must be unique"),
+        ("launch_policy_owned_arg", "owned by the compiler or runtime"),
+        ("launch_policy_literal_secret", "secret-shaped environment names"),
         ("process_count", "process count"),
     ],
 )
@@ -340,6 +354,8 @@ def test_resolved_server_rejects_one_field_join_drift(
         payload["logical_endpoint"]["backend_ids"] = list(reversed(payload["logical_endpoint"]["backend_ids"]))
     elif mutation == "process_ids":
         payload["processes"][1]["process_id"] = payload["processes"][0]["process_id"]
+    elif mutation == "process_order":
+        payload["processes"][1], payload["processes"][2] = payload["processes"][2], payload["processes"][1]
     elif mutation == "readiness_count":
         payload["readiness_probes"].append(payload["readiness_probes"][0])
     elif mutation == "backend_placement":
@@ -362,6 +378,10 @@ def test_resolved_server_rejects_one_field_join_drift(
         payload["processes"][1]["rendezvous"]["timeout_seconds"] = 1
     elif mutation == "network_address":
         payload["logical_endpoint"]["port"] = payload["backend_endpoints"][0]["port"]
+    elif mutation == "launch_policy_owned_arg":
+        payload["launch_policy"]["extra_args"] = ["--model", "example/other"]
+    elif mutation == "launch_policy_literal_secret":
+        payload["launch_policy"]["environment"] = {"HF_TOKEN": {"type": "literal", "value": "secret"}}
     else:
         extra = dict(payload["processes"][0])
         extra.update(process_id="deployment-00000-replica-99999-rank-00000", replica_index=99999)
@@ -414,6 +434,7 @@ def test_compatibility_rejects_capabilities_outside_package_mapping() -> None:
     ("update", "message"),
     [
         ({"readiness_path": "health"}, "absolute URL path"),
+        ({"readiness_path": "/health check"}, "without whitespace"),
         ({"startup_timeout_seconds": 10, "distributed_init_timeout_seconds": 11}, "must not exceed"),
     ],
 )

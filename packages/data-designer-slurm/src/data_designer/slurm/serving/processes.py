@@ -9,7 +9,12 @@ from enum import Enum
 
 from pydantic import Field, NonNegativeInt, PositiveInt, field_validator, model_validator
 
-from data_designer.slurm.config.run import EnvironmentBinding, QueueBackpressureConfig
+from data_designer.slurm.config.run import (
+    EnvironmentBinding,
+    QueueBackpressureConfig,
+    validate_environment_bindings,
+    validate_vllm_extra_args,
+)
 from data_designer.slurm.contracts import ContractValue, EnvironmentName, Identifier, validate_plain_text
 from data_designer.slurm.serving.endpoints import NetworkPort
 
@@ -38,9 +43,12 @@ class VllmLaunchPolicy(ContractValue):
     @classmethod
     def validate_readiness_path(cls, value: str) -> str:
         validate_plain_text(value, field_name="readiness path")
-        if not value.startswith("/") or "?" in value or "#" in value:
-            raise ValueError("readiness path must be an absolute URL path without query or fragment")
+        if not value.startswith("/") or any(character.isspace() for character in value) or "?" in value or "#" in value:
+            raise ValueError("readiness path must be an absolute URL path without whitespace, query, or fragment")
         return value
+
+    _extra_args_are_safe = field_validator("extra_args")(validate_vllm_extra_args)
+    _environment_uses_secret_references = field_validator("environment")(validate_environment_bindings)
 
     @model_validator(mode="after")
     def validate_timeouts(self) -> VllmLaunchPolicy:

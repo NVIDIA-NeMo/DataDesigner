@@ -8,7 +8,7 @@ from __future__ import annotations
 from data_designer.slurm.config.images import ServingImageInspection
 from data_designer.slurm.config.run import ServerDeploymentConfig, VllmServerConfig
 from data_designer.slurm.planning.models import PortClaim, ResolvedDeployment
-from data_designer.slurm.serving.compatibility import resolve_vllm_compatibility
+from data_designer.slurm.serving.compatibility import UnsupportedServingRuntimeError, resolve_vllm_compatibility
 from data_designer.slurm.serving.context import ServerResolutionContext
 from data_designer.slurm.serving.deployment import ResolvedServerDeployment
 from data_designer.slurm.serving.endpoints import (
@@ -52,10 +52,13 @@ def _resolve_vllm(
     inspection = placement.image.inspection.inspection
     if not isinstance(inspection, ServingImageInspection) or inspection.server_type != server.type:
         raise ServerResolutionError("resolved serving image does not match the declared vLLM server")
-    compatibility = resolve_vllm_compatibility(inspection.runtime_version)
+    try:
+        compatibility = resolve_vllm_compatibility(inspection.runtime_version)
+    except UnsupportedServingRuntimeError as error:
+        raise ServerResolutionError(str(error)) from error
     if placement.topology.pipeline_parallel > 1 and not compatibility.supports_multi_node:
         raise ServerResolutionError("inspected vLLM version does not support the resolved multi-node topology")
-    if server.enable_expert_parallel and placement.topology.pipeline_parallel > 1:
+    if server.enable_expert_parallel and len(placement.node_indices) > 1:
         raise ServerResolutionError("multi-node expert parallel is not supported in v1")
 
     http_ports = tuple(port for port in placement.ports if port.role == "http")
