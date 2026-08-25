@@ -51,7 +51,7 @@ class SlurmImageService:
             sqsh_sha256=sqsh_sha256,
             inspection=inspection,
         )
-        return self._registry.register(image, replace=replace)
+        return self._registry.register(image, verify_persisted=_verify_registered_image, replace=replace)
 
     def list_images(self) -> tuple[RegisteredImage, ...]:
         """Return all registered aliases in deterministic order."""
@@ -64,9 +64,7 @@ class SlurmImageService:
         else:
             assert reference.path is not None
             image = self._registry.get_by_path(reference.path)
-        actual_sha256 = compute_file_sha256(Path(image.path))
-        if actual_sha256 != image.sqsh_sha256:
-            raise ImageVerificationError(f"registered image {image.name!r} no longer matches its SQSH digest")
+        _verify_registered_image(image)
         _validate_inspection(
             image.inspection,
             expected_kind=expected_kind,
@@ -128,3 +126,9 @@ def _validate_inspection(
         raise ImageVerificationError(
             f"image inspection kind {inspection.inspection.kind.value!r} does not match {expected_kind.value!r}"
         )
+
+
+def _verify_registered_image(image: RegisteredImage) -> None:
+    actual_sha256 = compute_file_sha256(Path(image.path))
+    if actual_sha256 != image.sqsh_sha256:
+        raise ImageVerificationError(f"registered image {image.name!r} no longer matches its SQSH digest")

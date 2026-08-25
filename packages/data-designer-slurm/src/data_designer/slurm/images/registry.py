@@ -10,7 +10,7 @@ import json
 import os
 import stat
 import tempfile
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -19,7 +19,12 @@ from pydantic import TypeAdapter, ValidationError
 
 from data_designer.slurm.config import ImageRef
 from data_designer.slurm.contracts import Identifier, validate_absolute_path
-from data_designer.slurm.images.errors import ImageConflictError, ImageNotFoundError, ImageRegistryError
+from data_designer.slurm.images.errors import (
+    ImageConflictError,
+    ImageNotFoundError,
+    ImageRegistryError,
+    ImageVerificationError,
+)
 from data_designer.slurm.images.records import ImageRegistrySnapshot, RegisteredImage
 
 _DIRECTORY_MODE = 0o700
@@ -73,8 +78,18 @@ class ImageRegistry:
             raise ImageNotFoundError(f"image path {normalized_path!r} is not registered")
         return matches[0]
 
-    def register(self, image: RegisteredImage, *, replace: bool = False) -> RegisteredImage:
-        """Atomically add or explicitly replace one image alias."""
+    def register(
+        self,
+        image: RegisteredImage,
+        *,
+        verify_persisted: Callable[[RegisteredImage], None],
+        replace: bool = False,
+    ) -> RegisteredImage:
+        """Atomically add or explicitly replace one verified image alias.
+
+        The persisted alias is rolled back while its mutation locks remain held
+        if final artifact verification fails.
+        """
         self._ensure_storage()
         with (
             acquire_file_lock(self._get_alias_lock_path(image.name)),
@@ -88,6 +103,11 @@ class ImageRegistry:
             images = tuple(entry for entry in snapshot.images if entry.name != image.name) + (image,)
             updated = ImageRegistrySnapshot(images=tuple(sorted(images, key=lambda entry: entry.name)))
             self._save(updated)
+            try:
+                verify_persisted(image)
+            except ImageVerificationError:
+                self._save(snapshot)
+                raise
         return image
 
     def unregister(self, name: Identifier) -> RegisteredImage:

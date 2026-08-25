@@ -9,6 +9,7 @@ import stat
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from threading import Barrier
+from unittest.mock import patch
 
 import pytest
 import yaml
@@ -99,6 +100,52 @@ def test_registration_requires_explicit_replace_for_alias_updates(tmp_path: Path
 
     assert service.resolve(ImageRef(name="serving"), expected_kind=ImageKind.SERVING).path == second_path.as_posix()
     assert first_path.exists()
+
+
+def test_registration_rolls_back_alias_when_sqsh_changes_before_commit(tmp_path: Path) -> None:
+    image_path = _write_sqsh(tmp_path / "client.sqsh", b"client")
+    inspection = _inspect_client(image_path)
+    service = SlurmImageService(tmp_path / "workspace")
+
+    with (
+        patch(
+            "data_designer.slurm.images.service.compute_file_sha256",
+            side_effect=(inspection.sqsh_sha256, "f" * 64),
+        ),
+        pytest.raises(ImageVerificationError, match="no longer matches"),
+    ):
+        service.register_existing(
+            ImageBuildRequest(name="client", kind="client", source=image_path.as_posix()),
+            inspection,
+        )
+
+    assert service.list_images() == ()
+
+
+def test_failed_replacement_restores_previous_alias(tmp_path: Path) -> None:
+    first_path = _write_sqsh(tmp_path / "first.sqsh", b"first")
+    second_path = _write_sqsh(tmp_path / "second.sqsh", b"second")
+    service = SlurmImageService(tmp_path / "workspace")
+    service.register_existing(
+        ImageBuildRequest(name="serving", kind="serving", source=first_path.as_posix()),
+        _inspect_serving(first_path),
+    )
+    second_inspection = _inspect_serving(second_path)
+
+    with (
+        patch(
+            "data_designer.slurm.images.service.compute_file_sha256",
+            side_effect=(second_inspection.sqsh_sha256, "f" * 64),
+        ),
+        pytest.raises(ImageVerificationError, match="no longer matches"),
+    ):
+        service.register_existing(
+            ImageBuildRequest(name="serving", kind="serving", source=second_path.as_posix()),
+            second_inspection,
+            replace=True,
+        )
+
+    assert service.resolve(ImageRef(name="serving"), expected_kind=ImageKind.SERVING).path == first_path.as_posix()
 
 
 @pytest.mark.parametrize("mutation", (b"modified", b""), ids=("modified", "truncated"))
