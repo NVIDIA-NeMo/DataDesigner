@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from data_designer.slurm.contracts import Identifier
-from data_designer.slurm.launcher.errors import SlurmCommandError
+from data_designer.slurm.launcher.errors import SlurmCommandError, SlurmParseError
 from data_designer.slurm.launcher.models import AccountingRecord, QueueRecord, SlurmSubmission
 from data_designer.slurm.launcher.parsing import (
     parse_accounting,
@@ -71,7 +71,8 @@ class SlurmCommandClient:
 
     def query_queue(self, selectors: Sequence[JobSelector]) -> tuple[QueueRecord, ...]:
         """Return normalized active-queue rows for explicit managed jobs."""
-        jobs = _format_selectors(selectors)
+        requested = tuple(selectors)
+        jobs = _format_selectors(requested)
         output = self._run(
             (
                 self._executables.squeue,
@@ -81,11 +82,18 @@ class SlurmCommandClient:
                 f"--jobs={jobs}",
             )
         )
-        return parse_queue(output)
+        records = parse_queue(output)
+        _validate_selected_schedulers(
+            tuple(record.scheduler for record in records),
+            requested,
+            command="squeue",
+        )
+        return records
 
     def query_accounting(self, selectors: Sequence[JobSelector]) -> tuple[AccountingRecord, ...]:
         """Return normalized accounting rows for explicit managed jobs."""
-        jobs = _format_selectors(selectors)
+        requested = tuple(selectors)
+        jobs = _format_selectors(requested)
         output = self._run(
             (
                 self._executables.sacct,
@@ -97,7 +105,13 @@ class SlurmCommandClient:
                 f"--jobs={jobs}",
             )
         )
-        return parse_accounting(output)
+        records = parse_accounting(output)
+        _validate_selected_schedulers(
+            tuple(record.scheduler for record in records),
+            requested,
+            command="sacct",
+        )
+        return records
 
     def cancel(self, selector: JobSelector) -> None:
         """Cancel one managed Slurm array or array task."""
@@ -138,6 +152,21 @@ def _format_selector(selector: JobSelector) -> str:
     if type(selector) is not int or selector <= 0:
         raise ValueError("Slurm job IDs must be positive integers")
     return str(selector)
+
+
+def _validate_selected_schedulers(
+    schedulers: Sequence[SchedulerIdentity],
+    selectors: Sequence[JobSelector],
+    *,
+    command: str,
+) -> None:
+    for scheduler in schedulers:
+        if any(
+            scheduler == selector if isinstance(selector, SchedulerIdentity) else scheduler.array_job_id == selector
+            for selector in selectors
+        ):
+            continue
+        raise SlurmParseError(f"{command} returned an unrequested array-task ID")
 
 
 def _validate_argument(value: str, *, field_name: str) -> None:

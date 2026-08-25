@@ -9,7 +9,7 @@ from collections.abc import Sequence
 import pytest
 from slurm_test_fakes import FakeCommandResponse, FakeSlurmRunner
 
-from data_designer.slurm.launcher import SlurmCommandClient, SlurmCommandError, SlurmExecutables
+from data_designer.slurm.launcher import SlurmCommandClient, SlurmCommandError, SlurmExecutables, SlurmParseError
 from data_designer.slurm.state import SchedulerIdentity, SchedulerState
 
 
@@ -59,6 +59,18 @@ def test_client_deduplicates_explicit_job_selectors(fake_slurm_runner: FakeSlurm
     client.query_queue((4101, 4101, SchedulerIdentity(array_job_id=4101, array_task_id=0)))
 
     assert fake_slurm_runner.calls[-1][-1] == "--jobs=4101,4101_0"
+
+
+def test_client_rejects_unrequested_scheduler_records(fake_slurm_runner: FakeSlurmRunner) -> None:
+    client = SlurmCommandClient(fake_slurm_runner)
+    fake_slurm_runner.script_next("squeue", FakeCommandResponse(stdout="9999_0|RUNNING\n"))
+
+    with pytest.raises(SlurmParseError, match="unrequested"):
+        client.query_queue((4101,))
+
+    fake_slurm_runner.script_next("sacct", FakeCommandResponse(stdout="9999_0|FAILED|1:0\n"))
+    with pytest.raises(SlurmParseError, match="unrequested"):
+        client.query_accounting((SchedulerIdentity(array_job_id=4101, array_task_id=0),))
 
 
 def test_client_rejects_unbounded_or_invalid_job_selectors(fake_slurm_runner: FakeSlurmRunner) -> None:
