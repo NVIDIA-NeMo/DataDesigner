@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import math
+import os
 import subprocess
 from collections.abc import Mapping, Sequence
 from types import MappingProxyType
@@ -34,7 +35,9 @@ class SubprocessRunner:
     ) -> None:
         if type(timeout_seconds) not in {int, float} or not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be a finite positive number")
-        explicit_environment = dict(environment or {})
+        explicit_environment = (
+            dict(environment) if environment is not None else {"PATH": os.environ.get("PATH", os.defpath)}
+        )
         for name, value in explicit_environment.items():
             if type(name) is not str or not name or "=" in name or "\0" in name:
                 raise ValueError("environment names must be non-empty and must not contain '=' or NUL")
@@ -45,7 +48,7 @@ class SubprocessRunner:
 
     @property
     def environment(self) -> Mapping[str, str]:
-        """Return the explicit environment forwarded to child processes."""
+        """Return the allowlisted environment forwarded to child processes."""
         return self._environment
 
     def run(self, command: Sequence[str]) -> subprocess.CompletedProcess[str]:

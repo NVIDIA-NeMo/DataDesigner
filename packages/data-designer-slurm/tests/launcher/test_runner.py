@@ -60,6 +60,15 @@ def test_subprocess_runner_uses_argv_and_only_explicit_environment(monkeypatch: 
     }
 
 
+def test_subprocess_runner_default_environment_forwards_only_search_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PATH", "/workspace/slurm/bin:/usr/bin")
+    monkeypatch.setenv("SECRET", "must-not-leak")
+
+    runner = SubprocessRunner()
+
+    assert runner.environment == {"LC_ALL": "C", "PATH": "/workspace/slurm/bin:/usr/bin"}
+
+
 def test_subprocess_runner_environment_is_immutable() -> None:
     runner = SubprocessRunner()
 

@@ -19,6 +19,7 @@ from data_designer.slurm.launcher.parsing import (
 from data_designer.slurm.state import SchedulerIdentity, SchedulerState
 
 GOLDEN_DIRECTORY = Path(__file__).parents[1] / "slurm_test_fakes" / "golden" / "slurm"
+OVERSIZED_DECIMAL = "9" * 5000
 
 
 @pytest.mark.parametrize(
@@ -107,6 +108,25 @@ def test_empty_scheduler_output_preserves_absent_evidence_for_reconciliation() -
     ),
 )
 def test_scheduler_parsers_reject_malformed_or_ambiguous_rows(
+    parser: Callable[[str], object],
+    output: str,
+    message: str,
+) -> None:
+    with pytest.raises(SlurmParseError, match=message):
+        parser(output)
+
+
+@pytest.mark.parametrize(
+    ("parser", "output", "message"),
+    (
+        (parse_submission, OVERSIZED_DECIMAL, "invalid job ID"),
+        (parse_queue, f"4101_{OVERSIZED_DECIMAL}|RUNNING", "array-task ID"),
+        (parse_accounting, f"4101_0|FAILED|{OVERSIZED_DECIMAL}:0", "exit code"),
+        (parse_gpu_counts, f"gpu:{OVERSIZED_DECIMAL}", "invalid GPU resource"),
+    ),
+    ids=("submission-job-id", "queue-task-id", "accounting-exit-code", "gpu-count"),
+)
+def test_parsers_normalize_oversized_numeric_fields(
     parser: Callable[[str], object],
     output: str,
     message: str,

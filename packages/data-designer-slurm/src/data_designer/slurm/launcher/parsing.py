@@ -54,11 +54,14 @@ def parse_submission(output: str) -> SlurmSubmission:
     """Parse ``sbatch --parsable`` output."""
     value = output.strip()
     job_id, separator, cluster_name = value.partition(";")
-    if not job_id.isascii() or not job_id.isdecimal() or int(job_id) <= 0:
+    if not job_id.isascii() or not job_id.isdecimal():
+        raise SlurmParseError("sbatch returned an invalid job ID")
+    array_job_id = _parse_decimal(job_id, message="sbatch returned an invalid job ID")
+    if array_job_id <= 0:
         raise SlurmParseError("sbatch returned an invalid job ID")
     if separator and _CLUSTER_NAME_PATTERN.fullmatch(cluster_name) is None:
         raise SlurmParseError("sbatch returned an invalid cluster name")
-    return SlurmSubmission(array_job_id=int(job_id), cluster_name=cluster_name or None)
+    return SlurmSubmission(array_job_id=array_job_id, cluster_name=cluster_name or None)
 
 
 def parse_queue(output: str) -> tuple[QueueRecord, ...]:
@@ -110,7 +113,12 @@ def parse_gpu_counts(output: str) -> tuple[int, ...]:
             match = _GRES_GPU_PATTERN.fullmatch(gres)
             if match is None:
                 raise SlurmParseError(f"sinfo line {line_number} contains an invalid GPU resource")
-            line_counts.append(int(match.group("count")))
+            line_counts.append(
+                _parse_decimal(
+                    match.group("count"),
+                    message=f"sinfo line {line_number} contains an invalid GPU resource",
+                )
+            )
         if line_counts:
             counts.append(sum(line_counts))
     return tuple(counts)
@@ -167,9 +175,10 @@ def _parse_array_identity(value: str, *, command: str, line_number: int) -> Sche
     match = _ARRAY_ID_PATTERN.fullmatch(value)
     if match is None:
         raise SlurmParseError(f"{command} line {line_number} contains an invalid array-task ID")
+    message = f"{command} line {line_number} contains an invalid array-task ID"
     return SchedulerIdentity(
-        array_job_id=int(match.group("job")),
-        array_task_id=int(match.group("task")),
+        array_job_id=_parse_decimal(match.group("job"), message=message),
+        array_task_id=_parse_decimal(match.group("task"), message=message),
     )
 
 
@@ -177,7 +186,18 @@ def _parse_exit_code(value: str, *, line_number: int) -> SlurmExitCode:
     match = _EXIT_CODE_PATTERN.fullmatch(value)
     if match is None:
         raise SlurmParseError(f"sacct line {line_number} contains an invalid exit code")
-    return SlurmExitCode(status=int(match.group("status")), signal=int(match.group("signal")))
+    message = f"sacct line {line_number} contains an invalid exit code"
+    return SlurmExitCode(
+        status=_parse_decimal(match.group("status"), message=message),
+        signal=_parse_decimal(match.group("signal"), message=message),
+    )
+
+
+def _parse_decimal(value: str, *, message: str) -> int:
+    try:
+        return int(value)
+    except ValueError as error:
+        raise SlurmParseError(message) from error
 
 
 def _reject_duplicate(
