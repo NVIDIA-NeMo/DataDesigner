@@ -57,7 +57,9 @@ readonly DD_RUN_ROOT={_quote_double_value(run_root)}
 readonly DD_ATTEMPT_ORDINAL={_quote_double_value(attempt)}
 
 verify_sha256() {{
-    printf '%s  %s\\n' "$1" "$2" | sha256sum --check --status -
+    local actual_sha256
+    actual_sha256="$(sha256sum < "$2")"
+    [[ "${{actual_sha256%% *}}" == "$1" ]]
 }}
 
 verify_sha256 "${{DD_RUNTIME_SHA256}}" "${{DD_RUNTIME_ARCHIVE}}"
