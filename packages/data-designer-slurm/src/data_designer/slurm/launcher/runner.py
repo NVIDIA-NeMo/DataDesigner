@@ -32,7 +32,7 @@ class SubprocessRunner:
         environment: Mapping[str, str] | None = None,
         timeout_seconds: float = 30.0,
     ) -> None:
-        if isinstance(timeout_seconds, bool) or not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
+        if type(timeout_seconds) not in {int, float} or not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be a finite positive number")
         explicit_environment = dict(environment or {})
         for name, value in explicit_environment.items():

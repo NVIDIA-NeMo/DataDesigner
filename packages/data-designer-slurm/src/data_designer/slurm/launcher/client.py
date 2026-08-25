@@ -64,6 +64,8 @@ class SlurmCommandClient:
         """Submit one rendered batch script and return its assigned job ID."""
         path = str(script_path)
         _validate_argument(path, field_name="batch script path")
+        if path.startswith("-"):
+            raise ValueError("batch script path must not begin with '-'; prefix relative paths with './'")
         output = self._run((self._executables.sbatch, "--parsable", path))
         return parse_submission(output)
 

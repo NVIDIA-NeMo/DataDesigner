@@ -120,6 +120,7 @@ def test_scheduler_parsers_reject_malformed_or_ambiguous_rows(
     (
         ("gpu:2\n", (2,)),
         ("gpu:a100:8(S:0-7)\n", (8,)),
+        ("gpu:a100:4(S:0-1,4-5)\n", (4,)),
         ("gpu:a100:4,gpu:h100:4\n(null)\n", (8,)),
         ("(null)\nN/A\n", ()),
     ),
@@ -128,9 +129,10 @@ def test_parse_gpu_counts_normalizes_configured_gres(output: str, expected: tupl
     assert parse_gpu_counts(output) == expected
 
 
-def test_parse_gpu_counts_rejects_malformed_gpu_resources() -> None:
+@pytest.mark.parametrize("output", ("gpu:a100:not-a-count\n", "gpu:a100:4(S:0-1,4-5\n"))
+def test_parse_gpu_counts_rejects_malformed_gpu_resources(output: str) -> None:
     with pytest.raises(SlurmParseError, match="invalid GPU resource"):
-        parse_gpu_counts("gpu:a100:not-a-count\n")
+        parse_gpu_counts(output)
 
 
 def _make_queue_record(array_task_id: int, state: SchedulerState) -> QueueRecord:

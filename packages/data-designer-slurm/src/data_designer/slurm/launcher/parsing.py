@@ -104,7 +104,7 @@ def parse_gpu_counts(output: str) -> tuple[int, ...]:
         if line in {"(null)", "N/A"}:
             continue
         line_counts: list[int] = []
-        for gres in line.split(","):
+        for gres in _split_gres_fields(line, line_number=line_number):
             if not gres.startswith("gpu:"):
                 continue
             match = _GRES_GPU_PATTERN.fullmatch(gres)
@@ -114,6 +114,26 @@ def parse_gpu_counts(output: str) -> tuple[int, ...]:
         if line_counts:
             counts.append(sum(line_counts))
     return tuple(counts)
+
+
+def _split_gres_fields(value: str, *, line_number: int) -> tuple[str, ...]:
+    fields: list[str] = []
+    start = 0
+    annotation_depth = 0
+    for index, character in enumerate(value):
+        if character == "(":
+            annotation_depth += 1
+        elif character == ")":
+            annotation_depth -= 1
+            if annotation_depth < 0:
+                raise SlurmParseError(f"sinfo line {line_number} contains an invalid GPU resource")
+        elif character == "," and annotation_depth == 0:
+            fields.append(value[start:index])
+            start = index + 1
+    if annotation_depth:
+        raise SlurmParseError(f"sinfo line {line_number} contains an invalid GPU resource")
+    fields.append(value[start:])
+    return tuple(fields)
 
 
 def parse_state(value: str) -> SchedulerState:

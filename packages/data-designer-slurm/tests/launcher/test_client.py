@@ -135,6 +135,15 @@ def test_script_path_is_one_argument_vector_token(fake_slurm_runner: FakeSlurmRu
     )
 
 
+def test_client_rejects_option_like_script_path(fake_slurm_runner: FakeSlurmRunner) -> None:
+    client = SlurmCommandClient(fake_slurm_runner)
+
+    with pytest.raises(ValueError, match="must not begin"):
+        client.submit("--wrap=unexpected")
+
+    assert fake_slurm_runner.calls == []
+
+
 class _FailingRunner:
     def run(self, command: Sequence[str]) -> subprocess.CompletedProcess[str]:
         del command
