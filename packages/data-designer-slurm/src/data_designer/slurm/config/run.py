@@ -29,6 +29,7 @@ from data_designer.slurm.contracts import (
     EnvironmentName,
     Identifier,
     ModelAlias,
+    NonNegativeDuration,
     SchemaVersion,
     validate_absolute_path,
     validate_local_config_path,
@@ -37,14 +38,45 @@ from data_designer.slurm.contracts import (
 )
 
 _OWNED_VLLM_FLAGS = {
+    "-dp",
+    "-dpa",
+    "-dpb",
+    "-dpe",
+    "-dph",
+    "-dpl",
+    "-dpn",
+    "-dpp",
+    "-dpr",
+    "-ep",
+    "-n",
+    "-pp",
+    "-r",
+    "-tp",
     "--api-key",
+    "--data-parallel-address",
+    "--data-parallel-backend",
+    "--data-parallel-external-lb",
+    "--data-parallel-hybrid-lb",
+    "--data-parallel-rank",
+    "--data-parallel-rpc-port",
+    "--data-parallel-size",
+    "--data-parallel-size-local",
+    "--data-parallel-start-rank",
     "--distributed-executor-backend",
     "--distributed-init-address",
+    "--distributed-timeout-seconds",
     "--enable-expert-parallel",
     "--headless",
     "--host",
+    "--master-addr",
+    "--master-port",
     "--middleware",
     "--model",
+    "--nnodes",
+    "--node-rank",
+    "--no-data-parallel-external-lb",
+    "--no-data-parallel-hybrid-lb",
+    "--no-enable-expert-parallel",
     "--pipeline-parallel-size",
     "--port",
     "--served-model-name",
@@ -331,6 +363,8 @@ class VllmServerConfig(AuthoredConfig):
     image: ImageRef
     startup_timeout: Duration = "15m"
     distributed_init_timeout: Duration = "10m"
+    lead_boot_standoff: NonNegativeDuration = "60s"
+    rank_launch_stagger: NonNegativeDuration = "5s"
     readiness_path: str = "/health"
     enable_expert_parallel: bool = False
     queue_backpressure: QueueBackpressureConfig = Field(default_factory=QueueBackpressureConfig)
@@ -348,6 +382,7 @@ class VllmServerConfig(AuthoredConfig):
     @field_validator("extra_args")
     @classmethod
     def validate_extra_args(cls, values: list[str]) -> list[str]:
+        seen_flags: set[str] = set()
         for value in values:
             validate_plain_text(value, field_name="vLLM argument")
             flag = _option_flag(value)
@@ -355,6 +390,12 @@ class VllmServerConfig(AuthoredConfig):
                 raise ValueError(f"vLLM argument {flag!r} is owned by the compiler or runtime")
             if _is_secret_name(flag.lstrip("-")):
                 raise ValueError("secret-shaped vLLM arguments must use an environment secret reference")
+            if any(character.isspace() for character in value):
+                raise ValueError("each vLLM argument must be one token")
+            if flag.startswith("-"):
+                if flag in seen_flags:
+                    raise ValueError(f"duplicate vLLM argument {flag!r}")
+                seen_flags.add(flag)
         return values
 
     _environment_uses_secret_references = field_validator("environment")(_validate_environment_bindings)

@@ -133,6 +133,7 @@ from data_designer.slurm.images.registry import ImageRegistryStore
 from data_designer.slurm.planning import ArtifactReference as PlanningArtifactReference
 from data_designer.slurm.planning import RecordRange as PlanningRecordRange
 from data_designer.slurm.planning import ResumeWorkspace as PlanningResumeWorkspace
+from data_designer.slurm.serving import ResolvedServerDeployment, resolve_server
 from data_designer.slurm.state import ArtifactReference as StateArtifactReference
 from data_designer.slurm.state import RecordRange as StateRecordRange
 from data_designer.slurm.state import ResumeWorkspace as StateResumeWorkspace
@@ -145,6 +146,8 @@ assert PlanningResumeWorkspace is ContractResumeWorkspace
 assert StateArtifactReference is ContractArtifactReference
 assert StateRecordRange is ContractRecordRange
 assert StateResumeWorkspace is ContractResumeWorkspace
+assert "ResolvedServerDeployment" in str(ResolvedServerDeployment)
+assert callable(resolve_server)
 """
     run([str(python), "-c", statement], cwd=cwd)
 

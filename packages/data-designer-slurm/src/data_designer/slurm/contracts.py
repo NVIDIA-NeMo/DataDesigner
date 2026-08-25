@@ -37,6 +37,7 @@ SchemaVersion = Literal[1]
 EnvironmentName = Annotated[str, StringConstraints(pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")]
 Sha256Digest = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
 Duration = Annotated[str, StringConstraints(pattern=r"^[1-9][0-9]*(?:s|m|h|d)$")]
+NonNegativeDuration = Annotated[str, StringConstraints(pattern=r"^(?:0|[1-9][0-9]*)(?:s|m|h|d)$")]
 
 _Key = TypeVar("_Key")
 _Value = TypeVar("_Value")

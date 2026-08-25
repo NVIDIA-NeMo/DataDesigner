@@ -169,10 +169,16 @@ def test_vllm_defaults_and_backpressure_override() -> None:
     overridden = VllmServerConfig(
         type="vllm",
         image=ImageRef(name="vllm"),
+        lead_boot_standoff="0s",
+        rank_launch_stagger="12s",
         queue_backpressure=QueueBackpressureConfig(max_waiting_requests=0, retry_after_seconds=None),
     )
 
+    assert server.lead_boot_standoff == "60s"
+    assert server.rank_launch_stagger == "5s"
     assert server.queue_backpressure.model_dump() == {"max_waiting_requests": 128, "retry_after_seconds": 1}
+    assert overridden.lead_boot_standoff == "0s"
+    assert overridden.rank_launch_stagger == "12s"
     assert overridden.queue_backpressure.model_dump() == {"max_waiting_requests": 0, "retry_after_seconds": None}
 
 
@@ -181,10 +187,41 @@ def test_vllm_defaults_and_backpressure_override() -> None:
     [
         "--api-key=plaintext-secret",
         "--api-key plaintext-secret",
+        "-dp",
+        "-dpa=127.0.0.1",
+        "-dpb",
+        "-dpe",
+        "-dph",
+        "-dpl",
+        "-dpn=1",
+        "-dpp",
+        "-dpr",
+        "-ep",
+        "-n",
+        "-pp=2",
+        "-r",
+        "-tp",
+        "--data-parallel-address",
+        "--data-parallel-backend=mp",
+        "--data-parallel-external-lb",
+        "--data-parallel-hybrid-lb",
+        "--data-parallel-rank=1",
+        "--data-parallel-rpc-port 29502",
+        "--data-parallel-size",
+        "--data-parallel-size-local",
+        "--data-parallel-start-rank=1",
         "--distributed-init-address",
+        "--distributed-timeout-seconds",
         "--host=0.0.0.0",
+        "--master-addr",
+        "--master-port=29501",
         "--middleware",
         "--model",
+        "--nnodes",
+        "--node-rank=1",
+        "--no-data-parallel-external-lb",
+        "--no-data-parallel-hybrid-lb",
+        "--no-enable-expert-parallel",
         "--port",
         "--port 9000",
         " --port 9000",
@@ -209,6 +246,24 @@ def test_vllm_rejects_secret_shaped_arguments(extra_args: list[str]) -> None:
         VllmServerConfig(type="vllm", image=ImageRef(name="vllm"), extra_args=extra_args)
 
 
+def test_vllm_rejects_non_tokenized_arguments() -> None:
+    with pytest.raises(ValidationError, match="one token"):
+        VllmServerConfig(
+            type="vllm",
+            image=ImageRef(name="vllm"),
+            extra_args=["--max-model-len 32768"],
+        )
+
+
+def test_vllm_rejects_duplicate_arguments() -> None:
+    with pytest.raises(ValidationError, match="duplicate"):
+        VllmServerConfig(
+            type="vllm",
+            image=ImageRef(name="vllm"),
+            extra_args=["--max-model-len", "32768", "--max-model-len=16384"],
+        )
+
+
 def test_vllm_rejects_distributed_timeout_beyond_startup_timeout() -> None:
     with pytest.raises(ValidationError, match="must not exceed"):
         VllmServerConfig(
@@ -217,6 +272,12 @@ def test_vllm_rejects_distributed_timeout_beyond_startup_timeout() -> None:
             startup_timeout="10m",
             distributed_init_timeout="11m",
         )
+
+
+@pytest.mark.parametrize("field", ["lead_boot_standoff", "rank_launch_stagger"])
+def test_vllm_rejects_negative_launch_timing(field: str) -> None:
+    with pytest.raises(ValidationError):
+        VllmServerConfig.model_validate({"type": "vllm", "image": {"name": "vllm"}, field: "-1s"})
 
 
 def test_deployment_rejects_invalid_topology() -> None:
