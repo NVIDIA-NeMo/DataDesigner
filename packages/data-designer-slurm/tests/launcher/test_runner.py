@@ -67,9 +67,10 @@ def test_subprocess_runner_environment_is_immutable() -> None:
         runner.environment["SECRET"] = "value"  # type: ignore[index]
 
 
-def test_subprocess_runner_rejects_nonpositive_timeout() -> None:
-    with pytest.raises(ValueError, match="positive"):
-        SubprocessRunner(timeout_seconds=0)
+@pytest.mark.parametrize("timeout_seconds", [0, -1, True, float("nan"), float("inf")])
+def test_subprocess_runner_rejects_invalid_timeout(timeout_seconds: float) -> None:
+    with pytest.raises(ValueError, match="finite positive"):
+        SubprocessRunner(timeout_seconds=timeout_seconds)
 
 
 @pytest.mark.parametrize("environment", ({"BAD=NAME": "value"}, {"NAME": "bad\0value"}))

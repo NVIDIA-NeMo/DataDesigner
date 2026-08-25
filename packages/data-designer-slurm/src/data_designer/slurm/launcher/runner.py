@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import math
 import subprocess
 from collections.abc import Mapping, Sequence
 from types import MappingProxyType
@@ -31,8 +32,8 @@ class SubprocessRunner:
         environment: Mapping[str, str] | None = None,
         timeout_seconds: float = 30.0,
     ) -> None:
-        if timeout_seconds <= 0:
-            raise ValueError("timeout_seconds must be positive")
+        if isinstance(timeout_seconds, bool) or not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
+            raise ValueError("timeout_seconds must be a finite positive number")
         explicit_environment = dict(environment or {})
         for name, value in explicit_environment.items():
             if type(name) is not str or not name or "=" in name or "\0" in name:
@@ -40,7 +41,7 @@ class SubprocessRunner:
             if type(value) is not str or "\0" in value:
                 raise ValueError("environment values must not contain NUL")
         self._environment = MappingProxyType({**explicit_environment, "LC_ALL": "C"})
-        self._timeout_seconds = timeout_seconds
+        self._timeout_seconds = float(timeout_seconds)
 
     @property
     def environment(self) -> Mapping[str, str]:
