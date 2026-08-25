@@ -90,7 +90,7 @@ class SlurmCommandClient:
                 "--array",
                 "--allocations",
                 "--parsable2",
-                "--format=%i|%State|%ExitCode",
+                "--format=JobIDRaw,State,ExitCode",
                 f"--jobs={jobs}",
             )
         )

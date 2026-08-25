@@ -13,7 +13,13 @@ from slurm_test_fakes import FakeCommandResponse, FakeSlurmArray, FakeSlurmRunne
 
 GOLDEN_DIRECTORY = Path(__file__).parent / "golden" / "slurm"
 SQUEUE_ARGUMENTS = ("--noheader", "--format=%i|%T")
-SACCT_ARGUMENTS = ("--noheader", "--parsable2", "--format=%i|%State|%ExitCode")
+SACCT_ARGUMENTS = (
+    "--noheader",
+    "--array",
+    "--allocations",
+    "--parsable2",
+    "--format=JobIDRaw,State,ExitCode",
+)
 
 
 def _submit(runner: FakeSlurmRunner) -> None:
@@ -174,7 +180,7 @@ def test_fake_slurm_runner_matches_sbatch_parsable_mode(
     "command",
     (
         ("squeue", "--noheader"),
-        ("sacct", "--noheader", "--format=%i|%State|%ExitCode"),
+        ("sacct", "--noheader", "--format=JobIDRaw,State,ExitCode"),
     ),
 )
 def test_fake_slurm_runner_rejects_underspecified_state_queries(

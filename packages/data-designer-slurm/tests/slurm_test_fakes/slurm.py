@@ -15,7 +15,13 @@ from data_designer.slurm.state import SchedulerIdentity
 
 _JOB_SELECTOR_PATTERN = re.compile(r"^[0-9]+(?:_[0-9]+)?$")
 _SQUEUE_REQUIRED_ARGUMENTS = ("--noheader", "--format=%i|%T")
-_SACCT_REQUIRED_ARGUMENTS = ("--noheader", "--parsable2", "--format=%i|%State|%ExitCode")
+_SACCT_REQUIRED_ARGUMENTS = (
+    "--noheader",
+    "--array",
+    "--allocations",
+    "--parsable2",
+    "--format=JobIDRaw,State,ExitCode",
+)
 
 
 @dataclass(frozen=True)

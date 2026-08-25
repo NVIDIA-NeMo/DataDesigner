@@ -76,7 +76,7 @@ def parse_queue(output: str) -> tuple[QueueRecord, ...]:
 
 
 def parse_accounting(output: str) -> tuple[AccountingRecord, ...]:
-    """Parse array-task rows from ``sacct --format=%i|%State|%ExitCode``."""
+    """Parse array-task rows from ``sacct --format=JobIDRaw,State,ExitCode``."""
     records: list[AccountingRecord] = []
     identities: set[SchedulerIdentity] = set()
     for line_number, line in _collect_nonempty_lines(output):
