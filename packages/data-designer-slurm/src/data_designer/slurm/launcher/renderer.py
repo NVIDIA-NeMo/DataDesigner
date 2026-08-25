@@ -48,6 +48,7 @@ def render_batch_script(plan: ResolvedSlurmRunPlan, *, attempt_ordinal: int = 1)
     return f"""#!/usr/bin/env bash
 {directive_text}
 set -Eeuo pipefail
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 readonly DD_RUNTIME_ARCHIVE={_quote_double_value(plan.runtime_bundle.path)}
 readonly DD_RUNTIME_SHA256={_quote_double_value(plan.runtime_bundle.sha256)}

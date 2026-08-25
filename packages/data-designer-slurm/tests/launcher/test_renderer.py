@@ -150,5 +150,5 @@ def test_renderer_is_a_thin_entrypoint(single_node_plan: ResolvedSlurmRunPlan) -
 
     assert script.count("dd_slurm_run_allocation") == 1
     assert 'readonly DD_ATTEMPT_ORDINAL="0012"' in script
-    assert len(script.splitlines()) <= 40
+    assert len(script.splitlines()) <= 41
     assert script.endswith("\n")
