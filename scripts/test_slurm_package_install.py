@@ -130,6 +130,7 @@ from data_designer.slurm.contracts import RecordRange as ContractRecordRange
 from data_designer.slurm.contracts import ResumeWorkspace as ContractResumeWorkspace
 from data_designer.slurm.integration import PlanStateValidator
 from data_designer.slurm.images.registry import ImageRegistryStore
+from data_designer.slurm.launcher import SlurmCommandClient
 from data_designer.slurm.planning import ArtifactReference as PlanningArtifactReference
 from data_designer.slurm.planning import RecordRange as PlanningRecordRange
 from data_designer.slurm.planning import ResumeWorkspace as PlanningResumeWorkspace
@@ -139,6 +140,7 @@ from data_designer.slurm.state import ResumeWorkspace as StateResumeWorkspace
 from data_designer.slurm.state import RunManifest
 assert RunManifest.__name__ == "RunManifest"
 assert ImageRegistryStore.__name__ == "ImageRegistryStore"
+assert "SlurmCommandClient" in str(SlurmCommandClient)
 assert PlanningArtifactReference is ContractArtifactReference
 assert PlanningRecordRange is ContractRecordRange
 assert PlanningResumeWorkspace is ContractResumeWorkspace
