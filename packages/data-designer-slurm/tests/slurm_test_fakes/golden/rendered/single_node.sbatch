@@ -21,12 +21,17 @@ verify_sha256() {
 
 verify_sha256 "${DD_RUNTIME_SHA256}" "${DD_RUNTIME_ARCHIVE}"
 verify_sha256 "${DD_PLAN_SHA256}" "${DD_PLAN}"
-readonly DD_ARRAY_TASK_ID="${SLURM_ARRAY_TASK_ID:?SLURM_ARRAY_TASK_ID is required}"
+if [[ ! ${SLURM_ARRAY_TASK_ID:-} =~ ^[0-9]+$ ]]; then
+    printf '%s\n' 'SLURM_ARRAY_TASK_ID must be a non-negative integer' >&2
+    exit 64
+fi
+readonly DD_ARRAY_TASK_ID="${SLURM_ARRAY_TASK_ID}"
 printf -v DD_SHARD_ID 'shard-%05d' "${DD_ARRAY_TASK_ID}"
 readonly DD_SHARD_ID
 readonly DD_ATTEMPT_DIR="${DD_RUN_ROOT}/shards/${DD_SHARD_ID}/attempts/attempt-${DD_ATTEMPT_ORDINAL}"
 install -d -m 0700 "${DD_ATTEMPT_DIR}"
-readonly DD_RUNTIME_DIR="$(mktemp -d "${DD_ATTEMPT_DIR}/runtime.${DD_RUNTIME_SHA256}.XXXXXX")"
+DD_RUNTIME_DIR="$(mktemp -d "${DD_ATTEMPT_DIR}/runtime.${DD_RUNTIME_SHA256}.XXXXXX")"
+readonly DD_RUNTIME_DIR
 tar -xzf "${DD_RUNTIME_ARCHIVE}" -C "${DD_RUNTIME_DIR}"
 
 source "${DD_RUNTIME_DIR}/entrypoint.sh"
