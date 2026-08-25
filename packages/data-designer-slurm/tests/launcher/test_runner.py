@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 from collections.abc import Mapping, Sequence
 
@@ -67,6 +68,14 @@ def test_subprocess_runner_default_environment_forwards_only_search_path(monkeyp
     runner = SubprocessRunner()
 
     assert runner.environment == {"LC_ALL": "C", "PATH": "/workspace/slurm/bin:/usr/bin"}
+
+
+def test_subprocess_runner_default_environment_replaces_empty_search_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PATH", "")
+
+    runner = SubprocessRunner()
+
+    assert runner.environment == {"LC_ALL": "C", "PATH": os.defpath}
 
 
 def test_subprocess_runner_environment_is_immutable() -> None:

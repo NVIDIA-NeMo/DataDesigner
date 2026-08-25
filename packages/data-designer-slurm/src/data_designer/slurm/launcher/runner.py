@@ -36,7 +36,7 @@ class SubprocessRunner:
         if type(timeout_seconds) not in {int, float} or not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be a finite positive number")
         explicit_environment = (
-            dict(environment) if environment is not None else {"PATH": os.environ.get("PATH", os.defpath)}
+            dict(environment) if environment is not None else {"PATH": os.environ.get("PATH") or os.defpath}
         )
         for name, value in explicit_environment.items():
             if type(name) is not str or not name or "=" in name or "\0" in name:
