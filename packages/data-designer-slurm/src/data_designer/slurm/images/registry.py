@@ -6,12 +6,14 @@
 from __future__ import annotations
 
 import fcntl
+import json
 import os
 import tempfile
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
+import yaml
 from pydantic import TypeAdapter, ValidationError
 
 from data_designer.slurm.config import ImageRef
@@ -33,7 +35,7 @@ class ImageRegistry:
         except ValueError as error:
             raise ImageRegistryError(f"invalid image workspace root {workspace_root!s}") from error
         self._image_root = Path(normalized_root) / "images"
-        self._registry_path = self._image_root / "registry.json"
+        self._registry_path = self._image_root / "registry.yaml"
         self._lock_directory = self._image_root / ".locks"
 
     @property
@@ -105,8 +107,9 @@ class ImageRegistry:
         if not self._registry_path.exists():
             return ImageRegistrySnapshot()
         try:
-            return ImageRegistrySnapshot.model_validate_json(self._registry_path.read_text())
-        except (OSError, ValidationError) as error:
+            payload = yaml.safe_load(self._registry_path.read_text())
+            return ImageRegistrySnapshot.model_validate_json(json.dumps(payload))
+        except (OSError, TypeError, ValidationError, yaml.YAMLError) as error:
             raise ImageRegistryError(f"cannot load image registry {self._registry_path}") from error
 
     def _save(self, snapshot: ImageRegistrySnapshot) -> None:
@@ -124,12 +127,17 @@ class ImageRegistry:
             output = os.fdopen(descriptor, "w")
             descriptor = None
             with output:
-                output.write(snapshot.serialize_json())
+                yaml.safe_dump(
+                    snapshot.model_dump(mode="json"),
+                    output,
+                    default_flow_style=False,
+                    sort_keys=True,
+                )
                 output.flush()
                 os.fsync(output.fileno())
             os.replace(temporary_path, self._registry_path)
             _sync_directory(self._image_root)
-        except OSError as error:
+        except (OSError, TypeError, yaml.YAMLError) as error:
             raise ImageRegistryError(f"cannot persist image registry {self._registry_path}") from error
         finally:
             if descriptor is not None:

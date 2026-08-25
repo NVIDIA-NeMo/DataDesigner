@@ -975,6 +975,7 @@ dependencies = [
     { name = "data-designer" },
     { name = "packaging" },
     { name = "pydantic" },
+    { name = "pyyaml" },
 ]
 
 [package.metadata]
@@ -982,6 +983,7 @@ requires-dist = [
     { name = "data-designer", editable = "packages/data-designer" },
     { name = "packaging", specifier = ">=25,<27" },
     { name = "pydantic", specifier = ">=2.9.2,<3" },
+    { name = "pyyaml", specifier = ">=6.0.1,<7" },
 ]
 
 [[package]]

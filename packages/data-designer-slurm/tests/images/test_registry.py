@@ -3,12 +3,14 @@
 
 from __future__ import annotations
 
+import json
 import stat
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from threading import Barrier
 
 import pytest
+import yaml
 from slurm_test_fakes import FakeInspectionEnvironment
 
 from data_designer.slurm.config import (
@@ -44,13 +46,13 @@ def test_register_and_resolve_existing_sqsh_by_alias_and_path(tmp_path: Path) ->
 
     by_alias = service.resolve(ImageRef(name="client"), expected_kind=ImageKind.CLIENT)
     by_path = service.resolve(ImageRef(path=image_path.as_posix()), expected_kind=ImageKind.CLIENT)
-    persisted = ImageRegistrySnapshot.model_validate_json(service.registry_path.read_text())
+    persisted = ImageRegistrySnapshot.model_validate_json(json.dumps(yaml.safe_load(service.registry_path.read_text())))
     assert by_alias.path == by_path.path
     assert by_alias.sha256 == by_path.sha256
     assert by_alias.inspection == by_path.inspection
     assert by_alias.path == image_path.as_posix()
     assert registered == persisted.images[0]
-    assert service.registry_path == workspace / "images" / "registry.json"
+    assert service.registry_path == workspace / "images" / "registry.yaml"
 
 
 def test_registry_lists_aliases_deterministically(tmp_path: Path) -> None:
