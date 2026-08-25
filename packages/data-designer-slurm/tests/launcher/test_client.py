@@ -22,7 +22,7 @@ def test_client_submits_and_observes_one_managed_array(fake_slurm_runner: FakeSl
     assert submission.array_job_id == 4101
     assert tuple(record.state for record in queue) == (SchedulerState.PENDING, SchedulerState.RUNNING)
     assert fake_slurm_runner.calls == [
-        ("sbatch", "--parsable", "/workspace/run.sbatch"),
+        ("sbatch", "--parsable", "--export=NIL", "/workspace/run.sbatch"),
         ("squeue", "--noheader", "--array", "--format=%i|%T", "--jobs=4101"),
     ]
 
@@ -131,6 +131,7 @@ def test_script_path_is_one_argument_vector_token(fake_slurm_runner: FakeSlurmRu
     assert fake_slurm_runner.calls[0] == (
         "sbatch",
         "--parsable",
+        "--export=NIL",
         "/workspace/run; touch injected.sbatch",
     )
 

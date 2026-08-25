@@ -66,7 +66,7 @@ class SlurmCommandClient:
         _validate_argument(path, field_name="batch script path")
         if path.startswith("-"):
             raise ValueError("batch script path must not begin with '-'; prefix relative paths with './'")
-        output = self._run((self._executables.sbatch, "--parsable", path))
+        output = self._run((self._executables.sbatch, "--parsable", "--export=NIL", path))
         return parse_submission(output)
 
     def query_queue(self, selectors: Sequence[JobSelector]) -> tuple[QueueRecord, ...]:
