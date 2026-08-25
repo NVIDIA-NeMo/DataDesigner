@@ -129,7 +129,18 @@ def test_parse_gpu_counts_normalizes_configured_gres(output: str, expected: tupl
     assert parse_gpu_counts(output) == expected
 
 
-@pytest.mark.parametrize("output", ("gpu:a100:not-a-count\n", "gpu:a100:4(S:0-1,4-5\n"))
+@pytest.mark.parametrize(
+    "output",
+    (
+        "gpu:a100:not-a-count\n",
+        "gpu:a100:4(S:0-1,4-5\n",
+        "gpu:a100:4)\n",
+        "gpu:a100:4((S:0-1))\n",
+        "gpu:a100:4,\n",
+        ",gpu:a100:4\n",
+        "gpu:a100:4,,mps:100\n",
+    ),
+)
 def test_parse_gpu_counts_rejects_malformed_gpu_resources(output: str) -> None:
     with pytest.raises(SlurmParseError, match="invalid GPU resource"):
         parse_gpu_counts(output)

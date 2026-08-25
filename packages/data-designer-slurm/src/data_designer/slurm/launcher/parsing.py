@@ -123,6 +123,8 @@ def _split_gres_fields(value: str, *, line_number: int) -> tuple[str, ...]:
     for index, character in enumerate(value):
         if character == "(":
             annotation_depth += 1
+            if annotation_depth > 1:
+                raise SlurmParseError(f"sinfo line {line_number} contains an invalid GPU resource")
         elif character == ")":
             annotation_depth -= 1
             if annotation_depth < 0:
@@ -133,6 +135,8 @@ def _split_gres_fields(value: str, *, line_number: int) -> tuple[str, ...]:
     if annotation_depth:
         raise SlurmParseError(f"sinfo line {line_number} contains an invalid GPU resource")
     fields.append(value[start:])
+    if any(not field for field in fields):
+        raise SlurmParseError(f"sinfo line {line_number} contains an invalid GPU resource")
     return tuple(fields)
 
 
