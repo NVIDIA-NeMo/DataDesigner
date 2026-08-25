@@ -8,6 +8,7 @@ from __future__ import annotations
 import fcntl
 import json
 import os
+import stat
 import tempfile
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -107,9 +108,9 @@ class ImageRegistry:
         if not self._registry_path.exists():
             return ImageRegistrySnapshot()
         try:
-            payload = yaml.safe_load(self._registry_path.read_text())
+            payload = yaml.safe_load(_read_regular_text(self._registry_path))
             return ImageRegistrySnapshot.model_validate_json(json.dumps(payload))
-        except (OSError, TypeError, ValidationError, yaml.YAMLError) as error:
+        except (OSError, TypeError, UnicodeError, ValidationError, yaml.YAMLError) as error:
             raise ImageRegistryError(f"cannot load image registry {self._registry_path}") from error
 
     def _save(self, snapshot: ImageRegistrySnapshot) -> None:
@@ -124,7 +125,7 @@ class ImageRegistry:
             )
             temporary_path = Path(raw_path)
             os.fchmod(descriptor, _FILE_MODE)
-            output = os.fdopen(descriptor, "w")
+            output = os.fdopen(descriptor, "w", encoding="utf-8")
             descriptor = None
             with output:
                 yaml.safe_dump(
@@ -184,7 +185,7 @@ def acquire_file_lock(path: Path) -> Iterator[None]:
     """Acquire one exclusive advisory file lock for a registry mutation."""
     descriptor: int | None = None
     try:
-        descriptor = os.open(path, os.O_CREAT | os.O_RDWR, _FILE_MODE)
+        descriptor = os.open(path, os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0), _FILE_MODE)
         os.fchmod(descriptor, _FILE_MODE)
         fcntl.flock(descriptor, fcntl.LOCK_EX)
     except OSError as error:
@@ -216,3 +217,18 @@ def _sync_directory(path: Path) -> None:
         os.fsync(descriptor)
     finally:
         os.close(descriptor)
+
+
+def _read_regular_text(path: Path) -> str:
+    descriptor: int | None = None
+    try:
+        descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        registry_file = os.fdopen(descriptor, "r", encoding="utf-8")
+        descriptor = None
+        with registry_file:
+            if not stat.S_ISREG(os.fstat(registry_file.fileno()).st_mode):
+                raise OSError(f"registry path {path} is not a regular file")
+            return registry_file.read()
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)

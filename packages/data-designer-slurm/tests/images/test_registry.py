@@ -182,13 +182,44 @@ def test_direct_path_must_be_registered(tmp_path: Path) -> None:
         service.resolve(ImageRef(path=image_path.as_posix()), expected_kind=ImageKind.CLIENT)
 
 
-def test_registry_normalizes_corrupt_persisted_state(tmp_path: Path) -> None:
+@pytest.mark.parametrize("content", (b"not-yaml: [\n", b"\xff"), ids=("invalid-yaml", "invalid-utf8"))
+def test_registry_normalizes_corrupt_persisted_state(tmp_path: Path, content: bytes) -> None:
     service = SlurmImageService(tmp_path / "workspace")
     service.registry_path.parent.mkdir(parents=True)
-    service.registry_path.write_text("not-json\n")
+    service.registry_path.write_bytes(content)
 
     with pytest.raises(ImageRegistryError, match="cannot load"):
         service.list_images()
+
+
+def test_registry_rejects_symlinked_state_file(tmp_path: Path) -> None:
+    service = SlurmImageService(tmp_path / "workspace")
+    service.registry_path.parent.mkdir(parents=True)
+    target = tmp_path / "outside.yaml"
+    target.write_text("schema_version: 1\nimages: []\n")
+    service.registry_path.symlink_to(target)
+
+    with pytest.raises(ImageRegistryError, match="cannot load"):
+        service.list_images()
+
+
+def test_registry_rejects_symlinked_lock_file_without_changing_target(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    lock_directory = workspace / "images" / ".locks"
+    lock_directory.mkdir(parents=True)
+    target = tmp_path / "outside.lock"
+    target.write_text("outside")
+    target.chmod(0o640)
+    (lock_directory / "alias-client.lock").symlink_to(target)
+    image_path = _write_sqsh(tmp_path / "client.sqsh", b"client")
+
+    with pytest.raises(ImageRegistryError, match="cannot lock"):
+        SlurmImageService(workspace).register_existing(
+            ImageBuildRequest(name="client", kind="client", source=image_path.as_posix()),
+            _inspect_client(image_path),
+        )
+
+    assert stat.S_IMODE(target.stat().st_mode) == 0o640
 
 
 def test_registry_uses_restrictive_atomic_workspace_storage(tmp_path: Path) -> None:
