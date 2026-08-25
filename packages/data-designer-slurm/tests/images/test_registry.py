@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import stat
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from threading import Barrier
@@ -186,6 +187,20 @@ def test_registry_normalizes_corrupt_persisted_state(tmp_path: Path) -> None:
 
     with pytest.raises(ImageRegistryError, match="cannot load"):
         service.list_images()
+
+
+def test_registry_uses_restrictive_atomic_workspace_storage(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    image_path = _write_sqsh(tmp_path / "client.sqsh", b"client")
+    service = SlurmImageService(workspace)
+
+    service.register_existing(
+        ImageBuildRequest(name="client", kind="client", source=image_path.as_posix()),
+        _inspect_client(image_path),
+    )
+
+    assert stat.S_IMODE(service.registry_path.stat().st_mode) == 0o600
+    assert not tuple(service.registry_path.parent.glob(".registry.*.tmp"))
 
 
 def test_concurrent_alias_writers_preserve_both_registrations(tmp_path: Path) -> None:
