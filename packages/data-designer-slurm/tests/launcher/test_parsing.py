@@ -22,11 +22,18 @@ GOLDEN_DIRECTORY = Path(__file__).parents[1] / "slurm_test_fakes" / "golden" / "
 
 
 @pytest.mark.parametrize(
-    ("output", "expected_job_id"),
-    (("4101\n", 4101), ("4101;primary\n", 4101)),
+    ("output", "expected_job_id", "expected_cluster"),
+    (("4101\n", 4101, None), ("4101;primary\n", 4101, "primary")),
 )
-def test_parse_submission_accepts_parsable_sbatch_output(output: str, expected_job_id: int) -> None:
-    assert parse_submission(output).array_job_id == expected_job_id
+def test_parse_submission_accepts_parsable_sbatch_output(
+    output: str,
+    expected_job_id: int,
+    expected_cluster: str | None,
+) -> None:
+    submission = parse_submission(output)
+
+    assert submission.array_job_id == expected_job_id
+    assert submission.cluster_name == expected_cluster
 
 
 @pytest.mark.parametrize("output", ("", "0", "Submitted batch job 4101", "٤١٠١", "4101;", "4101;bad name"))

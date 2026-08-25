@@ -18,12 +18,11 @@ from data_designer.slurm.launcher.models import (
     SlurmExitCode,
     SlurmSubmission,
 )
-from data_designer.slurm.launcher.renderer import BatchDirective, render_batch_script
+from data_designer.slurm.launcher.renderer import render_batch_script
 from data_designer.slurm.launcher.runner import CommandRunner, SubprocessRunner
 
 __all__ = [
     "AccountingRecord",
-    "BatchDirective",
     "BatchRenderError",
     "CommandRunner",
     "QueueRecord",

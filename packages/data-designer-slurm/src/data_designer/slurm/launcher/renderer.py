@@ -17,7 +17,7 @@ _DIRECTIVE_TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/,%+-]*$")
 
 
 @dataclass(frozen=True, slots=True)
-class BatchDirective:
+class _BatchDirective:
     """One validated ``#SBATCH`` option."""
 
     name: str
@@ -80,7 +80,7 @@ dd_slurm_run_allocation "${{DD_PLAN}}" "${{DD_ATTEMPT_DIR}}"
 """
 
 
-def _build_generation_directives(plan: ResolvedSlurmRunPlan) -> tuple[BatchDirective, ...]:
+def _build_generation_directives(plan: ResolvedSlurmRunPlan) -> tuple[_BatchDirective, ...]:
     node_indices = (
         plan.client.host_node_index,
         *(index for deployment in plan.deployments for index in deployment.node_indices),
@@ -105,7 +105,7 @@ def _build_generation_directives(plan: ResolvedSlurmRunPlan) -> tuple[BatchDirec
         values.append(("mem-per-gpu", profile.scheduler.mem_per_gpu))
     if plan.submission.comment is not None:
         values.append(("comment", plan.submission.comment))
-    return tuple(BatchDirective(name=name, value=value) for name, value in values if value is not None)
+    return tuple(_BatchDirective(name=name, value=value) for name, value in values if value is not None)
 
 
 def _quote_double_value(value: str) -> str:

@@ -10,7 +10,7 @@ import pytest
 
 from data_designer.slurm.config import SchedulerProfile, injected_profile
 from data_designer.slurm.contracts import ArtifactReference
-from data_designer.slurm.launcher import BatchDirective, BatchRenderError, render_batch_script
+from data_designer.slurm.launcher import BatchRenderError, render_batch_script
 from data_designer.slurm.planning import ResolvedSlurmRunPlan, ResolvedSubmission
 
 GOLDEN_DIRECTORY = Path(__file__).parents[1] / "slurm_test_fakes" / "golden" / "rendered"
@@ -111,11 +111,15 @@ def test_renderer_rejects_invalid_attempt_ordinals(
         render_batch_script(single_node_plan, attempt_ordinal=attempt_ordinal)  # type: ignore[arg-type]
 
 
-def test_batch_directive_rejects_invalid_names_and_control_characters() -> None:
-    with pytest.raises(BatchRenderError, match="name is invalid"):
-        BatchDirective(name="output\n", value="safe").render()
+def test_renderer_rejects_control_characters_from_unvalidated_plan_copies(
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    plan = single_node_plan.model_copy(
+        update={"submission": single_node_plan.submission.model_copy(update={"comment": "unsafe\ntext"})}
+    )
+
     with pytest.raises(BatchRenderError, match="control characters"):
-        BatchDirective(name="comment", value="first\n#SBATCH --output=owned").render()
+        render_batch_script(plan)
 
 
 def test_renderer_is_a_thin_entrypoint(single_node_plan: ResolvedSlurmRunPlan) -> None:

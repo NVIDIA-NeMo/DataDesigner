@@ -58,7 +58,7 @@ def parse_submission(output: str) -> SlurmSubmission:
         raise SlurmParseError("sbatch returned an invalid job ID")
     if separator and _CLUSTER_NAME_PATTERN.fullmatch(cluster_name) is None:
         raise SlurmParseError("sbatch returned an invalid cluster name")
-    return SlurmSubmission(array_job_id=int(job_id))
+    return SlurmSubmission(array_job_id=int(job_id), cluster_name=cluster_name or None)
 
 
 def parse_queue(output: str) -> tuple[QueueRecord, ...]:

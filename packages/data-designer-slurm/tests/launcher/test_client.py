@@ -40,7 +40,15 @@ def test_client_queries_accounting_and_cancels_one_array_task(fake_slurm_runner:
     assert accounting[0].state is SchedulerState.CANCELLED
     assert fake_slurm_runner.calls[-2:] == [
         ("scancel", "4101_1"),
-        ("sacct", "--noheader", "--parsable2", "--format=%i|%State|%ExitCode", "--jobs=4101_1"),
+        (
+            "sacct",
+            "--noheader",
+            "--array",
+            "--allocations",
+            "--parsable2",
+            "--format=%i|%State|%ExitCode",
+            "--jobs=4101_1",
+        ),
     ]
 
 

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from data_designer.slurm.contracts import Identifier
 from data_designer.slurm.state import SchedulerIdentity, SchedulerState
 
 
@@ -15,6 +16,7 @@ class SlurmSubmission:
     """Identity assigned by Slurm to one accepted array submission."""
 
     array_job_id: int
+    cluster_name: Identifier | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -87,6 +87,8 @@ class SlurmCommandClient:
             (
                 self._executables.sacct,
                 "--noheader",
+                "--array",
+                "--allocations",
                 "--parsable2",
                 "--format=%i|%State|%ExitCode",
                 f"--jobs={jobs}",
