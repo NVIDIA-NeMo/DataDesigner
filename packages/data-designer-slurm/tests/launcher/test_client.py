@@ -101,6 +101,19 @@ def test_client_normalizes_command_failures(fake_slurm_runner: FakeSlurmRunner) 
         client.query_accounting((4101,))
 
 
+def test_client_removes_terminal_controls_from_command_failures(fake_slurm_runner: FakeSlurmRunner) -> None:
+    fake_slurm_runner.script_next(
+        "squeue",
+        FakeCommandResponse(stderr="queue unavailable\x1b[31m\n", returncode=2),
+    )
+    client = SlurmCommandClient(fake_slurm_runner)
+
+    with pytest.raises(SlurmCommandError) as error:
+        client.query_queue((4101,))
+
+    assert "\x1b" not in str(error.value)
+
+
 def test_client_normalizes_execution_errors() -> None:
     client = SlurmCommandClient(_FailingRunner())
 

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import re
 import subprocess
+import unicodedata
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -145,7 +146,8 @@ def _validate_argument(value: str, *, field_name: str) -> None:
 
 
 def _normalize_bounded_text(value: str, *, limit: int = 512) -> str:
-    normalized = " ".join(value.split())
+    sanitized = "".join(" " if unicodedata.category(character).startswith("C") else character for character in value)
+    normalized = " ".join(sanitized.split())
     return normalized if len(normalized) <= limit else f"{normalized[:limit]}..."
 
 
