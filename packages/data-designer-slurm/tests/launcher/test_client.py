@@ -9,7 +9,7 @@ from collections.abc import Sequence
 import pytest
 from slurm_test_fakes import FakeCommandResponse, FakeSlurmRunner
 
-from data_designer.slurm.launcher import SlurmCommandClient, SlurmCommandError
+from data_designer.slurm.launcher import SlurmCommandClient, SlurmCommandError, SlurmExecutables
 from data_designer.slurm.state import SchedulerIdentity, SchedulerState
 
 
@@ -81,6 +81,14 @@ def test_client_queries_bounded_gpu_inventory(fake_slurm_runner: FakeSlurmRunner
     assert fake_slurm_runner.calls == [("sinfo", "--noheader", "--format=%G")]
 
 
+def test_client_queries_partition_scoped_gpu_inventory() -> None:
+    command = ("sinfo", "--noheader", "--format=%G", "--partition=batch")
+    runner = FakeSlurmRunner(sinfo_responses={command: FakeCommandResponse(stdout="gpu:a100:8\n")})
+
+    assert SlurmCommandClient(runner).query_gpu_counts(partition="batch") == (8,)
+    assert runner.calls == [command]
+
+
 def test_client_rejects_invalid_gpu_partition_without_running_command(fake_slurm_runner: FakeSlurmRunner) -> None:
     client = SlurmCommandClient(fake_slurm_runner)
 
@@ -123,6 +131,22 @@ def test_client_normalizes_execution_errors() -> None:
     assert isinstance(error.value.__cause__, FileNotFoundError)
 
 
+def test_client_normalizes_command_timeouts() -> None:
+    client = SlurmCommandClient(_TimeoutRunner())
+
+    with pytest.raises(SlurmCommandError, match="command timed out") as error:
+        client.query_queue((4101,))
+
+    assert isinstance(error.value.__cause__, subprocess.TimeoutExpired)
+
+
+def test_client_rejects_non_text_runner_output() -> None:
+    client = SlurmCommandClient(_NonTextRunner())
+
+    with pytest.raises(SlurmCommandError, match="did not return text output"):
+        client.query_queue((4101,))
+
+
 def test_script_path_is_one_argument_vector_token(fake_slurm_runner: FakeSlurmRunner) -> None:
     client = SlurmCommandClient(fake_slurm_runner)
 
@@ -145,7 +169,35 @@ def test_client_rejects_option_like_script_path(fake_slurm_runner: FakeSlurmRunn
     assert fake_slurm_runner.calls == []
 
 
+@pytest.mark.parametrize("script_path", ("", "bad\npath"))
+def test_client_rejects_invalid_script_path(fake_slurm_runner: FakeSlurmRunner, script_path: str) -> None:
+    client = SlurmCommandClient(fake_slurm_runner)
+
+    with pytest.raises(ValueError, match="batch script path"):
+        client.submit(script_path)
+
+    assert fake_slurm_runner.calls == []
+
+
+@pytest.mark.parametrize("executable", ("", "sbatch --wait", "sbatch\n"))
+def test_executables_reject_invalid_tokens(executable: str) -> None:
+    with pytest.raises(ValueError, match="Slurm executable"):
+        SlurmExecutables(sbatch=executable)
+
+
 class _FailingRunner:
     def run(self, command: Sequence[str]) -> subprocess.CompletedProcess[str]:
         del command
         raise FileNotFoundError("missing executable")
+
+
+class _TimeoutRunner:
+    def run(self, command: Sequence[str]) -> subprocess.CompletedProcess[str]:
+        raise subprocess.TimeoutExpired(command, 30.0)
+
+
+class _NonTextRunner:
+    def run(self, command: Sequence[str]) -> subprocess.CompletedProcess[str]:
+        completed = subprocess.CompletedProcess(command, 0, stdout="ok", stderr="")
+        completed.stdout = b"not text"  # type: ignore[assignment]
+        return completed
