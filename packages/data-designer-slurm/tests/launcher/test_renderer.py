@@ -30,13 +30,13 @@ def test_renderer_matches_contract_bound_goldens(
     assert render_batch_script(plan) == (GOLDEN_DIRECTORY / fixture_name).read_text()
 
 
-def test_renderer_omits_gres_for_visible_mode_and_emits_optional_fields(
+def test_renderer_omits_gres_for_visible_mode_and_emits_optional_submission_fields(
     single_node_plan: ResolvedSlurmRunPlan,
 ) -> None:
     profile = single_node_plan.selected_profile.profile.model_copy(
         update={
             "gpu_request_mode": "visible",
-            "scheduler": SchedulerProfile(account="research", partition="batch", mem_per_gpu="80G"),
+            "scheduler": SchedulerProfile(account="research", partition="batch"),
         }
     )
     plan = single_node_plan.model_copy(
@@ -57,8 +57,31 @@ def test_renderer_omits_gres_for_visible_mode_and_emits_optional_fields(
     assert "#SBATCH --gres=" not in script
     assert "#SBATCH --account=" not in script
     assert "#SBATCH --partition=" not in script
-    assert "#SBATCH --mem-per-gpu=80G\n" in script
     assert '#SBATCH --comment="safe test run"\n' in script
+
+
+def test_renderer_emits_mem_per_gpu_for_gres_mode(single_node_plan: ResolvedSlurmRunPlan) -> None:
+    profile = single_node_plan.selected_profile.profile.model_copy(
+        update={"scheduler": SchedulerProfile(account="research", partition="batch", mem_per_gpu="80G")}
+    )
+    plan = single_node_plan.model_copy(update={"selected_profile": injected_profile(profile)})
+
+    assert "#SBATCH --mem-per-gpu=80G\n" in render_batch_script(plan)
+
+
+def test_renderer_rejects_mem_per_gpu_without_a_slurm_gpu_request(
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    profile = single_node_plan.selected_profile.profile.model_copy(
+        update={
+            "gpu_request_mode": "visible",
+            "scheduler": SchedulerProfile(account="research", partition="batch", mem_per_gpu="80G"),
+        }
+    )
+    plan = single_node_plan.model_copy(update={"selected_profile": injected_profile(profile)})
+
+    with pytest.raises(BatchRenderError, match="requires GRES"):
+        render_batch_script(plan)
 
 
 def test_renderer_escapes_shell_expansion_in_structured_paths(

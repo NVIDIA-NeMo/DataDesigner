@@ -101,6 +101,8 @@ def _build_generation_directives(plan: ResolvedSlurmRunPlan) -> tuple[_BatchDire
     profile = plan.selected_profile.profile
     if profile.gpu_request_mode == "gres":
         values.append(("gres", f"gpu:{plan.resolved_gpus_per_node}"))
+    elif profile.scheduler.mem_per_gpu is not None:
+        raise BatchRenderError("mem_per_gpu requires GRES GPU request mode")
     if profile.scheduler.mem_per_gpu is not None:
         values.append(("mem-per-gpu", profile.scheduler.mem_per_gpu))
     if plan.submission.comment is not None:
