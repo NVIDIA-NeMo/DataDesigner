@@ -55,6 +55,8 @@ class SubprocessRunner:
             stdin=subprocess.DEVNULL,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             env=dict(self._environment),
             timeout=self._timeout_seconds,
         )

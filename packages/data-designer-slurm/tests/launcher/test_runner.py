@@ -21,6 +21,8 @@ def test_subprocess_runner_uses_argv_and_only_explicit_environment(monkeypatch: 
         stdin: int,
         capture_output: bool,
         text: bool,
+        encoding: str,
+        errors: str,
         env: Mapping[str, str],
         timeout: float,
     ) -> subprocess.CompletedProcess[str]:
@@ -30,6 +32,8 @@ def test_subprocess_runner_uses_argv_and_only_explicit_environment(monkeypatch: 
             stdin=stdin,
             capture_output=capture_output,
             text=text,
+            encoding=encoding,
+            errors=errors,
             env=env,
             timeout=timeout,
         )
@@ -49,6 +53,8 @@ def test_subprocess_runner_uses_argv_and_only_explicit_environment(monkeypatch: 
         "stdin": subprocess.DEVNULL,
         "capture_output": True,
         "text": True,
+        "encoding": "utf-8",
+        "errors": "replace",
         "env": {"LC_ALL": "C", "PATH": "/usr/bin"},
         "timeout": 4.0,
     }
