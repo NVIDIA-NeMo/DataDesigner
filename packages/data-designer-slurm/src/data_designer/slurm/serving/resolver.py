@@ -6,7 +6,8 @@
 from __future__ import annotations
 
 from data_designer.slurm.config.images import ServingImageInspection
-from data_designer.slurm.config.run import ServerDeploymentConfig, VllmServerConfig
+from data_designer.slurm.config.run import ServerDeploymentConfig
+from data_designer.slurm.config.vllm import VllmServerConfig
 from data_designer.slurm.planning.models import PortClaim, ResolvedDeployment
 from data_designer.slurm.serving.compatibility import UnsupportedServingRuntimeError, resolve_vllm_compatibility
 from data_designer.slurm.serving.context import ServerResolutionContext

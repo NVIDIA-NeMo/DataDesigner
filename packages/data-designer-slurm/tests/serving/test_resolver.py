@@ -47,6 +47,7 @@ def test_single_node_resolution_matches_golden(single_node_plan: ResolvedSlurmRu
     assert first.launch_policy.lead_boot_standoff_seconds == 60
     assert first.launch_policy.rank_launch_stagger_seconds == 5
     assert first.launch_policy.queue_backpressure == QueueBackpressureConfig()
+    assert first.logical_endpoint.load_balancing == "least_connections"
     assert first.failure_policy == "coordinated"
 
 
@@ -71,6 +72,22 @@ def test_multi_node_lane_resolution_matches_golden(multi_node_plan: ResolvedSlur
         VllmProcessRole.API_SERVER,
         VllmProcessRole.FOLLOWER,
     ]
+    assert resolved.logical_endpoint.load_balancing == "least_connections"
+
+
+def test_multiple_two_node_groups_preserve_global_replica_order_and_delays(
+    multi_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    plan = _multi_group_plan(multi_node_plan)
+    placement = plan.deployments[0]
+
+    resolved = resolve_server(placement.authored, ServerResolutionContext.from_plan(plan, placement.deployment_id))
+
+    assert resolved.topology.node_group_count == 2
+    assert resolved.topology.replica_count == 4
+    assert [endpoint.node_index for endpoint in resolved.backend_endpoints] == [0, 0, 2, 2]
+    assert [process.node_index for process in resolved.processes] == [0, 1, 0, 1, 2, 3, 2, 3]
+    assert [process.launch_delay_seconds for process in resolved.processes] == [0, 0, 32, 32, 34, 34, 36, 36]
 
 
 def test_two_deployments_keep_images_and_endpoint_identities_isolated(
@@ -691,6 +708,45 @@ def _multi_lane_placement(plan: ResolvedSlurmRunPlan) -> ResolvedDeployment:
         },
     ]
     return ResolvedDeployment.model_validate_json(json.dumps(payload))
+
+
+def _multi_group_plan(plan: ResolvedSlurmRunPlan) -> ResolvedSlurmRunPlan:
+    payload = plan.model_dump(mode="json")
+    payload["deployments"] = payload["deployments"][:1]
+    payload["client"]["ports"] = payload["client"]["ports"][:1]
+    deployment = payload["deployments"][0]
+    deployment["authored"]["resources"]["nodes"] = 4
+    deployment["authored"]["topology"]["tensor_parallel"] = 4
+    deployment["authored"]["server"].update(
+        lead_boot_standoff="30s",
+        rank_launch_stagger="2s",
+    )
+    deployment["node_indices"] = [0, 1, 2, 3]
+    deployment["topology"].update(
+        tensor_parallel=4,
+        node_group_count=2,
+        replicas_per_node_group=2,
+        replica_count=4,
+        gpus_per_replica=8,
+    )
+    deployment["ports"] = [
+        {
+            "name": f"deployment-00000-http-{replica_index:05d}",
+            "role": "http",
+            "node_index": 0 if replica_index < 2 else 2,
+            "port": 18000 + replica_index % 2,
+        }
+        for replica_index in range(4)
+    ] + [
+        {
+            "name": f"deployment-00000-rendezvous-{replica_index:05d}",
+            "role": "rendezvous",
+            "node_index": 0 if replica_index < 2 else 2,
+            "port": 19000 + replica_index % 2,
+        }
+        for replica_index in range(4)
+    ]
+    return ResolvedSlurmRunPlan.model_validate_json(json.dumps(payload))
 
 
 def _independent_replica_placement(plan: ResolvedSlurmRunPlan) -> ResolvedDeployment:

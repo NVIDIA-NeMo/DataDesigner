@@ -9,8 +9,8 @@ from enum import Enum
 
 from pydantic import Field, NonNegativeInt, PositiveInt, field_validator, model_validator
 
-from data_designer.slurm.config.run import (
-    EnvironmentBinding,
+from data_designer.slurm.config.environment import EnvironmentBinding
+from data_designer.slurm.config.vllm import (
     QueueBackpressureConfig,
     validate_vllm_environment_bindings,
     validate_vllm_extra_args,

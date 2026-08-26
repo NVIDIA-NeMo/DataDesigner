@@ -61,7 +61,7 @@
       "deployment-00000-backend-00000"
     ],
     "endpoint_id": "deployment-00000-logical-endpoint",
-    "load_balancing": "round_robin",
+    "load_balancing": "least_connections",
     "model_alias": "generator",
     "node_index": 0,
     "port": 17000,

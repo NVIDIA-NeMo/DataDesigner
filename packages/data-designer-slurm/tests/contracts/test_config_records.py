@@ -182,6 +182,11 @@ def test_vllm_defaults_and_backpressure_override() -> None:
     assert overridden.queue_backpressure.model_dump() == {"max_waiting_requests": 0, "retry_after_seconds": None}
 
 
+def test_vllm_rejects_nonpositive_retry_after_seconds() -> None:
+    with pytest.raises(ValidationError, match="greater than 0"):
+        QueueBackpressureConfig(retry_after_seconds=0)
+
+
 @pytest.mark.parametrize(
     "argument",
     [
@@ -356,6 +361,8 @@ def test_vllm_rejects_invalid_json_arguments(extra_args: list[str]) -> None:
     "environment_name",
     [
         "CUDA_VISIBLE_DEVICES",
+        "ENABLE_EP",
+        "HF_HOME",
         "GROUP_RANK",
         "LOCAL_RANK",
         "MASTER_ADDR",
@@ -368,6 +375,8 @@ def test_vllm_rejects_invalid_json_arguments(extra_args: list[str]) -> None:
         "TORCHELASTIC_RUN_ID",
         "VLLM_ALLOW_RUNTIME_LORA_UPDATING",
         "VLLM_API_KEY",
+        "VLLM_CACHE_ROOT",
+        "VLLM_LEAD_BOOT_STANDOFF_SECONDS",
         "VLLM_DP_RANK",
         "VLLM_HOST_IP",
         "VLLM_LORA_RESOLVER_HF_REPO_LIST",

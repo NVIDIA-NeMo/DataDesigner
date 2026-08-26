@@ -1,13 +1,13 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+"""Authored Data Designer run, client, deployment, and submission configuration."""
+
 from __future__ import annotations
 
-import json
 import posixpath
 import re
-from collections.abc import Mapping
-from typing import Annotated, Literal, TypeVar
+from typing import Annotated, Literal
 from urllib.parse import urlsplit
 
 from packaging.requirements import InvalidRequirement, Requirement
@@ -15,7 +15,6 @@ from packaging.utils import canonicalize_name
 from pydantic import (
     Field,
     JsonValue,
-    NonNegativeInt,
     PositiveInt,
     StringConstraints,
     field_validator,
@@ -23,14 +22,21 @@ from pydantic import (
 )
 
 from data_designer.config import RunConfig
+from data_designer.slurm.config.environment import (
+    EnvironmentBinding,
+    LiteralEnvironmentBinding,
+    SecretRef,
+    contains_secret_key,
+    is_secret_name,
+    validate_environment_bindings,
+)
 from data_designer.slurm.config.images import ImageRef
+from data_designer.slurm.config.vllm import QueueBackpressureConfig, VllmServerConfig
 from data_designer.slurm.contracts import (
     AuthoredConfig,
-    Duration,
     EnvironmentName,
     Identifier,
     ModelAlias,
-    NonNegativeDuration,
     SchemaVersion,
     validate_absolute_path,
     validate_local_config_path,
@@ -38,333 +44,28 @@ from data_designer.slurm.contracts import (
     validate_url,
 )
 
-_OWNED_VLLM_FLAGS = {
-    "-asc",
-    "-dcp",
-    "-dp",
-    "-dpa",
-    "-dpb",
-    "-dpe",
-    "-dph",
-    "-dpl",
-    "-dpm",
-    "-dpn",
-    "-dpp",
-    "-dpr",
-    "-ep",
-    "-n",
-    "-pcp",
-    "-pp",
-    "-r",
-    "-tp",
-    "--api-key",
-    "--api-server-count",
-    "--config",
-    "--cpu-distributed-timeout-seconds",
-    "--cp-kv-cache-interleave-size",
-    "--cpunodebind",
-    "--data-parallel-address",
-    "--data-parallel-backend",
-    "--data-parallel-external-lb",
-    "--data-parallel-hybrid-lb",
-    "--data-parallel-rank",
-    "--data-parallel-rpc-port",
-    "--data-parallel-size",
-    "--data-parallel-size-local",
-    "--data-parallel-start-rank",
-    "--data-parallel-supervisor-port",
-    "--dcp-comm-backend",
-    "--dcp-kv-cache-interleave-size",
-    "--decode-context-parallel-size",
-    "--default-mm-loras",
-    "--distributed-executor-backend",
-    "--distributed-init-address",
-    "--distributed-timeout-seconds",
-    "--dp-supervisor-probe-failure-threshold",
-    "--dp-supervisor-probe-interval-s",
-    "--dp-supervisor-probe-timeout-s",
-    "--ec-transfer-config",
-    "--enable-elastic-ep",
-    "--enable-expert-parallel",
-    "--enable-lora",
-    "--enable-ssl-refresh",
-    "--grpc",
-    "--headless",
-    "--host",
-    "--io-processor-plugin",
-    "--kv-events-config",
-    "--kv-transfer-config",
-    "--logits-processors",
-    "--master-addr",
-    "--master-port",
-    "--middleware",
-    "--model",
-    "--nnodes",
-    "--node-rank",
-    "--no-data-parallel-external-lb",
-    "--no-data-parallel-hybrid-lb",
-    "--no-enable-elastic-ep",
-    "--no-enable-expert-parallel",
-    "--no-enable-lora",
-    "--no-enable-ssl-refresh",
-    "--no-numa-bind",
-    "--numa-bind",
-    "--numa-bind-cpus",
-    "--numa-bind-nodes",
-    "--physcpubind",
-    "--pipeline-parallel-size",
-    "--port",
-    "--prefill-context-parallel-size",
-    "--reasoning-parser-plugin",
-    "--root-path",
-    "--served-model-name",
-    "--ssl-ca-certs",
-    "--ssl-cert-reqs",
-    "--ssl-certfile",
-    "--ssl-ciphers",
-    "--ssl-keyfile",
-    "--tensor-parallel-size",
-    "--tool-parser-plugin",
-    "--uds",
-    "--weight-transfer-config",
-    "--worker-cls",
-    "--worker-extension-cls",
-}
-_OWNED_VLLM_FLAG_PREFIXES = (
-    "--api-server-",
-    "--data-parallel-",
-    "--decode-context-parallel-",
-    "--distributed-",
-    "--dp-supervisor-",
-    "--master-",
-    "--numa-",
-    "--pipeline-parallel-",
-    "--prefill-context-parallel-",
-    "--ssl-",
-    "--tensor-parallel-",
-)
-_VLLM_EXACT_PASSTHROUGH_FLAGS = frozenset({"--reasoning-parser"})
-_OWNED_VLLM_MODEL_FEATURE_SEGMENTS = frozenset({"draft", "lora", "loras", "spec", "speculative"})
-_OWNED_VLLM_JSON_KEYS = frozenset(
-    {
-        "io-processor-plugin",
-        "logits-processors",
-        "reasoning-parser-plugin",
-        "tool-parser-plugin",
-        "worker-cls",
-        "worker-extension-cls",
-    }
-)
-_OWNED_VLLM_ATTACHED_VALUE_FLAGS = ("-n", "-r")
-_OWNED_VLLM_ENVIRONMENT_NAMES = frozenset(
-    {
-        "CUDA_VISIBLE_DEVICES",
-        "GROUP_RANK",
-        "LOCAL_RANK",
-        "LOCAL_WORLD_SIZE",
-        "MASTER_ADDR",
-        "MASTER_PORT",
-        "NODE_RANK",
-        "NVIDIA_VISIBLE_DEVICES",
-        "PYTHON_EXEC",
-        "RANK",
-        "ROLE_RANK",
-        "ROLE_WORLD_SIZE",
-        "VLLM_ALLOW_RUNTIME_LORA_UPDATING",
-        "VLLM_API_KEY",
-        "VLLM_HOST_IP",
-        "VLLM_MODEL_REDIRECT_PATH",
-        "VLLM_PLUGINS",
-        "VLLM_PORT",
-        "VLLM_RPC_BASE_PATH",
-        "WORLD_SIZE",
-    }
-)
-_OWNED_VLLM_ENVIRONMENT_PREFIXES = (
-    "SLURM_",
-    "TORCHELASTIC_",
-    "VLLM_DP_",
-    "VLLM_LORA_",
-    "VLLM_MOONCAKE_",
-    "VLLM_NIXL_",
-    "VLLM_RAY_",
-)
-_DURATION_FACTORS = {"s": 1, "m": 60, "h": 3600, "d": 86400}
-_NON_SECRET_PAYLOAD_KEYS = frozenset({"idempotency_key", "partition_key", "primary_key", "sort_key"})
-_SECRET_NAME_PARTS = frozenset({"credential", "credentials", "password", "secret", "token"})
-
-_Arguments = TypeVar("_Arguments", list[str], tuple[str, ...])
-
-
-def _duration_seconds(value: Duration) -> int:
-    return int(value[:-1]) * _DURATION_FACTORS[value[-1]]
-
-
-def _secret_name_segments(value: str) -> list[str]:
-    snake_case = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", value)
-    normalized = re.sub(r"[^a-z0-9]+", "_", snake_case.casefold()).strip("_")
-    return normalized.split("_")
-
-
-def _is_secret_name(value: str) -> bool:
-    segments = _secret_name_segments(value)
-    return bool(
-        _SECRET_NAME_PARTS.intersection(segments)
-        or {"access", "key"}.issubset(segments)
-        or segments[-1] in {"auth", "key"}
-    )
-
-
-def _is_secret_payload_name(value: str) -> bool:
-    segments = _secret_name_segments(value)
-    normalized = "_".join(segments)
-    return normalized not in _NON_SECRET_PAYLOAD_KEYS and _is_secret_name(value)
-
-
-def _option_flag(value: str) -> str:
-    flag = re.split(r"[=\s]", value.lstrip(), maxsplit=1)[0]
-    return flag.replace("_", "-") if flag.startswith("--") else flag
-
-
-def _is_owned_vllm_flag(flag: str) -> bool:
-    if flag in _VLLM_EXACT_PASSTHROUGH_FLAGS:
-        return False
-    if flag.startswith("--") and _OWNED_VLLM_MODEL_FEATURE_SEGMENTS.intersection(flag.removeprefix("--").split("-")):
-        return True
-    if flag.startswith("--") and _OWNED_VLLM_JSON_KEYS.intersection(flag.removeprefix("--").split(".")):
-        return True
-    if flag in _OWNED_VLLM_FLAGS or flag.startswith(_OWNED_VLLM_FLAG_PREFIXES):
-        return True
-    if any(
-        flag.startswith(owned_flag) and re.fullmatch(r"[+-]?[0-9]+", flag[len(owned_flag) :]) is not None
-        for owned_flag in _OWNED_VLLM_ATTACHED_VALUE_FLAGS
-    ):
-        return True
-    return flag.startswith("--") and any(
-        owned_flag.startswith(flag) for owned_flag in _OWNED_VLLM_FLAGS if owned_flag.startswith("--")
-    )
-
-
-def _contains_owned_vllm_json_key(value: object) -> bool:
-    if isinstance(value, Mapping):
-        return any(
-            str(key).replace("_", "-") in _OWNED_VLLM_JSON_KEYS or _contains_owned_vllm_json_key(item)
-            for key, item in value.items()
-        )
-    if isinstance(value, list | tuple):
-        return any(_contains_owned_vllm_json_key(item) for item in value)
-    return False
-
-
-def _parse_vllm_json_argument(value: str) -> object | None:
-    candidate = value.partition("=")[2] if value.startswith("-") and "=" in value else value
-    if not candidate.startswith(("{", "[")):
-        return None
-    try:
-        return json.loads(candidate)
-    except json.JSONDecodeError as error:
-        raise ValueError("vLLM JSON arguments must contain valid JSON") from error
-
-
-def _contains_secret_key(value: object) -> bool:
-    if isinstance(value, Mapping):
-        return any(
-            (_is_secret_payload_name(str(key)) and item is not None) or _contains_secret_key(item)
-            for key, item in value.items()
-        )
-    if isinstance(value, list | tuple):
-        return any(_contains_secret_key(item) for item in value)
-    return False
-
-
-def validate_environment_bindings(
-    values: dict[EnvironmentName, EnvironmentBinding],
-) -> dict[EnvironmentName, EnvironmentBinding]:
-    """Reject literal values for environment variables that look secret-bearing."""
-    literal_secrets = [
-        name
-        for name, binding in values.items()
-        if _is_secret_name(name) and isinstance(binding, LiteralEnvironmentBinding)
-    ]
-    if literal_secrets:
-        raise ValueError("secret-shaped environment names require external secret references")
-    return values
-
-
-def validate_vllm_environment_bindings(
-    values: dict[EnvironmentName, EnvironmentBinding],
-) -> dict[EnvironmentName, EnvironmentBinding]:
-    """Reject environment names whose values are derived by the serving runtime."""
-    validate_environment_bindings(values)
-    conflicts = sorted(
-        name
-        for name in values
-        if name in _OWNED_VLLM_ENVIRONMENT_NAMES or name.startswith(_OWNED_VLLM_ENVIRONMENT_PREFIXES)
-    )
-    if conflicts:
-        raise ValueError(f"vLLM environment names are owned by the compiler or runtime: {', '.join(conflicts)}")
-    return values
-
-
-def validate_vllm_readiness_path(value: str) -> str:
-    """Require an HTTP path that cannot be interpreted as another authority."""
-    validate_plain_text(value, field_name="readiness path")
-    if (
-        not value.startswith("/")
-        or value.startswith("//")
-        or any(character.isspace() for character in value)
-        or "?" in value
-        or "#" in value
-    ):
-        raise ValueError("readiness path must be an absolute URL path without whitespace, query, or fragment")
-    return value
-
-
-def validate_vllm_extra_args(values: _Arguments) -> _Arguments:
-    """Validate shell-free vLLM arguments without allowing structured-input overrides."""
-    seen_flags: set[str] = set()
-    for value in values:
-        validate_plain_text(value, field_name="vLLM argument")
-        flag = _option_flag(value)
-        json_payload = _parse_vllm_json_argument(value)
-        if flag == "--":
-            raise ValueError("vLLM argument option terminators are not supported")
-        if _is_owned_vllm_flag(flag):
-            raise ValueError(f"vLLM argument {flag!r} is owned by the compiler or runtime")
-        if _contains_owned_vllm_json_key(json_payload):
-            raise ValueError("vLLM argument contains a field owned by the compiler or runtime")
-        if _contains_secret_key(json_payload):
-            raise ValueError("secret-shaped vLLM JSON fields must use an environment secret reference")
-        if _is_secret_name(flag.lstrip("-")):
-            raise ValueError("secret-shaped vLLM arguments must use an environment secret reference")
-        if any(character.isspace() for character in value):
-            raise ValueError("each vLLM argument must be one token")
-        if re.match(r"^--?[A-Za-z]", flag) is not None:
-            canonical_flag = f"--{flag.removeprefix('--no-')}" if flag.startswith("--no-") else flag
-            if canonical_flag in seen_flags:
-                raise ValueError(f"duplicate or conflicting vLLM argument {flag!r}")
-            seen_flags.add(canonical_flag)
-    return values
-
-
-class LiteralEnvironmentBinding(AuthoredConfig):
-    type: Literal["literal"]
-    value: Annotated[str, StringConstraints(max_length=4096)]
-
-    @field_validator("value")
-    @classmethod
-    def validate_value(cls, value: str) -> str:
-        return validate_plain_text(value, field_name="environment value")
-
-
-class SecretRef(AuthoredConfig):
-    type: Literal["secret"]
-    environment: EnvironmentName
-
-
-EnvironmentBinding = Annotated[
-    LiteralEnvironmentBinding | SecretRef,
-    Field(discriminator="type"),
+__all__ = [
+    "ArrayTasksConfig",
+    "BuilderInput",
+    "ClientConfig",
+    "ClientDependencies",
+    "DataDesignerSlurmConfig",
+    "DeploymentResources",
+    "DeploymentTopology",
+    "EnvironmentBinding",
+    "InputBindings",
+    "InvocationConfig",
+    "InvocationDiagnostics",
+    "LiteralEnvironmentBinding",
+    "LocalStdioMCPProviderConfig",
+    "MCPProviderConfig",
+    "OutputConfig",
+    "QueueBackpressureConfig",
+    "RemoteMCPProviderConfig",
+    "SecretRef",
+    "ServerDeploymentConfig",
+    "SubmissionConfig",
+    "VllmServerConfig",
 ]
 
 
@@ -396,7 +97,7 @@ class BuilderInput(AuthoredConfig):
                 valid = isinstance(self.inline.get("columns"), list)
             if not valid:
                 raise ValueError("inline builder input must be one complete serialized Data Designer config")
-            if _contains_secret_key(self.inline):
+            if contains_secret_key(self.inline):
                 raise ValueError("inline builder input must not contain secret values")
         return self
 
@@ -448,7 +149,7 @@ class LocalStdioMCPProviderConfig(AuthoredConfig):
         for value in values:
             validate_plain_text(value, field_name="MCP argument")
             option = _option_flag(value).lstrip("-")
-            if _is_secret_name(option):
+            if is_secret_name(option):
                 raise ValueError("secret-shaped MCP arguments must use an environment secret reference")
         return values
 
@@ -558,40 +259,6 @@ class ClientConfig(AuthoredConfig):
     cpus: PositiveInt = 32
     image: ImageRef
     dependencies: ClientDependencies = Field(default_factory=ClientDependencies)
-
-
-class QueueBackpressureConfig(AuthoredConfig):
-    max_waiting_requests: NonNegativeInt = 128
-    retry_after_seconds: NonNegativeInt | None = 1
-
-
-class VllmServerConfig(AuthoredConfig):
-    type: Literal["vllm"]
-    image: ImageRef
-    startup_timeout: Duration = "15m"
-    distributed_init_timeout: Duration = "10m"
-    lead_boot_standoff: NonNegativeDuration = "60s"
-    rank_launch_stagger: NonNegativeDuration = "5s"
-    readiness_path: str = "/health"
-    enable_expert_parallel: bool = False
-    queue_backpressure: QueueBackpressureConfig = Field(default_factory=QueueBackpressureConfig)
-    extra_args: list[str] = Field(default_factory=list)
-    environment: dict[EnvironmentName, EnvironmentBinding] = Field(default_factory=dict)
-
-    _readiness_path_is_safe = field_validator("readiness_path")(validate_vllm_readiness_path)
-
-    @field_validator("extra_args")
-    @classmethod
-    def validate_extra_args(cls, values: list[str]) -> list[str]:
-        return validate_vllm_extra_args(values)
-
-    _environment_is_safe = field_validator("environment")(validate_vllm_environment_bindings)
-
-    @model_validator(mode="after")
-    def validate_timeouts(self) -> VllmServerConfig:
-        if _duration_seconds(self.distributed_init_timeout) > _duration_seconds(self.startup_timeout):
-            raise ValueError("distributed_init_timeout must not exceed startup_timeout")
-        return self
 
 
 class DeploymentResources(AuthoredConfig):
@@ -706,3 +373,7 @@ class DataDesignerSlurmConfig(AuthoredConfig):
                 f"model concurrency references undeclared aliases: {', '.join(sorted(unknown_concurrency))}"
             )
         return self
+
+
+def _option_flag(value: str) -> str:
+    return re.split(r"[=\s]", value.lstrip(), maxsplit=1)[0]

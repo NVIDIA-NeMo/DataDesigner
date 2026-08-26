@@ -47,7 +47,7 @@ class ResolvedLogicalEndpoint(ContractValue):
     node_index: NonNegativeInt
     port: NetworkPort
     backend_ids: tuple[Identifier, ...] = Field(min_length=1)
-    load_balancing: Literal["round_robin"] = "round_robin"
+    load_balancing: Literal["least_connections"] = "least_connections"
     retry_status_codes: tuple[Literal[429], ...] = (429,)
     preserve_final_overload_response: Literal[True] = True
     require_all_backends_ready: Literal[True] = True
