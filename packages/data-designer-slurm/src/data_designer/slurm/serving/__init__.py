@@ -12,13 +12,13 @@ from data_designer.slurm.serving.endpoints import (
     ResolvedLogicalEndpoint,
     ResolvedReadinessProbe,
 )
-from data_designer.slurm.serving.processes import (
+from data_designer.slurm.serving.resolver import ServerResolutionError, resolve_server
+from data_designer.slurm.serving.vllm import (
     VllmLaunchPolicy,
     VllmProcessRole,
     VllmProcessSpec,
     VllmRendezvousSpec,
 )
-from data_designer.slurm.serving.resolver import ServerResolutionError, resolve_server
 
 __all__ = [
     "ResolvedBackendEndpoint",

@@ -23,7 +23,7 @@ from data_designer.slurm.serving.endpoints import (
     ResolvedLogicalEndpoint,
     ResolvedReadinessProbe,
 )
-from data_designer.slurm.serving.processes import VllmLaunchPolicy, VllmProcessSpec
+from data_designer.slurm.serving.vllm import VllmLaunchPolicy, VllmProcessSpec
 
 
 class ResolvedServerDeployment(ContractValue):

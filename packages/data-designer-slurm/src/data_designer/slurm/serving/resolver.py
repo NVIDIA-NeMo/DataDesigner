@@ -17,7 +17,7 @@ from data_designer.slurm.serving.endpoints import (
     ResolvedLogicalEndpoint,
     ResolvedReadinessProbe,
 )
-from data_designer.slurm.serving.processes import (
+from data_designer.slurm.serving.vllm import (
     VllmLaunchPolicy,
     VllmProcessRole,
     VllmProcessSpec,

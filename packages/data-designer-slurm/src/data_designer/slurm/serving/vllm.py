@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Deployment-wide policy and per-process records for Slurm serving."""
+"""Resolved vLLM launch policy and per-process records for Slurm serving."""
 
 from __future__ import annotations
 
