@@ -107,11 +107,6 @@ class ServingImageInspection(ContractValue):
 
     _executable_path_is_absolute = field_validator("executable_path")(validate_absolute_path)
 
-    @field_validator("runtime_version")
-    @classmethod
-    def validate_runtime_version(cls, value: str) -> str:
-        return validate_plain_text(value, field_name="runtime version")
-
 
 ImageInspection = Annotated[ClientImageInspection | ServingImageInspection, Field(discriminator="kind")]
 

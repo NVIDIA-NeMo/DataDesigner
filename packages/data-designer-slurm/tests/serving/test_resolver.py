@@ -165,14 +165,6 @@ def test_resolution_preserves_inspected_runtime_version_without_gating(single_no
     assert resolved.image.inspection.inspection.runtime_version == "vendor-vllm-build"
 
 
-def test_resolution_rejects_unsafe_runtime_version_text(single_node_plan: ResolvedSlurmRunPlan) -> None:
-    payload = single_node_plan.deployments[0].model_dump(mode="json")
-    payload["image"]["inspection"]["inspection"]["runtime_version"] = "vLLM\nversion"
-
-    with pytest.raises(ValidationError, match="control characters"):
-        ResolvedDeployment.model_validate_json(json.dumps(payload))
-
-
 def test_resolution_rejects_image_inspection_mismatch(single_node_plan: ResolvedSlurmRunPlan) -> None:
     placement = single_node_plan.deployments[0].model_copy(update={"image": single_node_plan.client.image})
     context = ServerResolutionContext.model_construct(
