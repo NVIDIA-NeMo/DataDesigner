@@ -8,6 +8,8 @@ import hashlib
 import pytest
 from pydantic import ValidationError
 
+from data_designer.slurm import contracts as contracts_module
+from data_designer.slurm import types as types_module
 from data_designer.slurm.contracts import (
     ArtifactReference as ContractArtifactReference,
 )
@@ -43,6 +45,11 @@ from data_designer.slurm.state import (
     StateRecord,
     StateValue,
 )
+
+
+@pytest.mark.parametrize("type_name", types_module.__all__)
+def test_contracts_reexport_shared_scalar_types(type_name: str) -> None:
+    assert getattr(contracts_module, type_name) is getattr(types_module, type_name)
 
 
 def test_state_exports_exact_shared_contract_types() -> None:

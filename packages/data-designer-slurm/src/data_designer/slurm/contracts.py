@@ -10,7 +10,7 @@ import json
 import posixpath
 import re
 from collections.abc import Mapping
-from typing import Annotated, Literal, TypeVar
+from typing import TypeVar
 from urllib.parse import urlsplit
 
 from pydantic import (
@@ -18,27 +18,24 @@ from pydantic import (
     ConfigDict,
     NonNegativeInt,
     PositiveInt,
-    StringConstraints,
     field_validator,
     model_validator,
 )
 
-Identifier = Annotated[
-    str,
-    StringConstraints(
-        min_length=1,
-        max_length=128,
-        pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$",
-    ),
-]
-ModelAlias = str
-ShardId = Annotated[str, StringConstraints(pattern=r"^shard-[0-9]{5,}$")]
-AttemptId = Annotated[str, StringConstraints(pattern=r"^attempt-[0-9]{4,}$")]
-SchemaVersion = Literal[1]
-EnvironmentName = Annotated[str, StringConstraints(pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")]
-Sha256Digest = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
-Duration = Annotated[str, StringConstraints(pattern=r"^[1-9][0-9]*(?:s|m|h|d)$")]
-NonNegativeDuration = Annotated[str, StringConstraints(pattern=r"^(?:0|[1-9][0-9]*)(?:s|m|h|d)$")]
+from data_designer.slurm.types import (
+    AttemptId,
+    Duration,
+    EnvironmentName,
+    Identifier,
+    ModelAlias,
+    NetworkPort,
+    NonNegativeDuration,
+    SchemaVersion,
+    Sha256Digest,
+    ShardId,
+)
+
+# TODO: Remove these compatibility re-exports after downstream Stage 2 branches import aliases from slurm.types.
 
 _Key = TypeVar("_Key")
 _Value = TypeVar("_Value")
@@ -294,6 +291,7 @@ __all__ = [
     "EnvironmentName",
     "Identifier",
     "ModelAlias",
+    "NetworkPort",
     "NonNegativeDuration",
     "RecordRange",
     "ResumeWorkspace",

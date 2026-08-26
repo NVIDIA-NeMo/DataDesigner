@@ -5,13 +5,12 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Literal
+from typing import Literal
 
 from pydantic import Field, NonNegativeInt, PositiveInt, model_validator
 
-from data_designer.slurm.contracts import ContractValue, Identifier, ModelAlias
-
-NetworkPort = Annotated[int, Field(ge=1024, le=65535)]
+from data_designer.slurm.contracts import ContractValue
+from data_designer.slurm.types import Identifier, ModelAlias, NetworkPort
 
 
 class ResolvedBackendEndpoint(ContractValue):

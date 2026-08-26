@@ -44,6 +44,7 @@ from data_designer.slurm.contracts import (
     validate_local_config_path,
     validate_plain_text,
 )
+from data_designer.slurm.types import NetworkPort
 
 
 class ResolvedImage(ContractValue):
@@ -197,7 +198,7 @@ class PortClaim(ContractValue):
     name: Identifier
     role: Literal["http", "rendezvous", "logical_endpoint"]
     node_index: NonNegativeInt
-    port: Annotated[int, Field(ge=1024, le=65535)]
+    port: NetworkPort
 
 
 class ResolvedTopology(ContractValue):

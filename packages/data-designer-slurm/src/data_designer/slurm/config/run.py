@@ -34,16 +34,13 @@ from data_designer.slurm.config.images import ImageRef
 from data_designer.slurm.config.vllm import QueueBackpressureConfig, VllmServerConfig
 from data_designer.slurm.contracts import (
     AuthoredConfig,
-    EnvironmentName,
-    Identifier,
-    ModelAlias,
-    SchemaVersion,
     extract_option_flag,
     validate_absolute_path,
     validate_local_config_path,
     validate_plain_text,
     validate_url,
 )
+from data_designer.slurm.types import EnvironmentName, Identifier, ModelAlias, SchemaVersion
 
 __all__ = [
     "ArrayTasksConfig",

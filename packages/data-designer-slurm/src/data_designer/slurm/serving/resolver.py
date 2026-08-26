@@ -8,7 +8,7 @@ from __future__ import annotations
 from data_designer.slurm.config.images import ServingImageInspection
 from data_designer.slurm.config.run import ServerDeploymentConfig
 from data_designer.slurm.config.vllm import VllmServerConfig
-from data_designer.slurm.contracts import Identifier, convert_duration_to_seconds
+from data_designer.slurm.contracts import convert_duration_to_seconds
 from data_designer.slurm.planning.models import PortClaim, ResolvedDeployment, ResolvedSlurmRunPlan
 from data_designer.slurm.serving.deployment import ResolvedServerDeployment
 from data_designer.slurm.serving.endpoints import (
@@ -22,6 +22,7 @@ from data_designer.slurm.serving.vllm import (
     VllmProcessSpec,
     VllmRendezvousSpec,
 )
+from data_designer.slurm.types import Identifier
 
 
 class ServerResolutionError(ValueError):

@@ -11,7 +11,8 @@ from typing import Annotated, Literal
 
 from pydantic import Field, StringConstraints, field_validator
 
-from data_designer.slurm.contracts import AuthoredConfig, EnvironmentName, validate_plain_text
+from data_designer.slurm.contracts import AuthoredConfig, validate_plain_text
+from data_designer.slurm.types import EnvironmentName
 
 __all__ = [
     "EnvironmentBinding",

@@ -12,8 +12,6 @@ from pydantic import Field, NonNegativeInt, PositiveInt, field_validator, model_
 from data_designer.slurm.config.images import ServingImageInspection
 from data_designer.slurm.contracts import (
     ContractValue,
-    Identifier,
-    ModelAlias,
     validate_absolute_path,
     validate_plain_text,
 )
@@ -24,6 +22,7 @@ from data_designer.slurm.serving.endpoints import (
     ResolvedReadinessProbe,
 )
 from data_designer.slurm.serving.vllm import VllmLaunchPolicy, VllmProcessSpec
+from data_designer.slurm.types import Identifier, ModelAlias
 
 
 class ResolvedServerDeployment(ContractValue):

@@ -16,8 +16,8 @@ from data_designer.slurm.config.vllm import (
     validate_vllm_extra_args,
     validate_vllm_readiness_path,
 )
-from data_designer.slurm.contracts import ContractValue, EnvironmentName, Identifier
-from data_designer.slurm.serving.endpoints import NetworkPort
+from data_designer.slurm.contracts import ContractValue
+from data_designer.slurm.types import EnvironmentName, Identifier, NetworkPort
 
 
 class VllmProcessRole(str, Enum):

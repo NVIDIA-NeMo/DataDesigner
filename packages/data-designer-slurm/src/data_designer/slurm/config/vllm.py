@@ -21,13 +21,11 @@ from data_designer.slurm.config.environment import (
 from data_designer.slurm.config.images import ImageRef
 from data_designer.slurm.contracts import (
     AuthoredConfig,
-    Duration,
-    EnvironmentName,
-    NonNegativeDuration,
     convert_duration_to_seconds,
     extract_option_flag,
     validate_plain_text,
 )
+from data_designer.slurm.types import Duration, EnvironmentName, NonNegativeDuration
 
 __all__ = [
     "QueueBackpressureConfig",
