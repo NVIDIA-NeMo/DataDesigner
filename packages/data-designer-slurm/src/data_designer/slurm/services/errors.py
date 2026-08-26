@@ -52,6 +52,11 @@ class SlurmServiceError(RuntimeError):
         self.operation = operation
         super().__init__(message)
 
+    def __reduce__(
+        self,
+    ) -> tuple[type[SlurmServiceError], tuple[SlurmServiceErrorCode, SlurmServiceOperation, str]]:
+        return type(self), (self.code, self.operation, str(self))
+
 
 def invalid_request(operation: SlurmServiceOperation, message: str) -> SlurmServiceError:
     """Build one normalized invalid-request error."""
@@ -65,6 +70,8 @@ def invoke_backend(operation: SlurmServiceOperation, call: Callable[[], _ResultT
     except SlurmServiceError as error:
         if error.operation is operation:
             raise
+        if error.code is not SlurmServiceErrorCode.INTERNAL:
+            raise SlurmServiceError(error.code, operation, str(error)) from None
     except Exception:
         pass
     raise SlurmServiceError(

@@ -65,6 +65,8 @@ class SlurmBenchmarkService:
             report = self._backend.analyze(validated_id, refresh_state=refresh_state)
             if not isinstance(report, BenchmarkReport):
                 raise TypeError("benchmark backend returned an invalid report")
+            if report.benchmark_id != validated_id:
+                raise ValueError("benchmark report does not match the requested benchmark")
             return report
 
         return invoke_backend(operation, analyze_benchmark)

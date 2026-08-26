@@ -41,6 +41,10 @@ class SlurmImageService:
             image = self._resolver.resolve(reference, expected_kind=expected_kind)
             if not isinstance(image, ResolvedImage):
                 raise TypeError("image resolver returned an invalid result")
+            if image.authored_ref != reference:
+                raise ValueError("resolved image does not match the requested reference")
+            if image.kind is not expected_kind:
+                raise ValueError("resolved image does not match the expected kind")
             return image
 
         return invoke_backend(operation, resolve_image)

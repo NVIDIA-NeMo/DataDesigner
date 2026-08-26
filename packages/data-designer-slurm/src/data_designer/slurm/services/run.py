@@ -45,13 +45,17 @@ class SlurmRunPlanResult(ContractValue):
     def validate_batch_script(cls, value: str) -> str:
         if not value.startswith("#!/usr/bin/env bash\n"):
             raise ValueError("batch script must start with the package bash shebang")
-        if "\x00" in value or "\r" in value:
-            raise ValueError("batch script must not contain NUL or carriage-return characters")
+        if any(
+            character in "\u2028\u2029"
+            or (character not in "\n\t" and (ord(character) < 32 or 127 <= ord(character) <= 159))
+            for character in value
+        ):
+            raise ValueError("batch script must not contain control or non-LF line-separator characters")
         return value
 
     @model_validator(mode="after")
     def validate_plan_binding(self) -> SlurmRunPlanResult:
-        lines = self.batch_script.splitlines()
+        lines = self.batch_script.split("\n")
         expected_digest = f'readonly DD_PLAN_SHA256="{self.plan.compute_sha256()}"'
         if expected_digest not in lines:
             raise ValueError("batch script must bind the exact resolved plan digest")

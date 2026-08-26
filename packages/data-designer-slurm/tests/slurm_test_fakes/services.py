@@ -23,6 +23,10 @@ _RequestT = TypeVar("_RequestT")
 _ResultT = TypeVar("_ResultT")
 
 
+class FakeScriptError(BaseException):
+    """Signal an invalid deterministic-fake interaction."""
+
+
 class _ScriptedResponses(Generic[_RequestT, _ResultT]):
     def __init__(self, responses: Iterable[tuple[_RequestT, _ResultT | BaseException]]) -> None:
         self._responses = deque(responses)
@@ -31,17 +35,17 @@ class _ScriptedResponses(Generic[_RequestT, _ResultT]):
     def next(self, request: _RequestT, *, operation: str) -> _ResultT:
         self.calls.append(request)
         if not self._responses:
-            raise AssertionError(f"unexpected {operation}")
+            raise FakeScriptError(f"unexpected {operation}")
         expected, response = self._responses.popleft()
         if request != expected:
-            raise AssertionError(f"expected {operation} {expected!r}, got {request!r}")
+            raise FakeScriptError(f"expected {operation} {expected!r}, got {request!r}")
         if isinstance(response, BaseException):
             raise response
         return response
 
     def assert_complete(self, *, operation: str) -> None:
         if self._responses:
-            raise AssertionError(f"{len(self._responses)} {operation} responses remain")
+            raise FakeScriptError(f"{len(self._responses)} {operation} responses remain")
 
 
 class FakeRunPlanningBackend:

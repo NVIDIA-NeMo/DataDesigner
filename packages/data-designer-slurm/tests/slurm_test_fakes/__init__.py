@@ -12,6 +12,7 @@ from slurm_test_fakes.services import (
     FakeBenchmarkBackend,
     FakeImageResolver,
     FakeRunPlanningBackend,
+    FakeScriptError,
 )
 from slurm_test_fakes.serving import FakeLogicalEndpoint, FakeServingState, FakeVllmBackend
 from slurm_test_fakes.slurm import (
@@ -31,6 +32,7 @@ __all__ = [
     "FakeImageResolver",
     "FakeLogicalEndpoint",
     "FakeRunPlanningBackend",
+    "FakeScriptError",
     "FakeServingState",
     "FakeSlurmArray",
     "FakeSlurmRunner",
