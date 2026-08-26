@@ -17,6 +17,8 @@ from data_designer.slurm.contracts import (
     ResumeWorkspace,
     canonical_json,
     compute_sha256,
+    convert_duration_to_seconds,
+    extract_option_flag,
     pretty_json,
 )
 from data_designer.slurm.contracts import (
@@ -59,6 +61,19 @@ def test_shared_json_helpers_are_deterministic() -> None:
     assert canonical_json(value) == b'{"number":1,"unicode":"\xe6\xa8\xa1\xe5\x9e\x8b"}'
     assert pretty_json(value) == '{\n  "number": 1,\n  "unicode": "模型"\n}\n'
     assert compute_sha256(value) == hashlib.sha256(canonical_json(value)).hexdigest()
+
+
+@pytest.mark.parametrize(("value", "expected"), [("2h", 7200), ("30m", 1800), ("0s", 0)])
+def test_convert_duration_to_seconds(value: str, expected: int) -> None:
+    assert convert_duration_to_seconds(value) == expected
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [("--flag=value", "--flag"), ("--flag value", "--flag"), ("-n4", "-n4")],
+)
+def test_extract_option_flag(value: str, expected: str) -> None:
+    assert extract_option_flag(value) == expected
 
 
 def test_resume_workspace_requires_a_safe_absolute_path() -> None:

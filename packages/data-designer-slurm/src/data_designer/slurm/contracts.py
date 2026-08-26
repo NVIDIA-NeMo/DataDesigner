@@ -8,6 +8,7 @@ from __future__ import annotations
 import hashlib
 import json
 import posixpath
+import re
 from collections.abc import Mapping
 from typing import Annotated, Literal, TypeVar
 from urllib.parse import urlsplit
@@ -170,6 +171,17 @@ def compute_sha256(value: object) -> Sha256Digest:
     return hashlib.sha256(canonical_json(value)).hexdigest()
 
 
+def convert_duration_to_seconds(value: str) -> int:
+    """Convert a validated Slurm duration value to whole seconds."""
+    factor = {"s": 1, "m": 60, "h": 3600, "d": 86400}[value[-1]]
+    return int(value[:-1]) * factor
+
+
+def extract_option_flag(value: str) -> str:
+    """Extract the option name from one shell-free argument value."""
+    return re.split(r"[=\s]", value.lstrip(), maxsplit=1)[0]
+
+
 def validate_absolute_path(value: str) -> str:
     """Validate a normalized, absolute POSIX path below the filesystem root."""
     if not value.startswith("/"):
@@ -290,6 +302,8 @@ __all__ = [
     "ShardId",
     "canonical_json",
     "compute_sha256",
+    "convert_duration_to_seconds",
+    "extract_option_flag",
     "pretty_json",
     "validate_absolute_path",
     "validate_local_config_path",

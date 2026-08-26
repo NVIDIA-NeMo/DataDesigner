@@ -38,6 +38,7 @@ from data_designer.slurm.contracts import (
     Identifier,
     ModelAlias,
     SchemaVersion,
+    extract_option_flag,
     validate_absolute_path,
     validate_local_config_path,
     validate_plain_text,
@@ -148,7 +149,7 @@ class LocalStdioMCPProviderConfig(AuthoredConfig):
     def validate_args(cls, values: list[str]) -> list[str]:
         for value in values:
             validate_plain_text(value, field_name="MCP argument")
-            option = _option_flag(value).lstrip("-")
+            option = extract_option_flag(value).lstrip("-")
             if is_secret_name(option):
                 raise ValueError("secret-shaped MCP arguments must use an environment secret reference")
         return values
@@ -373,8 +374,3 @@ class DataDesignerSlurmConfig(AuthoredConfig):
                 f"model concurrency references undeclared aliases: {', '.join(sorted(unknown_concurrency))}"
             )
         return self
-
-
-def _option_flag(value: str) -> str:
-    """Extract the option name from one shell-free argument value."""
-    return re.split(r"[=\s]", value.lstrip(), maxsplit=1)[0]

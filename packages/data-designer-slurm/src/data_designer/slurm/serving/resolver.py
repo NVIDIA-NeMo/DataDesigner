@@ -8,6 +8,7 @@ from __future__ import annotations
 from data_designer.slurm.config.images import ServingImageInspection
 from data_designer.slurm.config.run import ServerDeploymentConfig
 from data_designer.slurm.config.vllm import VllmServerConfig
+from data_designer.slurm.contracts import convert_duration_to_seconds
 from data_designer.slurm.planning.models import PortClaim, ResolvedDeployment
 from data_designer.slurm.serving.compatibility import UnsupportedServingRuntimeError, resolve_vllm_compatibility
 from data_designer.slurm.serving.context import ServerResolutionContext
@@ -23,8 +24,6 @@ from data_designer.slurm.serving.processes import (
     VllmProcessSpec,
     VllmRendezvousSpec,
 )
-
-_DURATION_FACTORS = {"s": 1, "m": 60, "h": 3600, "d": 86400}
 
 
 class ServerResolutionError(ValueError):
@@ -96,7 +95,7 @@ def _resolve_vllm(
                     node_index=http_port.node_index,
                     port=http_port.port,
                     path=server.readiness_path,
-                    deadline_seconds=_duration_seconds(server.startup_timeout),
+                    deadline_seconds=convert_duration_to_seconds(server.startup_timeout),
                 )
             )
             rendezvous = _resolve_rendezvous(
@@ -108,7 +107,7 @@ def _resolve_vllm(
             )
             gpu_start = lane_index * tensor_parallel
             gpu_indices = tuple(range(gpu_start, gpu_start + tensor_parallel))
-            launch_delay = _launch_delay_seconds(server, replica_index)
+            launch_delay = _calculate_launch_delay_seconds(server, replica_index)
             for pipeline_rank, node_index in enumerate(group_nodes):
                 is_head = pipeline_rank == 0
                 processes.append(
@@ -143,10 +142,10 @@ def _resolve_vllm(
         topology=placement.topology,
         compatibility=compatibility,
         launch_policy=VllmLaunchPolicy(
-            startup_timeout_seconds=_duration_seconds(server.startup_timeout),
-            distributed_init_timeout_seconds=_duration_seconds(server.distributed_init_timeout),
-            lead_boot_standoff_seconds=_duration_seconds(server.lead_boot_standoff),
-            rank_launch_stagger_seconds=_duration_seconds(server.rank_launch_stagger),
+            startup_timeout_seconds=convert_duration_to_seconds(server.startup_timeout),
+            distributed_init_timeout_seconds=convert_duration_to_seconds(server.distributed_init_timeout),
+            lead_boot_standoff_seconds=convert_duration_to_seconds(server.lead_boot_standoff),
+            rank_launch_stagger_seconds=convert_duration_to_seconds(server.rank_launch_stagger),
             readiness_path=server.readiness_path,
             enable_expert_parallel=server.enable_expert_parallel,
             queue_backpressure=server.queue_backpressure,
@@ -183,15 +182,13 @@ def _resolve_rendezvous(
         lane_index=lane_index,
         master_node_index=port.node_index,
         port=port.port,
-        timeout_seconds=_duration_seconds(placement.authored.server.distributed_init_timeout),
+        timeout_seconds=convert_duration_to_seconds(placement.authored.server.distributed_init_timeout),
     )
 
 
-def _launch_delay_seconds(server: VllmServerConfig, replica_index: int) -> int:
+def _calculate_launch_delay_seconds(server: VllmServerConfig, replica_index: int) -> int:
     if replica_index == 0:
         return 0
-    return _duration_seconds(server.lead_boot_standoff) + replica_index * _duration_seconds(server.rank_launch_stagger)
-
-
-def _duration_seconds(value: str) -> int:
-    return int(value[:-1]) * _DURATION_FACTORS[value[-1]]
+    return convert_duration_to_seconds(server.lead_boot_standoff) + replica_index * convert_duration_to_seconds(
+        server.rank_launch_stagger
+    )

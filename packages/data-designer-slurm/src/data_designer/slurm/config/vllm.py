@@ -24,6 +24,8 @@ from data_designer.slurm.contracts import (
     Duration,
     EnvironmentName,
     NonNegativeDuration,
+    convert_duration_to_seconds,
+    extract_option_flag,
     validate_plain_text,
 )
 
@@ -73,7 +75,9 @@ class VllmServerConfig(AuthoredConfig):
 
     @model_validator(mode="after")
     def validate_timeouts(self) -> VllmServerConfig:
-        if _duration_seconds(self.distributed_init_timeout) > _duration_seconds(self.startup_timeout):
+        if convert_duration_to_seconds(self.distributed_init_timeout) > convert_duration_to_seconds(
+            self.startup_timeout
+        ):
             raise ValueError("distributed_init_timeout must not exceed startup_timeout")
         return self
 
@@ -112,7 +116,7 @@ def validate_vllm_extra_args(values: _Arguments) -> _Arguments:
     seen_flags: set[str] = set()
     for value in values:
         validate_plain_text(value, field_name="vLLM argument")
-        flag = _option_flag(value)
+        flag = _canonicalize_vllm_option_flag(value)
         json_payload = _parse_vllm_json_argument(value)
         if flag == "--":
             raise ValueError("vLLM argument option terminators are not supported")
@@ -135,7 +139,6 @@ def validate_vllm_extra_args(values: _Arguments) -> _Arguments:
 
 
 _Arguments = TypeVar("_Arguments", list[str], tuple[str, ...])
-_DURATION_FACTORS = {"s": 1, "m": 60, "h": 3600, "d": 86400}
 _OWNED_VLLM_FLAGS = {
     "-asc",
     "-dcp",
@@ -325,10 +328,6 @@ def _contains_owned_vllm_json_key(value: object) -> bool:
     return False
 
 
-def _duration_seconds(value: Duration) -> int:
-    return int(value[:-1]) * _DURATION_FACTORS[value[-1]]
-
-
 def _is_owned_vllm_flag(flag: str) -> bool:
     if flag in _VLLM_EXACT_PASSTHROUGH_FLAGS:
         return False
@@ -348,8 +347,8 @@ def _is_owned_vllm_flag(flag: str) -> bool:
     )
 
 
-def _option_flag(value: str) -> str:
-    flag = re.split(r"[=\s]", value.lstrip(), maxsplit=1)[0]
+def _canonicalize_vllm_option_flag(value: str) -> str:
+    flag = extract_option_flag(value)
     return flag.replace("_", "-") if flag.startswith("--") else flag
 
 
