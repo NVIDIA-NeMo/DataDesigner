@@ -14,19 +14,19 @@ from data_designer.slurm.types import Identifier, NetworkPort
 
 
 class ResolvedBackendEndpoint(ContractValue):
-    """Internal HTTP endpoint published by one replica's lane head."""
+    """Internal HTTP endpoint published by one replica's head process."""
 
     backend_id: Identifier
-    replica_index: NonNegativeInt
+    deployment_replica_index: NonNegativeInt
     node_group_index: NonNegativeInt
-    lane_index: NonNegativeInt
+    replica_index_in_node_group: NonNegativeInt
     node_index: NonNegativeInt
     port: NetworkPort
     served_model_name: str
 
 
 class ResolvedReadinessProbe(ContractValue):
-    """Bounded readiness probe for one lane-head backend."""
+    """Bounded readiness probe for one replica-head backend."""
 
     probe_id: Identifier
     backend_id: Identifier

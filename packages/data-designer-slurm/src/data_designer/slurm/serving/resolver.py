@@ -67,22 +67,22 @@ def _resolve_vllm(
     backends: list[ResolvedBackendEndpoint] = []
     probes: list[ResolvedReadinessProbe] = []
     nodes_per_replica = placement.topology.nodes_per_replica
-    replicas_per_group = placement.topology.replicas_per_node_group
+    replicas_per_node_group = placement.topology.replicas_per_node_group
     tensor_parallel = placement.topology.tensor_parallel
 
     for node_group_index in range(placement.topology.node_group_count):
         group_start = node_group_index * nodes_per_replica
         group_nodes = placement.node_indices[group_start : group_start + nodes_per_replica]
-        for lane_index in range(replicas_per_group):
-            replica_index = node_group_index * replicas_per_group + lane_index
-            http_port = http_ports[replica_index]
-            backend_id = f"{placement.deployment_id}-backend-{replica_index:05d}"
+        for replica_index_in_node_group in range(replicas_per_node_group):
+            deployment_replica_index = node_group_index * replicas_per_node_group + replica_index_in_node_group
+            http_port = http_ports[deployment_replica_index]
+            backend_id = f"{placement.deployment_id}-backend-{deployment_replica_index:05d}"
             backends.append(
                 ResolvedBackendEndpoint(
                     backend_id=backend_id,
-                    replica_index=replica_index,
+                    deployment_replica_index=deployment_replica_index,
                     node_group_index=node_group_index,
-                    lane_index=lane_index,
+                    replica_index_in_node_group=replica_index_in_node_group,
                     node_index=http_port.node_index,
                     port=http_port.port,
                     served_model_name=placement.served_model_name,
@@ -90,7 +90,7 @@ def _resolve_vllm(
             )
             probes.append(
                 ResolvedReadinessProbe(
-                    probe_id=f"{placement.deployment_id}-readiness-{replica_index:05d}",
+                    probe_id=f"{placement.deployment_id}-readiness-{deployment_replica_index:05d}",
                     backend_id=backend_id,
                     node_index=http_port.node_index,
                     port=http_port.port,
@@ -102,21 +102,23 @@ def _resolve_vllm(
                 placement,
                 rendezvous_ports,
                 node_group_index=node_group_index,
-                lane_index=lane_index,
-                replica_index=replica_index,
+                replica_index_in_node_group=replica_index_in_node_group,
+                deployment_replica_index=deployment_replica_index,
             )
-            gpu_start = lane_index * tensor_parallel
+            gpu_start = replica_index_in_node_group * tensor_parallel
             gpu_indices = tuple(range(gpu_start, gpu_start + tensor_parallel))
-            launch_delay = _calculate_launch_delay_seconds(server, replica_index)
+            launch_delay = _calculate_launch_delay_seconds(server, deployment_replica_index)
             for pipeline_rank, node_index in enumerate(group_nodes):
                 is_head = pipeline_rank == 0
                 processes.append(
                     VllmProcessSpec(
-                        process_id=(f"{placement.deployment_id}-replica-{replica_index:05d}-rank-{pipeline_rank:05d}"),
+                        process_id=(
+                            f"{placement.deployment_id}-replica-{deployment_replica_index:05d}-rank-{pipeline_rank:05d}"
+                        ),
                         deployment_id=placement.deployment_id,
-                        replica_index=replica_index,
+                        deployment_replica_index=deployment_replica_index,
                         node_group_index=node_group_index,
-                        lane_index=lane_index,
+                        replica_index_in_node_group=replica_index_in_node_group,
                         pipeline_rank=pipeline_rank,
                         node_index=node_index,
                         gpu_indices=gpu_indices,
@@ -170,24 +172,24 @@ def _resolve_rendezvous(
     rendezvous_ports: tuple[PortClaim, ...],
     *,
     node_group_index: int,
-    lane_index: int,
-    replica_index: int,
+    replica_index_in_node_group: int,
+    deployment_replica_index: int,
 ) -> VllmRendezvousSpec | None:
     if placement.topology.pipeline_parallel == 1:
         return None
-    port = rendezvous_ports[replica_index]
+    port = rendezvous_ports[deployment_replica_index]
     return VllmRendezvousSpec(
         node_group_index=node_group_index,
-        lane_index=lane_index,
+        replica_index_in_node_group=replica_index_in_node_group,
         master_node_index=port.node_index,
         port=port.port,
         timeout_seconds=convert_duration_to_seconds(placement.authored.server.distributed_init_timeout),
     )
 
 
-def _calculate_launch_delay_seconds(server: VllmServerConfig, replica_index: int) -> int:
-    if replica_index == 0:
+def _calculate_launch_delay_seconds(server: VllmServerConfig, deployment_replica_index: int) -> int:
+    if deployment_replica_index == 0:
         return 0
-    return convert_duration_to_seconds(server.lead_boot_standoff) + replica_index * convert_duration_to_seconds(
-        server.rank_launch_stagger
-    )
+    return convert_duration_to_seconds(
+        server.lead_boot_standoff
+    ) + deployment_replica_index * convert_duration_to_seconds(server.rank_launch_stagger)

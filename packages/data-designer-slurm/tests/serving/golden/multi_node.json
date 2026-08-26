@@ -2,20 +2,20 @@
   "backend_endpoints": [
     {
       "backend_id": "deployment-00000-backend-00000",
-      "lane_index": 0,
+      "deployment_replica_index": 0,
       "node_group_index": 0,
       "node_index": 0,
       "port": 18000,
-      "replica_index": 0,
+      "replica_index_in_node_group": 0,
       "served_model_name": "example/generator"
     },
     {
       "backend_id": "deployment-00000-backend-00001",
-      "lane_index": 1,
+      "deployment_replica_index": 1,
       "node_group_index": 0,
       "node_index": 0,
       "port": 18001,
-      "replica_index": 1,
+      "replica_index_in_node_group": 1,
       "served_model_name": "example/generator"
     }
   ],
@@ -90,6 +90,7 @@
   "processes": [
     {
       "deployment_id": "deployment-00000",
+      "deployment_replica_index": 0,
       "gpu_indices": [
         0,
         1,
@@ -97,7 +98,6 @@
         3
       ],
       "http_port": 18000,
-      "lane_index": 0,
       "launch_delay_seconds": 0,
       "node_group_index": 0,
       "node_index": 0,
@@ -105,18 +105,19 @@
       "pipeline_rank": 0,
       "process_id": "deployment-00000-replica-00000-rank-00000",
       "rendezvous": {
-        "lane_index": 0,
         "master_node_index": 0,
         "node_group_index": 0,
         "port": 19000,
+        "replica_index_in_node_group": 0,
         "timeout_seconds": 600
       },
-      "replica_index": 0,
+      "replica_index_in_node_group": 0,
       "role": "api_server",
       "tensor_parallel": 4
     },
     {
       "deployment_id": "deployment-00000",
+      "deployment_replica_index": 0,
       "gpu_indices": [
         0,
         1,
@@ -124,7 +125,6 @@
         3
       ],
       "http_port": null,
-      "lane_index": 0,
       "launch_delay_seconds": 0,
       "node_group_index": 0,
       "node_index": 1,
@@ -132,18 +132,19 @@
       "pipeline_rank": 1,
       "process_id": "deployment-00000-replica-00000-rank-00001",
       "rendezvous": {
-        "lane_index": 0,
         "master_node_index": 0,
         "node_group_index": 0,
         "port": 19000,
+        "replica_index_in_node_group": 0,
         "timeout_seconds": 600
       },
-      "replica_index": 0,
+      "replica_index_in_node_group": 0,
       "role": "follower",
       "tensor_parallel": 4
     },
     {
       "deployment_id": "deployment-00000",
+      "deployment_replica_index": 1,
       "gpu_indices": [
         4,
         5,
@@ -151,7 +152,6 @@
         7
       ],
       "http_port": 18001,
-      "lane_index": 1,
       "launch_delay_seconds": 32,
       "node_group_index": 0,
       "node_index": 0,
@@ -159,18 +159,19 @@
       "pipeline_rank": 0,
       "process_id": "deployment-00000-replica-00001-rank-00000",
       "rendezvous": {
-        "lane_index": 1,
         "master_node_index": 0,
         "node_group_index": 0,
         "port": 19001,
+        "replica_index_in_node_group": 1,
         "timeout_seconds": 600
       },
-      "replica_index": 1,
+      "replica_index_in_node_group": 1,
       "role": "api_server",
       "tensor_parallel": 4
     },
     {
       "deployment_id": "deployment-00000",
+      "deployment_replica_index": 1,
       "gpu_indices": [
         4,
         5,
@@ -178,7 +179,6 @@
         7
       ],
       "http_port": null,
-      "lane_index": 1,
       "launch_delay_seconds": 32,
       "node_group_index": 0,
       "node_index": 1,
@@ -186,13 +186,13 @@
       "pipeline_rank": 1,
       "process_id": "deployment-00000-replica-00001-rank-00001",
       "rendezvous": {
-        "lane_index": 1,
         "master_node_index": 0,
         "node_group_index": 0,
         "port": 19001,
+        "replica_index_in_node_group": 1,
         "timeout_seconds": 600
       },
-      "replica_index": 1,
+      "replica_index_in_node_group": 1,
       "role": "follower",
       "tensor_parallel": 4
     }

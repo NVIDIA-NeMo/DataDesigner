@@ -197,6 +197,7 @@ class ResolvedInvocation(ContractValue):
 class PortClaim(ContractValue):
     name: Identifier
     role: Literal["http", "rendezvous", "logical_endpoint"]
+    # TODO: Rename node_index to allocation_node_index after downstream Stage 2 branches converge on this contract.
     node_index: NonNegativeInt
     port: NetworkPort
 

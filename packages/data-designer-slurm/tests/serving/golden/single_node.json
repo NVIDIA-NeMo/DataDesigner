@@ -2,11 +2,11 @@
   "backend_endpoints": [
     {
       "backend_id": "deployment-00000-backend-00000",
-      "lane_index": 0,
+      "deployment_replica_index": 0,
       "node_group_index": 0,
       "node_index": 0,
       "port": 18000,
-      "replica_index": 0,
+      "replica_index_in_node_group": 0,
       "served_model_name": "example/generator"
     }
   ],
@@ -71,6 +71,7 @@
   "processes": [
     {
       "deployment_id": "deployment-00000",
+      "deployment_replica_index": 0,
       "gpu_indices": [
         0,
         1,
@@ -82,7 +83,6 @@
         7
       ],
       "http_port": 18000,
-      "lane_index": 0,
       "launch_delay_seconds": 0,
       "node_group_index": 0,
       "node_index": 0,
@@ -90,7 +90,7 @@
       "pipeline_rank": 0,
       "process_id": "deployment-00000-replica-00000-rank-00000",
       "rendezvous": null,
-      "replica_index": 0,
+      "replica_index_in_node_group": 0,
       "role": "api_server",
       "tensor_parallel": 8
     }

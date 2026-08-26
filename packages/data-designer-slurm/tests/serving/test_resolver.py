@@ -48,8 +48,8 @@ def test_single_node_resolution_matches_golden(single_node_plan: ResolvedSlurmRu
     assert first.failure_policy == "coordinated"
 
 
-def test_multi_node_lane_resolution_matches_golden(multi_node_plan: ResolvedSlurmRunPlan) -> None:
-    placement = _multi_lane_placement(multi_node_plan)
+def test_multi_node_replica_resolution_matches_golden(multi_node_plan: ResolvedSlurmRunPlan) -> None:
+    placement = _multi_replica_placement(multi_node_plan)
     plan = _plan_with_placement(multi_node_plan, placement)
 
     resolved = resolve_server(plan, placement.deployment_id)
@@ -228,7 +228,7 @@ def test_process_specs_reject_one_field_topology_drift(
     mutation: str,
     message: str,
 ) -> None:
-    placement = _multi_lane_placement(multi_node_plan)
+    placement = _multi_replica_placement(multi_node_plan)
     plan = _plan_with_placement(multi_node_plan, placement)
     resolved = resolve_server(plan, placement.deployment_id)
     process_index = (
@@ -252,7 +252,7 @@ def test_process_specs_reject_one_field_topology_drift(
     elif mutation == "missing_rendezvous":
         payload["rendezvous"] = None
     else:
-        payload["rendezvous"]["lane_index"] = 1
+        payload["rendezvous"]["replica_index_in_node_group"] = 1
 
     with pytest.raises(ValidationError, match=message):
         VllmProcessSpec.model_validate_json(json.dumps(payload))
@@ -271,7 +271,7 @@ def test_process_specs_reject_one_field_topology_drift(
         ("logical_alias", "model alias"),
         ("logical_served_name", "served model name"),
         ("logical_id", "endpoint ID"),
-        ("replica_index", "replica identities"),
+        ("deployment_replica_index", "replica identities"),
         ("backend_id", "endpoint IDs"),
         ("logical_backends", "resolved backend order"),
         ("process_ids", "process IDs"),
@@ -296,7 +296,7 @@ def test_resolved_server_rejects_one_field_join_drift(
     mutation: str,
     message: str,
 ) -> None:
-    placement = _multi_lane_placement(multi_node_plan)
+    placement = _multi_replica_placement(multi_node_plan)
     plan = _plan_with_placement(multi_node_plan, placement)
     resolved = resolve_server(plan, placement.deployment_id)
     payload = resolved.model_dump(mode="json")
@@ -320,8 +320,8 @@ def test_resolved_server_rejects_one_field_join_drift(
         payload["logical_endpoint"]["served_model_name"] = "other"
     elif mutation == "logical_id":
         payload["logical_endpoint"]["endpoint_id"] = "other-logical-endpoint"
-    elif mutation == "replica_index":
-        payload["backend_endpoints"][1]["replica_index"] = 2
+    elif mutation == "deployment_replica_index":
+        payload["backend_endpoints"][1]["deployment_replica_index"] = 2
     elif mutation == "backend_id":
         payload["backend_endpoints"][1]["backend_id"] = "deployment-00000-backend-99999"
         payload["readiness_probes"][1]["backend_id"] = "deployment-00000-backend-99999"
@@ -335,11 +335,11 @@ def test_resolved_server_rejects_one_field_join_drift(
     elif mutation == "readiness_count":
         payload["readiness_probes"].append(payload["readiness_probes"][0])
     elif mutation == "backend_placement":
-        payload["backend_endpoints"][1]["lane_index"] = 0
+        payload["backend_endpoints"][1]["replica_index_in_node_group"] = 0
     elif mutation == "readiness_target":
         payload["readiness_probes"][1]["path"] = "/other"
     elif mutation == "pipeline_ranks":
-        payload["processes"][1]["replica_index"] = 1
+        payload["processes"][1]["deployment_replica_index"] = 1
     elif mutation == "process_topology":
         payload["processes"][2]["node_index"] = 1
     elif mutation == "head_endpoint":
@@ -360,7 +360,10 @@ def test_resolved_server_rejects_one_field_join_drift(
         payload["launch_policy"]["environment"] = {"HF_TOKEN": {"type": "literal", "value": "secret"}}
     else:
         extra = dict(payload["processes"][0])
-        extra.update(process_id="deployment-00000-replica-99999-rank-00000", replica_index=99999)
+        extra.update(
+            process_id="deployment-00000-replica-99999-rank-00000",
+            deployment_replica_index=99999,
+        )
         payload["processes"].append(extra)
 
     with pytest.raises(ValidationError, match=message):
@@ -444,7 +447,7 @@ def test_single_node_process_rejects_rendezvous(single_node_plan: ResolvedSlurmR
     payload = resolved.processes[0].model_dump(mode="json")
     payload["rendezvous"] = {
         "node_group_index": 0,
-        "lane_index": 0,
+        "replica_index_in_node_group": 0,
         "master_node_index": 0,
         "port": 19000,
         "timeout_seconds": 600,
@@ -518,7 +521,7 @@ def _plan_with_placement(
     return ResolvedSlurmRunPlan.model_validate_json(json.dumps(payload))
 
 
-def _multi_lane_placement(plan: ResolvedSlurmRunPlan) -> ResolvedDeployment:
+def _multi_replica_placement(plan: ResolvedSlurmRunPlan) -> ResolvedDeployment:
     payload = plan.deployments[0].model_dump(mode="json")
     payload["authored"]["server"].update(
         lead_boot_standoff="30s",
@@ -581,20 +584,20 @@ def _multi_group_plan(plan: ResolvedSlurmRunPlan) -> ResolvedSlurmRunPlan:
     )
     deployment["ports"] = [
         {
-            "name": f"deployment-00000-http-{replica_index:05d}",
+            "name": f"deployment-00000-http-{deployment_replica_index:05d}",
             "role": "http",
-            "node_index": 0 if replica_index < 2 else 2,
-            "port": 18000 + replica_index % 2,
+            "node_index": 0 if deployment_replica_index < 2 else 2,
+            "port": 18000 + deployment_replica_index % 2,
         }
-        for replica_index in range(4)
+        for deployment_replica_index in range(4)
     ] + [
         {
-            "name": f"deployment-00000-rendezvous-{replica_index:05d}",
+            "name": f"deployment-00000-rendezvous-{deployment_replica_index:05d}",
             "role": "rendezvous",
-            "node_index": 0 if replica_index < 2 else 2,
-            "port": 19000 + replica_index % 2,
+            "node_index": 0 if deployment_replica_index < 2 else 2,
+            "port": 19000 + deployment_replica_index % 2,
         }
-        for replica_index in range(4)
+        for deployment_replica_index in range(4)
     ]
     return ResolvedSlurmRunPlan.model_validate_json(json.dumps(payload))
 

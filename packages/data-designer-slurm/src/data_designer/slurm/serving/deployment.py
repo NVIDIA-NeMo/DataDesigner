@@ -86,13 +86,14 @@ class ResolvedServerDeployment(ContractValue):
         if self.logical_endpoint.endpoint_id != f"{self.deployment_id}-logical-endpoint":
             raise ValueError("logical endpoint ID must match the deployment")
 
-        replica_indices = tuple(endpoint.replica_index for endpoint in self.backend_endpoints)
+        deployment_replica_indices = tuple(endpoint.deployment_replica_index for endpoint in self.backend_endpoints)
         expected_replicas = tuple(range(self.topology.replica_count))
-        if replica_indices != expected_replicas:
+        if deployment_replica_indices != expected_replicas:
             raise ValueError("backend endpoints must use complete ordered replica identities")
         backend_ids = tuple(endpoint.backend_id for endpoint in self.backend_endpoints)
         expected_backend_ids = tuple(
-            f"{self.deployment_id}-backend-{replica_index:05d}" for replica_index in expected_replicas
+            f"{self.deployment_id}-backend-{deployment_replica_index:05d}"
+            for deployment_replica_index in expected_replicas
         )
         if backend_ids != expected_backend_ids:
             raise ValueError("backend endpoint IDs must match the deployment and replica order")
@@ -104,10 +105,12 @@ class ResolvedServerDeployment(ContractValue):
         expected_process_count = self.topology.replica_count * self.topology.pipeline_parallel
         if len(self.processes) != expected_process_count:
             raise ValueError("resolved process count must match replica and pipeline topology")
-        process_identities = tuple((process.replica_index, process.pipeline_rank) for process in self.processes)
+        process_identities = tuple(
+            (process.deployment_replica_index, process.pipeline_rank) for process in self.processes
+        )
         expected_process_identities = tuple(
-            (replica_index, pipeline_rank)
-            for replica_index in range(self.topology.replica_count)
+            (deployment_replica_index, pipeline_rank)
+            for deployment_replica_index in range(self.topology.replica_count)
             for pipeline_rank in range(self.topology.pipeline_parallel)
         )
         if process_identities != expected_process_identities:
@@ -122,44 +125,46 @@ class ResolvedServerDeployment(ContractValue):
         return self
 
     def _validate_replica(self, endpoint: ResolvedBackendEndpoint, probe: ResolvedReadinessProbe) -> None:
-        expected_group = endpoint.replica_index // self.topology.replicas_per_node_group
-        expected_lane = endpoint.replica_index % self.topology.replicas_per_node_group
+        expected_group = endpoint.deployment_replica_index // self.topology.replicas_per_node_group
+        expected_replica_index_in_node_group = endpoint.deployment_replica_index % self.topology.replicas_per_node_group
         expected_head_node = self.node_indices[expected_group * self.topology.nodes_per_replica]
         if (
             endpoint.node_group_index != expected_group
-            or endpoint.lane_index != expected_lane
+            or endpoint.replica_index_in_node_group != expected_replica_index_in_node_group
             or endpoint.node_index != expected_head_node
             or endpoint.served_model_name != self.served_model_name
         ):
             raise ValueError("backend endpoint must match its resolved replica placement")
         if (
             (probe.node_index, probe.port) != (endpoint.node_index, endpoint.port)
-            or probe.probe_id != f"{self.deployment_id}-readiness-{endpoint.replica_index:05d}"
+            or probe.probe_id != f"{self.deployment_id}-readiness-{endpoint.deployment_replica_index:05d}"
             or probe.path != self.launch_policy.readiness_path
             or probe.deadline_seconds != self.launch_policy.startup_timeout_seconds
         ):
             raise ValueError("readiness probes must target their resolved backend endpoint")
         replica_processes = tuple(
-            process for process in self.processes if process.replica_index == endpoint.replica_index
+            process
+            for process in self.processes
+            if process.deployment_replica_index == endpoint.deployment_replica_index
         )
-        expected_gpu_start = expected_lane * self.topology.tensor_parallel
+        expected_gpu_start = expected_replica_index_in_node_group * self.topology.tensor_parallel
         expected_gpus = tuple(range(expected_gpu_start, expected_gpu_start + self.topology.tensor_parallel))
         expected_delay = (
             0
-            if endpoint.replica_index == 0
+            if endpoint.deployment_replica_index == 0
             else self.launch_policy.lead_boot_standoff_seconds
-            + endpoint.replica_index * self.launch_policy.rank_launch_stagger_seconds
+            + endpoint.deployment_replica_index * self.launch_policy.rank_launch_stagger_seconds
         )
         for process in replica_processes:
             expected_node = self.node_indices[expected_group * self.topology.nodes_per_replica + process.pipeline_rank]
             expected_process_id = (
-                f"{self.deployment_id}-replica-{endpoint.replica_index:05d}-rank-{process.pipeline_rank:05d}"
+                f"{self.deployment_id}-replica-{endpoint.deployment_replica_index:05d}-rank-{process.pipeline_rank:05d}"
             )
             if (
                 process.process_id != expected_process_id
                 or process.deployment_id != self.deployment_id
                 or process.node_group_index != expected_group
-                or process.lane_index != expected_lane
+                or process.replica_index_in_node_group != expected_replica_index_in_node_group
                 or process.node_index != expected_node
                 or process.gpu_indices != expected_gpus
                 or process.tensor_parallel != self.topology.tensor_parallel

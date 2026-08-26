@@ -55,7 +55,7 @@ class VllmRendezvousSpec(ContractValue):
     """Planner-owned rendezvous inputs shared by one multi-node replica."""
 
     node_group_index: NonNegativeInt
-    lane_index: NonNegativeInt
+    replica_index_in_node_group: NonNegativeInt
     master_node_index: NonNegativeInt
     port: NetworkPort
     timeout_seconds: PositiveInt
@@ -66,9 +66,9 @@ class VllmProcessSpec(ContractValue):
 
     process_id: Identifier
     deployment_id: Identifier
-    replica_index: NonNegativeInt
+    deployment_replica_index: NonNegativeInt
     node_group_index: NonNegativeInt
-    lane_index: NonNegativeInt
+    replica_index_in_node_group: NonNegativeInt
     pipeline_rank: NonNegativeInt
     node_index: NonNegativeInt
     gpu_indices: tuple[NonNegativeInt, ...] = Field(min_length=1)
@@ -101,6 +101,11 @@ class VllmProcessSpec(ContractValue):
                 raise ValueError("single-node processes must not carry rendezvous inputs")
         elif self.rendezvous is None:
             raise ValueError("multi-node processes require rendezvous inputs")
-        elif self.rendezvous.node_group_index != self.node_group_index or self.rendezvous.lane_index != self.lane_index:
-            raise ValueError("process rendezvous identity must match its node group and lane")
+        elif (
+            self.rendezvous.node_group_index != self.node_group_index
+            or self.rendezvous.replica_index_in_node_group != self.replica_index_in_node_group
+        ):
+            raise ValueError(
+                "process rendezvous identity must match its node group and replica index within the node group"
+            )
         return self
