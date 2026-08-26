@@ -7,8 +7,8 @@ from __future__ import annotations
 
 from pydantic import NonNegativeInt, model_validator
 
-from data_designer.slurm.contracts import ContractValue
-from data_designer.slurm.planning.models import PortClaim, ResolvedClient, ResolvedDeployment
+from data_designer.slurm.contracts import ContractValue, Identifier
+from data_designer.slurm.planning.models import PortClaim, ResolvedDeployment, ResolvedSlurmRunPlan
 
 
 class ServerResolutionContext(ContractValue):
@@ -33,14 +33,18 @@ class ServerResolutionContext(ContractValue):
         return self
 
     @classmethod
-    def from_plan(cls, placement: ResolvedDeployment, client: ResolvedClient) -> ServerResolutionContext:
-        """Join one deployment placement to its client-owned logical endpoint claim."""
+    def from_plan(cls, plan: ResolvedSlurmRunPlan, deployment_id: Identifier) -> ServerResolutionContext:
+        """Derive one deployment and its client-owned endpoint from the same plan."""
+        placements = tuple(placement for placement in plan.deployments if placement.deployment_id == deployment_id)
+        if len(placements) != 1:
+            raise ValueError("resolved plan must contain exactly one deployment with the requested ID")
+        placement = placements[0]
         expected_name = f"{placement.deployment_id}-logical-endpoint"
-        matches = tuple(port for port in client.ports if port.name == expected_name)
+        matches = tuple(port for port in plan.client.ports if port.name == expected_name)
         if len(matches) != 1:
             raise ValueError("resolved client must contain exactly one logical endpoint for the deployment")
         return cls(
             placement=placement,
-            client_host_node_index=client.host_node_index,
+            client_host_node_index=plan.client.host_node_index,
             logical_endpoint=matches[0],
         )

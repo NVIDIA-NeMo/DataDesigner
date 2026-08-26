@@ -171,6 +171,7 @@ _OWNED_VLLM_ENVIRONMENT_NAMES = frozenset(
         "ROLE_RANK",
         "ROLE_WORLD_SIZE",
         "VLLM_ALLOW_RUNTIME_LORA_UPDATING",
+        "VLLM_API_KEY",
         "VLLM_HOST_IP",
         "VLLM_MODEL_REDIRECT_PATH",
         "VLLM_PLUGINS",

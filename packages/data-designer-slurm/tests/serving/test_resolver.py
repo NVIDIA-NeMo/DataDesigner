@@ -35,7 +35,7 @@ class _UnsupportedServer:
 
 def test_single_node_resolution_matches_golden(single_node_plan: ResolvedSlurmRunPlan) -> None:
     placement = single_node_plan.deployments[0]
-    context = ServerResolutionContext.from_plan(placement, single_node_plan.client)
+    context = ServerResolutionContext.from_plan(single_node_plan, placement.deployment_id)
 
     first = resolve_server(placement.authored, context)
     second = resolve_server(placement.authored, context)
@@ -52,7 +52,7 @@ def test_single_node_resolution_matches_golden(single_node_plan: ResolvedSlurmRu
 
 def test_multi_node_lane_resolution_matches_golden(multi_node_plan: ResolvedSlurmRunPlan) -> None:
     placement = _multi_lane_placement(multi_node_plan)
-    context = ServerResolutionContext.from_plan(placement, multi_node_plan.client)
+    context = _context_for_placement(multi_node_plan, placement)
 
     resolved = resolve_server(placement.authored, context)
 
@@ -77,7 +77,10 @@ def test_two_deployments_keep_images_and_endpoint_identities_isolated(
     multi_node_plan: ResolvedSlurmRunPlan,
 ) -> None:
     resolved = tuple(
-        resolve_server(placement.authored, ServerResolutionContext.from_plan(placement, multi_node_plan.client))
+        resolve_server(
+            placement.authored,
+            ServerResolutionContext.from_plan(multi_node_plan, placement.deployment_id),
+        )
         for placement in multi_node_plan.deployments
     )
 
@@ -125,7 +128,7 @@ def test_resolution_context_rejects_wrong_logical_endpoint(single_node_plan: Res
 
 def test_resolution_rejects_declaration_that_differs_from_placement(single_node_plan: ResolvedSlurmRunPlan) -> None:
     placement = single_node_plan.deployments[0]
-    context = ServerResolutionContext.from_plan(placement, single_node_plan.client)
+    context = ServerResolutionContext.from_plan(single_node_plan, placement.deployment_id)
     different = placement.authored.model_copy(update={"model": "example/different"})
 
     with pytest.raises(ServerResolutionError, match="does not match"):
@@ -136,7 +139,7 @@ def test_resolution_rejects_unsupported_inspected_version(single_node_plan: Reso
     payload = single_node_plan.deployments[0].model_dump(mode="json")
     payload["image"]["inspection"]["inspection"]["runtime_version"] = "0.20.0"
     placement = ResolvedDeployment.model_validate_json(json.dumps(payload))
-    context = ServerResolutionContext.from_plan(placement, single_node_plan.client)
+    context = _context_for_placement(single_node_plan, placement)
 
     with pytest.raises(ServerResolutionError, match="unsupported inspected vLLM version"):
         resolve_server(placement.authored, context)
@@ -158,7 +161,7 @@ def test_resolution_rejects_missing_multi_node_capability(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     placement = multi_node_plan.deployments[0]
-    context = ServerResolutionContext.from_plan(placement, multi_node_plan.client)
+    context = ServerResolutionContext.from_plan(multi_node_plan, placement.deployment_id)
     compatibility = resolve_server(placement.authored, context).compatibility.model_copy(
         update={"supports_multi_node": False}
     )
@@ -187,7 +190,7 @@ def test_resolution_allows_independent_single_node_expert_parallel_replicas(
     multi_node_plan: ResolvedSlurmRunPlan,
 ) -> None:
     placement = _independent_replica_placement(multi_node_plan)
-    context = ServerResolutionContext.from_plan(placement, multi_node_plan.client)
+    context = _context_for_placement(multi_node_plan, placement)
 
     resolved = resolve_server(placement.authored, context)
 
@@ -259,7 +262,7 @@ def test_process_specs_reject_one_field_topology_drift(
     message: str,
 ) -> None:
     placement = _multi_lane_placement(multi_node_plan)
-    resolved = resolve_server(placement.authored, ServerResolutionContext.from_plan(placement, multi_node_plan.client))
+    resolved = resolve_server(placement.authored, _context_for_placement(multi_node_plan, placement))
     process_index = (
         1 if mutation.startswith("follower") or mutation in {"missing_rendezvous", "wrong_rendezvous_lane"} else 0
     )
@@ -329,7 +332,7 @@ def test_resolved_server_rejects_one_field_join_drift(
     message: str,
 ) -> None:
     placement = _multi_lane_placement(multi_node_plan)
-    resolved = resolve_server(placement.authored, ServerResolutionContext.from_plan(placement, multi_node_plan.client))
+    resolved = resolve_server(placement.authored, _context_for_placement(multi_node_plan, placement))
     payload = resolved.model_dump(mode="json")
     if mutation == "image_kind":
         payload["image"] = multi_node_plan.client.image.model_dump(mode="json")
@@ -497,7 +500,10 @@ def test_launch_policy_rejects_runtime_owned_arguments(argument: str) -> None:
         )
 
 
-@pytest.mark.parametrize("environment_name", ["CUDA_VISIBLE_DEVICES", "VLLM_DP_RANK", "VLLM_HOST_IP"])
+@pytest.mark.parametrize(
+    "environment_name",
+    ["CUDA_VISIBLE_DEVICES", "VLLM_API_KEY", "VLLM_DP_RANK", "VLLM_HOST_IP"],
+)
 def test_launch_policy_rejects_runtime_owned_environment_names(environment_name: str) -> None:
     with pytest.raises(ValidationError, match="owned by the compiler or runtime"):
         VllmLaunchPolicy(
@@ -514,7 +520,10 @@ def test_launch_policy_rejects_runtime_owned_environment_names(environment_name:
 
 def test_single_node_process_rejects_rendezvous(single_node_plan: ResolvedSlurmRunPlan) -> None:
     placement = single_node_plan.deployments[0]
-    resolved = resolve_server(placement.authored, ServerResolutionContext.from_plan(placement, single_node_plan.client))
+    resolved = resolve_server(
+        placement.authored,
+        ServerResolutionContext.from_plan(single_node_plan, placement.deployment_id),
+    )
     payload = resolved.processes[0].model_dump(mode="json")
     payload["rendezvous"] = {
         "node_group_index": 0,
@@ -541,7 +550,10 @@ def test_logical_endpoint_rejects_invalid_backend_or_retry_contract(
     message: str,
 ) -> None:
     placement = single_node_plan.deployments[0]
-    resolved = resolve_server(placement.authored, ServerResolutionContext.from_plan(placement, single_node_plan.client))
+    resolved = resolve_server(
+        placement.authored,
+        ServerResolutionContext.from_plan(single_node_plan, placement.deployment_id),
+    )
     payload = resolved.logical_endpoint.model_dump(mode="json")
     if mutation == "duplicate_backends":
         payload["backend_ids"] *= 2
@@ -554,7 +566,10 @@ def test_logical_endpoint_rejects_invalid_backend_or_retry_contract(
 
 def test_resolved_server_rejects_single_node_capability_drift(single_node_plan: ResolvedSlurmRunPlan) -> None:
     placement = single_node_plan.deployments[0]
-    resolved = resolve_server(placement.authored, ServerResolutionContext.from_plan(placement, single_node_plan.client))
+    resolved = resolve_server(
+        placement.authored,
+        ServerResolutionContext.from_plan(single_node_plan, placement.deployment_id),
+    )
     payload = resolved.model_dump(mode="json")
     payload["compatibility"]["supports_single_node"] = False
 
@@ -564,9 +579,29 @@ def test_resolved_server_rejects_single_node_capability_drift(single_node_plan: 
 
 def test_resolution_context_requires_matching_client_endpoint(single_node_plan: ResolvedSlurmRunPlan) -> None:
     client_without_ports = single_node_plan.client.model_copy(update={"ports": ()})
+    plan_without_ports = single_node_plan.model_copy(update={"client": client_without_ports})
 
     with pytest.raises(ValueError, match="exactly one logical endpoint"):
-        ServerResolutionContext.from_plan(single_node_plan.deployments[0], client_without_ports)
+        ServerResolutionContext.from_plan(plan_without_ports, single_node_plan.deployments[0].deployment_id)
+
+
+def test_resolution_context_derives_placement_and_endpoint_from_one_plan(
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    payload = single_node_plan.model_dump(mode="json")
+    payload["deployments"][0]["ports"][0]["port"] = 18100
+    payload["client"]["ports"][0]["port"] = 17100
+    alternate_plan = ResolvedSlurmRunPlan.model_validate_json(json.dumps(payload))
+
+    context = ServerResolutionContext.from_plan(alternate_plan, "deployment-00000")
+
+    assert context.placement.ports[0].port == 18100
+    assert context.logical_endpoint.port == 17100
+
+
+def test_resolution_context_rejects_unknown_deployment(single_node_plan: ResolvedSlurmRunPlan) -> None:
+    with pytest.raises(ValueError, match="exactly one deployment"):
+        ServerResolutionContext.from_plan(single_node_plan, "deployment-99999")
 
 
 @pytest.mark.parametrize(
@@ -600,6 +635,20 @@ def test_resolution_context_rejects_invalid_client_binding(
             client_host_node_index=client_host_node_index,
             logical_endpoint=logical_endpoint,
         )
+
+
+def _context_for_placement(
+    plan: ResolvedSlurmRunPlan,
+    placement: ResolvedDeployment,
+) -> ServerResolutionContext:
+    payload = plan.model_dump(mode="json")
+    matching_indices = [
+        index for index, candidate in enumerate(plan.deployments) if candidate.deployment_id == placement.deployment_id
+    ]
+    assert len(matching_indices) == 1
+    payload["deployments"][matching_indices[0]] = placement.model_dump(mode="json")
+    updated_plan = ResolvedSlurmRunPlan.model_validate_json(json.dumps(payload))
+    return ServerResolutionContext.from_plan(updated_plan, placement.deployment_id)
 
 
 def _multi_lane_placement(plan: ResolvedSlurmRunPlan) -> ResolvedDeployment:

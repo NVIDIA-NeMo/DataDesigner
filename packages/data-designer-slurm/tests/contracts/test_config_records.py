@@ -367,6 +367,7 @@ def test_vllm_rejects_invalid_json_arguments(extra_args: list[str]) -> None:
         "SLURM_PROCID",
         "TORCHELASTIC_RUN_ID",
         "VLLM_ALLOW_RUNTIME_LORA_UPDATING",
+        "VLLM_API_KEY",
         "VLLM_DP_RANK",
         "VLLM_HOST_IP",
         "VLLM_LORA_RESOLVER_HF_REPO_LIST",
@@ -395,12 +396,11 @@ def test_vllm_allows_explicit_tuning_environment() -> None:
         image=ImageRef(name="vllm"),
         environment={
             "NCCL_DEBUG": LiteralEnvironmentBinding(type="literal", value="INFO"),
-            "VLLM_API_KEY": SecretRef(type="secret", environment="EXTERNAL_VLLM_API_KEY"),
             "VLLM_WORKER_MULTIPROC_METHOD": LiteralEnvironmentBinding(type="literal", value="spawn"),
         },
     )
 
-    assert set(config.environment) == {"NCCL_DEBUG", "VLLM_API_KEY", "VLLM_WORKER_MULTIPROC_METHOD"}
+    assert set(config.environment) == {"NCCL_DEBUG", "VLLM_WORKER_MULTIPROC_METHOD"}
 
 
 @pytest.mark.parametrize(
