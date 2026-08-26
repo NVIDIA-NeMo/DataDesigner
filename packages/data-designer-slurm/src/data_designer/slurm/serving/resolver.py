@@ -56,8 +56,6 @@ def _resolve_vllm(
         compatibility = resolve_vllm_compatibility(inspection.runtime_version)
     except UnsupportedServingRuntimeError as error:
         raise ServerResolutionError(str(error)) from error
-    if placement.topology.pipeline_parallel > 1 and not compatibility.supports_multi_node:
-        raise ServerResolutionError("inspected vLLM version does not support the resolved multi-node topology")
     if server.enable_expert_parallel and placement.topology.pipeline_parallel > 1:
         raise ServerResolutionError("multi-node expert parallel is not supported in v1")
 

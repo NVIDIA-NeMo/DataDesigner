@@ -9,15 +9,11 @@ from data_designer.slurm.serving import UnsupportedServingRuntimeError, resolve_
 
 
 @pytest.mark.parametrize("runtime_version", ["0.21.0", "0.22.4+container.1"])
-def test_supported_vllm_release_series_have_complete_v1_capabilities(runtime_version: str) -> None:
+def test_supported_vllm_release_series_use_v1_contract(runtime_version: str) -> None:
     compatibility = resolve_vllm_compatibility(runtime_version)
 
     assert compatibility.runtime_series in {"0.21", "0.22"}
-    assert compatibility.supports_single_node
-    assert compatibility.supports_multi_node
-    assert compatibility.supports_http_readiness
-    assert compatibility.supports_queue_backpressure
-    assert compatibility.supports_coordinated_failure
+    assert compatibility.contract_version == "v1"
 
 
 @pytest.mark.parametrize(

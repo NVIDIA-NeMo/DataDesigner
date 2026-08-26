@@ -11,13 +11,9 @@
     }
   ],
   "compatibility": {
+    "contract_version": "v1",
     "runtime_series": "0.21",
-    "runtime_version": "0.21.0",
-    "supports_coordinated_failure": true,
-    "supports_http_readiness": true,
-    "supports_multi_node": true,
-    "supports_queue_backpressure": true,
-    "supports_single_node": true
+    "runtime_version": "0.21.0"
   },
   "deployment_id": "deployment-00000",
   "executable_path": "/usr/local/bin/vllm",

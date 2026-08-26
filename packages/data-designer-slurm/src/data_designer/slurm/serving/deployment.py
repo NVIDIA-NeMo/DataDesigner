@@ -82,16 +82,6 @@ class ResolvedServerDeployment(ContractValue):
         )
         if self.topology != expected_topology:
             raise ValueError("resolved server topology must match its node and GPU resources")
-        if self.topology.pipeline_parallel == 1 and not self.compatibility.supports_single_node:
-            raise ValueError("serving runtime does not support the resolved single-node topology")
-        if self.topology.pipeline_parallel > 1 and not self.compatibility.supports_multi_node:
-            raise ValueError("serving runtime does not support the resolved multi-node topology")
-        if not (
-            self.compatibility.supports_http_readiness
-            and self.compatibility.supports_queue_backpressure
-            and self.compatibility.supports_coordinated_failure
-        ):
-            raise ValueError("serving runtime does not provide the required V1 behavior")
         if self.launch_policy.enable_expert_parallel and self.topology.pipeline_parallel > 1:
             raise ValueError("multi-node expert parallel is not supported in v1")
         if self.logical_endpoint.model_alias != self.model_alias:

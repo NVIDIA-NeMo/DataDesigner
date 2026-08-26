@@ -173,21 +173,6 @@ def test_resolution_rejects_image_inspection_mismatch(single_node_plan: Resolved
         resolve_server(placement.authored, context)
 
 
-def test_resolution_rejects_missing_multi_node_capability(
-    multi_node_plan: ResolvedSlurmRunPlan,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    placement = multi_node_plan.deployments[0]
-    context = ServerResolutionContext.from_plan(multi_node_plan, placement.deployment_id)
-    compatibility = resolve_server(placement.authored, context).compatibility.model_copy(
-        update={"supports_multi_node": False}
-    )
-    monkeypatch.setattr(resolver_module, "resolve_vllm_compatibility", lambda _version: compatibility)
-
-    with pytest.raises(ServerResolutionError, match="multi-node topology"):
-        resolve_server(placement.authored, context)
-
-
 def test_resolution_rejects_multi_node_expert_parallel(multi_node_plan: ResolvedSlurmRunPlan) -> None:
     placement = multi_node_plan.deployments[0]
     server = placement.authored.server.model_copy(update={"enable_expert_parallel": True})
@@ -317,8 +302,6 @@ def test_process_specs_reject_one_field_topology_drift(
         ("node_group_divisibility", "divide evenly into replica groups"),
         ("gpu_divisibility", "divide evenly into tensor-parallel lanes"),
         ("topology", "node and GPU resources"),
-        ("multi_node_capability", "package-owned runtime mapping"),
-        ("required_capability", "package-owned runtime mapping"),
         ("expert_parallel", "multi-node expert parallel"),
         ("logical_alias", "model alias"),
         ("logical_served_name", "served model name"),
@@ -366,10 +349,6 @@ def test_resolved_server_rejects_one_field_join_drift(
         payload["gpus_per_node"] = 7
     elif mutation == "topology":
         payload["topology"]["replica_count"] = 3
-    elif mutation == "multi_node_capability":
-        payload["compatibility"]["supports_multi_node"] = False
-    elif mutation == "required_capability":
-        payload["compatibility"]["supports_http_readiness"] = False
     elif mutation == "expert_parallel":
         payload["launch_policy"]["enable_expert_parallel"] = True
     elif mutation == "logical_alias":
@@ -430,11 +409,6 @@ def test_compatibility_rejects_runtime_series_drift() -> None:
         VllmRuntimeCompatibility(
             runtime_version="0.21.0",
             runtime_series="0.22",
-            supports_single_node=True,
-            supports_multi_node=True,
-            supports_http_readiness=True,
-            supports_queue_backpressure=True,
-            supports_coordinated_failure=True,
         )
 
 
@@ -443,24 +417,17 @@ def test_compatibility_rejects_invalid_runtime_version() -> None:
         VllmRuntimeCompatibility(
             runtime_version="invalid",
             runtime_series="invalid",
-            supports_single_node=True,
-            supports_multi_node=True,
-            supports_http_readiness=True,
-            supports_queue_backpressure=True,
-            supports_coordinated_failure=True,
         )
 
 
-def test_compatibility_rejects_capabilities_outside_package_mapping() -> None:
-    with pytest.raises(ValidationError, match="package-owned runtime mapping"):
-        VllmRuntimeCompatibility(
-            runtime_version="0.21.0",
-            runtime_series="0.21",
-            supports_single_node=True,
-            supports_multi_node=False,
-            supports_http_readiness=True,
-            supports_queue_backpressure=True,
-            supports_coordinated_failure=True,
+def test_compatibility_rejects_unknown_contract_version() -> None:
+    with pytest.raises(ValidationError, match="contract_version"):
+        VllmRuntimeCompatibility.model_validate(
+            {
+                "runtime_version": "0.21.0",
+                "runtime_series": "0.21",
+                "contract_version": "v2",
+            }
         )
 
 
@@ -581,16 +548,16 @@ def test_logical_endpoint_rejects_invalid_backend_or_retry_contract(
         ResolvedLogicalEndpoint.model_validate_json(json.dumps(payload))
 
 
-def test_resolved_server_rejects_single_node_capability_drift(single_node_plan: ResolvedSlurmRunPlan) -> None:
+def test_resolved_server_rejects_compatibility_contract_drift(single_node_plan: ResolvedSlurmRunPlan) -> None:
     placement = single_node_plan.deployments[0]
     resolved = resolve_server(
         placement.authored,
         ServerResolutionContext.from_plan(single_node_plan, placement.deployment_id),
     )
     payload = resolved.model_dump(mode="json")
-    payload["compatibility"]["supports_single_node"] = False
+    payload["compatibility"]["contract_version"] = "v2"
 
-    with pytest.raises(ValidationError, match="package-owned runtime mapping"):
+    with pytest.raises(ValidationError, match="contract_version"):
         ResolvedServerDeployment.model_validate_json(json.dumps(payload))
 
 

@@ -5,9 +5,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Annotated
+from typing import Annotated, Literal
 
+from packaging.specifiers import SpecifierSet
 from packaging.version import InvalidVersion, Version
 from pydantic import StringConstraints, model_validator
 
@@ -17,26 +17,7 @@ _MAX_RUNTIME_VERSION_LENGTH = 128
 RuntimeVersion = Annotated[str, StringConstraints(min_length=1, max_length=_MAX_RUNTIME_VERSION_LENGTH)]
 
 
-@dataclass(frozen=True, slots=True)
-class _VllmCapabilities:
-    supports_single_node: bool
-    supports_multi_node: bool
-    supports_http_readiness: bool
-    supports_queue_backpressure: bool
-    supports_coordinated_failure: bool
-
-
-_V1_CAPABILITIES = _VllmCapabilities(
-    supports_single_node=True,
-    supports_multi_node=True,
-    supports_http_readiness=True,
-    supports_queue_backpressure=True,
-    supports_coordinated_failure=True,
-)
-_SUPPORTED_VLLM_CAPABILITIES = {
-    (0, 21): _V1_CAPABILITIES,
-    (0, 22): _V1_CAPABILITIES,
-}
+_TESTED_VLLM_VERSION_RANGE = SpecifierSet(">=0.21,<0.23")
 
 
 class UnsupportedServingRuntimeError(ValueError):
@@ -44,49 +25,31 @@ class UnsupportedServingRuntimeError(ValueError):
 
 
 class VllmRuntimeCompatibility(ContractValue):
-    """Package-owned capabilities for one inspected vLLM release series."""
+    """Inspected vLLM identity accepted by one package contract revision."""
 
     runtime_version: RuntimeVersion
     runtime_series: Identifier
-    supports_single_node: bool
-    supports_multi_node: bool
-    supports_http_readiness: bool
-    supports_queue_backpressure: bool
-    supports_coordinated_failure: bool
+    contract_version: Literal["v1"] = "v1"
 
     @model_validator(mode="after")
     def validate_runtime_series(self) -> VllmRuntimeCompatibility:
-        version, expected_capabilities = _resolve_supported_version(self.runtime_version)
+        version = _resolve_supported_version(self.runtime_version)
         expected_series = ".".join(str(component) for component in version.release[:2])
         if self.runtime_series != expected_series:
             raise ValueError("compatibility runtime series must match its version")
-        actual_capabilities = _VllmCapabilities(
-            supports_single_node=self.supports_single_node,
-            supports_multi_node=self.supports_multi_node,
-            supports_http_readiness=self.supports_http_readiness,
-            supports_queue_backpressure=self.supports_queue_backpressure,
-            supports_coordinated_failure=self.supports_coordinated_failure,
-        )
-        if actual_capabilities != expected_capabilities:
-            raise ValueError("compatibility capabilities must match the package-owned runtime mapping")
         return self
 
 
 def resolve_vllm_compatibility(runtime_version: str) -> VllmRuntimeCompatibility:
     """Map an inspected vLLM version to the package's tested V1 behavior."""
-    version, capabilities = _resolve_supported_version(runtime_version)
+    version = _resolve_supported_version(runtime_version)
     return VllmRuntimeCompatibility(
         runtime_version=runtime_version,
         runtime_series=".".join(str(component) for component in version.release[:2]),
-        supports_single_node=capabilities.supports_single_node,
-        supports_multi_node=capabilities.supports_multi_node,
-        supports_http_readiness=capabilities.supports_http_readiness,
-        supports_queue_backpressure=capabilities.supports_queue_backpressure,
-        supports_coordinated_failure=capabilities.supports_coordinated_failure,
     )
 
 
-def _resolve_supported_version(runtime_version: str) -> tuple[Version, _VllmCapabilities]:
+def _resolve_supported_version(runtime_version: str) -> Version:
     try:
         validate_plain_text(runtime_version, field_name="vLLM version")
         if len(runtime_version) > _MAX_RUNTIME_VERSION_LENGTH:
@@ -96,7 +59,11 @@ def _resolve_supported_version(runtime_version: str) -> tuple[Version, _VllmCapa
         raise UnsupportedServingRuntimeError(f"invalid inspected vLLM version: {runtime_version!r}") from error
     if runtime_version != str(version):
         raise UnsupportedServingRuntimeError(f"noncanonical inspected vLLM version: {runtime_version!r}")
-    series = version.release[:2]
-    if version.epoch or version.is_prerelease or version.is_devrelease or series not in _SUPPORTED_VLLM_CAPABILITIES:
+    if (
+        version.epoch
+        or version.is_prerelease
+        or version.is_devrelease
+        or not _TESTED_VLLM_VERSION_RANGE.contains(version, prereleases=False)
+    ):
         raise UnsupportedServingRuntimeError(f"unsupported inspected vLLM version: {runtime_version!r}")
-    return version, _SUPPORTED_VLLM_CAPABILITIES[series]
+    return version
