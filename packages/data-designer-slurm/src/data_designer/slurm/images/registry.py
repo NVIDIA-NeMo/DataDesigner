@@ -23,7 +23,6 @@ from data_designer.slurm.images.errors import (
     ImageConflictError,
     ImageNotFoundError,
     ImageRegistryError,
-    ImageVerificationError,
 )
 from data_designer.slurm.images.records import ImageRegistrySnapshot, RegisteredImage
 
@@ -82,14 +81,10 @@ class ImageRegistry:
         self,
         image: RegisteredImage,
         *,
-        verify_persisted: Callable[[RegisteredImage], None],
+        verify_before_publish: Callable[[RegisteredImage], None],
         replace: bool = False,
     ) -> RegisteredImage:
-        """Atomically add or explicitly replace one verified image alias.
-
-        The persisted alias is rolled back while its mutation locks remain held
-        if final artifact verification fails.
-        """
+        """Atomically add or explicitly replace one verified image alias."""
         self._ensure_storage()
         with (
             acquire_file_lock(self._get_alias_lock_path(image.name)),
@@ -102,12 +97,8 @@ class ImageRegistry:
             self._validate_path_facts(snapshot, image, replacing=existing)
             images = tuple(entry for entry in snapshot.images if entry.name != image.name) + (image,)
             updated = ImageRegistrySnapshot(images=tuple(sorted(images, key=lambda entry: entry.name)))
+            verify_before_publish(image)
             self._save(updated)
-            try:
-                verify_persisted(image)
-            except ImageVerificationError:
-                self._save(snapshot)
-                raise
         return image
 
     def unregister(self, name: Identifier) -> RegisteredImage:
@@ -130,7 +121,7 @@ class ImageRegistry:
             return ImageRegistrySnapshot.model_validate_json(json.dumps(payload))
         except FileNotFoundError:
             return ImageRegistrySnapshot()
-        except (OSError, TypeError, UnicodeError, ValidationError, yaml.YAMLError) as error:
+        except (OSError, RecursionError, TypeError, UnicodeError, ValueError, ValidationError, yaml.YAMLError) as error:
             raise ImageRegistryError(f"cannot load image registry {self._registry_path}") from error
 
     def _save(self, snapshot: ImageRegistrySnapshot) -> None:
@@ -171,8 +162,8 @@ class ImageRegistry:
 
     def _ensure_storage(self) -> None:
         try:
-            self._image_root.mkdir(mode=_DIRECTORY_MODE, parents=True, exist_ok=True)
-            self._lock_directory.mkdir(mode=_DIRECTORY_MODE, parents=True, exist_ok=True)
+            _ensure_private_directory(self._image_root, parents=True)
+            _ensure_private_directory(self._lock_directory, parents=False)
         except OSError as error:
             raise ImageRegistryError(f"cannot initialize image registry beneath {self._image_root}") from error
 
@@ -239,6 +230,26 @@ def _sync_directory(path: Path) -> None:
         os.fsync(descriptor)
     finally:
         os.close(descriptor)
+
+
+def _ensure_private_directory(path: Path, *, parents: bool) -> None:
+    path.mkdir(mode=_DIRECTORY_MODE, parents=parents, exist_ok=True)
+    descriptor: int | None = None
+    try:
+        before_open = path.lstat()
+        if not stat.S_ISDIR(before_open.st_mode):
+            raise OSError(f"registry directory {path} is not a directory")
+        flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+        descriptor = os.open(path, flags)
+        after_open = os.fstat(descriptor)
+        if (before_open.st_dev, before_open.st_ino) != (after_open.st_dev, after_open.st_ino):
+            raise OSError(f"registry directory {path} changed while it was being opened")
+        if not stat.S_ISDIR(after_open.st_mode):
+            raise OSError(f"registry directory {path} is not a directory")
+        os.fchmod(descriptor, _DIRECTORY_MODE)
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
 
 
 def _read_regular_text(path: Path) -> str:

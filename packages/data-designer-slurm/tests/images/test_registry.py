@@ -8,7 +8,7 @@ import os
 import stat
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from threading import Barrier
+from threading import Barrier, Event
 from unittest.mock import patch
 
 import pytest
@@ -102,7 +102,7 @@ def test_registration_requires_explicit_replace_for_alias_updates(tmp_path: Path
     assert first_path.exists()
 
 
-def test_registration_rolls_back_alias_when_sqsh_changes_before_commit(tmp_path: Path) -> None:
+def test_registration_does_not_publish_alias_when_sqsh_changes_before_commit(tmp_path: Path) -> None:
     image_path = _write_sqsh(tmp_path / "client.sqsh", b"client")
     inspection = _inspect_client(image_path)
     service = SlurmImageService(tmp_path / "workspace")
@@ -122,7 +122,7 @@ def test_registration_rolls_back_alias_when_sqsh_changes_before_commit(tmp_path:
     assert service.list_images() == ()
 
 
-def test_failed_replacement_restores_previous_alias(tmp_path: Path) -> None:
+def test_failed_replacement_keeps_previous_alias(tmp_path: Path) -> None:
     first_path = _write_sqsh(tmp_path / "first.sqsh", b"first")
     second_path = _write_sqsh(tmp_path / "second.sqsh", b"second")
     service = SlurmImageService(tmp_path / "workspace")
@@ -230,7 +230,15 @@ def test_direct_path_must_be_registered(tmp_path: Path) -> None:
         service.resolve(ImageRef(path=image_path.as_posix()), expected_kind=ImageKind.CLIENT)
 
 
-@pytest.mark.parametrize("content", (b"not-yaml: [\n", b"\xff"), ids=("invalid-yaml", "invalid-utf8"))
+@pytest.mark.parametrize(
+    "content",
+    (
+        b"not-yaml: [\n",
+        b"\xff",
+        b"schema_version: 1\nimages: &recursive\n  - *recursive\n",
+    ),
+    ids=("invalid-yaml", "invalid-utf8", "recursive-alias"),
+)
 def test_registry_normalizes_corrupt_persisted_state(tmp_path: Path, content: bytes) -> None:
     service = SlurmImageService(tmp_path / "workspace")
     service.registry_path.parent.mkdir(parents=True)
@@ -293,8 +301,36 @@ def test_registry_rejects_nonregular_lock_file(tmp_path: Path) -> None:
         )
 
 
+@pytest.mark.parametrize("directory", ("images", "locks"))
+def test_registry_rejects_symlinked_storage_directories(tmp_path: Path, directory: str) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    image_root = workspace / "images"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    if directory == "images":
+        image_root.symlink_to(outside, target_is_directory=True)
+    else:
+        image_root.mkdir()
+        (image_root / ".locks").symlink_to(outside, target_is_directory=True)
+    image_path = _write_sqsh(tmp_path / "client.sqsh", b"client")
+
+    with pytest.raises(ImageRegistryError, match="cannot initialize"):
+        SlurmImageService(workspace).register_existing(
+            ImageBuildRequest(name="client", kind="client", source=image_path.as_posix()),
+            _inspect_client(image_path),
+        )
+
+    assert tuple(outside.iterdir()) == ()
+
+
 def test_registry_uses_restrictive_atomic_workspace_storage(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
+    image_root = workspace / "images"
+    lock_directory = image_root / ".locks"
+    lock_directory.mkdir(parents=True)
+    image_root.chmod(0o775)
+    lock_directory.chmod(0o775)
     image_path = _write_sqsh(tmp_path / "client.sqsh", b"client")
     service = SlurmImageService(workspace)
 
@@ -304,7 +340,37 @@ def test_registry_uses_restrictive_atomic_workspace_storage(tmp_path: Path) -> N
     )
 
     assert stat.S_IMODE(service.registry_path.stat().st_mode) == 0o600
+    assert stat.S_IMODE(image_root.stat().st_mode) == 0o700
+    assert stat.S_IMODE(lock_directory.stat().st_mode) == 0o700
     assert not tuple(service.registry_path.parent.glob(".registry.*.tmp"))
+
+
+def test_registration_remains_unpublished_until_final_verification(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    image_path = _write_sqsh(tmp_path / "client.sqsh", b"client")
+    service = SlurmImageService(workspace)
+    verification_started = Event()
+    finish_verification = Event()
+
+    def verify_before_publish(_image: object) -> None:
+        verification_started.set()
+        assert finish_verification.wait(timeout=5)
+
+    with (
+        patch("data_designer.slurm.images.service._verify_registered_image", side_effect=verify_before_publish),
+        ThreadPoolExecutor(max_workers=1) as executor,
+    ):
+        future = executor.submit(
+            service.register_existing,
+            ImageBuildRequest(name="client", kind="client", source=image_path.as_posix()),
+            _inspect_client(image_path),
+        )
+        assert verification_started.wait(timeout=5)
+        assert service.list_images() == ()
+        finish_verification.set()
+        assert future.result().name == "client"
+
+    assert tuple(image.name for image in service.list_images()) == ("client",)
 
 
 def test_concurrent_alias_writers_preserve_both_registrations(tmp_path: Path) -> None:

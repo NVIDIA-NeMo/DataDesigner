@@ -115,12 +115,15 @@ class ClientImageInspector:
         """Return a digest-bound client inspection for the active image environment."""
         environment = self._environment
         try:
+            distributions = tuple(sorted(environment.list_distributions(), key=lambda item: item.name))
+            if not any(distribution.name == "data-designer" for distribution in distributions):
+                raise ImageInspectionError("required distribution 'data-designer' is not installed")
             inspection = ClientImageInspection(
                 kind="client",
                 python_implementation=environment.get_python_implementation(),
                 python_version=environment.get_python_version(),
                 python_abi=environment.get_python_abi(),
-                distributions=tuple(sorted(environment.list_distributions(), key=lambda item: item.name)),
+                distributions=distributions,
                 installer_path=environment.find_executable("pip"),
                 installer_version=environment.get_distribution_version("pip"),
             )

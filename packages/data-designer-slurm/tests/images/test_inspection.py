@@ -66,6 +66,17 @@ def test_client_inspector_rejects_missing_installer_capabilities(
         ClientImageInspector(environment).inspect("a" * 64)
 
 
+def test_client_inspector_rejects_generic_python_image_without_data_designer() -> None:
+    environment = FakeInspectionEnvironment(
+        distributions=(InstalledDistribution(name="pip", version="26.1"),),
+        distribution_versions={"pip": "26.1"},
+        executables={"pip": "/usr/bin/pip"},
+    )
+
+    with pytest.raises(ImageInspectionError, match="data-designer"):
+        ClientImageInspector(environment).inspect("a" * 64)
+
+
 @pytest.mark.parametrize(
     "environment",
     (
@@ -84,6 +95,7 @@ def test_serving_inspector_rejects_missing_runtime_capabilities(
 def test_client_inspector_normalizes_invalid_facts_to_canonical_error() -> None:
     environment = FakeInspectionEnvironment(
         distributions=(
+            InstalledDistribution(name="data-designer", version="0.9.2"),
             InstalledDistribution(name="plugin", version="1"),
             InstalledDistribution(name="plugin", version="2"),
         ),

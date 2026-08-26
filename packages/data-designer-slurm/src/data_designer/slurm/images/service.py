@@ -51,7 +51,7 @@ class SlurmImageService:
             sqsh_sha256=sqsh_sha256,
             inspection=inspection,
         )
-        return self._registry.register(image, verify_persisted=_verify_registered_image, replace=replace)
+        return self._registry.register(image, verify_before_publish=_verify_registered_image, replace=replace)
 
     def list_images(self) -> tuple[RegisteredImage, ...]:
         """Return all registered aliases in deterministic order."""
