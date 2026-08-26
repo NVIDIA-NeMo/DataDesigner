@@ -21,7 +21,6 @@ from data_designer.slurm.serving import (
     VllmLaunchPolicy,
     VllmProcessRole,
     VllmProcessSpec,
-    VllmRuntimeCompatibility,
     resolve_server,
 )
 from data_designer.slurm.serving import resolver as resolver_module
@@ -105,7 +104,10 @@ def test_two_deployments_keep_images_and_endpoint_identities_isolated(
     assert resolved[0].model_alias != resolved[1].model_alias
     assert resolved[0].model != resolved[1].model
     assert resolved[0].served_model_name != resolved[1].served_model_name
-    assert resolved[0].compatibility.runtime_version != resolved[1].compatibility.runtime_version
+    assert (
+        resolved[0].image.inspection.inspection.runtime_version
+        != resolved[1].image.inspection.inspection.runtime_version
+    )
     node_indices = [node_index for deployment in resolved for node_index in deployment.node_indices]
     assert len(node_indices) == len(set(node_indices))
     process_ids = [process.process_id for deployment in resolved for process in deployment.processes]
@@ -152,14 +154,23 @@ def test_resolution_rejects_declaration_that_differs_from_placement(single_node_
         resolve_server(different, context)
 
 
-def test_resolution_rejects_unsupported_inspected_version(single_node_plan: ResolvedSlurmRunPlan) -> None:
+def test_resolution_preserves_inspected_runtime_version_without_gating(single_node_plan: ResolvedSlurmRunPlan) -> None:
     payload = single_node_plan.deployments[0].model_dump(mode="json")
-    payload["image"]["inspection"]["inspection"]["runtime_version"] = "0.20.0"
+    payload["image"]["inspection"]["inspection"]["runtime_version"] = "vendor-vllm-build"
     placement = ResolvedDeployment.model_validate_json(json.dumps(payload))
     context = _context_for_placement(single_node_plan, placement)
 
-    with pytest.raises(ServerResolutionError, match="unsupported inspected vLLM version"):
-        resolve_server(placement.authored, context)
+    resolved = resolve_server(placement.authored, context)
+
+    assert resolved.image.inspection.inspection.runtime_version == "vendor-vllm-build"
+
+
+def test_resolution_rejects_unsafe_runtime_version_text(single_node_plan: ResolvedSlurmRunPlan) -> None:
+    payload = single_node_plan.deployments[0].model_dump(mode="json")
+    payload["image"]["inspection"]["inspection"]["runtime_version"] = "vLLM\nversion"
+
+    with pytest.raises(ValidationError, match="control characters"):
+        ResolvedDeployment.model_validate_json(json.dumps(payload))
 
 
 def test_resolution_rejects_image_inspection_mismatch(single_node_plan: ResolvedSlurmRunPlan) -> None:
@@ -296,7 +307,6 @@ def test_process_specs_reject_one_field_topology_drift(
     ("mutation", "message"),
     [
         ("image_kind", "server image inspection"),
-        ("runtime_version", "inspected runtime version"),
         ("executable", "executable path"),
         ("nodes", "sorted and unique"),
         ("node_group_divisibility", "divide evenly into replica groups"),
@@ -336,9 +346,6 @@ def test_resolved_server_rejects_one_field_join_drift(
     payload = resolved.model_dump(mode="json")
     if mutation == "image_kind":
         payload["image"] = multi_node_plan.client.image.model_dump(mode="json")
-    elif mutation == "runtime_version":
-        payload["compatibility"]["runtime_version"] = "0.22.0"
-        payload["compatibility"]["runtime_series"] = "0.22"
     elif mutation == "executable":
         payload["executable_path"] = "/usr/local/bin/other"
     elif mutation == "nodes":
@@ -402,33 +409,6 @@ def test_resolved_server_rejects_one_field_join_drift(
 
     with pytest.raises(ValidationError, match=message):
         ResolvedServerDeployment.model_validate_json(json.dumps(payload))
-
-
-def test_compatibility_rejects_runtime_series_drift() -> None:
-    with pytest.raises(ValidationError, match="runtime series"):
-        VllmRuntimeCompatibility(
-            runtime_version="0.21.0",
-            runtime_series="0.22",
-        )
-
-
-def test_compatibility_rejects_invalid_runtime_version() -> None:
-    with pytest.raises(ValidationError, match="invalid inspected vLLM version"):
-        VllmRuntimeCompatibility(
-            runtime_version="invalid",
-            runtime_series="invalid",
-        )
-
-
-def test_compatibility_rejects_unknown_contract_version() -> None:
-    with pytest.raises(ValidationError, match="contract_version"):
-        VllmRuntimeCompatibility.model_validate(
-            {
-                "runtime_version": "0.21.0",
-                "runtime_series": "0.21",
-                "contract_version": "v2",
-            }
-        )
 
 
 @pytest.mark.parametrize(
@@ -546,19 +526,6 @@ def test_logical_endpoint_rejects_invalid_backend_or_retry_contract(
 
     with pytest.raises(ValidationError, match=message):
         ResolvedLogicalEndpoint.model_validate_json(json.dumps(payload))
-
-
-def test_resolved_server_rejects_compatibility_contract_drift(single_node_plan: ResolvedSlurmRunPlan) -> None:
-    placement = single_node_plan.deployments[0]
-    resolved = resolve_server(
-        placement.authored,
-        ServerResolutionContext.from_plan(single_node_plan, placement.deployment_id),
-    )
-    payload = resolved.model_dump(mode="json")
-    payload["compatibility"]["contract_version"] = "v2"
-
-    with pytest.raises(ValidationError, match="contract_version"):
-        ResolvedServerDeployment.model_validate_json(json.dumps(payload))
 
 
 def test_resolution_context_requires_matching_client_endpoint(single_node_plan: ResolvedSlurmRunPlan) -> None:

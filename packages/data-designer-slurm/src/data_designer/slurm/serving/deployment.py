@@ -18,7 +18,6 @@ from data_designer.slurm.contracts import (
     validate_plain_text,
 )
 from data_designer.slurm.planning.models import ResolvedImage, ResolvedTopology
-from data_designer.slurm.serving.compatibility import VllmRuntimeCompatibility
 from data_designer.slurm.serving.endpoints import (
     ResolvedBackendEndpoint,
     ResolvedLogicalEndpoint,
@@ -40,7 +39,6 @@ class ResolvedServerDeployment(ContractValue):
     node_indices: tuple[NonNegativeInt, ...] = Field(min_length=1)
     gpus_per_node: PositiveInt
     topology: ResolvedTopology
-    compatibility: VllmRuntimeCompatibility
     launch_policy: VllmLaunchPolicy
     processes: tuple[VllmProcessSpec, ...] = Field(min_length=1)
     readiness_probes: tuple[ResolvedReadinessProbe, ...] = Field(min_length=1)
@@ -60,8 +58,6 @@ class ResolvedServerDeployment(ContractValue):
         inspection = self.image.inspection.inspection
         if not isinstance(inspection, ServingImageInspection) or inspection.server_type != self.server_type:
             raise ValueError("resolved server image inspection must match the server type")
-        if inspection.runtime_version != self.compatibility.runtime_version:
-            raise ValueError("serving compatibility must match the inspected runtime version")
         if inspection.executable_path != self.executable_path:
             raise ValueError("resolved executable path must match the serving image inspection")
         if self.node_indices != tuple(sorted(set(self.node_indices))):

@@ -5,11 +5,6 @@
 
 from __future__ import annotations
 
-from data_designer.slurm.serving.compatibility import (
-    UnsupportedServingRuntimeError,
-    VllmRuntimeCompatibility,
-    resolve_vllm_compatibility,
-)
 from data_designer.slurm.serving.context import ServerResolutionContext
 from data_designer.slurm.serving.deployment import ResolvedServerDeployment
 from data_designer.slurm.serving.endpoints import (
@@ -32,12 +27,9 @@ __all__ = [
     "ResolvedServerDeployment",
     "ServerResolutionContext",
     "ServerResolutionError",
-    "UnsupportedServingRuntimeError",
     "VllmLaunchPolicy",
     "VllmProcessRole",
     "VllmProcessSpec",
     "VllmRendezvousSpec",
-    "VllmRuntimeCompatibility",
     "resolve_server",
-    "resolve_vllm_compatibility",
 ]

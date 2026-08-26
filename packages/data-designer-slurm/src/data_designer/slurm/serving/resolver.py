@@ -10,7 +10,6 @@ from data_designer.slurm.config.run import ServerDeploymentConfig
 from data_designer.slurm.config.vllm import VllmServerConfig
 from data_designer.slurm.contracts import convert_duration_to_seconds
 from data_designer.slurm.planning.models import PortClaim, ResolvedDeployment
-from data_designer.slurm.serving.compatibility import UnsupportedServingRuntimeError, resolve_vllm_compatibility
 from data_designer.slurm.serving.context import ServerResolutionContext
 from data_designer.slurm.serving.deployment import ResolvedServerDeployment
 from data_designer.slurm.serving.endpoints import (
@@ -52,10 +51,6 @@ def _resolve_vllm(
     inspection = placement.image.inspection.inspection
     if not isinstance(inspection, ServingImageInspection) or inspection.server_type != server.type:
         raise ServerResolutionError("resolved serving image does not match the declared vLLM server")
-    try:
-        compatibility = resolve_vllm_compatibility(inspection.runtime_version)
-    except UnsupportedServingRuntimeError as error:
-        raise ServerResolutionError(str(error)) from error
     if server.enable_expert_parallel and placement.topology.pipeline_parallel > 1:
         raise ServerResolutionError("multi-node expert parallel is not supported in v1")
 
@@ -138,7 +133,6 @@ def _resolve_vllm(
         node_indices=placement.node_indices,
         gpus_per_node=placement.gpus_per_node,
         topology=placement.topology,
-        compatibility=compatibility,
         launch_policy=VllmLaunchPolicy(
             startup_timeout_seconds=convert_duration_to_seconds(server.startup_timeout),
             distributed_init_timeout_seconds=convert_duration_to_seconds(server.distributed_init_timeout),
