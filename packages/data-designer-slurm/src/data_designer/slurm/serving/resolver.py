@@ -8,9 +8,8 @@ from __future__ import annotations
 from data_designer.slurm.config.images import ServingImageInspection
 from data_designer.slurm.config.run import ServerDeploymentConfig
 from data_designer.slurm.config.vllm import VllmServerConfig
-from data_designer.slurm.contracts import convert_duration_to_seconds
-from data_designer.slurm.planning.models import PortClaim, ResolvedDeployment
-from data_designer.slurm.serving.context import ServerResolutionContext
+from data_designer.slurm.contracts import Identifier, convert_duration_to_seconds
+from data_designer.slurm.planning.models import PortClaim, ResolvedDeployment, ResolvedSlurmRunPlan
 from data_designer.slurm.serving.deployment import ResolvedServerDeployment
 from data_designer.slurm.serving.endpoints import (
     ResolvedBackendEndpoint,
@@ -30,15 +29,22 @@ class ServerResolutionError(ValueError):
 
 
 def resolve_server(
-    deployment: ServerDeploymentConfig,
-    context: ServerResolutionContext,
+    plan: ResolvedSlurmRunPlan,
+    deployment_id: Identifier,
 ) -> ResolvedServerDeployment:
-    """Resolve one typed server declaration against planner-owned placement."""
-    if deployment != context.placement.authored:
-        raise ServerResolutionError("server declaration does not match its planner-owned placement")
+    """Resolve one server deployment and its logical endpoint from a reviewed plan."""
+    placements = tuple(placement for placement in plan.deployments if placement.deployment_id == deployment_id)
+    if len(placements) != 1:
+        raise ServerResolutionError("resolved plan must contain exactly one deployment with the requested ID")
+    placement = placements[0]
+    expected_endpoint_id = f"{deployment_id}-logical-endpoint"
+    logical_endpoints = tuple(endpoint for endpoint in plan.client.ports if endpoint.name == expected_endpoint_id)
+    if len(logical_endpoints) != 1:
+        raise ServerResolutionError("resolved client must contain exactly one logical endpoint for the deployment")
+    deployment = placement.authored
     match deployment.server:
         case VllmServerConfig():
-            return _resolve_vllm(deployment, context.placement, context.logical_endpoint)
+            return _resolve_vllm(deployment, placement, logical_endpoints[0])
     raise ServerResolutionError(f"unsupported server type: {deployment.server.type!r}")
 
 

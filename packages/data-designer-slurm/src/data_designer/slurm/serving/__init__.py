@@ -5,7 +5,6 @@
 
 from __future__ import annotations
 
-from data_designer.slurm.serving.context import ServerResolutionContext
 from data_designer.slurm.serving.deployment import ResolvedServerDeployment
 from data_designer.slurm.serving.endpoints import (
     ResolvedBackendEndpoint,
@@ -25,7 +24,6 @@ __all__ = [
     "ResolvedLogicalEndpoint",
     "ResolvedReadinessProbe",
     "ResolvedServerDeployment",
-    "ServerResolutionContext",
     "ServerResolutionError",
     "VllmLaunchPolicy",
     "VllmProcessRole",
