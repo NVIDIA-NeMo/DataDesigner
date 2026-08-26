@@ -376,4 +376,5 @@ class DataDesignerSlurmConfig(AuthoredConfig):
 
 
 def _option_flag(value: str) -> str:
+    """Extract the option name from one shell-free argument value."""
     return re.split(r"[=\s]", value.lstrip(), maxsplit=1)[0]
