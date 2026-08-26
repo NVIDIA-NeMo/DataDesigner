@@ -27,7 +27,6 @@ from data_designer.slurm.types import (
     Duration,
     EnvironmentName,
     Identifier,
-    ModelAlias,
     NetworkPort,
     NonNegativeDuration,
     SchemaVersion,
@@ -35,7 +34,8 @@ from data_designer.slurm.types import (
     ShardId,
 )
 
-# TODO: Remove these compatibility re-exports after downstream Stage 2 branches import aliases from slurm.types.
+# TODO: Remove these compatibility exports after Stage 2 branches use slurm.types and plain str model aliases.
+ModelAlias = str
 
 _Key = TypeVar("_Key")
 _Value = TypeVar("_Value")

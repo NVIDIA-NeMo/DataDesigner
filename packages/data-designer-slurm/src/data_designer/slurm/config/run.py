@@ -40,7 +40,7 @@ from data_designer.slurm.contracts import (
     validate_plain_text,
     validate_url,
 )
-from data_designer.slurm.types import EnvironmentName, Identifier, ModelAlias, SchemaVersion
+from data_designer.slurm.types import EnvironmentName, Identifier, SchemaVersion
 
 __all__ = [
     "ArrayTasksConfig",
@@ -171,7 +171,7 @@ class InvocationConfig(AuthoredConfig):
     run_config: dict[str, JsonValue] = Field(default_factory=dict)
     input_bindings: InputBindings = Field(default_factory=InputBindings)
     mcp_providers: list[MCPProviderConfig] = Field(default_factory=list)
-    model_concurrency: dict[ModelAlias, PositiveInt] = Field(default_factory=dict)
+    model_concurrency: dict[str, PositiveInt] = Field(default_factory=dict)
     diagnostics: InvocationDiagnostics = Field(default_factory=InvocationDiagnostics)
 
     @field_validator("run_config")
@@ -269,7 +269,7 @@ class DeploymentTopology(AuthoredConfig):
 
 
 class ServerDeploymentConfig(AuthoredConfig):
-    model_alias: ModelAlias
+    model_alias: str
     served_model_name: str | None = None
     model: str
     server: VllmServerConfig

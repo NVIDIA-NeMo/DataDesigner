@@ -17,7 +17,6 @@ Identifier = Annotated[
         pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$",
     ),
 ]
-ModelAlias = str
 ShardId = Annotated[str, StringConstraints(pattern=r"^shard-[0-9]{5,}$")]
 AttemptId = Annotated[str, StringConstraints(pattern=r"^attempt-[0-9]{4,}$")]
 SchemaVersion = Literal[1]
@@ -32,7 +31,6 @@ __all__ = [
     "Duration",
     "EnvironmentName",
     "Identifier",
-    "ModelAlias",
     "NetworkPort",
     "NonNegativeDuration",
     "SchemaVersion",

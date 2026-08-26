@@ -52,6 +52,10 @@ def test_contracts_reexport_shared_scalar_types(type_name: str) -> None:
     assert getattr(contracts_module, type_name) is getattr(types_module, type_name)
 
 
+def test_contracts_preserve_model_alias_compatibility() -> None:
+    assert contracts_module.ModelAlias is str
+
+
 def test_state_exports_exact_shared_contract_types() -> None:
     assert StateArtifactReference is ContractArtifactReference
     assert StateRecordRange is ContractRecordRange

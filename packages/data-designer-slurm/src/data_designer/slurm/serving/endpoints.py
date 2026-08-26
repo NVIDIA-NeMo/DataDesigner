@@ -10,7 +10,7 @@ from typing import Literal
 from pydantic import Field, NonNegativeInt, PositiveInt, model_validator
 
 from data_designer.slurm.contracts import ContractValue
-from data_designer.slurm.types import Identifier, ModelAlias, NetworkPort
+from data_designer.slurm.types import Identifier, NetworkPort
 
 
 class ResolvedBackendEndpoint(ContractValue):
@@ -41,7 +41,7 @@ class ResolvedLogicalEndpoint(ContractValue):
     """Client-visible endpoint aggregating one deployment's healthy backends."""
 
     endpoint_id: Identifier
-    model_alias: ModelAlias
+    model_alias: str
     served_model_name: str
     node_index: NonNegativeInt
     port: NetworkPort

@@ -22,7 +22,7 @@ from data_designer.slurm.serving.endpoints import (
     ResolvedReadinessProbe,
 )
 from data_designer.slurm.serving.vllm import VllmLaunchPolicy, VllmProcessSpec
-from data_designer.slurm.types import Identifier, ModelAlias
+from data_designer.slurm.types import Identifier
 
 
 class ResolvedServerDeployment(ContractValue):
@@ -30,7 +30,7 @@ class ResolvedServerDeployment(ContractValue):
 
     deployment_id: Identifier
     server_type: Literal["vllm"]
-    model_alias: ModelAlias
+    model_alias: str
     model: str
     served_model_name: str
     image: ResolvedImage
