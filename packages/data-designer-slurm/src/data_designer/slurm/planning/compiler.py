@@ -84,6 +84,8 @@ class EffectiveDataDesignerSlurmConfig(ContractValue):
 
     @model_validator(mode="after")
     def validate_resolution(self) -> EffectiveDataDesignerSlurmConfig:
+        workspace_root = self.selected_profile.profile.workspace_root
+        run_root = posixpath.join(workspace_root, "runs", self.run_id)
         profile_gpus = self.selected_profile.profile.gpus_per_node
         if profile_gpus != "auto" and profile_gpus != self.resolved_gpus_per_node:
             raise ValueError("resolved GPU count does not match the selected profile")
@@ -102,7 +104,19 @@ class EffectiveDataDesignerSlurmConfig(ContractValue):
             raise ValueError("only sourced builder input may retain a resolved payload")
         if self.authored.builder.source is not None and self.builder_payload is None:
             raise ValueError("sourced builder input requires its resolved payload")
-        runtime_root = posixpath.join(self.selected_profile.profile.workspace_root, "runtime")
+        _validate_sharding_constraints(self.authored, builder_payload=self.builder_payload)
+        expected_output = ResolvedOutput(
+            root=self.authored.output.root or posixpath.join(run_root, "output"),
+            format=self.authored.output.format,
+            partitions=self.authored.output.partitions,
+            require_exact_record_count=self.authored.output.require_exact_record_count,
+        )
+        if self.output != expected_output:
+            raise ValueError("resolved output does not match the authored output")
+        _validate_output_destination(self.output.root, workspace_root, run_root)
+        if self.output.partitions > self.authored.invocation.num_records:
+            raise ValueError("output partitions must not exceed requested records")
+        runtime_root = posixpath.join(workspace_root, "runtime")
         if not _is_below(self.runtime_bundle.path, runtime_root) or not self.runtime_bundle.path.endswith(".tar.gz"):
             raise ValueError("runtime bundle must be a tar archive below the selected workspace runtime root")
         return self
@@ -138,9 +152,6 @@ def resolve_slurm_config(
             comment=authored.submission.comment,
         )
         output_root = authored.output.root or posixpath.join(run_root, "output")
-        _validate_output_destination(output_root, selected_profile.profile.workspace_root)
-        if authored.output.partitions > authored.invocation.num_records:
-            raise ConfigurationResolutionError("output partitions must not exceed requested records")
         output = ResolvedOutput(
             root=output_root,
             format=authored.output.format,
@@ -269,6 +280,42 @@ def _materialize_run_config(authored: DataDesignerSlurmConfig) -> dict[str, Json
     for name, value in _COMPATIBILITY_RUN_DEFAULTS.items():
         values.setdefault(name, value)
     return RunConfig.model_validate(values).model_dump(mode="json")
+
+
+def _validate_sharding_constraints(
+    authored: DataDesignerSlurmConfig,
+    *,
+    builder_payload: dict[str, JsonValue] | None,
+) -> None:
+    if authored.array_tasks.count == 1:
+        return
+    if authored.output.format != "parquet":
+        raise ConfigurationResolutionError("multi-shard runs require parquet output")
+
+    payload = authored.builder.inline if authored.builder.inline is not None else builder_payload
+    assert payload is not None
+    data_designer = payload.get("data_designer", payload)
+    if not isinstance(data_designer, dict):
+        raise ConfigurationResolutionError("builder data_designer value must be an object")
+    if data_designer.get("processors"):
+        raise ConfigurationResolutionError("multi-shard runs do not support global processors")
+    if data_designer.get("profilers"):
+        raise ConfigurationResolutionError("multi-shard runs do not support global profilers")
+
+    seed_config = data_designer.get("seed_config")
+    if isinstance(seed_config, dict):
+        if seed_config.get("sampling_strategy") == "shuffle":
+            raise ConfigurationResolutionError("multi-shard runs do not support shuffled seed input")
+        if seed_config.get("selection_strategy") is not None:
+            raise ConfigurationResolutionError("multi-shard runs do not support authored seed selection strategies")
+        if authored.invocation.input_bindings.seed_path is None:
+            raise ConfigurationResolutionError("multi-shard seed input requires a typed seed_path binding")
+
+    columns = data_designer.get("columns")
+    if isinstance(columns, list) and any(
+        isinstance(column, dict) and column.get("column_type") == "image" for column in columns
+    ):
+        raise ConfigurationResolutionError("multi-shard runs do not support media output columns")
 
 
 def _validate_dependency_resolution(
@@ -451,12 +498,18 @@ def _compile_shards(effective: EffectiveDataDesignerSlurmConfig) -> tuple[Planne
     return tuple(shards)
 
 
-def _validate_output_destination(output_root: str, workspace_root: str) -> None:
+def _validate_output_destination(output_root: str, workspace_root: str, run_root: str) -> None:
     if not _is_below(output_root, workspace_root):
         raise ConfigurationResolutionError("output root must be below the selected workspace_root")
     reserved = tuple(posixpath.join(workspace_root, name) for name in ("images", "runtime", "benchmarks"))
     if any(_paths_overlap(output_root, path) for path in reserved):
         raise ConfigurationResolutionError("output root must not overlap package-managed workspace state")
+    runs_root = posixpath.join(workspace_root, "runs")
+    run_output_root = posixpath.join(run_root, "output")
+    if _paths_overlap(output_root, runs_root) and not (
+        output_root == run_output_root or _is_below(output_root, run_output_root)
+    ):
+        raise ConfigurationResolutionError("output root must not overlap another package-managed run")
 
 
 def _run_root(effective: EffectiveDataDesignerSlurmConfig) -> str:

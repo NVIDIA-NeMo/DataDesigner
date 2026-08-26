@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from data_designer.config import DataDesignerConfigBuilder, ModelConfig
+from data_designer.config import DataDesignerConfigBuilder, LLMTextColumnConfig, ModelConfig
 from data_designer.slurm.config import (
     DEFAULT_PROFILE_FILE_NAME,
     PROFILE_FILE_ENVIRONMENT,
@@ -25,10 +25,12 @@ from data_designer.slurm.config import (
 )
 
 
-def _config_builder() -> DataDesignerSlurmConfigBuilder:
+def _config_builder(*, prompt: str | None = None) -> DataDesignerSlurmConfigBuilder:
     data_designer = DataDesignerConfigBuilder(
         model_configs=[ModelConfig(alias="generator", model="example/generator", provider="openai")]
     )
+    if prompt is not None:
+        data_designer.add_column(LLMTextColumnConfig(name="generated", prompt=prompt, model_alias="generator"))
     return (
         DataDesignerSlurmConfigBuilder.from_config_builder(data_designer, name="generated-run")
         .with_invocation(
@@ -82,12 +84,38 @@ def test_builder_rejects_unsupported_output_format(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
+    ("method", "values"),
+    [
+        ("with_invocation", {"num_records": 0, "dataset_name": "generated"}),
+        ("with_array_tasks", {"count": 1, "max_concurrent": 2}),
+        ("with_submission", {"time_limit": "invalid"}),
+        ("with_output", {"partitions": 0}),
+    ],
+)
+def test_builder_normalizes_invalid_authored_values(
+    method: str,
+    values: dict[str, object],
+) -> None:
+    with pytest.raises(ConfigBuilderError):
+        getattr(_config_builder(), method)(**values)
+
+
+def test_builder_normalizes_write_failures(tmp_path: Path) -> None:
+    path = tmp_path / "run.json"
+    path.mkdir()
+
+    with pytest.raises(ConfigBuilderError, match="cannot write"):
+        _config_builder().write_config(path)
+
+
+@pytest.mark.parametrize(
     ("suffix", "contents", "message"),
     [
         (".json", '{"schema_version": 1, "schema_version": 1}', "duplicate"),
         (".yaml", "schema_version: 1\nschema_version: 1\n", "duplicate"),
         (".yaml", "defaults: &defaults\n  schema_version: 1\nrun: *defaults\n", "anchors"),
         (".yaml", "schema_version: 1\nname: ${RUN_NAME}\n", "interpolation"),
+        (".yaml", "schema_version: 1\nbuilder:\n  source: ${HOME}/builder.json\n", "interpolation"),
     ],
 )
 def test_strict_loader_rejects_ambiguous_yaml_and_json(
@@ -113,6 +141,16 @@ def test_strict_loader_rejects_non_object_and_unknown_extension(tmp_path: Path) 
         load_run_config(tmp_path / "run.toml")
 
 
+@pytest.mark.parametrize("suffix", [".json", ".yaml", ".yml"])
+def test_loader_preserves_literal_interpolation_inside_builder_payload(tmp_path: Path, suffix: str) -> None:
+    path = tmp_path / f"run{suffix}"
+    builder = _config_builder(prompt="Use the literal ${HOME} value")
+
+    builder.write_config(path)
+
+    assert load_run_config(path) == builder.build()
+
+
 def test_profile_source_and_selection_precedence(
     tmp_path: Path,
     profile_catalog: SlurmProfileCatalog,
@@ -127,7 +165,7 @@ def test_profile_source_and_selection_precedence(
     explicit = resolve_profile(
         profile_file=explicit_path,
         cluster="lab",
-        hostname_resolver=lambda: ("primary-login-1",),
+        hostname_resolver=lambda: pytest.fail("explicit cluster selection must not resolve hostnames"),
         environ={PROFILE_FILE_ENVIRONMENT: str(environment_path)},
     )
     environment = resolve_profile(
@@ -170,6 +208,19 @@ def test_profile_resolution_rejects_conflicting_or_empty_sources(
         resolve_profile(environ={PROFILE_FILE_ENVIRONMENT: ""})
     with pytest.raises(ConfigLoadError, match="cluster selection"):
         resolve_profile(profile=profile_catalog.clusters["primary"], cluster="primary")
+    with pytest.raises(ConfigLoadError, match="unknown cluster"):
+        resolve_profile(catalog=profile_catalog, cluster="missing")
+
+
+def test_profile_resolution_normalizes_ambiguous_hostname_errors(
+    profile_catalog: SlurmProfileCatalog,
+) -> None:
+    payload = profile_catalog.model_dump(mode="json")
+    payload["clusters"]["lab"]["host_patterns"] = ["*-login-*"]
+    catalog = SlurmProfileCatalog.model_validate(payload)
+
+    with pytest.raises(ConfigLoadError, match="multiple clusters"):
+        resolve_profile(catalog=catalog, hostnames=("primary-login-1",))
 
 
 def test_json_builder_output_is_stable(tmp_path: Path) -> None:

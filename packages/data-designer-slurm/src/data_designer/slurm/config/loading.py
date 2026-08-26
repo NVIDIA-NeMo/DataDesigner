@@ -88,34 +88,41 @@ def resolve_profile(
     home_directory: str | Path | None = None,
 ) -> SelectedSlurmProfile:
     """Resolve an injected profile or select one catalog entry."""
-    sources = sum(source is not None for source in (profile, catalog, profile_file))
-    if sources > 1:
-        raise ConfigLoadError("profile, catalog, and profile_file are mutually exclusive")
-    if profile is not None:
-        if cluster is not None:
-            raise ConfigLoadError("an injected profile cannot be combined with cluster selection")
-        return injected_profile(profile)
+    try:
+        sources = sum(source is not None for source in (profile, catalog, profile_file))
+        if sources > 1:
+            raise ConfigLoadError("profile, catalog, and profile_file are mutually exclusive")
+        if profile is not None:
+            if cluster is not None:
+                raise ConfigLoadError("an injected profile cannot be combined with cluster selection")
+            return injected_profile(profile)
 
-    catalog_path: str | None = None
-    if catalog is None:
-        path = _resolve_profile_path(
-            profile_file,
-            environ=os.environ if environ is None else environ,
-            home_directory=home_directory,
+        catalog_path: str | None = None
+        if catalog is None:
+            path = _resolve_profile_path(
+                profile_file,
+                environ=os.environ if environ is None else environ,
+                home_directory=home_directory,
+            )
+            catalog = load_profile_catalog(path)
+            catalog_path = path.as_posix()
+
+        if cluster is None and hostnames is None:
+            resolver = hostname_resolver or _local_hostnames
+            hostnames = resolver()
+        normalized_hostnames = tuple(
+            dict.fromkeys(hostname.strip().casefold() for hostname in (hostnames or ()) if hostname)
         )
-        catalog = load_profile_catalog(path)
-        catalog_path = path.as_posix()
-
-    if hostnames is None:
-        resolver = hostname_resolver or _local_hostnames
-        hostnames = resolver()
-    normalized_hostnames = tuple(dict.fromkeys(hostname.strip().casefold() for hostname in hostnames if hostname))
-    return select_profile(
-        catalog,
-        cluster=cluster,
-        hostnames=normalized_hostnames,
-        catalog_path=catalog_path,
-    )
+        return select_profile(
+            catalog,
+            cluster=cluster,
+            hostnames=normalized_hostnames,
+            catalog_path=catalog_path,
+        )
+    except ConfigLoadError:
+        raise
+    except ValueError as error:
+        raise ConfigLoadError(str(error)) from error
 
 
 def _load_config(path: str | Path, config_type: type[_Config]) -> _Config:
@@ -126,7 +133,10 @@ def _load_config(path: str | Path, config_type: type[_Config]) -> _Config:
         raise ConfigLoadError(f"cannot read configuration file {resolved_path}") from error
     try:
         payload = _parse_mapping(contents, suffix=resolved_path.suffix)
-        _reject_environment_interpolation(payload)
+        if config_type is DataDesignerSlurmConfig:
+            _reject_run_environment_interpolation(payload)
+        else:
+            _reject_environment_interpolation(payload)
         return config_type.model_validate(payload)
     except ConfigLoadError:
         raise
@@ -166,6 +176,18 @@ def _reject_environment_interpolation(value: object) -> None:
     elif isinstance(value, list | tuple):
         for item in value:
             _reject_environment_interpolation(item)
+
+
+def _reject_run_environment_interpolation(payload: Mapping[str, object]) -> None:
+    for key, value in payload.items():
+        _reject_environment_interpolation(key)
+        if key != "builder" or not isinstance(value, Mapping):
+            _reject_environment_interpolation(value)
+            continue
+        for builder_key, builder_value in value.items():
+            _reject_environment_interpolation(builder_key)
+            if builder_key != "inline":
+                _reject_environment_interpolation(builder_value)
 
 
 def _resolve_profile_path(

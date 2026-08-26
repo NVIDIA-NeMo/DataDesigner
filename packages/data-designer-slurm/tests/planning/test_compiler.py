@@ -7,6 +7,13 @@ from pathlib import Path
 
 import pytest
 
+from data_designer.config import (
+    DataDesignerConfigBuilder,
+    DropColumnsProcessorConfig,
+    JudgeScoreProfilerConfig,
+    LLMTextColumnConfig,
+    ModelConfig,
+)
 from data_designer.slurm.config import (
     BuilderInput,
     DataDesignerSlurmConfig,
@@ -188,6 +195,8 @@ def test_compiler_rejects_tensor_parallelism_that_does_not_divide_gpu_shape(
         {"root": "/outside/output"},
         {"root": "/workspace/primary/images/output"},
         {"root": "/workspace/primary/runtime/output"},
+        {"root": "/workspace/primary/runs/other-run/output"},
+        {"root": "/workspace/primary/runs/run-single/shards"},
         {"partitions": 9},
     ],
 )
@@ -203,6 +212,45 @@ def test_resolution_rejects_invalid_output_destinations(
 
     with pytest.raises(ConfigurationResolutionError, match="output"):
         _resolve_fixture(authored, dependency_lock_single, single_node_plan)
+
+
+def test_effective_config_rejects_invalid_direct_construction(
+    authored_run: DataDesignerSlurmConfig,
+    dependency_lock: ResolvedDependencyLock,
+    multi_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    effective = _resolve_fixture(authored_run, dependency_lock, multi_node_plan)
+    values = {name: getattr(effective, name) for name in EffectiveDataDesignerSlurmConfig.model_fields}
+    values["authored"] = authored_run.model_copy(
+        update={"output": authored_run.output.model_copy(update={"format": "jsonl"})}
+    )
+    values["output"] = effective.output.model_copy(update={"format": "jsonl"})
+
+    with pytest.raises(ValueError, match="parquet output"):
+        EffectiveDataDesignerSlurmConfig(**values)  # type: ignore[arg-type]
+
+    other_output = "/workspace/primary/runs/other-run/output"
+    values["authored"] = authored_run.model_copy(
+        update={"output": authored_run.output.model_copy(update={"root": other_output})}
+    )
+    values["output"] = effective.output.model_copy(update={"root": other_output})
+
+    with pytest.raises(ValueError, match="another package-managed run"):
+        EffectiveDataDesignerSlurmConfig(**values)  # type: ignore[arg-type]
+
+    values["authored"] = authored_run.model_copy(
+        update={"output": authored_run.output.model_copy(update={"partitions": 101})}
+    )
+    values["output"] = effective.output.model_copy(update={"partitions": 101})
+
+    with pytest.raises(ValueError, match="requested records"):
+        EffectiveDataDesignerSlurmConfig(**values)  # type: ignore[arg-type]
+
+    values["authored"] = authored_run
+    values["output"] = effective.output.model_copy(update={"format": "jsonl"})
+
+    with pytest.raises(ValueError, match="resolved output"):
+        EffectiveDataDesignerSlurmConfig(**values)  # type: ignore[arg-type]
 
 
 def test_compiler_rejects_model_alias_missing_from_builder(
@@ -252,6 +300,147 @@ def test_sharded_seed_inputs_have_stable_ranges_and_partition_digests(
     assert first.shards == second.shards
 
 
+@pytest.mark.parametrize(
+    ("builder_update", "output_update", "message"),
+    [
+        (
+            {
+                "seed_config": {
+                    "sampling_strategy": "shuffle",
+                    "source": {"path": "/datasets/seed.parquet", "seed_type": "local"},
+                }
+            },
+            {},
+            "shuffled seed",
+        ),
+        (
+            {
+                "seed_config": {
+                    "sampling_strategy": "ordered",
+                    "source": {"path": "/datasets/seed.parquet", "seed_type": "local"},
+                }
+            },
+            {},
+            "seed_path",
+        ),
+        (
+            {
+                "seed_config": {
+                    "sampling_strategy": "ordered",
+                    "selection_strategy": {"start": 0, "end": 9},
+                    "source": {"path": "/datasets/seed.parquet", "seed_type": "local"},
+                }
+            },
+            {},
+            "selection strategies",
+        ),
+        (
+            {
+                "columns": [
+                    {
+                        "column_type": "image",
+                        "model_alias": "generator",
+                        "name": "picture",
+                        "prompt": "an image",
+                    }
+                ]
+            },
+            {},
+            "media output",
+        ),
+        ({}, {"format": "jsonl"}, "parquet output"),
+    ],
+)
+def test_resolution_rejects_unshardable_big_iron_fields(
+    authored_run: DataDesignerSlurmConfig,
+    dependency_lock: ResolvedDependencyLock,
+    multi_node_plan: ResolvedSlurmRunPlan,
+    builder_update: dict[str, object],
+    output_update: dict[str, object],
+    message: str,
+) -> None:
+    payload = authored_run.model_dump(mode="json")
+    payload["builder"]["inline"]["data_designer"].update(builder_update)
+    payload["output"].update(output_update)
+    authored = DataDesignerSlurmConfig.model_validate(payload)
+
+    with pytest.raises(ConfigurationResolutionError, match=message):
+        _resolve_fixture(authored, dependency_lock, multi_node_plan)
+
+
+@pytest.mark.parametrize("field", ["processors", "profilers"])
+def test_resolution_rejects_real_global_builder_configs(
+    authored_run: DataDesignerSlurmConfig,
+    dependency_lock: ResolvedDependencyLock,
+    multi_node_plan: ResolvedSlurmRunPlan,
+    field: str,
+) -> None:
+    builder = DataDesignerConfigBuilder(
+        model_configs=[ModelConfig(alias="generator", model="example/generator", provider="openai")]
+    )
+    builder.add_column(LLMTextColumnConfig(name="generated", prompt="hello", model_alias="generator"))
+    if field == "processors":
+        builder.add_processor(DropColumnsProcessorConfig(name="global", column_names=["generated"]))
+    else:
+        builder.add_profiler(JudgeScoreProfilerConfig(model_alias="generator"))
+    data_designer = builder.get_builder_config().to_dict()["data_designer"]
+    payload = authored_run.model_dump(mode="json")
+    payload["builder"]["inline"]["data_designer"][field] = data_designer[field]
+    authored = DataDesignerSlurmConfig.model_validate(payload)
+
+    with pytest.raises(ConfigurationResolutionError, match=field):
+        _resolve_fixture(authored, dependency_lock, multi_node_plan)
+
+
+def test_sharded_seed_binding_may_override_authored_source(
+    authored_run: DataDesignerSlurmConfig,
+    dependency_lock: ResolvedDependencyLock,
+    multi_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    payload = authored_run.model_dump(mode="json")
+    payload["builder"]["inline"]["data_designer"]["seed_config"] = {
+        "sampling_strategy": "ordered",
+        "source": {"path": "/datasets/original.parquet", "seed_type": "local"},
+    }
+    payload["invocation"]["input_bindings"]["seed_path"] = "/datasets/override.parquet"
+    authored = DataDesignerSlurmConfig.model_validate(payload)
+
+    plan = compile_slurm_run_plan(_resolve_fixture(authored, dependency_lock, multi_node_plan))
+
+    assert all(shard.input_partition is not None for shard in plan.shards)
+
+
+def test_single_shard_allows_non_collectable_big_iron_fields(
+    authored_run_single: DataDesignerSlurmConfig,
+    dependency_lock_single: ResolvedDependencyLock,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    payload = authored_run_single.model_dump(mode="json")
+    payload["builder"]["inline"]["data_designer"].update(
+        {
+            "columns": [
+                {
+                    "column_type": "image",
+                    "model_alias": "generator",
+                    "name": "picture",
+                    "prompt": "an image",
+                }
+            ],
+            "seed_config": {
+                "sampling_strategy": "shuffle",
+                "source": {"path": "/datasets/seed.parquet", "seed_type": "local"},
+            },
+        }
+    )
+    payload["output"]["format"] = "jsonl"
+    authored = DataDesignerSlurmConfig.model_validate(payload)
+
+    plan = compile_slurm_run_plan(_resolve_fixture(authored, dependency_lock_single, single_node_plan))
+
+    assert plan.array_tasks.count == 1
+    assert plan.output.format == "jsonl"
+
+
 def test_sourced_builder_is_resolved_to_one_digest_bound_run_input(
     authored_run_single: DataDesignerSlurmConfig,
     dependency_lock_single: ResolvedDependencyLock,
@@ -274,6 +463,24 @@ def test_sourced_builder_is_resolved_to_one_digest_bound_run_input(
     assert plan.builder.source is not None
     assert plan.builder.source.path == "/workspace/primary/runs/run-single/builder-config.json"
     assert plan.builder.content_sha256 == plan.builder.source.sha256
+
+
+def test_resolution_rejects_secret_values_in_sourced_builder_payload(
+    authored_run_single: DataDesignerSlurmConfig,
+    dependency_lock_single: ResolvedDependencyLock,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    builder_payload = authored_run_single.model_dump(mode="json")["builder"]["inline"]
+    builder_payload["data_designer"]["api_key"] = "secret-value"
+    authored = authored_run_single.model_copy(update={"builder": BuilderInput(source="builder.json")})
+
+    with pytest.raises(ConfigurationResolutionError, match="secret values"):
+        _resolve_fixture(
+            authored,
+            dependency_lock_single,
+            single_node_plan,
+            builder_payload=builder_payload,
+        )
 
 
 def test_resolution_rejects_artifact_identity_mismatches(
