@@ -63,6 +63,9 @@ def test_parse_queue_normalizes_active_array_tasks() -> None:
         ("NODE_FAIL", SchedulerState.NODE_FAILED),
         ("PREEMPTED", SchedulerState.PREEMPTED),
         ("REQUEUED", SchedulerState.REQUEUED),
+        ("REQUEUE_HOLD", SchedulerState.PENDING),
+        ("RESV_DEL_HOLD", SchedulerState.PENDING),
+        ("SPECIAL_EXIT", SchedulerState.PENDING),
         ("OUT_OF_MEMORY", SchedulerState.OUT_OF_MEMORY),
         ("A_NEW_STATE", SchedulerState.UNKNOWN),
     ),
@@ -71,10 +74,8 @@ def test_parse_state_normalizes_long_slurm_spellings(raw_state: str, expected: S
     assert parse_state(raw_state) is expected
 
 
-def test_parse_accounting_normalizes_terminal_rows_and_ignores_step_rows() -> None:
-    output = (
-        "4101|RUNNING|0:0\n" + (GOLDEN_DIRECTORY / "sacct_retry_terminal.txt").read_text() + "4101_0.batch|FAILED|1:0\n"
-    )
+def test_parse_accounting_normalizes_terminal_rows_and_ignores_array_parent() -> None:
+    output = "4101|RUNNING|0:0\n" + (GOLDEN_DIRECTORY / "sacct_retry_terminal.txt").read_text()
 
     records = parse_accounting(output)
 
@@ -103,6 +104,7 @@ def test_empty_scheduler_output_preserves_absent_evidence_for_reconciliation() -
         (parse_queue, "4101_0|RUNNING\n4101_0|PENDING\n", "duplicates"),
         (parse_accounting, "4101_0|FAILED\n", "three fields"),
         (parse_accounting, "4101_0|FAILED|not-an-exit-code\n", "exit code"),
+        (parse_accounting, "4101_0.batch|FAILED|1:0\n", "array-task ID"),
         (parse_accounting, "garbage.step|FAILED|1:0\n", "array-task ID"),
         (parse_queue, "4101_0|COMPLETED unexpectedly\n", "unexpected whitespace"),
     ),

@@ -20,7 +20,7 @@ _SACCT_REQUIRED_ARGUMENTS = (
     "--array",
     "--allocations",
     "--parsable2",
-    "--format=JobIDRaw,State,ExitCode",
+    "--format=JobID,State,ExitCode",
 )
 
 

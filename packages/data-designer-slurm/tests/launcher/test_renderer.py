@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
+from typing import Literal
 
 import pytest
 
@@ -67,6 +68,20 @@ def test_renderer_emits_mem_per_gpu_for_gres_mode(single_node_plan: ResolvedSlur
     plan = single_node_plan.model_copy(update={"selected_profile": injected_profile(profile)})
 
     assert "#SBATCH --mem-per-gpu=80G\n" in render_batch_script(plan)
+
+
+@pytest.mark.parametrize("gpu_request_mode", ("gres", "visible"))
+def test_renderer_reserves_client_cpus_for_each_gpu_request_mode(
+    single_node_plan: ResolvedSlurmRunPlan,
+    gpu_request_mode: Literal["gres", "visible"],
+) -> None:
+    profile = single_node_plan.selected_profile.profile.model_copy(update={"gpu_request_mode": gpu_request_mode})
+    client = single_node_plan.client.model_copy(
+        update={"authored": single_node_plan.client.authored.model_copy(update={"cpus": 17})}
+    )
+    plan = single_node_plan.model_copy(update={"selected_profile": injected_profile(profile), "client": client})
+
+    assert "#SBATCH --cpus-per-task=17\n" in render_batch_script(plan)
 
 
 def test_renderer_rejects_mem_per_gpu_without_a_slurm_gpu_request(
@@ -150,5 +165,5 @@ def test_renderer_is_a_thin_entrypoint(single_node_plan: ResolvedSlurmRunPlan) -
 
     assert script.count("dd_slurm_run_allocation") == 1
     assert 'readonly DD_ATTEMPT_ORDINAL="0012"' in script
-    assert len(script.splitlines()) <= 41
+    assert len(script.splitlines()) <= 42
     assert script.endswith("\n")

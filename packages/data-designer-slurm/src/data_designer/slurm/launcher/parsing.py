@@ -17,7 +17,6 @@ from data_designer.slurm.launcher.models import (
 from data_designer.slurm.state import SchedulerIdentity, SchedulerState
 
 _ARRAY_ID_PATTERN = re.compile(r"^(?P<job>[1-9][0-9]*)_(?P<task>[0-9]+)$")
-_ARRAY_STEP_ID_PATTERN = re.compile(r"^[1-9][0-9]*_[0-9]+\.[^\s|]+$")
 _JOB_ID_PATTERN = re.compile(r"^[1-9][0-9]*$")
 _CLUSTER_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _EXIT_CODE_PATTERN = re.compile(r"^(?P<status>[0-9]+):(?P<signal>[0-9]+)$")
@@ -38,11 +37,12 @@ _STATE_MAP = {
     "REQUEUED": SchedulerState.REQUEUED,
     "REQUEUE_FED": SchedulerState.PENDING,
     "REQUEUE_HOLD": SchedulerState.PENDING,
+    "RESV_DEL_HOLD": SchedulerState.PENDING,
     "RESIZING": SchedulerState.RUNNING,
     "REVOKED": SchedulerState.FAILED,
     "RUNNING": SchedulerState.RUNNING,
     "SIGNALING": SchedulerState.RUNNING,
-    "SPECIAL_EXIT": SchedulerState.FAILED,
+    "SPECIAL_EXIT": SchedulerState.PENDING,
     "STAGE_OUT": SchedulerState.RUNNING,
     "STOPPED": SchedulerState.RUNNING,
     "SUSPENDED": SchedulerState.RUNNING,
@@ -79,14 +79,14 @@ def parse_queue(output: str) -> tuple[QueueRecord, ...]:
 
 
 def parse_accounting(output: str) -> tuple[AccountingRecord, ...]:
-    """Parse array-task rows from ``sacct --format=JobIDRaw,State,ExitCode``."""
+    """Parse array-task rows from ``sacct --format=JobID,State,ExitCode``."""
     records: list[AccountingRecord] = []
     identities: set[SchedulerIdentity] = set()
     for line_number, line in _collect_nonempty_lines(output):
         fields = line.split("|")
         if len(fields) != 3:
             raise SlurmParseError(f"sacct line {line_number} must contain three fields")
-        if _JOB_ID_PATTERN.fullmatch(fields[0]) is not None or _ARRAY_STEP_ID_PATTERN.fullmatch(fields[0]) is not None:
+        if _JOB_ID_PATTERN.fullmatch(fields[0]) is not None:
             continue
         scheduler = _parse_array_identity(fields[0], command="sacct", line_number=line_number)
         _reject_duplicate(scheduler, identities, command="sacct", line_number=line_number)

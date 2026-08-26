@@ -19,12 +19,12 @@ def test_rendered_script_fixtures_are_pinned_and_bound_to_canonical_plans(
     _assert_script_matches_plan(
         single_node_plan,
         "single_node.sbatch",
-        expected_fixture_sha256="cc6bb2a035a541b01f422cafc661012a9ecfcb751547b921285e8e4eac19d94a",
+        expected_fixture_sha256="8ddf07c38a825a7487c487fddfe051f0a1940f63063725b54b32bfe4c03fd9ca",
     )
     _assert_script_matches_plan(
         multi_node_plan,
         "multi_node.sbatch",
-        expected_fixture_sha256="2c29159b25f56250cc5e0b502115940f9354c681b1404d10ed599a82fed244c4",
+        expected_fixture_sha256="17a4c2e16189d22dfdb6885bf76264844ad3168dea0cf94aef70948d5ab2e6b7",
     )
 
 
@@ -62,6 +62,7 @@ def _assert_script_matches_plan(
     assert f"#SBATCH --account={plan.submission.account}\n" in script
     assert f"#SBATCH --partition={plan.submission.partition}\n" in script
     assert f"#SBATCH --nodes={node_count}\n" in script
+    assert f"#SBATCH --cpus-per-task={plan.client.authored.cpus}\n" in script
     assert f"#SBATCH --time={plan.submission.time_limit}\n" in script
     assert f"#SBATCH --array={array}\n" in script
     assert f"#SBATCH --gres=gpu:{plan.resolved_gpus_per_node}\n" in script

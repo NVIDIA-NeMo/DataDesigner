@@ -98,6 +98,7 @@ def _build_generation_directives(plan: ResolvedSlurmRunPlan) -> tuple[_BatchDire
         ("account", plan.submission.account),
         ("partition", plan.submission.partition),
         ("nodes", str(node_count)),
+        ("cpus-per-task", str(plan.client.authored.cpus)),
         ("time", plan.submission.time_limit),
         ("array", array),
     ]

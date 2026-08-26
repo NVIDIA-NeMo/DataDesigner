@@ -18,7 +18,7 @@ SACCT_ARGUMENTS = (
     "--array",
     "--allocations",
     "--parsable2",
-    "--format=JobIDRaw,State,ExitCode",
+    "--format=JobID,State,ExitCode",
 )
 
 
@@ -180,7 +180,7 @@ def test_fake_slurm_runner_matches_sbatch_parsable_mode(
     "command",
     (
         ("squeue", "--noheader"),
-        ("sacct", "--noheader", "--format=JobIDRaw,State,ExitCode"),
+        ("sacct", "--noheader", "--format=JobID,State,ExitCode"),
     ),
 )
 def test_fake_slurm_runner_rejects_underspecified_state_queries(

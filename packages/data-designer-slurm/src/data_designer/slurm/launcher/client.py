@@ -101,7 +101,7 @@ class SlurmCommandClient:
                 "--array",
                 "--allocations",
                 "--parsable2",
-                "--format=JobIDRaw,State,ExitCode",
+                "--format=JobID,State,ExitCode",
                 f"--jobs={jobs}",
             )
         )

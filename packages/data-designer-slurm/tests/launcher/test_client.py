@@ -46,7 +46,7 @@ def test_client_queries_accounting_and_cancels_one_array_task(fake_slurm_runner:
             "--array",
             "--allocations",
             "--parsable2",
-            "--format=JobIDRaw,State,ExitCode",
+            "--format=JobID,State,ExitCode",
             "--jobs=4101_1",
         ),
     ]
