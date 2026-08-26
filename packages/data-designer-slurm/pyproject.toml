@@ -39,6 +39,7 @@ dependencies = [
     "data-designer=={{ version }}",
     "packaging>=25,<27",
     "pydantic>=2.9.2,<3",
+    "pyyaml>=6.0.1,<7",
 ]
 
 [tool.hatch.build.targets.wheel]
