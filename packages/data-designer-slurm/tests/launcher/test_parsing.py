@@ -33,14 +33,24 @@ def test_parse_submission_accepts_parsable_sbatch_output(
 ) -> None:
     submission = parse_submission(output)
 
-    assert submission.array_job_id == expected_job_id
+    assert submission.job_id == expected_job_id
     assert submission.cluster_name == expected_cluster
 
 
-@pytest.mark.parametrize("output", ("", "0", "Submitted batch job 4101", "٤١٠١", "4101;", "4101;bad name"))
+@pytest.mark.parametrize(
+    "output",
+    ("", "0", "Submitted batch job 4101", "٤١٠١", "4101;", "4101;bad name", f"{'0' * 5000}1"),
+)
 def test_parse_submission_rejects_malformed_output(output: str) -> None:
     with pytest.raises(SlurmParseError, match="invalid"):
         parse_submission(output)
+
+
+def test_parse_submission_enforces_slurm_job_id_width() -> None:
+    assert parse_submission(str((1 << 32) - 1)).job_id == (1 << 32) - 1
+
+    with pytest.raises(SlurmParseError, match="invalid job ID"):
+        parse_submission(str(1 << 32))
 
 
 def test_parse_queue_normalizes_active_array_tasks() -> None:
@@ -50,6 +60,12 @@ def test_parse_queue_normalizes_active_array_tasks() -> None:
         _make_queue_record(0, SchedulerState.PENDING),
         _make_queue_record(1, SchedulerState.RUNNING),
     )
+
+
+def test_parse_queue_normalizes_regular_jobs() -> None:
+    records = parse_queue("5101|RUNNING\n")
+
+    assert records == (QueueRecord(scheduler=5101, state=SchedulerState.RUNNING),)
 
 
 @pytest.mark.parametrize(
@@ -91,6 +107,14 @@ def test_parse_accounting_normalizes_terminal_rows_and_ignores_array_parent() ->
     assert records[0].exit_code.signal == 125
 
 
+def test_parse_accounting_normalizes_regular_jobs() -> None:
+    records = parse_accounting("5101|COMPLETED|0:0\n")
+
+    assert len(records) == 1
+    assert records[0].scheduler == 5101
+    assert records[0].state is SchedulerState.COMPLETED
+
+
 def test_empty_scheduler_output_preserves_absent_evidence_for_reconciliation() -> None:
     assert parse_queue("") == ()
     assert parse_accounting("\n") == ()
@@ -100,12 +124,12 @@ def test_empty_scheduler_output_preserves_absent_evidence_for_reconciliation() -
     ("parser", "output", "message"),
     (
         (parse_queue, "malformed scheduler output\n", "two fields"),
-        (parse_queue, "4101|RUNNING\n", "array-task ID"),
+        (parse_queue, "not-a-job|RUNNING\n", "job or array-task ID"),
         (parse_queue, "4101_0|RUNNING\n4101_0|PENDING\n", "duplicates"),
         (parse_accounting, "4101_0|FAILED\n", "three fields"),
         (parse_accounting, "4101_0|FAILED|not-an-exit-code\n", "exit code"),
-        (parse_accounting, "4101_0.batch|FAILED|1:0\n", "array-task ID"),
-        (parse_accounting, "garbage.step|FAILED|1:0\n", "array-task ID"),
+        (parse_accounting, "4101_0.batch|FAILED|1:0\n", "job or array-task ID"),
+        (parse_accounting, "garbage.step|FAILED|1:0\n", "job or array-task ID"),
         (parse_queue, "4101_0|COMPLETED unexpectedly\n", "unexpected whitespace"),
     ),
 )

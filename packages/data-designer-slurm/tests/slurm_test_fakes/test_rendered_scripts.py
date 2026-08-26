@@ -54,7 +54,9 @@ def _assert_script_matches_plan(
         *(index for deployment in plan.deployments for index in deployment.node_indices),
     )
     node_count = max(node_indices) + 1
-    array = "0" if plan.array_tasks.count == 1 else f"0-{plan.array_tasks.count - 1}%{plan.array_tasks.max_concurrent}"
+    array = "0" if plan.array_tasks.count == 1 else f"0-{plan.array_tasks.count - 1}"
+    if plan.array_tasks.count > 1 and plan.array_tasks.max_concurrent is not None:
+        array = f"{array}%{plan.array_tasks.max_concurrent}"
     plan_path = posixpath.join(posixpath.dirname(plan.authored_config.path), "resolved-plan.json")
     run_root = posixpath.dirname(plan.authored_config.path)
 

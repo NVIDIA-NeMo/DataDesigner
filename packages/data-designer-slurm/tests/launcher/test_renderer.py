@@ -9,7 +9,7 @@ from typing import Literal
 
 import pytest
 
-from data_designer.slurm.config import SchedulerProfile, injected_profile
+from data_designer.slurm.config import ArrayTasksConfig, SchedulerProfile, injected_profile
 from data_designer.slurm.contracts import ArtifactReference
 from data_designer.slurm.launcher import BatchRenderError, render_batch_script
 from data_designer.slurm.planning import ResolvedSlurmRunPlan, ResolvedSubmission
@@ -82,6 +82,18 @@ def test_renderer_reserves_client_cpus_for_each_gpu_request_mode(
     plan = single_node_plan.model_copy(update={"selected_profile": injected_profile(profile), "client": client})
 
     assert "#SBATCH --cpus-per-task=17\n" in render_batch_script(plan)
+
+
+def test_renderer_omits_array_throttle_when_concurrency_is_unset(
+    multi_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    array_tasks = ArrayTasksConfig.model_construct(count=2, max_concurrent=None)
+    plan = multi_node_plan.model_copy(update={"array_tasks": array_tasks})
+
+    script = render_batch_script(plan)
+
+    assert "#SBATCH --array=0-1\n" in script
+    assert "#SBATCH --array=0-1%" not in script
 
 
 def test_renderer_rejects_mem_per_gpu_without_a_slurm_gpu_request(

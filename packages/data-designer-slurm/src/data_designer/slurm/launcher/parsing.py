@@ -12,6 +12,7 @@ from data_designer.slurm.launcher.models import (
     AccountingRecord,
     QueueRecord,
     SlurmExitCode,
+    SlurmJobIdentity,
     SlurmSubmission,
 )
 from data_designer.slurm.state import SchedulerIdentity, SchedulerState
@@ -21,6 +22,7 @@ _JOB_ID_PATTERN = re.compile(r"^[1-9][0-9]*$")
 _CLUSTER_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _EXIT_CODE_PATTERN = re.compile(r"^(?P<status>[0-9]+):(?P<signal>[0-9]+)$")
 _GRES_GPU_PATTERN = re.compile(r"^gpu:(?:(?:[^:,()]+):)*(?P<count>[1-9][0-9]*)(?:\([^\r\n]*\))?$")
+_MAX_SLURM_INTEGER = (1 << 32) - 1
 
 _STATE_MAP = {
     "BOOT_FAIL": SchedulerState.FAILED,
@@ -56,39 +58,37 @@ def parse_submission(output: str) -> SlurmSubmission:
     job_id, separator, cluster_name = value.partition(";")
     if not job_id.isascii() or not job_id.isdecimal():
         raise SlurmParseError("sbatch returned an invalid job ID")
-    array_job_id = _parse_decimal(job_id, message="sbatch returned an invalid job ID")
-    if array_job_id <= 0:
+    parsed_job_id = _parse_decimal(job_id, message="sbatch returned an invalid job ID")
+    if parsed_job_id <= 0:
         raise SlurmParseError("sbatch returned an invalid job ID")
     if separator and _CLUSTER_NAME_PATTERN.fullmatch(cluster_name) is None:
         raise SlurmParseError("sbatch returned an invalid cluster name")
-    return SlurmSubmission(array_job_id=array_job_id, cluster_name=cluster_name or None)
+    return SlurmSubmission(job_id=parsed_job_id, cluster_name=cluster_name or None)
 
 
 def parse_queue(output: str) -> tuple[QueueRecord, ...]:
     """Parse ``squeue --format=%i|%T`` rows."""
     records: list[QueueRecord] = []
-    identities: set[SchedulerIdentity] = set()
+    identities: set[SlurmJobIdentity] = set()
     for line_number, line in _collect_nonempty_lines(output):
         fields = line.split("|")
         if len(fields) != 2:
             raise SlurmParseError(f"squeue line {line_number} must contain two fields")
-        scheduler = _parse_array_identity(fields[0], command="squeue", line_number=line_number)
+        scheduler = _parse_job_identity(fields[0], command="squeue", line_number=line_number)
         _reject_duplicate(scheduler, identities, command="squeue", line_number=line_number)
         records.append(QueueRecord(scheduler=scheduler, state=parse_state(fields[1])))
     return tuple(records)
 
 
 def parse_accounting(output: str) -> tuple[AccountingRecord, ...]:
-    """Parse array-task rows from ``sacct --format=JobID,State,ExitCode``."""
+    """Parse job and array-task rows from ``sacct --format=JobID,State,ExitCode``."""
     records: list[AccountingRecord] = []
-    identities: set[SchedulerIdentity] = set()
+    identities: set[SlurmJobIdentity] = set()
     for line_number, line in _collect_nonempty_lines(output):
         fields = line.split("|")
         if len(fields) != 3:
             raise SlurmParseError(f"sacct line {line_number} must contain three fields")
-        if _JOB_ID_PATTERN.fullmatch(fields[0]) is not None:
-            continue
-        scheduler = _parse_array_identity(fields[0], command="sacct", line_number=line_number)
+        scheduler = _parse_job_identity(fields[0], command="sacct", line_number=line_number)
         _reject_duplicate(scheduler, identities, command="sacct", line_number=line_number)
         records.append(
             AccountingRecord(
@@ -97,7 +97,12 @@ def parse_accounting(output: str) -> tuple[AccountingRecord, ...]:
                 exit_code=_parse_exit_code(fields[2], line_number=line_number),
             )
         )
-    return tuple(records)
+    array_job_ids = {
+        record.scheduler.array_job_id for record in records if isinstance(record.scheduler, SchedulerIdentity)
+    }
+    return tuple(
+        record for record in records if not (type(record.scheduler) is int and record.scheduler in array_job_ids)
+    )
 
 
 def parse_gpu_counts(output: str) -> tuple[int, ...]:
@@ -182,6 +187,16 @@ def _parse_array_identity(value: str, *, command: str, line_number: int) -> Sche
     )
 
 
+def _parse_job_identity(value: str, *, command: str, line_number: int) -> SlurmJobIdentity:
+    message = f"{command} line {line_number} contains an invalid job or array-task ID"
+    if _JOB_ID_PATTERN.fullmatch(value) is not None:
+        return _parse_decimal(value, message=message)
+    try:
+        return _parse_array_identity(value, command=command, line_number=line_number)
+    except SlurmParseError as error:
+        raise SlurmParseError(message) from error
+
+
 def _parse_exit_code(value: str, *, line_number: int) -> SlurmExitCode:
     match = _EXIT_CODE_PATTERN.fullmatch(value)
     if match is None:
@@ -194,19 +209,24 @@ def _parse_exit_code(value: str, *, line_number: int) -> SlurmExitCode:
 
 
 def _parse_decimal(value: str, *, message: str) -> int:
+    if len(value) > 10:
+        raise SlurmParseError(message)
     try:
-        return int(value)
+        parsed = int(value)
     except ValueError as error:
         raise SlurmParseError(message) from error
+    if parsed > _MAX_SLURM_INTEGER:
+        raise SlurmParseError(message)
+    return parsed
 
 
 def _reject_duplicate(
-    scheduler: SchedulerIdentity,
-    identities: set[SchedulerIdentity],
+    scheduler: SlurmJobIdentity,
+    identities: set[SlurmJobIdentity],
     *,
     command: str,
     line_number: int,
 ) -> None:
     if scheduler in identities:
-        raise SlurmParseError(f"{command} line {line_number} duplicates an array-task ID")
+        raise SlurmParseError(f"{command} line {line_number} duplicates a job or array-task ID")
     identities.add(scheduler)

@@ -17,9 +17,9 @@ def test_client_submits_and_observes_one_managed_array(fake_slurm_runner: FakeSl
     client = SlurmCommandClient(fake_slurm_runner)
 
     submission = client.submit("/workspace/run.sbatch")
-    queue = client.query_queue((submission.array_job_id,))
+    queue = client.query_queue((submission.job_id,))
 
-    assert submission.array_job_id == 4101
+    assert submission.job_id == 4101
     assert tuple(record.state for record in queue) == (SchedulerState.PENDING, SchedulerState.RUNNING)
     assert fake_slurm_runner.calls == [
         ("sbatch", "--parsable", "--export=NIL", "/workspace/run.sbatch"),
@@ -73,15 +73,56 @@ def test_client_rejects_unrequested_scheduler_records(fake_slurm_runner: FakeSlu
         client.query_accounting((SchedulerIdentity(array_job_id=4101, array_task_id=0),))
 
 
+def test_client_observes_regular_cpu_job() -> None:
+    runner = FakeSlurmRunner()
+    runner.script_next("squeue", FakeCommandResponse(stdout="5101|RUNNING\n"))
+    runner.script_next("sacct", FakeCommandResponse(stdout="5101|COMPLETED|0:0\n"))
+    client = SlurmCommandClient(runner)
+
+    queue = client.query_queue((5101,))
+    accounting = client.query_accounting((5101,))
+
+    assert queue[0].scheduler == 5101
+    assert queue[0].state is SchedulerState.RUNNING
+    assert accounting[0].scheduler == 5101
+    assert accounting[0].state is SchedulerState.COMPLETED
+
+
+def test_client_ignores_array_parent_observation_for_exact_task() -> None:
+    runner = FakeSlurmRunner()
+    runner.script_next("sacct", FakeCommandResponse(stdout="4101|RUNNING|0:0\n"))
+    client = SlurmCommandClient(runner)
+
+    records = client.query_accounting((SchedulerIdentity(array_job_id=4101, array_task_id=0),))
+
+    assert records == ()
+
+
+def test_client_keeps_explicitly_selected_parent_observation() -> None:
+    runner = FakeSlurmRunner()
+    runner.script_next("sacct", FakeCommandResponse(stdout="4101|RUNNING|0:0\n"))
+    client = SlurmCommandClient(runner)
+    task = SchedulerIdentity(array_job_id=4101, array_task_id=0)
+
+    records = client.query_accounting((4101, task))
+
+    assert len(records) == 1
+    assert records[0].scheduler == 4101
+
+
 def test_client_rejects_unbounded_or_invalid_job_selectors(fake_slurm_runner: FakeSlurmRunner) -> None:
     client = SlurmCommandClient(fake_slurm_runner)
 
     with pytest.raises(ValueError, match="at least one"):
         client.query_queue(())
-    with pytest.raises(ValueError, match="positive integers"):
+    with pytest.raises(ValueError, match="positive 32-bit integers"):
         client.query_accounting((0,))
-    with pytest.raises(ValueError, match="positive integers"):
+    with pytest.raises(ValueError, match="positive 32-bit integers"):
         client.cancel(True)
+    with pytest.raises(ValueError, match="32-bit"):
+        client.cancel(1 << 32)
+    with pytest.raises(ValueError, match="array-task IDs"):
+        client.cancel(SchedulerIdentity(array_job_id=4101, array_task_id=1 << 32))
 
     assert fake_slurm_runner.calls == []
 
@@ -132,6 +173,18 @@ def test_client_removes_terminal_controls_from_command_failures(fake_slurm_runne
         client.query_queue((4101,))
 
     assert "\x1b" not in str(error.value)
+
+
+def test_client_bounds_command_failure_detail(fake_slurm_runner: FakeSlurmRunner) -> None:
+    fake_slurm_runner.script_next("squeue", FakeCommandResponse(stderr="x" * 600, returncode=2))
+    client = SlurmCommandClient(fake_slurm_runner)
+
+    with pytest.raises(SlurmCommandError) as error:
+        client.query_queue((4101,))
+
+    detail = str(error.value).partition(": ")[2]
+    assert len(detail) == 512
+    assert detail.endswith("...")
 
 
 def test_client_normalizes_execution_errors() -> None:

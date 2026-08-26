@@ -16,6 +16,7 @@ from data_designer.slurm.launcher.models import (
     AccountingRecord,
     QueueRecord,
     SlurmExitCode,
+    SlurmJobIdentity,
     SlurmSubmission,
 )
 from data_designer.slurm.launcher.renderer import render_batch_script
@@ -30,6 +31,7 @@ __all__ = [
     "SlurmCommandError",
     "SlurmExecutables",
     "SlurmExitCode",
+    "SlurmJobIdentity",
     "SlurmLauncherError",
     "SlurmParseError",
     "SlurmSubmission",

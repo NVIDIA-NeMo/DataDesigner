@@ -6,16 +6,19 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TypeAlias
 
 from data_designer.slurm.contracts import Identifier
 from data_designer.slurm.state import SchedulerIdentity, SchedulerState
 
+SlurmJobIdentity: TypeAlias = int | SchedulerIdentity
+
 
 @dataclass(frozen=True, slots=True)
 class SlurmSubmission:
-    """Identity assigned by Slurm to one accepted array submission."""
+    """Identity assigned by Slurm to one accepted batch submission."""
 
-    array_job_id: int
+    job_id: int
     cluster_name: Identifier | None = None
 
 
@@ -31,7 +34,7 @@ class SlurmExitCode:
 class QueueRecord:
     """One normalized active-queue row."""
 
-    scheduler: SchedulerIdentity
+    scheduler: SlurmJobIdentity
     state: SchedulerState
 
 
@@ -39,6 +42,6 @@ class QueueRecord:
 class AccountingRecord:
     """One normalized accounting row."""
 
-    scheduler: SchedulerIdentity
+    scheduler: SlurmJobIdentity
     state: SchedulerState
     exit_code: SlurmExitCode
