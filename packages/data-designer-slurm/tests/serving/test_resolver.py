@@ -9,10 +9,10 @@ from pathlib import Path
 
 import pytest
 
+import data_designer.slurm.serving.resolver as resolver_module
 from data_designer.slurm.config import QueueBackpressureConfig
 from data_designer.slurm.contracts import pretty_json
 from data_designer.slurm.planning import ResolvedDeployment, ResolvedSlurmRunPlan
-from data_designer.slurm.serving import resolver as resolver_module
 from data_designer.slurm.serving.deployment import ResolvedVllmServerDeployment
 from data_designer.slurm.serving.resolver import (
     VllmServerResolutionContext,
