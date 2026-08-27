@@ -16,6 +16,9 @@ from pathlib import Path
 
 import yaml
 from pydantic import TypeAdapter, ValidationError
+from yaml.constructor import ConstructorError
+from yaml.nodes import MappingNode
+from yaml.resolver import BaseResolver
 
 from data_designer.slurm.config import ImageRef
 from data_designer.slurm.contracts import Identifier, validate_absolute_path
@@ -24,14 +27,14 @@ from data_designer.slurm.images.errors import (
     ImageNotFoundError,
     ImageRegistryError,
 )
-from data_designer.slurm.images.records import ImageRegistrySnapshot, RegisteredImage
+from data_designer.slurm.images.records import ImageRegistryDocument, RegisteredImage
 
 _DIRECTORY_MODE = 0o700
 _FILE_MODE = 0o600
 _IDENTIFIER_ADAPTER = TypeAdapter(Identifier)
 
 
-class ImageRegistry:
+class ImageRegistryStore:
     """Persist image aliases beneath one explicitly selected shared workspace."""
 
     def __init__(self, workspace_root: str | Path) -> None:
@@ -59,7 +62,7 @@ class ImageRegistry:
 
     def get_by_name(self, name: Identifier) -> RegisteredImage:
         """Return one registered alias."""
-        name = validate_image_alias(name)
+        name = _validate_image_alias(name)
         for image in self._load().images:
             if image.name == name:
                 return image
@@ -87,8 +90,8 @@ class ImageRegistry:
         """Atomically add or explicitly replace one verified image alias."""
         self._ensure_storage()
         with (
-            acquire_file_lock(self._get_alias_lock_path(image.name)),
-            acquire_file_lock(self._get_registry_lock_path()),
+            _acquire_file_lock(self._get_alias_lock_path(image.name)),
+            _acquire_file_lock(self._get_registry_lock_path()),
         ):
             snapshot = self._load()
             existing = next((entry for entry in snapshot.images if entry.name == image.name), None)
@@ -96,35 +99,52 @@ class ImageRegistry:
                 raise ImageConflictError(f"image alias {image.name!r} is already registered")
             self._validate_path_facts(snapshot, image, replacing=existing)
             images = tuple(entry for entry in snapshot.images if entry.name != image.name) + (image,)
-            updated = ImageRegistrySnapshot(images=tuple(sorted(images, key=lambda entry: entry.name)))
-            verify_before_publish(image)
-            self._save(updated)
+            updated = ImageRegistryDocument(
+                schema_version=1,
+                images=tuple(sorted(images, key=lambda entry: entry.name)),
+            )
+            self._save(updated, verify_before_publish=lambda: verify_before_publish(image))
         return image
 
     def unregister(self, name: Identifier) -> RegisteredImage:
         """Atomically remove an alias without deleting its underlying SQSH artifact."""
-        name = validate_image_alias(name)
+        name = _validate_image_alias(name)
         self._ensure_storage()
-        with acquire_file_lock(self._get_alias_lock_path(name)), acquire_file_lock(self._get_registry_lock_path()):
+        with _acquire_file_lock(self._get_alias_lock_path(name)), _acquire_file_lock(self._get_registry_lock_path()):
             snapshot = self._load()
             try:
                 removed = next(image for image in snapshot.images if image.name == name)
             except StopIteration:
                 raise ImageNotFoundError(f"image alias {name!r} is not registered") from None
-            updated = ImageRegistrySnapshot(images=tuple(image for image in snapshot.images if image.name != name))
+            updated = ImageRegistryDocument(
+                schema_version=1,
+                images=tuple(image for image in snapshot.images if image.name != name),
+            )
             self._save(updated)
         return removed
 
-    def _load(self) -> ImageRegistrySnapshot:
+    def _load(self) -> ImageRegistryDocument:
         try:
-            payload = yaml.safe_load(_read_regular_text(self._registry_path))
-            return ImageRegistrySnapshot.model_validate_json(json.dumps(payload))
+            with _open_verified_directory(self._image_root):
+                pass
         except FileNotFoundError:
-            return ImageRegistrySnapshot()
+            return ImageRegistryDocument(schema_version=1)
+        except OSError as error:
+            raise ImageRegistryError(f"cannot load image registry {self._registry_path}") from error
+        try:
+            payload = yaml.load(_read_regular_text(self._registry_path), Loader=_UniqueKeySafeLoader)
+            return ImageRegistryDocument.model_validate_json(json.dumps(payload))
+        except FileNotFoundError:
+            return ImageRegistryDocument(schema_version=1)
         except (OSError, RecursionError, TypeError, UnicodeError, ValueError, ValidationError, yaml.YAMLError) as error:
             raise ImageRegistryError(f"cannot load image registry {self._registry_path}") from error
 
-    def _save(self, snapshot: ImageRegistrySnapshot) -> None:
+    def _save(
+        self,
+        snapshot: ImageRegistryDocument,
+        *,
+        verify_before_publish: Callable[[], None] | None = None,
+    ) -> None:
         temporary_path: Path | None = None
         descriptor: int | None = None
         try:
@@ -147,6 +167,8 @@ class ImageRegistry:
                 )
                 output.flush()
                 os.fsync(output.fileno())
+            if verify_before_publish is not None:
+                verify_before_publish()
             os.replace(temporary_path, self._registry_path)
             _sync_directory(self._image_root)
         except (OSError, TypeError, yaml.YAMLError) as error:
@@ -175,7 +197,7 @@ class ImageRegistry:
 
     @staticmethod
     def _validate_path_facts(
-        snapshot: ImageRegistrySnapshot,
+        snapshot: ImageRegistryDocument,
         image: RegisteredImage,
         *,
         replacing: RegisteredImage | None,
@@ -191,8 +213,43 @@ class ImageRegistry:
                 raise ImageConflictError(f"image path {image.path!r} already has different immutable facts")
 
 
+class _UniqueKeySafeLoader(yaml.SafeLoader):
+    """Safe YAML loader that rejects ambiguous duplicate mapping keys."""
+
+
+def _construct_unique_mapping(
+    loader: _UniqueKeySafeLoader,
+    node: MappingNode,
+    deep: bool = False,
+) -> dict[object, object]:
+    mapping: dict[object, object] = {}
+    for key_node, value_node in node.value:
+        key = loader.construct_object(key_node, deep=deep)
+        try:
+            duplicate = key in mapping
+        except TypeError as error:
+            raise ConstructorError(
+                "while constructing a mapping",
+                node.start_mark,
+                "found an unhashable mapping key",
+                key_node.start_mark,
+            ) from error
+        if duplicate:
+            raise ConstructorError(
+                "while constructing a mapping",
+                node.start_mark,
+                f"found duplicate key {key!r}",
+                key_node.start_mark,
+            )
+        mapping[key] = loader.construct_object(value_node, deep=deep)
+    return mapping
+
+
+_UniqueKeySafeLoader.add_constructor(BaseResolver.DEFAULT_MAPPING_TAG, _construct_unique_mapping)
+
+
 @contextmanager
-def acquire_file_lock(path: Path) -> Iterator[None]:
+def _acquire_file_lock(path: Path) -> Iterator[None]:
     """Acquire one exclusive advisory file lock for a registry mutation."""
     descriptor: int | None = None
     try:
@@ -216,7 +273,7 @@ def acquire_file_lock(path: Path) -> Iterator[None]:
             os.close(descriptor)
 
 
-def validate_image_alias(name: str) -> Identifier:
+def _validate_image_alias(name: str) -> Identifier:
     """Validate an image alias before deriving any filesystem path from it."""
     try:
         return _IDENTIFIER_ADAPTER.validate_python(name, strict=True)
@@ -225,15 +282,18 @@ def validate_image_alias(name: str) -> Identifier:
 
 
 def _sync_directory(path: Path) -> None:
-    descriptor = os.open(path, os.O_RDONLY)
-    try:
+    with _open_verified_directory(path) as descriptor:
         os.fsync(descriptor)
-    finally:
-        os.close(descriptor)
 
 
 def _ensure_private_directory(path: Path, *, parents: bool) -> None:
     path.mkdir(mode=_DIRECTORY_MODE, parents=parents, exist_ok=True)
+    with _open_verified_directory(path) as descriptor:
+        os.fchmod(descriptor, _DIRECTORY_MODE)
+
+
+@contextmanager
+def _open_verified_directory(path: Path) -> Iterator[int]:
     descriptor: int | None = None
     try:
         before_open = path.lstat()
@@ -246,7 +306,7 @@ def _ensure_private_directory(path: Path, *, parents: bool) -> None:
             raise OSError(f"registry directory {path} changed while it was being opened")
         if not stat.S_ISDIR(after_open.st_mode):
             raise OSError(f"registry directory {path} is not a directory")
-        os.fchmod(descriptor, _DIRECTORY_MODE)
+        yield descriptor
     finally:
         if descriptor is not None:
             os.close(descriptor)

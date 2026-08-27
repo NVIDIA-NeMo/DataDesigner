@@ -9,7 +9,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 
 from data_designer.slurm.config import InstalledDistribution
-from data_designer.slurm.images import ImageInspectionError
+from data_designer.slurm.images.errors import ImageInspectionError
 
 
 @dataclass(frozen=True, slots=True)

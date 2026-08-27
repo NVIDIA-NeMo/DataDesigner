@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Verified image registration and resolution services for Slurm planning."""
+"""Verified existing-image registry operations for Slurm planning."""
 
 from __future__ import annotations
 
@@ -13,23 +13,19 @@ from pathlib import Path
 from data_designer.slurm.config import ImageBuildRequest, ImageInspectionRecord, ImageKind, ImageRef
 from data_designer.slurm.contracts import Sha256Digest
 from data_designer.slurm.images.errors import ImageVerificationError
+from data_designer.slurm.images.inspection import INSPECTOR_VERSION
 from data_designer.slurm.images.records import RegisteredImage
-from data_designer.slurm.images.registry import ImageRegistry
+from data_designer.slurm.images.registry import ImageRegistryStore
 from data_designer.slurm.planning import ResolvedImage
 
 _HASH_BLOCK_SIZE = 1024 * 1024
 
 
-class SlurmImageService:
-    """Manage verified existing SQSH files without copying or deleting artifacts."""
+class VerifiedImageRegistry:
+    """Provide verified existing-SQSH operations for the public image facade."""
 
     def __init__(self, workspace_root: str | Path) -> None:
-        self._registry = ImageRegistry(workspace_root)
-
-    @property
-    def registry_path(self) -> Path:
-        """Return the workspace-derived registry path."""
-        return self._registry.registry_path
+        self._registry = ImageRegistryStore(workspace_root)
 
     def register_existing(
         self,
@@ -42,13 +38,12 @@ class SlurmImageService:
         if not request.source.endswith(".sqsh"):
             raise ImageVerificationError("OCI image sources require the CPU Slurm image lifecycle")
         path = Path(request.source)
-        sqsh_sha256 = compute_file_sha256(path)
-        _validate_inspection(inspection, expected_kind=ImageKind(request.kind), expected_sha256=sqsh_sha256)
+        _validate_inspection(inspection, expected_kind=ImageKind(request.kind))
         image = RegisteredImage(
             schema_version=1,
             name=request.name,
             path=path.as_posix(),
-            sqsh_sha256=sqsh_sha256,
+            sqsh_sha256=inspection.sqsh_sha256,
             inspection=inspection,
         )
         return self._registry.register(image, verify_before_publish=_verify_registered_image, replace=replace)
@@ -57,7 +52,7 @@ class SlurmImageService:
         """Return all registered aliases in deterministic order."""
         return self._registry.list_images()
 
-    def resolve(self, reference: ImageRef, *, expected_kind: ImageKind) -> ResolvedImage:
+    def resolve_for_planning(self, reference: ImageRef, *, expected_kind: ImageKind) -> ResolvedImage:
         """Resolve and reverify one registered alias or path for plan compilation."""
         if reference.name is not None:
             image = self._registry.get_by_name(reference.name)
@@ -82,7 +77,7 @@ class SlurmImageService:
         return self._registry.unregister(name)
 
 
-def compute_file_sha256(path: Path) -> Sha256Digest:
+def compute_sqsh_file_sha256(path: Path) -> Sha256Digest:
     """Compute the SHA-256 of one regular, non-symlink SQSH file."""
     descriptor: int | None = None
     try:
@@ -100,9 +95,31 @@ def compute_file_sha256(path: Path) -> Sha256Digest:
             while block := image_file.read(_HASH_BLOCK_SIZE):
                 digest.update(block)
             after_read = os.fstat(image_file.fileno())
-        before_facts = (before_read.st_dev, before_read.st_ino, before_read.st_size, before_read.st_mtime_ns)
-        after_facts = (after_read.st_dev, after_read.st_ino, after_read.st_size, after_read.st_mtime_ns)
+            after_path = path.lstat()
+        before_facts = (
+            before_read.st_dev,
+            before_read.st_ino,
+            before_read.st_size,
+            before_read.st_mtime_ns,
+            before_read.st_ctime_ns,
+        )
+        after_facts = (
+            after_read.st_dev,
+            after_read.st_ino,
+            after_read.st_size,
+            after_read.st_mtime_ns,
+            after_read.st_ctime_ns,
+        )
         if before_facts != after_facts:
+            raise ImageVerificationError(f"image path {path} changed while it was being verified")
+        path_facts = (
+            after_path.st_dev,
+            after_path.st_ino,
+            after_path.st_size,
+            after_path.st_mtime_ns,
+            after_path.st_ctime_ns,
+        )
+        if not stat.S_ISREG(after_path.st_mode) or path_facts != after_facts:
             raise ImageVerificationError(f"image path {path} changed while it was being verified")
         return digest.hexdigest()
     except FileNotFoundError as error:
@@ -118,9 +135,11 @@ def _validate_inspection(
     inspection: ImageInspectionRecord,
     *,
     expected_kind: ImageKind,
-    expected_sha256: Sha256Digest,
+    expected_sha256: Sha256Digest | None = None,
 ) -> None:
-    if inspection.sqsh_sha256 != expected_sha256:
+    if inspection.inspector_version != INSPECTOR_VERSION:
+        raise ImageVerificationError(f"unsupported image inspector version {inspection.inspector_version!r}")
+    if expected_sha256 is not None and inspection.sqsh_sha256 != expected_sha256:
         raise ImageVerificationError("image inspection does not match the SQSH digest")
     if inspection.inspection.kind is not expected_kind:
         raise ImageVerificationError(
@@ -129,6 +148,6 @@ def _validate_inspection(
 
 
 def _verify_registered_image(image: RegisteredImage) -> None:
-    actual_sha256 = compute_file_sha256(Path(image.path))
+    actual_sha256 = compute_sqsh_file_sha256(Path(image.path))
     if actual_sha256 != image.sqsh_sha256:
         raise ImageVerificationError(f"registered image {image.name!r} no longer matches its SQSH digest")

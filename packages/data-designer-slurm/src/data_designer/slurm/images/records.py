@@ -10,6 +10,7 @@ from pydantic import field_validator, model_validator
 from data_designer.slurm.config import ImageInspectionRecord, ImageKind
 from data_designer.slurm.contracts import (
     ContractRecord,
+    ContractValue,
     Identifier,
     SchemaVersion,
     Sha256Digest,
@@ -46,14 +47,14 @@ class RegisteredImage(ContractRecord):
         return self
 
 
-class ImageRegistrySnapshot(ContractRecord):
-    """Complete deterministic image registry state."""
+class ImageRegistryDocument(ContractValue):
+    """Versioned contents of the package-owned YAML image registry."""
 
-    schema_version: SchemaVersion = 1
+    schema_version: SchemaVersion
     images: tuple[RegisteredImage, ...] = ()
 
     @model_validator(mode="after")
-    def validate_images(self) -> ImageRegistrySnapshot:
+    def validate_images(self) -> ImageRegistryDocument:
         names = tuple(image.name for image in self.images)
         if names != tuple(sorted(names)):
             raise ValueError("registered images must be sorted by alias")

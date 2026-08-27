@@ -25,6 +25,13 @@ from data_designer.slurm.contracts import Identifier, Sha256Digest
 from data_designer.slurm.images.errors import ImageInspectionError
 
 INSPECTOR_VERSION: Identifier = "inspector-1"
+_REQUIRED_CLIENT_DISTRIBUTIONS = (
+    "data-designer",
+    "data-designer-config",
+    "data-designer-engine",
+    "data-designer-slurm",
+    "pip",
+)
 
 
 class InspectionEnvironment(Protocol):
@@ -116,8 +123,13 @@ class ClientImageInspector:
         environment = self._environment
         try:
             distributions = tuple(sorted(environment.list_distributions(), key=lambda item: item.name))
-            if not any(distribution.name == "data-designer" for distribution in distributions):
-                raise ImageInspectionError("required distribution 'data-designer' is not installed")
+            versions_by_name = {distribution.name: distribution.version for distribution in distributions}
+            missing_distributions = tuple(
+                name for name in _REQUIRED_CLIENT_DISTRIBUTIONS if name not in versions_by_name
+            )
+            if missing_distributions:
+                missing = ", ".join(repr(name) for name in missing_distributions)
+                raise ImageInspectionError(f"required client distributions are not installed: {missing}")
             inspection = ClientImageInspection(
                 kind="client",
                 python_implementation=environment.get_python_implementation(),
@@ -125,7 +137,7 @@ class ClientImageInspector:
                 python_abi=environment.get_python_abi(),
                 distributions=distributions,
                 installer_path=environment.find_executable("pip"),
-                installer_version=environment.get_distribution_version("pip"),
+                installer_version=versions_by_name["pip"],
             )
             return ImageInspectionRecord(
                 schema_version=1,

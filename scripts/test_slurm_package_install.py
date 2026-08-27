@@ -128,7 +128,6 @@ assert version("data-designer-slurm") == {version!r}
 from data_designer.slurm.contracts import ArtifactReference as ContractArtifactReference
 from data_designer.slurm.contracts import RecordRange as ContractRecordRange
 from data_designer.slurm.contracts import ResumeWorkspace as ContractResumeWorkspace
-from data_designer.slurm.images import SlurmImageService
 from data_designer.slurm.integration import PlanStateValidator
 from data_designer.slurm.planning import ArtifactReference as PlanningArtifactReference
 from data_designer.slurm.planning import RecordRange as PlanningRecordRange
@@ -138,7 +137,6 @@ from data_designer.slurm.state import RecordRange as StateRecordRange
 from data_designer.slurm.state import ResumeWorkspace as StateResumeWorkspace
 from data_designer.slurm.state import RunManifest
 assert RunManifest.__name__ == "RunManifest"
-assert SlurmImageService.__name__ == "SlurmImageService"
 assert PlanningArtifactReference is ContractArtifactReference
 assert PlanningRecordRange is ContractRecordRange
 assert PlanningResumeWorkspace is ContractResumeWorkspace
