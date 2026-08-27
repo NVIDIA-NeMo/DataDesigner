@@ -47,6 +47,8 @@ class SlurmBenchmarkService:
             manifest = self._backend.run(config)
             if not isinstance(manifest, BenchmarkManifest):
                 raise TypeError("benchmark backend returned an invalid manifest")
+            if manifest.benchmark_config.sha256 != config.compute_sha256():
+                raise ValueError("benchmark manifest does not match the requested config")
             return manifest
 
         return invoke_backend(operation, run_benchmark)

@@ -57,10 +57,12 @@ class SlurmRunPlanResult(ContractValue):
     def validate_plan_binding(self) -> SlurmRunPlanResult:
         lines = self.batch_script.split("\n")
         expected_digest = f'readonly DD_PLAN_SHA256="{self.plan.compute_sha256()}"'
-        if expected_digest not in lines:
+        digest_declarations = [line for line in lines if line.lstrip(" \t").startswith("readonly DD_PLAN_SHA256")]
+        if digest_declarations != [expected_digest]:
             raise ValueError("batch script must bind the exact resolved plan digest")
         expected_attempt = f'readonly DD_ATTEMPT_ORDINAL="{self.attempt_ordinal:04d}"'
-        if expected_attempt not in lines:
+        attempt_declarations = [line for line in lines if line.lstrip(" \t").startswith("readonly DD_ATTEMPT_ORDINAL")]
+        if attempt_declarations != [expected_attempt]:
             raise ValueError("batch script must bind the requested attempt ordinal")
         return self
 
@@ -89,6 +91,8 @@ class SlurmRunService:
             plan = self._planner.plan(config)
             if not isinstance(plan, ResolvedSlurmRunPlan):
                 raise TypeError("run planner returned an invalid result")
+            if plan.authored_config.sha256 != config.compute_sha256():
+                raise ValueError("run plan does not match the requested authored config")
             return SlurmRunPlanResult(
                 plan=plan,
                 attempt_ordinal=attempt_ordinal,
