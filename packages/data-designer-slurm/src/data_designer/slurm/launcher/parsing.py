@@ -99,12 +99,7 @@ def parse_accounting(output: str) -> tuple[SlurmAccountingEntry, ...]:
                 process_exit_code=_parse_exit_code(fields[2], line_number=line_number),
             )
         )
-    array_job_ids = {
-        entry.job_identity.array_job_id for entry in entries if isinstance(entry.job_identity, SchedulerIdentity)
-    }
-    return tuple(
-        entry for entry in entries if not (type(entry.job_identity) is int and entry.job_identity in array_job_ids)
-    )
+    return tuple(entries)
 
 
 def parse_gpu_counts(output: str) -> tuple[int, ...]:

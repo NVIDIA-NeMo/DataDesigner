@@ -90,26 +90,26 @@ def test_client_observes_regular_cpu_job() -> None:
     assert accounting[0].state is SchedulerState.COMPLETED
 
 
-def test_client_ignores_array_parent_observation_for_exact_task() -> None:
+def test_client_ignores_only_array_parent_observation_for_exact_task() -> None:
     runner = FakeSlurmRunner()
-    runner.script_next("sacct", FakeCommandResponse(stdout="4101|RUNNING|0:0\n"))
+    runner.script_next("sacct", FakeCommandResponse(stdout="4101|RUNNING|0:0\n4101_0|COMPLETED|0:0\n"))
     client = SlurmCommandClient(runner)
+    task = SchedulerIdentity(array_job_id=4101, array_task_id=0)
 
-    records = client.query_accounting((SchedulerIdentity(array_job_id=4101, array_task_id=0),))
+    records = client.query_accounting((task,))
 
-    assert records == ()
+    assert tuple(record.job_identity for record in records) == (task,)
 
 
-def test_client_keeps_explicitly_selected_parent_observation() -> None:
+def test_client_keeps_explicitly_selected_parent_and_task_observations() -> None:
     runner = FakeSlurmRunner()
-    runner.script_next("sacct", FakeCommandResponse(stdout="4101|RUNNING|0:0\n"))
+    runner.script_next("sacct", FakeCommandResponse(stdout="4101|RUNNING|0:0\n4101_0|COMPLETED|0:0\n"))
     client = SlurmCommandClient(runner)
     task = SchedulerIdentity(array_job_id=4101, array_task_id=0)
 
     records = client.query_accounting((4101, task))
 
-    assert len(records) == 1
-    assert records[0].job_identity == 4101
+    assert tuple(record.job_identity for record in records) == (4101, task)
 
 
 def test_client_rejects_unbounded_or_invalid_job_selectors(fake_slurm_runner: FakeSlurmRunner) -> None:

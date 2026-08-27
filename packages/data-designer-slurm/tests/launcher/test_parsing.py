@@ -87,12 +87,13 @@ def test_parse_state_normalizes_long_slurm_spellings(raw_state: str, expected: S
     assert parse_state(raw_state) is expected
 
 
-def test_parse_accounting_normalizes_terminal_rows_and_ignores_array_parent() -> None:
+def test_parse_accounting_normalizes_parent_and_terminal_array_task_rows() -> None:
     output = "4101|RUNNING|0:0\n" + (GOLDEN_DIRECTORY / "sacct_retry_terminal.txt").read_text()
 
     records = parse_accounting(output)
 
     assert tuple(record.state for record in records) == (
+        SchedulerState.RUNNING,
         SchedulerState.TIMED_OUT,
         SchedulerState.NODE_FAILED,
         SchedulerState.PREEMPTED,
@@ -100,8 +101,8 @@ def test_parse_accounting_normalizes_terminal_rows_and_ignores_array_parent() ->
         SchedulerState.OUT_OF_MEMORY,
         SchedulerState.CANCELLED,
     )
-    assert records[0].process_exit_code.exit_status == 0
-    assert records[0].process_exit_code.termination_signal == 125
+    assert records[1].process_exit_code.exit_status == 0
+    assert records[1].process_exit_code.termination_signal == 125
 
 
 def test_parse_accounting_normalizes_regular_jobs() -> None:

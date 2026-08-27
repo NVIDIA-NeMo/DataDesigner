@@ -91,10 +91,7 @@ def _build_generation_directives(plan: ResolvedSlurmRunPlan) -> tuple[_BatchDire
     node_count = max(node_indices) + 1
     array = "0"
     if plan.array_tasks.count > 1:
-        array = f"0-{plan.array_tasks.count - 1}"
-        # TODO(#875): Add valid authored-to-rendered coverage once omitted concurrency is supported by the contract.
-        if plan.array_tasks.max_concurrent is not None:
-            array = f"{array}%{plan.array_tasks.max_concurrent}"
+        array = f"0-{plan.array_tasks.count - 1}%{plan.array_tasks.max_concurrent}"
 
     values: list[tuple[str, str | None]] = [
         ("job-name", plan.submission.job_name),
