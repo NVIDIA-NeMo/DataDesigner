@@ -39,7 +39,7 @@ from data_designer.slurm.contracts import (
     ResumeWorkspace,
     Sha256Digest,
     ShardId,
-    compute_sha256,
+    compute_serialized_json_sha256,
     validate_absolute_path,
     validate_local_config_path,
     validate_plain_text,
@@ -151,7 +151,7 @@ class ResolvedBuilderInput(ContractValue):
     authored_source: str | None = None
     source: ArtifactReference | None = None
     inline: dict[str, JsonValue] | None = None
-    # Inline input uses canonical JSON; sourced input uses its persisted artifact bytes.
+    # Both forms use deterministic persisted builder JSON bytes.
     content_sha256: Sha256Digest
     model_aliases: tuple[ModelAlias, ...]
 
@@ -162,7 +162,7 @@ class ResolvedBuilderInput(ContractValue):
         if self.source is None:
             if self.authored_source is not None:
                 raise ValueError("inline builder input cannot contain authored_source")
-            expected_digest = compute_sha256(self.inline)
+            expected_digest = compute_serialized_json_sha256(self.inline)
             if self.model_aliases != get_declared_model_aliases(self.inline):
                 raise ValueError("resolved model aliases do not match the inline builder")
         else:

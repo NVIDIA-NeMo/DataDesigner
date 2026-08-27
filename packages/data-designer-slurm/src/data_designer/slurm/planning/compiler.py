@@ -16,7 +16,7 @@ from data_designer.slurm.contracts import (
     ResumeWorkspace,
     compute_serialized_json_sha256,
 )
-from data_designer.slurm.planning.errors import SlurmPlanCompilationError
+from data_designer.slurm.planning.errors import SlurmPlanCompilationError, SlurmPlanContractError
 from data_designer.slurm.planning.models import (
     PlannedShard,
     PortClaim,
@@ -71,7 +71,7 @@ class SlurmRunCompiler:
                 plan,
                 builder_payload=effective.builder_payload,
             )
-        except SlurmPlanCompilationError:
+        except (SlurmPlanCompilationError, SlurmPlanContractError):
             raise
         except ValidationError as error:
             message = format_validation_error(error, subject="Slurm plan compilation")

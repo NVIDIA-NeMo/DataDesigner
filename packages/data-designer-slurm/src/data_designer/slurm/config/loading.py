@@ -119,6 +119,9 @@ def resolve_profile(
         )
     except SlurmConfigLoadError:
         raise
+    except ValidationError as error:
+        message = format_validation_error(error, subject="profile selection")
+        raise SlurmConfigLoadError(message) from None
     except ValueError as error:
         raise SlurmConfigLoadError(str(error)) from None
 

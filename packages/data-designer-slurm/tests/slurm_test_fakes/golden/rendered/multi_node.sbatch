@@ -11,7 +11,7 @@ set -Eeuo pipefail
 readonly DD_RUNTIME_ARCHIVE="/workspace/primary/runtime/runtime.tar.gz"
 readonly DD_RUNTIME_SHA256="eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
 readonly DD_PLAN="/workspace/primary/runs/run-001/resolved-plan.json"
-readonly DD_PLAN_SHA256="9efc57d4ef15dc32ac5276cb97afb053155c5d43df03ed28db5fa09546bfa3eb"
+readonly DD_PLAN_SHA256="e61513fe9dde370755619ffaaf128649daa939426c88226f619aa2cf82046a71"
 readonly DD_RUN_ROOT="/workspace/primary/runs/run-001"
 readonly DD_ATTEMPT_ORDINAL="0001"
 

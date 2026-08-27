@@ -19,7 +19,7 @@ from data_designer.slurm.contracts import (
     ArtifactReference,
     ContractValue,
     Identifier,
-    compute_sha256,
+    compute_serialized_json_sha256,
 )
 from data_designer.slurm.planning.builder_identity import (
     get_declared_model_aliases,
@@ -100,7 +100,11 @@ def resolve_slurm_config(
         gpus_per_node = _resolve_gpu_count(selected_profile, resolved_gpus_per_node)
         workspace_root = selected_profile.profile.workspace_root
         run_root = posixpath.join(workspace_root, "runs", run_id)
-        builder = _resolve_builder(authored, run_root=run_root, builder_payload=builder_payload)
+        builder, resolved_builder_payload = _resolve_builder(
+            authored,
+            run_root=run_root,
+            builder_payload=builder_payload,
+        )
         invocation = ResolvedInvocation(
             authored=authored.invocation,
             effective_run_config=_materialize_run_config(authored),
@@ -120,7 +124,7 @@ def resolve_slurm_config(
         )
         _validate_dependency_resolution(authored, client_image, dependency_lock)
         _validate_resolved_images(authored, client_image, deployment_images)
-        _validate_sharding_constraints(authored, builder_payload=builder_payload)
+        _validate_sharding_constraints(authored, builder_payload=resolved_builder_payload)
         _validate_output_destination(output.root, workspace_root, run_root)
         if output.partitions > authored.invocation.num_records:
             raise SlurmConfigResolutionError("output partitions must not exceed requested records")
@@ -136,7 +140,7 @@ def resolve_slurm_config(
             selected_profile=selected_profile,
             resolved_gpus_per_node=gpus_per_node,
             builder=builder,
-            builder_payload=builder_payload,
+            builder_payload=resolved_builder_payload,
             invocation=invocation,
             client_image=client_image,
             deployment_images=deployment_images,
@@ -170,14 +174,17 @@ def _resolve_builder(
     *,
     run_root: str,
     builder_payload: dict[str, JsonValue] | None,
-) -> ResolvedBuilderInput:
+) -> tuple[ResolvedBuilderInput, dict[str, JsonValue] | None]:
     if authored.builder.inline is not None:
         if builder_payload is not None:
             raise SlurmConfigResolutionError("inline builder input must not provide a separate payload")
-        return ResolvedBuilderInput(
-            inline=authored.builder.inline,
-            content_sha256=compute_sha256(authored.builder.inline),
-            model_aliases=get_declared_model_aliases(authored.builder.inline),
+        return (
+            ResolvedBuilderInput(
+                inline=authored.builder.inline,
+                content_sha256=compute_serialized_json_sha256(authored.builder.inline),
+                model_aliases=get_declared_model_aliases(authored.builder.inline),
+            ),
+            None,
         )
     if builder_payload is None:
         raise SlurmConfigResolutionError("sourced builder input requires its resolved payload")
@@ -188,11 +195,14 @@ def _resolve_builder(
         path=posixpath.join(run_root, "builder-config.json"),
         sha256=digest,
     )
-    return ResolvedBuilderInput(
-        authored_source=authored.builder.source,
-        source=source,
-        content_sha256=source.sha256,
-        model_aliases=aliases,
+    return (
+        ResolvedBuilderInput(
+            authored_source=authored.builder.source,
+            source=source,
+            content_sha256=source.sha256,
+            model_aliases=aliases,
+        ),
+        validated_payload,
     )
 
 

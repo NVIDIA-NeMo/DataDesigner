@@ -272,6 +272,22 @@ def test_profile_resolution_normalizes_ambiguous_hostname_errors(
         resolve_profile(catalog=catalog, hostnames=("primary-login-1",))
 
 
+def test_profile_resolution_hides_validation_inputs(profile_catalog: SlurmProfileCatalog) -> None:
+    secret = "super-secret-token: x"
+    catalog = profile_catalog.model_copy(
+        update={
+            "clusters": {secret: profile_catalog.clusters["primary"]},
+            "default_cluster": secret,
+        }
+    )
+
+    with pytest.raises(SlurmConfigLoadError, match="profile selection failed validation") as error:
+        resolve_profile(catalog=catalog, cluster=secret)
+
+    assert secret not in str(error.value)
+    assert error.value.__cause__ is None
+
+
 def test_json_builder_output_is_stable(tmp_path: Path) -> None:
     path = tmp_path / "run.json"
     builder = _config_builder()

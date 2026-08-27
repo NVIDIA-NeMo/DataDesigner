@@ -29,7 +29,11 @@ from data_designer.slurm.planning import (
     ResolvedSlurmRunPlan,
 )
 from data_designer.slurm.planning.compiler import SlurmRunCompiler
-from data_designer.slurm.planning.errors import SlurmConfigResolutionError, SlurmPlanCompilationError
+from data_designer.slurm.planning.errors import (
+    SlurmConfigResolutionError,
+    SlurmPlanCompilationError,
+    SlurmPlanContractError,
+)
 from data_designer.slurm.planning.resolution import EffectiveDataDesignerSlurmConfig, resolve_slurm_config
 
 GOLDEN_DIRECTORY = Path(__file__).parents[1] / "contracts" / "golden"
@@ -325,6 +329,22 @@ def test_sharded_seed_inputs_have_stable_ranges_and_partition_digests(
     assert first.shards == second.shards
 
 
+def test_uneven_shards_assign_remainder_to_the_final_task(
+    authored_run: DataDesignerSlurmConfig,
+    dependency_lock: ResolvedDependencyLock,
+    multi_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    authored = authored_run.model_copy(update={"array_tasks": authored_run.array_tasks.model_copy(update={"count": 3})})
+
+    plan = SlurmRunCompiler.compile(_resolve_fixture(authored, dependency_lock, multi_node_plan))
+
+    assert tuple((shard.record_range.start_index, shard.record_range.end_index_exclusive) for shard in plan.shards) == (
+        (0, 33),
+        (33, 66),
+        (66, 100),
+    )
+
+
 @pytest.mark.parametrize(
     ("builder_update", "output_update", "message"),
     [
@@ -599,7 +619,7 @@ def test_compiler_rejects_sourced_builder_payload_identity_drift(
         drifted_payload["data_designer"]["model_configs"][0]["alias"] = "drifted"
     drifted = effective.model_copy(update={"builder_payload": drifted_payload})
 
-    with pytest.raises(SlurmPlanCompilationError, match=message):
+    with pytest.raises(SlurmPlanContractError, match=message):
         SlurmRunCompiler.compile(drifted)
 
 

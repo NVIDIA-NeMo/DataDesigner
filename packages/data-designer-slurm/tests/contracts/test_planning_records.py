@@ -10,7 +10,7 @@ import pytest
 from pydantic import ValidationError
 
 from data_designer.slurm.config import BuilderInput, ClientDependencies, DataDesignerSlurmConfig
-from data_designer.slurm.contracts import compute_serialized_json_sha256, compute_sha256
+from data_designer.slurm.contracts import compute_serialized_json_sha256
 from data_designer.slurm.planning import (
     ArtifactReference,
     ResolvedDependencyLock,
@@ -160,7 +160,7 @@ def test_plan_rejects_deployment_alias_missing_from_builder(multi_node_plan: Res
         "model_configs"
     ][:1]
     payload["builder"]["model_aliases"] = ["generator"]
-    payload["builder"]["content_sha256"] = compute_sha256(payload["builder"]["inline"])
+    payload["builder"]["content_sha256"] = compute_serialized_json_sha256(payload["builder"]["inline"])
 
     with pytest.raises(ValidationError, match="deployment alias"):
         ResolvedSlurmRunPlan.model_validate_json(json.dumps(payload))
