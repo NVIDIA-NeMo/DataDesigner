@@ -5,7 +5,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import posixpath
 from typing import Annotated
 
@@ -22,7 +21,6 @@ from data_designer.slurm.contracts import (
     RecordRange,
     ResumeWorkspace,
     compute_sha256,
-    pretty_json,
 )
 from data_designer.slurm.planning.models import (
     PlannedShard,
@@ -38,6 +36,7 @@ from data_designer.slurm.planning.models import (
     ResolvedSubmission,
     ResolvedTopology,
     _extract_builder_aliases,
+    _extract_builder_identity,
 )
 from data_designer.slurm.planning.validation import validate_resolved_plan
 
@@ -45,6 +44,19 @@ _LOGICAL_ENDPOINT_PORT = 17000
 _HTTP_PORT = 18000
 _RENDEZVOUS_PORT = 19000
 _PORT_RANGE_SIZE = 1000
+_SHARDABLE_COLUMN_TYPES = frozenset(
+    {
+        "embedding",
+        "expression",
+        "llm-code",
+        "llm-judge",
+        "llm-structured",
+        "llm-text",
+        "sampler",
+        "seed-dataset",
+        "validation",
+    }
+)
 _COMPATIBILITY_RUN_DEFAULTS: dict[str, JsonValue] = {
     "buffer_size": 16384,
     "disable_early_shutdown": True,
@@ -104,6 +116,22 @@ class EffectiveDataDesignerSlurmConfig(ContractValue):
             raise ValueError("only sourced builder input may retain a resolved payload")
         if self.authored.builder.source is not None and self.builder_payload is None:
             raise ValueError("sourced builder input requires its resolved payload")
+        if self.authored.builder.source is not None:
+            assert self.builder_payload is not None
+            validated_payload = BuilderInput(inline=self.builder_payload).inline
+            assert validated_payload is not None
+            aliases, referenced_aliases, digest = _extract_builder_identity(validated_payload)
+            if self.builder.authored_source != self.authored.builder.source or self.builder.source is None:
+                raise ValueError("resolved builder source does not match the authored input")
+            expected_path = posixpath.join(run_root, "builder-config.json")
+            if self.builder.source.path != expected_path:
+                raise ValueError("resolved builder artifact path does not match the package-managed run")
+            if self.builder.model_aliases != aliases:
+                raise ValueError("resolved model aliases do not match the sourced builder payload")
+            if self.builder.referenced_model_aliases != referenced_aliases:
+                raise ValueError("resolved referenced aliases do not match the sourced builder payload")
+            if self.builder.content_sha256 != digest:
+                raise ValueError("resolved builder digest does not match the sourced builder payload")
         _validate_sharding_constraints(self.authored, builder_payload=self.builder_payload)
         expected_output = ResolvedOutput(
             root=self.authored.output.root or posixpath.join(run_root, "output"),
@@ -260,11 +288,10 @@ def _resolve_builder(
         raise ConfigurationResolutionError("sourced builder input requires its resolved payload")
     validated_payload = BuilderInput(inline=builder_payload).inline
     assert validated_payload is not None
-    aliases, referenced_aliases = _extract_builder_aliases(validated_payload)
-    serialized = pretty_json(validated_payload).encode("utf-8")
+    aliases, referenced_aliases, digest = _extract_builder_identity(validated_payload)
     source = ArtifactReference(
         path=posixpath.join(run_root, "builder-config.json"),
-        sha256=hashlib.sha256(serialized).hexdigest(),
+        sha256=digest,
     )
     return ResolvedBuilderInput(
         authored_source=authored.builder.source,
@@ -277,7 +304,12 @@ def _resolve_builder(
 
 def _materialize_run_config(authored: DataDesignerSlurmConfig) -> dict[str, JsonValue]:
     values = dict(authored.invocation.run_config)
+    preserve_authored_early_shutdown = "disable_early_shutdown" not in values and (
+        "shutdown_error_rate" in values or "shutdown_error_window" in values
+    )
     for name, value in _COMPATIBILITY_RUN_DEFAULTS.items():
+        if preserve_authored_early_shutdown and name in {"disable_early_shutdown", "shutdown_error_rate"}:
+            continue
         values.setdefault(name, value)
     return RunConfig.model_validate(values).model_dump(mode="json")
 
@@ -311,11 +343,21 @@ def _validate_sharding_constraints(
         if authored.invocation.input_bindings.seed_path is None:
             raise ConfigurationResolutionError("multi-shard seed input requires a typed seed_path binding")
 
-    columns = data_designer.get("columns")
-    if isinstance(columns, list) and any(
-        isinstance(column, dict) and column.get("column_type") == "image" for column in columns
-    ):
-        raise ConfigurationResolutionError("multi-shard runs do not support media output columns")
+    columns = data_designer.get("columns", [])
+    if not isinstance(columns, list):
+        raise ConfigurationResolutionError("builder columns must be a list")
+    for column in columns:
+        if not isinstance(column, dict) or not isinstance(column.get("column_type"), str):
+            raise ConfigurationResolutionError("multi-shard runs require known column semantics")
+        column_type = column["column_type"]
+        if column_type == "image":
+            raise ConfigurationResolutionError("multi-shard runs do not support media output columns")
+        if column_type not in _SHARDABLE_COLUMN_TYPES:
+            raise ConfigurationResolutionError(
+                "multi-shard runs do not support custom, plugin, or unknown column semantics"
+            )
+        if column_type == "validation" and column.get("validator_type") == "local_callable":
+            raise ConfigurationResolutionError("multi-shard runs do not support local callable validators")
 
 
 def _validate_dependency_resolution(

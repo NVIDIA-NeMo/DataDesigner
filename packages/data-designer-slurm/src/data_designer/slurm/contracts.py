@@ -96,6 +96,7 @@ class ContractValue(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
         frozen=True,
+        hide_input_in_errors=True,
         allow_inf_nan=False,
         protected_namespaces=(),
         strict=True,

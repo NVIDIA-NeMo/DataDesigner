@@ -100,6 +100,17 @@ def test_builder_normalizes_invalid_authored_values(
         getattr(_config_builder(), method)(**values)
 
 
+def test_builder_validation_errors_hide_secret_inputs() -> None:
+    secret = "super-secret-token"
+
+    with pytest.raises(ConfigBuilderError) as error:
+        _config_builder().with_client(image={"name": "dd-client", "api_key": secret})
+
+    assert secret not in str(error.value)
+    assert error.value.__cause__ is not None
+    assert secret not in str(error.value.__cause__)
+
+
 def test_builder_normalizes_write_failures(tmp_path: Path) -> None:
     path = tmp_path / "run.json"
     path.mkdir()
@@ -139,6 +150,21 @@ def test_strict_loader_rejects_non_object_and_unknown_extension(tmp_path: Path) 
         load_run_config(json_path)
     with pytest.raises(ConfigLoadError, match="must end"):
         load_run_config(tmp_path / "run.toml")
+
+
+def test_loader_validation_errors_hide_secret_inputs(tmp_path: Path) -> None:
+    secret = "super-secret-token"
+    payload = _config_builder().build().model_dump(mode="json")
+    payload["builder"]["inline"]["data_designer"]["api_key"] = secret
+    path = tmp_path / "run.json"
+    path.write_text(json.dumps(payload))
+
+    with pytest.raises(ConfigLoadError) as error:
+        load_run_config(path)
+
+    assert secret not in str(error.value)
+    assert error.value.__cause__ is not None
+    assert secret not in str(error.value.__cause__)
 
 
 @pytest.mark.parametrize("suffix", [".json", ".yaml", ".yml"])

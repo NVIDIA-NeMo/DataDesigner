@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from pathlib import Path
 
 import pytest
@@ -176,6 +177,32 @@ def test_compiler_preserves_explicit_compatibility_run_values(
     assert effective.invocation.effective_run_config["shutdown_error_rate"] == 0.25
 
 
+@pytest.mark.parametrize(
+    ("run_config", "expected_rate", "expected_window"),
+    [
+        ({"shutdown_error_rate": 0.25}, 0.25, 10),
+        ({"shutdown_error_window": 25}, 0.5, 25),
+    ],
+)
+def test_compiler_preserves_partial_early_shutdown_configuration(
+    authored_run_single: DataDesignerSlurmConfig,
+    dependency_lock_single: ResolvedDependencyLock,
+    single_node_plan: ResolvedSlurmRunPlan,
+    run_config: dict[str, object],
+    expected_rate: float,
+    expected_window: int,
+) -> None:
+    payload = authored_run_single.model_dump(mode="json")
+    payload["invocation"]["run_config"] = run_config
+    authored = DataDesignerSlurmConfig.model_validate(payload)
+
+    effective = _resolve_fixture(authored, dependency_lock_single, single_node_plan)
+
+    assert effective.invocation.effective_run_config["disable_early_shutdown"] is False
+    assert effective.invocation.effective_run_config["shutdown_error_rate"] == expected_rate
+    assert effective.invocation.effective_run_config["shutdown_error_window"] == expected_window
+
+
 def test_compiler_rejects_tensor_parallelism_that_does_not_divide_gpu_shape(
     authored_run_single: DataDesignerSlurmConfig,
     dependency_lock_single: ResolvedDependencyLock,
@@ -264,6 +291,34 @@ def test_compiler_rejects_model_alias_missing_from_builder(
 
     with pytest.raises(PlanCompilationError, match="deployment alias"):
         compile_slurm_run_plan(_resolve_fixture(authored, dependency_lock_single, single_node_plan))
+
+
+@pytest.mark.parametrize("sourced", [False, True], ids=["inline", "sourced"])
+def test_compiler_rejects_builder_model_alias_without_deployment(
+    authored_run_single: DataDesignerSlurmConfig,
+    dependency_lock_single: ResolvedDependencyLock,
+    single_node_plan: ResolvedSlurmRunPlan,
+    sourced: bool,
+) -> None:
+    payload = authored_run_single.model_dump(mode="json")
+    payload["builder"]["inline"]["data_designer"]["model_configs"].append(
+        {"alias": "undeployed", "model": "example/undeployed", "provider": "openai"}
+    )
+    builder_payload = None
+    if sourced:
+        builder_payload = payload["builder"]["inline"]
+        payload["builder"] = {"source": "builder.json"}
+    authored = DataDesignerSlurmConfig.model_validate(payload)
+
+    with pytest.raises(PlanCompilationError, match="exactly cover"):
+        compile_slurm_run_plan(
+            _resolve_fixture(
+                authored,
+                dependency_lock_single,
+                single_node_plan,
+                builder_payload=builder_payload,
+            )
+        )
 
 
 def test_compiler_rejects_otel_collision_before_runtime(
@@ -392,6 +447,53 @@ def test_resolution_rejects_real_global_builder_configs(
         _resolve_fixture(authored, dependency_lock, multi_node_plan)
 
 
+@pytest.mark.parametrize("sourced", [False, True], ids=["inline", "sourced"])
+@pytest.mark.parametrize(
+    ("column", "message"),
+    [
+        ({"column_type": "future-column", "name": "future"}, "unknown column semantics"),
+        ({"column_type": "fake-slurm-column", "name": "plugin"}, "plugin"),
+        ({"column_type": "custom", "generator_function": "generate", "name": "custom"}, "custom"),
+        (
+            {
+                "column_type": "validation",
+                "name": "validate",
+                "target_columns": ["generated"],
+                "validator_params": {
+                    "validation_function": "validate",
+                    "validator_type": "local_callable",
+                },
+                "validator_type": "local_callable",
+            },
+            "local callable",
+        ),
+    ],
+)
+def test_resolution_rejects_unportable_multi_shard_columns(
+    authored_run: DataDesignerSlurmConfig,
+    dependency_lock: ResolvedDependencyLock,
+    multi_node_plan: ResolvedSlurmRunPlan,
+    sourced: bool,
+    column: dict[str, object],
+    message: str,
+) -> None:
+    payload = authored_run.model_dump(mode="json")
+    payload["builder"]["inline"]["data_designer"]["columns"] = [column]
+    builder_payload = None
+    if sourced:
+        builder_payload = payload["builder"]["inline"]
+        payload["builder"] = {"source": "builder.json"}
+    authored = DataDesignerSlurmConfig.model_validate(payload)
+
+    with pytest.raises(ConfigurationResolutionError, match=message):
+        _resolve_fixture(
+            authored,
+            dependency_lock,
+            multi_node_plan,
+            builder_payload=builder_payload,
+        )
+
+
 def test_sharded_seed_binding_may_override_authored_source(
     authored_run: DataDesignerSlurmConfig,
     dependency_lock: ResolvedDependencyLock,
@@ -465,22 +567,61 @@ def test_sourced_builder_is_resolved_to_one_digest_bound_run_input(
     assert plan.builder.content_sha256 == plan.builder.source.sha256
 
 
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    [
+        ("bytes", "builder digest"),
+        ("aliases", "model aliases"),
+    ],
+)
+def test_effective_config_rejects_sourced_builder_payload_identity_drift(
+    authored_run_single: DataDesignerSlurmConfig,
+    dependency_lock_single: ResolvedDependencyLock,
+    single_node_plan: ResolvedSlurmRunPlan,
+    mutation: str,
+    message: str,
+) -> None:
+    builder_payload = authored_run_single.model_dump(mode="json")["builder"]["inline"]
+    authored = authored_run_single.model_copy(update={"builder": BuilderInput(source="builder.json")})
+    effective = _resolve_fixture(
+        authored,
+        dependency_lock_single,
+        single_node_plan,
+        builder_payload=builder_payload,
+    )
+    drifted_payload = deepcopy(builder_payload)
+    if mutation == "bytes":
+        drifted_payload["library_version"] = "drifted"
+    else:
+        drifted_payload["data_designer"]["model_configs"][0]["alias"] = "drifted"
+    values = {name: getattr(effective, name) for name in EffectiveDataDesignerSlurmConfig.model_fields}
+    values["builder_payload"] = drifted_payload
+
+    with pytest.raises(ValueError, match=message):
+        EffectiveDataDesignerSlurmConfig(**values)  # type: ignore[arg-type]
+
+
 def test_resolution_rejects_secret_values_in_sourced_builder_payload(
     authored_run_single: DataDesignerSlurmConfig,
     dependency_lock_single: ResolvedDependencyLock,
     single_node_plan: ResolvedSlurmRunPlan,
 ) -> None:
     builder_payload = authored_run_single.model_dump(mode="json")["builder"]["inline"]
-    builder_payload["data_designer"]["api_key"] = "secret-value"
+    secret = "super-secret-token"
+    builder_payload["data_designer"]["api_key"] = secret
     authored = authored_run_single.model_copy(update={"builder": BuilderInput(source="builder.json")})
 
-    with pytest.raises(ConfigurationResolutionError, match="secret values"):
+    with pytest.raises(ConfigurationResolutionError, match="secret values") as error:
         _resolve_fixture(
             authored,
             dependency_lock_single,
             single_node_plan,
             builder_payload=builder_payload,
         )
+
+    assert secret not in str(error.value)
+    assert error.value.__cause__ is not None
+    assert secret not in str(error.value.__cause__)
 
 
 def test_resolution_rejects_artifact_identity_mismatches(

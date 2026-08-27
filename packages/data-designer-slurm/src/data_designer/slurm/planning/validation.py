@@ -11,7 +11,7 @@ from data_designer.slurm.config.run import DataDesignerSlurmConfig
 from data_designer.slurm.planning.models import (
     ResolvedDependencyLock,
     ResolvedSlurmRunPlan,
-    _extract_builder_aliases,
+    _extract_builder_identity,
 )
 
 
@@ -55,12 +55,13 @@ def validate_resolved_plan(
         )
         if builder_payload is None:
             raise PlanContractError("sourced builder validation requires its resolved payload")
-        model_aliases, referenced_aliases = _extract_builder_aliases(builder_payload)
+        model_aliases, referenced_aliases, digest = _extract_builder_identity(builder_payload)
         _require(plan.builder.model_aliases == model_aliases, "resolved model aliases do not match builder source")
         _require(
             plan.builder.referenced_model_aliases == referenced_aliases,
             "resolved referenced aliases do not match builder source",
         )
+        _require(plan.builder.content_sha256 == digest, "resolved builder digest does not match builder source")
 
     expected_account = authored.submission.account or plan.selected_profile.profile.scheduler.account
     expected_partition = authored.submission.partition or plan.selected_profile.profile.scheduler.partition

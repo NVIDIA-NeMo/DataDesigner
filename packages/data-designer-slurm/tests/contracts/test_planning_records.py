@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from copy import deepcopy
 
@@ -10,7 +11,7 @@ import pytest
 from pydantic import ValidationError
 
 from data_designer.slurm.config import BuilderInput, ClientDependencies, DataDesignerSlurmConfig
-from data_designer.slurm.contracts import compute_sha256
+from data_designer.slurm.contracts import compute_sha256, pretty_json
 from data_designer.slurm.planning import (
     ArtifactReference,
     PlanContractError,
@@ -226,13 +227,14 @@ def test_sourced_builder_validation_requires_resolved_payload(
     multi_node_plan: ResolvedSlurmRunPlan,
 ) -> None:
     sourced_authored = authored_run.model_copy(update={"builder": BuilderInput(source="builder.json")})
+    builder_digest = hashlib.sha256(pretty_json(authored_run.builder.inline).encode("utf-8")).hexdigest()
     payload = multi_node_plan.model_dump(mode="json")
     payload["authored_config"]["sha256"] = sourced_authored.compute_sha256()
     payload["builder"] = {
         "authored_source": "builder.json",
-        "source": {"path": "/workspace/primary/runs/run-001/builder.json", "sha256": "a" * 64},
+        "source": {"path": "/workspace/primary/runs/run-001/builder.json", "sha256": builder_digest},
         "inline": None,
-        "content_sha256": "a" * 64,
+        "content_sha256": builder_digest,
         "model_aliases": ["generator", "judge"],
         "referenced_model_aliases": [],
     }
