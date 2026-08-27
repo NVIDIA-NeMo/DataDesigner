@@ -12,6 +12,7 @@ from slurm_test_fakes.serving import FakeLogicalEndpoint, FakeServingState, Fake
 from slurm_test_fakes.slurm import (
     FakeCommandResponse,
     FakeSlurmArray,
+    FakeSlurmJob,
     FakeSlurmRunner,
     FakeSlurmTask,
 )
@@ -25,6 +26,7 @@ __all__ = [
     "FakeLogicalEndpoint",
     "FakeServingState",
     "FakeSlurmArray",
+    "FakeSlurmJob",
     "FakeSlurmRunner",
     "FakeSlurmTask",
     "FakeVllmBackend",

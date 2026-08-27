@@ -14,8 +14,14 @@ from pathlib import Path
 from data_designer.slurm.state import SchedulerIdentity
 
 _JOB_SELECTOR_PATTERN = re.compile(r"^[0-9]+(?:_[0-9]+)?$")
-_SQUEUE_REQUIRED_ARGUMENTS = ("--noheader", "--format=%i|%T")
-_SACCT_REQUIRED_ARGUMENTS = ("--noheader", "--parsable2", "--format=%i|%State|%ExitCode")
+_SQUEUE_REQUIRED_ARGUMENTS = ("--noheader", "--array", "--format=%i|%T")
+_SACCT_REQUIRED_ARGUMENTS = (
+    "--noheader",
+    "--array",
+    "--allocations",
+    "--parsable2",
+    "--format=JobID,State,ExitCode",
+)
 
 
 @dataclass(frozen=True)
@@ -25,6 +31,20 @@ class FakeCommandResponse:
     stdout: str = ""
     stderr: str = ""
     returncode: int = 0
+
+
+@dataclass
+class FakeSlurmJob:
+    """Mutable scheduler views for one ordinary batch-job identity."""
+
+    job_id: int
+    queue_state: str | None = "PENDING"
+    accounting_state: str | None = None
+    exit_code: str = "0:0"
+
+    def __post_init__(self) -> None:
+        if type(self.job_id) is not int or self.job_id <= 0:
+            raise ValueError("fake Slurm job IDs must be positive integers")
 
 
 @dataclass
@@ -60,16 +80,25 @@ class FakeSlurmArray:
 
 
 class FakeSlurmRunner:
-    """Stateful fake that copies its configured arrays before exposing Slurm commands."""
+    """Stateful fake that copies configured jobs before exposing Slurm commands."""
 
     def __init__(
         self,
         arrays: Iterable[FakeSlurmArray] = (),
         *,
+        jobs: Iterable[FakeSlurmJob] = (),
         sinfo_responses: Mapping[tuple[str, ...], FakeCommandResponse] | None = None,
     ) -> None:
-        self._pending_arrays = deque(copy.deepcopy(tuple(arrays)))
+        submissions = (*arrays, *jobs)
+        job_ids = tuple(
+            submission.array_job_id if isinstance(submission, FakeSlurmArray) else submission.job_id
+            for submission in submissions
+        )
+        if len(job_ids) != len(set(job_ids)):
+            raise ValueError("fake Slurm submissions must have unique job IDs")
+        self._pending_submissions = deque(copy.deepcopy(submissions))
         self._submitted_arrays: dict[int, FakeSlurmArray] = {}
+        self._submitted_jobs: dict[int, FakeSlurmJob] = {}
         self._scripted_responses: dict[str, deque[FakeCommandResponse]] = {}
         self._sinfo_responses = dict(sinfo_responses or {})
         self.calls: list[tuple[str, ...]] = []
@@ -120,6 +149,20 @@ class FakeSlurmRunner:
         task.accounting_state = accounting_state
         task.exit_code = exit_code
 
+    def set_job_state(
+        self,
+        job_id: int,
+        *,
+        queue_state: str | None,
+        accounting_state: str | None,
+        exit_code: str = "0:0",
+    ) -> None:
+        """Set the independently observable states for one ordinary job."""
+        job = self._submitted_jobs[job_id]
+        job.queue_state = queue_state
+        job.accounting_state = accounting_state
+        job.exit_code = exit_code
+
     def assert_scripts_consumed(self) -> None:
         """Assert that no scripted command response remains."""
         remaining = sum(len(responses) for responses in self._scripted_responses.values())
@@ -141,38 +184,58 @@ class FakeSlurmRunner:
         return handler(argv)
 
     def _run_sbatch(self, argv: tuple[str, ...]) -> FakeCommandResponse:
-        if not self._pending_arrays:
+        if not self._pending_submissions:
             return FakeCommandResponse(stderr="no scripted submission\n", returncode=1)
-        array = self._pending_arrays.popleft()
-        self._submitted_arrays[array.array_job_id] = array
+        submission = self._pending_submissions.popleft()
+        if isinstance(submission, FakeSlurmArray):
+            job_id = submission.array_job_id
+            self._submitted_arrays[job_id] = submission
+        else:
+            job_id = submission.job_id
+            self._submitted_jobs[job_id] = submission
         if "--parsable" in argv[1:]:
-            return FakeCommandResponse(stdout=f"{array.array_job_id}\n")
-        return FakeCommandResponse(stdout=f"Submitted batch job {array.array_job_id}\n")
+            return FakeCommandResponse(stdout=f"{job_id}\n")
+        return FakeCommandResponse(stdout=f"Submitted batch job {job_id}\n")
 
     def _run_squeue(self, argv: tuple[str, ...]) -> FakeCommandResponse:
         self._require_arguments(argv, _SQUEUE_REQUIRED_ARGUMENTS)
         rows = [
+            f"{job.job_id}|{job.queue_state}"
+            for job in self._selected_submitted_jobs(argv)
+            if job.queue_state is not None
+        ] + [
             f"{task.scheduler.array_job_id}_{task.scheduler.array_task_id}|{task.queue_state}"
             for task in self._selected_submitted_tasks(argv)
             if task.queue_state is not None
         ]
-        return FakeCommandResponse(stdout="".join(f"{row}\n" for row in rows))
+        return FakeCommandResponse(stdout="".join(f"{row}\n" for row in sorted(rows)))
 
     def _run_sacct(self, argv: tuple[str, ...]) -> FakeCommandResponse:
         self._require_arguments(argv, _SACCT_REQUIRED_ARGUMENTS)
         rows = [
+            f"{job.job_id}|{job.accounting_state}|{job.exit_code}"
+            for job in self._selected_submitted_jobs(argv)
+            if job.accounting_state is not None
+        ] + [
             (f"{task.scheduler.array_job_id}_{task.scheduler.array_task_id}|{task.accounting_state}|{task.exit_code}")
             for task in self._selected_submitted_tasks(argv)
             if task.accounting_state is not None
         ]
-        return FakeCommandResponse(stdout="".join(f"{row}\n" for row in rows))
+        return FakeCommandResponse(stdout="".join(f"{row}\n" for row in sorted(rows)))
 
     def _run_scancel(self, argv: tuple[str, ...]) -> FakeCommandResponse:
         targets = tuple(argument for argument in argv[1:] if not argument.startswith("-"))
         if len(targets) != 1:
             return FakeCommandResponse(stderr="expected one cancellation target\n", returncode=1)
+        target = targets[0]
+        if "_" not in target and target.isdecimal() and int(target) in self._submitted_jobs:
+            job = self._submitted_jobs[int(target)]
+            job.queue_state = None
+            job.accounting_state = "CANCELLED"
+            job.exit_code = "0:15"
+            return FakeCommandResponse()
         try:
-            tasks = self._tasks_for_target(targets[0])
+            tasks = self._tasks_for_target(target)
         except (KeyError, ValueError):
             return FakeCommandResponse(stderr="unknown cancellation target\n", returncode=1)
         for task in tasks:
@@ -215,6 +278,37 @@ class FakeSlurmRunner:
         )
 
     def _selected_submitted_tasks(self, argv: tuple[str, ...]) -> list[FakeSlurmTask]:
+        selectors = self._job_selectors(argv)
+        if not selectors:
+            return self._sorted_submitted_tasks()
+
+        selected: dict[SchedulerIdentity, FakeSlurmTask] = {}
+        for selector in selectors:
+            try:
+                tasks = self._tasks_for_target(selector)
+            except KeyError:
+                continue
+            selected.update((task.scheduler, task) for task in tasks)
+        return sorted(
+            selected.values(),
+            key=lambda task: (task.scheduler.array_job_id, task.scheduler.array_task_id),
+        )
+
+    def _selected_submitted_jobs(self, argv: tuple[str, ...]) -> list[FakeSlurmJob]:
+        selectors = self._job_selectors(argv)
+        if not selectors:
+            return sorted(self._submitted_jobs.values(), key=lambda job: job.job_id)
+        return sorted(
+            (
+                self._submitted_jobs[int(selector)]
+                for selector in selectors
+                if "_" not in selector and int(selector) in self._submitted_jobs
+            ),
+            key=lambda job: job.job_id,
+        )
+
+    @staticmethod
+    def _job_selectors(argv: tuple[str, ...]) -> tuple[str, ...]:
         selectors: list[str] = []
         for index, argument in enumerate(argv[1:]):
             if argument in {"-j", "--jobs"}:
@@ -225,18 +319,8 @@ class FakeSlurmRunner:
             elif argument.startswith("--jobs="):
                 selectors.extend(argument.partition("=")[2].split(","))
         if not selectors:
-            return self._sorted_submitted_tasks()
-
-        selected: dict[SchedulerIdentity, FakeSlurmTask] = {}
+            return ()
         for selector in selectors:
             if _JOB_SELECTOR_PATTERN.fullmatch(selector) is None:
                 raise AssertionError(f"malformed job selector {selector!r} in {argv!r}")
-            try:
-                tasks = self._tasks_for_target(selector)
-            except KeyError:
-                continue
-            selected.update((task.scheduler, task) for task in tasks)
-        return sorted(
-            selected.values(),
-            key=lambda task: (task.scheduler.array_job_id, task.scheduler.array_task_id),
-        )
+        return tuple(selectors)
