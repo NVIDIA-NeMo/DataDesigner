@@ -28,6 +28,7 @@ from data_designer.slurm.config.environment import (
     SecretRef,
     is_secret_bearing_name,
     validate_environment_bindings,
+    validate_no_plaintext_secrets,
 )
 from data_designer.slurm.config.images import ImageRef
 from data_designer.slurm.config.vllm import QueueBackpressureConfig, VllmServerConfig
@@ -81,6 +82,7 @@ class BuilderInput(AuthoredConfig):
         if self.inline is not None:
             if not self.inline:
                 raise ValueError("inline builder input must not be empty")
+            validate_no_plaintext_secrets(self.inline, field_name="inline builder input")
             retired = {"dependencies", "sandbox_config", "server_configs"}.intersection(self.inline)
             if retired:
                 raise ValueError(f"builder input contains retired Big Iron fields: {', '.join(sorted(retired))}")

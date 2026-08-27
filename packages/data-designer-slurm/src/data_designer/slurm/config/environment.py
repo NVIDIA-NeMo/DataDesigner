@@ -9,7 +9,7 @@ import re
 from collections.abc import Mapping
 from typing import Annotated, Literal
 
-from pydantic import Field, StringConstraints, field_validator
+from pydantic import Field, JsonValue, StringConstraints, field_validator
 
 from data_designer.slurm.contracts import AuthoredConfig, validate_plain_text
 from data_designer.slurm.types import EnvironmentName
@@ -78,7 +78,34 @@ def validate_environment_bindings(values: Mapping[EnvironmentName, EnvironmentBi
         raise ValueError("secret-shaped environment names require external secret references")
 
 
+def validate_no_plaintext_secrets(value: JsonValue, *, field_name: str) -> None:
+    """Reject non-null values stored under recursively secret-bearing JSON keys."""
+    if isinstance(value, dict):
+        for key, child in value.items():
+            if is_secret_bearing_json_key(key) and child is not None:
+                raise ValueError(f"{field_name} must not contain plaintext values under secret-bearing keys")
+            validate_no_plaintext_secrets(child, field_name=field_name)
+    elif isinstance(value, list):
+        for child in value:
+            validate_no_plaintext_secrets(child, field_name=field_name)
+
+
+def is_secret_bearing_json_key(value: str) -> bool:
+    """Return whether a persisted JSON key conventionally carries secret material."""
+    segments = _secret_name_segments(value)
+    return tuple(segments[-2:]) not in _NON_SECRET_KEY_SUFFIXES and is_secret_bearing_name(value)
+
+
 _SECRET_NAME_PARTS = frozenset({"credential", "credentials", "password", "secret", "token"})
+_NON_SECRET_KEY_SUFFIXES = frozenset(
+    {
+        ("foreign", "key"),
+        ("idempotency", "key"),
+        ("partition", "key"),
+        ("primary", "key"),
+        ("sort", "key"),
+    }
+)
 
 
 def _secret_name_segments(value: str) -> list[str]:

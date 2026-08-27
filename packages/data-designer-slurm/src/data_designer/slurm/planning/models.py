@@ -13,6 +13,7 @@ from packaging.version import InvalidVersion
 from pydantic import Field, JsonValue, NonNegativeInt, PositiveInt, StringConstraints, field_validator, model_validator
 
 from data_designer.config import RunConfig
+from data_designer.slurm.config.environment import validate_no_plaintext_secrets
 from data_designer.slurm.config.images import (
     ClientImageInspection,
     DistributionName,
@@ -168,6 +169,7 @@ class ResolvedBuilderInput(ContractValue):
         if self.source is None:
             if self.authored_source is not None:
                 raise ValueError("inline builder input cannot contain authored_source")
+            validate_no_plaintext_secrets(self.inline, field_name="resolved inline builder input")
             expected_digest = compute_canonical_json_sha256(self.inline)
             model_aliases, referenced_aliases = _extract_builder_aliases(self.inline)
             if self.model_aliases != model_aliases:
@@ -209,6 +211,8 @@ class PortClaim(ContractValue):
 
 
 class ResolvedTopology(ContractValue):
+    """Resource-derived serving topology shared by planning and serving."""
+
     tensor_parallel: PositiveInt
     nodes_per_replica: PositiveInt
     pipeline_parallel: PositiveInt
@@ -216,6 +220,34 @@ class ResolvedTopology(ContractValue):
     replicas_per_node_group: PositiveInt
     replica_count: PositiveInt
     gpus_per_replica: PositiveInt
+
+    @classmethod
+    def derive(
+        cls,
+        *,
+        node_count: int,
+        gpus_per_node: int,
+        tensor_parallel: int,
+        nodes_per_replica: int,
+    ) -> ResolvedTopology:
+        """Derive the canonical v1 topology from placement and GPU resources."""
+        if min(node_count, gpus_per_node, tensor_parallel, nodes_per_replica) <= 0:
+            raise ValueError("topology derivation inputs must be positive")
+        if node_count % nodes_per_replica:
+            raise ValueError("nodes_per_replica must divide the deployment node count")
+        if gpus_per_node % tensor_parallel:
+            raise ValueError("tensor_parallel must divide resolved GPUs per node")
+        node_group_count = node_count // nodes_per_replica
+        replicas_per_node_group = gpus_per_node // tensor_parallel
+        return cls(
+            tensor_parallel=tensor_parallel,
+            nodes_per_replica=nodes_per_replica,
+            pipeline_parallel=nodes_per_replica,
+            node_group_count=node_group_count,
+            replicas_per_node_group=replicas_per_node_group,
+            replica_count=node_group_count * replicas_per_node_group,
+            gpus_per_replica=tensor_parallel * nodes_per_replica,
+        )
 
 
 class ResolvedDeployment(ContractValue):
@@ -241,17 +273,11 @@ class ResolvedDeployment(ContractValue):
             raise ValueError("deployment placement must contain exactly the requested node count")
         if self.node_indices != tuple(sorted(set(self.node_indices))):
             raise ValueError("deployment node indices must be sorted and unique")
-        if self.gpus_per_node % self.authored.topology.tensor_parallel:
-            raise ValueError("tensor_parallel must divide resolved GPUs per node")
-        expected = ResolvedTopology(
+        expected = ResolvedTopology.derive(
+            node_count=len(self.node_indices),
+            gpus_per_node=self.gpus_per_node,
             tensor_parallel=self.authored.topology.tensor_parallel,
             nodes_per_replica=self.authored.topology.nodes_per_replica,
-            pipeline_parallel=self.authored.topology.nodes_per_replica,
-            node_group_count=self.authored.resources.nodes // self.authored.topology.nodes_per_replica,
-            replicas_per_node_group=self.gpus_per_node // self.authored.topology.tensor_parallel,
-            replica_count=(self.authored.resources.nodes // self.authored.topology.nodes_per_replica)
-            * (self.gpus_per_node // self.authored.topology.tensor_parallel),
-            gpus_per_replica=self.authored.topology.tensor_parallel * self.authored.topology.nodes_per_replica,
         )
         if self.topology != expected:
             raise ValueError("resolved topology does not match deployment resources")

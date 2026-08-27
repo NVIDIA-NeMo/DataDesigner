@@ -5,13 +5,16 @@
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Mapping, Sequence
 
 from data_designer.slurm.config.environment import (
     EnvironmentBinding,
+    is_secret_bearing_json_key,
     is_secret_bearing_name,
     validate_environment_bindings,
+    validate_no_plaintext_secrets,
 )
 from data_designer.slurm.contracts import validate_plain_text
 from data_designer.slurm.types import EnvironmentName
@@ -48,6 +51,8 @@ def validate_vllm_extra_args(values: Sequence[str]) -> None:
     seen_flags: set[str] = set()
     for value in values:
         validate_plain_text(value, field_name="vLLM argument")
+        if value != value.strip():
+            raise ValueError("vLLM arguments must not contain leading or trailing whitespace")
         flag = value.partition("=")[0].replace("_", "-")
         candidate_flag = flag.split(maxsplit=1)[0]
         if flag == "--":
@@ -56,6 +61,7 @@ def validate_vllm_extra_args(values: Sequence[str]) -> None:
             raise ValueError(f"vLLM argument {candidate_flag!r} is owned by the compiler or runtime")
         if candidate_flag.startswith("--") and is_secret_bearing_name(candidate_flag.removeprefix("--")):
             raise ValueError("secret-shaped vLLM arguments must use an environment secret reference")
+        _validate_vllm_argument_has_no_plaintext_secrets(value)
         if flag.startswith("-") and re.fullmatch(r"--[A-Za-z][A-Za-z0-9.-]*", flag) is None:
             raise ValueError(
                 "short or combined vLLM options are owned by the compiler or runtime; "
@@ -66,6 +72,18 @@ def validate_vllm_extra_args(values: Sequence[str]) -> None:
             if canonical_flag in seen_flags:
                 raise ValueError(f"duplicate or conflicting vLLM argument {flag!r}")
             seen_flags.add(canonical_flag)
+
+
+def _validate_vllm_argument_has_no_plaintext_secrets(value: str) -> None:
+    payload = value.partition("=")[2] if value.startswith("--") and "=" in value else value
+    try:
+        decoded = json.loads(payload)
+    except (json.JSONDecodeError, RecursionError):
+        pass
+    else:
+        validate_no_plaintext_secrets(decoded, field_name="vLLM argument payload")
+    if any(is_secret_bearing_json_key(match.group("name")) for match in _ARGUMENT_ASSIGNMENT_PATTERN.finditer(payload)):
+        raise ValueError("vLLM argument payloads must not contain plaintext values under secret-bearing keys")
 
 
 _RESERVED_VLLM_FLAGS = frozenset(
@@ -126,6 +144,7 @@ _RESERVED_VLLM_FLAGS = frozenset(
     }
 )
 _VLLM_EXACT_PASSTHROUGH_FLAGS = frozenset({"--reasoning-parser"})
+_ARGUMENT_ASSIGNMENT_PATTERN = re.compile(r"""(?:^|[,{;?&\s])["']?(?P<name>[A-Za-z][A-Za-z0-9_.-]*)["']?\s*[:=]""")
 _RESERVED_VLLM_FLAG_PREFIXES = (
     "--api-server-",
     "--data-parallel-",

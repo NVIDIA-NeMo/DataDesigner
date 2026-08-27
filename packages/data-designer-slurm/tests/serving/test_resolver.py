@@ -15,7 +15,6 @@ from data_designer.slurm.contracts import pretty_json
 from data_designer.slurm.planning import ResolvedDeployment, ResolvedSlurmRunPlan
 from data_designer.slurm.serving.deployment import ResolvedVllmServerDeployment
 from data_designer.slurm.serving.resolver import (
-    VllmServerResolutionContext,
     VllmServerResolutionError,
     resolve_vllm_server,
 )
@@ -27,8 +26,8 @@ GOLDEN_DIRECTORY = Path(__file__).parent / "golden"
 def test_single_node_resolution_matches_golden(single_node_plan: ResolvedSlurmRunPlan) -> None:
     placement = single_node_plan.deployments[0]
 
-    first = _resolve(single_node_plan, placement)
-    second = _resolve(single_node_plan, placement)
+    first = _resolve(single_node_plan, placement.deployment_id)
+    second = _resolve(single_node_plan, placement.deployment_id)
 
     assert first == second
     assert pretty_json(first.model_dump(mode="json")) == (GOLDEN_DIRECTORY / "single_node.json").read_text()
@@ -44,7 +43,7 @@ def test_single_node_resolution_matches_golden(single_node_plan: ResolvedSlurmRu
 def test_multi_node_replica_resolution_matches_golden(multi_replica_plan: ResolvedSlurmRunPlan) -> None:
     placement = multi_replica_plan.deployments[0]
 
-    resolved = _resolve(multi_replica_plan, placement)
+    resolved = _resolve(multi_replica_plan, placement.deployment_id)
 
     assert pretty_json(resolved.model_dump(mode="json")) == (GOLDEN_DIRECTORY / "multi_node.json").read_text()
     assert [process.pipeline_rank for process in resolved.processes] == [0, 1, 0, 1]
@@ -70,7 +69,7 @@ def test_multiple_two_node_groups_preserve_global_replica_order_and_delays(
     plan = _multi_group_plan(multi_node_plan)
     placement = plan.deployments[0]
 
-    resolved = _resolve(plan, placement)
+    resolved = _resolve(plan, placement.deployment_id)
 
     assert resolved.topology.node_group_count == 2
     assert resolved.topology.replica_count == 4
@@ -82,7 +81,7 @@ def test_multiple_two_node_groups_preserve_global_replica_order_and_delays(
 def test_two_deployments_keep_images_and_endpoint_identities_isolated(
     multi_node_plan: ResolvedSlurmRunPlan,
 ) -> None:
-    resolved = tuple(_resolve(multi_node_plan, placement) for placement in multi_node_plan.deployments)
+    resolved = tuple(_resolve(multi_node_plan, placement.deployment_id) for placement in multi_node_plan.deployments)
 
     assert resolved[0].image.sha256 != resolved[1].image.sha256
     assert resolved[0].model_alias != resolved[1].model_alias
@@ -117,7 +116,7 @@ def test_resolution_preserves_inspected_runtime_version_as_provenance(single_nod
     placement = ResolvedDeployment.model_validate_json(json.dumps(payload))
     plan = _plan_with_placement(single_node_plan, placement)
 
-    resolved = _resolve(plan, placement)
+    resolved = _resolve(plan, placement.deployment_id)
 
     assert resolved.image.inspection_facts.runtime_version == "vendor-vllm-build"
 
@@ -127,7 +126,7 @@ def test_resolution_rejects_image_inspection_mismatch(single_node_plan: Resolved
     invalid_plan = single_node_plan.model_copy(update={"deployments": (placement,)})
 
     with pytest.raises(VllmServerResolutionError, match="serving image"):
-        _resolve(invalid_plan, placement)
+        _resolve(invalid_plan, placement.deployment_id)
 
 
 def test_resolution_rejects_multi_node_expert_parallel(multi_node_plan: ResolvedSlurmRunPlan) -> None:
@@ -140,7 +139,7 @@ def test_resolution_rejects_multi_node_expert_parallel(multi_node_plan: Resolved
     )
 
     with pytest.raises(VllmServerResolutionError, match="multi-node expert parallel"):
-        _resolve(invalid_plan, invalid_placement)
+        _resolve(invalid_plan, invalid_placement.deployment_id)
 
 
 def test_resolution_allows_independent_single_node_expert_parallel_replicas(
@@ -149,7 +148,7 @@ def test_resolution_allows_independent_single_node_expert_parallel_replicas(
     placement = _independent_replica_placement(multi_node_plan)
     plan = _plan_with_placement(multi_node_plan, placement)
 
-    resolved = _resolve(plan, placement)
+    resolved = _resolve(plan, placement.deployment_id)
 
     assert resolved.launch_policy.enable_expert_parallel
     assert resolved.topology.pipeline_parallel == 1
@@ -182,14 +181,11 @@ def test_serving_package_has_no_scheduler_shell_or_runtime_dependency() -> None:
 def test_resolution_requires_matching_logical_endpoint(single_node_plan: ResolvedSlurmRunPlan) -> None:
     deployment = single_node_plan.deployments[0]
     unrelated_port = single_node_plan.client.ports[0].model_copy(update={"name": "other-logical-endpoint"})
+    client = single_node_plan.client.model_copy(update={"ports": (unrelated_port,)})
+    invalid_plan = single_node_plan.model_copy(update={"client": client})
 
-    with pytest.raises(VllmServerResolutionError, match="must match the resolved deployment"):
-        resolve_vllm_server(
-            VllmServerResolutionContext(
-                deployment=deployment,
-                logical_endpoint_port=unrelated_port,
-            )
-        )
+    with pytest.raises(VllmServerResolutionError, match="exactly one logical endpoint"):
+        resolve_vllm_server(invalid_plan, deployment.deployment_id)
 
 
 def test_resolution_rejects_cross_input_network_collision(single_node_plan: ResolvedSlurmRunPlan) -> None:
@@ -198,28 +194,33 @@ def test_resolution_rejects_cross_input_network_collision(single_node_plan: Reso
     colliding_port = single_node_plan.client.ports[0].model_copy(
         update={"node_index": deployment_port.node_index, "port": deployment_port.port}
     )
+    client = single_node_plan.client.model_copy(update={"ports": (colliding_port,)})
+    invalid_plan = single_node_plan.model_copy(update={"client": client})
 
     with pytest.raises(VllmServerResolutionError, match="must not collide"):
-        resolve_vllm_server(
-            VllmServerResolutionContext(
-                deployment=deployment,
-                logical_endpoint_port=colliding_port,
-            )
-        )
+        resolve_vllm_server(invalid_plan, deployment.deployment_id)
 
 
 def test_resolution_normalizes_inconsistent_planner_output(single_node_plan: ResolvedSlurmRunPlan) -> None:
     deployment = single_node_plan.deployments[0]
     inconsistent_topology = deployment.topology.model_copy(update={"replica_count": 2})
     inconsistent_deployment = deployment.model_copy(update={"topology": inconsistent_topology})
+    invalid_plan = single_node_plan.model_copy(update={"deployments": (inconsistent_deployment,)})
 
     with pytest.raises(VllmServerResolutionError, match="inconsistent vLLM server specification"):
-        resolve_vllm_server(
-            VllmServerResolutionContext(
-                deployment=inconsistent_deployment,
-                logical_endpoint_port=single_node_plan.client.ports[0],
-            )
-        )
+        resolve_vllm_server(invalid_plan, deployment.deployment_id)
+
+
+def test_resolution_normalizes_intermediate_record_validation(single_node_plan: ResolvedSlurmRunPlan) -> None:
+    deployment = single_node_plan.deployments[0]
+    long_deployment_id = "d" * 128
+    renamed_deployment = deployment.model_copy(update={"deployment_id": long_deployment_id})
+    endpoint = single_node_plan.client.ports[0].model_copy(update={"name": f"{long_deployment_id}-logical-endpoint"})
+    client = single_node_plan.client.model_copy(update={"ports": (endpoint,)})
+    invalid_plan = single_node_plan.model_copy(update={"client": client, "deployments": (renamed_deployment,)})
+
+    with pytest.raises(VllmServerResolutionError, match="inconsistent vLLM server specification"):
+        resolve_vllm_server(invalid_plan, long_deployment_id)
 
 
 def test_resolution_derives_placement_and_endpoint_from_one_plan(
@@ -230,7 +231,7 @@ def test_resolution_derives_placement_and_endpoint_from_one_plan(
     payload["client"]["ports"][0]["port"] = 17100
     alternate_plan = ResolvedSlurmRunPlan.model_validate_json(json.dumps(payload))
 
-    resolved = _resolve(alternate_plan, alternate_plan.deployments[0])
+    resolved = _resolve(alternate_plan, alternate_plan.deployments[0].deployment_id)
 
     assert resolved.backend_endpoints[0].port == 18100
     assert resolved.logical_endpoint.port == 17100
@@ -238,17 +239,9 @@ def test_resolution_derives_placement_and_endpoint_from_one_plan(
 
 def _resolve(
     plan: ResolvedSlurmRunPlan,
-    deployment: ResolvedDeployment,
+    deployment_id: str,
 ) -> ResolvedVllmServerDeployment:
-    expected_name = f"{deployment.deployment_id}-logical-endpoint"
-    endpoint_ports = tuple(port for port in plan.client.ports if port.name == expected_name)
-    assert len(endpoint_ports) == 1
-    return resolve_vllm_server(
-        VllmServerResolutionContext(
-            deployment=deployment,
-            logical_endpoint_port=endpoint_ports[0],
-        )
-    )
+    return resolve_vllm_server(plan, deployment_id)
 
 
 def _plan_with_placement(

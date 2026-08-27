@@ -9,7 +9,7 @@ import pytest
 
 from data_designer.slurm.planning import ResolvedSlurmRunPlan
 from data_designer.slurm.serving.deployment import ResolvedVllmServerDeployment
-from data_designer.slurm.serving.resolver import VllmServerResolutionContext, resolve_vllm_server
+from data_designer.slurm.serving.resolver import resolve_vllm_server
 
 
 @pytest.fixture
@@ -69,13 +69,4 @@ def resolved_single_node_server(single_node_plan: ResolvedSlurmRunPlan) -> Resol
 
 
 def _resolve(plan: ResolvedSlurmRunPlan, deployment_id: str) -> ResolvedVllmServerDeployment:
-    deployments = tuple(deployment for deployment in plan.deployments if deployment.deployment_id == deployment_id)
-    endpoint_ports = tuple(port for port in plan.client.ports if port.name == f"{deployment_id}-logical-endpoint")
-    assert len(deployments) == 1
-    assert len(endpoint_ports) == 1
-    return resolve_vllm_server(
-        VllmServerResolutionContext(
-            deployment=deployments[0],
-            logical_endpoint_port=endpoint_ports[0],
-        )
-    )
+    return resolve_vllm_server(plan, deployment_id)

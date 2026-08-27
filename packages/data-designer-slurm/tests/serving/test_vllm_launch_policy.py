@@ -70,6 +70,41 @@ def test_launch_policy_rejects_runtime_owned_arguments(argument: str) -> None:
 
 
 @pytest.mark.parametrize(
+    "extra_args",
+    [
+        ("--hf-overrides", '{"api_key":"plaintext-secret"}'),
+        ('--hf-overrides={"nested":{"access_token":"plaintext-secret"}}',),
+    ],
+)
+def test_launch_policy_rejects_plaintext_secrets_in_argument_payloads(extra_args: tuple[str, ...]) -> None:
+    with pytest.raises(ValidationError, match="plaintext values under secret-bearing keys"):
+        ResolvedVllmLaunchPolicy(
+            startup_timeout_seconds=900,
+            distributed_init_timeout_seconds=600,
+            lead_boot_standoff_seconds=60,
+            rank_launch_stagger_seconds=5,
+            readiness_path="/health",
+            enable_expert_parallel=False,
+            queue_backpressure=QueueBackpressureConfig(),
+            extra_args=extra_args,
+        )
+
+
+def test_launch_policy_rejects_argument_outer_whitespace() -> None:
+    with pytest.raises(ValidationError, match="leading or trailing whitespace"):
+        ResolvedVllmLaunchPolicy(
+            startup_timeout_seconds=900,
+            distributed_init_timeout_seconds=600,
+            lead_boot_standoff_seconds=60,
+            rank_launch_stagger_seconds=5,
+            readiness_path="/health",
+            enable_expert_parallel=False,
+            queue_backpressure=QueueBackpressureConfig(),
+            extra_args=(" --max-model-len",),
+        )
+
+
+@pytest.mark.parametrize(
     "environment_name",
     ["CUDA_VISIBLE_DEVICES", "VLLM_API_KEY", "VLLM_DP_RANK", "VLLM_HOST_IP"],
 )

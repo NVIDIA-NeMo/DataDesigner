@@ -296,7 +296,6 @@ def test_vllm_rejects_nonpositive_retry_after_seconds() -> None:
         "--pipeline-parallel-size=2",
         "--port",
         "--port 9000",
-        " --port 9000",
         "--prefill-context-parallel-size=2",
         "--reasoning-parser-plugin=/tmp/reasoning.py",
         "--root-path=/v1",
@@ -346,6 +345,7 @@ def test_vllm_allows_builtin_parser_selection() -> None:
         ["--structured-outputs-config", '{"reasoning_parser_plugin":"/tmp/reasoning.py"}'],
         ['--structured-outputs-config={"reasoning_parser_plugin":"/tmp/reasoning.py"}'],
         ['--additional-config={"nested":{"worker_cls":"custom.Worker"}}'],
+        ['--additional-config={"partition_key":"group"}'],
     ],
 )
 def test_vllm_does_not_interpret_plugin_hooks_nested_in_json_arguments(extra_args: list[str]) -> None:
@@ -361,10 +361,9 @@ def test_vllm_does_not_interpret_plugin_hooks_nested_in_json_arguments(extra_arg
         ['--hf-overrides={"nested":{"access_token":"plaintext-secret"}}'],
     ],
 )
-def test_vllm_does_not_interpret_plugin_owned_json_arguments(extra_args: list[str]) -> None:
-    config = VllmServerConfig(type="vllm", image=ImageRef(name="vllm"), extra_args=extra_args)
-
-    assert config.extra_args == extra_args
+def test_vllm_rejects_plaintext_secrets_in_plugin_owned_json_arguments(extra_args: list[str]) -> None:
+    with pytest.raises(ValidationError, match="plaintext values under secret-bearing keys"):
+        VllmServerConfig(type="vllm", image=ImageRef(name="vllm"), extra_args=extra_args)
 
 
 def test_vllm_allows_nonsecret_json_arguments() -> None:
@@ -383,6 +382,12 @@ def test_vllm_preserves_argv_values_with_whitespace_and_templates() -> None:
     config = VllmServerConfig(type="vllm", image=ImageRef(name="vllm"), extra_args=extra_args)
 
     assert config.extra_args == extra_args
+
+
+@pytest.mark.parametrize("argument", [" --max-model-len", "32768 ", "   "])
+def test_vllm_rejects_argv_with_outer_whitespace(argument: str) -> None:
+    with pytest.raises(ValidationError, match="leading or trailing whitespace"):
+        VllmServerConfig(type="vllm", image=ImageRef(name="vllm"), extra_args=[argument])
 
 
 @pytest.mark.parametrize(
@@ -596,10 +601,20 @@ def test_run_rejects_retired_builder_fields(authored_run: DataDesignerSlurmConfi
         "subscription_key",
     ],
 )
-def test_builder_input_does_not_interpret_plugin_owned_fields(secret_key: str) -> None:
+def test_builder_input_rejects_plaintext_secrets_in_plugin_owned_fields(secret_key: str) -> None:
     inline = {"columns": [], "plugin_config": {secret_key: "opaque-plugin-value"}}
 
-    assert BuilderInput(inline=inline).inline == inline
+    with pytest.raises(ValidationError, match="plaintext values under secret-bearing keys"):
+        BuilderInput(inline=inline)
+
+
+def test_rejected_embedded_secret_does_not_appear_in_validation_error() -> None:
+    sentinel = "VERY_SECRET_VALUE"
+
+    with pytest.raises(ValidationError) as error:
+        BuilderInput(inline={"columns": [], "plugin_config": {"api_key": sentinel}})
+
+    assert sentinel not in str(error.value)
 
 
 @pytest.mark.parametrize("plugin_key", ["sort_key", "partition_key", "primary_key", "idempotency_key"])

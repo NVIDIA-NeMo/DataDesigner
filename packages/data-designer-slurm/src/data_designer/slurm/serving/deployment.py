@@ -61,19 +61,11 @@ class ResolvedVllmServerDeployment(ContractValue):
             raise ValueError("resolved executable path must match the serving image inspection")
         if self.node_indices != tuple(sorted(set(self.node_indices))):
             raise ValueError("resolved server nodes must be sorted and unique")
-        if len(self.node_indices) % self.topology.nodes_per_replica:
-            raise ValueError("resolved server nodes must divide evenly into replica groups")
-        if self.gpus_per_node % self.topology.tensor_parallel:
-            raise ValueError("resolved server GPUs must divide evenly into tensor-parallel lanes")
-        expected_topology = ResolvedTopology(
+        expected_topology = ResolvedTopology.derive(
+            node_count=len(self.node_indices),
+            gpus_per_node=self.gpus_per_node,
             tensor_parallel=self.topology.tensor_parallel,
             nodes_per_replica=self.topology.nodes_per_replica,
-            pipeline_parallel=self.topology.nodes_per_replica,
-            node_group_count=len(self.node_indices) // self.topology.nodes_per_replica,
-            replicas_per_node_group=self.gpus_per_node // self.topology.tensor_parallel,
-            replica_count=(len(self.node_indices) // self.topology.nodes_per_replica)
-            * (self.gpus_per_node // self.topology.tensor_parallel),
-            gpus_per_replica=self.topology.tensor_parallel * self.topology.nodes_per_replica,
         )
         if self.topology != expected_topology:
             raise ValueError("resolved server topology must match its node and GPU resources")
