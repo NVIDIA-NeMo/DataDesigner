@@ -1,0 +1,282 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+"""Structured CPU Slurm jobs for OCI import and existing-SQSH inspection."""
+
+from __future__ import annotations
+
+import hashlib
+import os
+import stat
+from dataclasses import dataclass
+from importlib import resources
+from pathlib import Path
+
+from pydantic import TypeAdapter, ValidationError
+
+from data_designer.slurm.config import ImageBuildRequest, SelectedSlurmProfile
+from data_designer.slurm.contracts import ArtifactReference, Identifier
+from data_designer.slurm.images.errors import ImageLifecycleError
+from data_designer.slurm.images.filesystem import ensure_private_directory
+from data_designer.slurm.images.records import (
+    ImageLifecycleOperation,
+    ImageLifecyclePlan,
+    validate_oci_source_for_lifecycle,
+)
+from data_designer.slurm.launcher.batch import quote_shell_value, render_batch_directives
+from data_designer.slurm.launcher.client import SlurmCommandClient
+from data_designer.slurm.launcher.models import SlurmJobSubmissionReceipt
+
+_IMAGE_JOB_TIME_LIMIT = "03:55:00"
+_INSPECTOR_FILENAME = "inspect_image.py"
+_ENROOT_RC_FILENAME = "enroot.rc"
+_PLAN_FILENAME = "image-lifecycle-plan.json"
+_SCRIPT_FILENAME = "image-lifecycle.sbatch"
+_RESOURCE_PACKAGE = "data_designer.slurm.images.resources"
+_IDENTIFIER_ADAPTER = TypeAdapter(Identifier)
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedImageLifecycleJob:
+    """Persisted, checksum-bound files ready for one Slurm submission."""
+
+    plan: ImageLifecyclePlan
+    plan_file: ArtifactReference
+    script_file: ArtifactReference
+
+
+def prepare_image_lifecycle_job(
+    request: ImageBuildRequest,
+    selected_profile: SelectedSlurmProfile,
+    *,
+    lifecycle_id: Identifier,
+) -> PreparedImageLifecycleJob:
+    """Stage one deterministic image plan, runtime, and batch script beneath the selected workspace."""
+    try:
+        lifecycle_id = _IDENTIFIER_ADAPTER.validate_python(lifecycle_id, strict=True)
+    except ValidationError as error:
+        raise ImageLifecycleError("image lifecycle ID is invalid") from error
+    try:
+        validate_oci_source_for_lifecycle(request.source)
+    except ValueError as error:
+        raise ImageLifecycleError(
+            "OCI image source must be a credential-free registry reference without a scheme"
+        ) from error
+    workspace_root = Path(selected_profile.profile.workspace_root)
+    if any(delimiter in workspace_root.as_posix() for delimiter in (":", ",")):
+        raise ImageLifecycleError("selected workspace cannot be represented as an Enroot mount")
+    image_root = workspace_root / "images"
+    temporary_root = image_root / ".tmp"
+    job_root = temporary_root / "jobs"
+    job_directory = job_root / lifecycle_id
+    try:
+        ensure_private_directory(image_root, parents=True)
+        ensure_private_directory(temporary_root, parents=False)
+        ensure_private_directory(job_root, parents=False)
+        job_directory.mkdir(mode=0o700)
+        inspector_script = _stage_resource(job_directory, _INSPECTOR_FILENAME)
+        enroot_rc = _stage_resource(job_directory, _ENROOT_RC_FILENAME)
+        is_existing_sqsh = request.source.endswith(".sqsh")
+        plan = ImageLifecyclePlan(
+            schema_version=1,
+            lifecycle_id=lifecycle_id,
+            request=request,
+            selected_profile=selected_profile,
+            operation=(
+                ImageLifecycleOperation.INSPECT_SQSH if is_existing_sqsh else ImageLifecycleOperation.IMPORT_OCI
+            ),
+            job_directory=job_directory.as_posix(),
+            sqsh_path=(request.source if is_existing_sqsh else (job_directory / "candidate.sqsh").as_posix()),
+            inspection_output_path=(job_directory / "inspection.json").as_posix(),
+            inspector_script=inspector_script,
+            enroot_rc=enroot_rc,
+            source_oci_digest=None if is_existing_sqsh else request.source.rpartition("@sha256:")[2],
+        )
+        plan_file = _write_file(job_directory / _PLAN_FILENAME, plan.serialize_json().encode(), mode=0o600)
+        script_file = _write_file(
+            job_directory / _SCRIPT_FILENAME,
+            render_image_lifecycle_script(plan).encode(),
+            mode=0o500,
+        )
+    except (OSError, ValueError) as error:
+        raise ImageLifecycleError(f"cannot prepare image lifecycle job {lifecycle_id!r}") from error
+    return PreparedImageLifecycleJob(plan=plan, plan_file=plan_file, script_file=script_file)
+
+
+def render_image_lifecycle_script(plan: ImageLifecyclePlan) -> str:
+    """Render one thin CPU batch entrypoint from structured image lifecycle intent."""
+    try:
+        plan = ImageLifecyclePlan.model_validate(plan.model_dump(mode="python"), strict=True)
+    except ValueError as error:
+        raise ImageLifecycleError("cannot render an invalid image lifecycle plan") from error
+
+    profile = plan.selected_profile.profile
+    directives = render_batch_directives(
+        (
+            ("job-name", f"dd-image-{plan.request.kind}"),
+            ("account", profile.scheduler.account),
+            ("partition", profile.image_build.partition),
+            ("nodes", "1"),
+            ("ntasks", "1"),
+            ("cpus-per-task", "1"),
+            ("time", _IMAGE_JOB_TIME_LIMIT),
+            ("chdir", plan.job_directory),
+            ("output", f"{plan.job_directory}/slurm-%j.out"),
+            ("error", f"{plan.job_directory}/slurm-%j.err"),
+        )
+    )
+    source_block = ""
+    if plan.operation is ImageLifecycleOperation.IMPORT_OCI:
+        source_block = f"""readonly DD_OCI_SOURCE={quote_shell_value(_format_enroot_oci_uri(plan.request.source))}
+if [[ -e "${{DD_IMAGE_SQSH}}" ]]; then
+    printf '%s\\n' 'candidate SQSH path already exists' >&2
+    exit 73
+fi
+enroot import -o "${{DD_IMAGE_SQSH}}" "${{DD_OCI_SOURCE}}"
+"""
+
+    return f"""#!/usr/bin/env bash
+{directives}
+set -Eeuo pipefail
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+readonly DD_JOB_DIR={quote_shell_value(plan.job_directory)}
+readonly DD_IMAGE_KIND={quote_shell_value(plan.request.kind)}
+readonly DD_IMAGE_SQSH={quote_shell_value(plan.sqsh_path)}
+readonly DD_INSPECTION_OUTPUT={quote_shell_value(plan.inspection_output_path)}
+readonly DD_INSPECTOR={quote_shell_value(plan.inspector_script.path)}
+readonly DD_INSPECTOR_SHA256={quote_shell_value(plan.inspector_script.sha256)}
+readonly DD_ENROOT_RC={quote_shell_value(plan.enroot_rc.path)}
+readonly DD_ENROOT_RC_SHA256={quote_shell_value(plan.enroot_rc.sha256)}
+
+compute_file_sha256() {{
+    local actual_sha256
+    actual_sha256="$(sha256sum < "$1")"
+    printf '%s\\n' "${{actual_sha256%% *}}"
+}}
+
+verify_sha256() {{
+    [[ "$(compute_file_sha256 "$2")" == "$1" ]]
+}}
+
+verify_sha256 "${{DD_INSPECTOR_SHA256}}" "${{DD_INSPECTOR}}"
+verify_sha256 "${{DD_ENROOT_RC_SHA256}}" "${{DD_ENROOT_RC}}"
+install -d -m 0700 "${{DD_JOB_DIR}}/enroot/cache" "${{DD_JOB_DIR}}/enroot/data" "${{DD_JOB_DIR}}/enroot/tmp"
+export ENROOT_CACHE_PATH="${{DD_JOB_DIR}}/enroot/cache"
+export ENROOT_DATA_PATH="${{DD_JOB_DIR}}/enroot/data"
+export ENROOT_TEMP_PATH="${{DD_JOB_DIR}}/enroot/tmp"
+
+{source_block}if [[ ! -f "${{DD_IMAGE_SQSH}}" || -L "${{DD_IMAGE_SQSH}}" ]]; then
+    printf '%s\\n' 'SQSH path must be a regular non-symlink file' >&2
+    exit 66
+fi
+readonly DD_SQSH_SHA256="$(compute_file_sha256 "${{DD_IMAGE_SQSH}}")"
+if [[ ! ${{DD_SQSH_SHA256}} =~ ^[0-9a-f]{{64}}$ ]]; then
+    printf '%s\\n' 'SQSH checksum output is invalid' >&2
+    exit 65
+fi
+if [[ ! ${{SLURM_JOB_ID:-}} =~ ^[1-9][0-9]*$ ]]; then
+    printf '%s\\n' 'SLURM_JOB_ID must be a positive integer' >&2
+    exit 64
+fi
+readonly DD_CONTAINER_NAME="dd-image-${{SLURM_JOB_ID}}"
+
+cleanup() {{
+    enroot remove -f "${{DD_CONTAINER_NAME}}" >/dev/null 2>&1 || true
+}}
+trap cleanup EXIT
+
+enroot create -f --name "${{DD_CONTAINER_NAME}}" "${{DD_IMAGE_SQSH}}"
+ENROOT_LOGIN_SHELL=no ENROOT_MOUNT_HOME=no enroot start --root \
+    --rc "${{DD_ENROOT_RC}}" \
+    --mount "${{DD_INSPECTOR}}:/opt/data-designer-slurm/inspect_image.py:x-create=file,bind,ro" \
+    --mount "${{DD_JOB_DIR}}:/opt/data-designer-slurm/job:x-create=dir,bind" \
+    "${{DD_CONTAINER_NAME}}" -- /bin/sh -c '
+python_path="$(command -v python3 || command -v python || true)"
+if [ -z "${{python_path}}" ]; then
+    printf "%s\\n" "target image does not contain Python" >&2
+    exit 69
+fi
+exec "${{python_path}}" "$@"
+' dd-image-inspector \
+    /opt/data-designer-slurm/inspect_image.py \
+    "${{DD_IMAGE_KIND}}" \
+    "${{DD_SQSH_SHA256}}" \
+    /opt/data-designer-slurm/job/inspection.json
+
+[[ -s "${{DD_INSPECTION_OUTPUT}}" ]]
+"""
+
+
+def submit_prepared_image_lifecycle(
+    prepared: PreparedImageLifecycleJob,
+    client: SlurmCommandClient,
+) -> SlurmJobSubmissionReceipt:
+    """Verify and submit one prepared image lifecycle script."""
+    expected_artifacts = (
+        (
+            "plan",
+            prepared.plan_file,
+            Path(prepared.plan.job_directory) / _PLAN_FILENAME,
+            prepared.plan.serialize_json().encode(),
+        ),
+        (
+            "script",
+            prepared.script_file,
+            Path(prepared.plan.job_directory) / _SCRIPT_FILENAME,
+            render_image_lifecycle_script(prepared.plan).encode(),
+        ),
+    )
+    for label, artifact, expected_path, expected_content in expected_artifacts:
+        expected_sha256 = hashlib.sha256(expected_content).hexdigest()
+        if (
+            artifact.path != expected_path.as_posix()
+            or artifact.sha256 != expected_sha256
+            or _compute_regular_file_sha256(expected_path) != expected_sha256
+        ):
+            raise ImageLifecycleError(f"prepared image lifecycle {label} no longer matches its digest")
+    return client.submit(prepared.script_file.path)
+
+
+def _stage_resource(job_directory: Path, filename: str) -> ArtifactReference:
+    content = resources.files(_RESOURCE_PACKAGE).joinpath(filename).read_bytes()
+    return _write_file(job_directory / filename, content, mode=0o500)
+
+
+def _format_enroot_oci_uri(source: str) -> str:
+    registry_or_namespace, separator, remainder = source.partition("/")
+    if not separator:
+        return f"docker://docker.io#library/{source}"
+    if "." in registry_or_namespace or ":" in registry_or_namespace or registry_or_namespace == "localhost":
+        return f"docker://{registry_or_namespace}#{remainder}"
+    return f"docker://docker.io#{source}"
+
+
+def _write_file(path: Path, content: bytes, *, mode: int) -> ArtifactReference:
+    descriptor: int | None = None
+    try:
+        descriptor = os.open(
+            path,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0),
+            mode,
+        )
+        os.fchmod(descriptor, mode)
+        with os.fdopen(descriptor, "wb") as output:
+            descriptor = None
+            output.write(content)
+            output.flush()
+            os.fsync(output.fileno())
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+    return ArtifactReference(path=path.as_posix(), sha256=hashlib.sha256(content).hexdigest())
+
+
+def _compute_regular_file_sha256(path: Path) -> str:
+    try:
+        path_status = path.lstat()
+        if not stat.S_ISREG(path_status.st_mode):
+            raise ImageLifecycleError("prepared image lifecycle file is not regular")
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+    except OSError as error:
+        raise ImageLifecycleError("cannot read prepared image lifecycle file") from error

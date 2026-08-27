@@ -6,32 +6,10 @@
 from __future__ import annotations
 
 import posixpath
-import re
-from dataclasses import dataclass
 
+from data_designer.slurm.launcher.batch import quote_shell_value, render_batch_directives
 from data_designer.slurm.launcher.errors import SlurmBatchRenderError
 from data_designer.slurm.planning import ResolvedSlurmRunPlan
-
-_DIRECTIVE_NAME_PATTERN = re.compile(r"^[a-z][a-z0-9-]*$")
-_DIRECTIVE_TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/,%+-]*$")
-
-
-@dataclass(frozen=True)
-class _BatchDirective:
-    """One validated ``#SBATCH`` option."""
-
-    name: str
-    value: str
-
-    def render(self) -> str:
-        """Render the directive as one non-executable scheduler line."""
-        if type(self.name) is not str or _DIRECTIVE_NAME_PATTERN.fullmatch(self.name) is None:
-            raise SlurmBatchRenderError("batch directive name is invalid")
-        if type(self.value) is not str:
-            raise SlurmBatchRenderError("batch directive value must be text")
-        _reject_control_characters(self.value, field_name=f"--{self.name} value")
-        value = self.value if _DIRECTIVE_TOKEN_PATTERN.fullmatch(self.value) else _quote_sbatch_option_value(self.value)
-        return f"#SBATCH --{self.name}={value}"
 
 
 def render_generation_attempt_script(plan: ResolvedSlurmRunPlan, *, attempt_ordinal: int) -> str:
@@ -41,8 +19,7 @@ def render_generation_attempt_script(plan: ResolvedSlurmRunPlan, *, attempt_ordi
 
     run_root = posixpath.dirname(plan.authored_config.path)
     plan_path = posixpath.join(run_root, "resolved-plan.json")
-    directives = _build_generation_directives(plan)
-    directive_text = "\n".join(directive.render() for directive in directives)
+    directive_text = render_batch_directives(_build_generation_directives(plan))
     attempt = f"{attempt_ordinal:04d}"
 
     return f"""#!/usr/bin/env bash
@@ -50,12 +27,12 @@ def render_generation_attempt_script(plan: ResolvedSlurmRunPlan, *, attempt_ordi
 set -Eeuo pipefail
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
-readonly DD_RUNTIME_ARCHIVE={_quote_shell_value(plan.runtime_bundle.path)}
-readonly DD_RUNTIME_SHA256={_quote_shell_value(plan.runtime_bundle.sha256)}
-readonly DD_PLAN={_quote_shell_value(plan_path)}
-readonly DD_PLAN_SHA256={_quote_shell_value(plan.compute_sha256())}
-readonly DD_RUN_ROOT={_quote_shell_value(run_root)}
-readonly DD_ATTEMPT_ORDINAL={_quote_shell_value(attempt)}
+readonly DD_RUNTIME_ARCHIVE={quote_shell_value(plan.runtime_bundle.path)}
+readonly DD_RUNTIME_SHA256={quote_shell_value(plan.runtime_bundle.sha256)}
+readonly DD_PLAN={quote_shell_value(plan_path)}
+readonly DD_PLAN_SHA256={quote_shell_value(plan.compute_sha256())}
+readonly DD_RUN_ROOT={quote_shell_value(run_root)}
+readonly DD_ATTEMPT_ORDINAL={quote_shell_value(attempt)}
 
 verify_sha256() {{
     local actual_sha256
@@ -83,7 +60,7 @@ dd_slurm_run_allocation "${{DD_PLAN}}" "${{DD_ATTEMPT_DIR}}"
 """
 
 
-def _build_generation_directives(plan: ResolvedSlurmRunPlan) -> tuple[_BatchDirective, ...]:
+def _build_generation_directives(plan: ResolvedSlurmRunPlan) -> tuple[tuple[str, str | None], ...]:
     node_indices = (
         plan.client.host_node_index,
         *(index for deployment in plan.deployments for index in deployment.node_indices),
@@ -112,21 +89,4 @@ def _build_generation_directives(plan: ResolvedSlurmRunPlan) -> tuple[_BatchDire
         values.append(("mem-per-gpu", profile.scheduler.mem_per_gpu))
     if plan.submission.comment is not None:
         values.append(("comment", plan.submission.comment))
-    return tuple(_BatchDirective(name=name, value=value) for name, value in values if value is not None)
-
-
-def _quote_sbatch_option_value(value: str) -> str:
-    _reject_control_characters(value, field_name="batch directive value")
-    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
-    return f'"{escaped}"'
-
-
-def _quote_shell_value(value: str) -> str:
-    _reject_control_characters(value, field_name="shell value")
-    escaped = value.replace("\\", "\\\\").replace('"', '\\"').replace("$", "\\$").replace("`", "\\`")
-    return f'"{escaped}"'
-
-
-def _reject_control_characters(value: str, *, field_name: str) -> None:
-    if any(ord(character) < 32 or ord(character) == 127 for character in value):
-        raise SlurmBatchRenderError(f"{field_name} must not contain control characters")
+    return tuple(values)
