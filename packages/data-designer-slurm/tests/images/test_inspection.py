@@ -21,7 +21,7 @@ from data_designer.slurm.images.inspection import (
 )
 
 
-def _client_distributions() -> tuple[InstalledDistribution, ...]:
+def _get_client_distributions() -> tuple[InstalledDistribution, ...]:
     return (
         InstalledDistribution(name="data-designer", version="0.9.2"),
         InstalledDistribution(name="data-designer-config", version="0.9.2"),
@@ -35,7 +35,7 @@ def test_client_inspector_produces_digest_bound_golden_facts(
     client_image_inspection: ImageInspectionRecord,
 ) -> None:
     environment = FakeInspectionEnvironment(
-        distributions=_client_distributions(),
+        distributions=_get_client_distributions(),
         distribution_versions={"pip": "26.1"},
         executables={"pip": "/usr/bin/pip"},
     )
@@ -62,10 +62,12 @@ def test_serving_inspector_produces_digest_bound_golden_facts(
     "environment",
     (
         FakeInspectionEnvironment(
-            distributions=_client_distributions(),
+            distributions=_get_client_distributions(),
         ),
         FakeInspectionEnvironment(
-            distributions=tuple(distribution for distribution in _client_distributions() if distribution.name != "pip"),
+            distributions=tuple(
+                distribution for distribution in _get_client_distributions() if distribution.name != "pip"
+            ),
             executables={"pip": "/usr/bin/pip"},
         ),
     ),
@@ -96,7 +98,7 @@ def test_client_inspector_rejects_generic_python_image_without_data_designer() -
 def test_client_inspector_rejects_incomplete_data_designer_package_set(missing_name: str) -> None:
     environment = FakeInspectionEnvironment(
         distributions=tuple(
-            distribution for distribution in _client_distributions() if distribution.name != missing_name
+            distribution for distribution in _get_client_distributions() if distribution.name != missing_name
         ),
         executables={"pip": "/usr/bin/pip"},
     )
@@ -122,7 +124,7 @@ def test_serving_inspector_rejects_missing_runtime_capabilities(
 
 def test_client_inspector_normalizes_invalid_facts_to_canonical_error() -> None:
     environment = FakeInspectionEnvironment(
-        distributions=_client_distributions()
+        distributions=_get_client_distributions()
         + (
             InstalledDistribution(name="plugin", version="1"),
             InstalledDistribution(name="plugin", version="2"),
@@ -137,7 +139,7 @@ def test_client_inspector_normalizes_invalid_facts_to_canonical_error() -> None:
 
 def test_client_inspector_sorts_distribution_inventory() -> None:
     environment = FakeInspectionEnvironment(
-        distributions=tuple(reversed(_client_distributions())),
+        distributions=tuple(reversed(_get_client_distributions())),
         distribution_versions={"pip": "26.1"},
         executables={"pip": "/usr/bin/pip"},
     )
@@ -145,13 +147,13 @@ def test_client_inspector_sorts_distribution_inventory() -> None:
     inspection = ClientImageInspector(environment).inspect("a" * 64).inspection
 
     assert tuple(distribution.name for distribution in inspection.distributions) == tuple(
-        distribution.name for distribution in _client_distributions()
+        distribution.name for distribution in _get_client_distributions()
     )
 
 
 def test_client_inspector_uses_installer_version_from_distribution_inventory() -> None:
     environment = FakeInspectionEnvironment(
-        distributions=_client_distributions(),
+        distributions=_get_client_distributions(),
         distribution_versions={"pip": "unexpected"},
         executables={"pip": "/usr/bin/pip"},
     )

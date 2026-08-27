@@ -10,14 +10,14 @@ _SQSH_SHA256 = "a" * 64
 
 
 def test_registered_image_exposes_inspected_kind() -> None:
-    image = _registered_image("alpha")
+    image = _get_registered_image("alpha")
 
     assert image.kind is ImageKind.CLIENT
     assert image.immutable_facts == (_SQSH_SHA256, None, image.inspection)
 
 
 def test_registry_document_accepts_aliases_with_identical_facts() -> None:
-    alpha = _registered_image("alpha")
+    alpha = _get_registered_image("alpha")
     beta = alpha.model_copy(update={"name": "beta"})
 
     document = ImageRegistryDocument(schema_version=1, images=(alpha, beta))
@@ -25,7 +25,7 @@ def test_registry_document_accepts_aliases_with_identical_facts() -> None:
     assert document.images == (alpha, beta)
 
 
-def _registered_image(name: str) -> RegisteredImage:
+def _get_registered_image(name: str) -> RegisteredImage:
     inspection = ImageInspectionRecord(
         schema_version=1,
         inspector_version="inspector-1",

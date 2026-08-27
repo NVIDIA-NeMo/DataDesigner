@@ -38,7 +38,7 @@ def _create_registry(workspace: Path) -> VerifiedImageRegistry:
     return VerifiedImageRegistry(workspace)
 
 
-def _registry_path(workspace: Path) -> Path:
+def _get_registry_path(workspace: Path) -> Path:
     return workspace / "images" / "registry.yaml"
 
 
@@ -56,14 +56,14 @@ def test_register_and_resolve_existing_sqsh_by_alias_and_path(tmp_path: Path) ->
     by_alias = service.resolve_for_planning(ImageRef(name="client"), expected_kind=ImageKind.CLIENT)
     by_path = service.resolve_for_planning(ImageRef(path=image_path.as_posix()), expected_kind=ImageKind.CLIENT)
     persisted = ImageRegistryDocument.model_validate_json(
-        json.dumps(yaml.safe_load(_registry_path(workspace).read_text()))
+        json.dumps(yaml.safe_load(_get_registry_path(workspace).read_text()))
     )
     assert by_alias.path == by_path.path
     assert by_alias.sha256 == by_path.sha256
     assert by_alias.inspection == by_path.inspection
     assert by_alias.path == image_path.as_posix()
     assert registered == persisted.images[0]
-    assert _registry_path(workspace) == workspace / "images" / "registry.yaml"
+    assert _get_registry_path(workspace) == workspace / "images" / "registry.yaml"
 
 
 def test_registry_lists_aliases_deterministically(tmp_path: Path) -> None:
@@ -247,7 +247,7 @@ def test_registration_rejects_missing_symlink_and_wrong_inspection(tmp_path: Pat
     with pytest.raises(ImageVerificationError, match="digest"):
         service.register_existing(
             ImageBuildRequest(name="mismatch", kind="client", source=target.as_posix()),
-            ClientImageInspector(_client_environment()).inspect("f" * 64),
+            ClientImageInspector(_get_client_environment()).inspect("f" * 64),
         )
     assert service.list_images() == ()
 
@@ -287,7 +287,7 @@ def test_existing_registration_rejects_oci_source(tmp_path: Path) -> None:
     )
 
     with pytest.raises(ImageVerificationError, match="CPU Slurm image lifecycle"):
-        service.register_existing(request, ServingImageInspector(_serving_environment()).inspect("a" * 64))
+        service.register_existing(request, ServingImageInspector(_get_serving_environment()).inspect("a" * 64))
 
 
 def test_direct_path_must_be_registered(tmp_path: Path) -> None:
@@ -304,7 +304,7 @@ def _write_sqsh(path: Path, content: bytes) -> Path:
     return path
 
 
-def _client_environment() -> FakeInspectionEnvironment:
+def _get_client_environment() -> FakeInspectionEnvironment:
     return FakeInspectionEnvironment(
         distributions=(
             InstalledDistribution(name="data-designer", version="0.9.2"),
@@ -319,14 +319,14 @@ def _client_environment() -> FakeInspectionEnvironment:
 
 
 def _inspect_client(path: Path) -> ImageInspectionRecord:
-    return ClientImageInspector(_client_environment()).inspect(compute_sqsh_file_sha256(path))
+    return ClientImageInspector(_get_client_environment()).inspect(compute_sqsh_file_sha256(path))
 
 
 def _inspect_serving(path: Path) -> ImageInspectionRecord:
-    return ServingImageInspector(_serving_environment()).inspect(compute_sqsh_file_sha256(path))
+    return ServingImageInspector(_get_serving_environment()).inspect(compute_sqsh_file_sha256(path))
 
 
-def _serving_environment() -> FakeInspectionEnvironment:
+def _get_serving_environment() -> FakeInspectionEnvironment:
     return FakeInspectionEnvironment(
         distribution_versions={"vllm": "0.21.0"},
         executables={"vllm": "/usr/local/bin/vllm"},

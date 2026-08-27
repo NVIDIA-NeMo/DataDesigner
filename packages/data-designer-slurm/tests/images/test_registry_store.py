@@ -50,7 +50,7 @@ def test_registry_normalizes_corrupt_persisted_state(tmp_path: Path, content: by
 
 def test_registry_rejects_persisted_non_sqsh_path(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
-    image = _registered_client(_write_sqsh(tmp_path / "client.sqsh", b"client"))
+    image = _get_registered_client_image(_write_sqsh(tmp_path / "client.sqsh", b"client"))
     payload = image.model_dump(mode="json")
     payload["path"] = (tmp_path / "client.bin").as_posix()
     _write_registry_images(workspace, (payload,))
@@ -61,7 +61,7 @@ def test_registry_rejects_persisted_non_sqsh_path(tmp_path: Path) -> None:
 
 def test_registry_rejects_persisted_inspection_digest_mismatch(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
-    image = _registered_client(_write_sqsh(tmp_path / "client.sqsh", b"client"))
+    image = _get_registered_client_image(_write_sqsh(tmp_path / "client.sqsh", b"client"))
     payload = image.model_dump(mode="json")
     payload["sqsh_sha256"] = "f" * 64
     _write_registry_images(workspace, (payload,))
@@ -72,8 +72,8 @@ def test_registry_rejects_persisted_inspection_digest_mismatch(tmp_path: Path) -
 
 def test_registry_rejects_persisted_unsorted_aliases(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
-    zeta = _registered_client(_write_sqsh(tmp_path / "zeta.sqsh", b"zeta"), name="zeta")
-    alpha = _registered_client(_write_sqsh(tmp_path / "alpha.sqsh", b"alpha"), name="alpha")
+    zeta = _get_registered_client_image(_write_sqsh(tmp_path / "zeta.sqsh", b"zeta"), name="zeta")
+    alpha = _get_registered_client_image(_write_sqsh(tmp_path / "alpha.sqsh", b"alpha"), name="alpha")
     _write_registry_images(workspace, (zeta.model_dump(mode="json"), alpha.model_dump(mode="json")))
 
     with pytest.raises(ImageRegistryError, match="cannot load"):
@@ -82,7 +82,7 @@ def test_registry_rejects_persisted_unsorted_aliases(tmp_path: Path) -> None:
 
 def test_registry_rejects_persisted_duplicate_aliases(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
-    image = _registered_client(_write_sqsh(tmp_path / "client.sqsh", b"client"))
+    image = _get_registered_client_image(_write_sqsh(tmp_path / "client.sqsh", b"client"))
     payload = image.model_dump(mode="json")
     _write_registry_images(workspace, (payload, payload))
 
@@ -93,7 +93,7 @@ def test_registry_rejects_persisted_duplicate_aliases(tmp_path: Path) -> None:
 def test_registry_rejects_persisted_conflicting_facts_for_one_path(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     image_path = _write_sqsh(tmp_path / "shared.sqsh", b"shared")
-    client = _registered_client(image_path, name="client")
+    client = _get_registered_client_image(image_path, name="client")
     serving_inspection = _inspect_serving(image_path)
     serving = RegisteredImage(
         schema_version=1,
@@ -113,7 +113,7 @@ def test_registry_rejects_persisted_conflicting_facts_for_one_path(tmp_path: Pat
 
 def test_registry_allows_aliases_with_identical_facts_for_one_path(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
-    image = _registered_client(_write_sqsh(tmp_path / "shared.sqsh", b"shared"), name="alpha")
+    image = _get_registered_client_image(_write_sqsh(tmp_path / "shared.sqsh", b"shared"), name="alpha")
     alias = image.model_copy(update={"name": "beta"})
     store = ImageRegistryStore(workspace)
 
@@ -126,7 +126,7 @@ def test_registry_allows_aliases_with_identical_facts_for_one_path(tmp_path: Pat
 def test_registry_rejects_new_alias_with_conflicting_facts_for_one_path(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     image_path = _write_sqsh(tmp_path / "shared.sqsh", b"shared")
-    client = _registered_client(image_path, name="client")
+    client = _get_registered_client_image(image_path, name="client")
     serving_inspection = _inspect_serving(image_path)
     serving = RegisteredImage(
         schema_version=1,
@@ -144,7 +144,7 @@ def test_registry_rejects_new_alias_with_conflicting_facts_for_one_path(tmp_path
 
 def test_registry_rejects_symlinked_state_file(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
-    registry_path = _registry_path(workspace)
+    registry_path = _get_registry_path(workspace)
     registry_path.parent.mkdir(parents=True)
     target = tmp_path / "outside.yaml"
     target.write_text("schema_version: 1\nimages: []\n")
@@ -172,7 +172,7 @@ def test_registry_rejects_reads_through_symlinked_image_root(tmp_path: Path) -> 
 
 def test_registry_rejects_nonregular_state_file_without_blocking(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
-    registry_path = _registry_path(workspace)
+    registry_path = _get_registry_path(workspace)
     registry_path.parent.mkdir(parents=True)
     os.mkfifo(registry_path)
 
@@ -188,7 +188,7 @@ def test_registry_rejects_symlinked_lock_file_without_changing_target(tmp_path: 
     target.write_text("outside")
     target.chmod(0o640)
     (lock_directory / "alias-client.lock").symlink_to(target)
-    image = _registered_client(_write_sqsh(tmp_path / "client.sqsh", b"client"))
+    image = _get_registered_client_image(_write_sqsh(tmp_path / "client.sqsh", b"client"))
 
     with pytest.raises(ImageRegistryError, match="cannot lock"):
         ImageRegistryStore(workspace).register(image, verify_before_publish=lambda _image: None)
@@ -201,7 +201,7 @@ def test_registry_rejects_nonregular_lock_file(tmp_path: Path) -> None:
     lock_directory = workspace / "images" / ".locks"
     lock_directory.mkdir(parents=True)
     os.mkfifo(lock_directory / "alias-client.lock")
-    image = _registered_client(_write_sqsh(tmp_path / "client.sqsh", b"client"))
+    image = _get_registered_client_image(_write_sqsh(tmp_path / "client.sqsh", b"client"))
 
     with pytest.raises(ImageRegistryError, match="cannot lock"):
         ImageRegistryStore(workspace).register(image, verify_before_publish=lambda _image: None)
@@ -219,7 +219,7 @@ def test_registry_rejects_symlinked_storage_directories(tmp_path: Path, director
     else:
         image_root.mkdir()
         (image_root / ".locks").symlink_to(outside, target_is_directory=True)
-    image = _registered_client(_write_sqsh(tmp_path / "client.sqsh", b"client"))
+    image = _get_registered_client_image(_write_sqsh(tmp_path / "client.sqsh", b"client"))
 
     with pytest.raises(ImageRegistryError, match="cannot initialize"):
         ImageRegistryStore(workspace).register(image, verify_before_publish=lambda _image: None)
@@ -234,11 +234,11 @@ def test_registry_uses_restrictive_atomic_workspace_storage(tmp_path: Path) -> N
     lock_directory.mkdir(parents=True)
     image_root.chmod(0o775)
     lock_directory.chmod(0o775)
-    image = _registered_client(_write_sqsh(tmp_path / "client.sqsh", b"client"))
+    image = _get_registered_client_image(_write_sqsh(tmp_path / "client.sqsh", b"client"))
 
     ImageRegistryStore(workspace).register(image, verify_before_publish=lambda _image: None)
 
-    registry_path = _registry_path(workspace)
+    registry_path = _get_registry_path(workspace)
     assert stat.S_IMODE(registry_path.stat().st_mode) == 0o600
     assert stat.S_IMODE(image_root.stat().st_mode) == 0o700
     assert stat.S_IMODE(lock_directory.stat().st_mode) == 0o700
@@ -247,7 +247,7 @@ def test_registry_uses_restrictive_atomic_workspace_storage(tmp_path: Path) -> N
 
 def test_registration_remains_unpublished_until_final_verification(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
-    image = _registered_client(_write_sqsh(tmp_path / "client.sqsh", b"client"))
+    image = _get_registered_client_image(_write_sqsh(tmp_path / "client.sqsh", b"client"))
     store = ImageRegistryStore(workspace)
     verification_started = Event()
     finish_verification = Event()
@@ -276,7 +276,7 @@ def test_registry_transaction_stays_bound_when_image_root_path_is_replaced(tmp_p
     detached_image_root = workspace / "detached-images"
     replacement_image_root = workspace / "replacement-images"
     replacement_image_root.mkdir(parents=True)
-    image = _registered_client(_write_sqsh(tmp_path / "client.sqsh", b"client"))
+    image = _get_registered_client_image(_write_sqsh(tmp_path / "client.sqsh", b"client"))
 
     def replace_image_root(_image: RegisteredImage) -> None:
         image_root.rename(detached_image_root)
@@ -294,7 +294,7 @@ def test_concurrent_alias_writers_preserve_both_registrations(tmp_path: Path) ->
     barrier = Barrier(2)
 
     def register(name: str) -> str:
-        image = _registered_client(_write_sqsh(tmp_path / f"{name}.sqsh", name.encode()), name=name)
+        image = _get_registered_client_image(_write_sqsh(tmp_path / f"{name}.sqsh", name.encode()), name=name)
         barrier.wait()
         return ImageRegistryStore(workspace).register(image, verify_before_publish=lambda _image: None).name
 
@@ -310,7 +310,7 @@ def test_concurrent_writers_cannot_publish_conflicting_aliases(tmp_path: Path) -
     barrier = Barrier(2)
 
     def register(content: bytes) -> str:
-        image = _registered_client(_write_sqsh(tmp_path / f"{content.decode()}.sqsh", content), name="shared")
+        image = _get_registered_client_image(_write_sqsh(tmp_path / f"{content.decode()}.sqsh", content), name="shared")
         barrier.wait()
         return ImageRegistryStore(workspace).register(image, verify_before_publish=lambda _image: None).path
 
@@ -326,7 +326,7 @@ def test_concurrent_writers_cannot_publish_conflicting_aliases(tmp_path: Path) -
 
 
 def _write_registry_content(workspace: Path, content: bytes) -> None:
-    registry_path = _registry_path(workspace)
+    registry_path = _get_registry_path(workspace)
     registry_path.parent.mkdir(parents=True)
     registry_path.write_bytes(content)
 
@@ -336,7 +336,7 @@ def _write_registry_images(workspace: Path, images: tuple[dict[str, object], ...
     _write_registry_content(workspace, content)
 
 
-def _registry_path(workspace: Path) -> Path:
+def _get_registry_path(workspace: Path) -> Path:
     return workspace / "images" / "registry.yaml"
 
 
@@ -346,7 +346,7 @@ def _write_sqsh(path: Path, content: bytes) -> Path:
     return path
 
 
-def _registered_client(path: Path, *, name: str = "client") -> RegisteredImage:
+def _get_registered_client_image(path: Path, *, name: str = "client") -> RegisteredImage:
     inspection = _inspect_client(path)
     return RegisteredImage(
         schema_version=1,
