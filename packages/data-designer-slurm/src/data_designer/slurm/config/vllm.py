@@ -340,8 +340,10 @@ def _is_owned_vllm_flag(flag: str) -> bool:
         for owned_flag in _OWNED_VLLM_ATTACHED_VALUE_FLAGS
     ):
         return True
-    return flag.startswith("--") and any(
-        owned_flag.startswith(flag) for owned_flag in _OWNED_VLLM_FLAGS if owned_flag.startswith("--")
+    return flag.startswith("-") and any(
+        owned_flag.startswith(flag)
+        for owned_flag in _OWNED_VLLM_FLAGS
+        if owned_flag.startswith("--") == flag.startswith("--")
     )
 
 

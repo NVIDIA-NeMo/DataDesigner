@@ -299,6 +299,12 @@ def test_vllm_rejects_runtime_owned_arguments(argument: str) -> None:
         VllmServerConfig(type="vllm", image=ImageRef(name="vllm"), extra_args=[argument])
 
 
+@pytest.mark.parametrize("abbreviated_flag", ["-a", "-as", "-dc", "-e", "-pc", "-t"])
+def test_vllm_rejects_runtime_owned_short_flag_abbreviations(abbreviated_flag: str) -> None:
+    with pytest.raises(ValidationError, match="owned"):
+        VllmServerConfig(type="vllm", image=ImageRef(name="vllm"), extra_args=[abbreviated_flag, "4"])
+
+
 def test_vllm_allows_builtin_parser_selection() -> None:
     config = VllmServerConfig(
         type="vllm",
