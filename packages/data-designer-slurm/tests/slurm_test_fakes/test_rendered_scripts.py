@@ -19,12 +19,12 @@ def test_rendered_script_fixtures_are_pinned_and_bound_to_canonical_plans(
     _assert_script_matches_plan(
         single_node_plan,
         "single_node.sbatch",
-        expected_fixture_sha256="cdb5204e8ce7a7affda99ea9c121c6b60a16bf42c510c8eb6bc57661969620b9",
+        expected_fixture_sha256="8ddf07c38a825a7487c487fddfe051f0a1940f63063725b54b32bfe4c03fd9ca",
     )
     _assert_script_matches_plan(
         multi_node_plan,
         "multi_node.sbatch",
-        expected_fixture_sha256="c6708cdbc0a03e095062c0642cfd141f066153b958b7ad3dec779afd6414fa34",
+        expected_fixture_sha256="17a4c2e16189d22dfdb6885bf76264844ad3168dea0cf94aef70948d5ab2e6b7",
     )
 
 
@@ -54,7 +54,9 @@ def _assert_script_matches_plan(
         *(index for deployment in plan.deployments for index in deployment.node_indices),
     )
     node_count = max(node_indices) + 1
-    array = "0" if plan.array_tasks.count == 1 else f"0-{plan.array_tasks.count - 1}%{plan.array_tasks.max_concurrent}"
+    array = "0" if plan.array_tasks.count == 1 else f"0-{plan.array_tasks.count - 1}"
+    if plan.array_tasks.count > 1:
+        array = f"{array}%{plan.array_tasks.max_concurrent}"
     plan_path = posixpath.join(posixpath.dirname(plan.authored_config.path), "resolved-plan.json")
     run_root = posixpath.dirname(plan.authored_config.path)
 
@@ -62,6 +64,7 @@ def _assert_script_matches_plan(
     assert f"#SBATCH --account={plan.submission.account}\n" in script
     assert f"#SBATCH --partition={plan.submission.partition}\n" in script
     assert f"#SBATCH --nodes={node_count}\n" in script
+    assert f"#SBATCH --cpus-per-task={plan.client.authored.cpus}\n" in script
     assert f"#SBATCH --time={plan.submission.time_limit}\n" in script
     assert f"#SBATCH --array={array}\n" in script
     assert f"#SBATCH --gres=gpu:{plan.resolved_gpus_per_node}\n" in script
