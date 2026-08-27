@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import posixpath
 from typing import Annotated, Literal
 from urllib.parse import urlsplit
@@ -40,8 +39,8 @@ from data_designer.slurm.contracts import (
     ResumeWorkspace,
     Sha256Digest,
     ShardId,
+    compute_pretty_sha256,
     compute_sha256,
-    pretty_json,
     validate_absolute_path,
     validate_local_config_path,
     validate_plain_text,
@@ -152,6 +151,7 @@ class ResolvedBuilderInput(ContractValue):
     authored_source: str | None = None
     source: ArtifactReference | None = None
     inline: dict[str, JsonValue] | None = None
+    # Inline input uses canonical JSON; sourced input uses its persisted artifact bytes.
     content_sha256: Sha256Digest
     model_aliases: tuple[ModelAlias, ...]
     referenced_model_aliases: tuple[ModelAlias, ...] = ()
@@ -528,5 +528,5 @@ def _extract_builder_identity(
     builder: dict[str, JsonValue],
 ) -> tuple[tuple[ModelAlias, ...], tuple[ModelAlias, ...], Sha256Digest]:
     model_aliases, referenced_aliases = _extract_builder_aliases(builder)
-    digest = hashlib.sha256(pretty_json(builder).encode("utf-8")).hexdigest()
+    digest = compute_pretty_sha256(builder)
     return model_aliases, referenced_aliases, digest

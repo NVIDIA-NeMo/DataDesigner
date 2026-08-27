@@ -22,6 +22,7 @@ from data_designer.slurm.config import (
     SlurmProfileCatalog,
     select_profile,
 )
+from data_designer.slurm.contracts import compute_pretty_sha256
 from data_designer.slurm.planning import (
     ArtifactReference,
     ConfigurationResolutionError,
@@ -182,6 +183,8 @@ def test_compiler_preserves_explicit_compatibility_run_values(
     [
         ({"shutdown_error_rate": 0.25}, 0.25, 10),
         ({"shutdown_error_window": 25}, 0.5, 25),
+        ({"disable_early_shutdown": False}, 0.5, 10),
+        ({"disable_early_shutdown": False, "shutdown_error_window": 25}, 0.5, 25),
     ],
 )
 def test_compiler_preserves_partial_early_shutdown_configuration(
@@ -280,6 +283,21 @@ def test_effective_config_rejects_invalid_direct_construction(
         EffectiveDataDesignerSlurmConfig(**values)  # type: ignore[arg-type]
 
 
+def test_effective_config_rejects_invocation_drift(
+    authored_run_single: DataDesignerSlurmConfig,
+    dependency_lock_single: ResolvedDependencyLock,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    effective = _resolve_fixture(authored_run_single, dependency_lock_single, single_node_plan)
+    run_config = dict(effective.invocation.effective_run_config)
+    run_config["jinja_rendering_engine"] = "native"
+    values = {name: getattr(effective, name) for name in EffectiveDataDesignerSlurmConfig.model_fields}
+    values["invocation"] = effective.invocation.model_copy(update={"effective_run_config": run_config})
+
+    with pytest.raises(ValueError, match="resolved invocation"):
+        EffectiveDataDesignerSlurmConfig(**values)  # type: ignore[arg-type]
+
+
 def test_compiler_rejects_model_alias_missing_from_builder(
     authored_run_single: DataDesignerSlurmConfig,
     dependency_lock_single: ResolvedDependencyLock,
@@ -352,6 +370,14 @@ def test_sharded_seed_inputs_have_stable_ranges_and_partition_digests(
         (50, 100),
     ]
     assert all(shard.input_partition is not None for shard in first.shards)
+    for shard in first.shards:
+        assert shard.input_partition is not None
+        assert shard.input_partition.sha256 == compute_pretty_sha256(
+            {
+                "record_range": shard.record_range.model_dump(mode="json"),
+                "seed_path": "/datasets/seed.parquet",
+            }
+        )
     assert first.shards == second.shards
 
 

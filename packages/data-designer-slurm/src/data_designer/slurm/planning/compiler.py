@@ -20,6 +20,7 @@ from data_designer.slurm.contracts import (
     Identifier,
     RecordRange,
     ResumeWorkspace,
+    compute_pretty_sha256,
     compute_sha256,
 )
 from data_designer.slurm.planning.models import (
@@ -133,6 +134,12 @@ class EffectiveDataDesignerSlurmConfig(ContractValue):
             if self.builder.content_sha256 != digest:
                 raise ValueError("resolved builder digest does not match the sourced builder payload")
         _validate_sharding_constraints(self.authored, builder_payload=self.builder_payload)
+        expected_invocation = ResolvedInvocation(
+            authored=self.authored.invocation,
+            effective_run_config=_materialize_run_config(self.authored),
+        )
+        if self.invocation != expected_invocation:
+            raise ValueError("resolved invocation does not match the authored invocation")
         expected_output = ResolvedOutput(
             root=self.authored.output.root or posixpath.join(run_root, "output"),
             format=self.authored.output.format,
@@ -304,11 +311,11 @@ def _resolve_builder(
 
 def _materialize_run_config(authored: DataDesignerSlurmConfig) -> dict[str, JsonValue]:
     values = dict(authored.invocation.run_config)
-    preserve_authored_early_shutdown = "disable_early_shutdown" not in values and (
-        "shutdown_error_rate" in values or "shutdown_error_window" in values
+    authored_early_shutdown = {"disable_early_shutdown", "shutdown_error_rate", "shutdown_error_window"}.intersection(
+        values
     )
     for name, value in _COMPATIBILITY_RUN_DEFAULTS.items():
-        if preserve_authored_early_shutdown and name in {"disable_early_shutdown", "shutdown_error_rate"}:
+        if authored_early_shutdown and name in {"disable_early_shutdown", "shutdown_error_rate"}:
             continue
         values.setdefault(name, value)
     return RunConfig.model_validate(values).model_dump(mode="json")
@@ -519,7 +526,7 @@ def _compile_shards(effective: EffectiveDataDesignerSlurmConfig) -> tuple[Planne
         if seed_path is not None:
             partition = ArtifactReference(
                 path=posixpath.join(shard_root, "input-partition.json"),
-                sha256=compute_sha256(
+                sha256=compute_pretty_sha256(
                     {
                         "record_range": record_range.model_dump(mode="json"),
                         "seed_path": seed_path,

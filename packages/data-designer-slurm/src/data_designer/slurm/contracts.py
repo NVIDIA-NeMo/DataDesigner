@@ -170,6 +170,11 @@ def compute_sha256(value: object) -> Sha256Digest:
     return hashlib.sha256(canonical_json(value)).hexdigest()
 
 
+def compute_pretty_sha256(value: object) -> Sha256Digest:
+    """Compute the digest of deterministic persisted JSON bytes."""
+    return hashlib.sha256(pretty_json(value).encode("utf-8")).hexdigest()
+
+
 def validate_absolute_path(value: str) -> str:
     """Validate a normalized, absolute POSIX path below the filesystem root."""
     if not value.startswith("/"):
@@ -288,6 +293,7 @@ __all__ = [
     "Sha256Digest",
     "ShardId",
     "canonical_json",
+    "compute_pretty_sha256",
     "compute_sha256",
     "pretty_json",
     "validate_absolute_path",

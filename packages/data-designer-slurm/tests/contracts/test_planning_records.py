@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 from copy import deepcopy
 
@@ -11,7 +10,7 @@ import pytest
 from pydantic import ValidationError
 
 from data_designer.slurm.config import BuilderInput, ClientDependencies, DataDesignerSlurmConfig
-from data_designer.slurm.contracts import compute_sha256, pretty_json
+from data_designer.slurm.contracts import compute_pretty_sha256, compute_sha256
 from data_designer.slurm.planning import (
     ArtifactReference,
     PlanContractError,
@@ -227,7 +226,7 @@ def test_sourced_builder_validation_requires_resolved_payload(
     multi_node_plan: ResolvedSlurmRunPlan,
 ) -> None:
     sourced_authored = authored_run.model_copy(update={"builder": BuilderInput(source="builder.json")})
-    builder_digest = hashlib.sha256(pretty_json(authored_run.builder.inline).encode("utf-8")).hexdigest()
+    builder_digest = compute_pretty_sha256(authored_run.builder.inline)
     payload = multi_node_plan.model_dump(mode="json")
     payload["authored_config"]["sha256"] = sourced_authored.compute_sha256()
     payload["builder"] = {
