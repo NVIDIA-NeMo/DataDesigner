@@ -9,6 +9,8 @@ from collections.abc import Callable
 from enum import Enum
 from typing import TypeVar
 
+from data_designer.errors import DataDesignerError
+
 _ResultT = TypeVar("_ResultT")
 
 
@@ -26,12 +28,13 @@ class SlurmServiceOperation(str, Enum):
     """Public operations with stable error attribution."""
 
     PLAN_RUN = "plan_run"
+    RENDER_ATTEMPT = "render_attempt"
     RESOLVE_IMAGE = "resolve_image"
     RUN_BENCHMARK = "run_benchmark"
     ANALYZE_BENCHMARK = "analyze_benchmark"
 
 
-class SlurmServiceError(RuntimeError):
+class SlurmServiceError(DataDesignerError):
     """Normalized public service failure with a stable code and operation."""
 
     def __init__(
@@ -58,12 +61,12 @@ class SlurmServiceError(RuntimeError):
         return type(self), (self.code, self.operation, str(self))
 
 
-def invalid_request(operation: SlurmServiceOperation, message: str) -> SlurmServiceError:
+def _make_invalid_request_error(operation: SlurmServiceOperation, message: str) -> SlurmServiceError:
     """Build one normalized invalid-request error."""
     return SlurmServiceError(SlurmServiceErrorCode.INVALID_REQUEST, operation, message)
 
 
-def invoke_backend(operation: SlurmServiceOperation, call: Callable[[], _ResultT]) -> _ResultT:
+def _invoke_service_backend(operation: SlurmServiceOperation, call: Callable[[], _ResultT]) -> _ResultT:
     """Preserve normalized failures and redact unexpected backend exceptions."""
     try:
         return call()

@@ -14,14 +14,14 @@ from data_designer.slurm.config import DataDesignerSlurmBenchmarkConfig
 from data_designer.slurm.contracts import Identifier
 from data_designer.slurm.services.errors import (
     SlurmServiceOperation,
-    invalid_request,
-    invoke_backend,
+    _invoke_service_backend,
+    _make_invalid_request_error,
 )
 
 _IDENTIFIER_ADAPTER = TypeAdapter(Identifier)
 
 
-class BenchmarkBackend(Protocol):
+class _BenchmarkBackend(Protocol):
     """Execute and analyze benchmarks without exposing implementation types."""
 
     def run(self, config: DataDesignerSlurmBenchmarkConfig) -> BenchmarkManifest:
@@ -34,14 +34,14 @@ class BenchmarkBackend(Protocol):
 class SlurmBenchmarkService:
     """Expose benchmark operations through an injected benchmark implementation."""
 
-    def __init__(self, backend: BenchmarkBackend) -> None:
+    def __init__(self, backend: _BenchmarkBackend) -> None:
         self._backend = backend
 
     def run(self, config: DataDesignerSlurmBenchmarkConfig) -> BenchmarkManifest:
         """Start all ordinary child runs and return their immutable mapping."""
         operation = SlurmServiceOperation.RUN_BENCHMARK
         if not isinstance(config, DataDesignerSlurmBenchmarkConfig):
-            raise invalid_request(operation, "config must be a DataDesignerSlurmBenchmarkConfig")
+            raise _make_invalid_request_error(operation, "config must be a DataDesignerSlurmBenchmarkConfig")
 
         def run_benchmark() -> BenchmarkManifest:
             manifest = self._backend.run(config)
@@ -51,7 +51,7 @@ class SlurmBenchmarkService:
                 raise ValueError("benchmark manifest does not match the requested config")
             return manifest
 
-        return invoke_backend(operation, run_benchmark)
+        return _invoke_service_backend(operation, run_benchmark)
 
     def analyze(self, benchmark_id: Identifier, *, refresh_state: bool = False) -> BenchmarkReport:
         """Analyze one persisted benchmark without a resident monitor."""
@@ -59,9 +59,9 @@ class SlurmBenchmarkService:
         try:
             validated_id = _IDENTIFIER_ADAPTER.validate_python(benchmark_id, strict=True)
         except ValidationError:
-            raise invalid_request(operation, "benchmark_id must be a valid identifier") from None
+            raise _make_invalid_request_error(operation, "benchmark_id must be a valid identifier") from None
         if type(refresh_state) is not bool:
-            raise invalid_request(operation, "refresh_state must be a boolean")
+            raise _make_invalid_request_error(operation, "refresh_state must be a boolean")
 
         def analyze_benchmark() -> BenchmarkReport:
             report = self._backend.analyze(validated_id, refresh_state=refresh_state)
@@ -71,4 +71,4 @@ class SlurmBenchmarkService:
                 raise ValueError("benchmark report does not match the requested benchmark")
             return report
 
-        return invoke_backend(operation, analyze_benchmark)
+        return _invoke_service_backend(operation, analyze_benchmark)

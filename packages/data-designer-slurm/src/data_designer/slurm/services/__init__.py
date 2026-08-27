@@ -5,28 +5,19 @@
 
 from __future__ import annotations
 
-from data_designer.slurm.services.benchmark import BenchmarkBackend, SlurmBenchmarkService
+from data_designer.slurm.services.benchmark import SlurmBenchmarkService
 from data_designer.slurm.services.errors import (
     SlurmServiceError,
     SlurmServiceErrorCode,
     SlurmServiceOperation,
 )
-from data_designer.slurm.services.images import ImageResolver, SlurmImageService
-from data_designer.slurm.services.run import (
-    BatchScriptRenderer,
-    RunPlanningBackend,
-    SlurmRunPlanResult,
-    SlurmRunService,
-)
+from data_designer.slurm.services.images import SlurmImageService
+from data_designer.slurm.services.run import RenderedSlurmAttempt, SlurmRunService
 
 __all__ = [
-    "BatchScriptRenderer",
-    "BenchmarkBackend",
-    "ImageResolver",
-    "RunPlanningBackend",
+    "RenderedSlurmAttempt",
     "SlurmBenchmarkService",
     "SlurmImageService",
-    "SlurmRunPlanResult",
     "SlurmRunService",
     "SlurmServiceError",
     "SlurmServiceErrorCode",

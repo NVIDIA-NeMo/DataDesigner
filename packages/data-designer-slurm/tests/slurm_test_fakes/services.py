@@ -77,7 +77,7 @@ class FakeBatchScriptRenderer:
         self._script = _ScriptedResponses(responses)
         self.calls = self._script.calls
 
-    def __call__(self, plan: ResolvedSlurmRunPlan, *, attempt_ordinal: int = 1) -> str:
+    def __call__(self, plan: ResolvedSlurmRunPlan, *, attempt_ordinal: int) -> str:
         """Return the script for one exact plan and attempt ordinal."""
         return self._script.next((plan, attempt_ordinal), operation="batch render")
 

@@ -15,6 +15,8 @@ from slurm_test_fakes import (
     FakeScriptError,
 )
 
+import data_designer.slurm.services as slurm_services
+from data_designer.errors import DataDesignerError
 from data_designer.slurm.benchmark import BenchmarkManifest, BenchmarkReport
 from data_designer.slurm.config import (
     DataDesignerSlurmBenchmarkConfig,
@@ -24,6 +26,7 @@ from data_designer.slurm.config import (
 )
 from data_designer.slurm.planning import ResolvedSlurmRunPlan
 from data_designer.slurm.services import (
+    RenderedSlurmAttempt,
     SlurmBenchmarkService,
     SlurmImageService,
     SlurmRunService,
@@ -49,8 +52,23 @@ def correlated_benchmark_manifest(
     return benchmark_manifest.model_copy(update={"benchmark_config": reference})
 
 
-def test_run_service_returns_correlated_plan_and_render_result(
+def test_run_service_returns_plan_for_requested_config(
     authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    planner = FakeRunPlanningBackend(((authored_run_single, single_node_plan),))
+    renderer = FakeBatchScriptRenderer(())
+
+    result = SlurmRunService(planner, renderer).plan(authored_run_single)
+
+    assert result is single_node_plan
+    assert planner.calls == [authored_run_single]
+    assert renderer.calls == []
+    planner.assert_complete()
+    renderer.assert_complete()
+
+
+def test_run_service_renders_attempt_without_replanning(
     single_node_plan: ResolvedSlurmRunPlan,
     single_node_script: str,
 ) -> None:
@@ -58,15 +76,16 @@ def test_run_service_returns_correlated_plan_and_render_result(
         'readonly DD_ATTEMPT_ORDINAL="0001"',
         'readonly DD_ATTEMPT_ORDINAL="0002"',
     )
-    planner = FakeRunPlanningBackend(((authored_run_single, single_node_plan),))
+    planner = FakeRunPlanningBackend(())
     renderer = FakeBatchScriptRenderer((((single_node_plan, 2), script),))
 
-    result = SlurmRunService(planner, renderer).plan(authored_run_single, attempt_ordinal=2)
+    result = SlurmRunService(planner, renderer).render_attempt(single_node_plan, attempt_ordinal=2)
 
-    assert result.plan is single_node_plan
+    assert isinstance(result, RenderedSlurmAttempt)
+    assert result.resolved_plan is single_node_plan
     assert result.attempt_ordinal == 2
-    assert result.batch_script == script
-    assert planner.calls == [authored_run_single]
+    assert result.rendered_batch_script == script
+    assert planner.calls == []
     assert renderer.calls == [(single_node_plan, 2)]
     planner.assert_complete()
     renderer.assert_complete()
@@ -92,16 +111,26 @@ def test_run_service_rejects_plan_for_another_config(
 
 @pytest.mark.parametrize("attempt_ordinal", [0, -1, True, 1.5])
 def test_run_service_rejects_invalid_attempt_ordinals(
-    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
     attempt_ordinal: object,
 ) -> None:
     service = SlurmRunService(FakeRunPlanningBackend(()), FakeBatchScriptRenderer(()))
 
     with pytest.raises(SlurmServiceError) as caught:
-        service.plan(authored_run_single, attempt_ordinal=attempt_ordinal)  # type: ignore[arg-type]
+        service.render_attempt(single_node_plan, attempt_ordinal=attempt_ordinal)  # type: ignore[arg-type]
 
     assert caught.value.code is SlurmServiceErrorCode.INVALID_REQUEST
-    assert caught.value.operation is SlurmServiceOperation.PLAN_RUN
+    assert caught.value.operation is SlurmServiceOperation.RENDER_ATTEMPT
+
+
+def test_run_service_rejects_untyped_resolved_plan() -> None:
+    service = SlurmRunService(FakeRunPlanningBackend(()), FakeBatchScriptRenderer(()))
+
+    with pytest.raises(SlurmServiceError) as caught:
+        service.render_attempt(object())  # type: ignore[arg-type]
+
+    assert caught.value.code is SlurmServiceErrorCode.INVALID_REQUEST
+    assert caught.value.operation is SlurmServiceOperation.RENDER_ATTEMPT
 
 
 def test_run_service_rejects_untyped_config() -> None:
@@ -181,93 +210,21 @@ def test_run_service_reattributes_nested_normalized_errors(
     assert caught.value.__suppress_context__
 
 
-@pytest.mark.parametrize("binding", ["digest", "attempt"])
-def test_run_service_rejects_unbound_render_results(
-    authored_run_single: DataDesignerSlurmConfig,
+def test_run_service_normalizes_renderer_errors(
     single_node_plan: ResolvedSlurmRunPlan,
-    single_node_script: str,
-    binding: str,
 ) -> None:
-    if binding == "digest":
-        mismatched_script = (GOLDEN_DIRECTORY / "multi_node.sbatch").read_text()
-    else:
-        mismatched_script = single_node_script.replace(
-            'readonly DD_ATTEMPT_ORDINAL="0001"',
-            'readonly DD_ATTEMPT_ORDINAL="0002"',
-        )
-    planner = FakeRunPlanningBackend(((authored_run_single, single_node_plan),))
-    renderer = FakeBatchScriptRenderer((((single_node_plan, 1), mismatched_script),))
+    planner = FakeRunPlanningBackend(())
+    renderer = FakeBatchScriptRenderer((((single_node_plan, 1), RuntimeError("secret renderer detail")),))
     service = SlurmRunService(planner, renderer)
 
     with pytest.raises(SlurmServiceError) as caught:
-        service.plan(authored_run_single)
+        service.render_attempt(single_node_plan)
 
     assert caught.value.code is SlurmServiceErrorCode.INTERNAL
-    assert str(caught.value) == "plan run failed"
-    assert planner.calls == [authored_run_single]
-    assert renderer.calls == [(single_node_plan, 1)]
-    planner.assert_complete()
-    renderer.assert_complete()
-
-
-@pytest.mark.parametrize("binding", ["digest", "attempt"])
-@pytest.mark.parametrize("first_declaration", ["duplicate", "stale"])
-def test_run_service_rejects_multiple_binding_declarations(
-    authored_run_single: DataDesignerSlurmConfig,
-    single_node_plan: ResolvedSlurmRunPlan,
-    single_node_script: str,
-    binding: str,
-    first_declaration: str,
-) -> None:
-    if binding == "digest":
-        expected = f'readonly DD_PLAN_SHA256="{single_node_plan.compute_sha256()}"'
-        stale = f'readonly DD_PLAN_SHA256="{"0" * 64}"'
-    else:
-        expected = 'readonly DD_ATTEMPT_ORDINAL="0001"'
-        stale = 'readonly DD_ATTEMPT_ORDINAL="0002"'
-    first = expected if first_declaration == "duplicate" else stale
-    script = single_node_script.replace(expected, f"{first}\n{expected}", 1)
-    planner = FakeRunPlanningBackend(((authored_run_single, single_node_plan),))
-    renderer = FakeBatchScriptRenderer((((single_node_plan, 1), script),))
-
-    with pytest.raises(SlurmServiceError) as caught:
-        SlurmRunService(planner, renderer).plan(authored_run_single)
-
-    assert caught.value.code is SlurmServiceErrorCode.INTERNAL
-    assert caught.value.operation is SlurmServiceOperation.PLAN_RUN
-    assert renderer.calls == [(single_node_plan, 1)]
-    planner.assert_complete()
-    renderer.assert_complete()
-
-
-@pytest.mark.parametrize(
-    "defect",
-    ["missing-shebang", "nul", "carriage-return", "vertical-tab", "next-line", "line-separator"],
-)
-def test_run_service_rejects_invalid_batch_scripts(
-    authored_run_single: DataDesignerSlurmConfig,
-    single_node_plan: ResolvedSlurmRunPlan,
-    single_node_script: str,
-    defect: str,
-) -> None:
-    if defect == "missing-shebang":
-        script = single_node_script.removeprefix("#!/usr/bin/env bash\n")
-    elif defect == "nul":
-        script = f"{single_node_script}\x00"
-    elif defect == "carriage-return":
-        script = f"{single_node_script}\r"
-    else:
-        separator = {"vertical-tab": "\v", "next-line": "\x85", "line-separator": "\u2028"}[defect]
-        script = single_node_script.replace("\nreadonly DD_PLAN_SHA256", f"{separator}readonly DD_PLAN_SHA256", 1)
-    planner = FakeRunPlanningBackend(((authored_run_single, single_node_plan),))
-    renderer = FakeBatchScriptRenderer((((single_node_plan, 1), script),))
-    service = SlurmRunService(planner, renderer)
-
-    with pytest.raises(SlurmServiceError) as caught:
-        service.plan(authored_run_single)
-
-    assert caught.value.code is SlurmServiceErrorCode.INTERNAL
-    assert caught.value.operation is SlurmServiceOperation.PLAN_RUN
+    assert caught.value.operation is SlurmServiceOperation.RENDER_ATTEMPT
+    assert str(caught.value) == "render attempt failed"
+    assert caught.value.__suppress_context__
+    assert planner.calls == []
     assert renderer.calls == [(single_node_plan, 1)]
     planner.assert_complete()
     renderer.assert_complete()
@@ -294,7 +251,7 @@ def test_service_boundary_does_not_swallow_cancellation_signals(
         service.plan(authored_run_single)
 
 
-def test_image_service_delegates_to_the_injected_f3_resolver(
+def test_image_service_returns_correlated_resolution(
     single_node_plan: ResolvedSlurmRunPlan,
 ) -> None:
     reference = single_node_plan.client.image.authored_ref
@@ -439,6 +396,19 @@ def test_service_errors_reject_unstable_messages() -> None:
             SlurmServiceOperation.RUN_BENCHMARK,
             "unsafe\nmessage",
         )
+
+
+def test_service_errors_use_the_data_designer_error_hierarchy() -> None:
+    assert issubclass(SlurmServiceError, DataDesignerError)
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["BatchScriptRenderer", "BenchmarkBackend", "ImageResolver", "RunPlanningBackend"],
+)
+def test_services_do_not_export_implementation_seams(name: str) -> None:
+    assert name not in slurm_services.__all__
+    assert not hasattr(slurm_services, name)
 
 
 def test_service_errors_round_trip_through_pickle() -> None:

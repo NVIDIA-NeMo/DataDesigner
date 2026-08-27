@@ -11,12 +11,12 @@ from data_designer.slurm.config import ImageKind, ImageRef
 from data_designer.slurm.planning import ResolvedImage
 from data_designer.slurm.services.errors import (
     SlurmServiceOperation,
-    invalid_request,
-    invoke_backend,
+    _invoke_service_backend,
+    _make_invalid_request_error,
 )
 
 
-class ImageResolver(Protocol):
+class _ImageResolver(Protocol):
     """Resolve one registered image reference without exposing registry types."""
 
     def resolve(self, reference: ImageRef, *, expected_kind: ImageKind) -> ResolvedImage:
@@ -26,16 +26,16 @@ class ImageResolver(Protocol):
 class SlurmImageService:
     """Expose stable image results through an injected image implementation."""
 
-    def __init__(self, resolver: ImageResolver) -> None:
+    def __init__(self, resolver: _ImageResolver) -> None:
         self._resolver = resolver
 
     def resolve(self, reference: ImageRef, *, expected_kind: ImageKind) -> ResolvedImage:
         """Resolve one registered image for planning."""
         operation = SlurmServiceOperation.RESOLVE_IMAGE
         if not isinstance(reference, ImageRef):
-            raise invalid_request(operation, "reference must be an ImageRef")
+            raise _make_invalid_request_error(operation, "reference must be an ImageRef")
         if not isinstance(expected_kind, ImageKind):
-            raise invalid_request(operation, "expected_kind must be an ImageKind")
+            raise _make_invalid_request_error(operation, "expected_kind must be an ImageKind")
 
         def resolve_image() -> ResolvedImage:
             image = self._resolver.resolve(reference, expected_kind=expected_kind)
@@ -47,4 +47,4 @@ class SlurmImageService:
                 raise ValueError("resolved image does not match the expected kind")
             return image
 
-        return invoke_backend(operation, resolve_image)
+        return _invoke_service_backend(operation, resolve_image)
