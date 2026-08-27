@@ -270,6 +270,25 @@ def test_registration_remains_unpublished_until_final_verification(tmp_path: Pat
     assert tuple(registered.name for registered in ImageRegistryStore(workspace).list_images()) == ("client",)
 
 
+def test_registry_transaction_stays_bound_when_image_root_path_is_replaced(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    image_root = workspace / "images"
+    detached_image_root = workspace / "detached-images"
+    replacement_image_root = workspace / "replacement-images"
+    replacement_image_root.mkdir(parents=True)
+    image = _registered_client(_write_sqsh(tmp_path / "client.sqsh", b"client"))
+
+    def replace_image_root(_image: RegisteredImage) -> None:
+        image_root.rename(detached_image_root)
+        replacement_image_root.rename(image_root)
+
+    ImageRegistryStore(workspace).register(image, verify_before_publish=replace_image_root)
+
+    assert not (image_root / "registry.yaml").exists()
+    relocated_registry = yaml.safe_load((detached_image_root / "registry.yaml").read_text())
+    assert relocated_registry["images"][0]["name"] == "client"
+
+
 def test_concurrent_alias_writers_preserve_both_registrations(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     barrier = Barrier(2)

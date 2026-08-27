@@ -32,6 +32,11 @@ class RegisteredImage(ContractRecord):
         """Return the factual role discovered by the package inspector."""
         return self.inspection.inspection.kind
 
+    @property
+    def immutable_facts(self) -> tuple[Sha256Digest, Sha256Digest | None, ImageInspectionRecord]:
+        """Return the facts that every alias for this SQSH path must share."""
+        return (self.sqsh_sha256, self.source_oci_digest, self.inspection)
+
     @field_validator("path")
     @classmethod
     def validate_path(cls, value: str) -> str:
@@ -63,7 +68,7 @@ class ImageRegistryDocument(ContractValue):
 
         facts_by_path: dict[str, tuple[Sha256Digest, Sha256Digest | None, ImageInspectionRecord]] = {}
         for image in self.images:
-            facts = (image.sqsh_sha256, image.source_oci_digest, image.inspection)
+            facts = image.immutable_facts
             existing = facts_by_path.setdefault(image.path, facts)
             if existing != facts:
                 raise ValueError("aliases for one SQSH path must share identical immutable facts")

@@ -8,8 +8,8 @@ from __future__ import annotations
 import fcntl
 import json
 import os
+import secrets
 import stat
-import tempfile
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -31,6 +31,9 @@ from data_designer.slurm.images.records import ImageRegistryDocument, Registered
 
 _DIRECTORY_MODE = 0o700
 _FILE_MODE = 0o600
+_LOCK_DIRECTORY_NAME = ".locks"
+_REGISTRY_FILENAME = "registry.yaml"
+_REGISTRY_LOCK_FILENAME = "registry.lock"
 _IDENTIFIER_ADAPTER = TypeAdapter(Identifier)
 
 
@@ -43,8 +46,8 @@ class ImageRegistryStore:
         except ValueError as error:
             raise ImageRegistryError(f"invalid image workspace root {workspace_root!s}") from error
         self._image_root = Path(normalized_root) / "images"
-        self._registry_path = self._image_root / "registry.yaml"
-        self._lock_directory = self._image_root / ".locks"
+        self._registry_path = self._image_root / _REGISTRY_FILENAME
+        self._lock_directory = self._image_root / _LOCK_DIRECTORY_NAME
 
     @property
     def image_root(self) -> Path:
@@ -89,50 +92,82 @@ class ImageRegistryStore:
     ) -> RegisteredImage:
         """Atomically add or explicitly replace one verified image alias."""
         self._ensure_storage()
-        with (
-            _acquire_file_lock(self._get_alias_lock_path(image.name)),
-            _acquire_file_lock(self._get_registry_lock_path()),
-        ):
-            snapshot = self._load()
-            existing = next((entry for entry in snapshot.images if entry.name == image.name), None)
-            if existing is not None and not replace:
-                raise ImageConflictError(f"image alias {image.name!r} is already registered")
-            self._validate_path_facts(snapshot, image, replacing=existing)
-            images = tuple(entry for entry in snapshot.images if entry.name != image.name) + (image,)
-            updated = ImageRegistryDocument(
-                schema_version=1,
-                images=tuple(sorted(images, key=lambda entry: entry.name)),
-            )
-            self._save(updated, verify_before_publish=lambda: verify_before_publish(image))
+        alias_lock_name = f"alias-{image.name}.lock"
+        with self._open_storage() as (image_root_descriptor, lock_directory_descriptor):
+            with (
+                _acquire_file_lock(
+                    lock_directory_descriptor,
+                    alias_lock_name,
+                    self._lock_directory / alias_lock_name,
+                ),
+                _acquire_file_lock(
+                    lock_directory_descriptor,
+                    _REGISTRY_LOCK_FILENAME,
+                    self._lock_directory / _REGISTRY_LOCK_FILENAME,
+                ),
+            ):
+                snapshot = self._load_from_directory(image_root_descriptor)
+                existing = next((entry for entry in snapshot.images if entry.name == image.name), None)
+                if existing is not None and not replace:
+                    raise ImageConflictError(f"image alias {image.name!r} is already registered")
+                self._validate_path_facts(snapshot, image, replacing=existing)
+                images = tuple(entry for entry in snapshot.images if entry.name != image.name) + (image,)
+                updated = ImageRegistryDocument(
+                    schema_version=1,
+                    images=tuple(sorted(images, key=lambda entry: entry.name)),
+                )
+                self._save(
+                    image_root_descriptor,
+                    updated,
+                    verify_before_publish=lambda: verify_before_publish(image),
+                )
         return image
 
     def unregister(self, name: Identifier) -> RegisteredImage:
         """Atomically remove an alias without deleting its underlying SQSH artifact."""
         name = _validate_image_alias(name)
         self._ensure_storage()
-        with _acquire_file_lock(self._get_alias_lock_path(name)), _acquire_file_lock(self._get_registry_lock_path()):
-            snapshot = self._load()
-            try:
-                removed = next(image for image in snapshot.images if image.name == name)
-            except StopIteration:
-                raise ImageNotFoundError(f"image alias {name!r} is not registered") from None
-            updated = ImageRegistryDocument(
-                schema_version=1,
-                images=tuple(image for image in snapshot.images if image.name != name),
-            )
-            self._save(updated)
+        alias_lock_name = f"alias-{name}.lock"
+        with self._open_storage() as (image_root_descriptor, lock_directory_descriptor):
+            with (
+                _acquire_file_lock(
+                    lock_directory_descriptor,
+                    alias_lock_name,
+                    self._lock_directory / alias_lock_name,
+                ),
+                _acquire_file_lock(
+                    lock_directory_descriptor,
+                    _REGISTRY_LOCK_FILENAME,
+                    self._lock_directory / _REGISTRY_LOCK_FILENAME,
+                ),
+            ):
+                snapshot = self._load_from_directory(image_root_descriptor)
+                try:
+                    removed = next(image for image in snapshot.images if image.name == name)
+                except StopIteration:
+                    raise ImageNotFoundError(f"image alias {name!r} is not registered") from None
+                updated = ImageRegistryDocument(
+                    schema_version=1,
+                    images=tuple(image for image in snapshot.images if image.name != name),
+                )
+                self._save(image_root_descriptor, updated)
         return removed
 
     def _load(self) -> ImageRegistryDocument:
         try:
-            with _open_verified_directory(self._image_root):
-                pass
+            with _open_verified_directory(self._image_root) as image_root_descriptor:
+                return self._load_from_directory(image_root_descriptor)
         except FileNotFoundError:
             return ImageRegistryDocument(schema_version=1)
         except OSError as error:
             raise ImageRegistryError(f"cannot load image registry {self._registry_path}") from error
+
+    def _load_from_directory(self, image_root_descriptor: int) -> ImageRegistryDocument:
         try:
-            payload = yaml.load(_read_regular_text(self._registry_path), Loader=_UniqueKeySafeLoader)
+            payload = yaml.load(
+                _read_regular_text(image_root_descriptor, _REGISTRY_FILENAME, self._registry_path),
+                Loader=_UniqueKeySafeLoader,
+            )
             return ImageRegistryDocument.model_validate_json(json.dumps(payload))
         except FileNotFoundError:
             return ImageRegistryDocument(schema_version=1)
@@ -141,20 +176,15 @@ class ImageRegistryStore:
 
     def _save(
         self,
+        image_root_descriptor: int,
         snapshot: ImageRegistryDocument,
         *,
         verify_before_publish: Callable[[], None] | None = None,
     ) -> None:
-        temporary_path: Path | None = None
+        temporary_name: str | None = None
         descriptor: int | None = None
         try:
-            descriptor, raw_path = tempfile.mkstemp(
-                dir=self._image_root,
-                prefix=".registry.",
-                suffix=".tmp",
-                text=True,
-            )
-            temporary_path = Path(raw_path)
+            descriptor, temporary_name = _create_temporary_file(image_root_descriptor)
             os.fchmod(descriptor, _FILE_MODE)
             output = os.fdopen(descriptor, "w", encoding="utf-8")
             descriptor = None
@@ -169,16 +199,21 @@ class ImageRegistryStore:
                 os.fsync(output.fileno())
             if verify_before_publish is not None:
                 verify_before_publish()
-            os.replace(temporary_path, self._registry_path)
-            _sync_directory(self._image_root)
+            os.replace(
+                temporary_name,
+                _REGISTRY_FILENAME,
+                src_dir_fd=image_root_descriptor,
+                dst_dir_fd=image_root_descriptor,
+            )
+            os.fsync(image_root_descriptor)
         except (OSError, TypeError, yaml.YAMLError) as error:
             raise ImageRegistryError(f"cannot persist image registry {self._registry_path}") from error
         finally:
             if descriptor is not None:
                 os.close(descriptor)
-            if temporary_path is not None:
+            if temporary_name is not None:
                 try:
-                    temporary_path.unlink(missing_ok=True)
+                    os.unlink(temporary_name, dir_fd=image_root_descriptor)
                 except OSError:
                     pass
 
@@ -189,11 +224,18 @@ class ImageRegistryStore:
         except OSError as error:
             raise ImageRegistryError(f"cannot initialize image registry beneath {self._image_root}") from error
 
-    def _get_alias_lock_path(self, name: Identifier) -> Path:
-        return self._lock_directory / f"alias-{name}.lock"
-
-    def _get_registry_lock_path(self) -> Path:
-        return self._lock_directory / "registry.lock"
+    @contextmanager
+    def _open_storage(self) -> Iterator[tuple[int, int]]:
+        try:
+            with _open_verified_directory(self._image_root) as image_root_descriptor:
+                with _open_verified_child_directory(
+                    image_root_descriptor,
+                    _LOCK_DIRECTORY_NAME,
+                    self._lock_directory,
+                ) as lock_directory_descriptor:
+                    yield image_root_descriptor, lock_directory_descriptor
+        except OSError as error:
+            raise ImageRegistryError(f"cannot access image registry beneath {self._image_root}") from error
 
     @staticmethod
     def _validate_path_facts(
@@ -207,9 +249,7 @@ class ImageRegistryStore:
                 continue
             if existing.path != image.path:
                 continue
-            existing_facts = (existing.sqsh_sha256, existing.source_oci_digest, existing.inspection)
-            new_facts = (image.sqsh_sha256, image.source_oci_digest, image.inspection)
-            if existing_facts != new_facts:
+            if existing.immutable_facts != image.immutable_facts:
                 raise ImageConflictError(f"image path {image.path!r} already has different immutable facts")
 
 
@@ -249,19 +289,34 @@ _UniqueKeySafeLoader.add_constructor(BaseResolver.DEFAULT_MAPPING_TAG, _construc
 
 
 @contextmanager
-def _acquire_file_lock(path: Path) -> Iterator[None]:
+def _acquire_file_lock(directory_descriptor: int, name: str, display_path: Path) -> Iterator[None]:
     """Acquire one exclusive advisory file lock for a registry mutation."""
     descriptor: int | None = None
     try:
-        descriptor = os.open(path, os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0), _FILE_MODE)
+        # macOS can report ENOENT to the losing openat(O_CREAT) caller when two
+        # processes create the same lock file concurrently. Retrying then opens
+        # the winner's regular file with the same no-follow boundary.
+        for _ in range(10):
+            try:
+                descriptor = os.open(
+                    name,
+                    os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0),
+                    _FILE_MODE,
+                    dir_fd=directory_descriptor,
+                )
+            except FileNotFoundError:
+                continue
+            break
+        if descriptor is None:
+            raise OSError(f"lock path {display_path} could not be opened")
         if not stat.S_ISREG(os.fstat(descriptor).st_mode):
-            raise OSError(f"lock path {path} is not a regular file")
+            raise OSError(f"lock path {display_path} is not a regular file")
         os.fchmod(descriptor, _FILE_MODE)
         fcntl.flock(descriptor, fcntl.LOCK_EX)
     except OSError as error:
         if descriptor is not None:
             os.close(descriptor)
-        raise ImageRegistryError(f"cannot lock image registry target {path}") from error
+        raise ImageRegistryError(f"cannot lock image registry target {display_path}") from error
 
     try:
         yield
@@ -279,11 +334,6 @@ def _validate_image_alias(name: str) -> Identifier:
         return _IDENTIFIER_ADAPTER.validate_python(name, strict=True)
     except ValidationError as error:
         raise ImageRegistryError(f"invalid image alias {name!r}") from error
-
-
-def _sync_directory(path: Path) -> None:
-    with _open_verified_directory(path) as descriptor:
-        os.fsync(descriptor)
 
 
 def _ensure_private_directory(path: Path, *, parents: bool) -> None:
@@ -312,16 +362,60 @@ def _open_verified_directory(path: Path) -> Iterator[int]:
             os.close(descriptor)
 
 
-def _read_regular_text(path: Path) -> str:
+@contextmanager
+def _open_verified_child_directory(
+    parent_descriptor: int,
+    name: str,
+    display_path: Path,
+) -> Iterator[int]:
     descriptor: int | None = None
     try:
-        before_open = path.lstat()
-        if not stat.S_ISREG(before_open.st_mode):
-            raise OSError(f"registry path {path} is not a regular file")
-        descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        before_open = os.stat(name, dir_fd=parent_descriptor, follow_symlinks=False)
+        if not stat.S_ISDIR(before_open.st_mode):
+            raise OSError(f"registry directory {display_path} is not a directory")
+        flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+        descriptor = os.open(name, flags, dir_fd=parent_descriptor)
         after_open = os.fstat(descriptor)
         if (before_open.st_dev, before_open.st_ino) != (after_open.st_dev, after_open.st_ino):
-            raise OSError(f"registry path {path} changed while it was being opened")
+            raise OSError(f"registry directory {display_path} changed while it was being opened")
+        if not stat.S_ISDIR(after_open.st_mode):
+            raise OSError(f"registry directory {display_path} is not a directory")
+        yield descriptor
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+
+
+def _create_temporary_file(directory_descriptor: int) -> tuple[int, str]:
+    for _ in range(100):
+        name = f".registry.{secrets.token_hex(8)}.tmp"
+        try:
+            descriptor = os.open(
+                name,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0),
+                _FILE_MODE,
+                dir_fd=directory_descriptor,
+            )
+        except FileExistsError:
+            continue
+        return descriptor, name
+    raise OSError("cannot allocate a unique registry snapshot name")
+
+
+def _read_regular_text(directory_descriptor: int, name: str, display_path: Path) -> str:
+    descriptor: int | None = None
+    try:
+        before_open = os.stat(name, dir_fd=directory_descriptor, follow_symlinks=False)
+        if not stat.S_ISREG(before_open.st_mode):
+            raise OSError(f"registry path {display_path} is not a regular file")
+        descriptor = os.open(
+            name,
+            os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
+            dir_fd=directory_descriptor,
+        )
+        after_open = os.fstat(descriptor)
+        if (before_open.st_dev, before_open.st_ino) != (after_open.st_dev, after_open.st_ino):
+            raise OSError(f"registry path {display_path} changed while it was being opened")
         registry_file = os.fdopen(descriptor, "r", encoding="utf-8")
         descriptor = None
         with registry_file:

@@ -13,6 +13,7 @@ def test_registered_image_exposes_inspected_kind() -> None:
     image = _registered_image("alpha")
 
     assert image.kind is ImageKind.CLIENT
+    assert image.immutable_facts == (_SQSH_SHA256, None, image.inspection)
 
 
 def test_registry_document_accepts_aliases_with_identical_facts() -> None:

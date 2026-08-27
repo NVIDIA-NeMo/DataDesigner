@@ -6,7 +6,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import tempfile
+import secrets
 from pathlib import Path
 from unittest.mock import patch
 
@@ -123,15 +123,15 @@ def test_failed_replacement_keeps_previous_alias(tmp_path: Path) -> None:
         _inspect_serving(first_path),
     )
     second_inspection = _inspect_serving(second_path)
-    original_mkstemp = tempfile.mkstemp
+    original_token_hex = secrets.token_hex
 
-    def mutate_replacement_before_registry_write(*args: object, **kwargs: object) -> tuple[int, str]:
+    def mutate_replacement_before_registry_write(nbytes: int | None = None) -> str:
         second_path.write_bytes(b"modified")
-        return original_mkstemp(*args, **kwargs)
+        return original_token_hex(nbytes)
 
     with (
         patch(
-            "data_designer.slurm.images.registry.tempfile.mkstemp",
+            "data_designer.slurm.images.registry.secrets.token_hex",
             side_effect=mutate_replacement_before_registry_write,
         ),
         pytest.raises(ImageVerificationError, match="no longer matches"),
@@ -154,14 +154,17 @@ def test_registration_does_not_publish_alias_when_sqsh_changes_before_atomic_pub
     image_path = _write_sqsh(tmp_path / "client.sqsh", b"client")
     inspection = _inspect_client(image_path)
     service = _create_registry(workspace)
-    original_mkstemp = tempfile.mkstemp
+    original_token_hex = secrets.token_hex
 
-    def mutate_image_before_registry_write(*args: object, **kwargs: object) -> tuple[int, str]:
+    def mutate_image_before_registry_write(nbytes: int | None = None) -> str:
         image_path.write_bytes(b"modified")
-        return original_mkstemp(*args, **kwargs)
+        return original_token_hex(nbytes)
 
     with (
-        patch("data_designer.slurm.images.registry.tempfile.mkstemp", side_effect=mutate_image_before_registry_write),
+        patch(
+            "data_designer.slurm.images.registry.secrets.token_hex",
+            side_effect=mutate_image_before_registry_write,
+        ),
         pytest.raises(ImageVerificationError, match="no longer matches"),
     ):
         service.register_existing(
