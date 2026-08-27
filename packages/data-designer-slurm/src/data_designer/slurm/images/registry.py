@@ -5,11 +5,8 @@
 
 from __future__ import annotations
 
-import fcntl
 import json
 import os
-import secrets
-import stat
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -27,10 +24,16 @@ from data_designer.slurm.images.errors import (
     ImageNotFoundError,
     ImageRegistryError,
 )
+from data_designer.slurm.images.filesystem import (
+    acquire_file_lock,
+    create_temporary_file,
+    ensure_private_directory,
+    open_verified_child_directory,
+    open_verified_directory,
+    read_regular_text,
+)
 from data_designer.slurm.images.records import ImageRegistryDocument, RegisteredImage
 
-_DIRECTORY_MODE = 0o700
-_FILE_MODE = 0o600
 _LOCK_DIRECTORY_NAME = ".locks"
 _REGISTRY_FILENAME = "registry.yaml"
 _REGISTRY_LOCK_FILENAME = "registry.lock"
@@ -95,12 +98,12 @@ class ImageRegistryStore:
         alias_lock_name = f"alias-{image.name}.lock"
         with self._open_storage() as (image_root_descriptor, lock_directory_descriptor):
             with (
-                _acquire_file_lock(
+                acquire_file_lock(
                     lock_directory_descriptor,
                     alias_lock_name,
                     self._lock_directory / alias_lock_name,
                 ),
-                _acquire_file_lock(
+                acquire_file_lock(
                     lock_directory_descriptor,
                     _REGISTRY_LOCK_FILENAME,
                     self._lock_directory / _REGISTRY_LOCK_FILENAME,
@@ -130,12 +133,12 @@ class ImageRegistryStore:
         alias_lock_name = f"alias-{name}.lock"
         with self._open_storage() as (image_root_descriptor, lock_directory_descriptor):
             with (
-                _acquire_file_lock(
+                acquire_file_lock(
                     lock_directory_descriptor,
                     alias_lock_name,
                     self._lock_directory / alias_lock_name,
                 ),
-                _acquire_file_lock(
+                acquire_file_lock(
                     lock_directory_descriptor,
                     _REGISTRY_LOCK_FILENAME,
                     self._lock_directory / _REGISTRY_LOCK_FILENAME,
@@ -155,7 +158,7 @@ class ImageRegistryStore:
 
     def _load(self) -> ImageRegistryDocument:
         try:
-            with _open_verified_directory(self._image_root) as image_root_descriptor:
+            with open_verified_directory(self._image_root) as image_root_descriptor:
                 return self._load_from_directory(image_root_descriptor)
         except FileNotFoundError:
             return ImageRegistryDocument(schema_version=1)
@@ -165,7 +168,7 @@ class ImageRegistryStore:
     def _load_from_directory(self, image_root_descriptor: int) -> ImageRegistryDocument:
         try:
             payload = yaml.load(
-                _read_regular_text(image_root_descriptor, _REGISTRY_FILENAME, self._registry_path),
+                read_regular_text(image_root_descriptor, _REGISTRY_FILENAME, self._registry_path),
                 Loader=_UniqueKeySafeLoader,
             )
             return ImageRegistryDocument.model_validate_json(json.dumps(payload))
@@ -184,8 +187,11 @@ class ImageRegistryStore:
         temporary_name: str | None = None
         descriptor: int | None = None
         try:
-            descriptor, temporary_name = _create_temporary_file(image_root_descriptor)
-            os.fchmod(descriptor, _FILE_MODE)
+            descriptor, temporary_name = create_temporary_file(
+                image_root_descriptor,
+                prefix=".registry.",
+                suffix=".tmp",
+            )
             output = os.fdopen(descriptor, "w", encoding="utf-8")
             descriptor = None
             with output:
@@ -219,16 +225,16 @@ class ImageRegistryStore:
 
     def _ensure_storage(self) -> None:
         try:
-            _ensure_private_directory(self._image_root, parents=True)
-            _ensure_private_directory(self._lock_directory, parents=False)
+            ensure_private_directory(self._image_root, parents=True)
+            ensure_private_directory(self._lock_directory, parents=False)
         except OSError as error:
             raise ImageRegistryError(f"cannot initialize image registry beneath {self._image_root}") from error
 
     @contextmanager
     def _open_storage(self) -> Iterator[tuple[int, int]]:
         try:
-            with _open_verified_directory(self._image_root) as image_root_descriptor:
-                with _open_verified_child_directory(
+            with open_verified_directory(self._image_root) as image_root_descriptor:
+                with open_verified_child_directory(
                     image_root_descriptor,
                     _LOCK_DIRECTORY_NAME,
                     self._lock_directory,
@@ -288,138 +294,9 @@ def _construct_unique_mapping(
 _UniqueKeySafeLoader.add_constructor(BaseResolver.DEFAULT_MAPPING_TAG, _construct_unique_mapping)
 
 
-@contextmanager
-def _acquire_file_lock(directory_descriptor: int, name: str, display_path: Path) -> Iterator[None]:
-    """Acquire one exclusive advisory file lock for a registry mutation."""
-    descriptor: int | None = None
-    try:
-        # macOS can report ENOENT to the losing openat(O_CREAT) caller when two
-        # processes create the same lock file concurrently. Retrying then opens
-        # the winner's regular file with the same no-follow boundary.
-        for _ in range(10):
-            try:
-                descriptor = os.open(
-                    name,
-                    os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0),
-                    _FILE_MODE,
-                    dir_fd=directory_descriptor,
-                )
-            except FileNotFoundError:
-                continue
-            break
-        if descriptor is None:
-            raise OSError(f"lock path {display_path} could not be opened")
-        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
-            raise OSError(f"lock path {display_path} is not a regular file")
-        os.fchmod(descriptor, _FILE_MODE)
-        fcntl.flock(descriptor, fcntl.LOCK_EX)
-    except OSError as error:
-        if descriptor is not None:
-            os.close(descriptor)
-        raise ImageRegistryError(f"cannot lock image registry target {display_path}") from error
-
-    try:
-        yield
-    finally:
-        assert descriptor is not None
-        try:
-            fcntl.flock(descriptor, fcntl.LOCK_UN)
-        finally:
-            os.close(descriptor)
-
-
 def _validate_image_alias(name: str) -> Identifier:
     """Validate an image alias before deriving any filesystem path from it."""
     try:
         return _IDENTIFIER_ADAPTER.validate_python(name, strict=True)
     except ValidationError as error:
         raise ImageRegistryError(f"invalid image alias {name!r}") from error
-
-
-def _ensure_private_directory(path: Path, *, parents: bool) -> None:
-    path.mkdir(mode=_DIRECTORY_MODE, parents=parents, exist_ok=True)
-    with _open_verified_directory(path) as descriptor:
-        os.fchmod(descriptor, _DIRECTORY_MODE)
-
-
-@contextmanager
-def _open_verified_directory(path: Path) -> Iterator[int]:
-    descriptor: int | None = None
-    try:
-        before_open = path.lstat()
-        if not stat.S_ISDIR(before_open.st_mode):
-            raise OSError(f"registry directory {path} is not a directory")
-        flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
-        descriptor = os.open(path, flags)
-        after_open = os.fstat(descriptor)
-        if (before_open.st_dev, before_open.st_ino) != (after_open.st_dev, after_open.st_ino):
-            raise OSError(f"registry directory {path} changed while it was being opened")
-        if not stat.S_ISDIR(after_open.st_mode):
-            raise OSError(f"registry directory {path} is not a directory")
-        yield descriptor
-    finally:
-        if descriptor is not None:
-            os.close(descriptor)
-
-
-@contextmanager
-def _open_verified_child_directory(
-    parent_descriptor: int,
-    name: str,
-    display_path: Path,
-) -> Iterator[int]:
-    descriptor: int | None = None
-    try:
-        before_open = os.stat(name, dir_fd=parent_descriptor, follow_symlinks=False)
-        if not stat.S_ISDIR(before_open.st_mode):
-            raise OSError(f"registry directory {display_path} is not a directory")
-        flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
-        descriptor = os.open(name, flags, dir_fd=parent_descriptor)
-        after_open = os.fstat(descriptor)
-        if (before_open.st_dev, before_open.st_ino) != (after_open.st_dev, after_open.st_ino):
-            raise OSError(f"registry directory {display_path} changed while it was being opened")
-        if not stat.S_ISDIR(after_open.st_mode):
-            raise OSError(f"registry directory {display_path} is not a directory")
-        yield descriptor
-    finally:
-        if descriptor is not None:
-            os.close(descriptor)
-
-
-def _create_temporary_file(directory_descriptor: int) -> tuple[int, str]:
-    for _ in range(100):
-        name = f".registry.{secrets.token_hex(8)}.tmp"
-        try:
-            descriptor = os.open(
-                name,
-                os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0),
-                _FILE_MODE,
-                dir_fd=directory_descriptor,
-            )
-        except FileExistsError:
-            continue
-        return descriptor, name
-    raise OSError("cannot allocate a unique registry snapshot name")
-
-
-def _read_regular_text(directory_descriptor: int, name: str, display_path: Path) -> str:
-    descriptor: int | None = None
-    try:
-        before_open = os.stat(name, dir_fd=directory_descriptor, follow_symlinks=False)
-        if not stat.S_ISREG(before_open.st_mode):
-            raise OSError(f"registry path {display_path} is not a regular file")
-        descriptor = os.open(
-            name,
-            os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
-            dir_fd=directory_descriptor,
-        )
-        after_open = os.fstat(descriptor)
-        if (before_open.st_dev, before_open.st_ino) != (after_open.st_dev, after_open.st_ino):
-            raise OSError(f"registry path {display_path} changed while it was being opened")
-        registry_file = os.fdopen(descriptor, "r", encoding="utf-8")
-        descriptor = None
-        with registry_file:
-            return registry_file.read()
-    finally:
-        if descriptor is not None:
-            os.close(descriptor)
