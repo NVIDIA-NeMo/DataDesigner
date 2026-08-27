@@ -10,8 +10,8 @@ from enum import Enum
 from pydantic import Field, NonNegativeInt, PositiveInt, field_validator, model_validator
 
 from data_designer.slurm.config.environment import EnvironmentBinding
-from data_designer.slurm.config.vllm import (
-    QueueBackpressureConfig,
+from data_designer.slurm.config.vllm import QueueBackpressureConfig
+from data_designer.slurm.config.vllm_validation import (
     validate_vllm_environment_bindings,
     validate_vllm_extra_args,
     validate_vllm_readiness_path,
@@ -27,7 +27,7 @@ class VllmProcessRole(str, Enum):
     FOLLOWER = "follower"
 
 
-class VllmLaunchPolicy(ContractValue):
+class ResolvedVllmLaunchPolicy(ContractValue):
     """Resolved deployment-wide lifecycle, admission, and launch inputs."""
 
     startup_timeout_seconds: PositiveInt
@@ -41,17 +41,29 @@ class VllmLaunchPolicy(ContractValue):
     environment: dict[EnvironmentName, EnvironmentBinding] = Field(default_factory=dict)
 
     _readiness_path_is_safe = field_validator("readiness_path")(validate_vllm_readiness_path)
-    _extra_args_are_safe = field_validator("extra_args")(validate_vllm_extra_args)
-    _environment_is_safe = field_validator("environment")(validate_vllm_environment_bindings)
+
+    @field_validator("extra_args")
+    @classmethod
+    def validate_extra_args(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        validate_vllm_extra_args(values)
+        return values
+
+    @field_validator("environment")
+    @classmethod
+    def validate_environment(
+        cls, values: dict[EnvironmentName, EnvironmentBinding]
+    ) -> dict[EnvironmentName, EnvironmentBinding]:
+        validate_vllm_environment_bindings(values)
+        return values
 
     @model_validator(mode="after")
-    def validate_timeouts(self) -> VllmLaunchPolicy:
+    def validate_timeouts(self) -> ResolvedVllmLaunchPolicy:
         if self.distributed_init_timeout_seconds > self.startup_timeout_seconds:
             raise ValueError("distributed initialization timeout must not exceed startup timeout")
         return self
 
 
-class VllmRendezvousSpec(ContractValue):
+class ResolvedVllmRendezvous(ContractValue):
     """Planner-owned rendezvous inputs shared by one multi-node replica."""
 
     node_group_index: NonNegativeInt
@@ -61,7 +73,7 @@ class VllmRendezvousSpec(ContractValue):
     timeout_seconds: PositiveInt
 
 
-class VllmProcessSpec(ContractValue):
+class ResolvedVllmProcess(ContractValue):
     """Typed, shell-free launch specification for one vLLM process."""
 
     process_id: Identifier
@@ -76,11 +88,11 @@ class VllmProcessSpec(ContractValue):
     tensor_parallel: PositiveInt
     pipeline_parallel: PositiveInt
     http_port: NetworkPort | None = None
-    rendezvous: VllmRendezvousSpec | None = None
+    rendezvous: ResolvedVllmRendezvous | None = None
     launch_delay_seconds: NonNegativeInt
 
     @model_validator(mode="after")
-    def validate_process(self) -> VllmProcessSpec:
+    def validate_process(self) -> ResolvedVllmProcess:
         if self.gpu_indices != tuple(sorted(set(self.gpu_indices))):
             raise ValueError("process GPU indices must be sorted and unique")
         if len(self.gpu_indices) != self.tensor_parallel:

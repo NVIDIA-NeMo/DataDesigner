@@ -8,7 +8,6 @@ from __future__ import annotations
 import hashlib
 import json
 import posixpath
-import re
 from collections.abc import Mapping
 from typing import TypeVar
 from urllib.parse import urlsplit
@@ -34,7 +33,7 @@ from data_designer.slurm.types import (
     ShardId,
 )
 
-# TODO: Remove these compatibility exports after Stage 2 branches use slurm.types and plain str model aliases.
+# TODO: Remove these compatibility exports after Stage 2 branches import shared scalars from slurm.types.
 ModelAlias = str
 
 _Key = TypeVar("_Key")
@@ -96,6 +95,7 @@ class ContractValue(BaseModel):
         extra="forbid",
         frozen=True,
         allow_inf_nan=False,
+        hide_input_in_errors=True,
         protected_namespaces=(),
         strict=True,
         validate_default=True,
@@ -117,6 +117,7 @@ class AuthoredConfig(ContractValue):
         return pretty_json(self.model_dump(mode="json"))
 
     def compute_sha256(self) -> Sha256Digest:
+        """Compute the digest of the exact bytes written by ``serialize_json``."""
         return hashlib.sha256(self.serialize_json().encode("utf-8")).hexdigest()
 
 
@@ -163,20 +164,13 @@ def pretty_json(value: object) -> str:
     )
 
 
-def compute_sha256(value: object) -> Sha256Digest:
+def compute_canonical_json_sha256(value: object) -> Sha256Digest:
     """Compute the canonical JSON digest of a JSON-compatible value."""
     return hashlib.sha256(canonical_json(value)).hexdigest()
 
 
-def convert_duration_to_seconds(value: str) -> int:
-    """Convert a validated Slurm duration value to whole seconds."""
-    factor = {"s": 1, "m": 60, "h": 3600, "d": 86400}[value[-1]]
-    return int(value[:-1]) * factor
-
-
-def extract_option_flag(value: str) -> str:
-    """Extract the option name from one shell-free argument value."""
-    return re.split(r"[=\s]", value.lstrip(), maxsplit=1)[0]
+# TODO: Remove after in-flight Stage 2 branches adopt the explicit canonical-JSON digest name.
+compute_sha256 = compute_canonical_json_sha256
 
 
 def validate_absolute_path(value: str) -> str:
@@ -290,7 +284,6 @@ __all__ = [
     "Duration",
     "EnvironmentName",
     "Identifier",
-    "ModelAlias",
     "NetworkPort",
     "NonNegativeDuration",
     "RecordRange",
@@ -299,9 +292,7 @@ __all__ = [
     "Sha256Digest",
     "ShardId",
     "canonical_json",
-    "compute_sha256",
-    "convert_duration_to_seconds",
-    "extract_option_flag",
+    "compute_canonical_json_sha256",
     "pretty_json",
     "validate_absolute_path",
     "validate_local_config_path",

@@ -18,13 +18,17 @@ __all__ = [
     "EnvironmentBinding",
     "LiteralEnvironmentBinding",
     "SecretRef",
-    "contains_secret_key",
-    "is_secret_name",
-    "validate_environment_bindings",
 ]
 
 
 class LiteralEnvironmentBinding(AuthoredConfig):
+    """Literal, non-secret environment value materialized for a Slurm process.
+
+    Attributes:
+        type: Discriminator for serialized environment bindings.
+        value: Plain-text value. Secret-shaped environment names cannot use this binding.
+    """
+
     type: Literal["literal"]
     value: Annotated[str, StringConstraints(max_length=4096)]
 
@@ -35,6 +39,16 @@ class LiteralEnvironmentBinding(AuthoredConfig):
 
 
 class SecretRef(AuthoredConfig):
+    """Reference to a login-environment variable containing secret material.
+
+    The referenced value is materialized only at the runtime boundary and is never
+    persisted into authored or resolved contracts.
+
+    Attributes:
+        type: Discriminator for serialized environment bindings.
+        environment: Name of the source variable in the trusted login environment.
+    """
+
     type: Literal["secret"]
     environment: EnvironmentName
 
@@ -45,20 +59,8 @@ EnvironmentBinding = Annotated[
 ]
 
 
-def contains_secret_key(value: object) -> bool:
-    """Return whether a nested mapping contains a non-null secret-shaped field."""
-    if isinstance(value, Mapping):
-        return any(
-            (_is_secret_payload_name(str(key)) and item is not None) or contains_secret_key(item)
-            for key, item in value.items()
-        )
-    if isinstance(value, list | tuple):
-        return any(contains_secret_key(item) for item in value)
-    return False
-
-
-def is_secret_name(value: str) -> bool:
-    """Return whether a field or environment name conventionally carries a secret."""
+def is_secret_bearing_name(value: str) -> bool:
+    """Return whether a Slurm-owned name conventionally carries secret material."""
     segments = _secret_name_segments(value)
     return bool(
         _SECRET_NAME_PARTS.intersection(segments)
@@ -67,28 +69,16 @@ def is_secret_name(value: str) -> bool:
     )
 
 
-def validate_environment_bindings(
-    values: dict[EnvironmentName, EnvironmentBinding],
-) -> dict[EnvironmentName, EnvironmentBinding]:
+def validate_environment_bindings(values: Mapping[EnvironmentName, EnvironmentBinding]) -> None:
     """Reject literal values for environment variables that look secret-bearing."""
-    literal_secrets = [
-        name
+    if any(
+        is_secret_bearing_name(name) and isinstance(binding, LiteralEnvironmentBinding)
         for name, binding in values.items()
-        if is_secret_name(name) and isinstance(binding, LiteralEnvironmentBinding)
-    ]
-    if literal_secrets:
+    ):
         raise ValueError("secret-shaped environment names require external secret references")
-    return values
 
 
-_NON_SECRET_PAYLOAD_KEYS = frozenset({"idempotency_key", "partition_key", "primary_key", "sort_key"})
 _SECRET_NAME_PARTS = frozenset({"credential", "credentials", "password", "secret", "token"})
-
-
-def _is_secret_payload_name(value: str) -> bool:
-    segments = _secret_name_segments(value)
-    normalized = "_".join(segments)
-    return normalized not in _NON_SECRET_PAYLOAD_KEYS and is_secret_name(value)
 
 
 def _secret_name_segments(value: str) -> list[str]:

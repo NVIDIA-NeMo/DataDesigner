@@ -26,15 +26,13 @@ from data_designer.slurm.config.environment import (
     EnvironmentBinding,
     LiteralEnvironmentBinding,
     SecretRef,
-    contains_secret_key,
-    is_secret_name,
+    is_secret_bearing_name,
     validate_environment_bindings,
 )
 from data_designer.slurm.config.images import ImageRef
 from data_designer.slurm.config.vllm import QueueBackpressureConfig, VllmServerConfig
 from data_designer.slurm.contracts import (
     AuthoredConfig,
-    extract_option_flag,
     validate_absolute_path,
     validate_local_config_path,
     validate_plain_text,
@@ -95,8 +93,6 @@ class BuilderInput(AuthoredConfig):
                 valid = isinstance(self.inline.get("columns"), list)
             if not valid:
                 raise ValueError("inline builder input must be one complete serialized Data Designer config")
-            if contains_secret_key(self.inline):
-                raise ValueError("inline builder input must not contain secret values")
         return self
 
 
@@ -146,12 +142,18 @@ class LocalStdioMCPProviderConfig(AuthoredConfig):
     def validate_args(cls, values: list[str]) -> list[str]:
         for value in values:
             validate_plain_text(value, field_name="MCP argument")
-            option = extract_option_flag(value).lstrip("-")
-            if is_secret_name(option):
+            option = value.partition("=")[0].lstrip("-")
+            if is_secret_bearing_name(option):
                 raise ValueError("secret-shaped MCP arguments must use an environment secret reference")
         return values
 
-    _environment_uses_secret_references = field_validator("environment")(validate_environment_bindings)
+    @field_validator("environment")
+    @classmethod
+    def validate_environment(
+        cls, values: dict[EnvironmentName, EnvironmentBinding]
+    ) -> dict[EnvironmentName, EnvironmentBinding]:
+        validate_environment_bindings(values)
+        return values
 
 
 MCPProviderConfig = Annotated[
@@ -205,11 +207,11 @@ class ClientDependencies(AuthoredConfig):
         for value in values:
             validate_plain_text(value, field_name="dependency requirement")
             if value != value.strip() or value.startswith(("-e ", "/", "./", "../")) or "git+" in value:
-                raise ValueError(f"dependency requirement must identify a package or immutable wheel: {value!r}")
+                raise ValueError("dependency requirement must identify a package or immutable wheel")
             try:
                 requirement = Requirement(value)
             except InvalidRequirement as error:
-                raise ValueError(f"invalid dependency requirement: {value!r}") from error
+                raise ValueError("invalid dependency requirement") from error
             if requirement.marker is not None:
                 raise ValueError("dependency requirement environment markers are not supported")
             if requirement.url is not None:

@@ -94,12 +94,36 @@ def test_client_dependencies_accept_digest_bound_wheel() -> None:
     assert dependencies.requirements is not None
 
 
+def test_rejected_dependency_does_not_appear_in_validation_error() -> None:
+    sentinel = "VERY_SECRET_VALUE"
+
+    with pytest.raises(ValidationError) as error:
+        ClientDependencies(requirements=[f"not valid {sentinel} !!!"])
+
+    assert sentinel not in str(error.value)
+
+
 def test_secret_reference_serializes_only_external_binding() -> None:
     secret = SecretRef(type="secret", environment="HF_TOKEN")
+    sentinel = "VERY_SECRET_VALUE"
 
     assert secret.model_dump(mode="json") == {"type": "secret", "environment": "HF_TOKEN"}
-    with pytest.raises(ValidationError):
-        SecretRef.model_validate({"type": "secret", "environment": "HF_TOKEN", "value": "secret-value"})
+    with pytest.raises(ValidationError) as error:
+        SecretRef.model_validate({"type": "secret", "environment": "HF_TOKEN", "value": sentinel})
+    assert sentinel not in str(error.value)
+
+
+def test_rejected_secret_argument_does_not_appear_in_validation_error() -> None:
+    sentinel = "VERY_SECRET_VALUE"
+
+    with pytest.raises(ValidationError) as error:
+        VllmServerConfig(
+            type="vllm",
+            image=ImageRef(name="vllm"),
+            extra_args=[f"--api-key={sentinel}"],
+        )
+
+    assert sentinel not in str(error.value)
 
 
 def test_literal_environment_rejects_control_characters() -> None:
@@ -324,9 +348,10 @@ def test_vllm_allows_builtin_parser_selection() -> None:
         ['--additional-config={"nested":{"worker_cls":"custom.Worker"}}'],
     ],
 )
-def test_vllm_rejects_plugin_hooks_nested_in_json_arguments(extra_args: list[str]) -> None:
-    with pytest.raises(ValidationError, match="owned"):
-        VllmServerConfig(type="vllm", image=ImageRef(name="vllm"), extra_args=extra_args)
+def test_vllm_does_not_interpret_plugin_hooks_nested_in_json_arguments(extra_args: list[str]) -> None:
+    config = VllmServerConfig(type="vllm", image=ImageRef(name="vllm"), extra_args=extra_args)
+
+    assert config.extra_args == extra_args
 
 
 @pytest.mark.parametrize(
@@ -336,9 +361,10 @@ def test_vllm_rejects_plugin_hooks_nested_in_json_arguments(extra_args: list[str
         ['--hf-overrides={"nested":{"access_token":"plaintext-secret"}}'],
     ],
 )
-def test_vllm_rejects_secret_shaped_json_arguments(extra_args: list[str]) -> None:
-    with pytest.raises(ValidationError, match="secret-shaped"):
-        VllmServerConfig(type="vllm", image=ImageRef(name="vllm"), extra_args=extra_args)
+def test_vllm_does_not_interpret_plugin_owned_json_arguments(extra_args: list[str]) -> None:
+    config = VllmServerConfig(type="vllm", image=ImageRef(name="vllm"), extra_args=extra_args)
+
+    assert config.extra_args == extra_args
 
 
 def test_vllm_allows_nonsecret_json_arguments() -> None:
@@ -351,6 +377,14 @@ def test_vllm_allows_nonsecret_json_arguments() -> None:
     assert config.extra_args == ['--hf-overrides={"model_type":"custom"}']
 
 
+def test_vllm_preserves_argv_values_with_whitespace_and_templates() -> None:
+    extra_args = ["--hf-overrides", '{"model_type": "custom"}', "--chat-template={{messages}}"]
+
+    config = VllmServerConfig(type="vllm", image=ImageRef(name="vllm"), extra_args=extra_args)
+
+    assert config.extra_args == extra_args
+
+
 @pytest.mark.parametrize(
     "extra_args",
     [
@@ -358,9 +392,10 @@ def test_vllm_allows_nonsecret_json_arguments() -> None:
         ['--hf-overrides={"model_type":"custom"'],
     ],
 )
-def test_vllm_rejects_invalid_json_arguments(extra_args: list[str]) -> None:
-    with pytest.raises(ValidationError, match="valid JSON"):
-        VllmServerConfig(type="vllm", image=ImageRef(name="vllm"), extra_args=extra_args)
+def test_vllm_preserves_structured_values_for_runtime_validation(extra_args: list[str]) -> None:
+    config = VllmServerConfig(type="vllm", image=ImageRef(name="vllm"), extra_args=extra_args)
+
+    assert config.extra_args == extra_args
 
 
 @pytest.mark.parametrize(
@@ -561,9 +596,10 @@ def test_run_rejects_retired_builder_fields(authored_run: DataDesignerSlurmConfi
         "subscription_key",
     ],
 )
-def test_builder_input_rejects_secret_values(secret_key: str) -> None:
-    with pytest.raises(ValidationError, match="secret values"):
-        BuilderInput(inline={"columns": [], secret_key: "plaintext-secret"})
+def test_builder_input_does_not_interpret_plugin_owned_fields(secret_key: str) -> None:
+    inline = {"columns": [], "plugin_config": {secret_key: "opaque-plugin-value"}}
+
+    assert BuilderInput(inline=inline).inline == inline
 
 
 @pytest.mark.parametrize("plugin_key", ["sort_key", "partition_key", "primary_key", "idempotency_key"])

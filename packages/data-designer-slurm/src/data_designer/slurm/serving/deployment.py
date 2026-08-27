@@ -21,12 +21,12 @@ from data_designer.slurm.serving.endpoints import (
     ResolvedLogicalEndpoint,
     ResolvedReadinessProbe,
 )
-from data_designer.slurm.serving.vllm import VllmLaunchPolicy, VllmProcessSpec
+from data_designer.slurm.serving.vllm import ResolvedVllmLaunchPolicy, ResolvedVllmProcess
 from data_designer.slurm.types import Identifier
 
 
-class ResolvedServerDeployment(ContractValue):
-    """Complete runtime-neutral serving specification for one deployment."""
+class ResolvedVllmServerDeployment(ContractValue):
+    """Complete resolved vLLM serving specification for one deployment."""
 
     deployment_id: Identifier
     server_type: Literal["vllm"]
@@ -38,8 +38,8 @@ class ResolvedServerDeployment(ContractValue):
     node_indices: tuple[NonNegativeInt, ...] = Field(min_length=1)
     gpus_per_node: PositiveInt
     topology: ResolvedTopology
-    launch_policy: VllmLaunchPolicy
-    processes: tuple[VllmProcessSpec, ...] = Field(min_length=1)
+    launch_policy: ResolvedVllmLaunchPolicy
+    processes: tuple[ResolvedVllmProcess, ...] = Field(min_length=1)
     readiness_probes: tuple[ResolvedReadinessProbe, ...] = Field(min_length=1)
     backend_endpoints: tuple[ResolvedBackendEndpoint, ...] = Field(min_length=1)
     logical_endpoint: ResolvedLogicalEndpoint
@@ -53,8 +53,8 @@ class ResolvedServerDeployment(ContractValue):
         return validate_plain_text(value, field_name="model name")
 
     @model_validator(mode="after")
-    def validate_resolution(self) -> ResolvedServerDeployment:
-        inspection = self.image.inspection.inspection
+    def validate_resolution(self) -> ResolvedVllmServerDeployment:
+        inspection = self.image.inspection_facts
         if not isinstance(inspection, ServingImageInspection) or inspection.server_type != self.server_type:
             raise ValueError("resolved server image inspection must match the server type")
         if inspection.executable_path != self.executable_path:

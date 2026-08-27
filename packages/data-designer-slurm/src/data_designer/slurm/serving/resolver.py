@@ -6,77 +6,64 @@
 from __future__ import annotations
 
 from data_designer.slurm.config.images import ServingImageInspection
-from data_designer.slurm.config.run import ServerDeploymentConfig
+from data_designer.slurm.config.utils import convert_duration_to_seconds
 from data_designer.slurm.config.vllm import VllmServerConfig
-from data_designer.slurm.contracts import convert_duration_to_seconds
-from data_designer.slurm.planning.models import PortClaim, ResolvedDeployment, ResolvedSlurmRunPlan
-from data_designer.slurm.serving.deployment import ResolvedServerDeployment
+from data_designer.slurm.planning.models import PortClaim, ResolvedDeployment
+from data_designer.slurm.serving.deployment import ResolvedVllmServerDeployment
 from data_designer.slurm.serving.endpoints import (
     ResolvedBackendEndpoint,
     ResolvedLogicalEndpoint,
     ResolvedReadinessProbe,
 )
 from data_designer.slurm.serving.vllm import (
-    VllmLaunchPolicy,
+    ResolvedVllmLaunchPolicy,
+    ResolvedVllmProcess,
+    ResolvedVllmRendezvous,
     VllmProcessRole,
-    VllmProcessSpec,
-    VllmRendezvousSpec,
 )
-from data_designer.slurm.types import Identifier
 
 
-class ServerResolutionError(ValueError):
-    """Raised when planner inputs cannot produce a supported server specification."""
+class VllmServerResolutionError(ValueError):
+    """Raised when planner inputs cannot produce a supported vLLM server specification."""
 
 
-def resolve_server(
-    plan: ResolvedSlurmRunPlan,
-    deployment_id: Identifier,
-) -> ResolvedServerDeployment:
-    """Resolve one server deployment and its logical endpoint from a reviewed plan."""
-    placements = tuple(placement for placement in plan.deployments if placement.deployment_id == deployment_id)
-    if len(placements) != 1:
-        raise ServerResolutionError("resolved plan must contain exactly one deployment with the requested ID")
-    placement = placements[0]
-    expected_endpoint_id = f"{deployment_id}-logical-endpoint"
-    logical_endpoints = tuple(endpoint for endpoint in plan.client.ports if endpoint.name == expected_endpoint_id)
-    if len(logical_endpoints) != 1:
-        raise ServerResolutionError("resolved client must contain exactly one logical endpoint for the deployment")
-    deployment = placement.authored
-    match deployment.server:
-        case VllmServerConfig():
-            return _resolve_vllm(deployment, placement, logical_endpoints[0])
-    raise ServerResolutionError(f"unsupported server type: {deployment.server.type!r}")
+def resolve_vllm_server(
+    resolved_deployment: ResolvedDeployment,
+    logical_endpoint_port: PortClaim,
+) -> ResolvedVllmServerDeployment:
+    """Resolve one placed vLLM deployment before the complete run plan is assembled.
 
-
-def _resolve_vllm(
-    deployment: ServerDeploymentConfig,
-    placement: ResolvedDeployment,
-    logical_port: PortClaim,
-) -> ResolvedServerDeployment:
-    server = deployment.server
-    inspection = placement.image.inspection.inspection
+    Inspected runtime versions remain provenance. This resolver emits only the
+    baseline behavior required of every admitted vLLM image and therefore does not
+    maintain a package-version compatibility matrix.
+    """
+    expected_endpoint_id = f"{resolved_deployment.deployment_id}-logical-endpoint"
+    if logical_endpoint_port.name != expected_endpoint_id or logical_endpoint_port.role != "logical_endpoint":
+        raise VllmServerResolutionError("logical endpoint port must match the resolved deployment")
+    authored_deployment = resolved_deployment.authored
+    server = authored_deployment.server
+    inspection = resolved_deployment.image.inspection_facts
     if not isinstance(inspection, ServingImageInspection) or inspection.server_type != server.type:
-        raise ServerResolutionError("resolved serving image does not match the declared vLLM server")
-    if server.enable_expert_parallel and placement.topology.pipeline_parallel > 1:
-        raise ServerResolutionError("multi-node expert parallel is not supported in v1")
+        raise VllmServerResolutionError("resolved serving image does not match the declared vLLM server")
+    if server.enable_expert_parallel and resolved_deployment.topology.pipeline_parallel > 1:
+        raise VllmServerResolutionError("multi-node expert parallel is not supported in v1")
 
-    http_ports = tuple(port for port in placement.ports if port.role == "http")
-    rendezvous_ports = tuple(port for port in placement.ports if port.role == "rendezvous")
-    processes: list[VllmProcessSpec] = []
+    http_ports = tuple(port for port in resolved_deployment.ports if port.role == "http")
+    rendezvous_ports = tuple(port for port in resolved_deployment.ports if port.role == "rendezvous")
+    processes: list[ResolvedVllmProcess] = []
     backends: list[ResolvedBackendEndpoint] = []
     probes: list[ResolvedReadinessProbe] = []
-    nodes_per_replica = placement.topology.nodes_per_replica
-    replicas_per_node_group = placement.topology.replicas_per_node_group
-    tensor_parallel = placement.topology.tensor_parallel
+    nodes_per_replica = resolved_deployment.topology.nodes_per_replica
+    replicas_per_node_group = resolved_deployment.topology.replicas_per_node_group
+    tensor_parallel = resolved_deployment.topology.tensor_parallel
 
-    for node_group_index in range(placement.topology.node_group_count):
+    for node_group_index in range(resolved_deployment.topology.node_group_count):
         group_start = node_group_index * nodes_per_replica
-        group_nodes = placement.node_indices[group_start : group_start + nodes_per_replica]
+        group_nodes = resolved_deployment.node_indices[group_start : group_start + nodes_per_replica]
         for replica_index_in_node_group in range(replicas_per_node_group):
             deployment_replica_index = node_group_index * replicas_per_node_group + replica_index_in_node_group
             http_port = http_ports[deployment_replica_index]
-            backend_id = f"{placement.deployment_id}-backend-{deployment_replica_index:05d}"
+            backend_id = f"{resolved_deployment.deployment_id}-backend-{deployment_replica_index:05d}"
             backends.append(
                 ResolvedBackendEndpoint(
                     backend_id=backend_id,
@@ -85,12 +72,12 @@ def _resolve_vllm(
                     replica_index_in_node_group=replica_index_in_node_group,
                     node_index=http_port.node_index,
                     port=http_port.port,
-                    served_model_name=placement.served_model_name,
+                    served_model_name=resolved_deployment.served_model_name,
                 )
             )
             probes.append(
                 ResolvedReadinessProbe(
-                    probe_id=f"{placement.deployment_id}-readiness-{deployment_replica_index:05d}",
+                    probe_id=f"{resolved_deployment.deployment_id}-readiness-{deployment_replica_index:05d}",
                     backend_id=backend_id,
                     node_index=http_port.node_index,
                     port=http_port.port,
@@ -99,7 +86,7 @@ def _resolve_vllm(
                 )
             )
             rendezvous = _resolve_rendezvous(
-                placement,
+                resolved_deployment,
                 rendezvous_ports,
                 node_group_index=node_group_index,
                 replica_index_in_node_group=replica_index_in_node_group,
@@ -111,11 +98,12 @@ def _resolve_vllm(
             for pipeline_rank, node_index in enumerate(group_nodes):
                 is_head = pipeline_rank == 0
                 processes.append(
-                    VllmProcessSpec(
+                    ResolvedVllmProcess(
                         process_id=(
-                            f"{placement.deployment_id}-replica-{deployment_replica_index:05d}-rank-{pipeline_rank:05d}"
+                            f"{resolved_deployment.deployment_id}-replica-{deployment_replica_index:05d}"
+                            f"-rank-{pipeline_rank:05d}"
                         ),
-                        deployment_id=placement.deployment_id,
+                        deployment_id=resolved_deployment.deployment_id,
                         deployment_replica_index=deployment_replica_index,
                         node_group_index=node_group_index,
                         replica_index_in_node_group=replica_index_in_node_group,
@@ -124,25 +112,25 @@ def _resolve_vllm(
                         gpu_indices=gpu_indices,
                         role=VllmProcessRole.API_SERVER if is_head else VllmProcessRole.FOLLOWER,
                         tensor_parallel=tensor_parallel,
-                        pipeline_parallel=placement.topology.pipeline_parallel,
+                        pipeline_parallel=resolved_deployment.topology.pipeline_parallel,
                         http_port=http_port.port if is_head else None,
                         rendezvous=rendezvous,
                         launch_delay_seconds=launch_delay,
                     )
                 )
 
-    return ResolvedServerDeployment(
-        deployment_id=placement.deployment_id,
+    return ResolvedVllmServerDeployment(
+        deployment_id=resolved_deployment.deployment_id,
         server_type="vllm",
-        model_alias=deployment.model_alias,
-        model=deployment.model,
-        served_model_name=placement.served_model_name,
-        image=placement.image,
+        model_alias=authored_deployment.model_alias,
+        model=authored_deployment.model,
+        served_model_name=resolved_deployment.served_model_name,
+        image=resolved_deployment.image,
         executable_path=inspection.executable_path,
-        node_indices=placement.node_indices,
-        gpus_per_node=placement.gpus_per_node,
-        topology=placement.topology,
-        launch_policy=VllmLaunchPolicy(
+        node_indices=resolved_deployment.node_indices,
+        gpus_per_node=resolved_deployment.gpus_per_node,
+        topology=resolved_deployment.topology,
+        launch_policy=ResolvedVllmLaunchPolicy(
             startup_timeout_seconds=convert_duration_to_seconds(server.startup_timeout),
             distributed_init_timeout_seconds=convert_duration_to_seconds(server.distributed_init_timeout),
             lead_boot_standoff_seconds=convert_duration_to_seconds(server.lead_boot_standoff),
@@ -157,33 +145,33 @@ def _resolve_vllm(
         readiness_probes=tuple(probes),
         backend_endpoints=tuple(backends),
         logical_endpoint=ResolvedLogicalEndpoint(
-            endpoint_id=logical_port.name,
-            model_alias=deployment.model_alias,
-            served_model_name=placement.served_model_name,
-            node_index=logical_port.node_index,
-            port=logical_port.port,
+            endpoint_id=logical_endpoint_port.name,
+            model_alias=authored_deployment.model_alias,
+            served_model_name=resolved_deployment.served_model_name,
+            node_index=logical_endpoint_port.node_index,
+            port=logical_endpoint_port.port,
             backend_ids=tuple(backend.backend_id for backend in backends),
         ),
     )
 
 
 def _resolve_rendezvous(
-    placement: ResolvedDeployment,
+    resolved_deployment: ResolvedDeployment,
     rendezvous_ports: tuple[PortClaim, ...],
     *,
     node_group_index: int,
     replica_index_in_node_group: int,
     deployment_replica_index: int,
-) -> VllmRendezvousSpec | None:
-    if placement.topology.pipeline_parallel == 1:
+) -> ResolvedVllmRendezvous | None:
+    if resolved_deployment.topology.pipeline_parallel == 1:
         return None
     port = rendezvous_ports[deployment_replica_index]
-    return VllmRendezvousSpec(
+    return ResolvedVllmRendezvous(
         node_group_index=node_group_index,
         replica_index_in_node_group=replica_index_in_node_group,
         master_node_index=port.node_index,
         port=port.port,
-        timeout_seconds=convert_duration_to_seconds(placement.authored.server.distributed_init_timeout),
+        timeout_seconds=convert_duration_to_seconds(resolved_deployment.authored.server.distributed_init_timeout),
     )
 
 

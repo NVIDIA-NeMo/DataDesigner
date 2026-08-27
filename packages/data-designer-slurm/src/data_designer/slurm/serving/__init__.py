@@ -1,33 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Pure server resolution for Data Designer Slurm."""
+"""Internal server-resolution implementation for Data Designer Slurm."""
 
 from __future__ import annotations
-
-from data_designer.slurm.serving.deployment import ResolvedServerDeployment
-from data_designer.slurm.serving.endpoints import (
-    ResolvedBackendEndpoint,
-    ResolvedLogicalEndpoint,
-    ResolvedReadinessProbe,
-)
-from data_designer.slurm.serving.resolver import ServerResolutionError, resolve_server
-from data_designer.slurm.serving.vllm import (
-    VllmLaunchPolicy,
-    VllmProcessRole,
-    VllmProcessSpec,
-    VllmRendezvousSpec,
-)
-
-__all__ = [
-    "ResolvedBackendEndpoint",
-    "ResolvedLogicalEndpoint",
-    "ResolvedReadinessProbe",
-    "ResolvedServerDeployment",
-    "ServerResolutionError",
-    "VllmLaunchPolicy",
-    "VllmProcessRole",
-    "VllmProcessSpec",
-    "VllmRendezvousSpec",
-    "resolve_server",
-]

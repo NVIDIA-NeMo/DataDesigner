@@ -14,11 +14,13 @@ from pydantic import Field, JsonValue, NonNegativeInt, PositiveInt, StringConstr
 
 from data_designer.config import RunConfig
 from data_designer.slurm.config.images import (
+    ClientImageInspection,
     DistributionName,
     ImageInspectionRecord,
     ImageKind,
     ImageRef,
     InstalledDistribution,
+    ServingImageInspection,
 )
 from data_designer.slurm.config.profiles import ContainerMount, SelectedSlurmProfile
 from data_designer.slurm.config.run import (
@@ -34,12 +36,11 @@ from data_designer.slurm.contracts import (
     ContractRecord,
     ContractValue,
     Identifier,
-    ModelAlias,
     RecordRange,
     ResumeWorkspace,
     Sha256Digest,
     ShardId,
-    compute_sha256,
+    compute_canonical_json_sha256,
     validate_absolute_path,
     validate_local_config_path,
     validate_plain_text,
@@ -74,6 +75,11 @@ class ResolvedImage(ContractValue):
     @property
     def kind(self) -> ImageKind:
         return self.inspection.inspection.kind
+
+    @property
+    def inspection_facts(self) -> ClientImageInspection | ServingImageInspection:
+        """Return factual image inspection data without exposing record nesting to consumers."""
+        return self.inspection.inspection
 
 
 class LockedPackage(ContractValue):
@@ -152,8 +158,8 @@ class ResolvedBuilderInput(ContractValue):
     source: ArtifactReference | None = None
     inline: dict[str, JsonValue] | None = None
     content_sha256: Sha256Digest
-    model_aliases: tuple[ModelAlias, ...]
-    referenced_model_aliases: tuple[ModelAlias, ...] = ()
+    model_aliases: tuple[str, ...]
+    referenced_model_aliases: tuple[str, ...] = ()
 
     @model_validator(mode="after")
     def validate_input(self) -> ResolvedBuilderInput:
@@ -162,7 +168,7 @@ class ResolvedBuilderInput(ContractValue):
         if self.source is None:
             if self.authored_source is not None:
                 raise ValueError("inline builder input cannot contain authored_source")
-            expected_digest = compute_sha256(self.inline)
+            expected_digest = compute_canonical_json_sha256(self.inline)
             model_aliases, referenced_aliases = _extract_builder_aliases(self.inline)
             if self.model_aliases != model_aliases:
                 raise ValueError("resolved model aliases do not match the inline builder")
@@ -484,7 +490,7 @@ def _is_below(path: str, root: str) -> bool:
     return path != root and posixpath.commonpath((path, root)) == root
 
 
-def _extract_builder_aliases(builder: dict[str, JsonValue]) -> tuple[tuple[ModelAlias, ...], tuple[ModelAlias, ...]]:
+def _extract_builder_aliases(builder: dict[str, JsonValue]) -> tuple[tuple[str, ...], tuple[str, ...]]:
     data_designer = builder.get("data_designer", builder)
     if not isinstance(data_designer, dict):
         raise ValueError("builder data_designer value must be an object")
@@ -492,13 +498,13 @@ def _extract_builder_aliases(builder: dict[str, JsonValue]) -> tuple[tuple[Model
     if not isinstance(model_configs, list):
         raise ValueError("builder model_configs must be a list")
 
-    model_aliases: list[ModelAlias] = []
+    model_aliases: list[str] = []
     for model_config in model_configs:
         if not isinstance(model_config, dict) or not isinstance(model_config.get("alias"), str):
             raise ValueError("each builder model config must contain a string alias")
         model_aliases.append(model_config["alias"])
 
-    referenced_aliases: list[ModelAlias] = []
+    referenced_aliases: list[str] = []
 
     def collect(value: JsonValue, *, key: str | None = None) -> None:
         if key == "model_configs":

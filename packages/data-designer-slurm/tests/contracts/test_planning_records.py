@@ -10,7 +10,7 @@ import pytest
 from pydantic import ValidationError
 
 from data_designer.slurm.config import BuilderInput, ClientDependencies, DataDesignerSlurmConfig
-from data_designer.slurm.contracts import compute_sha256
+from data_designer.slurm.contracts import compute_canonical_json_sha256
 from data_designer.slurm.planning import (
     ArtifactReference,
     PlanContractError,
@@ -160,7 +160,7 @@ def test_plan_rejects_deployment_alias_missing_from_builder(multi_node_plan: Res
         "model_configs"
     ][:1]
     payload["builder"]["model_aliases"] = ["generator"]
-    payload["builder"]["content_sha256"] = compute_sha256(payload["builder"]["inline"])
+    payload["builder"]["content_sha256"] = compute_canonical_json_sha256(payload["builder"]["inline"])
 
     with pytest.raises(ValidationError, match="deployment alias"):
         ResolvedSlurmRunPlan.model_validate_json(json.dumps(payload))
@@ -170,7 +170,7 @@ def test_plan_rejects_referenced_alias_without_deployment(multi_node_plan: Resol
     payload = multi_node_plan.model_dump(mode="json")
     payload["builder"]["inline"]["data_designer"]["columns"] = [{"model_alias": "missing"}]
     payload["builder"]["referenced_model_aliases"] = ["missing"]
-    payload["builder"]["content_sha256"] = compute_sha256(payload["builder"]["inline"])
+    payload["builder"]["content_sha256"] = compute_canonical_json_sha256(payload["builder"]["inline"])
 
     with pytest.raises(ValidationError, match="referenced Data Designer model alias"):
         ResolvedSlurmRunPlan.model_validate_json(json.dumps(payload))
