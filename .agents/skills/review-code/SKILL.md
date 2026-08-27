@@ -111,10 +111,10 @@ Before diving into details, build a mental model:
 4. **Identify the primary goal** (feature, refactor, bugfix, etc.)
 5. **Note cross-cutting concerns** (e.g., a rename that touches many files vs. substantive logic changes)
 6. **Check existing feedback** (PR mode): inspect both inline comments (Step 1, item 5) and PR-level review bodies (Step 1, item 5b) so you don't duplicate feedback already given
-7. **Classify the contract impact**: note whether the change introduces or modifies public/exported symbols, config or model schemas, serialized formats, extension/plugin boundaries, or builder APIs
-8. **Inventory the changed contract**: list every new or modified public symbol and public model field, including its subsystem, value kind, lifecycle stage (for example, authored, resolved, compiled, or runtime), and expected callers
+7. **Classify the contract impact**: note whether the change introduces or modifies public/exported symbols, config or model schemas, serialized formats, extension/plugin boundaries, or builder APIs. If none apply, skip items 8-10 and continue to Step 3.5.
+8. **Inventory the changed contract**: list each new or modified public symbol and public model field with its expected callers
 9. **Map invariant ownership**: identify where each new rule is parsed, normalized, validated, resolved, and compiled so duplicated checks and unclear responsibility are visible before the detailed review
-10. **Find the closest existing analogue**: compare the complete neighboring API surface—not just individual names—for builder vocabulary, type precision, export strategy, errors, and documentation depth
+10. **Find the closest existing analogue**: compare the complete neighboring API surface—not just individual names—for builder vocabulary, type precision, export strategy, errors, and contract clarity
 
 ## Step 3.5: Structural Impact (if available)
 
@@ -183,11 +183,11 @@ Re-read the changed files with a focus on **structure and design of the new/modi
 - Is there one canonical public entry point per operation, or do class methods plus module-level wrappers expose redundant APIs?
 - Is each invariant enforced once at the narrowest authoritative layer, rather than repeated or recomputed across models, resolution, compilation, and validation?
 - Are new or modified public signatures clear and minimal?
-- Do generic helpers and `TypeVar`s eliminate enough real duplication to justify their cognitive cost, and do their names follow the surrounding `*T` convention?
+- Do generic helpers and `TypeVar`s eliminate enough real duplication to justify their cognitive cost, and are their names consistent with those already used in the changed module?
 - Are return types precise (not overly broad like `Any`)?
 - Could the new API be misused easily? Is it hard to use incorrectly?
 - Are breaking changes to existing interfaces intentional and documented?
-- Unnecessary wrapper functions or dead code left behind after refactors
+- Dead code left behind after refactors
 - Scalability: in-memory operations that could OOM on large datasets
 - Raw exceptions leaking instead of being normalized to project error types (see AGENTS.md / interface errors)
 - Obvious inefficiencies introduced by this change (N+1 queries, repeated computation, unnecessary copies)
@@ -195,21 +195,20 @@ Re-read the changed files with a focus on **structure and design of the new/modi
 
 **Public interface inventory (mandatory when Step 3 identifies contract impact):**
 
-Review every item in the Step 3 inventory individually. Do not infer that a coherent-looking module implies a coherent public API.
+Review every item in the Step 3 inventory individually, using the invariant map and neighboring analogue built there. Do not infer that a coherent-looking module implies a coherent public API.
 
-- Does the name identify the subsystem and the value's actual role or lifecycle? Avoid context-free names such as `Value`, `Contract`, `authored`, or `submission` when callers need to distinguish authored config from resolved state or an artifact reference from loaded data.
-- Does the parameter or field name match the concrete value it contains? A reference, digest, compiled plan, or resolved config should not be named as though it were the underlying artifact, raw input, or authored declaration.
+- Does each name identify the value's actual role or lifecycle when callers need that distinction?
+- Does each parameter or field name match the concrete value it contains rather than an earlier or later representation?
 - Are public Python inputs expressed with concrete config/model classes where those classes already define the contract? Broad `Mapping[str, object]`, `dict[str, Any]`, or `**kwargs` inputs add normalization branches and weaken discoverability unless accepting arbitrary mappings is an explicit requirement.
 - Does the API vocabulary match neighboring builders and established cardinality? For example, repeatable collection operations should follow the existing `add_*` convention, while `with_*` should retain its established singleton/configuration meaning.
 - Is every exported symbol meant to become a compatibility commitment? Keep implementation bases, compiler internals, and shared utilities private unless external callers need them.
 - Are exceptions named and located at the right subsystem boundary? Avoid generic names that become ambiguous when imported, and prefer the project's canonical error hierarchy over parallel local taxonomies.
-- Do public docstrings explain non-obvious parameter semantics, accepted representations, return values, lifecycle transitions, and raised project errors in proportion to the signature's complexity?
+- Can callers determine parameter semantics, accepted representations, return values, lifecycle transitions, and raised project errors from the public contract itself? Flag ambiguous or incomplete API design, not missing comments or docstrings.
 
 **Boundary and representation checks:**
 
 - Treat plugin-owned or opaque payloads as opaque. Core code may validate a stable envelope it owns, but should not infer extension semantics from familiar-looking keys or current built-in payload shapes.
 - Test the boundary with an unfamiliar future extension value. If valid unknown fields or plugin payloads are rejected, stripped, or reinterpreted, the abstraction is not actually extensible.
-- If identity, hashing, or signing is involved, trace the exact bytes from serialization through hashing. Serialization and digest construction should have one owner, and names should distinguish a digest, canonical representation, and logical identity.
 - At exception boundaries, inspect both the public exception and its chained cause. The wrapper should give stable project context without hiding the actionable third-party validation detail.
 
 **Documentation alignment (same pass — scoped, not a full docs audit):**
@@ -248,7 +247,7 @@ Verify the items below on lines introduced or changed by this branch. Refer to `
 - Modern type syntax (`list[str]`, `str | None` — not `List[str]`, `Optional[str]`)
 - Absolute imports only (no relative imports)
 - Lazy loading for heavy third-party imports via `lazy_heavy_imports` + `TYPE_CHECKING`
-- Naming: snake_case functions starting with a verb, PascalCase classes, UPPER_SNAKE_CASE constants; names also communicate subsystem, lifecycle, and value kind where ambiguity would otherwise leak to callers
+- Naming: snake_case functions starting with a verb, PascalCase classes, UPPER_SNAKE_CASE constants
 - No vacuous comments — comments only for non-obvious intent
 - Public before private ordering in new classes
 - Design principles: DRY (extract on third occurrence), KISS (flat over clever), YAGNI (no speculative abstractions)
@@ -272,6 +271,7 @@ For new or substantially expanded production modules, also use complexity rules 
 ```
 
 Do not report a metric violation by itself. Use it to identify functions or modules that need a closer cohesion, responsibility, and maintainability review, then report the concrete design problem if one exists.
+Expect broad signals in config- or builder-heavy modules; pursue a violation only when it coincides with a concrete cohesion or ownership concern.
 
 If the branch isn't checked out locally (e.g., external fork in PR mode), skip this step and note it in the review.
 
@@ -327,14 +327,14 @@ Call out 2-3 things done well (good abstractions, thorough tests, clean refactor
 
 ### Verdict
 
-Choose the verdict that matches the **highest severity** finding in the review:
+Choose the verdict that matches the **highest severity confirmed finding** in the review. If there are no confirmed Critical or Warning findings but a design question cannot be resolved without team input, use **Needs discussion**.
 
 - **Ship it** — No findings. Ready to merge as-is.
 - **Ship it (with nits)** — Only Suggestions (see above — style improvements, simplifications, or optional enhancements). Nothing blocking.
 - **Needs changes** — Any Critical or Warning findings. List the items that must be addressed before merge.
-- **Needs discussion** — Architectural or design questions that need team input before a decision can be made.
+- **Needs discussion** — No confirmed Critical or Warning findings, but an architectural or design question needs team input before a decision can be made.
 
-An unresolved foundational contract question is not a nit: use **Needs discussion** while the design choice is open, or **Needs changes** when the review identifies a concrete merge blocker. Do not use a **Ship it** verdict merely because the risk is design debt rather than an immediate runtime bug.
+A confirmed foundational contract flaw is Critical and requires **Needs changes**. Reserve **Needs discussion** for uncertainty that requires team input. Do not use any **Ship it** verdict (including **Ship it (with nits)**) while either remains unresolved.
 
 ### Signature (PR mode only)
 
@@ -377,7 +377,8 @@ In branch mode, skip this step — display the review to the user and note the t
 - Issues that are supposed to be caught by CI (linter, typechecker, formatter) — mention "run `make check-all`" if relevant, but don't list every style nit
 - Pre-existing issues on unmodified lines
 - Pedantic nits that don't affect correctness or maintainability
-- Intentional functionality or API changes that are clearly documented, unless the new design introduces a concrete correctness, maintainability, extensibility, or compatibility risk
+- Missing comments or docstrings when behavior and the public contract are otherwise clear; flag the underlying ambiguity when they are not
+- Intentional functionality or API changes that are clearly documented, unless the new design introduces a concrete correctness, extensibility, or compatibility risk, or a maintainability risk that would require a breaking change to correct
 
 ## Edge Cases
 
