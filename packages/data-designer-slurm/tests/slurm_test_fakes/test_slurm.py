@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from data_designer.slurm.state import SchedulerIdentity
-from slurm_test_fakes import FakeCommandResponse, FakeSlurmArray, FakeSlurmRunner, FakeSlurmTask
+from slurm_test_fakes import FakeCommandResponse, FakeSlurmArray, FakeSlurmJob, FakeSlurmRunner, FakeSlurmTask
 
 GOLDEN_DIRECTORY = Path(__file__).parent / "golden" / "slurm"
 SQUEUE_ARGUMENTS = ("--noheader", "--array", "--format=%i|%T")
@@ -139,6 +139,25 @@ def test_fake_slurm_runner_models_cancellation(
     expected_tasks = (0, 1) if target == "4101" else (1,)
     for task_id in expected_tasks:
         assert f"4101_{task_id}|CANCELLED|0:15" in accounting
+
+
+def test_fake_slurm_runner_models_ordinary_job_lifecycle_and_cancellation() -> None:
+    runner = FakeSlurmRunner(jobs=(FakeSlurmJob(job_id=5101),))
+
+    assert runner.run(("sbatch", "--parsable", "image-build.sbatch"), check=True).stdout == "5101\n"
+    assert runner.run(("squeue", *SQUEUE_ARGUMENTS, "--jobs=5101"), check=True).stdout == "5101|PENDING\n"
+
+    assert runner.run(("scancel", "5101"), check=True).returncode == 0
+    assert runner.run(("squeue", *SQUEUE_ARGUMENTS, "--jobs=5101"), check=True).stdout == ""
+    assert runner.run(("sacct", *SACCT_ARGUMENTS, "--jobs=5101"), check=True).stdout == "5101|CANCELLED|0:15\n"
+
+
+def test_fake_slurm_runner_rejects_duplicate_job_ids() -> None:
+    ordinary_job = FakeSlurmJob(job_id=4101)
+    array = FakeSlurmArray(tasks=(FakeSlurmTask(scheduler=SchedulerIdentity(array_job_id=4101, array_task_id=0)),))
+
+    with pytest.raises(ValueError, match="unique job IDs"):
+        FakeSlurmRunner((array,), jobs=(ordinary_job,))
 
 
 def test_fake_slurm_runner_supports_malformed_output_and_command_failures(

@@ -3,15 +3,20 @@
 
 from __future__ import annotations
 
+import hashlib
+import os
+import shlex
 import subprocess
+import tarfile
 from pathlib import Path
 from typing import Literal
 
 import pytest
 
-from data_designer.slurm.config import ArrayTasksConfig, SchedulerProfile, injected_profile
+from data_designer.slurm.config import SchedulerProfile, injected_profile
 from data_designer.slurm.contracts import ArtifactReference
-from data_designer.slurm.launcher import BatchRenderError, render_batch_script
+from data_designer.slurm.launcher.errors import SlurmBatchRenderError
+from data_designer.slurm.launcher.renderer import render_generation_attempt_script
 from data_designer.slurm.planning import ResolvedSlurmRunPlan, ResolvedSubmission
 
 GOLDEN_DIRECTORY = Path(__file__).parents[1] / "slurm_test_fakes" / "golden" / "rendered"
@@ -28,7 +33,7 @@ def test_renderer_matches_contract_bound_goldens(
 ) -> None:
     plan = request.getfixturevalue(plan_fixture)
 
-    assert render_batch_script(plan) == (GOLDEN_DIRECTORY / fixture_name).read_text()
+    assert render_generation_attempt_script(plan, attempt_ordinal=1) == (GOLDEN_DIRECTORY / fixture_name).read_text()
 
 
 def test_renderer_omits_gres_for_visible_mode_and_emits_optional_submission_fields(
@@ -53,7 +58,7 @@ def test_renderer_omits_gres_for_visible_mode_and_emits_optional_submission_fiel
         }
     )
 
-    script = render_batch_script(plan)
+    script = render_generation_attempt_script(plan, attempt_ordinal=1)
 
     assert "#SBATCH --gres=" not in script
     assert "#SBATCH --account=" not in script
@@ -67,7 +72,7 @@ def test_renderer_emits_mem_per_gpu_for_gres_mode(single_node_plan: ResolvedSlur
     )
     plan = single_node_plan.model_copy(update={"selected_profile": injected_profile(profile)})
 
-    assert "#SBATCH --mem-per-gpu=80G\n" in render_batch_script(plan)
+    assert "#SBATCH --mem-per-gpu=80G\n" in render_generation_attempt_script(plan, attempt_ordinal=1)
 
 
 @pytest.mark.parametrize("gpu_request_mode", ("gres", "visible"))
@@ -81,19 +86,7 @@ def test_renderer_reserves_client_cpus_for_each_gpu_request_mode(
     )
     plan = single_node_plan.model_copy(update={"selected_profile": injected_profile(profile), "client": client})
 
-    assert "#SBATCH --cpus-per-task=17\n" in render_batch_script(plan)
-
-
-def test_renderer_omits_array_throttle_when_concurrency_is_unset(
-    multi_node_plan: ResolvedSlurmRunPlan,
-) -> None:
-    array_tasks = ArrayTasksConfig.model_construct(count=2, max_concurrent=None)
-    plan = multi_node_plan.model_copy(update={"array_tasks": array_tasks})
-
-    script = render_batch_script(plan)
-
-    assert "#SBATCH --array=0-1\n" in script
-    assert "#SBATCH --array=0-1%" not in script
+    assert "#SBATCH --cpus-per-task=17\n" in render_generation_attempt_script(plan, attempt_ordinal=1)
 
 
 def test_renderer_rejects_mem_per_gpu_without_a_slurm_gpu_request(
@@ -107,8 +100,8 @@ def test_renderer_rejects_mem_per_gpu_without_a_slurm_gpu_request(
     )
     plan = single_node_plan.model_copy(update={"selected_profile": injected_profile(profile)})
 
-    with pytest.raises(BatchRenderError, match="requires GRES"):
-        render_batch_script(plan)
+    with pytest.raises(SlurmBatchRenderError, match="requires GRES"):
+        render_generation_attempt_script(plan, attempt_ordinal=1)
 
 
 def test_renderer_escapes_shell_expansion_in_structured_paths(
@@ -123,7 +116,7 @@ def test_renderer_escapes_shell_expansion_in_structured_paths(
         }
     )
 
-    script = render_batch_script(plan)
+    script = render_generation_attempt_script(plan, attempt_ordinal=1)
 
     assert (
         'readonly DD_RUNTIME_ARCHIVE="/workspace/runtime/\\$(touch owned)-\\`whoami\\`-\\"bundle\\".tar.gz"' in script
@@ -140,12 +133,13 @@ def test_renderer_keeps_user_text_on_one_non_executable_directive(
         update={"submission": single_node_plan.submission.model_copy(update={"comment": comment})}
     )
 
-    script = render_batch_script(plan)
+    script = render_generation_attempt_script(plan, attempt_ordinal=1)
 
     comment_lines = [line for line in script.splitlines() if line.startswith("#SBATCH --comment=")]
     assert len(comment_lines) == 1
-    assert "\\$(touch owned)" in comment_lines[0]
-    assert "\\`whoami\\`" in comment_lines[0]
+    assert shlex.split(comment_lines[0].removeprefix("#SBATCH ")) == [f"--comment={comment}"]
+    assert "\\$" not in comment_lines[0]
+    assert "\\`" not in comment_lines[0]
     assert subprocess.run(("bash", "-n"), input=script, text=True, check=False).returncode == 0
 
 
@@ -157,8 +151,8 @@ def test_renderer_rejects_invalid_attempt_ordinals(
     single_node_plan: ResolvedSlurmRunPlan,
     attempt_ordinal: object,
 ) -> None:
-    with pytest.raises(BatchRenderError, match="positive integer"):
-        render_batch_script(single_node_plan, attempt_ordinal=attempt_ordinal)  # type: ignore[arg-type]
+    with pytest.raises(SlurmBatchRenderError, match="positive integer"):
+        render_generation_attempt_script(single_node_plan, attempt_ordinal=attempt_ordinal)  # type: ignore[arg-type]
 
 
 def test_renderer_rejects_control_characters_from_unvalidated_plan_copies(
@@ -168,14 +162,73 @@ def test_renderer_rejects_control_characters_from_unvalidated_plan_copies(
         update={"submission": single_node_plan.submission.model_copy(update={"comment": "unsafe\ntext"})}
     )
 
-    with pytest.raises(BatchRenderError, match="control characters"):
-        render_batch_script(plan)
+    with pytest.raises(SlurmBatchRenderError, match="control characters"):
+        render_generation_attempt_script(plan, attempt_ordinal=1)
 
 
 def test_renderer_is_a_thin_entrypoint(single_node_plan: ResolvedSlurmRunPlan) -> None:
-    script = render_batch_script(single_node_plan, attempt_ordinal=12)
+    script = render_generation_attempt_script(single_node_plan, attempt_ordinal=12)
 
     assert script.count("dd_slurm_run_allocation") == 1
     assert 'readonly DD_ATTEMPT_ORDINAL="0012"' in script
     assert len(script.splitlines()) <= 42
     assert script.endswith("\n")
+
+
+def test_rendered_script_verifies_exact_persisted_plan_bytes_before_sourcing_runtime(
+    single_node_plan: ResolvedSlurmRunPlan,
+    tmp_path: Path,
+) -> None:
+    run_root = tmp_path / "run"
+    run_root.mkdir()
+    captured_plan_path = tmp_path / "captured-plan.json"
+    entrypoint_path = tmp_path / "entrypoint.sh"
+    entrypoint_path.write_text(
+        f'dd_slurm_run_allocation() {{\n    cp -- "$1" {shlex.quote(str(captured_plan_path))}\n}}\n'
+    )
+    runtime_archive_path = tmp_path / "runtime.tar.gz"
+    with tarfile.open(runtime_archive_path, mode="w:gz") as runtime_archive:
+        runtime_archive.add(entrypoint_path, arcname="entrypoint.sh")
+
+    plan = single_node_plan.model_copy(
+        update={
+            "authored_config": ArtifactReference(
+                path=str(run_root / "authored-config.json"),
+                sha256="a" * 64,
+            ),
+            "runtime_bundle": ArtifactReference(
+                path=str(runtime_archive_path),
+                sha256=hashlib.sha256(runtime_archive_path.read_bytes()).hexdigest(),
+            ),
+        }
+    )
+    plan_path = run_root / "resolved-plan.json"
+    serialized_plan = plan.serialize_json()
+    serialized_plan_bytes = serialized_plan.encode()
+    plan_path.write_bytes(serialized_plan_bytes)
+    script = render_generation_attempt_script(plan, attempt_ordinal=1)
+    environment = {**os.environ, "SLURM_ARRAY_TASK_ID": "0"}
+
+    valid = subprocess.run(
+        ("bash",),
+        input=script,
+        env=environment,
+        text=True,
+        check=False,
+    )
+
+    assert valid.returncode == 0
+    assert captured_plan_path.read_bytes() == serialized_plan_bytes
+
+    captured_plan_path.unlink()
+    plan_path.write_bytes(serialized_plan_bytes + b" ")
+    tampered = subprocess.run(
+        ("bash",),
+        input=script,
+        env=environment,
+        text=True,
+        check=False,
+    )
+
+    assert tampered.returncode != 0
+    assert not captured_plan_path.exists()

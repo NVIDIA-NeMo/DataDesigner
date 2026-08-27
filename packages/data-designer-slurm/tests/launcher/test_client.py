@@ -7,9 +7,10 @@ import subprocess
 from collections.abc import Sequence
 
 import pytest
-from slurm_test_fakes import FakeCommandResponse, FakeSlurmRunner
+from slurm_test_fakes import FakeCommandResponse, FakeSlurmJob, FakeSlurmRunner
 
-from data_designer.slurm.launcher import SlurmCommandClient, SlurmCommandError, SlurmExecutables, SlurmParseError
+from data_designer.slurm.launcher.client import SlurmCommandClient, SlurmExecutables
+from data_designer.slurm.launcher.errors import SlurmCommandError, SlurmCommandOutputError
 from data_designer.slurm.state import SchedulerIdentity, SchedulerState
 
 
@@ -36,7 +37,7 @@ def test_client_queries_accounting_and_cancels_one_array_task(fake_slurm_runner:
     accounting = client.query_accounting((scheduler,))
 
     assert len(accounting) == 1
-    assert accounting[0].scheduler == scheduler
+    assert accounting[0].job_identity == scheduler
     assert accounting[0].state is SchedulerState.CANCELLED
     assert fake_slurm_runner.calls[-2:] == [
         ("scancel", "4101_1"),
@@ -65,26 +66,27 @@ def test_client_rejects_unrequested_scheduler_records(fake_slurm_runner: FakeSlu
     client = SlurmCommandClient(fake_slurm_runner)
     fake_slurm_runner.script_next("squeue", FakeCommandResponse(stdout="9999_0|RUNNING\n"))
 
-    with pytest.raises(SlurmParseError, match="unrequested"):
+    with pytest.raises(SlurmCommandOutputError, match="unrequested"):
         client.query_queue((4101,))
 
     fake_slurm_runner.script_next("sacct", FakeCommandResponse(stdout="9999_0|FAILED|1:0\n"))
-    with pytest.raises(SlurmParseError, match="unrequested"):
+    with pytest.raises(SlurmCommandOutputError, match="unrequested"):
         client.query_accounting((SchedulerIdentity(array_job_id=4101, array_task_id=0),))
 
 
 def test_client_observes_regular_cpu_job() -> None:
-    runner = FakeSlurmRunner()
-    runner.script_next("squeue", FakeCommandResponse(stdout="5101|RUNNING\n"))
-    runner.script_next("sacct", FakeCommandResponse(stdout="5101|COMPLETED|0:0\n"))
+    runner = FakeSlurmRunner(jobs=(FakeSlurmJob(job_id=5101),))
     client = SlurmCommandClient(runner)
 
+    submission = client.submit("image-build.sbatch")
     queue = client.query_queue((5101,))
+    runner.set_job_state(5101, queue_state=None, accounting_state="COMPLETED")
     accounting = client.query_accounting((5101,))
 
-    assert queue[0].scheduler == 5101
-    assert queue[0].state is SchedulerState.RUNNING
-    assert accounting[0].scheduler == 5101
+    assert submission.job_id == 5101
+    assert queue[0].job_identity == 5101
+    assert queue[0].state is SchedulerState.PENDING
+    assert accounting[0].job_identity == 5101
     assert accounting[0].state is SchedulerState.COMPLETED
 
 
@@ -107,7 +109,7 @@ def test_client_keeps_explicitly_selected_parent_observation() -> None:
     records = client.query_accounting((4101, task))
 
     assert len(records) == 1
-    assert records[0].scheduler == 4101
+    assert records[0].job_identity == 4101
 
 
 def test_client_rejects_unbounded_or_invalid_job_selectors(fake_slurm_runner: FakeSlurmRunner) -> None:
@@ -205,10 +207,11 @@ def test_client_normalizes_command_timeouts() -> None:
     assert isinstance(error.value.__cause__, subprocess.TimeoutExpired)
 
 
-def test_client_rejects_non_text_runner_output() -> None:
-    client = SlurmCommandClient(_NonTextRunner())
+@pytest.mark.parametrize("returncode", (0, 2))
+def test_client_rejects_non_text_runner_output(returncode: int) -> None:
+    client = SlurmCommandClient(_NonTextRunner(returncode))
 
-    with pytest.raises(SlurmCommandError, match="did not return text output"):
+    with pytest.raises(SlurmCommandError, match="malformed process result"):
         client.query_queue((4101,))
 
 
@@ -262,7 +265,13 @@ class _TimeoutRunner:
 
 
 class _NonTextRunner:
+    def __init__(self, returncode: int) -> None:
+        self._returncode = returncode
+
     def run(self, command: Sequence[str]) -> subprocess.CompletedProcess[str]:
-        completed = subprocess.CompletedProcess(command, 0, stdout="ok", stderr="")
-        completed.stdout = b"not text"  # type: ignore[assignment]
+        completed = subprocess.CompletedProcess(command, self._returncode, stdout="ok", stderr="")
+        if self._returncode:
+            completed.stderr = b"not text"  # type: ignore[assignment]
+        else:
+            completed.stdout = b"not text"  # type: ignore[assignment]
         return completed

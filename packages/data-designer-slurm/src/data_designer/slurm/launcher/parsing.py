@@ -1,19 +1,19 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Strict parsers for bounded, machine-readable Slurm output."""
+"""Internal strict parsers for bounded, machine-readable Slurm output."""
 
 from __future__ import annotations
 
 import re
 
-from data_designer.slurm.launcher.errors import SlurmParseError
+from data_designer.slurm.launcher.errors import SlurmCommandOutputError
 from data_designer.slurm.launcher.models import (
-    AccountingRecord,
-    QueueRecord,
-    SlurmExitCode,
-    SlurmJobIdentity,
-    SlurmSubmission,
+    SlurmAccountingEntry,
+    SlurmJobSubmissionReceipt,
+    SlurmObservedJobIdentity,
+    SlurmProcessExitCode,
+    SlurmQueueEntry,
 )
 from data_designer.slurm.state import SchedulerIdentity, SchedulerState
 
@@ -52,56 +52,58 @@ _STATE_MAP = {
 }
 
 
-def parse_submission(output: str) -> SlurmSubmission:
-    """Parse ``sbatch --parsable`` output."""
+def parse_submission(output: str) -> SlurmJobSubmissionReceipt:
+    """Parse non-federated ``sbatch --parsable`` output."""
     value = output.strip()
     job_id, separator, cluster_name = value.partition(";")
     if not job_id.isascii() or not job_id.isdecimal():
-        raise SlurmParseError("sbatch returned an invalid job ID")
+        raise SlurmCommandOutputError("sbatch returned an invalid job ID")
     parsed_job_id = _parse_decimal(job_id, message="sbatch returned an invalid job ID")
     if parsed_job_id <= 0:
-        raise SlurmParseError("sbatch returned an invalid job ID")
-    if separator and _CLUSTER_NAME_PATTERN.fullmatch(cluster_name) is None:
-        raise SlurmParseError("sbatch returned an invalid cluster name")
-    return SlurmSubmission(job_id=parsed_job_id, cluster_name=cluster_name or None)
+        raise SlurmCommandOutputError("sbatch returned an invalid job ID")
+    if separator:
+        if _CLUSTER_NAME_PATTERN.fullmatch(cluster_name) is None:
+            raise SlurmCommandOutputError("sbatch returned an invalid cluster name")
+        raise SlurmCommandOutputError("federated Slurm submissions are not supported")
+    return SlurmJobSubmissionReceipt(job_id=parsed_job_id)
 
 
-def parse_queue(output: str) -> tuple[QueueRecord, ...]:
+def parse_queue(output: str) -> tuple[SlurmQueueEntry, ...]:
     """Parse ``squeue --format=%i|%T`` rows."""
-    records: list[QueueRecord] = []
-    identities: set[SlurmJobIdentity] = set()
+    entries: list[SlurmQueueEntry] = []
+    identities: set[SlurmObservedJobIdentity] = set()
     for line_number, line in _collect_nonempty_lines(output):
         fields = line.split("|")
         if len(fields) != 2:
-            raise SlurmParseError(f"squeue line {line_number} must contain two fields")
-        scheduler = _parse_job_identity(fields[0], command="squeue", line_number=line_number)
-        _reject_duplicate(scheduler, identities, command="squeue", line_number=line_number)
-        records.append(QueueRecord(scheduler=scheduler, state=parse_state(fields[1])))
-    return tuple(records)
+            raise SlurmCommandOutputError(f"squeue line {line_number} must contain two fields")
+        job_identity = _parse_job_identity(fields[0], command="squeue", line_number=line_number)
+        _reject_duplicate(job_identity, identities, command="squeue", line_number=line_number)
+        entries.append(SlurmQueueEntry(job_identity=job_identity, state=parse_state(fields[1])))
+    return tuple(entries)
 
 
-def parse_accounting(output: str) -> tuple[AccountingRecord, ...]:
+def parse_accounting(output: str) -> tuple[SlurmAccountingEntry, ...]:
     """Parse job and array-task rows from ``sacct --format=JobID,State,ExitCode``."""
-    records: list[AccountingRecord] = []
-    identities: set[SlurmJobIdentity] = set()
+    entries: list[SlurmAccountingEntry] = []
+    identities: set[SlurmObservedJobIdentity] = set()
     for line_number, line in _collect_nonempty_lines(output):
         fields = line.split("|")
         if len(fields) != 3:
-            raise SlurmParseError(f"sacct line {line_number} must contain three fields")
-        scheduler = _parse_job_identity(fields[0], command="sacct", line_number=line_number)
-        _reject_duplicate(scheduler, identities, command="sacct", line_number=line_number)
-        records.append(
-            AccountingRecord(
-                scheduler=scheduler,
+            raise SlurmCommandOutputError(f"sacct line {line_number} must contain three fields")
+        job_identity = _parse_job_identity(fields[0], command="sacct", line_number=line_number)
+        _reject_duplicate(job_identity, identities, command="sacct", line_number=line_number)
+        entries.append(
+            SlurmAccountingEntry(
+                job_identity=job_identity,
                 state=parse_state(fields[1]),
-                exit_code=_parse_exit_code(fields[2], line_number=line_number),
+                process_exit_code=_parse_exit_code(fields[2], line_number=line_number),
             )
         )
     array_job_ids = {
-        record.scheduler.array_job_id for record in records if isinstance(record.scheduler, SchedulerIdentity)
+        entry.job_identity.array_job_id for entry in entries if isinstance(entry.job_identity, SchedulerIdentity)
     }
     return tuple(
-        record for record in records if not (type(record.scheduler) is int and record.scheduler in array_job_ids)
+        entry for entry in entries if not (type(entry.job_identity) is int and entry.job_identity in array_job_ids)
     )
 
 
@@ -117,7 +119,7 @@ def parse_gpu_counts(output: str) -> tuple[int, ...]:
                 continue
             match = _GRES_GPU_PATTERN.fullmatch(gres)
             if match is None:
-                raise SlurmParseError(f"sinfo line {line_number} contains an invalid GPU resource")
+                raise SlurmCommandOutputError(f"sinfo line {line_number} contains an invalid GPU resource")
             line_counts.append(
                 _parse_decimal(
                     match.group("count"),
@@ -137,19 +139,19 @@ def _split_gres_fields(value: str, *, line_number: int) -> tuple[str, ...]:
         if character == "(":
             annotation_depth += 1
             if annotation_depth > 1:
-                raise SlurmParseError(f"sinfo line {line_number} contains an invalid GPU resource")
+                raise SlurmCommandOutputError(f"sinfo line {line_number} contains an invalid GPU resource")
         elif character == ")":
             annotation_depth -= 1
             if annotation_depth < 0:
-                raise SlurmParseError(f"sinfo line {line_number} contains an invalid GPU resource")
+                raise SlurmCommandOutputError(f"sinfo line {line_number} contains an invalid GPU resource")
         elif character == "," and annotation_depth == 0:
             fields.append(value[start:index])
             start = index + 1
     if annotation_depth:
-        raise SlurmParseError(f"sinfo line {line_number} contains an invalid GPU resource")
+        raise SlurmCommandOutputError(f"sinfo line {line_number} contains an invalid GPU resource")
     fields.append(value[start:])
     if any(not field for field in fields):
-        raise SlurmParseError(f"sinfo line {line_number} contains an invalid GPU resource")
+        raise SlurmCommandOutputError(f"sinfo line {line_number} contains an invalid GPU resource")
     return tuple(fields)
 
 
@@ -157,14 +159,14 @@ def parse_state(value: str) -> SchedulerState:
     """Normalize one Slurm long state spelling without guessing unknown states."""
     normalized = value.strip().upper().removesuffix("+")
     if not normalized:
-        raise SlurmParseError("scheduler state must not be empty")
+        raise SlurmCommandOutputError("scheduler state must not be empty")
     if normalized.startswith("CANCELLED BY "):
         canceller = normalized.removeprefix("CANCELLED BY ")
         if not canceller.isascii() or not canceller.isdecimal():
-            raise SlurmParseError("cancelled scheduler state has an invalid owner")
+            raise SlurmCommandOutputError("cancelled scheduler state has an invalid owner")
         normalized = "CANCELLED"
     elif any(character.isspace() for character in normalized):
-        raise SlurmParseError("scheduler state contains unexpected whitespace")
+        raise SlurmCommandOutputError("scheduler state contains unexpected whitespace")
     return _STATE_MAP.get(normalized, SchedulerState.UNKNOWN)
 
 
@@ -179,7 +181,7 @@ def _collect_nonempty_lines(output: str) -> tuple[tuple[int, str], ...]:
 def _parse_array_identity(value: str, *, command: str, line_number: int) -> SchedulerIdentity:
     match = _ARRAY_ID_PATTERN.fullmatch(value)
     if match is None:
-        raise SlurmParseError(f"{command} line {line_number} contains an invalid array-task ID")
+        raise SlurmCommandOutputError(f"{command} line {line_number} contains an invalid array-task ID")
     message = f"{command} line {line_number} contains an invalid array-task ID"
     return SchedulerIdentity(
         array_job_id=_parse_decimal(match.group("job"), message=message),
@@ -187,46 +189,46 @@ def _parse_array_identity(value: str, *, command: str, line_number: int) -> Sche
     )
 
 
-def _parse_job_identity(value: str, *, command: str, line_number: int) -> SlurmJobIdentity:
+def _parse_job_identity(value: str, *, command: str, line_number: int) -> SlurmObservedJobIdentity:
     message = f"{command} line {line_number} contains an invalid job or array-task ID"
     if _JOB_ID_PATTERN.fullmatch(value) is not None:
         return _parse_decimal(value, message=message)
     try:
         return _parse_array_identity(value, command=command, line_number=line_number)
-    except SlurmParseError as error:
-        raise SlurmParseError(message) from error
+    except SlurmCommandOutputError as error:
+        raise SlurmCommandOutputError(message) from error
 
 
-def _parse_exit_code(value: str, *, line_number: int) -> SlurmExitCode:
+def _parse_exit_code(value: str, *, line_number: int) -> SlurmProcessExitCode:
     match = _EXIT_CODE_PATTERN.fullmatch(value)
     if match is None:
-        raise SlurmParseError(f"sacct line {line_number} contains an invalid exit code")
+        raise SlurmCommandOutputError(f"sacct line {line_number} contains an invalid exit code")
     message = f"sacct line {line_number} contains an invalid exit code"
-    return SlurmExitCode(
-        status=_parse_decimal(match.group("status"), message=message),
-        signal=_parse_decimal(match.group("signal"), message=message),
+    return SlurmProcessExitCode(
+        exit_status=_parse_decimal(match.group("status"), message=message),
+        termination_signal=_parse_decimal(match.group("signal"), message=message),
     )
 
 
 def _parse_decimal(value: str, *, message: str) -> int:
     if len(value) > 10:
-        raise SlurmParseError(message)
+        raise SlurmCommandOutputError(message)
     try:
         parsed = int(value)
     except ValueError as error:
-        raise SlurmParseError(message) from error
+        raise SlurmCommandOutputError(message) from error
     if parsed > _MAX_SLURM_INTEGER:
-        raise SlurmParseError(message)
+        raise SlurmCommandOutputError(message)
     return parsed
 
 
 def _reject_duplicate(
-    scheduler: SlurmJobIdentity,
-    identities: set[SlurmJobIdentity],
+    job_identity: SlurmObservedJobIdentity,
+    identities: set[SlurmObservedJobIdentity],
     *,
     command: str,
     line_number: int,
 ) -> None:
-    if scheduler in identities:
-        raise SlurmParseError(f"{command} line {line_number} duplicates a job or array-task ID")
-    identities.add(scheduler)
+    if job_identity in identities:
+        raise SlurmCommandOutputError(f"{command} line {line_number} duplicates a job or array-task ID")
+    identities.add(job_identity)

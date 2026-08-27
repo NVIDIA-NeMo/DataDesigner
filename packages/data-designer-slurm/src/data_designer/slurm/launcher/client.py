@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Typed argument-vector client for Slurm command-line tools."""
+"""Internal typed argument-vector client for Slurm command-line tools."""
 
 from __future__ import annotations
 
@@ -14,8 +14,13 @@ from pathlib import Path
 from typing import TypeAlias
 
 from data_designer.slurm.contracts import Identifier
-from data_designer.slurm.launcher.errors import SlurmCommandError, SlurmParseError
-from data_designer.slurm.launcher.models import AccountingRecord, QueueRecord, SlurmJobIdentity, SlurmSubmission
+from data_designer.slurm.launcher.errors import SlurmCommandError, SlurmCommandOutputError
+from data_designer.slurm.launcher.models import (
+    SlurmAccountingEntry,
+    SlurmJobSubmissionReceipt,
+    SlurmObservedJobIdentity,
+    SlurmQueueEntry,
+)
 from data_designer.slurm.launcher.parsing import (
     parse_accounting,
     parse_gpu_counts,
@@ -25,7 +30,7 @@ from data_designer.slurm.launcher.parsing import (
 from data_designer.slurm.launcher.runner import CommandRunner, SubprocessRunner
 from data_designer.slurm.state import SchedulerIdentity
 
-JobSelector: TypeAlias = SlurmJobIdentity
+_JobSelector: TypeAlias = int | SchedulerIdentity
 _IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _MAX_SLURM_INTEGER = (1 << 32) - 1
 
@@ -62,7 +67,7 @@ class SlurmCommandClient:
         self._runner = runner if runner is not None else SubprocessRunner()
         self._executables = executables if executables is not None else SlurmExecutables()
 
-    def submit(self, script_path: str | Path) -> SlurmSubmission:
+    def submit(self, script_path: str | Path) -> SlurmJobSubmissionReceipt:
         """Submit one rendered batch script and return its assigned job ID."""
         path = str(script_path)
         _validate_argument(path, field_name="batch script path")
@@ -71,7 +76,7 @@ class SlurmCommandClient:
         output = self._run((self._executables.sbatch, "--parsable", "--export=NIL", path))
         return parse_submission(output)
 
-    def query_queue(self, selectors: Sequence[JobSelector]) -> tuple[QueueRecord, ...]:
+    def query_queue(self, selectors: Sequence[_JobSelector]) -> tuple[SlurmQueueEntry, ...]:
         """Return normalized active-queue rows for explicit managed jobs."""
         requested = tuple(selectors)
         jobs = _format_selectors(requested)
@@ -84,15 +89,15 @@ class SlurmCommandClient:
                 f"--jobs={jobs}",
             )
         )
-        records = parse_queue(output)
-        ignored = _validate_selected_schedulers(
-            tuple(record.scheduler for record in records),
+        entries = parse_queue(output)
+        ignored = _validate_observed_job_identities(
+            tuple(entry.job_identity for entry in entries),
             requested,
             command="squeue",
         )
-        return tuple(record for record in records if record.scheduler not in ignored)
+        return tuple(entry for entry in entries if entry.job_identity not in ignored)
 
-    def query_accounting(self, selectors: Sequence[JobSelector]) -> tuple[AccountingRecord, ...]:
+    def query_accounting(self, selectors: Sequence[_JobSelector]) -> tuple[SlurmAccountingEntry, ...]:
         """Return normalized accounting rows for explicit managed jobs."""
         requested = tuple(selectors)
         jobs = _format_selectors(requested)
@@ -107,15 +112,15 @@ class SlurmCommandClient:
                 f"--jobs={jobs}",
             )
         )
-        records = parse_accounting(output)
-        ignored = _validate_selected_schedulers(
-            tuple(record.scheduler for record in records),
+        entries = parse_accounting(output)
+        ignored = _validate_observed_job_identities(
+            tuple(entry.job_identity for entry in entries),
             requested,
             command="sacct",
         )
-        return tuple(record for record in records if record.scheduler not in ignored)
+        return tuple(entry for entry in entries if entry.job_identity not in ignored)
 
-    def cancel(self, selector: JobSelector) -> None:
+    def cancel(self, selector: _JobSelector) -> None:
         """Cancel one managed Slurm job, array, or array task."""
         self._run((self._executables.scancel, _format_selector(selector)))
 
@@ -134,21 +139,24 @@ class SlurmCommandClient:
             completed = self._runner.run(command)
         except (OSError, subprocess.SubprocessError) as error:
             raise SlurmCommandError(f"{command_name} could not be executed: {_format_error_detail(error)}") from error
-        if completed.returncode:
-            detail = _normalize_bounded_text(completed.stderr) or "no diagnostic output"
-            raise SlurmCommandError(f"{command_name} failed with exit code {completed.returncode}: {detail}")
-        if not isinstance(completed.stdout, str):
-            raise SlurmCommandError(f"{command_name} did not return text output")
-        return completed.stdout
+        returncode = getattr(completed, "returncode", None)
+        stdout = getattr(completed, "stdout", None)
+        stderr = getattr(completed, "stderr", None)
+        if type(returncode) is not int or not isinstance(stdout, str) or not isinstance(stderr, str):
+            raise SlurmCommandError(f"{command_name} returned a malformed process result")
+        if returncode:
+            detail = _normalize_bounded_text(stderr) or "no diagnostic output"
+            raise SlurmCommandError(f"{command_name} failed with exit code {returncode}: {detail}")
+        return stdout
 
 
-def _format_selectors(selectors: Sequence[JobSelector]) -> str:
+def _format_selectors(selectors: Sequence[_JobSelector]) -> str:
     if not selectors:
         raise ValueError("at least one managed Slurm job selector is required")
     return ",".join(dict.fromkeys(_format_selector(selector) for selector in selectors))
 
 
-def _format_selector(selector: JobSelector) -> str:
+def _format_selector(selector: _JobSelector) -> str:
     if isinstance(selector, SchedulerIdentity):
         job_id = _format_job_id(selector.array_job_id)
         if selector.array_task_id > _MAX_SLURM_INTEGER:
@@ -163,34 +171,29 @@ def _format_job_id(value: object) -> str:
     return str(value)
 
 
-def _validate_selected_schedulers(
-    schedulers: Sequence[SlurmJobIdentity],
-    selectors: Sequence[JobSelector],
+def _validate_observed_job_identities(
+    job_identities: Sequence[SlurmObservedJobIdentity],
+    selectors: Sequence[_JobSelector],
     *,
     command: str,
-) -> frozenset[SlurmJobIdentity]:
-    """Validate result correlation and identify aggregate rows to omit."""
-    ignored: set[SlurmJobIdentity] = set()
-    for scheduler in schedulers:
-        explicitly_selected = any(type(selector) is int and selector == scheduler for selector in selectors)
-        is_array_parent = type(scheduler) is int and any(
-            isinstance(selector, SchedulerIdentity) and selector.array_job_id == scheduler for selector in selectors
-        )
-        if is_array_parent and not explicitly_selected:
-            ignored.add(scheduler)
+) -> frozenset[SlurmObservedJobIdentity]:
+    """Validate result correlation and return unselected aggregate rows."""
+    selected_job_ids = {selector for selector in selectors if type(selector) is int}
+    selected_array_tasks = {selector for selector in selectors if isinstance(selector, SchedulerIdentity)}
+    selected_array_job_ids = {selector.array_job_id for selector in selected_array_tasks}
+    ignored: set[SlurmObservedJobIdentity] = set()
+    for job_identity in job_identities:
+        if type(job_identity) is int and job_identity in selected_job_ids:
             continue
-        if any(_selector_matches(scheduler, selector) for selector in selectors):
+        if type(job_identity) is int and job_identity in selected_array_job_ids:
+            ignored.add(job_identity)
             continue
-        raise SlurmParseError(f"{command} returned an unrequested job or array-task ID")
+        if isinstance(job_identity, SchedulerIdentity) and (
+            job_identity in selected_array_tasks or job_identity.array_job_id in selected_job_ids
+        ):
+            continue
+        raise SlurmCommandOutputError(f"{command} returned an unrequested job or array-task ID")
     return frozenset(ignored)
-
-
-def _selector_matches(scheduler: SlurmJobIdentity, selector: JobSelector) -> bool:
-    if isinstance(selector, SchedulerIdentity):
-        return scheduler == selector
-    if type(scheduler) is int:
-        return scheduler == selector
-    return scheduler.array_job_id == selector
 
 
 def _validate_argument(value: str, *, field_name: str) -> None:

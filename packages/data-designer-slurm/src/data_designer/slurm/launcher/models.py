@@ -8,40 +8,38 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TypeAlias
 
-from data_designer.slurm.contracts import Identifier
 from data_designer.slurm.state import SchedulerIdentity, SchedulerState
 
-SlurmJobIdentity: TypeAlias = int | SchedulerIdentity
+SlurmObservedJobIdentity: TypeAlias = int | SchedulerIdentity
 
 
 @dataclass(frozen=True, slots=True)
-class SlurmSubmission:
-    """Identity assigned by Slurm to one accepted batch submission."""
+class SlurmJobSubmissionReceipt:
+    """Job identity returned for one accepted non-federated submission."""
 
     job_id: int
-    cluster_name: Identifier | None = None
 
 
 @dataclass(frozen=True, slots=True)
-class SlurmExitCode:
+class SlurmProcessExitCode:
     """Slurm's process status and terminating signal pair."""
 
-    status: int
-    signal: int
+    exit_status: int
+    termination_signal: int
 
 
 @dataclass(frozen=True, slots=True)
-class QueueRecord:
-    """One normalized active-queue row."""
+class SlurmQueueEntry:
+    """One transient normalized active-queue entry."""
 
-    scheduler: SlurmJobIdentity
+    job_identity: SlurmObservedJobIdentity
     state: SchedulerState
 
 
 @dataclass(frozen=True, slots=True)
-class AccountingRecord:
-    """One normalized accounting row."""
+class SlurmAccountingEntry:
+    """One transient normalized accounting entry."""
 
-    scheduler: SlurmJobIdentity
+    job_identity: SlurmObservedJobIdentity
     state: SchedulerState
-    exit_code: SlurmExitCode
+    process_exit_code: SlurmProcessExitCode

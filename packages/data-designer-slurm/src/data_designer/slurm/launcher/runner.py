@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Injectable process execution for Slurm command-line tools."""
+"""Internal injectable process execution for Slurm command-line tools."""
 
 from __future__ import annotations
 

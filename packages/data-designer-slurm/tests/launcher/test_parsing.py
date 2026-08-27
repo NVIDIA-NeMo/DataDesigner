@@ -8,7 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from data_designer.slurm.launcher import QueueRecord, SlurmParseError
+from data_designer.slurm.launcher.errors import SlurmCommandOutputError
+from data_designer.slurm.launcher.models import SlurmQueueEntry
 from data_designer.slurm.launcher.parsing import (
     parse_accounting,
     parse_gpu_counts,
@@ -22,19 +23,15 @@ GOLDEN_DIRECTORY = Path(__file__).parents[1] / "slurm_test_fakes" / "golden" / "
 OVERSIZED_DECIMAL = "9" * 5000
 
 
-@pytest.mark.parametrize(
-    ("output", "expected_job_id", "expected_cluster"),
-    (("4101\n", 4101, None), ("4101;primary\n", 4101, "primary")),
-)
-def test_parse_submission_accepts_parsable_sbatch_output(
-    output: str,
-    expected_job_id: int,
-    expected_cluster: str | None,
-) -> None:
-    submission = parse_submission(output)
+def test_parse_submission_accepts_non_federated_parsable_sbatch_output() -> None:
+    submission = parse_submission("4101\n")
 
-    assert submission.job_id == expected_job_id
-    assert submission.cluster_name == expected_cluster
+    assert submission.job_id == 4101
+
+
+def test_parse_submission_rejects_federated_receipts() -> None:
+    with pytest.raises(SlurmCommandOutputError, match="federated"):
+        parse_submission("4101;primary\n")
 
 
 @pytest.mark.parametrize(
@@ -42,14 +39,14 @@ def test_parse_submission_accepts_parsable_sbatch_output(
     ("", "0", "Submitted batch job 4101", "٤١٠١", "4101;", "4101;bad name", f"{'0' * 5000}1"),
 )
 def test_parse_submission_rejects_malformed_output(output: str) -> None:
-    with pytest.raises(SlurmParseError, match="invalid"):
+    with pytest.raises(SlurmCommandOutputError, match="invalid"):
         parse_submission(output)
 
 
 def test_parse_submission_enforces_slurm_job_id_width() -> None:
     assert parse_submission(str((1 << 32) - 1)).job_id == (1 << 32) - 1
 
-    with pytest.raises(SlurmParseError, match="invalid job ID"):
+    with pytest.raises(SlurmCommandOutputError, match="invalid job ID"):
         parse_submission(str(1 << 32))
 
 
@@ -57,15 +54,15 @@ def test_parse_queue_normalizes_active_array_tasks() -> None:
     records = parse_queue((GOLDEN_DIRECTORY / "squeue_active.txt").read_text())
 
     assert records == (
-        _make_queue_record(0, SchedulerState.PENDING),
-        _make_queue_record(1, SchedulerState.RUNNING),
+        _make_queue_entry(0, SchedulerState.PENDING),
+        _make_queue_entry(1, SchedulerState.RUNNING),
     )
 
 
 def test_parse_queue_normalizes_regular_jobs() -> None:
     records = parse_queue("5101|RUNNING\n")
 
-    assert records == (QueueRecord(scheduler=5101, state=SchedulerState.RUNNING),)
+    assert records == (SlurmQueueEntry(job_identity=5101, state=SchedulerState.RUNNING),)
 
 
 @pytest.mark.parametrize(
@@ -103,15 +100,15 @@ def test_parse_accounting_normalizes_terminal_rows_and_ignores_array_parent() ->
         SchedulerState.OUT_OF_MEMORY,
         SchedulerState.CANCELLED,
     )
-    assert records[0].exit_code.status == 0
-    assert records[0].exit_code.signal == 125
+    assert records[0].process_exit_code.exit_status == 0
+    assert records[0].process_exit_code.termination_signal == 125
 
 
 def test_parse_accounting_normalizes_regular_jobs() -> None:
     records = parse_accounting("5101|COMPLETED|0:0\n")
 
     assert len(records) == 1
-    assert records[0].scheduler == 5101
+    assert records[0].job_identity == 5101
     assert records[0].state is SchedulerState.COMPLETED
 
 
@@ -138,7 +135,7 @@ def test_scheduler_parsers_reject_malformed_or_ambiguous_rows(
     output: str,
     message: str,
 ) -> None:
-    with pytest.raises(SlurmParseError, match=message):
+    with pytest.raises(SlurmCommandOutputError, match=message):
         parser(output)
 
 
@@ -157,7 +154,7 @@ def test_parsers_normalize_oversized_numeric_fields(
     output: str,
     message: str,
 ) -> None:
-    with pytest.raises(SlurmParseError, match=message):
+    with pytest.raises(SlurmCommandOutputError, match=message):
         parser(output)
 
 
@@ -189,18 +186,18 @@ def test_parse_gpu_counts_normalizes_configured_gres(output: str, expected: tupl
     ),
 )
 def test_parse_gpu_counts_rejects_malformed_gpu_resources(output: str) -> None:
-    with pytest.raises(SlurmParseError, match="invalid GPU resource"):
+    with pytest.raises(SlurmCommandOutputError, match="invalid GPU resource"):
         parse_gpu_counts(output)
 
 
 @pytest.mark.parametrize("state", ("", "CANCELLED by root"))
 def test_parse_state_rejects_invalid_spellings(state: str) -> None:
-    with pytest.raises(SlurmParseError):
+    with pytest.raises(SlurmCommandOutputError):
         parse_state(state)
 
 
-def _make_queue_record(array_task_id: int, state: SchedulerState) -> QueueRecord:
-    return QueueRecord(
-        scheduler=SchedulerIdentity(array_job_id=4101, array_task_id=array_task_id),
+def _make_queue_entry(array_task_id: int, state: SchedulerState) -> SlurmQueueEntry:
+    return SlurmQueueEntry(
+        job_identity=SchedulerIdentity(array_job_id=4101, array_task_id=array_task_id),
         state=state,
     )

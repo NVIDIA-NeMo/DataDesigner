@@ -9,7 +9,7 @@ from collections.abc import Mapping, Sequence
 
 import pytest
 
-from data_designer.slurm.launcher import SubprocessRunner
+from data_designer.slurm.launcher.runner import SubprocessRunner
 
 
 def test_subprocess_runner_uses_argv_and_only_explicit_environment(monkeypatch: pytest.MonkeyPatch) -> None:
