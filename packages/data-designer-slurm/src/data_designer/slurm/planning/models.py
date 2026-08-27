@@ -39,12 +39,12 @@ from data_designer.slurm.contracts import (
     ResumeWorkspace,
     Sha256Digest,
     ShardId,
-    compute_pretty_sha256,
     compute_sha256,
     validate_absolute_path,
     validate_local_config_path,
     validate_plain_text,
 )
+from data_designer.slurm.planning.builder_identity import get_declared_model_aliases
 
 
 class ResolvedImage(ContractValue):
@@ -154,7 +154,6 @@ class ResolvedBuilderInput(ContractValue):
     # Inline input uses canonical JSON; sourced input uses its persisted artifact bytes.
     content_sha256: Sha256Digest
     model_aliases: tuple[ModelAlias, ...]
-    referenced_model_aliases: tuple[ModelAlias, ...] = ()
 
     @model_validator(mode="after")
     def validate_input(self) -> ResolvedBuilderInput:
@@ -164,19 +163,14 @@ class ResolvedBuilderInput(ContractValue):
             if self.authored_source is not None:
                 raise ValueError("inline builder input cannot contain authored_source")
             expected_digest = compute_sha256(self.inline)
-            model_aliases, referenced_aliases = _extract_builder_aliases(self.inline)
-            if self.model_aliases != model_aliases:
+            if self.model_aliases != get_declared_model_aliases(self.inline):
                 raise ValueError("resolved model aliases do not match the inline builder")
-            if self.referenced_model_aliases != referenced_aliases:
-                raise ValueError("resolved referenced aliases do not match the inline builder")
         else:
             if self.authored_source is None:
                 raise ValueError("resolved builder source requires authored_source")
             expected_digest = self.source.sha256
         if len(self.model_aliases) != len(set(self.model_aliases)):
             raise ValueError("resolved builder model aliases must be unique")
-        if len(self.referenced_model_aliases) != len(set(self.referenced_model_aliases)):
-            raise ValueError("resolved builder referenced aliases must be unique")
         if self.content_sha256 != expected_digest:
             raise ValueError("builder content digest does not match the resolved input")
         return self
@@ -383,8 +377,6 @@ class ResolvedSlurmRunPlan(ContractRecord):
             raise ValueError("resolved deployment aliases must be unique")
         if set(aliases) != set(self.builder.model_aliases):
             raise ValueError("resolved deployment aliases must exactly cover Data Designer model aliases")
-        if not set(self.builder.referenced_model_aliases).issubset(aliases):
-            raise ValueError("each referenced Data Designer model alias requires a deployment")
 
         node_indices = tuple(index for deployment in self.deployments for index in deployment.node_indices)
         if node_indices != tuple(range(len(node_indices))):
@@ -482,51 +474,3 @@ class ResolvedSlurmRunPlan(ContractRecord):
 
 def _is_below(path: str, root: str) -> bool:
     return path != root and posixpath.commonpath((path, root)) == root
-
-
-def _extract_builder_aliases(builder: dict[str, JsonValue]) -> tuple[tuple[ModelAlias, ...], tuple[ModelAlias, ...]]:
-    data_designer = builder.get("data_designer", builder)
-    if not isinstance(data_designer, dict):
-        raise ValueError("builder data_designer value must be an object")
-    model_configs = data_designer.get("model_configs") or []
-    if not isinstance(model_configs, list):
-        raise ValueError("builder model_configs must be a list")
-
-    model_aliases: list[ModelAlias] = []
-    for model_config in model_configs:
-        if not isinstance(model_config, dict) or not isinstance(model_config.get("alias"), str):
-            raise ValueError("each builder model config must contain a string alias")
-        model_aliases.append(model_config["alias"])
-
-    referenced_aliases: list[ModelAlias] = []
-
-    def collect(value: JsonValue, *, key: str | None = None) -> None:
-        if key == "model_configs":
-            return
-        if key == "model_alias" or (key is not None and key.endswith("_model_alias")):
-            if not isinstance(value, str):
-                raise ValueError(f"builder {key} must be a string")
-            referenced_aliases.append(value)
-            return
-        if key == "model_aliases":
-            if not isinstance(value, list) or any(not isinstance(alias, str) for alias in value):
-                raise ValueError("builder model_aliases must be a list of strings")
-            referenced_aliases.extend(value)
-            return
-        if isinstance(value, dict):
-            for child_key, child in value.items():
-                collect(child, key=child_key)
-        elif isinstance(value, list):
-            for child in value:
-                collect(child)
-
-    collect(data_designer)
-    return tuple(model_aliases), tuple(dict.fromkeys(referenced_aliases))
-
-
-def _extract_builder_identity(
-    builder: dict[str, JsonValue],
-) -> tuple[tuple[ModelAlias, ...], tuple[ModelAlias, ...], Sha256Digest]:
-    model_aliases, referenced_aliases = _extract_builder_aliases(builder)
-    digest = compute_pretty_sha256(builder)
-    return model_aliases, referenced_aliases, digest

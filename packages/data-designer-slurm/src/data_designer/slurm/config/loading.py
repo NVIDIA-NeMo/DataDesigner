@@ -16,6 +16,8 @@ import yaml
 from pydantic import ValidationError
 from yaml.nodes import MappingNode
 
+from data_designer.slurm._errors import format_parse_error, format_validation_error
+from data_designer.slurm.config.errors import SlurmConfigLoadError
 from data_designer.slurm.config.profiles import (
     SelectedSlurmProfile,
     SlurmProfile,
@@ -28,12 +30,8 @@ from data_designer.slurm.config.run import DataDesignerSlurmConfig
 PROFILE_FILE_ENVIRONMENT = "DATA_DESIGNER_SLURM_PROFILE_FILE"
 DEFAULT_PROFILE_FILE_NAME = ".data-designer-slurm-profile.yml"
 
-_Config = TypeVar("_Config", DataDesignerSlurmConfig, SlurmProfileCatalog)
+_ConfigT = TypeVar("_ConfigT", DataDesignerSlurmConfig, SlurmProfileCatalog)
 _HostnameResolver = Callable[[], tuple[str, ...]]
-
-
-class ConfigLoadError(ValueError):
-    """Raised when a local Slurm configuration file is not strict and valid."""
 
 
 class _StrictYamlLoader(yaml.SafeLoader):
@@ -48,14 +46,14 @@ def _construct_unique_mapping(
     mapping: dict[object, object] = {}
     for key_node, value_node in node.value:
         if key_node.tag == "tag:yaml.org,2002:merge":
-            raise ConfigLoadError("YAML merge keys are not supported")
+            raise SlurmConfigLoadError("YAML merge keys are not supported")
         key = loader.construct_object(key_node, deep=deep)
         try:
             duplicate = key in mapping
-        except TypeError as error:
-            raise ConfigLoadError("configuration mapping keys must be scalar values") from error
+        except TypeError:
+            raise SlurmConfigLoadError("configuration mapping keys must be scalar values") from None
         if duplicate:
-            raise ConfigLoadError(f"duplicate configuration key: {key!r}")
+            raise SlurmConfigLoadError("duplicate configuration key")
         mapping[key] = loader.construct_object(value_node, deep=deep)
     return mapping
 
@@ -91,10 +89,10 @@ def resolve_profile(
     try:
         sources = sum(source is not None for source in (profile, catalog, profile_file))
         if sources > 1:
-            raise ConfigLoadError("profile, catalog, and profile_file are mutually exclusive")
+            raise SlurmConfigLoadError("profile, catalog, and profile_file are mutually exclusive")
         if profile is not None:
             if cluster is not None:
-                raise ConfigLoadError("an injected profile cannot be combined with cluster selection")
+                raise SlurmConfigLoadError("an injected profile cannot be combined with cluster selection")
             return injected_profile(profile)
 
         catalog_path: str | None = None
@@ -119,18 +117,18 @@ def resolve_profile(
             hostnames=normalized_hostnames,
             catalog_path=catalog_path,
         )
-    except ConfigLoadError:
+    except SlurmConfigLoadError:
         raise
     except ValueError as error:
-        raise ConfigLoadError(str(error)) from error
+        raise SlurmConfigLoadError(str(error)) from None
 
 
-def _load_config(path: str | Path, config_type: type[_Config]) -> _Config:
+def _load_config(path: str | Path, config_type: type[_ConfigT]) -> _ConfigT:
     resolved_path = _normalize_file_path(path)
     try:
         contents = resolved_path.read_text(encoding="utf-8")
-    except OSError as error:
-        raise ConfigLoadError(f"cannot read configuration file {resolved_path}") from error
+    except OSError:
+        raise SlurmConfigLoadError(f"cannot read configuration file {resolved_path}") from None
     try:
         payload = _parse_mapping(contents, suffix=resolved_path.suffix)
         if config_type is DataDesignerSlurmConfig:
@@ -138,10 +136,13 @@ def _load_config(path: str | Path, config_type: type[_Config]) -> _Config:
         else:
             _reject_environment_interpolation(payload)
         return config_type.model_validate(payload)
-    except ConfigLoadError:
+    except SlurmConfigLoadError:
         raise
-    except (ValidationError, json.JSONDecodeError, yaml.YAMLError) as error:
-        raise ConfigLoadError(f"invalid configuration file {resolved_path}: {error}") from error
+    except ValidationError as error:
+        message = format_validation_error(error, subject=f"configuration file {resolved_path}")
+        raise SlurmConfigLoadError(message) from None
+    except (json.JSONDecodeError, yaml.YAMLError) as error:
+        raise SlurmConfigLoadError(f"invalid configuration file {resolved_path}: {format_parse_error(error)}") from None
 
 
 def _parse_mapping(contents: str, *, suffix: str) -> dict[str, object]:
@@ -150,10 +151,10 @@ def _parse_mapping(contents: str, *, suffix: str) -> dict[str, object]:
     else:
         events = yaml.parse(contents, Loader=yaml.SafeLoader)
         if any(getattr(event, "anchor", None) is not None for event in events):
-            raise ConfigLoadError("YAML anchors and aliases are not supported")
+            raise SlurmConfigLoadError("YAML anchors and aliases are not supported")
         payload = yaml.load(contents, Loader=_StrictYamlLoader)
     if not isinstance(payload, dict) or any(not isinstance(key, str) for key in payload):
-        raise ConfigLoadError("configuration root must be an object with string keys")
+        raise SlurmConfigLoadError("configuration root must be an object with string keys")
     return cast(dict[str, object], payload)
 
 
@@ -161,14 +162,14 @@ def _unique_json_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
     result: dict[str, object] = {}
     for key, value in pairs:
         if key in result:
-            raise ConfigLoadError(f"duplicate configuration key: {key!r}")
+            raise SlurmConfigLoadError("duplicate configuration key")
         result[key] = value
     return result
 
 
 def _reject_environment_interpolation(value: object) -> None:
     if isinstance(value, str) and "${" in value:
-        raise ConfigLoadError("environment interpolation is not supported")
+        raise SlurmConfigLoadError("environment interpolation is not supported")
     if isinstance(value, Mapping):
         for key, item in value.items():
             _reject_environment_interpolation(key)
@@ -200,7 +201,7 @@ def _resolve_profile_path(
     if source is None:
         environment_path = environ.get(PROFILE_FILE_ENVIRONMENT)
         if environment_path is not None and not environment_path:
-            raise ConfigLoadError(f"{PROFILE_FILE_ENVIRONMENT} must not be empty")
+            raise SlurmConfigLoadError(f"{PROFILE_FILE_ENVIRONMENT} must not be empty")
         source = environment_path
     if source is None:
         home = Path.home() if home_directory is None else Path(home_directory)
@@ -211,7 +212,7 @@ def _resolve_profile_path(
 def _normalize_file_path(path: str | Path) -> Path:
     resolved = Path(path).expanduser().resolve()
     if resolved.suffix not in {".json", ".yaml", ".yml"}:
-        raise ConfigLoadError("configuration path must end in .json, .yaml, or .yml")
+        raise SlurmConfigLoadError("configuration path must end in .json, .yaml, or .yml")
     return resolved
 
 

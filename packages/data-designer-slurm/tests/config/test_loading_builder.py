@@ -13,11 +13,11 @@ from data_designer.config import DataDesignerConfigBuilder, LLMTextColumnConfig,
 from data_designer.slurm.config import (
     DEFAULT_PROFILE_FILE_NAME,
     PROFILE_FILE_ENVIRONMENT,
-    ConfigBuilderError,
-    ConfigLoadError,
     DataDesignerSlurmConfig,
     DataDesignerSlurmConfigBuilder,
     ProfileSelectionSource,
+    SlurmConfigBuilderError,
+    SlurmConfigLoadError,
     SlurmProfileCatalog,
     load_profile_catalog,
     load_run_config,
@@ -64,7 +64,7 @@ def test_builder_builds_without_file_discovery_or_serialization(tmp_path: Path) 
 def test_builder_requires_complete_authored_intent() -> None:
     builder = DataDesignerSlurmConfigBuilder.from_builder_source("builder.json")
 
-    with pytest.raises(ConfigBuilderError, match="invocation, client, deployment"):
+    with pytest.raises(SlurmConfigBuilderError, match="invocation, client, deployment"):
         builder.build()
 
 
@@ -79,7 +79,7 @@ def test_builder_write_config_round_trips_supported_formats(tmp_path: Path, suff
 
 
 def test_builder_rejects_unsupported_output_format(tmp_path: Path) -> None:
-    with pytest.raises(ConfigBuilderError, match="must end"):
+    with pytest.raises(SlurmConfigBuilderError, match="must end"):
         _config_builder().write_config(tmp_path / "run.txt")
 
 
@@ -96,26 +96,38 @@ def test_builder_normalizes_invalid_authored_values(
     method: str,
     values: dict[str, object],
 ) -> None:
-    with pytest.raises(ConfigBuilderError):
+    with pytest.raises(SlurmConfigBuilderError):
         getattr(_config_builder(), method)(**values)
 
 
 def test_builder_validation_errors_hide_secret_inputs() -> None:
     secret = "super-secret-token"
 
-    with pytest.raises(ConfigBuilderError) as error:
+    with pytest.raises(SlurmConfigBuilderError) as error:
         _config_builder().with_client(image={"name": "dd-client", "api_key": secret})
 
     assert secret not in str(error.value)
-    assert error.value.__cause__ is not None
-    assert secret not in str(error.value.__cause__)
+    assert error.value.__cause__ is None
+
+
+def test_builder_custom_validation_errors_hide_secret_values() -> None:
+    secret = "super-secret-token"
+
+    with pytest.raises(SlurmConfigBuilderError) as error:
+        _config_builder().with_client(
+            image={"name": "dd-client"},
+            dependencies={"requirements": [f"pkg=={secret}"]},
+        )
+
+    assert secret not in str(error.value)
+    assert error.value.__cause__ is None
 
 
 def test_builder_normalizes_write_failures(tmp_path: Path) -> None:
     path = tmp_path / "run.json"
     path.mkdir()
 
-    with pytest.raises(ConfigBuilderError, match="cannot write"):
+    with pytest.raises(SlurmConfigBuilderError, match="cannot write"):
         _config_builder().write_config(path)
 
 
@@ -138,7 +150,7 @@ def test_strict_loader_rejects_ambiguous_yaml_and_json(
     path = tmp_path / f"run{suffix}"
     path.write_text(contents)
 
-    with pytest.raises(ConfigLoadError, match=message):
+    with pytest.raises(SlurmConfigLoadError, match=message):
         load_run_config(path)
 
 
@@ -146,9 +158,9 @@ def test_strict_loader_rejects_non_object_and_unknown_extension(tmp_path: Path) 
     json_path = tmp_path / "run.json"
     json_path.write_text("[]")
 
-    with pytest.raises(ConfigLoadError, match="root must be an object"):
+    with pytest.raises(SlurmConfigLoadError, match="root must be an object"):
         load_run_config(json_path)
-    with pytest.raises(ConfigLoadError, match="must end"):
+    with pytest.raises(SlurmConfigLoadError, match="must end"):
         load_run_config(tmp_path / "run.toml")
 
 
@@ -159,12 +171,23 @@ def test_loader_validation_errors_hide_secret_inputs(tmp_path: Path) -> None:
     path = tmp_path / "run.json"
     path.write_text(json.dumps(payload))
 
-    with pytest.raises(ConfigLoadError) as error:
+    with pytest.raises(SlurmConfigLoadError) as error:
         load_run_config(path)
 
     assert secret not in str(error.value)
-    assert error.value.__cause__ is not None
-    assert secret not in str(error.value.__cause__)
+    assert error.value.__cause__ is None
+
+
+def test_loader_parse_errors_hide_source_values(tmp_path: Path) -> None:
+    secret = "super-secret-token"
+    path = tmp_path / "run.yaml"
+    path.write_text(f"api_key: {secret}: x\n")
+
+    with pytest.raises(SlurmConfigLoadError, match="invalid YAML at line 1") as error:
+        load_run_config(path)
+
+    assert secret not in str(error.value)
+    assert error.value.__cause__ is None
 
 
 @pytest.mark.parametrize("suffix", [".json", ".yaml", ".yml"])
@@ -228,13 +251,13 @@ def test_injected_profile_bypasses_catalog_lookup(profile_catalog: SlurmProfileC
 def test_profile_resolution_rejects_conflicting_or_empty_sources(
     profile_catalog: SlurmProfileCatalog,
 ) -> None:
-    with pytest.raises(ConfigLoadError, match="mutually exclusive"):
+    with pytest.raises(SlurmConfigLoadError, match="mutually exclusive"):
         resolve_profile(catalog=profile_catalog, profile_file="profile.json")
-    with pytest.raises(ConfigLoadError, match="must not be empty"):
+    with pytest.raises(SlurmConfigLoadError, match="must not be empty"):
         resolve_profile(environ={PROFILE_FILE_ENVIRONMENT: ""})
-    with pytest.raises(ConfigLoadError, match="cluster selection"):
+    with pytest.raises(SlurmConfigLoadError, match="cluster selection"):
         resolve_profile(profile=profile_catalog.clusters["primary"], cluster="primary")
-    with pytest.raises(ConfigLoadError, match="unknown cluster"):
+    with pytest.raises(SlurmConfigLoadError, match="unknown cluster"):
         resolve_profile(catalog=profile_catalog, cluster="missing")
 
 
@@ -245,7 +268,7 @@ def test_profile_resolution_normalizes_ambiguous_hostname_errors(
     payload["clusters"]["lab"]["host_patterns"] = ["*-login-*"]
     catalog = SlurmProfileCatalog.model_validate(payload)
 
-    with pytest.raises(ConfigLoadError, match="multiple clusters"):
+    with pytest.raises(SlurmConfigLoadError, match="multiple clusters"):
         resolve_profile(catalog=catalog, hostnames=("primary-login-1",))
 
 

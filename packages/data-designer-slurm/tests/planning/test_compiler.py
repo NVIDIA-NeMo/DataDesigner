@@ -22,17 +22,15 @@ from data_designer.slurm.config import (
     SlurmProfileCatalog,
     select_profile,
 )
-from data_designer.slurm.contracts import compute_pretty_sha256
+from data_designer.slurm.contracts import compute_serialized_json_sha256
 from data_designer.slurm.planning import (
     ArtifactReference,
-    ConfigurationResolutionError,
-    EffectiveDataDesignerSlurmConfig,
-    PlanCompilationError,
     ResolvedDependencyLock,
     ResolvedSlurmRunPlan,
-    compile_slurm_run_plan,
-    resolve_slurm_config,
 )
+from data_designer.slurm.planning.compiler import SlurmRunCompiler
+from data_designer.slurm.planning.errors import SlurmConfigResolutionError, SlurmPlanCompilationError
+from data_designer.slurm.planning.resolution import EffectiveDataDesignerSlurmConfig, resolve_slurm_config
 
 GOLDEN_DIRECTORY = Path(__file__).parents[1] / "contracts" / "golden"
 
@@ -76,8 +74,8 @@ def test_compiler_reproduces_plan_goldens_byte_for_byte(
     expected = request.getfixturevalue(plan_fixture)
     effective = _resolve_fixture(authored, dependency_lock, expected)
 
-    first = compile_slurm_run_plan(effective)
-    second = compile_slurm_run_plan(effective)
+    first = SlurmRunCompiler.compile(effective)
+    second = SlurmRunCompiler.compile(effective)
 
     assert first.serialize_json() == (GOLDEN_DIRECTORY / golden_name).read_text()
     assert first.serialize_canonical_json() == second.serialize_canonical_json()
@@ -97,7 +95,7 @@ def test_compiler_resolves_explicit_hostname_and_default_profile_selection(
     )
 
     plans = tuple(
-        compile_slurm_run_plan(
+        SlurmRunCompiler.compile(
             _resolve_fixture(
                 authored_run_single,
                 dependency_lock_single,
@@ -128,7 +126,7 @@ def test_auto_gpu_resolution_is_explicit_and_scheduler_free(
         update={"path": "/workspace/lab/runtime/runtime.tar.gz"}
     )
 
-    with pytest.raises(ConfigurationResolutionError, match="auto gpus_per_node"):
+    with pytest.raises(SlurmConfigResolutionError, match="auto gpus_per_node"):
         _resolve_fixture(
             authored_run_single,
             dependency_lock_single,
@@ -138,7 +136,7 @@ def test_auto_gpu_resolution_is_explicit_and_scheduler_free(
             resolved_gpus_per_node=None,
         )
 
-    plan = compile_slurm_run_plan(
+    plan = SlurmRunCompiler.compile(
         _resolve_fixture(
             authored_run_single,
             dependency_lock_single,
@@ -215,8 +213,8 @@ def test_compiler_rejects_tensor_parallelism_that_does_not_divide_gpu_shape(
     payload["deployments"][0]["topology"]["tensor_parallel"] = 3
     authored = DataDesignerSlurmConfig.model_validate(payload)
 
-    with pytest.raises(PlanCompilationError, match="tensor_parallel"):
-        compile_slurm_run_plan(_resolve_fixture(authored, dependency_lock_single, single_node_plan))
+    with pytest.raises(SlurmPlanCompilationError, match="tensor_parallel"):
+        SlurmRunCompiler.compile(_resolve_fixture(authored, dependency_lock_single, single_node_plan))
 
 
 @pytest.mark.parametrize(
@@ -240,62 +238,8 @@ def test_resolution_rejects_invalid_output_destinations(
     payload["output"].update(output_update)
     authored = DataDesignerSlurmConfig.model_validate(payload)
 
-    with pytest.raises(ConfigurationResolutionError, match="output"):
+    with pytest.raises(SlurmConfigResolutionError, match="output"):
         _resolve_fixture(authored, dependency_lock_single, single_node_plan)
-
-
-def test_effective_config_rejects_invalid_direct_construction(
-    authored_run: DataDesignerSlurmConfig,
-    dependency_lock: ResolvedDependencyLock,
-    multi_node_plan: ResolvedSlurmRunPlan,
-) -> None:
-    effective = _resolve_fixture(authored_run, dependency_lock, multi_node_plan)
-    values = {name: getattr(effective, name) for name in EffectiveDataDesignerSlurmConfig.model_fields}
-    values["authored"] = authored_run.model_copy(
-        update={"output": authored_run.output.model_copy(update={"format": "jsonl"})}
-    )
-    values["output"] = effective.output.model_copy(update={"format": "jsonl"})
-
-    with pytest.raises(ValueError, match="parquet output"):
-        EffectiveDataDesignerSlurmConfig(**values)  # type: ignore[arg-type]
-
-    other_output = "/workspace/primary/runs/other-run/output"
-    values["authored"] = authored_run.model_copy(
-        update={"output": authored_run.output.model_copy(update={"root": other_output})}
-    )
-    values["output"] = effective.output.model_copy(update={"root": other_output})
-
-    with pytest.raises(ValueError, match="another package-managed run"):
-        EffectiveDataDesignerSlurmConfig(**values)  # type: ignore[arg-type]
-
-    values["authored"] = authored_run.model_copy(
-        update={"output": authored_run.output.model_copy(update={"partitions": 101})}
-    )
-    values["output"] = effective.output.model_copy(update={"partitions": 101})
-
-    with pytest.raises(ValueError, match="requested records"):
-        EffectiveDataDesignerSlurmConfig(**values)  # type: ignore[arg-type]
-
-    values["authored"] = authored_run
-    values["output"] = effective.output.model_copy(update={"format": "jsonl"})
-
-    with pytest.raises(ValueError, match="resolved output"):
-        EffectiveDataDesignerSlurmConfig(**values)  # type: ignore[arg-type]
-
-
-def test_effective_config_rejects_invocation_drift(
-    authored_run_single: DataDesignerSlurmConfig,
-    dependency_lock_single: ResolvedDependencyLock,
-    single_node_plan: ResolvedSlurmRunPlan,
-) -> None:
-    effective = _resolve_fixture(authored_run_single, dependency_lock_single, single_node_plan)
-    run_config = dict(effective.invocation.effective_run_config)
-    run_config["jinja_rendering_engine"] = "native"
-    values = {name: getattr(effective, name) for name in EffectiveDataDesignerSlurmConfig.model_fields}
-    values["invocation"] = effective.invocation.model_copy(update={"effective_run_config": run_config})
-
-    with pytest.raises(ValueError, match="resolved invocation"):
-        EffectiveDataDesignerSlurmConfig(**values)  # type: ignore[arg-type]
 
 
 def test_compiler_rejects_model_alias_missing_from_builder(
@@ -307,8 +251,8 @@ def test_compiler_rejects_model_alias_missing_from_builder(
     payload["builder"]["inline"]["data_designer"]["model_configs"][0]["alias"] = "other"
     authored = DataDesignerSlurmConfig.model_validate(payload)
 
-    with pytest.raises(PlanCompilationError, match="deployment alias"):
-        compile_slurm_run_plan(_resolve_fixture(authored, dependency_lock_single, single_node_plan))
+    with pytest.raises(SlurmPlanCompilationError, match="failed validation"):
+        SlurmRunCompiler.compile(_resolve_fixture(authored, dependency_lock_single, single_node_plan))
 
 
 @pytest.mark.parametrize("sourced", [False, True], ids=["inline", "sourced"])
@@ -328,8 +272,8 @@ def test_compiler_rejects_builder_model_alias_without_deployment(
         payload["builder"] = {"source": "builder.json"}
     authored = DataDesignerSlurmConfig.model_validate(payload)
 
-    with pytest.raises(PlanCompilationError, match="exactly cover"):
-        compile_slurm_run_plan(
+    with pytest.raises(SlurmPlanCompilationError, match="failed validation"):
+        SlurmRunCompiler.compile(
             _resolve_fixture(
                 authored,
                 dependency_lock_single,
@@ -348,8 +292,8 @@ def test_compiler_rejects_otel_collision_before_runtime(
     payload["invocation"]["run_config"] = {"otel_metrics_port": 17000}
     authored = DataDesignerSlurmConfig.model_validate(payload)
 
-    with pytest.raises(PlanCompilationError, match="OTEL"):
-        compile_slurm_run_plan(_resolve_fixture(authored, dependency_lock_single, single_node_plan))
+    with pytest.raises(SlurmPlanCompilationError, match="OTEL"):
+        SlurmRunCompiler.compile(_resolve_fixture(authored, dependency_lock_single, single_node_plan))
 
 
 def test_sharded_seed_inputs_have_stable_ranges_and_partition_digests(
@@ -362,8 +306,8 @@ def test_sharded_seed_inputs_have_stable_ranges_and_partition_digests(
     )
     authored = authored_run.model_copy(update={"invocation": invocation})
 
-    first = compile_slurm_run_plan(_resolve_fixture(authored, dependency_lock, multi_node_plan))
-    second = compile_slurm_run_plan(_resolve_fixture(authored, dependency_lock, multi_node_plan))
+    first = SlurmRunCompiler.compile(_resolve_fixture(authored, dependency_lock, multi_node_plan))
+    second = SlurmRunCompiler.compile(_resolve_fixture(authored, dependency_lock, multi_node_plan))
 
     assert [(shard.record_range.start_index, shard.record_range.end_index_exclusive) for shard in first.shards] == [
         (0, 50),
@@ -372,7 +316,7 @@ def test_sharded_seed_inputs_have_stable_ranges_and_partition_digests(
     assert all(shard.input_partition is not None for shard in first.shards)
     for shard in first.shards:
         assert shard.input_partition is not None
-        assert shard.input_partition.sha256 == compute_pretty_sha256(
+        assert shard.input_partition.sha256 == compute_serialized_json_sha256(
             {
                 "record_range": shard.record_range.model_dump(mode="json"),
                 "seed_path": "/datasets/seed.parquet",
@@ -445,7 +389,7 @@ def test_resolution_rejects_unshardable_big_iron_fields(
     payload["output"].update(output_update)
     authored = DataDesignerSlurmConfig.model_validate(payload)
 
-    with pytest.raises(ConfigurationResolutionError, match=message):
+    with pytest.raises(SlurmConfigResolutionError, match=message):
         _resolve_fixture(authored, dependency_lock, multi_node_plan)
 
 
@@ -469,7 +413,7 @@ def test_resolution_rejects_real_global_builder_configs(
     payload["builder"]["inline"]["data_designer"][field] = data_designer[field]
     authored = DataDesignerSlurmConfig.model_validate(payload)
 
-    with pytest.raises(ConfigurationResolutionError, match=field):
+    with pytest.raises(SlurmConfigResolutionError, match=field):
         _resolve_fixture(authored, dependency_lock, multi_node_plan)
 
 
@@ -511,7 +455,7 @@ def test_resolution_rejects_unportable_multi_shard_columns(
         payload["builder"] = {"source": "builder.json"}
     authored = DataDesignerSlurmConfig.model_validate(payload)
 
-    with pytest.raises(ConfigurationResolutionError, match=message):
+    with pytest.raises(SlurmConfigResolutionError, match=message):
         _resolve_fixture(
             authored,
             dependency_lock,
@@ -533,7 +477,7 @@ def test_sharded_seed_binding_may_override_authored_source(
     payload["invocation"]["input_bindings"]["seed_path"] = "/datasets/override.parquet"
     authored = DataDesignerSlurmConfig.model_validate(payload)
 
-    plan = compile_slurm_run_plan(_resolve_fixture(authored, dependency_lock, multi_node_plan))
+    plan = SlurmRunCompiler.compile(_resolve_fixture(authored, dependency_lock, multi_node_plan))
 
     assert all(shard.input_partition is not None for shard in plan.shards)
 
@@ -563,10 +507,43 @@ def test_single_shard_allows_non_collectable_big_iron_fields(
     payload["output"]["format"] = "jsonl"
     authored = DataDesignerSlurmConfig.model_validate(payload)
 
-    plan = compile_slurm_run_plan(_resolve_fixture(authored, dependency_lock_single, single_node_plan))
+    plan = SlurmRunCompiler.compile(_resolve_fixture(authored, dependency_lock_single, single_node_plan))
 
     assert plan.array_tasks.count == 1
     assert plan.output.format == "jsonl"
+
+
+@pytest.mark.parametrize("sourced", [False, True], ids=["inline", "sourced"])
+def test_single_shard_defers_opaque_plugin_aliases_to_client_preflight(
+    authored_run_single: DataDesignerSlurmConfig,
+    dependency_lock_single: ResolvedDependencyLock,
+    single_node_plan: ResolvedSlurmRunPlan,
+    sourced: bool,
+) -> None:
+    payload = authored_run_single.model_dump(mode="json")
+    payload["builder"]["inline"]["data_designer"]["columns"] = [
+        {
+            "column_type": "plugin-column",
+            "fallback_model_alias": None,
+            "name": "plugin",
+        }
+    ]
+    builder_payload = None
+    if sourced:
+        builder_payload = payload["builder"]["inline"]
+        payload["builder"] = {"source": "builder.json"}
+    authored = DataDesignerSlurmConfig.model_validate(payload)
+
+    plan = SlurmRunCompiler.compile(
+        _resolve_fixture(
+            authored,
+            dependency_lock_single,
+            single_node_plan,
+            builder_payload=builder_payload,
+        )
+    )
+
+    assert plan.builder.model_aliases == ("generator",)
 
 
 def test_sourced_builder_is_resolved_to_one_digest_bound_run_input(
@@ -578,7 +555,7 @@ def test_sourced_builder_is_resolved_to_one_digest_bound_run_input(
     assert isinstance(builder_payload, dict)
     authored = authored_run_single.model_copy(update={"builder": BuilderInput(source="builder.json")})
 
-    plan = compile_slurm_run_plan(
+    plan = SlurmRunCompiler.compile(
         _resolve_fixture(
             authored,
             dependency_lock_single,
@@ -600,7 +577,7 @@ def test_sourced_builder_is_resolved_to_one_digest_bound_run_input(
         ("aliases", "model aliases"),
     ],
 )
-def test_effective_config_rejects_sourced_builder_payload_identity_drift(
+def test_compiler_rejects_sourced_builder_payload_identity_drift(
     authored_run_single: DataDesignerSlurmConfig,
     dependency_lock_single: ResolvedDependencyLock,
     single_node_plan: ResolvedSlurmRunPlan,
@@ -620,11 +597,10 @@ def test_effective_config_rejects_sourced_builder_payload_identity_drift(
         drifted_payload["library_version"] = "drifted"
     else:
         drifted_payload["data_designer"]["model_configs"][0]["alias"] = "drifted"
-    values = {name: getattr(effective, name) for name in EffectiveDataDesignerSlurmConfig.model_fields}
-    values["builder_payload"] = drifted_payload
+    drifted = effective.model_copy(update={"builder_payload": drifted_payload})
 
-    with pytest.raises(ValueError, match=message):
-        EffectiveDataDesignerSlurmConfig(**values)  # type: ignore[arg-type]
+    with pytest.raises(SlurmPlanCompilationError, match=message):
+        SlurmRunCompiler.compile(drifted)
 
 
 def test_resolution_rejects_secret_values_in_sourced_builder_payload(
@@ -637,7 +613,7 @@ def test_resolution_rejects_secret_values_in_sourced_builder_payload(
     builder_payload["data_designer"]["api_key"] = secret
     authored = authored_run_single.model_copy(update={"builder": BuilderInput(source="builder.json")})
 
-    with pytest.raises(ConfigurationResolutionError, match="secret values") as error:
+    with pytest.raises(SlurmConfigResolutionError, match="failed validation") as error:
         _resolve_fixture(
             authored,
             dependency_lock_single,
@@ -646,8 +622,7 @@ def test_resolution_rejects_secret_values_in_sourced_builder_payload(
         )
 
     assert secret not in str(error.value)
-    assert error.value.__cause__ is not None
-    assert secret not in str(error.value.__cause__)
+    assert error.value.__cause__ is None
 
 
 def test_resolution_rejects_artifact_identity_mismatches(
@@ -658,9 +633,9 @@ def test_resolution_rejects_artifact_identity_mismatches(
     wrong_lock = dependency_lock_single.model_copy(update={"client_image_sha256": "a" * 64})
     wrong_runtime = ArtifactReference(path="/tmp/runtime.tar.gz", sha256="e" * 64)
 
-    with pytest.raises(ConfigurationResolutionError, match="client image"):
+    with pytest.raises(SlurmConfigResolutionError, match="client image"):
         _resolve_fixture(authored_run_single, wrong_lock, single_node_plan)
-    with pytest.raises(ConfigurationResolutionError, match="runtime bundle"):
+    with pytest.raises(SlurmConfigResolutionError, match="runtime bundle"):
         _resolve_fixture(
             authored_run_single,
             dependency_lock_single,
@@ -674,7 +649,7 @@ def test_plan_contains_secret_references_without_credentials(
     dependency_lock: ResolvedDependencyLock,
     multi_node_plan: ResolvedSlurmRunPlan,
 ) -> None:
-    plan = compile_slurm_run_plan(_resolve_fixture(authored_run, dependency_lock, multi_node_plan))
+    plan = SlurmRunCompiler.compile(_resolve_fixture(authored_run, dependency_lock, multi_node_plan))
     serialized = plan.serialize_json()
 
     assert "PACKAGE_INDEX_TOKEN" in serialized

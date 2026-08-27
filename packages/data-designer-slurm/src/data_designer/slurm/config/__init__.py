@@ -14,7 +14,8 @@ from data_designer.slurm.config.benchmark import (
     DataDesignerSlurmBenchmarkConfig,
     FixedRecordPolicy,
 )
-from data_designer.slurm.config.builder import ConfigBuilderError, DataDesignerSlurmConfigBuilder
+from data_designer.slurm.config.builder import DataDesignerSlurmConfigBuilder
+from data_designer.slurm.config.errors import SlurmConfigBuilderError, SlurmConfigLoadError
 from data_designer.slurm.config.images import (
     ClientImageInspection,
     ImageBuildRequest,
@@ -27,7 +28,6 @@ from data_designer.slurm.config.images import (
 from data_designer.slurm.config.loading import (
     DEFAULT_PROFILE_FILE_NAME,
     PROFILE_FILE_ENVIRONMENT,
-    ConfigLoadError,
     load_profile_catalog,
     load_run_config,
     resolve_profile,
@@ -78,8 +78,6 @@ __all__ = [
     "ClientConfig",
     "ClientDependencies",
     "ClientImageInspection",
-    "ConfigBuilderError",
-    "ConfigLoadError",
     "ContainerMount",
     "DataDesignerSlurmBenchmarkConfig",
     "DataDesignerSlurmConfig",
@@ -110,6 +108,8 @@ __all__ = [
     "SelectedSlurmProfile",
     "ServerDeploymentConfig",
     "ServingImageInspection",
+    "SlurmConfigBuilderError",
+    "SlurmConfigLoadError",
     "SlurmProfile",
     "SlurmProfileCatalog",
     "SubmissionConfig",

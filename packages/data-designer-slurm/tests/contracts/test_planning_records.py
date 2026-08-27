@@ -10,16 +10,16 @@ import pytest
 from pydantic import ValidationError
 
 from data_designer.slurm.config import BuilderInput, ClientDependencies, DataDesignerSlurmConfig
-from data_designer.slurm.contracts import compute_pretty_sha256, compute_sha256
+from data_designer.slurm.contracts import compute_serialized_json_sha256, compute_sha256
 from data_designer.slurm.planning import (
     ArtifactReference,
-    PlanContractError,
     ResolvedDependencyLock,
     ResolvedDeployment,
     ResolvedSlurmRunPlan,
     ResolvedSubmission,
-    validate_resolved_plan,
 )
+from data_designer.slurm.planning.errors import SlurmPlanContractError
+from data_designer.slurm.planning.validation import validate_resolved_plan
 
 
 def test_multi_node_plan_matches_authored_inputs(
@@ -166,16 +166,6 @@ def test_plan_rejects_deployment_alias_missing_from_builder(multi_node_plan: Res
         ResolvedSlurmRunPlan.model_validate_json(json.dumps(payload))
 
 
-def test_plan_rejects_referenced_alias_without_deployment(multi_node_plan: ResolvedSlurmRunPlan) -> None:
-    payload = multi_node_plan.model_dump(mode="json")
-    payload["builder"]["inline"]["data_designer"]["columns"] = [{"model_alias": "missing"}]
-    payload["builder"]["referenced_model_aliases"] = ["missing"]
-    payload["builder"]["content_sha256"] = compute_sha256(payload["builder"]["inline"])
-
-    with pytest.raises(ValidationError, match="referenced Data Designer model alias"):
-        ResolvedSlurmRunPlan.model_validate_json(json.dumps(payload))
-
-
 def test_multi_node_tp4_requires_rendezvous_per_replica_lane(multi_node_plan: ResolvedSlurmRunPlan) -> None:
     payload = multi_node_plan.deployments[0].model_dump(mode="json")
     payload["authored"]["topology"]["tensor_parallel"] = 4
@@ -226,7 +216,7 @@ def test_sourced_builder_validation_requires_resolved_payload(
     multi_node_plan: ResolvedSlurmRunPlan,
 ) -> None:
     sourced_authored = authored_run.model_copy(update={"builder": BuilderInput(source="builder.json")})
-    builder_digest = compute_pretty_sha256(authored_run.builder.inline)
+    builder_digest = compute_serialized_json_sha256(authored_run.builder.inline)
     payload = multi_node_plan.model_dump(mode="json")
     payload["authored_config"]["sha256"] = sourced_authored.compute_sha256()
     payload["builder"] = {
@@ -235,11 +225,10 @@ def test_sourced_builder_validation_requires_resolved_payload(
         "inline": None,
         "content_sha256": builder_digest,
         "model_aliases": ["generator", "judge"],
-        "referenced_model_aliases": [],
     }
     sourced_plan = ResolvedSlurmRunPlan.model_validate_json(json.dumps(payload))
 
-    with pytest.raises(PlanContractError, match="resolved payload"):
+    with pytest.raises(SlurmPlanContractError, match="resolved payload"):
         validate_resolved_plan(sourced_authored, dependency_lock, sourced_plan)
 
     assert (
@@ -348,7 +337,7 @@ def test_cross_record_validation_rejects_authored_digest(
         }
     )
 
-    with pytest.raises(PlanContractError, match="authored config digest"):
+    with pytest.raises(SlurmPlanContractError, match="authored config digest"):
         validate_resolved_plan(authored_run, dependency_lock, invalid)
 
 
@@ -367,7 +356,7 @@ def test_cross_record_validation_rejects_dependency_lock_digest(
     )
     invalid = multi_node_plan.model_copy(update={"client": client})
 
-    with pytest.raises(PlanContractError, match="dependency lock digest"):
+    with pytest.raises(SlurmPlanContractError, match="dependency lock digest"):
         validate_resolved_plan(authored_run, dependency_lock, invalid)
 
 
@@ -385,7 +374,7 @@ def test_cross_record_validation_binds_authored_lock_source(
     plan_payload["client"]["authored"] = authored.client.model_dump(mode="json")
     plan = ResolvedSlurmRunPlan.model_validate_json(json.dumps(plan_payload))
 
-    with pytest.raises(PlanContractError, match="authored lock file"):
+    with pytest.raises(SlurmPlanContractError, match="authored lock file"):
         validate_resolved_plan(authored, dependency_lock, plan)
 
     lock_payload = dependency_lock.model_dump(mode="json")
@@ -408,7 +397,7 @@ def test_cross_record_validation_binds_authored_lock_source(
             )
         }
     )
-    with pytest.raises(PlanContractError, match="present for authored requirements"):
+    with pytest.raises(SlurmPlanContractError, match="present for authored requirements"):
         validate_resolved_plan(authored_run, matching_lock, unexpected_source_plan)
 
     matching_plan = plan.model_copy(
@@ -441,7 +430,7 @@ def test_cross_record_validation_rejects_python_abi(
     )
     invalid_plan = multi_node_plan.model_copy(update={"client": client})
 
-    with pytest.raises(PlanContractError, match="Python ABI"):
+    with pytest.raises(SlurmPlanContractError, match="Python ABI"):
         validate_resolved_plan(authored_run, invalid_lock, invalid_plan)
 
 
@@ -460,7 +449,7 @@ def test_cross_record_validation_rejects_image_inventory(
     )
     invalid_plan = multi_node_plan.model_copy(update={"client": client})
 
-    with pytest.raises(PlanContractError, match="image inventory"):
+    with pytest.raises(SlurmPlanContractError, match="image inventory"):
         validate_resolved_plan(authored_run, invalid_lock, invalid_plan)
 
 
@@ -474,7 +463,7 @@ def test_cross_record_validation_rejects_changed_invocation(
     )
     invalid = multi_node_plan.model_copy(update={"invocation": invocation})
 
-    with pytest.raises(PlanContractError, match="invocation"):
+    with pytest.raises(SlurmPlanContractError, match="invocation"):
         validate_resolved_plan(authored_run, dependency_lock, invalid)
 
 
@@ -487,5 +476,5 @@ def test_cross_record_validation_preserves_explicit_run_config(
     payload["invocation"]["effective_run_config"]["buffer_size"] = 16384
     invalid = ResolvedSlurmRunPlan.model_validate_json(json.dumps(payload))
 
-    with pytest.raises(PlanContractError, match="run_config.buffer_size"):
+    with pytest.raises(SlurmPlanContractError, match="run_config.buffer_size"):
         validate_resolved_plan(authored_run, dependency_lock, invalid)

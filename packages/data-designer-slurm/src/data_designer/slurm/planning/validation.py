@@ -8,15 +8,12 @@ from pydantic import JsonValue
 from data_designer.config import RunConfig
 from data_designer.slurm.config.images import ClientImageInspection
 from data_designer.slurm.config.run import DataDesignerSlurmConfig
+from data_designer.slurm.planning.builder_identity import get_persisted_builder_identity
+from data_designer.slurm.planning.errors import SlurmPlanContractError
 from data_designer.slurm.planning.models import (
     ResolvedDependencyLock,
     ResolvedSlurmRunPlan,
-    _extract_builder_identity,
 )
-
-
-class PlanContractError(ValueError):
-    """Raised when a resolved plan does not match its authored inputs."""
 
 
 def validate_resolved_plan(
@@ -54,13 +51,9 @@ def validate_resolved_plan(
             "resolved builder source does not match authored input",
         )
         if builder_payload is None:
-            raise PlanContractError("sourced builder validation requires its resolved payload")
-        model_aliases, referenced_aliases, digest = _extract_builder_identity(builder_payload)
+            raise SlurmPlanContractError("sourced builder validation requires its resolved payload")
+        model_aliases, digest = get_persisted_builder_identity(builder_payload)
         _require(plan.builder.model_aliases == model_aliases, "resolved model aliases do not match builder source")
-        _require(
-            plan.builder.referenced_model_aliases == referenced_aliases,
-            "resolved referenced aliases do not match builder source",
-        )
         _require(plan.builder.content_sha256 == digest, "resolved builder digest does not match builder source")
 
     expected_account = authored.submission.account or plan.selected_profile.profile.scheduler.account
@@ -127,7 +120,7 @@ def validate_resolved_plan(
 
 def _require(condition: bool, message: str) -> None:
     if not condition:
-        raise PlanContractError(message)
+        raise SlurmPlanContractError(message)
 
 
 def _require_json_subset(actual: JsonValue, expected: JsonValue, *, path: str) -> None:

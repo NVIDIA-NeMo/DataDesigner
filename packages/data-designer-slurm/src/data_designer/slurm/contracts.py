@@ -38,11 +38,11 @@ EnvironmentName = Annotated[str, StringConstraints(pattern=r"^[A-Za-z_][A-Za-z0-
 Sha256Digest = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
 Duration = Annotated[str, StringConstraints(pattern=r"^[1-9][0-9]*(?:s|m|h|d)$")]
 
-_Key = TypeVar("_Key")
-_Value = TypeVar("_Value")
+_KeyT = TypeVar("_KeyT")
+_ValueT = TypeVar("_ValueT")
 
 
-class _FrozenList(list[_Value]):
+class _FrozenList(list[_ValueT]):
     """List that retains JSON compatibility without exposing mutation."""
 
     def _immutable(self, *args: object, **kwargs: object) -> None:
@@ -63,7 +63,7 @@ class _FrozenList(list[_Value]):
     sort = _immutable
 
 
-class _FrozenDict(dict[_Key, _Value]):
+class _FrozenDict(dict[_KeyT, _ValueT]):
     """Dictionary that retains JSON compatibility without exposing mutation."""
 
     def _immutable(self, *args: object, **kwargs: object) -> None:
@@ -170,7 +170,7 @@ def compute_sha256(value: object) -> Sha256Digest:
     return hashlib.sha256(canonical_json(value)).hexdigest()
 
 
-def compute_pretty_sha256(value: object) -> Sha256Digest:
+def compute_serialized_json_sha256(value: object) -> Sha256Digest:
     """Compute the digest of deterministic persisted JSON bytes."""
     return hashlib.sha256(pretty_json(value).encode("utf-8")).hexdigest()
 
@@ -293,7 +293,6 @@ __all__ = [
     "Sha256Digest",
     "ShardId",
     "canonical_json",
-    "compute_pretty_sha256",
     "compute_sha256",
     "pretty_json",
     "validate_absolute_path",

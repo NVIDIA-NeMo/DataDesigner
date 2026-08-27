@@ -13,6 +13,8 @@ import yaml
 from pydantic import BaseModel, ValidationError
 
 from data_designer.config import DataDesignerConfigBuilder
+from data_designer.slurm._errors import format_validation_error
+from data_designer.slurm.config.errors import SlurmConfigBuilderError
 from data_designer.slurm.config.images import ImageRef
 from data_designer.slurm.config.run import (
     ArrayTasksConfig,
@@ -29,11 +31,7 @@ from data_designer.slurm.config.run import (
     SubmissionConfig,
 )
 
-_ConfigValue = TypeVar("_ConfigValue", bound=BaseModel)
-
-
-class ConfigBuilderError(ValueError):
-    """Raised when the Slurm config builder is incomplete or cannot serialize."""
+_ConfigValueT = TypeVar("_ConfigValueT", bound=BaseModel)
 
 
 class DataDesignerSlurmConfigBuilder:
@@ -151,7 +149,7 @@ class DataDesignerSlurmConfigBuilder:
         if not self._deployments:
             missing.append("deployment")
         if missing:
-            raise ConfigBuilderError(f"Slurm config builder requires: {', '.join(missing)}")
+            raise SlurmConfigBuilderError(f"Slurm config builder requires: {', '.join(missing)}")
         assert self._invocation is not None
         assert self._client is not None
         return _validate_model(
@@ -182,15 +180,16 @@ class DataDesignerSlurmConfigBuilder:
                 sort_keys=True,
             )
         else:
-            raise ConfigBuilderError("config path must end in .json, .yaml, or .yml")
+            raise SlurmConfigBuilderError("config path must end in .json, .yaml, or .yml")
         try:
             output_path.write_text(contents, encoding="utf-8")
-        except OSError as error:
-            raise ConfigBuilderError(f"cannot write Slurm config {output_path}") from error
+        except OSError:
+            raise SlurmConfigBuilderError(f"cannot write Slurm config {output_path}") from None
 
 
-def _validate_model(config_type: type[_ConfigValue], value: object) -> _ConfigValue:
+def _validate_model(config_type: type[_ConfigValueT], value: object) -> _ConfigValueT:
     try:
         return config_type.model_validate(value)
     except ValidationError as error:
-        raise ConfigBuilderError(str(error)) from error
+        message = format_validation_error(error, subject=config_type.__name__)
+        raise SlurmConfigBuilderError(message) from None

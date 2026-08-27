@@ -25,7 +25,6 @@
     "model_aliases": [
       "generator"
     ],
-    "referenced_model_aliases": [],
     "source": null
   },
   "client": {
