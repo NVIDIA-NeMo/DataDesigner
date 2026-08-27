@@ -35,7 +35,7 @@ _IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _MAX_SLURM_INTEGER = (1 << 32) - 1
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class SlurmExecutables:
     """Executable paths used for bounded Slurm operations."""
 

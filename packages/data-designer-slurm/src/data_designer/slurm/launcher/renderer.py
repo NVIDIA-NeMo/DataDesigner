@@ -16,7 +16,7 @@ _DIRECTIVE_NAME_PATTERN = re.compile(r"^[a-z][a-z0-9-]*$")
 _DIRECTIVE_TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/,%+-]*$")
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class _BatchDirective:
     """One validated ``#SBATCH`` option."""
 

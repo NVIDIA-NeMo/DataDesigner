@@ -13,14 +13,14 @@ from data_designer.slurm.state import SchedulerIdentity, SchedulerState
 SlurmObservedJobIdentity: TypeAlias = int | SchedulerIdentity
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class SlurmJobSubmissionReceipt:
     """Job identity returned for one accepted non-federated submission."""
 
     job_id: int
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class SlurmProcessExitCode:
     """Slurm's process status and terminating signal pair."""
 
@@ -28,7 +28,7 @@ class SlurmProcessExitCode:
     termination_signal: int
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class SlurmQueueEntry:
     """One transient normalized active-queue entry."""
 
@@ -36,7 +36,7 @@ class SlurmQueueEntry:
     state: SchedulerState
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class SlurmAccountingEntry:
     """One transient normalized accounting entry."""
 

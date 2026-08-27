@@ -126,6 +126,21 @@ def parse_gpu_counts(output: str) -> tuple[int, ...]:
     return tuple(counts)
 
 
+def parse_state(value: str) -> SchedulerState:
+    """Normalize one Slurm long state spelling without guessing unknown states."""
+    normalized = value.strip().upper().removesuffix("+")
+    if not normalized:
+        raise SlurmCommandOutputError("scheduler state must not be empty")
+    if normalized.startswith("CANCELLED BY "):
+        canceller = normalized.removeprefix("CANCELLED BY ")
+        if not canceller.isascii() or not canceller.isdecimal():
+            raise SlurmCommandOutputError("cancelled scheduler state has an invalid owner")
+        normalized = "CANCELLED"
+    elif any(character.isspace() for character in normalized):
+        raise SlurmCommandOutputError("scheduler state contains unexpected whitespace")
+    return _STATE_MAP.get(normalized, SchedulerState.UNKNOWN)
+
+
 def _split_gres_fields(value: str, *, line_number: int) -> tuple[str, ...]:
     fields: list[str] = []
     start = 0
@@ -148,21 +163,6 @@ def _split_gres_fields(value: str, *, line_number: int) -> tuple[str, ...]:
     if any(not field for field in fields):
         raise SlurmCommandOutputError(f"sinfo line {line_number} contains an invalid GPU resource")
     return tuple(fields)
-
-
-def parse_state(value: str) -> SchedulerState:
-    """Normalize one Slurm long state spelling without guessing unknown states."""
-    normalized = value.strip().upper().removesuffix("+")
-    if not normalized:
-        raise SlurmCommandOutputError("scheduler state must not be empty")
-    if normalized.startswith("CANCELLED BY "):
-        canceller = normalized.removeprefix("CANCELLED BY ")
-        if not canceller.isascii() or not canceller.isdecimal():
-            raise SlurmCommandOutputError("cancelled scheduler state has an invalid owner")
-        normalized = "CANCELLED"
-    elif any(character.isspace() for character in normalized):
-        raise SlurmCommandOutputError("scheduler state contains unexpected whitespace")
-    return _STATE_MAP.get(normalized, SchedulerState.UNKNOWN)
 
 
 def _collect_nonempty_lines(output: str) -> tuple[tuple[int, str], ...]:
