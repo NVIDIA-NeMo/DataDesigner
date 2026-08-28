@@ -5,7 +5,7 @@
   },
   "authored_config": {
     "path": "/workspace/primary/runs/run-single/authored-config.json",
-    "sha256": "fa6ca55eac5075455193628e481b09789566d8f4c54926f45bbf837c20e5ba47"
+    "sha256": "3d092f4a6d3731d048c519b5e5a41b5f0c2973a4b3aff6459710dfbe64f66e18"
   },
   "builder": {
     "authored_source": null,
@@ -124,10 +124,12 @@
             "name": "vllm-0-21",
             "path": null
           },
+          "lead_boot_standoff": "60s",
           "queue_backpressure": {
             "max_waiting_requests": 128,
             "retry_after_seconds": 1
           },
+          "rank_launch_stagger": "5s",
           "readiness_path": "/health",
           "startup_timeout": "15m",
           "type": "vllm"

@@ -9,7 +9,7 @@ import hashlib
 import json
 import posixpath
 from collections.abc import Mapping
-from typing import Annotated, Literal, TypeVar
+from typing import TypeVar
 from urllib.parse import urlsplit
 
 from pydantic import (
@@ -17,26 +17,24 @@ from pydantic import (
     ConfigDict,
     NonNegativeInt,
     PositiveInt,
-    StringConstraints,
     field_validator,
     model_validator,
 )
 
-Identifier = Annotated[
-    str,
-    StringConstraints(
-        min_length=1,
-        max_length=128,
-        pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$",
-    ),
-]
+from data_designer.slurm.types import (
+    AttemptId,
+    Duration,
+    EnvironmentName,
+    Identifier,
+    NetworkPort,
+    NonNegativeDuration,
+    SchemaVersion,
+    Sha256Digest,
+    ShardId,
+)
+
+# TODO: Remove these compatibility exports after Stage 2 branches import shared scalars from slurm.types.
 ModelAlias = str
-ShardId = Annotated[str, StringConstraints(pattern=r"^shard-[0-9]{5,}$")]
-AttemptId = Annotated[str, StringConstraints(pattern=r"^attempt-[0-9]{4,}$")]
-SchemaVersion = Literal[1]
-EnvironmentName = Annotated[str, StringConstraints(pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")]
-Sha256Digest = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
-Duration = Annotated[str, StringConstraints(pattern=r"^[1-9][0-9]*(?:s|m|h|d)$")]
 
 _Key = TypeVar("_Key")
 _Value = TypeVar("_Value")
@@ -97,6 +95,7 @@ class ContractValue(BaseModel):
         extra="forbid",
         frozen=True,
         allow_inf_nan=False,
+        hide_input_in_errors=True,
         protected_namespaces=(),
         strict=True,
         validate_default=True,
@@ -118,6 +117,7 @@ class AuthoredConfig(ContractValue):
         return pretty_json(self.model_dump(mode="json"))
 
     def compute_sha256(self) -> Sha256Digest:
+        """Compute the digest of the exact bytes written by ``serialize_json``."""
         return hashlib.sha256(self.serialize_json().encode("utf-8")).hexdigest()
 
 
@@ -164,9 +164,13 @@ def pretty_json(value: object) -> str:
     )
 
 
-def compute_sha256(value: object) -> Sha256Digest:
+def compute_canonical_json_sha256(value: object) -> Sha256Digest:
     """Compute the canonical JSON digest of a JSON-compatible value."""
     return hashlib.sha256(canonical_json(value)).hexdigest()
+
+
+# TODO: Remove after in-flight Stage 2 branches adopt the explicit canonical-JSON digest name.
+compute_sha256 = compute_canonical_json_sha256
 
 
 def validate_absolute_path(value: str) -> str:
@@ -280,14 +284,15 @@ __all__ = [
     "Duration",
     "EnvironmentName",
     "Identifier",
-    "ModelAlias",
+    "NetworkPort",
+    "NonNegativeDuration",
     "RecordRange",
     "ResumeWorkspace",
     "SchemaVersion",
     "Sha256Digest",
     "ShardId",
     "canonical_json",
-    "compute_sha256",
+    "compute_canonical_json_sha256",
     "pretty_json",
     "validate_absolute_path",
     "validate_local_config_path",

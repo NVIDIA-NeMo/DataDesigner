@@ -1,11 +1,12 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+"""Authored Data Designer run, client, deployment, and submission configuration."""
+
 from __future__ import annotations
 
 import posixpath
 import re
-from collections.abc import Mapping
 from typing import Annotated, Literal
 from urllib.parse import urlsplit
 
@@ -14,7 +15,6 @@ from packaging.utils import canonicalize_name
 from pydantic import (
     Field,
     JsonValue,
-    NonNegativeInt,
     PositiveInt,
     StringConstraints,
     field_validator,
@@ -22,110 +22,47 @@ from pydantic import (
 )
 
 from data_designer.config import RunConfig
+from data_designer.slurm.config.environment import (
+    EnvironmentBinding,
+    LiteralEnvironmentBinding,
+    SecretRef,
+    is_secret_bearing_name,
+    validate_environment_bindings,
+    validate_no_plaintext_secrets,
+)
 from data_designer.slurm.config.images import ImageRef
+from data_designer.slurm.config.vllm import QueueBackpressureConfig, VllmServerConfig
 from data_designer.slurm.contracts import (
     AuthoredConfig,
-    Duration,
-    EnvironmentName,
-    Identifier,
-    ModelAlias,
-    SchemaVersion,
     validate_absolute_path,
     validate_local_config_path,
     validate_plain_text,
     validate_url,
 )
+from data_designer.slurm.types import EnvironmentName, Identifier, SchemaVersion
 
-_OWNED_VLLM_FLAGS = {
-    "--api-key",
-    "--distributed-executor-backend",
-    "--distributed-init-address",
-    "--enable-expert-parallel",
-    "--headless",
-    "--host",
-    "--middleware",
-    "--model",
-    "--pipeline-parallel-size",
-    "--port",
-    "--served-model-name",
-    "--tensor-parallel-size",
-}
-_DURATION_FACTORS = {"s": 1, "m": 60, "h": 3600, "d": 86400}
-_NON_SECRET_PAYLOAD_KEYS = frozenset({"idempotency_key", "partition_key", "primary_key", "sort_key"})
-_SECRET_NAME_PARTS = frozenset({"credential", "credentials", "password", "secret", "token"})
-
-
-def _duration_seconds(value: Duration) -> int:
-    return int(value[:-1]) * _DURATION_FACTORS[value[-1]]
-
-
-def _secret_name_segments(value: str) -> list[str]:
-    snake_case = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", value)
-    normalized = re.sub(r"[^a-z0-9]+", "_", snake_case.casefold()).strip("_")
-    return normalized.split("_")
-
-
-def _is_secret_name(value: str) -> bool:
-    segments = _secret_name_segments(value)
-    return bool(
-        _SECRET_NAME_PARTS.intersection(segments)
-        or {"access", "key"}.issubset(segments)
-        or segments[-1] in {"auth", "key"}
-    )
-
-
-def _is_secret_payload_name(value: str) -> bool:
-    segments = _secret_name_segments(value)
-    normalized = "_".join(segments)
-    return normalized not in _NON_SECRET_PAYLOAD_KEYS and _is_secret_name(value)
-
-
-def _option_flag(value: str) -> str:
-    return re.split(r"[=\s]", value.lstrip(), maxsplit=1)[0]
-
-
-def _contains_secret_key(value: object) -> bool:
-    if isinstance(value, Mapping):
-        return any(
-            (_is_secret_payload_name(str(key)) and item is not None) or _contains_secret_key(item)
-            for key, item in value.items()
-        )
-    if isinstance(value, list | tuple):
-        return any(_contains_secret_key(item) for item in value)
-    return False
-
-
-def _validate_environment_bindings(
-    values: dict[EnvironmentName, EnvironmentBinding],
-) -> dict[EnvironmentName, EnvironmentBinding]:
-    literal_secrets = [
-        name
-        for name, binding in values.items()
-        if _is_secret_name(name) and isinstance(binding, LiteralEnvironmentBinding)
-    ]
-    if literal_secrets:
-        raise ValueError("secret-shaped environment names require external secret references")
-    return values
-
-
-class LiteralEnvironmentBinding(AuthoredConfig):
-    type: Literal["literal"]
-    value: Annotated[str, StringConstraints(max_length=4096)]
-
-    @field_validator("value")
-    @classmethod
-    def validate_value(cls, value: str) -> str:
-        return validate_plain_text(value, field_name="environment value")
-
-
-class SecretRef(AuthoredConfig):
-    type: Literal["secret"]
-    environment: EnvironmentName
-
-
-EnvironmentBinding = Annotated[
-    LiteralEnvironmentBinding | SecretRef,
-    Field(discriminator="type"),
+__all__ = [
+    "ArrayTasksConfig",
+    "BuilderInput",
+    "ClientConfig",
+    "ClientDependencies",
+    "DataDesignerSlurmConfig",
+    "DeploymentResources",
+    "DeploymentTopology",
+    "EnvironmentBinding",
+    "InputBindings",
+    "InvocationConfig",
+    "InvocationDiagnostics",
+    "LiteralEnvironmentBinding",
+    "LocalStdioMCPProviderConfig",
+    "MCPProviderConfig",
+    "OutputConfig",
+    "QueueBackpressureConfig",
+    "RemoteMCPProviderConfig",
+    "SecretRef",
+    "ServerDeploymentConfig",
+    "SubmissionConfig",
+    "VllmServerConfig",
 ]
 
 
@@ -145,6 +82,7 @@ class BuilderInput(AuthoredConfig):
         if self.inline is not None:
             if not self.inline:
                 raise ValueError("inline builder input must not be empty")
+            validate_no_plaintext_secrets(self.inline, field_name="inline builder input")
             retired = {"dependencies", "sandbox_config", "server_configs"}.intersection(self.inline)
             if retired:
                 raise ValueError(f"builder input contains retired Big Iron fields: {', '.join(sorted(retired))}")
@@ -157,8 +95,6 @@ class BuilderInput(AuthoredConfig):
                 valid = isinstance(self.inline.get("columns"), list)
             if not valid:
                 raise ValueError("inline builder input must be one complete serialized Data Designer config")
-            if _contains_secret_key(self.inline):
-                raise ValueError("inline builder input must not contain secret values")
         return self
 
 
@@ -208,12 +144,18 @@ class LocalStdioMCPProviderConfig(AuthoredConfig):
     def validate_args(cls, values: list[str]) -> list[str]:
         for value in values:
             validate_plain_text(value, field_name="MCP argument")
-            option = _option_flag(value).lstrip("-")
-            if _is_secret_name(option):
+            option = re.split(r"[=\s]", value.lstrip(), maxsplit=1)[0].lstrip("-")
+            if is_secret_bearing_name(option):
                 raise ValueError("secret-shaped MCP arguments must use an environment secret reference")
         return values
 
-    _environment_uses_secret_references = field_validator("environment")(_validate_environment_bindings)
+    @field_validator("environment")
+    @classmethod
+    def validate_environment(
+        cls, values: dict[EnvironmentName, EnvironmentBinding]
+    ) -> dict[EnvironmentName, EnvironmentBinding]:
+        validate_environment_bindings(values)
+        return values
 
 
 MCPProviderConfig = Annotated[
@@ -233,7 +175,7 @@ class InvocationConfig(AuthoredConfig):
     run_config: dict[str, JsonValue] = Field(default_factory=dict)
     input_bindings: InputBindings = Field(default_factory=InputBindings)
     mcp_providers: list[MCPProviderConfig] = Field(default_factory=list)
-    model_concurrency: dict[ModelAlias, PositiveInt] = Field(default_factory=dict)
+    model_concurrency: dict[str, PositiveInt] = Field(default_factory=dict)
     diagnostics: InvocationDiagnostics = Field(default_factory=InvocationDiagnostics)
 
     @field_validator("run_config")
@@ -267,11 +209,11 @@ class ClientDependencies(AuthoredConfig):
         for value in values:
             validate_plain_text(value, field_name="dependency requirement")
             if value != value.strip() or value.startswith(("-e ", "/", "./", "../")) or "git+" in value:
-                raise ValueError(f"dependency requirement must identify a package or immutable wheel: {value!r}")
+                raise ValueError("dependency requirement must identify a package or immutable wheel")
             try:
                 requirement = Requirement(value)
             except InvalidRequirement as error:
-                raise ValueError(f"invalid dependency requirement: {value!r}") from error
+                raise ValueError("invalid dependency requirement") from error
             if requirement.marker is not None:
                 raise ValueError("dependency requirement environment markers are not supported")
             if requirement.url is not None:
@@ -321,51 +263,6 @@ class ClientConfig(AuthoredConfig):
     dependencies: ClientDependencies = Field(default_factory=ClientDependencies)
 
 
-class QueueBackpressureConfig(AuthoredConfig):
-    max_waiting_requests: NonNegativeInt = 128
-    retry_after_seconds: NonNegativeInt | None = 1
-
-
-class VllmServerConfig(AuthoredConfig):
-    type: Literal["vllm"]
-    image: ImageRef
-    startup_timeout: Duration = "15m"
-    distributed_init_timeout: Duration = "10m"
-    readiness_path: str = "/health"
-    enable_expert_parallel: bool = False
-    queue_backpressure: QueueBackpressureConfig = Field(default_factory=QueueBackpressureConfig)
-    extra_args: list[str] = Field(default_factory=list)
-    environment: dict[EnvironmentName, EnvironmentBinding] = Field(default_factory=dict)
-
-    @field_validator("readiness_path")
-    @classmethod
-    def validate_readiness_path(cls, value: str) -> str:
-        validate_plain_text(value, field_name="readiness path")
-        if not value.startswith("/") or "?" in value or "#" in value:
-            raise ValueError("readiness_path must be an absolute URL path without query or fragment")
-        return value
-
-    @field_validator("extra_args")
-    @classmethod
-    def validate_extra_args(cls, values: list[str]) -> list[str]:
-        for value in values:
-            validate_plain_text(value, field_name="vLLM argument")
-            flag = _option_flag(value)
-            if flag in _OWNED_VLLM_FLAGS:
-                raise ValueError(f"vLLM argument {flag!r} is owned by the compiler or runtime")
-            if _is_secret_name(flag.lstrip("-")):
-                raise ValueError("secret-shaped vLLM arguments must use an environment secret reference")
-        return values
-
-    _environment_uses_secret_references = field_validator("environment")(_validate_environment_bindings)
-
-    @model_validator(mode="after")
-    def validate_timeouts(self) -> VllmServerConfig:
-        if _duration_seconds(self.distributed_init_timeout) > _duration_seconds(self.startup_timeout):
-            raise ValueError("distributed_init_timeout must not exceed startup_timeout")
-        return self
-
-
 class DeploymentResources(AuthoredConfig):
     nodes: PositiveInt = 1
 
@@ -376,7 +273,7 @@ class DeploymentTopology(AuthoredConfig):
 
 
 class ServerDeploymentConfig(AuthoredConfig):
-    model_alias: ModelAlias
+    model_alias: str
     served_model_name: str | None = None
     model: str
     server: VllmServerConfig

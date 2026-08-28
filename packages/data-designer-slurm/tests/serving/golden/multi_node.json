@@ -1,0 +1,231 @@
+{
+  "backend_endpoints": [
+    {
+      "backend_id": "deployment-00000-backend-00000",
+      "deployment_replica_index": 0,
+      "node_group_index": 0,
+      "node_index": 0,
+      "port": 18000,
+      "replica_index_in_node_group": 0,
+      "served_model_name": "example/generator"
+    },
+    {
+      "backend_id": "deployment-00000-backend-00001",
+      "deployment_replica_index": 1,
+      "node_group_index": 0,
+      "node_index": 0,
+      "port": 18001,
+      "replica_index_in_node_group": 1,
+      "served_model_name": "example/generator"
+    }
+  ],
+  "deployment_id": "deployment-00000",
+  "executable_path": "/usr/local/bin/vllm",
+  "failure_policy": "coordinated",
+  "gpus_per_node": 8,
+  "image": {
+    "authored_ref": {
+      "name": "vllm-0-21",
+      "path": null
+    },
+    "inspection": {
+      "inspection": {
+        "executable_path": "/usr/local/bin/vllm",
+        "kind": "serving",
+        "runtime_version": "0.21.0",
+        "server_type": "vllm"
+      },
+      "inspector_version": "inspector-1",
+      "schema_version": 1,
+      "sqsh_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    },
+    "path": "/images/vllm-0-21.sqsh",
+    "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+  },
+  "launch_policy": {
+    "distributed_init_timeout_seconds": 600,
+    "enable_expert_parallel": false,
+    "environment": {
+      "HF_TOKEN": {
+        "environment": "HF_TOKEN",
+        "type": "secret"
+      }
+    },
+    "extra_args": [
+      "--max-model-len",
+      "32768"
+    ],
+    "lead_boot_standoff_seconds": 30,
+    "queue_backpressure": {
+      "max_waiting_requests": 1024,
+      "retry_after_seconds": 2
+    },
+    "rank_launch_stagger_seconds": 2,
+    "readiness_path": "/health",
+    "startup_timeout_seconds": 900
+  },
+  "logical_endpoint": {
+    "backend_ids": [
+      "deployment-00000-backend-00000",
+      "deployment-00000-backend-00001"
+    ],
+    "endpoint_id": "deployment-00000-logical-endpoint",
+    "load_balancing": "least_connections",
+    "model_alias": "generator",
+    "node_index": 0,
+    "port": 17000,
+    "preserve_final_overload_response": true,
+    "require_all_backends_ready": true,
+    "retry_status_codes": [
+      429
+    ],
+    "served_model_name": "example/generator"
+  },
+  "model": "example/generator",
+  "model_alias": "generator",
+  "node_indices": [
+    0,
+    1
+  ],
+  "processes": [
+    {
+      "deployment_id": "deployment-00000",
+      "deployment_replica_index": 0,
+      "gpu_indices": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "http_port": 18000,
+      "launch_delay_seconds": 0,
+      "node_group_index": 0,
+      "node_index": 0,
+      "pipeline_parallel": 2,
+      "pipeline_rank": 0,
+      "process_id": "deployment-00000-replica-00000-rank-00000",
+      "rendezvous": {
+        "master_node_index": 0,
+        "node_group_index": 0,
+        "port": 19000,
+        "replica_index_in_node_group": 0,
+        "timeout_seconds": 600
+      },
+      "replica_index_in_node_group": 0,
+      "role": "api_server",
+      "tensor_parallel": 4
+    },
+    {
+      "deployment_id": "deployment-00000",
+      "deployment_replica_index": 0,
+      "gpu_indices": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "http_port": null,
+      "launch_delay_seconds": 0,
+      "node_group_index": 0,
+      "node_index": 1,
+      "pipeline_parallel": 2,
+      "pipeline_rank": 1,
+      "process_id": "deployment-00000-replica-00000-rank-00001",
+      "rendezvous": {
+        "master_node_index": 0,
+        "node_group_index": 0,
+        "port": 19000,
+        "replica_index_in_node_group": 0,
+        "timeout_seconds": 600
+      },
+      "replica_index_in_node_group": 0,
+      "role": "follower",
+      "tensor_parallel": 4
+    },
+    {
+      "deployment_id": "deployment-00000",
+      "deployment_replica_index": 1,
+      "gpu_indices": [
+        4,
+        5,
+        6,
+        7
+      ],
+      "http_port": 18001,
+      "launch_delay_seconds": 32,
+      "node_group_index": 0,
+      "node_index": 0,
+      "pipeline_parallel": 2,
+      "pipeline_rank": 0,
+      "process_id": "deployment-00000-replica-00001-rank-00000",
+      "rendezvous": {
+        "master_node_index": 0,
+        "node_group_index": 0,
+        "port": 19001,
+        "replica_index_in_node_group": 1,
+        "timeout_seconds": 600
+      },
+      "replica_index_in_node_group": 1,
+      "role": "api_server",
+      "tensor_parallel": 4
+    },
+    {
+      "deployment_id": "deployment-00000",
+      "deployment_replica_index": 1,
+      "gpu_indices": [
+        4,
+        5,
+        6,
+        7
+      ],
+      "http_port": null,
+      "launch_delay_seconds": 32,
+      "node_group_index": 0,
+      "node_index": 1,
+      "pipeline_parallel": 2,
+      "pipeline_rank": 1,
+      "process_id": "deployment-00000-replica-00001-rank-00001",
+      "rendezvous": {
+        "master_node_index": 0,
+        "node_group_index": 0,
+        "port": 19001,
+        "replica_index_in_node_group": 1,
+        "timeout_seconds": 600
+      },
+      "replica_index_in_node_group": 1,
+      "role": "follower",
+      "tensor_parallel": 4
+    }
+  ],
+  "readiness_probes": [
+    {
+      "backend_id": "deployment-00000-backend-00000",
+      "deadline_seconds": 900,
+      "expected_status_code": 200,
+      "node_index": 0,
+      "path": "/health",
+      "port": 18000,
+      "probe_id": "deployment-00000-readiness-00000"
+    },
+    {
+      "backend_id": "deployment-00000-backend-00001",
+      "deadline_seconds": 900,
+      "expected_status_code": 200,
+      "node_index": 0,
+      "path": "/health",
+      "port": 18001,
+      "probe_id": "deployment-00000-readiness-00001"
+    }
+  ],
+  "served_model_name": "example/generator",
+  "server_type": "vllm",
+  "topology": {
+    "gpus_per_replica": 8,
+    "node_group_count": 1,
+    "nodes_per_replica": 2,
+    "pipeline_parallel": 2,
+    "replica_count": 2,
+    "replicas_per_node_group": 2,
+    "tensor_parallel": 4
+  }
+}
