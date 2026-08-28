@@ -59,6 +59,7 @@ _COMPATIBILITY_RUN_DEFAULTS: dict[str, JsonValue] = {
     "display_tui": False,
     "max_conversation_correction_steps": 0,
     "max_conversation_restarts": 0,
+    "non_inference_max_parallel_workers": 4,
     "otel_metrics_port": None,
     "shutdown_error_rate": 1.0,
 }
@@ -276,7 +277,6 @@ def _materialize_output(authored: DataDesignerSlurmConfig, run_root: str) -> Res
 
 def _materialize_run_config(authored: DataDesignerSlurmConfig) -> dict[str, JsonValue]:
     values = dict(authored.invocation.run_config)
-    values.setdefault("non_inference_max_parallel_workers", authored.client.cpus)
     authored_early_shutdown = {"disable_early_shutdown", "shutdown_error_rate", "shutdown_error_window"}.intersection(
         values
     )

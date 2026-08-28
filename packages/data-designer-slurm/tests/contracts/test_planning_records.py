@@ -111,13 +111,13 @@ def test_plan_rejects_unmaterialized_run_config(multi_node_plan: ResolvedSlurmRu
         ResolvedSlurmRunPlan.model_validate(payload)
 
 
-def test_plan_derives_default_non_inference_worker_count_from_client_cpus(
+def test_plan_requires_default_non_inference_worker_count(
     multi_node_plan: ResolvedSlurmRunPlan,
 ) -> None:
     payload = multi_node_plan.model_dump(mode="json")
-    payload["invocation"]["effective_run_config"]["non_inference_max_parallel_workers"] = 4
+    payload["invocation"]["effective_run_config"]["non_inference_max_parallel_workers"] = 32
 
-    with pytest.raises(ValidationError, match="client CPU count"):
+    with pytest.raises(ValidationError, match="Data Designer default"):
         ResolvedSlurmRunPlan.model_validate_json(json.dumps(payload))
 
 

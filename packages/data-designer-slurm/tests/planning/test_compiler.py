@@ -121,10 +121,7 @@ def test_compiler_resolves_explicit_hostname_and_default_profile_selection(
         plan.invocation.effective_input_bindings.managed_assets_path == "/workspace/primary/managed-assets"
         for plan in plans
     )
-    assert all(
-        plan.invocation.effective_run_config["non_inference_max_parallel_workers"] == plan.client.authored.cpus
-        for plan in plans
-    )
+    assert all(plan.invocation.effective_run_config["non_inference_max_parallel_workers"] == 4 for plan in plans)
 
 
 def test_auto_gpu_resolution_is_explicit_and_scheduler_free(
@@ -479,6 +476,25 @@ def test_compiler_rejects_resolved_image_identity_drift(
     )
     with pytest.raises(SlurmPlanCompilationError, match="inspection record"):
         SlurmRunCompiler.compile(effective.model_copy(update={"deployment_images": deployment_images}))
+
+
+@pytest.mark.parametrize("invalid_field", ["client_image", "runtime_bundle"])
+def test_compiler_revalidates_nested_effective_contracts(
+    authored_run_single: DataDesignerSlurmConfig,
+    dependency_lock_single: ResolvedDependencyLock,
+    single_node_plan: ResolvedSlurmRunPlan,
+    invalid_field: str,
+) -> None:
+    effective = _resolve_fixture(authored_run_single, dependency_lock_single, single_node_plan)
+    if invalid_field == "client_image":
+        invalid_value = effective.client_image.model_copy(update={"path": "/workspace/images/client.txt"})
+    else:
+        invalid_value = effective.runtime_bundle.model_copy(
+            update={"path": f"/workspace/primary/runtime/../{effective.runtime_bundle.sha256}.tar.gz"}
+        )
+
+    with pytest.raises(SlurmPlanCompilationError, match="failed validation"):
+        SlurmRunCompiler.compile(effective.model_copy(update={invalid_field: invalid_value}))
 
 
 def test_compiler_rejects_otel_collision_before_runtime(

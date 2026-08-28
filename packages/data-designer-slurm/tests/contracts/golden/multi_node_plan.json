@@ -364,7 +364,7 @@
       "max_conversation_correction_steps": 0,
       "max_conversation_restarts": 0,
       "max_in_flight_tasks": 1024,
-      "non_inference_max_parallel_workers": 32,
+      "non_inference_max_parallel_workers": 4,
       "otel_metrics_port": null,
       "preserve_dropped_columns": true,
       "progress_interval": 5.0,

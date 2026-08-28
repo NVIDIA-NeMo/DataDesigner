@@ -46,7 +46,8 @@ class SlurmRunCompiler:
     def compile(effective: EffectiveDataDesignerSlurmConfig) -> ResolvedSlurmRunPlan:
         """Return one immutable deterministic execution plan."""
         try:
-            validate_effective_slurm_config(effective)
+            effective = EffectiveDataDesignerSlurmConfig.model_validate(effective.model_dump(mode="python"))
+            effective = validate_effective_slurm_config(effective)
             deployments = _compile_deployments(effective)
             client = _compile_client(effective, deployments)
             _validate_port_claims(effective, client, deployments)

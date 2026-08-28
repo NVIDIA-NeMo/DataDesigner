@@ -15,6 +15,19 @@ from pydantic import ValidationError
 
 _LOCATION_SEGMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _SENSITIVE_LOCATION = re.compile(r"(?:api_?key|credential|password|secret|token)", re.IGNORECASE)
+_DYNAMIC_LOCATION_OWNERS = frozenset(
+    {
+        "builder_payload",
+        "clusters",
+        "deployments",
+        "effective_run_config",
+        "environment",
+        "index_credentials",
+        "inline",
+        "model_concurrency",
+        "run_config",
+    }
+)
 _ERROR_DESCRIPTIONS = {
     "extra_forbidden": "field is not permitted",
     "greater_than": "must be greater than the allowed minimum",
@@ -32,6 +45,10 @@ _SAFE_VALUE_ERROR_MESSAGES = {
     "Value error, builder content digest does not match the resolved input": (
         "resolved builder digest does not match its input"
     ),
+    "Value error, image inspection digest does not match the resolved SQSH": (
+        "resolved image digest does not match its inspection record"
+    ),
+    "Value error, mem_per_gpu requires GRES GPU request mode": "mem_per_gpu requires GRES GPU request mode",
     "Value error, resolved model aliases do not match the inline builder": (
         "resolved model aliases do not match the inline builder"
     ),
@@ -61,18 +78,21 @@ def _format_error_detail(detail: dict[str, Any]) -> str:
 
 def _format_location(location: Iterable[object]) -> str:
     parts: list[str] = []
+    owner: str | None = None
     for segment in location:
         if isinstance(segment, int):
             if parts:
                 parts[-1] = f"{parts[-1]}[{segment}]"
             continue
         if (
-            not isinstance(segment, str)
+            owner in _DYNAMIC_LOCATION_OWNERS
+            or not isinstance(segment, str)
             or _LOCATION_SEGMENT.fullmatch(segment) is None
             or _SENSITIVE_LOCATION.search(segment) is not None
         ):
             break
         parts.append(segment)
+        owner = segment
     return ".".join(parts)
 
 

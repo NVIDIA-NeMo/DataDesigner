@@ -407,8 +407,8 @@ class ResolvedSlurmRunPlan(ContractRecord):
             raise ValueError("managed_assets_path must not overlap package-managed workspace state")
         if "non_inference_max_parallel_workers" not in self.invocation.authored.run_config:
             workers = self.invocation.effective_run_config["non_inference_max_parallel_workers"]
-            if workers != self.client.authored.cpus:
-                raise ValueError("default non-inference worker count must match the client CPU count")
+            if workers != 4:
+                raise ValueError("default non-inference worker count must match the Data Designer default")
 
         expected_logical_names = tuple(
             f"{deployment.deployment_id}-logical-endpoint" for deployment in self.deployments
