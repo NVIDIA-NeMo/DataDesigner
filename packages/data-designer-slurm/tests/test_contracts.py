@@ -8,6 +8,8 @@ import hashlib
 import pytest
 from pydantic import ValidationError
 
+from data_designer.slurm import contracts as contracts_module
+from data_designer.slurm import types as types_module
 from data_designer.slurm.contracts import (
     ArtifactReference as ContractArtifactReference,
 )
@@ -16,7 +18,7 @@ from data_designer.slurm.contracts import (
     ContractValue,
     ResumeWorkspace,
     canonical_json,
-    compute_sha256,
+    compute_canonical_json_sha256,
     pretty_json,
 )
 from data_designer.slurm.contracts import (
@@ -43,6 +45,11 @@ from data_designer.slurm.state import (
 )
 
 
+@pytest.mark.parametrize("type_name", types_module.__all__)
+def test_temporary_contracts_compatibility_exports_match_shared_scalar_types(type_name: str) -> None:
+    assert getattr(contracts_module, type_name) is getattr(types_module, type_name)
+
+
 def test_state_exports_exact_shared_contract_types() -> None:
     assert StateArtifactReference is ContractArtifactReference
     assert StateRecordRange is ContractRecordRange
@@ -58,7 +65,7 @@ def test_shared_json_helpers_are_deterministic() -> None:
 
     assert canonical_json(value) == b'{"number":1,"unicode":"\xe6\xa8\xa1\xe5\x9e\x8b"}'
     assert pretty_json(value) == '{\n  "number": 1,\n  "unicode": "模型"\n}\n'
-    assert compute_sha256(value) == hashlib.sha256(canonical_json(value)).hexdigest()
+    assert compute_canonical_json_sha256(value) == hashlib.sha256(canonical_json(value)).hexdigest()
 
 
 def test_resume_workspace_requires_a_safe_absolute_path() -> None:
