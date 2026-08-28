@@ -207,6 +207,20 @@ def test_loader_validation_errors_identify_the_invalid_field(tmp_path: Path) -> 
         load_run_config(path)
 
 
+def test_loader_validation_errors_preserve_nested_schema_locations(tmp_path: Path) -> None:
+    secret = "super-secret-token"
+    payload = _config_builder().build().model_dump(mode="json")
+    payload["deployments"][0]["server"]["image"] = {"path": f"/images/{secret}.txt"}
+    path = tmp_path / "run.json"
+    path.write_text(json.dumps(payload))
+
+    with pytest.raises(SlurmConfigLoadError) as error:
+        load_run_config(path)
+
+    assert "deployments[0].server.image.path" in str(error.value)
+    assert secret not in str(error.value)
+
+
 def test_loader_parse_errors_hide_source_values(tmp_path: Path) -> None:
     secret = "super-secret-token"
     path = tmp_path / "run.yaml"

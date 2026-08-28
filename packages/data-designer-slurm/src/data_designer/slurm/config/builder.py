@@ -196,5 +196,5 @@ def _validate_model(config_type: type[_ConfigValueT], value: object) -> _ConfigV
     try:
         return config_type.model_validate(value)
     except ValidationError as error:
-        message = format_validation_error(error, subject=config_type.__name__)
+        message = format_validation_error(error, subject=config_type.__name__, models=config_type)
         raise SlurmConfigBuilderError(message) from None

@@ -37,6 +37,18 @@ _LOGICAL_ENDPOINT_PORT = 17000
 _HTTP_PORT = 18000
 _RENDEZVOUS_PORT = 19000
 _PORT_RANGE_SIZE = 1000
+_COMPILER_VALIDATION_MODELS = (
+    ArtifactReference,
+    EffectiveDataDesignerSlurmConfig,
+    PlannedShard,
+    PortClaim,
+    RecordRange,
+    ResolvedClient,
+    ResolvedDeployment,
+    ResolvedSlurmRunPlan,
+    ResolvedTopology,
+    ResumeWorkspace,
+)
 
 
 class SlurmRunCompiler:
@@ -81,7 +93,11 @@ class SlurmRunCompiler:
         except (SlurmPlanCompilationError, SlurmPlanContractError):
             raise
         except ValidationError as error:
-            message = format_validation_error(error, subject="Slurm plan compilation")
+            message = format_validation_error(
+                error,
+                subject="Slurm plan compilation",
+                models=_COMPILER_VALIDATION_MODELS,
+            )
             raise SlurmPlanCompilationError(message) from None
         except ValueError as error:
             raise SlurmPlanCompilationError(str(error)) from None

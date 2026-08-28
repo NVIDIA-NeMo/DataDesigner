@@ -120,7 +120,7 @@ def resolve_profile(
     except SlurmConfigLoadError:
         raise
     except ValidationError as error:
-        message = format_validation_error(error, subject="profile selection")
+        message = format_validation_error(error, subject="profile selection", models=SelectedSlurmProfile)
         raise SlurmConfigLoadError(message) from None
     except ValueError as error:
         raise SlurmConfigLoadError(str(error)) from None
@@ -142,7 +142,11 @@ def _load_config(path: str | Path, config_type: type[_ConfigT]) -> _ConfigT:
     except SlurmConfigLoadError:
         raise
     except ValidationError as error:
-        message = format_validation_error(error, subject=f"configuration file {resolved_path}")
+        message = format_validation_error(
+            error,
+            subject=f"configuration file {resolved_path}",
+            models=config_type,
+        )
         raise SlurmConfigLoadError(message) from None
     except (json.JSONDecodeError, yaml.YAMLError) as error:
         raise SlurmConfigLoadError(f"invalid configuration file {resolved_path}: {format_parse_error(error)}") from None

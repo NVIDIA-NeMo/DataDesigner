@@ -65,6 +65,16 @@ _COMPATIBILITY_RUN_DEFAULTS: dict[str, JsonValue] = {
 }
 _RUN_ID_ADAPTER = TypeAdapter(Identifier)
 _PACKAGE_VERSION_ADAPTER = TypeAdapter(Annotated[str, StringConstraints(min_length=1, max_length=128)])
+_RESOLUTION_VALIDATION_MODELS = (
+    RunConfig,
+    ArtifactReference,
+    BuilderInput,
+    InputBindings,
+    ResolvedBuilderInput,
+    ResolvedInvocation,
+    ResolvedOutput,
+    ResolvedSubmission,
+)
 
 
 class EffectiveDataDesignerSlurmConfig(ContractValue):
@@ -131,7 +141,11 @@ def resolve_slurm_config(
     except SlurmConfigResolutionError:
         raise
     except ValidationError as error:
-        message = format_validation_error(error, subject="Slurm configuration resolution")
+        message = format_validation_error(
+            error,
+            subject="Slurm configuration resolution",
+            models=(*_RESOLUTION_VALIDATION_MODELS, EffectiveDataDesignerSlurmConfig),
+        )
         raise SlurmConfigResolutionError(message) from None
     except ValueError as error:
         raise SlurmConfigResolutionError(str(error)) from None
