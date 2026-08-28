@@ -7,10 +7,12 @@ from __future__ import annotations
 
 from slurm_test_fakes.clock import FakeClock
 from slurm_test_fakes.dependencies import FakeDependencyInstaller, FakeDependencyResolver
+from slurm_test_fakes.images import FakeInspectionEnvironment
 from slurm_test_fakes.serving import FakeLogicalEndpoint, FakeServingState, FakeVllmBackend
 from slurm_test_fakes.slurm import (
     FakeCommandResponse,
     FakeSlurmArray,
+    FakeSlurmJob,
     FakeSlurmRunner,
     FakeSlurmTask,
 )
@@ -20,9 +22,11 @@ __all__ = [
     "FakeCommandResponse",
     "FakeDependencyInstaller",
     "FakeDependencyResolver",
+    "FakeInspectionEnvironment",
     "FakeLogicalEndpoint",
     "FakeServingState",
     "FakeSlurmArray",
+    "FakeSlurmJob",
     "FakeSlurmRunner",
     "FakeSlurmTask",
     "FakeVllmBackend",

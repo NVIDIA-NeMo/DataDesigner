@@ -42,7 +42,7 @@
     },
     "dependency_lock": {
       "path": "/workspace/primary/runs/run-single/dependency-lock.json",
-      "sha256": "2600c1944897a8e3c9a9410fe912bdee0e169e09769e58180cadebe94f3da52c"
+      "sha256": "ce671fcd812110bc09bd39a21c2c294754c8255d42030c1b90e250a1b513a311"
     },
     "gpu_count": 0,
     "host_node_index": 0,
@@ -57,6 +57,22 @@
             {
               "name": "data-designer",
               "version": "0.9.2"
+            },
+            {
+              "name": "data-designer-config",
+              "version": "0.9.2"
+            },
+            {
+              "name": "data-designer-engine",
+              "version": "0.9.2"
+            },
+            {
+              "name": "data-designer-slurm",
+              "version": "0.9.2"
+            },
+            {
+              "name": "pip",
+              "version": "26.1"
             }
           ],
           "installer_path": "/usr/bin/pip",
