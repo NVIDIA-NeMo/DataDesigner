@@ -67,10 +67,12 @@
           "name": "vllm-0-21",
           "path": null
         },
+        "lead_boot_standoff": "60s",
         "queue_backpressure": {
           "max_waiting_requests": 1024,
           "retry_after_seconds": 2
         },
+        "rank_launch_stagger": "5s",
         "readiness_path": "/health",
         "startup_timeout": "15m",
         "type": "vllm"
@@ -96,10 +98,12 @@
           "name": null,
           "path": "/images/vllm-0-22.sqsh"
         },
+        "lead_boot_standoff": "60s",
         "queue_backpressure": {
           "max_waiting_requests": 128,
           "retry_after_seconds": 1
         },
+        "rank_launch_stagger": "5s",
         "readiness_path": "/health",
         "startup_timeout": "15m",
         "type": "vllm"
