@@ -13,7 +13,7 @@ export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 readonly DD_RUNTIME_ARCHIVE="/workspace/primary/runtime/runtime.tar.gz"
 readonly DD_RUNTIME_SHA256="eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
 readonly DD_PLAN="/workspace/primary/runs/run-001/resolved-plan.json"
-readonly DD_PLAN_SHA256="fff7573a8b6eb2f71ae12f27900a85e1e121debfe58b0e94fefc3fb9362970ce"
+readonly DD_PLAN_SHA256="00e206f4b759ca06336c02d3694f7289551d1a0b9ba50c05f37cdbf7a213756d"
 readonly DD_RUN_ROOT="/workspace/primary/runs/run-001"
 readonly DD_ATTEMPT_ORDINAL="0001"
 
