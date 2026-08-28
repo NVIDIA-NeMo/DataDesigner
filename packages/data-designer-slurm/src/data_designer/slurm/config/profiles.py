@@ -15,7 +15,7 @@ from data_designer.slurm.contracts import (
     Identifier,
     SchemaVersion,
     Sha256Digest,
-    compute_sha256,
+    compute_canonical_json_sha256,
     validate_absolute_path,
     validate_plain_text,
 )
@@ -157,7 +157,7 @@ def select_profile(
     catalog_path: str | None = None,
 ) -> SelectedSlurmProfile:
     """Select a profile with explicit, hostname, then default precedence."""
-    catalog_sha256 = compute_sha256(catalog.model_dump(mode="json"))
+    catalog_sha256 = compute_canonical_json_sha256(catalog.model_dump(mode="json"))
     if cluster is not None:
         if cluster not in catalog.clusters:
             raise ValueError(f"unknown cluster {cluster!r}")
@@ -218,7 +218,7 @@ def validate_selected_profile(
     """Validate a persisted catalog selection against its source catalog."""
     if selected.selection_source is ProfileSelectionSource.INJECTED:
         raise ValueError("injected profile selection has no source catalog")
-    if selected.catalog_sha256 != compute_sha256(catalog.model_dump(mode="json")):
+    if selected.catalog_sha256 != compute_canonical_json_sha256(catalog.model_dump(mode="json")):
         raise ValueError("selected profile catalog digest does not match the catalog")
     if selected.cluster_name not in catalog.clusters:
         raise ValueError("selected cluster is absent from the catalog")
@@ -257,7 +257,7 @@ def _selection(
 
 
 def _profile_digest(profile: SlurmProfile) -> Sha256Digest:
-    return compute_sha256(profile.model_dump(mode="json"))
+    return compute_canonical_json_sha256(profile.model_dump(mode="json"))
 
 
 def _validate_hostname_glob(value: str) -> None:

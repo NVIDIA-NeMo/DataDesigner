@@ -97,23 +97,14 @@ def _compile_deployments(
     for index, (authored, image) in enumerate(
         zip(effective.authored.deployments, effective.deployment_images, strict=True)
     ):
-        tensor_parallel = authored.topology.tensor_parallel
-        if effective.resolved_gpus_per_node % tensor_parallel:
-            raise SlurmPlanCompilationError("tensor_parallel must divide resolved GPUs per node")
-        replicas_per_group = effective.resolved_gpus_per_node // tensor_parallel
-        if replicas_per_group > _PORT_RANGE_SIZE:
-            raise SlurmPlanCompilationError("replica lanes exceed the compiler-owned deployment port range")
-        node_group_count = authored.resources.nodes // authored.topology.nodes_per_replica
-        replica_count = node_group_count * replicas_per_group
-        topology = ResolvedTopology(
-            tensor_parallel=tensor_parallel,
+        topology = ResolvedTopology.derive(
+            node_count=authored.resources.nodes,
+            gpus_per_node=effective.resolved_gpus_per_node,
+            tensor_parallel=authored.topology.tensor_parallel,
             nodes_per_replica=authored.topology.nodes_per_replica,
-            pipeline_parallel=authored.topology.nodes_per_replica,
-            node_group_count=node_group_count,
-            replicas_per_node_group=replicas_per_group,
-            replica_count=replica_count,
-            gpus_per_replica=tensor_parallel * authored.topology.nodes_per_replica,
         )
+        if topology.replicas_per_node_group > _PORT_RANGE_SIZE:
+            raise SlurmPlanCompilationError("replica lanes exceed the compiler-owned deployment port range")
         deployment_id = f"deployment-{index:05d}"
         node_indices = tuple(range(next_node_index, next_node_index + authored.resources.nodes))
         ports = _compile_deployment_ports(deployment_id, node_indices, topology)

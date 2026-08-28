@@ -19,12 +19,12 @@ def test_rendered_script_fixtures_are_pinned_and_bound_to_canonical_plans(
     _assert_script_matches_plan(
         single_node_plan,
         "single_node.sbatch",
-        expected_fixture_sha256="c4ec9a60ffbc2feed6a34e1ca3b5363b47bba2add15f6cbb419e18d2c39c3ab7",
+        expected_fixture_sha256="65032718bfc8fbd6c60700add08ebc098ba2e64858c23808decbefe5a8153d91",
     )
     _assert_script_matches_plan(
         multi_node_plan,
         "multi_node.sbatch",
-        expected_fixture_sha256="f967331f7c08f1e1adf24f42a13ddc7c196e9d26a34f9e3098f1533cc3348466",
+        expected_fixture_sha256="58c3a2eddc9a0d377eb0a90655e70a6b2484cade0c52b2a01b9b388dcd4667e2",
     )
 
 
