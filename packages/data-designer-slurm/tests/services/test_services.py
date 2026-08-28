@@ -440,7 +440,7 @@ def test_service_errors_use_the_data_designer_error_hierarchy() -> None:
 
 @pytest.mark.parametrize(
     "name",
-    ["BatchScriptRenderer", "BenchmarkBackend", "ImageResolver", "RunPlanningBackend"],
+    ["BatchScriptRenderer", "BenchmarkBackend", "ImageResolver", "RunPlanner"],
 )
 def test_services_do_not_export_implementation_seams(name: str) -> None:
     assert name not in slurm_services.__all__
