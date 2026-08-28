@@ -14,12 +14,15 @@ from data_designer.config import RunConfig
 from data_designer.slurm._errors import format_validation_error
 from data_designer.slurm.config.images import ClientImageInspection, ImageKind
 from data_designer.slurm.config.profiles import SelectedSlurmProfile
-from data_designer.slurm.config.run import BuilderInput, DataDesignerSlurmConfig
+from data_designer.slurm.config.run import BuilderInput, DataDesignerSlurmConfig, InputBindings
 from data_designer.slurm.contracts import (
     ArtifactReference,
     ContractValue,
     Identifier,
     compute_serialized_json_sha256,
+    derive_managed_assets_path,
+    is_path_below,
+    paths_overlap,
 )
 from data_designer.slurm.planning.builder_identity import (
     get_declared_model_aliases,
@@ -115,7 +118,7 @@ def resolve_slurm_config(
             resolved_gpus_per_node=gpus_per_node,
             builder=builder,
             builder_payload=resolved_builder_payload,
-            invocation=_materialize_invocation(authored),
+            invocation=_materialize_invocation(authored, workspace_root),
             client_image=client_image,
             deployment_images=deployment_images,
             dependency_lock=dependency_lock,
@@ -143,6 +146,8 @@ def validate_effective_slurm_config(
     run_root = posixpath.join(workspace_root, "runs", effective.run_id)
     if profile.gpus_per_node != "auto" and profile.gpus_per_node != effective.resolved_gpus_per_node:
         raise SlurmConfigResolutionError("resolved GPU count does not match the selected profile")
+    if profile.gpu_request_mode == "visible" and profile.scheduler.mem_per_gpu is not None:
+        raise SlurmConfigResolutionError("mem_per_gpu requires GRES GPU request mode")
 
     if authored.builder.inline is not None:
         if effective.builder_payload is not None:
@@ -151,7 +156,7 @@ def validate_effective_slurm_config(
         if effective.builder_payload is None:
             raise SlurmConfigResolutionError("sourced builder input requires its resolved payload")
         BuilderInput(inline=effective.builder_payload)
-    expected_invocation = _materialize_invocation(authored)
+    expected_invocation = _materialize_invocation(authored, workspace_root)
     if effective.invocation != expected_invocation:
         raise SlurmConfigResolutionError("resolved invocation does not match the authored invocation")
     expected_submission = _materialize_submission(authored, effective.selected_profile)
@@ -164,15 +169,25 @@ def validate_effective_slurm_config(
     _validate_dependency_resolution(authored, effective.client_image, effective.dependency_lock)
     _validate_resolved_images(authored, effective.client_image, effective.deployment_images)
     _validate_sharding_constraints(authored, builder_payload=effective.builder_payload)
-    _validate_output_destination(effective.output.root, workspace_root, run_root)
+    managed_assets_path = effective.invocation.effective_input_bindings.managed_assets_path
+    assert managed_assets_path is not None
+    _validate_managed_assets_path(managed_assets_path, workspace_root)
+    _validate_output_destination(
+        effective.output.root,
+        workspace_root,
+        run_root,
+        managed_assets_path=managed_assets_path,
+    )
     if effective.output.partitions > authored.invocation.num_records:
         raise SlurmConfigResolutionError("output partitions must not exceed requested records")
     runtime_root = posixpath.join(workspace_root, "runtime")
-    if not _is_below(effective.runtime_bundle.path, runtime_root) or not effective.runtime_bundle.path.endswith(
-        ".tar.gz"
+    runtime_name = posixpath.basename(effective.runtime_bundle.path)
+    if (
+        not is_path_below(effective.runtime_bundle.path, runtime_root)
+        or runtime_name != f"{effective.runtime_bundle.sha256}.tar.gz"
     ):
         raise SlurmConfigResolutionError(
-            "runtime bundle must be a tar archive below the selected workspace runtime root"
+            "runtime bundle must be a content-addressed tar archive below the selected workspace runtime root"
         )
     return effective
 
@@ -225,9 +240,14 @@ def _resolve_builder(
     )
 
 
-def _materialize_invocation(authored: DataDesignerSlurmConfig) -> ResolvedInvocation:
+def _materialize_invocation(authored: DataDesignerSlurmConfig, workspace_root: str) -> ResolvedInvocation:
+    input_bindings = authored.invocation.input_bindings
     return ResolvedInvocation(
         authored=authored.invocation,
+        effective_input_bindings=InputBindings(
+            seed_path=input_bindings.seed_path,
+            managed_assets_path=input_bindings.managed_assets_path or derive_managed_assets_path(workspace_root),
+        ),
         effective_run_config=_materialize_run_config(authored),
     )
 
@@ -256,6 +276,7 @@ def _materialize_output(authored: DataDesignerSlurmConfig, run_root: str) -> Res
 
 def _materialize_run_config(authored: DataDesignerSlurmConfig) -> dict[str, JsonValue]:
     values = dict(authored.invocation.run_config)
+    values.setdefault("non_inference_max_parallel_workers", authored.client.cpus)
     authored_early_shutdown = {"disable_early_shutdown", "shutdown_error_rate", "shutdown_error_window"}.intersection(
         values
     )
@@ -363,23 +384,31 @@ def _validate_resolved_image_identity(image: ResolvedImage) -> None:
         raise SlurmConfigResolutionError("resolved image path does not match the authored path")
 
 
-def _validate_output_destination(output_root: str, workspace_root: str, run_root: str) -> None:
-    if not _is_below(output_root, workspace_root):
+def _validate_output_destination(
+    output_root: str,
+    workspace_root: str,
+    run_root: str,
+    *,
+    managed_assets_path: str,
+) -> None:
+    if not is_path_below(output_root, workspace_root):
         raise SlurmConfigResolutionError("output root must be below the selected workspace_root")
     reserved = tuple(posixpath.join(workspace_root, name) for name in ("images", "runtime", "benchmarks"))
-    if any(_paths_overlap(output_root, path) for path in reserved):
+    if any(paths_overlap(output_root, path) for path in reserved):
         raise SlurmConfigResolutionError("output root must not overlap package-managed workspace state")
+    if paths_overlap(output_root, managed_assets_path):
+        raise SlurmConfigResolutionError("output root must not overlap managed assets")
     runs_root = posixpath.join(workspace_root, "runs")
     run_output_root = posixpath.join(run_root, "output")
-    if _paths_overlap(output_root, runs_root) and not (
-        output_root == run_output_root or _is_below(output_root, run_output_root)
+    if paths_overlap(output_root, runs_root) and not (
+        output_root == run_output_root or is_path_below(output_root, run_output_root)
     ):
         raise SlurmConfigResolutionError("output root must not overlap another package-managed run")
 
 
-def _is_below(path: str, root: str) -> bool:
-    return path != root and posixpath.commonpath((path, root)) == root
-
-
-def _paths_overlap(left: str, right: str) -> bool:
-    return left == right or _is_below(left, right) or _is_below(right, left)
+def _validate_managed_assets_path(managed_assets_path: str, workspace_root: str) -> None:
+    workspace_state = tuple(
+        posixpath.join(workspace_root, name) for name in ("images", "runtime", "benchmarks", "runs")
+    )
+    if any(paths_overlap(managed_assets_path, path) for path in workspace_state):
+        raise SlurmConfigResolutionError("managed_assets_path must not overlap package-managed workspace state")

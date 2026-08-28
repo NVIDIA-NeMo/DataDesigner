@@ -217,7 +217,7 @@ def _compile_shards(effective: EffectiveDataDesignerSlurmConfig) -> tuple[Planne
         shard_root = posixpath.join(_run_root(effective), "shards", shard_id)
         record_range = RecordRange(start_index=start, end_index_exclusive=end)
         partition = None
-        seed_path = effective.authored.invocation.input_bindings.seed_path
+        seed_path = effective.invocation.effective_input_bindings.seed_path
         if seed_path is not None:
             partition = ArtifactReference(
                 path=posixpath.join(shard_root, "input-partition.json"),

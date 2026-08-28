@@ -121,7 +121,12 @@ class DataDesignerSlurmConfigBuilder:
         self._deployments.append(_validate_model(ServerDeploymentConfig, deployment))
         return self
 
-    def with_array_tasks(self, *, count: int, max_concurrent: int = 1) -> DataDesignerSlurmConfigBuilder:
+    def with_array_tasks(
+        self,
+        *,
+        count: int,
+        max_concurrent: int | None = None,
+    ) -> DataDesignerSlurmConfigBuilder:
         """Set deterministic horizontal sharding."""
         self._array_tasks = _validate_model(
             ArrayTasksConfig,

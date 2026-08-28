@@ -87,6 +87,12 @@ def test_resolved_plan_is_deeply_immutable(multi_node_plan: ResolvedSlurmRunPlan
         lambda payload: payload["output"].update(root="/outside/output"),
         lambda payload: payload.update(container_mounts=[]),
         lambda payload: payload["deployments"][0]["topology"].update(replica_count=2),
+        lambda payload: payload["invocation"]["effective_input_bindings"].update(
+            managed_assets_path="/workspace/other-assets"
+        ),
+        lambda payload: payload["runtime_bundle"].update(path="/tmp/" + "e" * 64 + ".tar.gz"),
+        lambda payload: payload["runtime_bundle"].update(path="/workspace/primary/runtime/runtime.tar.gz"),
+        lambda payload: payload["output"].update(root="/workspace/primary/managed-assets"),
     ],
 )
 def test_plan_rejects_invalid_boundaries(multi_node_plan: ResolvedSlurmRunPlan, mutator: object) -> None:
@@ -105,13 +111,13 @@ def test_plan_rejects_unmaterialized_run_config(multi_node_plan: ResolvedSlurmRu
         ResolvedSlurmRunPlan.model_validate(payload)
 
 
-def test_plan_preserves_default_non_inference_worker_count(
+def test_plan_derives_default_non_inference_worker_count_from_client_cpus(
     multi_node_plan: ResolvedSlurmRunPlan,
 ) -> None:
     payload = multi_node_plan.model_dump(mode="json")
-    payload["invocation"]["effective_run_config"]["non_inference_max_parallel_workers"] = 32
+    payload["invocation"]["effective_run_config"]["non_inference_max_parallel_workers"] = 4
 
-    with pytest.raises(ValidationError, match="RunConfig default"):
+    with pytest.raises(ValidationError, match="client CPU count"):
         ResolvedSlurmRunPlan.model_validate_json(json.dumps(payload))
 
 
@@ -119,12 +125,31 @@ def test_plan_preserves_explicit_non_inference_worker_override(
     multi_node_plan: ResolvedSlurmRunPlan,
 ) -> None:
     payload = multi_node_plan.model_dump(mode="json")
-    payload["invocation"]["authored"]["run_config"]["non_inference_max_parallel_workers"] = 32
-    payload["invocation"]["effective_run_config"]["non_inference_max_parallel_workers"] = 32
+    payload["invocation"]["authored"]["run_config"]["non_inference_max_parallel_workers"] = 16
+    payload["invocation"]["effective_run_config"]["non_inference_max_parallel_workers"] = 16
 
     plan = ResolvedSlurmRunPlan.model_validate_json(json.dumps(payload))
 
-    assert plan.invocation.effective_run_config["non_inference_max_parallel_workers"] == 32
+    assert plan.invocation.effective_run_config["non_inference_max_parallel_workers"] == 16
+
+
+def test_plan_materializes_default_managed_assets_path(single_node_plan: ResolvedSlurmRunPlan) -> None:
+    assert single_node_plan.invocation.authored.input_bindings.managed_assets_path is None
+    assert single_node_plan.invocation.effective_input_bindings.managed_assets_path == (
+        "/workspace/primary/managed-assets"
+    )
+
+
+def test_plan_rejects_managed_assets_overlapping_workspace_state(
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    payload = single_node_plan.model_dump(mode="json")
+    managed_assets_path = "/workspace/primary/runs"
+    payload["invocation"]["authored"]["input_bindings"]["managed_assets_path"] = managed_assets_path
+    payload["invocation"]["effective_input_bindings"]["managed_assets_path"] = managed_assets_path
+
+    with pytest.raises(ValidationError, match="managed_assets_path"):
+        ResolvedSlurmRunPlan.model_validate_json(json.dumps(payload))
 
 
 def test_plan_rejects_otel_port_collision(multi_node_plan: ResolvedSlurmRunPlan) -> None:

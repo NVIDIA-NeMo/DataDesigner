@@ -175,6 +175,21 @@ def compute_serialized_json_sha256(value: object) -> Sha256Digest:
     return hashlib.sha256(pretty_json(value).encode("utf-8")).hexdigest()
 
 
+def derive_managed_assets_path(workspace_root: str) -> str:
+    """Derive the default managed-assets path from a workspace root."""
+    return posixpath.join(workspace_root, "managed-assets")
+
+
+def is_path_below(path: str, root: str) -> bool:
+    """Return whether a path is strictly below a root."""
+    return path != root and posixpath.commonpath((path, root)) == root
+
+
+def paths_overlap(left: str, right: str) -> bool:
+    """Return whether either path contains the other."""
+    return left == right or is_path_below(left, right) or is_path_below(right, left)
+
+
 def validate_absolute_path(value: str) -> str:
     """Validate a normalized, absolute POSIX path below the filesystem root."""
     if not value.startswith("/"):

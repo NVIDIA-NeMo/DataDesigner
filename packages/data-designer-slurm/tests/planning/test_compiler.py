@@ -117,6 +117,14 @@ def test_compiler_resolves_explicit_hostname_and_default_profile_selection(
     }
     assert {plan.output.root for plan in plans} == {"/workspace/primary/runs/run-single/output"}
     assert all(plan.deployments[0].node_indices == (0,) for plan in plans)
+    assert all(
+        plan.invocation.effective_input_bindings.managed_assets_path == "/workspace/primary/managed-assets"
+        for plan in plans
+    )
+    assert all(
+        plan.invocation.effective_run_config["non_inference_max_parallel_workers"] == plan.client.authored.cpus
+        for plan in plans
+    )
 
 
 def test_auto_gpu_resolution_is_explicit_and_scheduler_free(
@@ -127,7 +135,7 @@ def test_auto_gpu_resolution_is_explicit_and_scheduler_free(
 ) -> None:
     selected = select_profile(profile_catalog, cluster="lab")
     runtime_bundle = single_node_plan.runtime_bundle.model_copy(
-        update={"path": "/workspace/lab/runtime/runtime.tar.gz"}
+        update={"path": f"/workspace/lab/runtime/{single_node_plan.runtime_bundle.sha256}.tar.gz"}
     )
 
     with pytest.raises(SlurmConfigResolutionError, match="auto gpus_per_node"):
@@ -168,7 +176,9 @@ def test_compiler_preserves_explicit_compatibility_run_values(
         "max_conversation_restarts": 3,
         "otel_metrics_port": 24000,
         "shutdown_error_rate": 0.25,
+        "non_inference_max_parallel_workers": 7,
     }
+    payload["invocation"]["input_bindings"]["managed_assets_path"] = "/workspace/explicit-assets"
     authored = DataDesignerSlurmConfig.model_validate(payload)
 
     effective = _resolve_fixture(authored, dependency_lock_single, single_node_plan)
@@ -178,6 +188,8 @@ def test_compiler_preserves_explicit_compatibility_run_values(
     assert effective.invocation.effective_run_config["max_conversation_restarts"] == 3
     assert effective.invocation.effective_run_config["otel_metrics_port"] == 24000
     assert effective.invocation.effective_run_config["shutdown_error_rate"] == 0.25
+    assert effective.invocation.effective_run_config["non_inference_max_parallel_workers"] == 7
+    assert effective.invocation.effective_input_bindings.managed_assets_path == "/workspace/explicit-assets"
 
 
 @pytest.mark.parametrize(
@@ -227,6 +239,7 @@ def test_compiler_rejects_tensor_parallelism_that_does_not_divide_gpu_shape(
         {"root": "/outside/output"},
         {"root": "/workspace/primary/images/output"},
         {"root": "/workspace/primary/runtime/output"},
+        {"root": "/workspace/primary/managed-assets/output"},
         {"root": "/workspace/primary/runs/other-run/output"},
         {"root": "/workspace/primary/runs/run-single/shards"},
         {"partitions": 9},
@@ -243,6 +256,42 @@ def test_resolution_rejects_invalid_output_destinations(
     authored = DataDesignerSlurmConfig.model_validate(payload)
 
     with pytest.raises(SlurmConfigResolutionError, match="output"):
+        _resolve_fixture(authored, dependency_lock_single, single_node_plan)
+
+
+def test_resolution_rejects_output_overlapping_explicit_managed_assets(
+    authored_run_single: DataDesignerSlurmConfig,
+    dependency_lock_single: ResolvedDependencyLock,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    payload = authored_run_single.model_dump(mode="json")
+    payload["invocation"]["input_bindings"]["managed_assets_path"] = "/workspace/primary/custom-assets"
+    payload["output"]["root"] = "/workspace/primary/custom-assets/output"
+    authored = DataDesignerSlurmConfig.model_validate(payload)
+
+    with pytest.raises(SlurmConfigResolutionError, match="managed assets"):
+        _resolve_fixture(authored, dependency_lock_single, single_node_plan)
+
+
+@pytest.mark.parametrize(
+    "managed_assets_path",
+    [
+        "/workspace/primary",
+        "/workspace/primary/images/assets",
+        "/workspace/primary/runs",
+    ],
+)
+def test_resolution_rejects_managed_assets_overlapping_workspace_state(
+    authored_run_single: DataDesignerSlurmConfig,
+    dependency_lock_single: ResolvedDependencyLock,
+    single_node_plan: ResolvedSlurmRunPlan,
+    managed_assets_path: str,
+) -> None:
+    payload = authored_run_single.model_dump(mode="json")
+    payload["invocation"]["input_bindings"]["managed_assets_path"] = managed_assets_path
+    authored = DataDesignerSlurmConfig.model_validate(payload)
+
+    with pytest.raises(SlurmConfigResolutionError, match="managed_assets_path"):
         _resolve_fixture(authored, dependency_lock_single, single_node_plan)
 
 
@@ -301,6 +350,19 @@ def test_compiler_rejects_direct_effective_input_resolution_bypass(
             )
         )
 
+    profile = effective.selected_profile.profile.model_copy(
+        update={
+            "gpu_request_mode": "visible",
+            "scheduler": effective.selected_profile.profile.scheduler.model_copy(update={"mem_per_gpu": "80G"}),
+        }
+    )
+    with pytest.raises(SlurmPlanCompilationError, match="requires GRES"):
+        SlurmRunCompiler.compile(
+            effective.model_copy(
+                update={"selected_profile": effective.selected_profile.model_copy(update={"profile": profile})}
+            )
+        )
+
 
 def test_compiler_rejects_direct_effective_record_drift(
     authored_run_single: DataDesignerSlurmConfig,
@@ -320,6 +382,15 @@ def test_compiler_rejects_direct_effective_record_drift(
     with pytest.raises(SlurmPlanCompilationError, match="resolved output"):
         SlurmRunCompiler.compile(
             effective.model_copy(update={"output": effective.output.model_copy(update={"format": "jsonl"})})
+        )
+    bindings = effective.invocation.effective_input_bindings.model_copy(
+        update={"managed_assets_path": "/workspace/other-assets"}
+    )
+    with pytest.raises(SlurmPlanCompilationError, match="resolved invocation"):
+        SlurmRunCompiler.compile(
+            effective.model_copy(
+                update={"invocation": effective.invocation.model_copy(update={"effective_input_bindings": bindings})}
+            )
         )
 
 
@@ -768,16 +839,33 @@ def test_resolution_rejects_secret_values_in_sourced_builder_payload(
     assert error.value.__cause__ is None
 
 
-def test_resolution_rejects_artifact_identity_mismatches(
+def test_resolution_rejects_dependency_identity_mismatch(
     authored_run_single: DataDesignerSlurmConfig,
     dependency_lock_single: ResolvedDependencyLock,
     single_node_plan: ResolvedSlurmRunPlan,
 ) -> None:
     wrong_lock = dependency_lock_single.model_copy(update={"client_image_sha256": "a" * 64})
-    wrong_runtime = ArtifactReference(path="/tmp/runtime.tar.gz", sha256="e" * 64)
 
     with pytest.raises(SlurmConfigResolutionError, match="client image"):
         _resolve_fixture(authored_run_single, wrong_lock, single_node_plan)
+
+
+@pytest.mark.parametrize(
+    "runtime_path",
+    [
+        "/tmp/" + "e" * 64 + ".tar.gz",
+        "/workspace/primary/runtime/runtime.tar.gz",
+        "/workspace/primary/runtime/" + "e" * 64 + ".tgz",
+    ],
+)
+def test_resolution_rejects_invalid_runtime_bundle_paths(
+    authored_run_single: DataDesignerSlurmConfig,
+    dependency_lock_single: ResolvedDependencyLock,
+    single_node_plan: ResolvedSlurmRunPlan,
+    runtime_path: str,
+) -> None:
+    wrong_runtime = ArtifactReference(path=runtime_path, sha256="e" * 64)
+
     with pytest.raises(SlurmConfigResolutionError, match="runtime bundle"):
         _resolve_fixture(
             authored_run_single,

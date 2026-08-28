@@ -25,6 +25,7 @@ from data_designer.slurm.config.run import (
     ArrayTasksConfig,
     ClientConfig,
     ClientDependencies,
+    InputBindings,
     InvocationConfig,
     ServerDeploymentConfig,
     SubmissionConfig,
@@ -40,6 +41,9 @@ from data_designer.slurm.contracts import (
     Sha256Digest,
     ShardId,
     compute_serialized_json_sha256,
+    derive_managed_assets_path,
+    is_path_below,
+    paths_overlap,
     validate_absolute_path,
     validate_local_config_path,
     validate_plain_text,
@@ -178,6 +182,7 @@ class ResolvedBuilderInput(ContractValue):
 
 class ResolvedInvocation(ContractValue):
     authored: InvocationConfig
+    effective_input_bindings: InputBindings
     effective_run_config: dict[str, JsonValue]
 
     @field_validator("effective_run_config")
@@ -363,6 +368,8 @@ class ResolvedSlurmRunPlan(ContractRecord):
         profile = self.selected_profile.profile
         if profile.gpus_per_node != "auto" and profile.gpus_per_node != self.resolved_gpus_per_node:
             raise ValueError("resolved GPU count does not match the selected profile")
+        if profile.gpu_request_mode == "visible" and profile.scheduler.mem_per_gpu is not None:
+            raise ValueError("mem_per_gpu requires GRES GPU request mode")
         if any(deployment.gpus_per_node != self.resolved_gpus_per_node for deployment in self.deployments):
             raise ValueError("every deployment must use the resolved profile GPU count")
         if tuple(profile.container_mounts) != self.container_mounts:
@@ -383,10 +390,25 @@ class ResolvedSlurmRunPlan(ContractRecord):
             raise ValueError("deployment nodes must be disjoint and contiguous in authored order")
         if self.client.host_node_index != self.deployments[0].node_indices[0]:
             raise ValueError("client must be colocated on the first node of the first deployment")
+        authored_bindings = self.invocation.authored.input_bindings
+        expected_bindings = InputBindings(
+            seed_path=authored_bindings.seed_path,
+            managed_assets_path=authored_bindings.managed_assets_path
+            or derive_managed_assets_path(profile.workspace_root),
+        )
+        if self.invocation.effective_input_bindings != expected_bindings:
+            raise ValueError("effective input bindings must match the authored and selected profile input")
+        managed_assets_path = self.invocation.effective_input_bindings.managed_assets_path
+        assert managed_assets_path is not None
+        workspace_state = tuple(
+            posixpath.join(profile.workspace_root, name) for name in ("images", "runtime", "benchmarks", "runs")
+        )
+        if any(paths_overlap(managed_assets_path, path) for path in workspace_state):
+            raise ValueError("managed_assets_path must not overlap package-managed workspace state")
         if "non_inference_max_parallel_workers" not in self.invocation.authored.run_config:
             workers = self.invocation.effective_run_config["non_inference_max_parallel_workers"]
-            if workers != RunConfig().non_inference_max_parallel_workers:
-                raise ValueError("default non-inference worker count must match the Data Designer RunConfig default")
+            if workers != self.client.authored.cpus:
+                raise ValueError("default non-inference worker count must match the client CPU count")
 
         expected_logical_names = tuple(
             f"{deployment.deployment_id}-logical-endpoint" for deployment in self.deployments
@@ -413,15 +435,20 @@ class ResolvedSlurmRunPlan(ContractRecord):
             raise ValueError("authored config reference must use the plan run root")
         if self.client.dependency_lock.path != posixpath.join(run_root, "dependency-lock.json"):
             raise ValueError("dependency lock reference must use the plan run root")
-        self._validate_shards(run_root)
-        if not _is_below(self.output.root, profile.workspace_root):
-            raise ValueError("resolved output root must be below the selected workspace_root")
-        shards_root = posixpath.join(run_root, "shards")
+        runtime_root = posixpath.join(profile.workspace_root, "runtime")
+        runtime_name = posixpath.basename(self.runtime_bundle.path)
         if (
-            self.output.root == shards_root
-            or _is_below(self.output.root, shards_root)
-            or _is_below(shards_root, self.output.root)
+            not is_path_below(self.runtime_bundle.path, runtime_root)
+            or runtime_name != f"{self.runtime_bundle.sha256}.tar.gz"
         ):
+            raise ValueError("runtime bundle must be a content-addressed tar archive below the workspace runtime root")
+        self._validate_shards(run_root)
+        if not is_path_below(self.output.root, profile.workspace_root):
+            raise ValueError("resolved output root must be below the selected workspace_root")
+        if paths_overlap(self.output.root, managed_assets_path):
+            raise ValueError("resolved output root must not overlap managed assets")
+        shards_root = posixpath.join(run_root, "shards")
+        if paths_overlap(self.output.root, shards_root):
             raise ValueError("resolved output root must not overlap the run shard workspace")
         return self
 
@@ -434,7 +461,7 @@ class ResolvedSlurmRunPlan(ContractRecord):
         shard_ids: list[ShardId] = []
         workspace_paths: list[str] = []
         partition_paths: list[str] = []
-        requires_partition = self.invocation.authored.input_bindings.seed_path is not None
+        requires_partition = self.invocation.effective_input_bindings.seed_path is not None
         for index, shard in enumerate(self.shards):
             if shard.shard_index != index or shard.array_task_index != index:
                 raise ValueError("shards must use complete ordered zero-based identities")
@@ -470,7 +497,3 @@ class ResolvedSlurmRunPlan(ContractRecord):
             raise ValueError("shard resume workspaces must be unique")
         if len(partition_paths) != len(set(partition_paths)):
             raise ValueError("shard input partitions must be unique")
-
-
-def _is_below(path: str, root: str) -> bool:
-    return path != root and posixpath.commonpath((path, root)) == root

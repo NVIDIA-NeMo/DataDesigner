@@ -409,11 +409,11 @@ class ServerDeploymentConfig(AuthoredConfig):
 
 class ArrayTasksConfig(AuthoredConfig):
     count: PositiveInt = 1
-    max_concurrent: PositiveInt = 1
+    max_concurrent: PositiveInt | None = None
 
     @model_validator(mode="after")
     def validate_concurrency(self) -> ArrayTasksConfig:
-        if self.max_concurrent > self.count:
+        if self.max_concurrent is not None and self.max_concurrent > self.count:
             raise ValueError("array task concurrency must not exceed task count")
         return self
 

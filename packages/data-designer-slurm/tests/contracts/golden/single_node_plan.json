@@ -1,11 +1,11 @@
 {
   "array_tasks": {
     "count": 1,
-    "max_concurrent": 1
+    "max_concurrent": null
   },
   "authored_config": {
     "path": "/workspace/primary/runs/run-single/authored-config.json",
-    "sha256": "fa6ca55eac5075455193628e481b09789566d8f4c54926f45bbf837c20e5ba47"
+    "sha256": "3ca8b4c53642796435ae782cb7710904681df6eb6750d414ad6701861eb85b01"
   },
   "builder": {
     "authored_source": null,
@@ -198,6 +198,10 @@
       "resume": "never",
       "run_config": {}
     },
+    "effective_input_bindings": {
+      "managed_assets_path": "/workspace/primary/managed-assets",
+      "seed_path": null
+    },
     "effective_run_config": {
       "async_trace": false,
       "buffer_size": 16384,
@@ -208,7 +212,7 @@
       "max_conversation_correction_steps": 0,
       "max_conversation_restarts": 0,
       "max_in_flight_tasks": 1024,
-      "non_inference_max_parallel_workers": 4,
+      "non_inference_max_parallel_workers": 32,
       "otel_metrics_port": null,
       "preserve_dropped_columns": true,
       "progress_interval": 5.0,
@@ -228,7 +232,7 @@
   "resolved_gpus_per_node": 8,
   "run_id": "run-single",
   "runtime_bundle": {
-    "path": "/workspace/primary/runtime/runtime.tar.gz",
+    "path": "/workspace/primary/runtime/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee.tar.gz",
     "sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
   },
   "schema_version": 1,

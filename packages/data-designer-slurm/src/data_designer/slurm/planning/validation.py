@@ -10,6 +10,7 @@ from pydantic import JsonValue
 from data_designer.config import RunConfig
 from data_designer.slurm.config.images import ClientImageInspection
 from data_designer.slurm.config.run import DataDesignerSlurmConfig
+from data_designer.slurm.contracts import derive_managed_assets_path
 from data_designer.slurm.planning.builder_identity import get_persisted_builder_identity
 from data_designer.slurm.planning.errors import SlurmPlanContractError
 from data_designer.slurm.planning.models import (
@@ -31,6 +32,14 @@ def validate_resolved_plan(
         "authored config digest does not match the resolved plan",
     )
     _require(plan.invocation.authored == authored.invocation, "resolved invocation does not match authored input")
+    expected_managed_assets = authored.invocation.input_bindings.managed_assets_path or derive_managed_assets_path(
+        plan.selected_profile.profile.workspace_root
+    )
+    _require(
+        plan.invocation.effective_input_bindings.seed_path == authored.invocation.input_bindings.seed_path
+        and plan.invocation.effective_input_bindings.managed_assets_path == expected_managed_assets,
+        "resolved input bindings do not match authored/profile input",
+    )
     explicit_run_config = RunConfig.model_validate(authored.invocation.run_config).model_dump(
         mode="json",
         exclude_unset=True,
