@@ -52,7 +52,7 @@ def test_prepare_oci_import_stages_checksum_bound_job_beneath_selected_workspace
     assert prepared.plan.operation is ImageLifecycleOperation.IMPORT_OCI
     assert prepared.plan.source_oci_digest == source_digest
     assert prepared.plan.sqsh_path == (job_directory / "candidate.sqsh").as_posix()
-    assert prepared.plan.inspection_output_path == (job_directory / "inspection.json").as_posix()
+    assert prepared.plan.inspection_output_path == (job_directory / "output" / "inspection.json").as_posix()
     assert prepared.plan_file.path == (job_directory / "image-lifecycle-plan.json").as_posix()
     assert prepared.script_file.path == (job_directory / "image-lifecycle.sbatch").as_posix()
     assert ImageLifecyclePlan.model_validate_json(Path(prepared.plan_file.path).read_text()) == prepared.plan
@@ -67,6 +67,7 @@ def test_prepare_oci_import_stages_checksum_bound_job_beneath_selected_workspace
     assert stat.S_IMODE(Path(prepared.plan.inspector_script.path).stat().st_mode) == 0o500
     assert stat.S_IMODE(Path(prepared.plan.enroot_rc.path).stat().st_mode) == 0o500
     assert stat.S_IMODE(job_directory.stat().st_mode) == 0o700
+    assert stat.S_IMODE((job_directory / "output").stat().st_mode) == 0o700
     assert stat.S_IMODE(Path(prepared.plan_file.path).stat().st_mode) == 0o600
     assert stat.S_IMODE(Path(prepared.script_file.path).stat().st_mode) == 0o500
 
@@ -105,7 +106,9 @@ def test_image_lifecycle_renderer_uses_cpu_profile_and_quotes_workspace_paths(tm
     assert f'readonly DD_OCI_SOURCE="{expected_uri}"' in script
     assert 'enroot import -o "${DD_IMAGE_SQSH}" "${DD_OCI_SOURCE}"' in script
     assert "inspect_image.py:x-create=file,bind,ro" in script
-    assert "/opt/data-designer-slurm/job:x-create=dir,bind" in script
+    assert "/opt/data-designer-slurm/output:x-create=dir,bind" in script
+    assert 'export ENROOT_CONFIG_PATH="${DD_JOB_DIR}/enroot/config"' in script
+    assert f'--mount "{prepared.plan.job_directory}:' not in script
     completed = subprocess.run(("bash", "-n"), input=script, capture_output=True, text=True, check=False)
     assert completed.returncode == 0, completed.stderr
 
@@ -260,7 +263,7 @@ def test_prepare_rejects_symlinked_package_owned_image_root(tmp_path: Path) -> N
         ("operation", "inspect_sqsh", "require an import"),
         ("sqsh_path", "/workspace/other.sqsh", "attempt-local"),
         ("source_oci_digest", "f" * 64, "does not match"),
-        ("inspection_output_path", "/workspace/inspection.json", "job directory"),
+        ("inspection_output_path", "/workspace/inspection.json", "output directory"),
     ),
 )
 def test_image_lifecycle_plan_rejects_mismatched_oci_facts(
@@ -400,19 +403,57 @@ def test_standalone_client_inspector_emits_contract_compatible_json(tmp_path: Pa
     assert stat.S_IMODE(output_path.stat().st_mode) == 0o600
 
 
-def test_standalone_serving_inspector_emits_contract_compatible_json() -> None:
-    def find_executable(name: str) -> str | None:
-        return "/usr/local/bin/vllm" if name == "vllm" else None
+def test_standalone_serving_inspector_binds_version_and_executable_to_one_distribution(tmp_path: Path) -> None:
+    executable_path = tmp_path / "active-environment" / "bin" / "vllm"
+    executable_path.parent.mkdir(parents=True)
+    executable_path.write_text("#!/bin/sh\n")
+    executable_path.chmod(0o700)
+    installed_file = Path("../../../bin/vllm")
+    entry_point = SimpleNamespace(group="console_scripts", name="vllm")
+    distribution = SimpleNamespace(
+        version="0.21.0",
+        entry_points=(entry_point,),
+        files=(installed_file,),
+        locate_file=lambda _installed_file: executable_path,
+    )
 
     with (
-        patch.object(resource_inspector.importlib.metadata, "version", return_value="0.21.0"),
-        patch.object(resource_inspector.shutil, "which", side_effect=find_executable),
+        patch.object(resource_inspector.importlib.metadata, "distribution", return_value=distribution),
+        patch.object(resource_inspector.shutil, "which", return_value="/shadow/bin/vllm"),
     ):
         payload = resource_inspector.inspect_image("serving", "d" * 64)
 
     inspection = ImageInspectionRecord.model_validate_json(json.dumps(payload))
     assert inspection.inspection.kind == "serving"
     assert inspection.inspection.runtime_version == "0.21.0"  # type: ignore[union-attr]
+    assert inspection.inspection.executable_path == executable_path.as_posix()  # type: ignore[union-attr]
+
+
+@pytest.mark.parametrize(
+    ("entry_points", "files", "match"),
+    (
+        ((), (), "does not expose one console script"),
+        ((SimpleNamespace(group="console_scripts", name="vllm"),), None, "installed-file inventory"),
+        ((SimpleNamespace(group="console_scripts", name="vllm"),), (Path("vllm"),), "does not own one executable"),
+    ),
+)
+def test_standalone_serving_inspector_rejects_unverifiable_distribution_console_script(
+    entry_points: tuple[SimpleNamespace, ...],
+    files: tuple[Path, ...] | None,
+    match: str,
+) -> None:
+    distribution = SimpleNamespace(
+        version="0.21.0",
+        entry_points=entry_points,
+        files=files,
+        locate_file=lambda installed_file: installed_file,
+    )
+
+    with (
+        patch.object(resource_inspector.importlib.metadata, "distribution", return_value=distribution),
+        pytest.raises(RuntimeError, match=match),
+    ):
+        resource_inspector.inspect_image("serving", "d" * 64)
 
 
 @pytest.mark.parametrize(

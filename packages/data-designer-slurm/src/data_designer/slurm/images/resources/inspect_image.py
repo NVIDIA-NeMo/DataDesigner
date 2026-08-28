@@ -105,18 +105,16 @@ def _inspect_client() -> dict[str, object]:
 
 
 def _inspect_serving() -> dict[str, object]:
-    executable_path = shutil.which("vllm")
-    if executable_path is None or not Path(executable_path).is_absolute():
-        raise RuntimeError("required executable 'vllm' is not installed at an absolute path")
     try:
-        runtime_version = importlib.metadata.version("vllm")
+        distribution = importlib.metadata.distribution("vllm")
     except importlib.metadata.PackageNotFoundError as error:
         raise RuntimeError("required distribution 'vllm' is not installed") from error
+    executable_path = _find_distribution_console_script(distribution, "vllm")
     return {
         "kind": "serving",
         "server_type": "vllm",
-        "runtime_version": runtime_version,
-        "executable_path": Path(executable_path).as_posix(),
+        "runtime_version": distribution.version,
+        "executable_path": executable_path,
     }
 
 
@@ -131,6 +129,35 @@ def _list_distribution_versions(distributions: Iterable[importlib.metadata.Distr
         if existing != distribution.version:
             raise RuntimeError(f"installed distribution {name!r} has conflicting versions")
     return versions
+
+
+def _find_distribution_console_script(distribution: importlib.metadata.Distribution, name: str) -> str:
+    entry_points = tuple(
+        entry_point
+        for entry_point in distribution.entry_points
+        if entry_point.group == "console_scripts" and entry_point.name == name
+    )
+    if len(entry_points) != 1:
+        raise RuntimeError(f"required distribution {name!r} does not expose one console script")
+    files = distribution.files
+    if files is None:
+        raise RuntimeError(f"required distribution {name!r} does not expose an installed-file inventory")
+    executable_paths: set[Path] = set()
+    for installed_file in files:
+        if Path(str(installed_file)).name != name:
+            continue
+        candidate = Path(distribution.locate_file(installed_file))
+        if not candidate.is_absolute():
+            continue
+        try:
+            resolved = candidate.resolve(strict=True)
+        except OSError:
+            continue
+        if resolved.is_file() and os.access(resolved, os.X_OK):
+            executable_paths.add(resolved)
+    if len(executable_paths) != 1:
+        raise RuntimeError(f"required distribution {name!r} does not own one executable console script")
+    return next(iter(executable_paths)).as_posix()
 
 
 if __name__ == "__main__":

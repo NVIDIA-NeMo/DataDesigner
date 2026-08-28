@@ -74,6 +74,8 @@ def prepare_image_lifecycle_job(
         ensure_private_directory(temporary_root, parents=False)
         ensure_private_directory(job_root, parents=False)
         job_directory.mkdir(mode=0o700)
+        inspection_directory = job_directory / "output"
+        ensure_private_directory(inspection_directory, parents=False)
         inspector_script = _stage_resource(job_directory, _INSPECTOR_FILENAME)
         enroot_rc = _stage_resource(job_directory, _ENROOT_RC_FILENAME)
         is_existing_sqsh = request.source.endswith(".sqsh")
@@ -87,7 +89,7 @@ def prepare_image_lifecycle_job(
             ),
             job_directory=job_directory.as_posix(),
             sqsh_path=(request.source if is_existing_sqsh else (job_directory / "candidate.sqsh").as_posix()),
-            inspection_output_path=(job_directory / "inspection.json").as_posix(),
+            inspection_output_path=(inspection_directory / "inspection.json").as_posix(),
             inspector_script=inspector_script,
             enroot_rc=enroot_rc,
             source_oci_digest=None if is_existing_sqsh else request.source.rpartition("@sha256:")[2],
@@ -143,6 +145,7 @@ export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 readonly DD_JOB_DIR={quote_shell_value(plan.job_directory)}
 readonly DD_IMAGE_KIND={quote_shell_value(plan.request.kind)}
 readonly DD_IMAGE_SQSH={quote_shell_value(plan.sqsh_path)}
+readonly DD_INSPECTION_DIRECTORY={quote_shell_value(Path(plan.inspection_output_path).parent.as_posix())}
 readonly DD_INSPECTION_OUTPUT={quote_shell_value(plan.inspection_output_path)}
 readonly DD_INSPECTOR={quote_shell_value(plan.inspector_script.path)}
 readonly DD_INSPECTOR_SHA256={quote_shell_value(plan.inspector_script.sha256)}
@@ -161,8 +164,14 @@ verify_sha256() {{
 
 verify_sha256 "${{DD_INSPECTOR_SHA256}}" "${{DD_INSPECTOR}}"
 verify_sha256 "${{DD_ENROOT_RC_SHA256}}" "${{DD_ENROOT_RC}}"
-install -d -m 0700 "${{DD_JOB_DIR}}/enroot/cache" "${{DD_JOB_DIR}}/enroot/data" "${{DD_JOB_DIR}}/enroot/tmp"
+install -d -m 0700 \
+    "${{DD_JOB_DIR}}/enroot/cache" \
+    "${{DD_JOB_DIR}}/enroot/config" \
+    "${{DD_JOB_DIR}}/enroot/data" \
+    "${{DD_JOB_DIR}}/enroot/tmp" \
+    "${{DD_INSPECTION_DIRECTORY}}"
 export ENROOT_CACHE_PATH="${{DD_JOB_DIR}}/enroot/cache"
+export ENROOT_CONFIG_PATH="${{DD_JOB_DIR}}/enroot/config"
 export ENROOT_DATA_PATH="${{DD_JOB_DIR}}/enroot/data"
 export ENROOT_TEMP_PATH="${{DD_JOB_DIR}}/enroot/tmp"
 
@@ -190,7 +199,7 @@ enroot create -f --name "${{DD_CONTAINER_NAME}}" "${{DD_IMAGE_SQSH}}"
 ENROOT_LOGIN_SHELL=no ENROOT_MOUNT_HOME=no enroot start --root \
     --rc "${{DD_ENROOT_RC}}" \
     --mount "${{DD_INSPECTOR}}:/opt/data-designer-slurm/inspect_image.py:x-create=file,bind,ro" \
-    --mount "${{DD_JOB_DIR}}:/opt/data-designer-slurm/job:x-create=dir,bind" \
+    --mount "${{DD_INSPECTION_DIRECTORY}}:/opt/data-designer-slurm/output:x-create=dir,bind" \
     "${{DD_CONTAINER_NAME}}" -- /bin/sh -c '
 python_path="$(command -v python3 || command -v python || true)"
 if [ -z "${{python_path}}" ]; then
@@ -202,7 +211,7 @@ exec "${{python_path}}" "$@"
     /opt/data-designer-slurm/inspect_image.py \
     "${{DD_IMAGE_KIND}}" \
     "${{DD_SQSH_SHA256}}" \
-    /opt/data-designer-slurm/job/inspection.json
+    /opt/data-designer-slurm/output/inspection.json
 
 [[ -s "${{DD_INSPECTION_OUTPUT}}" ]]
 """

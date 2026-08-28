@@ -62,8 +62,8 @@ class ImageLifecyclePlan(ContractRecord):
             raise ValueError("image lifecycle job directory must derive from the selected workspace")
         if any(delimiter in self.job_directory for delimiter in (":", ",")):
             raise ValueError("image lifecycle workspace path cannot be represented as an Enroot mount")
-        if self.inspection_output_path != posixpath.join(self.job_directory, "inspection.json"):
-            raise ValueError("image lifecycle inspection output must belong to its job directory")
+        if self.inspection_output_path != posixpath.join(self.job_directory, "output", "inspection.json"):
+            raise ValueError("image lifecycle inspection output must belong to its dedicated output directory")
         expected_runtime_artifacts = (
             (self.inspector_script, "inspect_image.py"),
             (self.enroot_rc, "enroot.rc"),
