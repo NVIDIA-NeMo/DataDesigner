@@ -129,6 +129,26 @@ def test_builder_validation_errors_hide_dynamic_mapping_keys() -> None:
     assert secret not in str(error.value)
 
 
+def test_builder_validation_errors_preserve_discriminated_union_locations() -> None:
+    secret = "super-secret-token"
+
+    with pytest.raises(SlurmConfigBuilderError) as error:
+        _config_builder().with_invocation(
+            num_records=1,
+            dataset_name="generated",
+            mcp_providers=[
+                {
+                    "provider_type": "streamable_http",
+                    "name": "example",
+                    "endpoint": f"https://example.com/?token={secret}",
+                }
+            ],
+        )
+
+    assert "mcp_providers[0].endpoint" in str(error.value)
+    assert secret not in str(error.value)
+
+
 def test_builder_custom_validation_errors_hide_secret_values() -> None:
     secret = "super-secret-token"
 

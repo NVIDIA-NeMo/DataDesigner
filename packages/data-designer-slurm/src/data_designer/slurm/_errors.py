@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 from collections.abc import Iterable, Mapping, Sequence
 from types import UnionType
-from typing import Annotated, Any, Union, get_args, get_origin
+from typing import Annotated, Any, Literal, Union, get_args, get_origin
 
 import yaml
 from pydantic import BaseModel, ValidationError
@@ -94,7 +94,11 @@ def _format_location(location: Iterable[object], *, model_type: type[BaseModel] 
             and (field := schema.model_fields.get(segment)) is not None
         )
         if not field_schemas:
-            break
+            branch_schemas = _tagged_union_schemas(schemas, tag=segment)
+            if not branch_schemas:
+                break
+            schemas = branch_schemas
+            continue
         parts.append(segment)
         schemas = field_schemas
     return ".".join(parts)
@@ -113,6 +117,27 @@ def _is_mapping_schema(schema: object) -> bool:
     origin = get_origin(schema)
     candidate = origin or schema
     return isinstance(candidate, type) and issubclass(candidate, Mapping)
+
+
+def _tagged_union_schemas(schemas: tuple[object, ...], *, tag: str) -> tuple[object, ...]:
+    if len(schemas) < 2:
+        return ()
+    return tuple(
+        schema
+        for schema in schemas
+        if isinstance(schema, type)
+        and issubclass(schema, BaseModel)
+        and (
+            schema.__name__ == tag
+            or any(_annotation_contains_literal(field.annotation, value=tag) for field in schema.model_fields.values())
+        )
+    )
+
+
+def _annotation_contains_literal(annotation: object, *, value: str) -> bool:
+    return any(
+        get_origin(candidate) is Literal and value in get_args(candidate) for candidate in _expand_schema(annotation)
+    )
 
 
 def _sequence_item_schemas(schema: object, *, index: int) -> tuple[object, ...]:
