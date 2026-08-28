@@ -35,7 +35,21 @@ class SlurmServiceOperation(str, Enum):
 
 
 class SlurmServiceError(DataDesignerError):
-    """Normalized public service failure with a stable code and operation."""
+    """Normalized public service failure with a stable code and operation.
+
+    The string form is caller-visible. Non-``INTERNAL`` messages must be
+    sanitized before construction and must never include raw exception details.
+    Facades replace dependency-raised ``INTERNAL`` messages with fixed text.
+
+    Args:
+        code: Machine-readable failure category.
+        operation: Public operation that failed.
+        message: Caller-safe text containing 1 to 512 characters.
+
+    Attributes:
+        code: Machine-readable failure category.
+        operation: Public operation that failed.
+    """
 
     def __init__(
         self,
@@ -67,7 +81,7 @@ def _make_invalid_request_error(operation: SlurmServiceOperation, message: str) 
 
 
 def _invoke_service_backend(operation: SlurmServiceOperation, call: Callable[[], _ResultT]) -> _ResultT:
-    """Preserve normalized failures and redact unexpected backend exceptions."""
+    """Preserve caller-safe failures and redact backend-internal details."""
     try:
         return call()
     except SlurmServiceError as error:

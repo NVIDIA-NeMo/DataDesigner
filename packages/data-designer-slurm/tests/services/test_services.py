@@ -67,6 +67,22 @@ def test_run_service_returns_plan_for_requested_config(
     renderer.assert_complete()
 
 
+def test_run_service_rejects_invalid_plan_result(authored_run_single: DataDesignerSlurmConfig) -> None:
+    planner = FakeRunPlanningBackend(((authored_run_single, object()),))  # type: ignore[arg-type]
+    renderer = FakeBatchScriptRenderer(())
+
+    with pytest.raises(SlurmServiceError) as caught:
+        SlurmRunService(planner, renderer).plan(authored_run_single)
+
+    assert caught.value.code is SlurmServiceErrorCode.INTERNAL
+    assert caught.value.operation is SlurmServiceOperation.PLAN_RUN
+    assert str(caught.value) == "plan run failed"
+    assert planner.calls == [authored_run_single]
+    assert renderer.calls == []
+    planner.assert_complete()
+    renderer.assert_complete()
+
+
 def test_run_service_renders_attempt_without_replanning(
     single_node_plan: ResolvedSlurmRunPlan,
     single_node_script: str,
@@ -87,9 +103,13 @@ def test_run_service_renders_attempt_without_replanning(
     renderer.assert_complete()
 
 
-def test_run_service_rejects_empty_rendered_script(single_node_plan: ResolvedSlurmRunPlan) -> None:
+@pytest.mark.parametrize("invalid_script", ["", object()], ids=["empty", "wrong-type"])
+def test_run_service_rejects_invalid_rendered_script(
+    single_node_plan: ResolvedSlurmRunPlan,
+    invalid_script: object,
+) -> None:
     planner = FakeRunPlanningBackend(())
-    renderer = FakeBatchScriptRenderer((((single_node_plan, 1), ""),))
+    renderer = FakeBatchScriptRenderer((((single_node_plan, 1), invalid_script),))  # type: ignore[arg-type]
     service = SlurmRunService(planner, renderer)
 
     with pytest.raises(SlurmServiceError) as caught:
@@ -194,7 +214,7 @@ def test_run_service_redacts_matching_internal_backend_errors(
     assert caught.value.__suppress_context__
 
 
-def test_run_service_preserves_matching_normalized_errors(
+def test_run_service_preserves_matching_public_safe_errors(
     authored_run_single: DataDesignerSlurmConfig,
 ) -> None:
     error = SlurmServiceError(
@@ -220,7 +240,7 @@ def test_run_service_preserves_matching_normalized_errors(
         (SlurmServiceErrorCode.INTERNAL, "image lookup failed internally", "plan run failed"),
     ],
 )
-def test_run_service_reattributes_nested_normalized_errors(
+def test_run_service_reattributes_nested_public_safe_errors(
     authored_run_single: DataDesignerSlurmConfig,
     code: SlurmServiceErrorCode,
     message: str,
@@ -301,6 +321,20 @@ def test_image_service_returns_correlated_resolution(
     resolver.assert_complete()
 
 
+def test_image_service_rejects_invalid_resolution(single_node_plan: ResolvedSlurmRunPlan) -> None:
+    reference = single_node_plan.client.image.authored_ref
+    resolver = FakeImageResolver((((reference, ImageKind.CLIENT), object()),))  # type: ignore[arg-type]
+
+    with pytest.raises(SlurmServiceError) as caught:
+        SlurmImageService(resolver).resolve(reference, expected_kind=ImageKind.CLIENT)
+
+    assert caught.value.code is SlurmServiceErrorCode.INTERNAL
+    assert caught.value.operation is SlurmServiceOperation.RESOLVE_IMAGE
+    assert str(caught.value) == "resolve image failed"
+    assert resolver.calls == [(reference, ImageKind.CLIENT)]
+    resolver.assert_complete()
+
+
 def test_image_service_rejects_untyped_image_kind(single_node_plan: ResolvedSlurmRunPlan) -> None:
     service = SlurmImageService(FakeImageResolver(()))
 
@@ -360,6 +394,36 @@ def test_benchmark_service_delegates_run_and_analysis(
     assert service.analyze(benchmark_manifest.benchmark_id, refresh_state=True) is benchmark_report
     assert backend.run_calls == [benchmark_config]
     assert backend.analysis_calls == [(benchmark_manifest.benchmark_id, True)]
+    backend.assert_complete()
+
+
+def test_benchmark_service_rejects_invalid_manifest(
+    benchmark_config: DataDesignerSlurmBenchmarkConfig,
+) -> None:
+    backend = FakeBenchmarkBackend(run_responses=((benchmark_config, object()),))  # type: ignore[arg-type]
+
+    with pytest.raises(SlurmServiceError) as caught:
+        SlurmBenchmarkService(backend).run(benchmark_config)
+
+    assert caught.value.code is SlurmServiceErrorCode.INTERNAL
+    assert caught.value.operation is SlurmServiceOperation.RUN_BENCHMARK
+    assert str(caught.value) == "run benchmark failed"
+    assert backend.run_calls == [benchmark_config]
+    backend.assert_complete()
+
+
+def test_benchmark_service_rejects_invalid_report(benchmark_manifest: BenchmarkManifest) -> None:
+    backend = FakeBenchmarkBackend(
+        analysis_responses=(((benchmark_manifest.benchmark_id, False), object()),),  # type: ignore[arg-type]
+    )
+
+    with pytest.raises(SlurmServiceError) as caught:
+        SlurmBenchmarkService(backend).analyze(benchmark_manifest.benchmark_id)
+
+    assert caught.value.code is SlurmServiceErrorCode.INTERNAL
+    assert caught.value.operation is SlurmServiceOperation.ANALYZE_BENCHMARK
+    assert str(caught.value) == "analyze benchmark failed"
+    assert backend.analysis_calls == [(benchmark_manifest.benchmark_id, False)]
     backend.assert_complete()
 
 

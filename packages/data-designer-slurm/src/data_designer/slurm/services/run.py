@@ -17,21 +17,29 @@ from data_designer.slurm.services.errors import (
 
 
 class _RunPlanner(Protocol):
-    """Resolve and compile one authored run without exposing implementation types."""
+    """Resolve one run; any normalized failure must be caller-safe."""
 
     def plan(self, config: DataDesignerSlurmConfig) -> ResolvedSlurmRunPlan:
         """Return the immutable plan for one authored run."""
 
 
 class _BatchScriptRenderer(Protocol):
-    """Render one immutable run plan as a thin batch entrypoint."""
+    """Render one immutable plan; any normalized failure must be caller-safe."""
 
     def __call__(self, plan: ResolvedSlurmRunPlan, *, attempt_ordinal: int) -> str:
         """Return the deterministic batch script for one attempt."""
 
 
 class SlurmRunService:
-    """Coordinate public run operations through injected package boundaries."""
+    """Coordinate public run operations through package-owned boundaries.
+
+    The service borrows its injected dependencies and does not manage their
+    lifecycle.
+
+    Args:
+        planner: Package-owned run-planning boundary.
+        renderer: Package-owned batch-rendering boundary.
+    """
 
     def __init__(self, planner: _RunPlanner, renderer: _BatchScriptRenderer) -> None:
         self._planner = planner
@@ -39,6 +47,8 @@ class SlurmRunService:
 
     def plan(self, config: DataDesignerSlurmConfig) -> ResolvedSlurmRunPlan:
         """Resolve and compile one run without rendering or submission.
+
+        The returned plan must reference the exact serialized authored config.
 
         Raises:
             SlurmServiceError: If the request is invalid or planning fails.
@@ -64,6 +74,8 @@ class SlurmRunService:
         attempt_ordinal: int = 1,
     ) -> str:
         """Render one attempt from an already resolved immutable plan.
+
+        Rendering never re-resolves the authored config or submits the script.
 
         Raises:
             SlurmServiceError: If the request is invalid or rendering fails.

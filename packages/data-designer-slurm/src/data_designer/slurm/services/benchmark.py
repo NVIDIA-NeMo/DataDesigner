@@ -22,7 +22,7 @@ _IDENTIFIER_ADAPTER = TypeAdapter(Identifier)
 
 
 class _BenchmarkBackend(Protocol):
-    """Execute and analyze benchmarks without exposing implementation types."""
+    """Process benchmarks; any normalized failure must be caller-safe."""
 
     def run(self, config: DataDesignerSlurmBenchmarkConfig) -> BenchmarkManifest:
         """Persist and start the ordinary child runs for one benchmark."""
@@ -32,13 +32,21 @@ class _BenchmarkBackend(Protocol):
 
 
 class SlurmBenchmarkService:
-    """Expose benchmark operations through an injected benchmark implementation."""
+    """Expose benchmark operations through a package-owned boundary.
+
+    The service borrows its injected dependency and does not manage its lifecycle.
+
+    Args:
+        backend: Package-owned benchmark execution and analysis boundary.
+    """
 
     def __init__(self, backend: _BenchmarkBackend) -> None:
         self._backend = backend
 
     def run(self, config: DataDesignerSlurmBenchmarkConfig) -> BenchmarkManifest:
         """Start all ordinary child runs and return their immutable mapping.
+
+        The returned manifest must reference the exact serialized benchmark config.
 
         Raises:
             SlurmServiceError: If the request is invalid or benchmark launch fails.
@@ -59,6 +67,10 @@ class SlurmBenchmarkService:
 
     def analyze(self, benchmark_id: Identifier, *, refresh_state: bool = False) -> BenchmarkReport:
         """Analyze one persisted benchmark without a resident monitor.
+
+        Args:
+            benchmark_id: Persisted benchmark identity to analyze.
+            refresh_state: Request one point-in-time state refresh before analysis.
 
         Raises:
             SlurmServiceError: If the request is invalid or analysis fails.

@@ -17,20 +17,28 @@ from data_designer.slurm.services.errors import (
 
 
 class _ImageResolver(Protocol):
-    """Resolve one registered image reference without exposing registry types."""
+    """Resolve one image; any normalized failure must be caller-safe."""
 
     def resolve(self, reference: ImageRef, *, expected_kind: ImageKind) -> ResolvedImage:
         """Return immutable facts for one verified image reference."""
 
 
 class SlurmImageService:
-    """Expose stable image results through an injected image implementation."""
+    """Expose stable image results through a package-owned boundary.
+
+    The service borrows its injected dependency and does not manage its lifecycle.
+
+    Args:
+        resolver: Package-owned image-resolution boundary.
+    """
 
     def __init__(self, resolver: _ImageResolver) -> None:
         self._resolver = resolver
 
     def resolve(self, reference: ImageRef, *, expected_kind: ImageKind) -> ResolvedImage:
         """Resolve one registered image for planning.
+
+        The result must match both the authored reference and expected image kind.
 
         Raises:
             SlurmServiceError: If the request is invalid or resolution fails.
