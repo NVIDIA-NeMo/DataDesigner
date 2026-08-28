@@ -71,9 +71,11 @@ def _invoke_service_backend(operation: SlurmServiceOperation, call: Callable[[],
     try:
         return call()
     except SlurmServiceError as error:
-        if error.operation is operation:
+        if error.code is SlurmServiceErrorCode.INTERNAL:
+            pass
+        elif error.operation is operation:
             raise
-        if error.code is not SlurmServiceErrorCode.INTERNAL:
+        else:
             raise SlurmServiceError(error.code, operation, str(error)) from None
     except Exception:
         pass

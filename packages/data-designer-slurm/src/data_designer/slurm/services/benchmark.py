@@ -38,7 +38,11 @@ class SlurmBenchmarkService:
         self._backend = backend
 
     def run(self, config: DataDesignerSlurmBenchmarkConfig) -> BenchmarkManifest:
-        """Start all ordinary child runs and return their immutable mapping."""
+        """Start all ordinary child runs and return their immutable mapping.
+
+        Raises:
+            SlurmServiceError: If the request is invalid or benchmark launch fails.
+        """
         operation = SlurmServiceOperation.RUN_BENCHMARK
         if not isinstance(config, DataDesignerSlurmBenchmarkConfig):
             raise _make_invalid_request_error(operation, "config must be a DataDesignerSlurmBenchmarkConfig")
@@ -54,7 +58,11 @@ class SlurmBenchmarkService:
         return _invoke_service_backend(operation, run_benchmark)
 
     def analyze(self, benchmark_id: Identifier, *, refresh_state: bool = False) -> BenchmarkReport:
-        """Analyze one persisted benchmark without a resident monitor."""
+        """Analyze one persisted benchmark without a resident monitor.
+
+        Raises:
+            SlurmServiceError: If the request is invalid or analysis fails.
+        """
         operation = SlurmServiceOperation.ANALYZE_BENCHMARK
         try:
             validated_id = _IDENTIFIER_ADAPTER.validate_python(benchmark_id, strict=True)

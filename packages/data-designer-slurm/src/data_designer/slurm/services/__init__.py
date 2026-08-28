@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Public service facades for Data Designer Slurm."""
+"""Public service facades with private dependency-injection seams."""
 
 from __future__ import annotations
 
@@ -12,10 +12,9 @@ from data_designer.slurm.services.errors import (
     SlurmServiceOperation,
 )
 from data_designer.slurm.services.images import SlurmImageService
-from data_designer.slurm.services.run import RenderedSlurmAttempt, SlurmRunService
+from data_designer.slurm.services.run import SlurmRunService
 
 __all__ = [
-    "RenderedSlurmAttempt",
     "SlurmBenchmarkService",
     "SlurmImageService",
     "SlurmRunService",

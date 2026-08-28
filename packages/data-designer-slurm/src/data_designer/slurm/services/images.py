@@ -30,7 +30,11 @@ class SlurmImageService:
         self._resolver = resolver
 
     def resolve(self, reference: ImageRef, *, expected_kind: ImageKind) -> ResolvedImage:
-        """Resolve one registered image for planning."""
+        """Resolve one registered image for planning.
+
+        Raises:
+            SlurmServiceError: If the request is invalid or resolution fails.
+        """
         operation = SlurmServiceOperation.RESOLVE_IMAGE
         if not isinstance(reference, ImageRef):
             raise _make_invalid_request_error(operation, "reference must be an ImageRef")

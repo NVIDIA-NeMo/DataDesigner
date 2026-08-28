@@ -26,7 +26,6 @@ from data_designer.slurm.config import (
 )
 from data_designer.slurm.planning import ResolvedSlurmRunPlan
 from data_designer.slurm.services import (
-    RenderedSlurmAttempt,
     SlurmBenchmarkService,
     SlurmImageService,
     SlurmRunService,
@@ -44,7 +43,7 @@ def single_node_script() -> str:
 
 
 @pytest.fixture
-def correlated_benchmark_manifest(
+def manifest_with_matching_config_digest(
     benchmark_config: DataDesignerSlurmBenchmarkConfig,
     benchmark_manifest: BenchmarkManifest,
 ) -> BenchmarkManifest:
@@ -81,12 +80,26 @@ def test_run_service_renders_attempt_without_replanning(
 
     result = SlurmRunService(planner, renderer).render_attempt(single_node_plan, attempt_ordinal=2)
 
-    assert isinstance(result, RenderedSlurmAttempt)
-    assert result.resolved_plan is single_node_plan
-    assert result.attempt_ordinal == 2
-    assert result.rendered_batch_script == script
+    assert result == script
     assert planner.calls == []
     assert renderer.calls == [(single_node_plan, 2)]
+    planner.assert_complete()
+    renderer.assert_complete()
+
+
+def test_run_service_rejects_empty_rendered_script(single_node_plan: ResolvedSlurmRunPlan) -> None:
+    planner = FakeRunPlanningBackend(())
+    renderer = FakeBatchScriptRenderer((((single_node_plan, 1), ""),))
+    service = SlurmRunService(planner, renderer)
+
+    with pytest.raises(SlurmServiceError) as caught:
+        service.render_attempt(single_node_plan)
+
+    assert caught.value.code is SlurmServiceErrorCode.INTERNAL
+    assert caught.value.operation is SlurmServiceOperation.RENDER_ATTEMPT
+    assert str(caught.value) == "render attempt failed"
+    assert planner.calls == []
+    assert renderer.calls == [(single_node_plan, 1)]
     planner.assert_complete()
     renderer.assert_complete()
 
@@ -152,6 +165,29 @@ def test_run_service_normalizes_and_redacts_unexpected_backend_errors(
     with pytest.raises(SlurmServiceError) as caught:
         service.plan(authored_run_single)
 
+    assert caught.value.code is SlurmServiceErrorCode.INTERNAL
+    assert caught.value.operation is SlurmServiceOperation.PLAN_RUN
+    assert str(caught.value) == "plan run failed"
+    assert caught.value.__suppress_context__
+
+
+def test_run_service_redacts_matching_internal_backend_errors(
+    authored_run_single: DataDesignerSlurmConfig,
+) -> None:
+    error = SlurmServiceError(
+        SlurmServiceErrorCode.INTERNAL,
+        SlurmServiceOperation.PLAN_RUN,
+        "secret backend detail",
+    )
+    service = SlurmRunService(
+        FakeRunPlanningBackend(((authored_run_single, error),)),
+        FakeBatchScriptRenderer(()),
+    )
+
+    with pytest.raises(SlurmServiceError) as caught:
+        service.plan(authored_run_single)
+
+    assert caught.value is not error
     assert caught.value.code is SlurmServiceErrorCode.INTERNAL
     assert caught.value.operation is SlurmServiceOperation.PLAN_RUN
     assert str(caught.value) == "plan run failed"
@@ -310,10 +346,10 @@ def test_image_service_rejects_uncorrelated_results(
 
 def test_benchmark_service_delegates_run_and_analysis(
     benchmark_config: DataDesignerSlurmBenchmarkConfig,
-    correlated_benchmark_manifest: BenchmarkManifest,
+    manifest_with_matching_config_digest: BenchmarkManifest,
     benchmark_report: BenchmarkReport,
 ) -> None:
-    benchmark_manifest = correlated_benchmark_manifest
+    benchmark_manifest = manifest_with_matching_config_digest
     backend = FakeBenchmarkBackend(
         run_responses=((benchmark_config, benchmark_manifest),),
         analysis_responses=(((benchmark_manifest.benchmark_id, True), benchmark_report),),
@@ -329,10 +365,10 @@ def test_benchmark_service_delegates_run_and_analysis(
 
 def test_benchmark_service_rejects_manifest_for_another_config(
     benchmark_config: DataDesignerSlurmBenchmarkConfig,
-    correlated_benchmark_manifest: BenchmarkManifest,
+    manifest_with_matching_config_digest: BenchmarkManifest,
 ) -> None:
-    reference = correlated_benchmark_manifest.benchmark_config.model_copy(update={"sha256": "0" * 64})
-    manifest = correlated_benchmark_manifest.model_copy(update={"benchmark_config": reference})
+    reference = manifest_with_matching_config_digest.benchmark_config.model_copy(update={"sha256": "0" * 64})
+    manifest = manifest_with_matching_config_digest.model_copy(update={"benchmark_config": reference})
     backend = FakeBenchmarkBackend(run_responses=((benchmark_config, manifest),))
 
     with pytest.raises(SlurmServiceError) as caught:

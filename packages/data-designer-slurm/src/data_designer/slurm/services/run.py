@@ -7,10 +7,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from pydantic import PositiveInt
-
 from data_designer.slurm.config import DataDesignerSlurmConfig
-from data_designer.slurm.contracts import ContractValue
 from data_designer.slurm.planning import ResolvedSlurmRunPlan
 from data_designer.slurm.services.errors import (
     SlurmServiceOperation,
@@ -33,14 +30,6 @@ class _BatchScriptRenderer(Protocol):
         """Return the deterministic batch script for one attempt."""
 
 
-class RenderedSlurmAttempt(ContractValue):
-    """In-process result for one rendered attempt of an immutable plan."""
-
-    resolved_plan: ResolvedSlurmRunPlan
-    attempt_ordinal: PositiveInt
-    rendered_batch_script: str
-
-
 class SlurmRunService:
     """Coordinate public run operations through injected package boundaries."""
 
@@ -49,7 +38,11 @@ class SlurmRunService:
         self._renderer = renderer
 
     def plan(self, config: DataDesignerSlurmConfig) -> ResolvedSlurmRunPlan:
-        """Resolve and compile one run without rendering or submission."""
+        """Resolve and compile one run without rendering or submission.
+
+        Raises:
+            SlurmServiceError: If the request is invalid or planning fails.
+        """
         operation = SlurmServiceOperation.PLAN_RUN
         if not isinstance(config, DataDesignerSlurmConfig):
             raise _make_invalid_request_error(operation, "config must be a DataDesignerSlurmConfig")
@@ -69,19 +62,22 @@ class SlurmRunService:
         resolved_plan: ResolvedSlurmRunPlan,
         *,
         attempt_ordinal: int = 1,
-    ) -> RenderedSlurmAttempt:
-        """Render one attempt from an already resolved immutable plan."""
+    ) -> str:
+        """Render one attempt from an already resolved immutable plan.
+
+        Raises:
+            SlurmServiceError: If the request is invalid or rendering fails.
+        """
         operation = SlurmServiceOperation.RENDER_ATTEMPT
         if not isinstance(resolved_plan, ResolvedSlurmRunPlan):
             raise _make_invalid_request_error(operation, "resolved_plan must be a ResolvedSlurmRunPlan")
         if type(attempt_ordinal) is not int or attempt_ordinal <= 0:
             raise _make_invalid_request_error(operation, "attempt_ordinal must be a positive integer")
 
-        def render() -> RenderedSlurmAttempt:
-            return RenderedSlurmAttempt(
-                resolved_plan=resolved_plan,
-                attempt_ordinal=attempt_ordinal,
-                rendered_batch_script=self._renderer(resolved_plan, attempt_ordinal=attempt_ordinal),
-            )
+        def render() -> str:
+            script = self._renderer(resolved_plan, attempt_ordinal=attempt_ordinal)
+            if type(script) is not str or not script:
+                raise TypeError("batch renderer returned an invalid script")
+            return script
 
         return _invoke_service_backend(operation, render)
