@@ -111,8 +111,8 @@ Before diving into details, build a mental model:
 4. **Identify the primary goal** (feature, refactor, bugfix, etc.)
 5. **Note cross-cutting concerns** (e.g., a rename that touches many files vs. substantive logic changes)
 6. **Check existing feedback** (PR mode): inspect both inline comments (Step 1, item 5) and PR-level review bodies (Step 1, item 5b) so you don't duplicate feedback already given
-7. **Classify the contract impact**: note whether the change introduces or modifies public/exported symbols, config or model schemas, serialized formats, extension/plugin boundaries, or builder APIs. If none apply, skip items 8-10 and continue to Step 3.5.
-8. **Inventory the changed contract**: list each new or modified public symbol and public model field with its expected callers
+7. **Classify the contract impact**: note whether the change introduces or modifies supported public symbols or exports, config or model schemas, serialized formats, extension/plugin boundaries, or builder APIs. If none apply, skip items 8-10 and continue to Step 3.5.
+8. **Inventory the changed contract**: list each changed contract element—including symbols, schema fields, serialized representations, extension entry points, and builder operations—and record its exposure, stability commitment, and expected callers or consumers
 9. **Map invariant ownership**: identify where each new rule is parsed, normalized, validated, resolved, and compiled so duplicated checks and unclear responsibility are visible before the detailed review
 10. **Find the closest existing analogue**: compare the complete neighboring API surface—not just individual names—for builder vocabulary, type precision, export strategy, errors, and contract clarity
 
@@ -181,7 +181,7 @@ Re-read the changed files with a focus on **structure and design of the new/modi
 - Are helpers scoped to their actual consumers? Logic used only to validate or construct one class usually belongs on that class instead of in module-level generic machinery.
 - Are re-exports intentional and sourced from the defining module rather than incidental import chains?
 - Is there one canonical public entry point per operation, or do class methods plus module-level wrappers expose redundant APIs?
-- Is each invariant enforced once at the narrowest authoritative layer, rather than repeated or recomputed across models, resolution, compilation, and validation?
+- Does each business invariant have one authoritative owner, with complementary boundary checks allowed when representation or trust level changes and without independently redefining the rule?
 - Are new or modified public signatures clear and minimal?
 - Do generic helpers and `TypeVar`s eliminate enough real duplication to justify their cognitive cost, and are their names consistent with those already used in the changed module?
 - Are return types precise (not overly broad like `Any`)?
@@ -289,7 +289,7 @@ Write as a supportive teammate, not a gatekeeper. The goal is to help the author
 
 Write the review as **GitHub-flavored Markdown** ready to post as a PR comment. Save it to a temporary file outside the repository (e.g. `/tmp/review-<pr-or-branch>.md`) so it doesn't pollute `git status`. Do not commit this file; treat it as ephemeral.
 
-Use the template below exactly — omit a severity section if it has no findings, but keep all other sections.
+Use the template below exactly — omit a severity section if it has no findings and omit the optional Residual Risk section when empty, but keep all other sections.
 
 ---
 
@@ -325,16 +325,20 @@ Separate each finding with a blank line. Use bold file-and-title as a heading li
 
 Call out 2-3 things done well (good abstractions, thorough tests, clean refactoring, etc.). Be genuine — positive feedback is part of a good review and helps the author know what to keep doing.
 
+### Residual Risk (optional)
+
+Note validation gaps or lower-impact uncertainty that do not change merge readiness. If a risk is concrete enough to require action before merge, report it as a finding instead.
+
 ### Verdict
 
-Choose the verdict that matches the **highest severity confirmed finding** in the review. If there are no confirmed Critical or Warning findings but a design question cannot be resolved without team input, use **Needs discussion**.
+Choose the verdict that matches the **highest severity confirmed finding** in the review. If there are no confirmed Critical or Warning findings but a design question material to compatibility or merge readiness cannot be resolved without team input, use **Needs discussion**.
 
 - **Ship it** — No findings. Ready to merge as-is.
 - **Ship it (with nits)** — Only Suggestions (see above — style improvements, simplifications, or optional enhancements). Nothing blocking.
 - **Needs changes** — Any Critical or Warning findings. List the items that must be addressed before merge.
-- **Needs discussion** — No confirmed Critical or Warning findings, but an architectural or design question needs team input before a decision can be made.
+- **Needs discussion** — No confirmed Critical or Warning findings, but an architectural or design question material to compatibility or merge readiness needs team input before a decision can be made.
 
-A confirmed foundational contract flaw is Critical and requires **Needs changes**. Reserve **Needs discussion** for uncertainty that requires team input. Do not use any **Ship it** verdict (including **Ship it (with nits)**) while either remains unresolved.
+A confirmed foundational contract flaw is Critical and requires **Needs changes**. Reserve **Needs discussion** for material uncertainty that requires team input. Lower-impact uncertainty belongs in **Residual Risk** and does not preclude **Ship it** or **Ship it (with nits)**.
 
 ### Signature (PR mode only)
 
