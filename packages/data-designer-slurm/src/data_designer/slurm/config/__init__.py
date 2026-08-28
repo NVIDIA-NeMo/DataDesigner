@@ -14,6 +14,7 @@ from data_designer.slurm.config.benchmark import (
     DataDesignerSlurmBenchmarkConfig,
     FixedRecordPolicy,
 )
+from data_designer.slurm.config.environment import LiteralEnvironmentBinding, SecretRef
 from data_designer.slurm.config.images import (
     ClientImageInspection,
     ImageBuildRequest,
@@ -47,16 +48,13 @@ from data_designer.slurm.config.run import (
     InputBindings,
     InvocationConfig,
     InvocationDiagnostics,
-    LiteralEnvironmentBinding,
     LocalStdioMCPProviderConfig,
     OutputConfig,
-    QueueBackpressureConfig,
     RemoteMCPProviderConfig,
-    SecretRef,
     ServerDeploymentConfig,
     SubmissionConfig,
-    VllmServerConfig,
 )
+from data_designer.slurm.config.vllm import QueueBackpressureConfig, VllmServerConfig
 
 __all__ = [
     "AdaptiveRecordPolicy",

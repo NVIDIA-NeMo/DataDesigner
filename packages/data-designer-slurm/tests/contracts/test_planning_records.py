@@ -10,16 +10,50 @@ import pytest
 from pydantic import ValidationError
 
 from data_designer.slurm.config import BuilderInput, ClientDependencies, DataDesignerSlurmConfig
-from data_designer.slurm.contracts import compute_sha256
+from data_designer.slurm.contracts import compute_canonical_json_sha256
 from data_designer.slurm.planning import (
     ArtifactReference,
     PlanContractError,
+    ResolvedBuilderInput,
     ResolvedDependencyLock,
     ResolvedDeployment,
     ResolvedSlurmRunPlan,
     ResolvedSubmission,
+    ResolvedTopology,
     validate_resolved_plan,
 )
+
+
+def test_resolved_topology_derives_all_resource_fields() -> None:
+    topology = ResolvedTopology.derive(
+        node_count=4,
+        gpus_per_node=8,
+        tensor_parallel=4,
+        nodes_per_replica=2,
+    )
+
+    assert topology == ResolvedTopology(
+        tensor_parallel=4,
+        nodes_per_replica=2,
+        pipeline_parallel=2,
+        node_group_count=2,
+        replicas_per_node_group=2,
+        replica_count=4,
+        gpus_per_replica=8,
+    )
+
+
+@pytest.mark.parametrize(
+    "inputs",
+    [
+        {"node_count": 0, "gpus_per_node": 8, "tensor_parallel": 4, "nodes_per_replica": 2},
+        {"node_count": 3, "gpus_per_node": 8, "tensor_parallel": 4, "nodes_per_replica": 2},
+        {"node_count": 4, "gpus_per_node": 8, "tensor_parallel": 3, "nodes_per_replica": 2},
+    ],
+)
+def test_resolved_topology_rejects_invalid_derivation_inputs(inputs: dict[str, int]) -> None:
+    with pytest.raises(ValueError):
+        ResolvedTopology.derive(**inputs)
 
 
 def test_multi_node_plan_matches_authored_inputs(
@@ -64,6 +98,19 @@ def test_resolved_plan_is_deeply_immutable(multi_node_plan: ResolvedSlurmRunPlan
         multi_node_plan.invocation.effective_run_config["buffer_size"] = 1
     with pytest.raises(TypeError, match="frozen list"):
         columns.append({})
+
+
+def test_resolved_builder_rejects_plaintext_secrets(multi_node_plan: ResolvedSlurmRunPlan) -> None:
+    payload = multi_node_plan.builder.model_dump(mode="json")
+    inline = payload["inline"]
+    assert isinstance(inline, dict)
+    inline["plugin_config"] = {"api_key": "VERY_SECRET_VALUE"}
+    payload["content_sha256"] = compute_canonical_json_sha256(inline)
+
+    with pytest.raises(ValidationError, match="plaintext values under secret-bearing keys") as error:
+        ResolvedBuilderInput.model_validate_json(json.dumps(payload))
+
+    assert "VERY_SECRET_VALUE" not in str(error.value)
 
 
 @pytest.mark.parametrize(
@@ -160,7 +207,7 @@ def test_plan_rejects_deployment_alias_missing_from_builder(multi_node_plan: Res
         "model_configs"
     ][:1]
     payload["builder"]["model_aliases"] = ["generator"]
-    payload["builder"]["content_sha256"] = compute_sha256(payload["builder"]["inline"])
+    payload["builder"]["content_sha256"] = compute_canonical_json_sha256(payload["builder"]["inline"])
 
     with pytest.raises(ValidationError, match="deployment alias"):
         ResolvedSlurmRunPlan.model_validate_json(json.dumps(payload))
@@ -170,7 +217,7 @@ def test_plan_rejects_referenced_alias_without_deployment(multi_node_plan: Resol
     payload = multi_node_plan.model_dump(mode="json")
     payload["builder"]["inline"]["data_designer"]["columns"] = [{"model_alias": "missing"}]
     payload["builder"]["referenced_model_aliases"] = ["missing"]
-    payload["builder"]["content_sha256"] = compute_sha256(payload["builder"]["inline"])
+    payload["builder"]["content_sha256"] = compute_canonical_json_sha256(payload["builder"]["inline"])
 
     with pytest.raises(ValidationError, match="referenced Data Designer model alias"):
         ResolvedSlurmRunPlan.model_validate_json(json.dumps(payload))
