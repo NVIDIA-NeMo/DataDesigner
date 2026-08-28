@@ -54,6 +54,8 @@ def validate_vllm_extra_args(values: Sequence[str]) -> None:
         if value != value.strip():
             raise ValueError("vLLM arguments must not contain leading or trailing whitespace")
         flag = value.partition("=")[0].replace("_", "-")
+        if not flag:
+            raise ValueError("vLLM argument option name must not be empty")
         candidate_flag = flag.split(maxsplit=1)[0]
         if flag == "--":
             raise ValueError("vLLM argument option terminators are not supported")

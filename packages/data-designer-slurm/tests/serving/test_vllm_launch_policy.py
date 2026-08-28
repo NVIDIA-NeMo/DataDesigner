@@ -104,6 +104,21 @@ def test_launch_policy_rejects_argument_outer_whitespace() -> None:
         )
 
 
+@pytest.mark.parametrize("argument", ["=", "=x"])
+def test_launch_policy_rejects_empty_option_names(argument: str) -> None:
+    with pytest.raises(ValidationError, match="option name must not be empty"):
+        ResolvedVllmLaunchPolicy(
+            startup_timeout_seconds=900,
+            distributed_init_timeout_seconds=600,
+            lead_boot_standoff_seconds=60,
+            rank_launch_stagger_seconds=5,
+            readiness_path="/health",
+            enable_expert_parallel=False,
+            queue_backpressure=QueueBackpressureConfig(),
+            extra_args=(argument,),
+        )
+
+
 @pytest.mark.parametrize(
     "environment_name",
     ["CUDA_VISIBLE_DEVICES", "VLLM_API_KEY", "VLLM_DP_RANK", "VLLM_HOST_IP"],

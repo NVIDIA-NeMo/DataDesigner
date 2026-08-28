@@ -188,6 +188,20 @@ def test_stdio_mcp_rejects_secret_shaped_arguments(argument: str) -> None:
         )
 
 
+def test_rejected_stdio_mcp_secret_argument_does_not_appear_in_validation_error() -> None:
+    sentinel = "VALUE_THAT_MUST_NOT_APPEAR"
+
+    with pytest.raises(ValidationError, match="secret-shaped") as error:
+        LocalStdioMCPProviderConfig(
+            provider_type="stdio",
+            name="provider",
+            command="provider",
+            args=[f"--api-key {sentinel}"],
+        )
+
+    assert sentinel not in str(error.value)
+
+
 def test_vllm_defaults_and_backpressure_override() -> None:
     server = VllmServerConfig(type="vllm", image=ImageRef(name="vllm"))
     overridden = VllmServerConfig(
@@ -387,6 +401,12 @@ def test_vllm_preserves_argv_values_with_whitespace_and_templates() -> None:
 @pytest.mark.parametrize("argument", [" --max-model-len", "32768 ", "   "])
 def test_vllm_rejects_argv_with_outer_whitespace(argument: str) -> None:
     with pytest.raises(ValidationError, match="leading or trailing whitespace"):
+        VllmServerConfig(type="vllm", image=ImageRef(name="vllm"), extra_args=[argument])
+
+
+@pytest.mark.parametrize("argument", ["=", "=x"])
+def test_vllm_rejects_empty_option_names(argument: str) -> None:
+    with pytest.raises(ValidationError, match="option name must not be empty"):
         VllmServerConfig(type="vllm", image=ImageRef(name="vllm"), extra_args=[argument])
 
 

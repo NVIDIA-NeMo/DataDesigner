@@ -144,7 +144,7 @@ class LocalStdioMCPProviderConfig(AuthoredConfig):
     def validate_args(cls, values: list[str]) -> list[str]:
         for value in values:
             validate_plain_text(value, field_name="MCP argument")
-            option = value.partition("=")[0].lstrip("-")
+            option = re.split(r"[=\s]", value.lstrip(), maxsplit=1)[0].lstrip("-")
             if is_secret_bearing_name(option):
                 raise ValueError("secret-shaped MCP arguments must use an environment secret reference")
         return values
