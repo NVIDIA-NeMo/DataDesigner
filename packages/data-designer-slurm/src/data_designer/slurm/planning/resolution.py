@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Pure authored-configuration resolution for Slurm planning."""
+"""Internal pure authored-configuration resolution for Slurm planning."""
 
 from __future__ import annotations
 
@@ -34,6 +34,8 @@ from data_designer.slurm.planning.models import (
     ResolvedOutput,
     ResolvedSubmission,
 )
+
+__all__: list[str] = []
 
 _SHARDABLE_COLUMN_TYPES = frozenset(
     {
@@ -105,35 +107,7 @@ def resolve_slurm_config(
             run_root=run_root,
             builder_payload=builder_payload,
         )
-        invocation = ResolvedInvocation(
-            authored=authored.invocation,
-            effective_run_config=_materialize_run_config(authored),
-        )
-        submission = ResolvedSubmission(
-            account=authored.submission.account or selected_profile.profile.scheduler.account,
-            partition=authored.submission.partition or selected_profile.profile.scheduler.partition,
-            job_name=authored.submission.job_name,
-            time_limit=authored.submission.time_limit,
-            comment=authored.submission.comment,
-        )
-        output = ResolvedOutput(
-            root=authored.output.root or posixpath.join(run_root, "output"),
-            format=authored.output.format,
-            partitions=authored.output.partitions,
-            require_exact_record_count=authored.output.require_exact_record_count,
-        )
-        _validate_dependency_resolution(authored, client_image, dependency_lock)
-        _validate_resolved_images(authored, client_image, deployment_images)
-        _validate_sharding_constraints(authored, builder_payload=resolved_builder_payload)
-        _validate_output_destination(output.root, workspace_root, run_root)
-        if output.partitions > authored.invocation.num_records:
-            raise SlurmConfigResolutionError("output partitions must not exceed requested records")
-        runtime_root = posixpath.join(workspace_root, "runtime")
-        if not _is_below(runtime_bundle.path, runtime_root) or not runtime_bundle.path.endswith(".tar.gz"):
-            raise SlurmConfigResolutionError(
-                "runtime bundle must be a tar archive below the selected workspace runtime root"
-            )
-        return EffectiveDataDesignerSlurmConfig(
+        effective = EffectiveDataDesignerSlurmConfig(
             run_id=run_id,
             package_version=package_version,
             authored=authored,
@@ -141,14 +115,15 @@ def resolve_slurm_config(
             resolved_gpus_per_node=gpus_per_node,
             builder=builder,
             builder_payload=resolved_builder_payload,
-            invocation=invocation,
+            invocation=_materialize_invocation(authored),
             client_image=client_image,
             deployment_images=deployment_images,
             dependency_lock=dependency_lock,
-            submission=submission,
-            output=output,
+            submission=_materialize_submission(authored, selected_profile),
+            output=_materialize_output(authored, run_root),
             runtime_bundle=runtime_bundle,
         )
+        return validate_effective_slurm_config(effective)
     except SlurmConfigResolutionError:
         raise
     except ValidationError as error:
@@ -156,6 +131,50 @@ def resolve_slurm_config(
         raise SlurmConfigResolutionError(message) from None
     except ValueError as error:
         raise SlurmConfigResolutionError(str(error)) from None
+
+
+def validate_effective_slurm_config(
+    effective: EffectiveDataDesignerSlurmConfig,
+) -> EffectiveDataDesignerSlurmConfig:
+    """Validate one fully materialized compiler input."""
+    authored = effective.authored
+    profile = effective.selected_profile.profile
+    workspace_root = profile.workspace_root
+    run_root = posixpath.join(workspace_root, "runs", effective.run_id)
+    if profile.gpus_per_node != "auto" and profile.gpus_per_node != effective.resolved_gpus_per_node:
+        raise SlurmConfigResolutionError("resolved GPU count does not match the selected profile")
+
+    if authored.builder.inline is not None:
+        if effective.builder_payload is not None:
+            raise SlurmConfigResolutionError("inline builder input must not provide a separate payload")
+    else:
+        if effective.builder_payload is None:
+            raise SlurmConfigResolutionError("sourced builder input requires its resolved payload")
+        BuilderInput(inline=effective.builder_payload)
+    expected_invocation = _materialize_invocation(authored)
+    if effective.invocation != expected_invocation:
+        raise SlurmConfigResolutionError("resolved invocation does not match the authored invocation")
+    expected_submission = _materialize_submission(authored, effective.selected_profile)
+    if effective.submission != expected_submission:
+        raise SlurmConfigResolutionError("resolved submission does not match the authored and profile input")
+    expected_output = _materialize_output(authored, run_root)
+    if effective.output != expected_output:
+        raise SlurmConfigResolutionError("resolved output does not match the authored output")
+
+    _validate_dependency_resolution(authored, effective.client_image, effective.dependency_lock)
+    _validate_resolved_images(authored, effective.client_image, effective.deployment_images)
+    _validate_sharding_constraints(authored, builder_payload=effective.builder_payload)
+    _validate_output_destination(effective.output.root, workspace_root, run_root)
+    if effective.output.partitions > authored.invocation.num_records:
+        raise SlurmConfigResolutionError("output partitions must not exceed requested records")
+    runtime_root = posixpath.join(workspace_root, "runtime")
+    if not _is_below(effective.runtime_bundle.path, runtime_root) or not effective.runtime_bundle.path.endswith(
+        ".tar.gz"
+    ):
+        raise SlurmConfigResolutionError(
+            "runtime bundle must be a tar archive below the selected workspace runtime root"
+        )
+    return effective
 
 
 def _resolve_gpu_count(selected: SelectedSlurmProfile, resolved: int | None) -> int:
@@ -203,6 +222,35 @@ def _resolve_builder(
             model_aliases=aliases,
         ),
         validated_payload,
+    )
+
+
+def _materialize_invocation(authored: DataDesignerSlurmConfig) -> ResolvedInvocation:
+    return ResolvedInvocation(
+        authored=authored.invocation,
+        effective_run_config=_materialize_run_config(authored),
+    )
+
+
+def _materialize_submission(
+    authored: DataDesignerSlurmConfig,
+    selected_profile: SelectedSlurmProfile,
+) -> ResolvedSubmission:
+    return ResolvedSubmission(
+        account=authored.submission.account or selected_profile.profile.scheduler.account,
+        partition=authored.submission.partition or selected_profile.profile.scheduler.partition,
+        job_name=authored.submission.job_name,
+        time_limit=authored.submission.time_limit,
+        comment=authored.submission.comment,
+    )
+
+
+def _materialize_output(authored: DataDesignerSlurmConfig, run_root: str) -> ResolvedOutput:
+    return ResolvedOutput(
+        root=authored.output.root or posixpath.join(run_root, "output"),
+        format=authored.output.format,
+        partitions=authored.output.partitions,
+        require_exact_record_count=authored.output.require_exact_record_count,
     )
 
 
@@ -293,6 +341,7 @@ def _validate_resolved_images(
     client_image: ResolvedImage,
     deployment_images: tuple[ResolvedImage, ...],
 ) -> None:
+    _validate_resolved_image_identity(client_image)
     if client_image.kind is not ImageKind.CLIENT:
         raise SlurmConfigResolutionError("resolved client image must contain client inspection facts")
     if client_image.authored_ref != authored.client.image:
@@ -300,10 +349,18 @@ def _validate_resolved_images(
     if len(deployment_images) != len(authored.deployments):
         raise SlurmConfigResolutionError("resolved serving images must match the authored deployment count")
     for deployment, image in zip(authored.deployments, deployment_images, strict=True):
+        _validate_resolved_image_identity(image)
         if image.kind is not ImageKind.SERVING:
             raise SlurmConfigResolutionError("resolved deployment image must contain serving inspection facts")
         if image.authored_ref != deployment.server.image:
             raise SlurmConfigResolutionError("resolved deployment image does not match the authored reference")
+
+
+def _validate_resolved_image_identity(image: ResolvedImage) -> None:
+    if image.sha256 != image.inspection.sqsh_sha256:
+        raise SlurmConfigResolutionError("resolved image digest does not match its inspection record")
+    if image.authored_ref.path is not None and image.path != image.authored_ref.path:
+        raise SlurmConfigResolutionError("resolved image path does not match the authored path")
 
 
 def _validate_output_destination(output_root: str, workspace_root: str, run_root: str) -> None:

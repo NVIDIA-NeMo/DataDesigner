@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Pure deterministic Slurm plan compilation."""
+"""Internal pure deterministic Slurm plan compilation."""
 
 from __future__ import annotations
 
@@ -25,8 +25,13 @@ from data_designer.slurm.planning.models import (
     ResolvedSlurmRunPlan,
     ResolvedTopology,
 )
-from data_designer.slurm.planning.resolution import EffectiveDataDesignerSlurmConfig
+from data_designer.slurm.planning.resolution import (
+    EffectiveDataDesignerSlurmConfig,
+    validate_effective_slurm_config,
+)
 from data_designer.slurm.planning.validation import validate_resolved_plan
+
+__all__: list[str] = []
 
 _LOGICAL_ENDPOINT_PORT = 17000
 _HTTP_PORT = 18000
@@ -41,6 +46,7 @@ class SlurmRunCompiler:
     def compile(effective: EffectiveDataDesignerSlurmConfig) -> ResolvedSlurmRunPlan:
         """Return one immutable deterministic execution plan."""
         try:
+            validate_effective_slurm_config(effective)
             deployments = _compile_deployments(effective)
             client = _compile_client(effective, deployments)
             _validate_port_claims(effective, client, deployments)

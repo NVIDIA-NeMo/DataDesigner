@@ -100,6 +100,11 @@ def test_builder_normalizes_invalid_authored_values(
         getattr(_config_builder(), method)(**values)
 
 
+def test_builder_validation_errors_identify_the_invalid_field() -> None:
+    with pytest.raises(SlurmConfigBuilderError, match="num_records: must be greater"):
+        _config_builder().with_invocation(num_records=0, dataset_name="generated")
+
+
 def test_builder_validation_errors_hide_secret_inputs() -> None:
     secret = "super-secret-token"
 
@@ -176,6 +181,16 @@ def test_loader_validation_errors_hide_secret_inputs(tmp_path: Path) -> None:
 
     assert secret not in str(error.value)
     assert error.value.__cause__ is None
+
+
+def test_loader_validation_errors_identify_the_invalid_field(tmp_path: Path) -> None:
+    payload = _config_builder().build().model_dump(mode="json")
+    payload["invocation"]["num_records"] = 0
+    path = tmp_path / "run.json"
+    path.write_text(json.dumps(payload))
+
+    with pytest.raises(SlurmConfigLoadError, match=r"invocation\.num_records: must be greater"):
+        load_run_config(path)
 
 
 def test_loader_parse_errors_hide_source_values(tmp_path: Path) -> None:

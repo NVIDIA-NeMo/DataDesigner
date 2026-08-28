@@ -221,7 +221,7 @@ def test_sourced_builder_validation_requires_resolved_payload(
     payload["authored_config"]["sha256"] = sourced_authored.compute_sha256()
     payload["builder"] = {
         "authored_source": "builder.json",
-        "source": {"path": "/workspace/primary/runs/run-001/builder.json", "sha256": builder_digest},
+        "source": {"path": "/workspace/primary/runs/run-001/builder-config.json", "sha256": builder_digest},
         "inline": None,
         "content_sha256": builder_digest,
         "model_aliases": ["generator", "judge"],
@@ -240,6 +240,26 @@ def test_sourced_builder_validation_requires_resolved_payload(
         )
         is sourced_plan
     )
+
+
+@pytest.mark.parametrize(
+    ("builder_update", "message"),
+    [
+        ({"content_sha256": "a" * 64}, "builder digest"),
+        ({"model_aliases": ("other",)}, "model aliases"),
+    ],
+)
+def test_inline_builder_validation_rederives_identity(
+    authored_run: DataDesignerSlurmConfig,
+    dependency_lock: ResolvedDependencyLock,
+    multi_node_plan: ResolvedSlurmRunPlan,
+    builder_update: dict[str, object],
+    message: str,
+) -> None:
+    invalid = multi_node_plan.model_copy(update={"builder": multi_node_plan.builder.model_copy(update=builder_update)})
+
+    with pytest.raises(SlurmPlanContractError, match=message):
+        validate_resolved_plan(authored_run, dependency_lock, invalid)
 
 
 @pytest.mark.parametrize(

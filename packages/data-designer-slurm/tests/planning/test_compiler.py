@@ -246,6 +246,83 @@ def test_resolution_rejects_invalid_output_destinations(
         _resolve_fixture(authored, dependency_lock_single, single_node_plan)
 
 
+def test_compiler_rejects_direct_effective_input_resolution_bypass(
+    authored_run: DataDesignerSlurmConfig,
+    dependency_lock: ResolvedDependencyLock,
+    multi_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    effective = _resolve_fixture(authored_run, dependency_lock, multi_node_plan)
+
+    jsonl_output = authored_run.output.model_copy(update={"format": "jsonl"})
+    jsonl_authored = authored_run.model_copy(update={"output": jsonl_output})
+    with pytest.raises(SlurmPlanCompilationError, match="parquet output"):
+        SlurmRunCompiler.compile(
+            effective.model_copy(
+                update={
+                    "authored": jsonl_authored,
+                    "output": effective.output.model_copy(update={"format": "jsonl"}),
+                }
+            )
+        )
+
+    other_output = "/workspace/primary/runs/other-run/output"
+    other_authored = authored_run.model_copy(
+        update={"output": authored_run.output.model_copy(update={"root": other_output})}
+    )
+    with pytest.raises(SlurmPlanCompilationError, match="another package-managed run"):
+        SlurmRunCompiler.compile(
+            effective.model_copy(
+                update={
+                    "authored": other_authored,
+                    "output": effective.output.model_copy(update={"root": other_output}),
+                }
+            )
+        )
+
+    partitioned_authored = authored_run.model_copy(
+        update={"output": authored_run.output.model_copy(update={"partitions": 101})}
+    )
+    with pytest.raises(SlurmPlanCompilationError, match="requested records"):
+        SlurmRunCompiler.compile(
+            effective.model_copy(
+                update={
+                    "authored": partitioned_authored,
+                    "output": effective.output.model_copy(update={"partitions": 101}),
+                }
+            )
+        )
+
+    with pytest.raises(SlurmPlanCompilationError, match="runtime bundle"):
+        SlurmRunCompiler.compile(
+            effective.model_copy(
+                update={
+                    "runtime_bundle": ArtifactReference(path="/tmp/runtime.tar.gz", sha256="e" * 64),
+                }
+            )
+        )
+
+
+def test_compiler_rejects_direct_effective_record_drift(
+    authored_run_single: DataDesignerSlurmConfig,
+    dependency_lock_single: ResolvedDependencyLock,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    effective = _resolve_fixture(authored_run_single, dependency_lock_single, single_node_plan)
+    run_config = dict(effective.invocation.effective_run_config)
+    run_config["jinja_rendering_engine"] = "native"
+
+    with pytest.raises(SlurmPlanCompilationError, match="resolved invocation"):
+        SlurmRunCompiler.compile(
+            effective.model_copy(
+                update={"invocation": effective.invocation.model_copy(update={"effective_run_config": run_config})}
+            )
+        )
+    with pytest.raises(SlurmPlanCompilationError, match="resolved output"):
+        SlurmRunCompiler.compile(
+            effective.model_copy(update={"output": effective.output.model_copy(update={"format": "jsonl"})})
+        )
+
+
 def test_compiler_rejects_model_alias_missing_from_builder(
     authored_run_single: DataDesignerSlurmConfig,
     dependency_lock_single: ResolvedDependencyLock,
@@ -255,7 +332,7 @@ def test_compiler_rejects_model_alias_missing_from_builder(
     payload["builder"]["inline"]["data_designer"]["model_configs"][0]["alias"] = "other"
     authored = DataDesignerSlurmConfig.model_validate(payload)
 
-    with pytest.raises(SlurmPlanCompilationError, match="failed validation"):
+    with pytest.raises(SlurmPlanCompilationError, match="exactly cover"):
         SlurmRunCompiler.compile(_resolve_fixture(authored, dependency_lock_single, single_node_plan))
 
 
@@ -276,7 +353,7 @@ def test_compiler_rejects_builder_model_alias_without_deployment(
         payload["builder"] = {"source": "builder.json"}
     authored = DataDesignerSlurmConfig.model_validate(payload)
 
-    with pytest.raises(SlurmPlanCompilationError, match="failed validation"):
+    with pytest.raises(SlurmPlanCompilationError, match="exactly cover"):
         SlurmRunCompiler.compile(
             _resolve_fixture(
                 authored,
@@ -285,6 +362,52 @@ def test_compiler_rejects_builder_model_alias_without_deployment(
                 builder_payload=builder_payload,
             )
         )
+
+
+def test_compiler_rejects_inline_builder_identity_drift(
+    authored_run_single: DataDesignerSlurmConfig,
+    dependency_lock_single: ResolvedDependencyLock,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    effective = _resolve_fixture(authored_run_single, dependency_lock_single, single_node_plan)
+
+    with pytest.raises(SlurmPlanCompilationError, match="builder digest"):
+        SlurmRunCompiler.compile(
+            effective.model_copy(update={"builder": effective.builder.model_copy(update={"content_sha256": "a" * 64})})
+        )
+
+    payload = authored_run_single.model_dump(mode="json")
+    payload["builder"]["inline"]["data_designer"]["model_configs"].append(
+        {"alias": "undeployed", "model": "example/undeployed", "provider": "openai"}
+    )
+    authored = DataDesignerSlurmConfig.model_validate(payload)
+    effective = _resolve_fixture(authored, dependency_lock_single, single_node_plan)
+    forged_builder = effective.builder.model_copy(update={"model_aliases": ("generator",)})
+
+    with pytest.raises(SlurmPlanCompilationError, match="model aliases"):
+        SlurmRunCompiler.compile(effective.model_copy(update={"builder": forged_builder}))
+
+
+def test_compiler_rejects_resolved_image_identity_drift(
+    authored_run_single: DataDesignerSlurmConfig,
+    dependency_lock_single: ResolvedDependencyLock,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    effective = _resolve_fixture(authored_run_single, dependency_lock_single, single_node_plan)
+    client_image = effective.client_image.model_copy(update={"sha256": "a" * 64})
+    dependency_lock = effective.dependency_lock.model_copy(update={"client_image_sha256": "a" * 64})
+
+    with pytest.raises(SlurmPlanCompilationError, match="inspection record"):
+        SlurmRunCompiler.compile(
+            effective.model_copy(update={"client_image": client_image, "dependency_lock": dependency_lock})
+        )
+
+    deployment_images = (
+        effective.deployment_images[0].model_copy(update={"sha256": "a" * 64}),
+        *effective.deployment_images[1:],
+    )
+    with pytest.raises(SlurmPlanCompilationError, match="inspection record"):
+        SlurmRunCompiler.compile(effective.model_copy(update={"deployment_images": deployment_images}))
 
 
 def test_compiler_rejects_otel_collision_before_runtime(

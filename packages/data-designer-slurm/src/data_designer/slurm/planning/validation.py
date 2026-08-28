@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import posixpath
+
 from pydantic import JsonValue
 
 from data_designer.config import RunConfig
@@ -42,9 +44,13 @@ def validate_resolved_plan(
     _require(plan.array_tasks == authored.array_tasks, "resolved array task policy does not match authored input")
 
     if authored.builder.inline is not None:
+        _require(builder_payload is None, "inline builder input must not retain a separate payload")
         _require(
             plan.builder.inline == authored.builder.inline, "resolved inline builder does not match authored input"
         )
+        model_aliases, digest = get_persisted_builder_identity(authored.builder.inline)
+        _require(plan.builder.model_aliases == model_aliases, "resolved model aliases do not match inline builder")
+        _require(plan.builder.content_sha256 == digest, "resolved builder digest does not match inline builder")
     else:
         _require(
             plan.builder.authored_source == authored.builder.source,
@@ -53,7 +59,12 @@ def validate_resolved_plan(
         if builder_payload is None:
             raise SlurmPlanContractError("sourced builder validation requires its resolved payload")
         model_aliases, digest = get_persisted_builder_identity(builder_payload)
+        _require(plan.builder.source is not None, "resolved builder source artifact is missing")
+        assert plan.builder.source is not None
+        expected_path = posixpath.join(posixpath.dirname(plan.authored_config.path), "builder-config.json")
+        _require(plan.builder.source.path == expected_path, "resolved builder artifact path does not match the run")
         _require(plan.builder.model_aliases == model_aliases, "resolved model aliases do not match builder source")
+        _require(plan.builder.source.sha256 == digest, "resolved builder digest does not match builder source")
         _require(plan.builder.content_sha256 == digest, "resolved builder digest does not match builder source")
 
     expected_account = authored.submission.account or plan.selected_profile.profile.scheduler.account
