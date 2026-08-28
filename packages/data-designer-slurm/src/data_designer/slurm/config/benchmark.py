@@ -12,7 +12,6 @@ from data_designer.slurm.contracts import (
     AuthoredConfig,
     Duration,
     Identifier,
-    ModelAlias,
     SchemaVersion,
     validate_local_config_path,
 )
@@ -54,7 +53,7 @@ class BenchmarkDeploymentOverride(AuthoredConfig):
 
 class BenchmarkDeploymentCase(AuthoredConfig):
     name: Identifier
-    deployments: dict[ModelAlias, BenchmarkDeploymentOverride] = Field(min_length=1)
+    deployments: dict[str, BenchmarkDeploymentOverride] = Field(min_length=1)
 
 
 class FixedRecordPolicy(AuthoredConfig):
@@ -89,7 +88,7 @@ class DataDesignerSlurmBenchmarkConfig(AuthoredConfig):
     schema_version: SchemaVersion
     name: Identifier
     base_run: BenchmarkBaseRun
-    model_aliases: Literal["all"] | list[ModelAlias]
+    model_aliases: Literal["all"] | list[str]
     concurrency_values: list[PositiveInt] = Field(min_length=1)
     deployment_cases: list[BenchmarkDeploymentCase] = Field(min_length=1)
     record_policy: BenchmarkRecordPolicy
