@@ -299,6 +299,10 @@ OPENROUTER_PROVIDER_NAME = "openrouter"
 
 OPENROUTER_API_KEY_ENV_VAR_NAME = "OPENROUTER_API_KEY"
 
+ORCAROUTER_PROVIDER_NAME = "orcarouter"
+
+ORCAROUTER_API_KEY_ENV_VAR_NAME = "ORCAROUTER_API_KEY"
+
 ATTRIBUTION_TITLE = "NeMo Data Designer"
 ATTRIBUTION_REFERER = "https://github.com/NVIDIA-NeMo/DataDesigner"
 
@@ -328,6 +332,12 @@ PREDEFINED_PROVIDERS = [
         "endpoint": "https://openrouter.ai/api/v1",
         "provider_type": "openai",
         "api_key": OPENROUTER_API_KEY_ENV_VAR_NAME,
+    },
+    {
+        "name": ORCAROUTER_PROVIDER_NAME,
+        "endpoint": "https://api.orcarouter.ai/v1",
+        "provider_type": "openai",
+        "api_key": ORCAROUTER_API_KEY_ENV_VAR_NAME,
     },
 ]
 
@@ -380,6 +390,18 @@ PREDEFINED_PROVIDERS_MODEL_MAP = {
             "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
             "inference_parameters": NEMOTRON_3_NANO_OMNI_30B_A3B_REASONING_INFERENCE_PARAMS,
         },
+        "embedding": {
+            "model": "openai/text-embedding-3-large",
+            "inference_parameters": DEFAULT_EMBEDDING_INFERENCE_PARAMS,
+        },
+    },
+    ORCAROUTER_PROVIDER_NAME: {
+        "text": {"model": "openai/gpt-4.1", "inference_parameters": DEFAULT_TEXT_INFERENCE_PARAMS},
+        "reasoning": {
+            "model": "deepseek/deepseek-v4-pro-0813",
+            "inference_parameters": DEFAULT_REASONING_INFERENCE_PARAMS,
+        },
+        "vision": {"model": "openai/gpt-4o", "inference_parameters": DEFAULT_VISION_INFERENCE_PARAMS},
         "embedding": {
             "model": "openai/text-embedding-3-large",
             "inference_parameters": DEFAULT_EMBEDDING_INFERENCE_PARAMS,

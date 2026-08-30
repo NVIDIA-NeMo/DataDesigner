@@ -54,7 +54,7 @@ def test_get_default_inference_parameters():
 
 def test_get_builtin_model_configs():
     builtin_model_configs = get_builtin_model_configs()
-    assert len(builtin_model_configs) == 12
+    assert len(builtin_model_configs) == 16
     assert builtin_model_configs[0].alias == "nvidia-text"
     assert builtin_model_configs[0].model == "nvidia/nemotron-3-nano-30b-a3b"
     assert builtin_model_configs[0].provider == "nvidia"
@@ -95,11 +95,31 @@ def test_get_builtin_model_configs():
     assert builtin_model_configs[11].alias == "openrouter-embedding"
     assert builtin_model_configs[11].model == "openai/text-embedding-3-large"
     assert builtin_model_configs[11].provider == "openrouter"
+    assert builtin_model_configs[12].alias == "orcarouter-text"
+    assert builtin_model_configs[12].model == "openai/gpt-4.1"
+    assert builtin_model_configs[12].provider == "orcarouter"
+    assert builtin_model_configs[12].inference_parameters == ChatCompletionInferenceParams(
+        temperature=0.85,
+        top_p=0.95,
+    )
+    assert builtin_model_configs[13].alias == "orcarouter-reasoning"
+    assert builtin_model_configs[13].model == "deepseek/deepseek-v4-pro-0813"
+    assert builtin_model_configs[13].provider == "orcarouter"
+    assert builtin_model_configs[13].inference_parameters == ChatCompletionInferenceParams(
+        temperature=0.35,
+        top_p=0.95,
+    )
+    assert builtin_model_configs[14].alias == "orcarouter-vision"
+    assert builtin_model_configs[14].model == "openai/gpt-4o"
+    assert builtin_model_configs[14].provider == "orcarouter"
+    assert builtin_model_configs[15].alias == "orcarouter-embedding"
+    assert builtin_model_configs[15].model == "openai/text-embedding-3-large"
+    assert builtin_model_configs[15].provider == "orcarouter"
 
 
 def test_get_builtin_model_providers():
     builtin_model_providers = get_builtin_model_providers()
-    assert len(builtin_model_providers) == 3
+    assert len(builtin_model_providers) == 4
     assert builtin_model_providers[0].name == "nvidia"
     assert builtin_model_providers[0].endpoint == "https://integrate.api.nvidia.com/v1"
     assert builtin_model_providers[0].provider_type == "openai"
@@ -115,6 +135,11 @@ def test_get_builtin_model_providers():
     assert builtin_model_providers[2].provider_type == "openai"
     assert builtin_model_providers[2].api_key == "OPENROUTER_API_KEY"
     assert builtin_model_providers[2].extra_headers is None
+    assert builtin_model_providers[3].name == "orcarouter"
+    assert builtin_model_providers[3].endpoint == "https://api.orcarouter.ai/v1"
+    assert builtin_model_providers[3].provider_type == "openai"
+    assert builtin_model_providers[3].api_key == "ORCAROUTER_API_KEY"
+    assert builtin_model_providers[3].extra_headers is None
 
 
 def test_get_default_model_configs_path_exists(tmp_path: Path):

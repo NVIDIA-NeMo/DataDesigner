@@ -28,7 +28,7 @@ Data Designer supports two provider types:
 
 | Type | Description |
 |------|-------------|
-| `"openai"` | OpenAI-compatible chat completion API. This is the default and works with most providers, including NVIDIA NIM, vLLM, TGI, OpenRouter, Together AI, and OpenAI itself. |
+| `"openai"` | OpenAI-compatible chat completion API. This is the default and works with most providers, including NVIDIA NIM, vLLM, TGI, OpenRouter, OrcaRouter, Together AI, and OpenAI itself. |
 | `"anthropic"` | Anthropic's native Messages API for Claude models. Use this when connecting directly to Anthropic's API. |
 
 Most self-hosted and third-party endpoints expose an OpenAI-compatible API, so `provider_type="openai"` is the right choice in the majority of cases. Only use `"anthropic"` when connecting directly to Anthropic's API at `https://api.anthropic.com`.
