@@ -7,6 +7,7 @@ import hashlib
 import json
 import stat
 import subprocess
+from collections.abc import Sequence
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -87,8 +88,8 @@ def test_prepare_existing_sqsh_inspects_in_place_without_oci_identity(tmp_path: 
     assert f'readonly DD_IMAGE_SQSH="{image_path.as_posix()}"' in script
 
 
-def test_image_lifecycle_renderer_uses_cpu_profile_and_quotes_workspace_paths(tmp_path: Path) -> None:
-    workspace = tmp_path / "workspace with spaces"
+def test_image_lifecycle_renderer_uses_explicit_cpu_profile_and_safe_mounts(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace-safe"
     source = f"registry.example.test/team/image:release@sha256:{'b' * 64}"
     prepared = prepare_image_lifecycle_job(
         ImageBuildRequest(name="serving", kind="serving", source=source),
@@ -101,6 +102,9 @@ def test_image_lifecycle_renderer_uses_cpu_profile_and_quotes_workspace_paths(tm
     assert "#SBATCH --account=research" in script
     assert "#SBATCH --partition=image-build" in script
     assert "#SBATCH --nodes=1" in script
+    assert "#SBATCH --cpus-per-task=2" in script
+    assert "#SBATCH --mem=8G" in script
+    assert "#SBATCH --time=03:55:00" in script
     assert "#SBATCH --gres=" not in script
     expected_uri = f"docker://registry.example.test#team/image:release@sha256:{'b' * 64}"
     assert f'readonly DD_OCI_SOURCE="{expected_uri}"' in script
@@ -108,6 +112,7 @@ def test_image_lifecycle_renderer_uses_cpu_profile_and_quotes_workspace_paths(tm
     assert "inspect_image.py:x-create=file,bind,ro" in script
     assert "/opt/data-designer-slurm/output:x-create=dir,bind" in script
     assert 'export ENROOT_CONFIG_PATH="${DD_JOB_DIR}/enroot/config"' in script
+    assert 'export ENROOT_MAX_PROCESSORS="${SLURM_CPUS_PER_TASK}"' in script
     assert f'--mount "{prepared.plan.job_directory}:' not in script
     completed = subprocess.run(("bash", "-n"), input=script, capture_output=True, text=True, check=False)
     assert completed.returncode == 0, completed.stderr
@@ -156,6 +161,7 @@ def test_rendered_image_lifecycle_job_computes_digest_and_runs_inspection(
         check=False,
         env={
             "DD_TEST_INSPECTION_OUTPUT": prepared.plan.inspection_output_path,
+            "SLURM_CPUS_PER_TASK": "2",
             "SLURM_JOB_ID": "5101",
         },
     )
@@ -233,14 +239,48 @@ def test_prepare_refuses_duplicate_and_invalid_lifecycle_ids(tmp_path: Path) -> 
     assert not (workspace / "images" / ".tmp" / "escape").exists()
 
 
-def test_prepare_rejects_workspace_paths_that_enroot_cannot_mount(tmp_path: Path) -> None:
-    workspace = tmp_path / "workspace:unsafe"
+@pytest.mark.parametrize(
+    "workspace_name", ("workspace unsafe", "workspace\\unsafe", "workspace:unsafe", "workspace,unsafe")
+)
+def test_prepare_rejects_workspace_paths_that_enroot_cannot_mount(
+    tmp_path: Path,
+    workspace_name: str,
+) -> None:
+    workspace = tmp_path / workspace_name
     request = ImageBuildRequest(name="client", kind="client", source=(tmp_path / "client.sqsh").as_posix())
 
     with pytest.raises(ImageLifecycleError, match="Enroot mount"):
         prepare_image_lifecycle_job(request, _get_selected_profile(workspace), lifecycle_id="image-job-unsafe")
 
     assert not (workspace / "images").exists()
+
+
+def test_rendered_oci_import_rejects_dangling_candidate_symlink(tmp_path: Path) -> None:
+    prepared = prepare_image_lifecycle_job(
+        ImageBuildRequest(
+            name="client",
+            kind="client",
+            source=f"registry.example.test/client@sha256:{'a' * 64}",
+        ),
+        _get_selected_profile(tmp_path / "workspace"),
+        lifecycle_id="image-job-dangling-candidate",
+    )
+    candidate = Path(prepared.plan.sqsh_path)
+    outside = tmp_path / "outside.sqsh"
+    candidate.symlink_to(outside)
+
+    completed = subprocess.run(
+        ("bash",),
+        input=render_image_lifecycle_script(prepared.plan),
+        capture_output=True,
+        text=True,
+        check=False,
+        env={"SLURM_CPUS_PER_TASK": "2", "SLURM_JOB_ID": "5101"},
+    )
+
+    assert completed.returncode == 73
+    assert candidate.is_symlink()
+    assert not outside.exists()
 
 
 def test_prepare_rejects_symlinked_package_owned_image_root(tmp_path: Path) -> None:
@@ -334,9 +374,9 @@ def test_submit_prepared_image_lifecycle_uses_isolated_sbatch_client(tmp_path: P
             "sbatch",
             "--parsable",
             "--export=NIL",
-            prepared.script_file.path,
         )
     ]
+    assert runner.inputs == [render_image_lifecycle_script(prepared.plan)]
 
 
 @pytest.mark.parametrize("artifact_name", ("plan_file", "script_file"), ids=("plan", "script"))
@@ -377,21 +417,51 @@ def test_submit_rejects_modified_script_even_when_artifact_digest_is_rebound(tmp
         submit_prepared_image_lifecycle(rebound, SlurmCommandClient(FakeSlurmRunner()))
 
 
-def test_standalone_client_inspector_emits_contract_compatible_json(tmp_path: Path) -> None:
-    distributions = tuple(
-        SimpleNamespace(metadata={"Name": name}, version="1.0.0")
-        for name in (
-            "data-designer",
-            "data-designer-config",
-            "data-designer-engine",
-            "data-designer-slurm",
-            "pip",
-        )
+def test_submit_uses_verified_script_bytes_when_path_changes_during_submission(tmp_path: Path) -> None:
+    prepared = prepare_image_lifecycle_job(
+        ImageBuildRequest(name="client", kind="client", source=(tmp_path / "client.sqsh").as_posix()),
+        _get_selected_profile(tmp_path / "workspace"),
+        lifecycle_id="image-job-submission-race",
     )
-    with (
-        patch.object(resource_inspector.importlib.metadata, "distributions", return_value=distributions),
-        patch.object(resource_inspector.shutil, "which", return_value="/usr/bin/pip"),
-    ):
+    expected_script = render_image_lifecycle_script(prepared.plan)
+    runner = _MutatingSubmissionRunner(Path(prepared.script_file.path))
+
+    receipt = submit_prepared_image_lifecycle(prepared, SlurmCommandClient(runner))
+
+    assert receipt.job_id == 5101
+    assert runner.command == ("sbatch", "--parsable", "--export=NIL")
+    assert runner.input_text == expected_script
+    assert Path(prepared.script_file.path).read_text() == "replaced after verification\n"
+
+
+def test_standalone_client_inspector_binds_pip_to_its_distribution(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    executable_path = tmp_path / "active-environment" / "bin" / "pip"
+    executable_path.parent.mkdir(parents=True)
+    executable_path.write_text("#!/bin/sh\n")
+    executable_path.chmod(0o700)
+    shadow_path = tmp_path / "shadow" / "bin" / "pip"
+    shadow_path.parent.mkdir(parents=True)
+    shadow_path.write_text("#!/bin/sh\n")
+    shadow_path.chmod(0o700)
+    monkeypatch.setenv("PATH", shadow_path.parent.as_posix())
+    installer_distribution = SimpleNamespace(
+        metadata={"Name": "pip"},
+        version="26.1",
+        entry_points=(SimpleNamespace(group="console_scripts", name="pip"),),
+        files=(Path("../../../bin/pip"),),
+        locate_file=lambda _installed_file: executable_path,
+    )
+    distributions = (
+        *(
+            SimpleNamespace(metadata={"Name": name}, version="1.0.0")
+            for name in ("data-designer", "data-designer-config", "data-designer-engine", "data-designer-slurm")
+        ),
+        installer_distribution,
+    )
+    with patch.object(resource_inspector.importlib.metadata, "distributions", return_value=distributions):
         record = resource_inspector.inspect_image("client", "c" * 64)
     output_path = tmp_path / "inspection.json"
 
@@ -400,6 +470,8 @@ def test_standalone_client_inspector_emits_contract_compatible_json(tmp_path: Pa
     inspection = ImageInspectionRecord.model_validate_json(output_path.read_text())
     assert inspection.inspection.kind == "client"
     assert inspection.sqsh_sha256 == "c" * 64
+    assert inspection.inspection.installer_path == executable_path.as_posix()  # type: ignore[union-attr]
+    assert inspection.inspection.installer_version == "26.1"  # type: ignore[union-attr]
     assert stat.S_IMODE(output_path.stat().st_mode) == 0o600
 
 
@@ -419,7 +491,6 @@ def test_standalone_serving_inspector_binds_version_and_executable_to_one_distri
 
     with (
         patch.object(resource_inspector.importlib.metadata, "distribution", return_value=distribution),
-        patch.object(resource_inspector.shutil, "which", return_value="/shadow/bin/vllm"),
     ):
         payload = resource_inspector.inspect_image("serving", "d" * 64)
 
@@ -471,6 +542,30 @@ def _get_selected_profile(workspace: Path) -> SelectedSlurmProfile:
         scheduler=SchedulerProfile(account="research", partition="gpu"),
         gpus_per_node=8,
         workspace_root=workspace.as_posix(),
-        image_build=ImageBuildProfile(partition="image-build"),
+        image_build=ImageBuildProfile(
+            partition="image-build",
+            cpus_per_task=2,
+            memory="8G",
+            time_limit="03:55:00",
+        ),
     )
     return injected_profile(profile)
+
+
+class _MutatingSubmissionRunner:
+    def __init__(self, script_path: Path) -> None:
+        self._script_path = script_path
+        self.command: tuple[str, ...] | None = None
+        self.input_text: str | None = None
+
+    def run(
+        self,
+        command: Sequence[str],
+        *,
+        input_text: str | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        self.command = tuple(command)
+        self.input_text = input_text
+        self._script_path.chmod(0o700)
+        self._script_path.write_text("replaced after verification\n")
+        return subprocess.CompletedProcess(command, 0, stdout="5101\n", stderr="")

@@ -10,7 +10,6 @@ import json
 import os
 import platform
 import re
-import shutil
 import sys
 from collections.abc import Iterable
 from pathlib import Path
@@ -82,13 +81,18 @@ def main(arguments: list[str] | None = None) -> int:
 
 
 def _inspect_client() -> dict[str, object]:
-    versions = _list_distribution_versions(importlib.metadata.distributions())
+    distributions = tuple(importlib.metadata.distributions())
+    versions = _list_distribution_versions(distributions)
     missing = tuple(name for name in _REQUIRED_CLIENT_DISTRIBUTIONS if name not in versions)
     if missing:
         raise RuntimeError(f"required client distributions are not installed: {', '.join(missing)}")
-    installer_path = shutil.which("pip")
-    if installer_path is None or not Path(installer_path).is_absolute():
-        raise RuntimeError("required executable 'pip' is not installed at an absolute path")
+    installer_distributions = tuple(
+        distribution for distribution in distributions if _distribution_name(distribution) == "pip"
+    )
+    if len(installer_distributions) != 1:
+        raise RuntimeError("required distribution 'pip' is not installed exactly once")
+    installer_distribution = installer_distributions[0]
+    installer_path = find_distribution_console_script(installer_distribution, "pip")
     cache_tag = sys.implementation.cache_tag
     if cache_tag is None:
         raise RuntimeError("active Python does not expose an ABI cache tag")
@@ -99,8 +103,8 @@ def _inspect_client() -> dict[str, object]:
         "python_version": platform.python_version(),
         "python_abi": python_abi,
         "distributions": [{"name": name, "version": version} for name, version in sorted(versions.items())],
-        "installer_path": Path(installer_path).as_posix(),
-        "installer_version": versions["pip"],
+        "installer_path": installer_path,
+        "installer_version": installer_distribution.version,
     }
 
 
@@ -109,7 +113,7 @@ def _inspect_serving() -> dict[str, object]:
         distribution = importlib.metadata.distribution("vllm")
     except importlib.metadata.PackageNotFoundError as error:
         raise RuntimeError("required distribution 'vllm' is not installed") from error
-    executable_path = _find_distribution_console_script(distribution, "vllm")
+    executable_path = find_distribution_console_script(distribution, "vllm")
     return {
         "kind": "serving",
         "server_type": "vllm",
@@ -121,17 +125,22 @@ def _inspect_serving() -> dict[str, object]:
 def _list_distribution_versions(distributions: Iterable[importlib.metadata.Distribution]) -> dict[str, str]:
     versions: dict[str, str] = {}
     for distribution in distributions:
-        raw_name = distribution.metadata.get("Name")
-        if not raw_name:
-            raise RuntimeError("installed distribution is missing its canonical name")
-        name = re.sub(r"[-_.]+", "-", raw_name).casefold()
+        name = _distribution_name(distribution)
         existing = versions.setdefault(name, distribution.version)
         if existing != distribution.version:
             raise RuntimeError(f"installed distribution {name!r} has conflicting versions")
     return versions
 
 
-def _find_distribution_console_script(distribution: importlib.metadata.Distribution, name: str) -> str:
+def _distribution_name(distribution: importlib.metadata.Distribution) -> str:
+    raw_name = distribution.metadata.get("Name")
+    if not raw_name:
+        raise RuntimeError("installed distribution is missing its canonical name")
+    return re.sub(r"[-_.]+", "-", raw_name).casefold()
+
+
+def find_distribution_console_script(distribution: importlib.metadata.Distribution, name: str) -> str:
+    """Resolve exactly one executable console script owned by one distribution."""
     entry_points = tuple(
         entry_point
         for entry_point in distribution.entry_points

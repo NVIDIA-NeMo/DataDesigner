@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import importlib.metadata
 import re
-import shutil
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -19,6 +19,7 @@ from data_designer.slurm.images.inspection import (
     ServingImageInspector,
     SystemInspectionEnvironment,
 )
+from data_designer.slurm.images.resources import inspect_image as resource_inspector
 
 
 def _get_client_distributions() -> tuple[InstalledDistribution, ...]:
@@ -151,16 +152,15 @@ def test_client_inspector_sorts_distribution_inventory() -> None:
     )
 
 
-def test_client_inspector_uses_installer_version_from_distribution_inventory() -> None:
+def test_client_inspector_rejects_installer_version_outside_distribution_inventory() -> None:
     environment = FakeInspectionEnvironment(
         distributions=_get_client_distributions(),
         distribution_versions={"pip": "unexpected"},
         executables={"pip": "/usr/bin/pip"},
     )
 
-    inspection = ClientImageInspector(environment).inspect("a" * 64).inspection
-
-    assert inspection.installer_version == "26.1"
+    with pytest.raises(ImageInspectionError, match="does not match"):
+        ClientImageInspector(environment).inspect("a" * 64)
 
 
 def test_system_inspection_environment_normalizes_distribution_inventory(
@@ -207,23 +207,56 @@ def test_system_inspection_environment_normalizes_missing_distribution(
 ) -> None:
     monkeypatch.setattr(
         importlib.metadata,
-        "version",
+        "distribution",
         Mock(side_effect=importlib.metadata.PackageNotFoundError("missing")),
     )
 
     with pytest.raises(ImageInspectionError, match="not installed"):
-        SystemInspectionEnvironment().get_distribution_version("missing")
+        SystemInspectionEnvironment().get_distribution_console_script("missing")
 
 
-@pytest.mark.parametrize("path", (None, "relative/pip"), ids=("missing", "relative"))
-def test_system_inspection_environment_requires_absolute_executable(
+def test_package_and_standalone_serving_inspectors_share_distribution_owned_console_script_semantics(
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    path: str | None,
 ) -> None:
-    monkeypatch.setattr(shutil, "which", Mock(return_value=path))
+    executable_path = tmp_path / "active-environment" / "bin" / "vllm"
+    executable_path.parent.mkdir(parents=True)
+    executable_path.write_text("#!/bin/sh\n")
+    executable_path.chmod(0o700)
+    shadow_path = tmp_path / "shadow" / "bin" / "vllm"
+    shadow_path.parent.mkdir(parents=True)
+    shadow_path.write_text("#!/bin/sh\n")
+    shadow_path.chmod(0o700)
+    distribution = SimpleNamespace(
+        metadata={"Name": "vllm"},
+        version="0.21.0",
+        entry_points=(SimpleNamespace(group="console_scripts", name="vllm"),),
+        files=(Path("../../../bin/vllm"),),
+        locate_file=lambda _installed_file: executable_path,
+    )
+    monkeypatch.setenv("PATH", shadow_path.parent.as_posix())
+    monkeypatch.setattr(importlib.metadata, "distribution", Mock(return_value=distribution))
 
-    with pytest.raises(ImageInspectionError):
-        SystemInspectionEnvironment().find_executable("pip")
+    package_record = ServingImageInspector().inspect("d" * 64)
+    standalone_record = ImageInspectionRecord.model_validate(resource_inspector.inspect_image("serving", "d" * 64))
+
+    assert package_record == standalone_record
+    assert package_record.inspection.executable_path == executable_path.as_posix()  # type: ignore[union-attr]
+
+
+def test_system_inspection_environment_rejects_unowned_console_script(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    distribution = SimpleNamespace(
+        version="26.1",
+        entry_points=(SimpleNamespace(group="console_scripts", name="pip"),),
+        files=(Path("pip"),),
+        locate_file=lambda installed_file: installed_file,
+    )
+    monkeypatch.setattr(importlib.metadata, "distribution", Mock(return_value=distribution))
+
+    with pytest.raises(ImageInspectionError, match="does not own"):
+        SystemInspectionEnvironment().get_distribution_console_script("pip")
 
 
 def test_system_inspection_environment_reports_current_python_facts() -> None:

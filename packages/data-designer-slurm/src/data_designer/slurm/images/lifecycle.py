@@ -21,13 +21,13 @@ from data_designer.slurm.images.filesystem import ensure_private_directory
 from data_designer.slurm.images.records import (
     ImageLifecycleOperation,
     ImageLifecyclePlan,
+    validate_enroot_mount_path,
     validate_oci_source_for_lifecycle,
 )
 from data_designer.slurm.launcher.batch import quote_shell_value, render_batch_directives
 from data_designer.slurm.launcher.client import SlurmCommandClient
 from data_designer.slurm.launcher.models import SlurmJobSubmissionReceipt
 
-_IMAGE_JOB_TIME_LIMIT = "03:55:00"
 _INSPECTOR_FILENAME = "inspect_image.py"
 _ENROOT_RC_FILENAME = "enroot.rc"
 _PLAN_FILENAME = "image-lifecycle-plan.json"
@@ -63,8 +63,10 @@ def prepare_image_lifecycle_job(
             "OCI image source must be a credential-free registry reference without a scheme"
         ) from error
     workspace_root = Path(selected_profile.profile.workspace_root)
-    if any(delimiter in workspace_root.as_posix() for delimiter in (":", ",")):
-        raise ImageLifecycleError("selected workspace cannot be represented as an Enroot mount")
+    try:
+        validate_enroot_mount_path(workspace_root.as_posix())
+    except ValueError as error:
+        raise ImageLifecycleError("selected workspace cannot be represented as an Enroot mount") from error
     image_root = workspace_root / "images"
     temporary_root = image_root / ".tmp"
     job_root = temporary_root / "jobs"
@@ -113,6 +115,7 @@ def render_image_lifecycle_script(plan: ImageLifecyclePlan) -> str:
         raise ImageLifecycleError("cannot render an invalid image lifecycle plan") from error
 
     profile = plan.selected_profile.profile
+    image_build = profile.image_build
     directives = render_batch_directives(
         (
             ("job-name", f"dd-image-{plan.request.kind}"),
@@ -120,8 +123,9 @@ def render_image_lifecycle_script(plan: ImageLifecyclePlan) -> str:
             ("partition", profile.image_build.partition),
             ("nodes", "1"),
             ("ntasks", "1"),
-            ("cpus-per-task", "1"),
-            ("time", _IMAGE_JOB_TIME_LIMIT),
+            ("cpus-per-task", str(image_build.cpus_per_task)),
+            ("mem", image_build.memory),
+            ("time", image_build.time_limit),
             ("chdir", plan.job_directory),
             ("output", f"{plan.job_directory}/slurm-%j.out"),
             ("error", f"{plan.job_directory}/slurm-%j.err"),
@@ -130,7 +134,7 @@ def render_image_lifecycle_script(plan: ImageLifecyclePlan) -> str:
     source_block = ""
     if plan.operation is ImageLifecycleOperation.IMPORT_OCI:
         source_block = f"""readonly DD_OCI_SOURCE={quote_shell_value(_format_enroot_oci_uri(plan.request.source))}
-if [[ -e "${{DD_IMAGE_SQSH}}" ]]; then
+if [[ -e "${{DD_IMAGE_SQSH}}" || -L "${{DD_IMAGE_SQSH}}" ]]; then
     printf '%s\\n' 'candidate SQSH path already exists' >&2
     exit 73
 fi
@@ -174,6 +178,11 @@ export ENROOT_CACHE_PATH="${{DD_JOB_DIR}}/enroot/cache"
 export ENROOT_CONFIG_PATH="${{DD_JOB_DIR}}/enroot/config"
 export ENROOT_DATA_PATH="${{DD_JOB_DIR}}/enroot/data"
 export ENROOT_TEMP_PATH="${{DD_JOB_DIR}}/enroot/tmp"
+if [[ ! ${{SLURM_CPUS_PER_TASK:-}} =~ ^[1-9][0-9]*$ ]]; then
+    printf '%s\\n' 'SLURM_CPUS_PER_TASK must be a positive integer' >&2
+    exit 64
+fi
+export ENROOT_MAX_PROCESSORS="${{SLURM_CPUS_PER_TASK}}"
 
 {source_block}if [[ ! -f "${{DD_IMAGE_SQSH}}" || -L "${{DD_IMAGE_SQSH}}" ]]; then
     printf '%s\\n' 'SQSH path must be a regular non-symlink file' >&2
@@ -236,15 +245,25 @@ def submit_prepared_image_lifecycle(
             render_image_lifecycle_script(prepared.plan).encode(),
         ),
     )
+    verified_script: bytes | None = None
     for label, artifact, expected_path, expected_content in expected_artifacts:
         expected_sha256 = hashlib.sha256(expected_content).hexdigest()
+        actual_content = _read_regular_file(expected_path)
         if (
             artifact.path != expected_path.as_posix()
             or artifact.sha256 != expected_sha256
-            or _compute_regular_file_sha256(expected_path) != expected_sha256
+            or actual_content != expected_content
         ):
             raise ImageLifecycleError(f"prepared image lifecycle {label} no longer matches its digest")
-    return client.submit(prepared.script_file.path)
+        if label == "script":
+            verified_script = actual_content
+    if verified_script is None:
+        raise ImageLifecycleError("prepared image lifecycle script was not verified")
+    try:
+        script_text = verified_script.decode("utf-8", errors="strict")
+    except UnicodeError as error:
+        raise ImageLifecycleError("prepared image lifecycle script is not valid UTF-8") from error
+    return client.submit_script(script_text)
 
 
 def _stage_resource(job_directory: Path, filename: str) -> ArtifactReference:
@@ -281,11 +300,18 @@ def _write_file(path: Path, content: bytes, *, mode: int) -> ArtifactReference:
     return ArtifactReference(path=path.as_posix(), sha256=hashlib.sha256(content).hexdigest())
 
 
-def _compute_regular_file_sha256(path: Path) -> str:
+def _read_regular_file(path: Path) -> bytes:
+    descriptor: int | None = None
     try:
-        path_status = path.lstat()
+        descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        path_status = os.fstat(descriptor)
         if not stat.S_ISREG(path_status.st_mode):
             raise ImageLifecycleError("prepared image lifecycle file is not regular")
-        return hashlib.sha256(path.read_bytes()).hexdigest()
+        with os.fdopen(descriptor, "rb") as source:
+            descriptor = None
+            return source.read()
     except OSError as error:
         raise ImageLifecycleError("cannot read prepared image lifecycle file") from error
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)

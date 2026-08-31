@@ -60,8 +60,7 @@ class ImageLifecyclePlan(ContractRecord):
         )
         if self.job_directory != expected_job_directory:
             raise ValueError("image lifecycle job directory must derive from the selected workspace")
-        if any(delimiter in self.job_directory for delimiter in (":", ",")):
-            raise ValueError("image lifecycle workspace path cannot be represented as an Enroot mount")
+        validate_enroot_mount_path(self.job_directory)
         if self.inspection_output_path != posixpath.join(self.job_directory, "output", "inspection.json"):
             raise ValueError("image lifecycle inspection output must belong to its dedicated output directory")
         expected_runtime_artifacts = (
@@ -103,6 +102,14 @@ def validate_oci_source_for_lifecycle(source: str) -> str:
     ):
         raise ValueError("OCI image source must be a credential-free registry reference without a scheme")
     return source
+
+
+def validate_enroot_mount_path(path: str) -> str:
+    """Reject host paths that Enroot's fstab-style mount parser cannot represent safely."""
+    validate_absolute_path(path)
+    if any(character.isspace() or character in {":", ",", "\\"} for character in path):
+        raise ValueError("image lifecycle workspace path cannot be represented as an Enroot mount")
+    return path
 
 
 class RegisteredImage(ContractRecord):

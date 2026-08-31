@@ -387,7 +387,7 @@
   "schema_version": 1,
   "selected_profile": {
     "catalog_path": "/workspace/profile.json",
-    "catalog_sha256": "c747bdf94fe8c638c94f25522e2213d38fa904a6a448e8e1162ef1bb2eef4cc9",
+    "catalog_sha256": "a707e8e3b6f52170554b743d252b90273fa0deeea8141d4a87abe96e2e93215d",
     "cluster_name": "primary",
     "matched_pattern": null,
     "profile": {
@@ -405,7 +405,10 @@
         "primary-login-*"
       ],
       "image_build": {
-        "partition": "cpu"
+        "cpus_per_task": 4,
+        "memory": "16G",
+        "partition": "cpu",
+        "time_limit": "04:00:00"
       },
       "scheduler": {
         "account": "research",
@@ -415,7 +418,7 @@
       "schema_version": 1,
       "workspace_root": "/workspace/primary"
     },
-    "profile_sha256": "afaa20b6bcb7233d35b2ad4c9ca82864e7f92ce060442112f6c5e7a5c735cce4",
+    "profile_sha256": "80e50266bc5748469c0429533731e1973856f6f58259d89ab6cde6d4dc0e5bc0",
     "schema_version": 1,
     "selection_source": "explicit"
   },
