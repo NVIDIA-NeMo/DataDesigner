@@ -19,12 +19,12 @@ def test_rendered_script_fixtures_are_pinned_and_bound_to_canonical_plans(
     _assert_script_matches_plan(
         single_node_plan,
         "single_node.sbatch",
-        expected_fixture_sha256="f62fd05cae639b29e2efb13b08b272213d07aeb5634c90485f9e6119c3980769",
+        expected_fixture_sha256="8238dd22393a46538169a83046e91230166aaa0f96e0a91255adf6a6074bfa20",
     )
     _assert_script_matches_plan(
         multi_node_plan,
         "multi_node.sbatch",
-        expected_fixture_sha256="e1deaeb8895ffe663cd3daf6f54fb4d2886ca3728ab74caa37b1471c039f19df",
+        expected_fixture_sha256="6153c1769d9b90315c4e7acc767bd5c469d0a5e1f5fc7843baddc1a733cb8e9b",
     )
 
 
@@ -55,7 +55,7 @@ def _assert_script_matches_plan(
     )
     node_count = max(node_indices) + 1
     array = "0" if plan.array_tasks.count == 1 else f"0-{plan.array_tasks.count - 1}"
-    if plan.array_tasks.count > 1:
+    if plan.array_tasks.count > 1 and plan.array_tasks.max_concurrent is not None:
         array = f"{array}%{plan.array_tasks.max_concurrent}"
     plan_path = posixpath.join(posixpath.dirname(plan.authored_config.path), "resolved-plan.json")
     run_root = posixpath.dirname(plan.authored_config.path)

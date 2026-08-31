@@ -1,7 +1,7 @@
 {
   "array_tasks": {
     "count": 1,
-    "max_concurrent": 1
+    "max_concurrent": null
   },
   "builder": {
     "inline": {

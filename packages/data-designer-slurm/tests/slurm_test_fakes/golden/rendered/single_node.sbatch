@@ -10,10 +10,10 @@
 set -Eeuo pipefail
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
-readonly DD_RUNTIME_ARCHIVE="/workspace/primary/runtime/runtime.tar.gz"
+readonly DD_RUNTIME_ARCHIVE="/workspace/primary/runtime/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee.tar.gz"
 readonly DD_RUNTIME_SHA256="eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
 readonly DD_PLAN="/workspace/primary/runs/run-single/resolved-plan.json"
-readonly DD_PLAN_SHA256="52659b9f651b87a8faa94ea7b72e570dd0d0f915a67b6e4b39528de99c7f85b0"
+readonly DD_PLAN_SHA256="cc5ce7314c57fa4e784e149d6d47aafce721118e9f249d6d91518dc20c8fb604"
 readonly DD_RUN_ROOT="/workspace/primary/runs/run-single"
 readonly DD_ATTEMPT_ORDINAL="0001"
 

@@ -68,7 +68,9 @@ def _build_generation_directives(plan: ResolvedSlurmRunPlan) -> tuple[tuple[str,
     node_count = max(node_indices) + 1
     array = "0"
     if plan.array_tasks.count > 1:
-        array = f"0-{plan.array_tasks.count - 1}%{plan.array_tasks.max_concurrent}"
+        array = f"0-{plan.array_tasks.count - 1}"
+        if plan.array_tasks.max_concurrent is not None:
+            array = f"{array}%{plan.array_tasks.max_concurrent}"
 
     values: list[tuple[str, str | None]] = [
         ("job-name", plan.submission.job_name),
@@ -83,7 +85,6 @@ def _build_generation_directives(plan: ResolvedSlurmRunPlan) -> tuple[tuple[str,
     if profile.gpu_request_mode == "gres":
         values.append(("gres", f"gpu:{plan.resolved_gpus_per_node}"))
     elif profile.scheduler.mem_per_gpu is not None:
-        # TODO(#875): Remove this defense once config and plan validation make this state unrepresentable.
         raise SlurmBatchRenderError("mem_per_gpu requires GRES GPU request mode")
     if profile.scheduler.mem_per_gpu is not None:
         values.append(("mem-per-gpu", profile.scheduler.mem_per_gpu))

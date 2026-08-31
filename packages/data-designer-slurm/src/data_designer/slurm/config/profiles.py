@@ -87,6 +87,8 @@ class SlurmProfile(AuthoredConfig):
         targets = [mount.target for mount in self.container_mounts]
         if len(targets) != len(set(targets)):
             raise ValueError("container mount targets must be unique")
+        if self.gpu_request_mode == "visible" and self.scheduler.mem_per_gpu is not None:
+            raise ValueError("mem_per_gpu requires GRES GPU request mode")
         return self
 
 
