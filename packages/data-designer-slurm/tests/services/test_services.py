@@ -26,8 +26,12 @@ from data_designer.slurm.config import (
 )
 from data_designer.slurm.planning import ResolvedSlurmRunPlan
 from data_designer.slurm.services import (
+    SlurmBatchScriptRenderer,
+    SlurmBenchmarkBackend,
     SlurmBenchmarkService,
+    SlurmImageResolver,
     SlurmImageService,
+    SlurmRunPlanner,
     SlurmRunService,
     SlurmServiceError,
     SlurmServiceErrorCode,
@@ -503,12 +507,17 @@ def test_service_errors_use_the_data_designer_error_hierarchy() -> None:
 
 
 @pytest.mark.parametrize(
-    "name",
-    ["BatchScriptRenderer", "BenchmarkBackend", "ImageResolver", "RunPlanner"],
+    ("name", "contract"),
+    [
+        ("SlurmBatchScriptRenderer", SlurmBatchScriptRenderer),
+        ("SlurmBenchmarkBackend", SlurmBenchmarkBackend),
+        ("SlurmImageResolver", SlurmImageResolver),
+        ("SlurmRunPlanner", SlurmRunPlanner),
+    ],
 )
-def test_services_do_not_export_implementation_seams(name: str) -> None:
-    assert name not in slurm_services.__all__
-    assert not hasattr(slurm_services, name)
+def test_services_export_dependency_contracts(name: str, contract: type[object]) -> None:
+    assert name in slurm_services.__all__
+    assert getattr(slurm_services, name) is contract
 
 
 def test_service_errors_round_trip_through_pickle() -> None:

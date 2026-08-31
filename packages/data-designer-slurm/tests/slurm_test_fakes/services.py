@@ -18,6 +18,12 @@ from data_designer.slurm.config import (
 )
 from data_designer.slurm.contracts import Identifier
 from data_designer.slurm.planning import ResolvedImage, ResolvedSlurmRunPlan
+from data_designer.slurm.services import (
+    SlurmBatchScriptRenderer,
+    SlurmBenchmarkBackend,
+    SlurmImageResolver,
+    SlurmRunPlanner,
+)
 
 _RequestT = TypeVar("_RequestT")
 _ResultT = TypeVar("_ResultT")
@@ -48,7 +54,7 @@ class _ScriptedResponses(Generic[_RequestT, _ResultT]):
             raise FakeScriptError(f"{len(self._responses)} {operation} responses remain")
 
 
-class FakeRunPlanningBackend:
+class FakeRunPlanningBackend(SlurmRunPlanner):
     """Return or raise exact scripted run-planning outcomes."""
 
     def __init__(
@@ -67,7 +73,7 @@ class FakeRunPlanningBackend:
         self._script.assert_complete(operation="run plan")
 
 
-class FakeBatchScriptRenderer:
+class FakeBatchScriptRenderer(SlurmBatchScriptRenderer):
     """Return or raise exact scripted batch-rendering outcomes."""
 
     def __init__(
@@ -86,7 +92,7 @@ class FakeBatchScriptRenderer:
         self._script.assert_complete(operation="batch render")
 
 
-class FakeImageResolver:
+class FakeImageResolver(SlurmImageResolver):
     """Return or raise exact scripted image-resolution outcomes."""
 
     def __init__(
@@ -105,7 +111,7 @@ class FakeImageResolver:
         self._script.assert_complete(operation="image resolution")
 
 
-class FakeBenchmarkBackend:
+class FakeBenchmarkBackend(SlurmBenchmarkBackend):
     """Return or raise exact scripted benchmark outcomes."""
 
     def __init__(

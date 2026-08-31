@@ -21,14 +21,20 @@ from data_designer.slurm.services.errors import (
 _IDENTIFIER_ADAPTER = TypeAdapter(Identifier)
 
 
-class _BenchmarkBackend(Protocol):
-    """Process benchmarks; any normalized failure must be caller-safe."""
+class SlurmBenchmarkBackend(Protocol):
+    """Process benchmarks through a supported service dependency."""
 
     def run(self, config: DataDesignerSlurmBenchmarkConfig) -> BenchmarkManifest:
-        """Persist and start the ordinary child runs for one benchmark."""
+        """Persist and start the ordinary child runs for one benchmark.
+
+        Any non-``INTERNAL`` service error must contain a caller-safe message.
+        """
 
     def analyze(self, benchmark_id: Identifier, *, refresh_state: bool = False) -> BenchmarkReport:
-        """Return one point-in-time benchmark report."""
+        """Return one point-in-time benchmark report.
+
+        Any non-``INTERNAL`` service error must contain a caller-safe message.
+        """
 
 
 class SlurmBenchmarkService:
@@ -37,10 +43,10 @@ class SlurmBenchmarkService:
     The service borrows its injected dependency and does not manage its lifecycle.
 
     Args:
-        backend: Package-owned benchmark execution and analysis boundary.
+        backend: Benchmark dependency implementing ``SlurmBenchmarkBackend``.
     """
 
-    def __init__(self, backend: _BenchmarkBackend) -> None:
+    def __init__(self, backend: SlurmBenchmarkBackend) -> None:
         self._backend = backend
 
     def run(self, config: DataDesignerSlurmBenchmarkConfig) -> BenchmarkManifest:

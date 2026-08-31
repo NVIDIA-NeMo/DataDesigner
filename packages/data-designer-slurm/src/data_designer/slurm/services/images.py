@@ -16,11 +16,14 @@ from data_designer.slurm.services.errors import (
 )
 
 
-class _ImageResolver(Protocol):
-    """Resolve one image; any normalized failure must be caller-safe."""
+class SlurmImageResolver(Protocol):
+    """Resolve verified images through a supported service dependency."""
 
     def resolve(self, reference: ImageRef, *, expected_kind: ImageKind) -> ResolvedImage:
-        """Return immutable facts for one verified image reference."""
+        """Return immutable facts for one verified image reference.
+
+        Any non-``INTERNAL`` service error must contain a caller-safe message.
+        """
 
 
 class SlurmImageService:
@@ -29,10 +32,11 @@ class SlurmImageService:
     The service borrows its injected dependency and does not manage its lifecycle.
 
     Args:
-        resolver: Package-owned image-resolution boundary.
+        resolver: Image-resolution dependency implementing
+            ``SlurmImageResolver``.
     """
 
-    def __init__(self, resolver: _ImageResolver) -> None:
+    def __init__(self, resolver: SlurmImageResolver) -> None:
         self._resolver = resolver
 
     def resolve(self, reference: ImageRef, *, expected_kind: ImageKind) -> ResolvedImage:

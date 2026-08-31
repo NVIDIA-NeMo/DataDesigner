@@ -16,18 +16,24 @@ from data_designer.slurm.services.errors import (
 )
 
 
-class _RunPlanner(Protocol):
-    """Resolve one run; any normalized failure must be caller-safe."""
+class SlurmRunPlanner(Protocol):
+    """Resolve authored run configs through a supported service dependency."""
 
     def plan(self, config: DataDesignerSlurmConfig) -> ResolvedSlurmRunPlan:
-        """Return the immutable plan for one authored run."""
+        """Return the immutable plan for one authored run.
+
+        Any non-``INTERNAL`` service error must contain a caller-safe message.
+        """
 
 
-class _BatchScriptRenderer(Protocol):
-    """Render one immutable plan; any normalized failure must be caller-safe."""
+class SlurmBatchScriptRenderer(Protocol):
+    """Render immutable plans through a supported service dependency."""
 
     def __call__(self, plan: ResolvedSlurmRunPlan, *, attempt_ordinal: int) -> str:
-        """Return the deterministic batch script for one attempt."""
+        """Return the deterministic batch script for one attempt.
+
+        Any non-``INTERNAL`` service error must contain a caller-safe message.
+        """
 
 
 class SlurmRunService:
@@ -37,11 +43,12 @@ class SlurmRunService:
     lifecycle.
 
     Args:
-        planner: Package-owned run-planning boundary.
-        renderer: Package-owned batch-rendering boundary.
+        planner: Run-planning dependency implementing ``SlurmRunPlanner``.
+        renderer: Batch-rendering dependency implementing
+            ``SlurmBatchScriptRenderer``.
     """
 
-    def __init__(self, planner: _RunPlanner, renderer: _BatchScriptRenderer) -> None:
+    def __init__(self, planner: SlurmRunPlanner, renderer: SlurmBatchScriptRenderer) -> None:
         self._planner = planner
         self._renderer = renderer
 
