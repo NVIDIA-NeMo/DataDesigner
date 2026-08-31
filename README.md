@@ -14,19 +14,13 @@ Data Designer helps you create synthetic datasets that go beyond simple LLM prom
 
 ## What can you do with Data Designer?
 
-- **Generate diverse data** using statistical samplers, LLMs, or existing seed datasets
+- **Generate diverse text, structured data, and images** using samplers, LLMs, image models, or existing seed datasets
+- **Build multimodal workflows** with image, audio, and video context
+- **Connect generation to external tools** through local or remote MCP servers and capture interaction traces
 - **Control relationships** between fields with dependency-aware generation
-- **Validate quality** with built-in Python, SQL, and custom local and remote validators
-- **Score outputs** using LLM-as-a-judge for quality assessment
-- **Iterate quickly** with preview mode before full-scale generation
-
----
-
-### 📣 Heads-up: async engine
-
-Data Designer now runs pipelines on a cell-level async engine that overlaps independent columns and adapts concurrency per (provider, model). On most pipelines this is faster with no config changes; on slow self-hosted endpoints, set `inference_parameters.timeout` to your real per-request latency. See [Architecture & Performance → Async Engine](https://docs.nvidia.com/nemo/datadesigner/concepts/architecture-performance#async-engine) for the behaviors worth knowing about.
-
-If you hit anything unexpected, please [open an issue](https://github.com/NVIDIA-NeMo/DataDesigner/issues/new).
+- **Validate and score outputs** with Python, SQL, custom validators, and LLM judges
+- **Extend Data Designer** with plugins for custom columns, seed readers, and processors
+- **Preview, resume, and monitor generation** from small experiments to large runs
 
 ---
 
@@ -112,7 +106,7 @@ preview.display_sample_record()
 
 ### 📝 Documentation
 
-Data Designer documentation now lives on Fern at [docs.nvidia.com/nemo/datadesigner](https://docs.nvidia.com/nemo/datadesigner/).
+Data Designer documentation is available at [docs.nvidia.com/nemo/datadesigner](https://docs.nvidia.com/nemo/datadesigner/).
 
 Contributors should edit docs prose under `fern/`. Tutorial notebook source remains in `docs/notebook_source/*.py`; generated notebooks and Fern artifacts are not the source of truth. The legacy MkDocs archive remains available on GitHub Pages for releases `0.5.7` and older.
 
@@ -126,15 +120,15 @@ data-designer config list      # View current settings
 
 ### 🤖 Agent Skill
 
-Data Designer has a [skill](https://docs.nvidia.com/nemo/datadesigner/dev-notes/data-designer-got-skills) for coding agents. Just describe the dataset you want, and your agent handles schema design, validation, and generation. While the skill should work with other coding agents that support skills, our development and testing has focused on [Claude Code](https://code.claude.com) at this stage.
+Data Designer has a [skill](https://docs.nvidia.com/nemo/datadesigner/dev-notes/data-designer-got-skills) for coding agents. Just describe the dataset you want, and your agent handles schema design, validation, and generation. The skill is tested with [Claude Code](https://code.claude.com) and [Codex](https://chatgpt.com/codex).
 
-**Install via [skills.sh](https://skills.sh)** (be sure to select Claude Code as an additional agent):
+**Install via [skills.sh](https://skills.sh):**
 
 ```bash
 npx skills add NVIDIA-NeMo/DataDesigner
 ```
 
-After installation, type `/data-designer` or describe the dataset you want and the skill will kick in.
+After installation, invoke the `data-designer` skill or describe the dataset you want and the skill will kick in.
 
 ### 🤝 Get involved
 
