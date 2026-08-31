@@ -9,7 +9,7 @@
   },
   "builder": {
     "authored_source": null,
-    "content_sha256": "f37227ca7c67e203abe881c0228b4308a8e741364296d293159a1201949732f2",
+    "content_sha256": "2d4536fc8ff5a32e06269769bb563cb354c53cee95f45da31c9c6781130b4222",
     "inline": {
       "data_designer": {
         "columns": [],
@@ -31,7 +31,6 @@
       "generator",
       "judge"
     ],
-    "referenced_model_aliases": [],
     "source": null
   },
   "client": {
@@ -355,6 +354,10 @@
         "buffer_size": 8192
       }
     },
+    "effective_input_bindings": {
+      "managed_assets_path": "/workspace/primary/managed-assets",
+      "seed_path": null
+    },
     "effective_run_config": {
       "async_trace": false,
       "buffer_size": 8192,
@@ -385,7 +388,7 @@
   "resolved_gpus_per_node": 8,
   "run_id": "run-001",
   "runtime_bundle": {
-    "path": "/workspace/primary/runtime/runtime.tar.gz",
+    "path": "/workspace/primary/runtime/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee.tar.gz",
     "sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
   },
   "schema_version": 1,
