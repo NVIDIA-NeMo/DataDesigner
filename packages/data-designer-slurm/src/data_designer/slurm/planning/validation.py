@@ -3,20 +3,20 @@
 
 from __future__ import annotations
 
+import posixpath
+
 from pydantic import JsonValue
 
 from data_designer.config import RunConfig
 from data_designer.slurm.config.images import ClientImageInspection
 from data_designer.slurm.config.run import DataDesignerSlurmConfig
+from data_designer.slurm.contracts import derive_managed_assets_path
+from data_designer.slurm.planning.builder_identity import get_persisted_builder_identity
+from data_designer.slurm.planning.errors import SlurmPlanContractError
 from data_designer.slurm.planning.models import (
     ResolvedDependencyLock,
     ResolvedSlurmRunPlan,
-    _extract_builder_aliases,
 )
-
-
-class PlanContractError(ValueError):
-    """Raised when a resolved plan does not match its authored inputs."""
 
 
 def validate_resolved_plan(
@@ -32,6 +32,14 @@ def validate_resolved_plan(
         "authored config digest does not match the resolved plan",
     )
     _require(plan.invocation.authored == authored.invocation, "resolved invocation does not match authored input")
+    expected_managed_assets = authored.invocation.input_bindings.managed_assets_path or derive_managed_assets_path(
+        plan.selected_profile.profile.workspace_root
+    )
+    _require(
+        plan.invocation.effective_input_bindings.seed_path == authored.invocation.input_bindings.seed_path
+        and plan.invocation.effective_input_bindings.managed_assets_path == expected_managed_assets,
+        "resolved input bindings do not match authored/profile input",
+    )
     explicit_run_config = RunConfig.model_validate(authored.invocation.run_config).model_dump(
         mode="json",
         exclude_unset=True,
@@ -45,22 +53,28 @@ def validate_resolved_plan(
     _require(plan.array_tasks == authored.array_tasks, "resolved array task policy does not match authored input")
 
     if authored.builder.inline is not None:
+        _require(builder_payload is None, "inline builder input must not retain a separate payload")
         _require(
             plan.builder.inline == authored.builder.inline, "resolved inline builder does not match authored input"
         )
+        model_aliases, digest = get_persisted_builder_identity(authored.builder.inline)
+        _require(plan.builder.model_aliases == model_aliases, "resolved model aliases do not match inline builder")
+        _require(plan.builder.content_sha256 == digest, "resolved builder digest does not match inline builder")
     else:
         _require(
             plan.builder.authored_source == authored.builder.source,
             "resolved builder source does not match authored input",
         )
         if builder_payload is None:
-            raise PlanContractError("sourced builder validation requires its resolved payload")
-        model_aliases, referenced_aliases = _extract_builder_aliases(builder_payload)
+            raise SlurmPlanContractError("sourced builder validation requires its resolved payload")
+        model_aliases, digest = get_persisted_builder_identity(builder_payload)
+        _require(plan.builder.source is not None, "resolved builder source artifact is missing")
+        assert plan.builder.source is not None
+        expected_path = posixpath.join(posixpath.dirname(plan.authored_config.path), "builder-config.json")
+        _require(plan.builder.source.path == expected_path, "resolved builder artifact path does not match the run")
         _require(plan.builder.model_aliases == model_aliases, "resolved model aliases do not match builder source")
-        _require(
-            plan.builder.referenced_model_aliases == referenced_aliases,
-            "resolved referenced aliases do not match builder source",
-        )
+        _require(plan.builder.source.sha256 == digest, "resolved builder digest does not match builder source")
+        _require(plan.builder.content_sha256 == digest, "resolved builder digest does not match builder source")
 
     expected_account = authored.submission.account or plan.selected_profile.profile.scheduler.account
     expected_partition = authored.submission.partition or plan.selected_profile.profile.scheduler.partition
@@ -126,7 +140,7 @@ def validate_resolved_plan(
 
 def _require(condition: bool, message: str) -> None:
     if not condition:
-        raise PlanContractError(message)
+        raise SlurmPlanContractError(message)
 
 
 def _require_json_subset(actual: JsonValue, expected: JsonValue, *, path: str) -> None:

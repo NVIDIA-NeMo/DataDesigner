@@ -14,7 +14,9 @@ from data_designer.slurm.config.benchmark import (
     DataDesignerSlurmBenchmarkConfig,
     FixedRecordPolicy,
 )
+from data_designer.slurm.config.builder import DataDesignerSlurmConfigBuilder
 from data_designer.slurm.config.environment import LiteralEnvironmentBinding, SecretRef
+from data_designer.slurm.config.errors import SlurmConfigBuilderError, SlurmConfigLoadError
 from data_designer.slurm.config.images import (
     ClientImageInspection,
     ImageBuildRequest,
@@ -23,6 +25,13 @@ from data_designer.slurm.config.images import (
     ImageRef,
     InstalledDistribution,
     ServingImageInspection,
+)
+from data_designer.slurm.config.loading import (
+    DEFAULT_PROFILE_FILE_NAME,
+    PROFILE_FILE_ENVIRONMENT,
+    load_profile_catalog,
+    load_run_config,
+    resolve_profile,
 )
 from data_designer.slurm.config.profiles import (
     ContainerMount,
@@ -70,6 +79,8 @@ __all__ = [
     "ContainerMount",
     "DataDesignerSlurmBenchmarkConfig",
     "DataDesignerSlurmConfig",
+    "DataDesignerSlurmConfigBuilder",
+    "DEFAULT_PROFILE_FILE_NAME",
     "DeploymentResources",
     "DeploymentTopology",
     "FixedRecordPolicy",
@@ -87,6 +98,7 @@ __all__ = [
     "LocalStdioMCPProviderConfig",
     "OutputConfig",
     "ProfileSelectionSource",
+    "PROFILE_FILE_ENVIRONMENT",
     "QueueBackpressureConfig",
     "RemoteMCPProviderConfig",
     "SchedulerProfile",
@@ -94,11 +106,16 @@ __all__ = [
     "SelectedSlurmProfile",
     "ServerDeploymentConfig",
     "ServingImageInspection",
+    "SlurmConfigBuilderError",
+    "SlurmConfigLoadError",
     "SlurmProfile",
     "SlurmProfileCatalog",
     "SubmissionConfig",
     "VllmServerConfig",
     "injected_profile",
+    "load_profile_catalog",
+    "load_run_config",
+    "resolve_profile",
     "select_profile",
     "validate_selected_profile",
 ]

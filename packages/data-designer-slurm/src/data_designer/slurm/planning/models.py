@@ -28,6 +28,7 @@ from data_designer.slurm.config.run import (
     ArrayTasksConfig,
     ClientConfig,
     ClientDependencies,
+    InputBindings,
     InvocationConfig,
     ServerDeploymentConfig,
     SubmissionConfig,
@@ -37,15 +38,20 @@ from data_designer.slurm.contracts import (
     ContractRecord,
     ContractValue,
     Identifier,
+    ModelAlias,
     RecordRange,
     ResumeWorkspace,
     Sha256Digest,
     ShardId,
-    compute_canonical_json_sha256,
+    compute_serialized_json_sha256,
+    derive_managed_assets_path,
+    is_path_below,
+    paths_overlap,
     validate_absolute_path,
     validate_local_config_path,
     validate_plain_text,
 )
+from data_designer.slurm.planning.builder_identity import get_declared_model_aliases
 from data_designer.slurm.types import NetworkPort
 
 
@@ -158,9 +164,9 @@ class ResolvedBuilderInput(ContractValue):
     authored_source: str | None = None
     source: ArtifactReference | None = None
     inline: dict[str, JsonValue] | None = None
+    # Both forms use deterministic persisted builder JSON bytes.
     content_sha256: Sha256Digest
-    model_aliases: tuple[str, ...]
-    referenced_model_aliases: tuple[str, ...] = ()
+    model_aliases: tuple[ModelAlias, ...]
 
     @model_validator(mode="after")
     def validate_input(self) -> ResolvedBuilderInput:
@@ -170,20 +176,15 @@ class ResolvedBuilderInput(ContractValue):
             if self.authored_source is not None:
                 raise ValueError("inline builder input cannot contain authored_source")
             validate_no_plaintext_secrets(self.inline, field_name="resolved inline builder input")
-            expected_digest = compute_canonical_json_sha256(self.inline)
-            model_aliases, referenced_aliases = _extract_builder_aliases(self.inline)
-            if self.model_aliases != model_aliases:
+            expected_digest = compute_serialized_json_sha256(self.inline)
+            if self.model_aliases != get_declared_model_aliases(self.inline):
                 raise ValueError("resolved model aliases do not match the inline builder")
-            if self.referenced_model_aliases != referenced_aliases:
-                raise ValueError("resolved referenced aliases do not match the inline builder")
         else:
             if self.authored_source is None:
                 raise ValueError("resolved builder source requires authored_source")
             expected_digest = self.source.sha256
         if len(self.model_aliases) != len(set(self.model_aliases)):
             raise ValueError("resolved builder model aliases must be unique")
-        if len(self.referenced_model_aliases) != len(set(self.referenced_model_aliases)):
-            raise ValueError("resolved builder referenced aliases must be unique")
         if self.content_sha256 != expected_digest:
             raise ValueError("builder content digest does not match the resolved input")
         return self
@@ -191,6 +192,7 @@ class ResolvedBuilderInput(ContractValue):
 
 class ResolvedInvocation(ContractValue):
     authored: InvocationConfig
+    effective_input_bindings: InputBindings
     effective_run_config: dict[str, JsonValue]
 
     @field_validator("effective_run_config")
@@ -401,6 +403,8 @@ class ResolvedSlurmRunPlan(ContractRecord):
         profile = self.selected_profile.profile
         if profile.gpus_per_node != "auto" and profile.gpus_per_node != self.resolved_gpus_per_node:
             raise ValueError("resolved GPU count does not match the selected profile")
+        if profile.gpu_request_mode == "visible" and profile.scheduler.mem_per_gpu is not None:
+            raise ValueError("mem_per_gpu requires GRES GPU request mode")
         if any(deployment.gpus_per_node != self.resolved_gpus_per_node for deployment in self.deployments):
             raise ValueError("every deployment must use the resolved profile GPU count")
         if tuple(profile.container_mounts) != self.container_mounts:
@@ -413,20 +417,33 @@ class ResolvedSlurmRunPlan(ContractRecord):
             raise ValueError("resolved deployment IDs must use complete ordered zero-based identities")
         if len(aliases) != len(set(aliases)):
             raise ValueError("resolved deployment aliases must be unique")
-        if not set(aliases).issubset(self.builder.model_aliases):
-            raise ValueError("each deployment alias must match a resolved Data Designer model alias")
-        if not set(self.builder.referenced_model_aliases).issubset(aliases):
-            raise ValueError("each referenced Data Designer model alias requires a deployment")
+        if set(aliases) != set(self.builder.model_aliases):
+            raise ValueError("resolved deployment aliases must exactly cover Data Designer model aliases")
 
         node_indices = tuple(index for deployment in self.deployments for index in deployment.node_indices)
         if node_indices != tuple(range(len(node_indices))):
             raise ValueError("deployment nodes must be disjoint and contiguous in authored order")
         if self.client.host_node_index != self.deployments[0].node_indices[0]:
             raise ValueError("client must be colocated on the first node of the first deployment")
+        authored_bindings = self.invocation.authored.input_bindings
+        expected_bindings = InputBindings(
+            seed_path=authored_bindings.seed_path,
+            managed_assets_path=authored_bindings.managed_assets_path
+            or derive_managed_assets_path(profile.workspace_root),
+        )
+        if self.invocation.effective_input_bindings != expected_bindings:
+            raise ValueError("effective input bindings must match the authored and selected profile input")
+        managed_assets_path = self.invocation.effective_input_bindings.managed_assets_path
+        assert managed_assets_path is not None
+        workspace_state = tuple(
+            posixpath.join(profile.workspace_root, name) for name in ("images", "runtime", "benchmarks", "runs")
+        )
+        if any(paths_overlap(managed_assets_path, path) for path in workspace_state):
+            raise ValueError("managed_assets_path must not overlap package-managed workspace state")
         if "non_inference_max_parallel_workers" not in self.invocation.authored.run_config:
             workers = self.invocation.effective_run_config["non_inference_max_parallel_workers"]
-            if workers != RunConfig().non_inference_max_parallel_workers:
-                raise ValueError("default non-inference worker count must match the Data Designer RunConfig default")
+            if workers != 4:
+                raise ValueError("default non-inference worker count must match the Data Designer default")
 
         expected_logical_names = tuple(
             f"{deployment.deployment_id}-logical-endpoint" for deployment in self.deployments
@@ -453,15 +470,20 @@ class ResolvedSlurmRunPlan(ContractRecord):
             raise ValueError("authored config reference must use the plan run root")
         if self.client.dependency_lock.path != posixpath.join(run_root, "dependency-lock.json"):
             raise ValueError("dependency lock reference must use the plan run root")
-        self._validate_shards(run_root)
-        if not _is_below(self.output.root, profile.workspace_root):
-            raise ValueError("resolved output root must be below the selected workspace_root")
-        shards_root = posixpath.join(run_root, "shards")
+        runtime_root = posixpath.join(profile.workspace_root, "runtime")
+        runtime_name = posixpath.basename(self.runtime_bundle.path)
         if (
-            self.output.root == shards_root
-            or _is_below(self.output.root, shards_root)
-            or _is_below(shards_root, self.output.root)
+            not is_path_below(self.runtime_bundle.path, runtime_root)
+            or runtime_name != f"{self.runtime_bundle.sha256}.tar.gz"
         ):
+            raise ValueError("runtime bundle must be a content-addressed tar archive below the workspace runtime root")
+        self._validate_shards(run_root)
+        if not is_path_below(self.output.root, profile.workspace_root):
+            raise ValueError("resolved output root must be below the selected workspace_root")
+        if paths_overlap(self.output.root, managed_assets_path):
+            raise ValueError("resolved output root must not overlap managed assets")
+        shards_root = posixpath.join(run_root, "shards")
+        if paths_overlap(self.output.root, shards_root):
             raise ValueError("resolved output root must not overlap the run shard workspace")
         return self
 
@@ -474,7 +496,7 @@ class ResolvedSlurmRunPlan(ContractRecord):
         shard_ids: list[ShardId] = []
         workspace_paths: list[str] = []
         partition_paths: list[str] = []
-        requires_partition = self.invocation.authored.input_bindings.seed_path is not None
+        requires_partition = self.invocation.effective_input_bindings.seed_path is not None
         for index, shard in enumerate(self.shards):
             if shard.shard_index != index or shard.array_task_index != index:
                 raise ValueError("shards must use complete ordered zero-based identities")
@@ -510,47 +532,3 @@ class ResolvedSlurmRunPlan(ContractRecord):
             raise ValueError("shard resume workspaces must be unique")
         if len(partition_paths) != len(set(partition_paths)):
             raise ValueError("shard input partitions must be unique")
-
-
-def _is_below(path: str, root: str) -> bool:
-    return path != root and posixpath.commonpath((path, root)) == root
-
-
-def _extract_builder_aliases(builder: dict[str, JsonValue]) -> tuple[tuple[str, ...], tuple[str, ...]]:
-    data_designer = builder.get("data_designer", builder)
-    if not isinstance(data_designer, dict):
-        raise ValueError("builder data_designer value must be an object")
-    model_configs = data_designer.get("model_configs") or []
-    if not isinstance(model_configs, list):
-        raise ValueError("builder model_configs must be a list")
-
-    model_aliases: list[str] = []
-    for model_config in model_configs:
-        if not isinstance(model_config, dict) or not isinstance(model_config.get("alias"), str):
-            raise ValueError("each builder model config must contain a string alias")
-        model_aliases.append(model_config["alias"])
-
-    referenced_aliases: list[str] = []
-
-    def collect(value: JsonValue, *, key: str | None = None) -> None:
-        if key == "model_configs":
-            return
-        if key == "model_alias" or (key is not None and key.endswith("_model_alias")):
-            if not isinstance(value, str):
-                raise ValueError(f"builder {key} must be a string")
-            referenced_aliases.append(value)
-            return
-        if key == "model_aliases":
-            if not isinstance(value, list) or any(not isinstance(alias, str) for alias in value):
-                raise ValueError("builder model_aliases must be a list of strings")
-            referenced_aliases.extend(value)
-            return
-        if isinstance(value, dict):
-            for child_key, child in value.items():
-                collect(child, key=child_key)
-        elif isinstance(value, list):
-            for child in value:
-                collect(child)
-
-    collect(data_designer)
-    return tuple(model_aliases), tuple(dict.fromkeys(referenced_aliases))
