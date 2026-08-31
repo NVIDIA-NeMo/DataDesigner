@@ -205,11 +205,7 @@ def test_system_inspection_environment_rejects_invalid_distribution_inventory(
 def test_system_inspection_environment_normalizes_missing_distribution(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(
-        importlib.metadata,
-        "distribution",
-        Mock(side_effect=importlib.metadata.PackageNotFoundError("missing")),
-    )
+    monkeypatch.setattr(importlib.metadata, "distributions", Mock(return_value=()))
 
     with pytest.raises(ImageInspectionError, match="not installed"):
         SystemInspectionEnvironment().get_distribution_console_script("missing")
@@ -235,7 +231,7 @@ def test_package_and_standalone_serving_inspectors_share_distribution_owned_cons
         locate_file=lambda _installed_file: executable_path,
     )
     monkeypatch.setenv("PATH", shadow_path.parent.as_posix())
-    monkeypatch.setattr(importlib.metadata, "distribution", Mock(return_value=distribution))
+    monkeypatch.setattr(importlib.metadata, "distributions", Mock(return_value=(distribution,)))
 
     package_record = ServingImageInspector().inspect("d" * 64)
     standalone_record = ImageInspectionRecord.model_validate(resource_inspector.inspect_image("serving", "d" * 64))
@@ -248,15 +244,35 @@ def test_system_inspection_environment_rejects_unowned_console_script(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     distribution = SimpleNamespace(
+        metadata={"Name": "pip"},
         version="26.1",
         entry_points=(SimpleNamespace(group="console_scripts", name="pip"),),
         files=(Path("pip"),),
         locate_file=lambda installed_file: installed_file,
     )
-    monkeypatch.setattr(importlib.metadata, "distribution", Mock(return_value=distribution))
+    monkeypatch.setattr(importlib.metadata, "distributions", Mock(return_value=(distribution,)))
 
     with pytest.raises(ImageInspectionError, match="does not own"):
         SystemInspectionEnvironment().get_distribution_console_script("pip")
+
+
+def test_package_and_standalone_client_inspectors_reject_duplicate_same_version_pip(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    distributions = (
+        *(
+            SimpleNamespace(metadata={"Name": name}, version="1.0.0")
+            for name in ("data-designer", "data-designer-config", "data-designer-engine", "data-designer-slurm")
+        ),
+        SimpleNamespace(metadata={"Name": "pip"}, version="26.1"),
+        SimpleNamespace(metadata={"Name": "Pip"}, version="26.1"),
+    )
+    monkeypatch.setattr(importlib.metadata, "distributions", Mock(return_value=distributions))
+
+    with pytest.raises(ImageInspectionError, match="exactly once"):
+        ClientImageInspector().inspect("a" * 64)
+    with pytest.raises(RuntimeError, match="exactly once"):
+        resource_inspector.inspect_image("client", "a" * 64)
 
 
 def test_system_inspection_environment_reports_current_python_facts() -> None:

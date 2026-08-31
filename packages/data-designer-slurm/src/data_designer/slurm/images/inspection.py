@@ -21,7 +21,10 @@ from data_designer.slurm.config import (
 )
 from data_designer.slurm.contracts import Identifier, Sha256Digest
 from data_designer.slurm.images.errors import ImageInspectionError
-from data_designer.slurm.images.resources.inspect_image import find_distribution_console_script
+from data_designer.slurm.images.resources.inspect_image import (
+    find_distribution_console_script,
+    find_unique_distribution,
+)
 
 INSPECTOR_VERSION: Identifier = "inspector-1"
 _REQUIRED_CLIENT_DISTRIBUTIONS = (
@@ -93,10 +96,7 @@ class SystemInspectionEnvironment:
     def get_distribution_console_script(self, name: str) -> tuple[str, str]:
         """Return one distribution version and its owned console-script path."""
         try:
-            distribution = importlib.metadata.distribution(name)
-        except importlib.metadata.PackageNotFoundError as error:
-            raise ImageInspectionError(f"required distribution {name!r} is not installed") from error
-        try:
+            distribution = find_unique_distribution(importlib.metadata.distributions(), name)
             executable = find_distribution_console_script(distribution, name)
         except (OSError, RuntimeError) as error:
             raise ImageInspectionError(str(error)) from error

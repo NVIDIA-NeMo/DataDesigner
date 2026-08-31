@@ -113,6 +113,8 @@ def test_image_lifecycle_renderer_uses_explicit_cpu_profile_and_safe_mounts(tmp_
     assert "/opt/data-designer-slurm/output:x-create=dir,bind" in script
     assert 'export ENROOT_CONFIG_PATH="${DD_JOB_DIR}/enroot/config"' in script
     assert 'export ENROOT_MAX_PROCESSORS="${SLURM_CPUS_PER_TASK}"' in script
+    assert 'version="$(enroot version)"' in script
+    assert "if (( 10#${major} < 4 )); then" in script
     assert f'--mount "{prepared.plan.job_directory}:' not in script
     completed = subprocess.run(("bash", "-n"), input=script, capture_output=True, text=True, check=False)
     assert completed.returncode == 0, completed.stderr
@@ -140,7 +142,9 @@ def test_rendered_image_lifecycle_job_computes_digest_and_runs_inspection(
     fake_enroot.write_text(
         "#!/usr/bin/env bash\n"
         "set -Eeuo pipefail\n"
-        'if [[ "$1" == "import" ]]; then\n'
+        'if [[ "$1" == "version" ]]; then\n'
+        "    printf '%s\\n' '4.0.0'\n"
+        'elif [[ "$1" == "import" ]]; then\n'
         "    printf '%s\\n' 'imported image' > \"$3\"\n"
         'elif [[ "$1" == "start" ]]; then\n'
         "    printf '%s\\n' '{}' > \"${DD_TEST_INSPECTION_OUTPUT}\"\n"
@@ -170,6 +174,59 @@ def test_rendered_image_lifecycle_job_computes_digest_and_runs_inspection(
     assert Path(prepared.plan.inspection_output_path).read_text() == "{}\n"
     if source_kind == "oci":
         assert Path(prepared.plan.sqsh_path).read_text() == "imported image\n"
+
+
+@pytest.mark.parametrize("source_kind", ("oci", "existing"), ids=("digest-import", "existing-sqsh"))
+def test_rendered_image_lifecycle_rejects_enroot_before_version_4_before_image_operations(
+    tmp_path: Path,
+    source_kind: str,
+) -> None:
+    if source_kind == "oci":
+        source = f"registry.example.test/client@sha256:{'a' * 64}"
+    else:
+        image_path = tmp_path / "client.sqsh"
+        image_path.write_bytes(b"client image")
+        source = image_path.as_posix()
+    prepared = prepare_image_lifecycle_job(
+        ImageBuildRequest(name="client", kind="client", source=source),
+        _get_selected_profile(tmp_path / "workspace"),
+        lifecycle_id=f"image-job-{source_kind}-old-enroot",
+    )
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_enroot = fake_bin / "enroot"
+    fake_enroot.write_text(
+        "#!/usr/bin/env bash\n"
+        "set -Eeuo pipefail\n"
+        'printf \'%s\\n\' "$1" >> "${DD_TEST_ENROOT_LOG}"\n'
+        'if [[ "$1" == "version" ]]; then\n'
+        "    printf '%s\\n' '3.5.0'\n"
+        "fi\n"
+    )
+    fake_enroot.chmod(0o700)
+    script = render_image_lifecycle_script(prepared.plan).replace(
+        'export PATH="',
+        f'export PATH="{fake_bin.as_posix()}:',
+        1,
+    )
+    enroot_log = tmp_path / "enroot.log"
+
+    completed = subprocess.run(
+        ("bash",),
+        input=script,
+        capture_output=True,
+        text=True,
+        check=False,
+        env={
+            "DD_TEST_ENROOT_LOG": enroot_log.as_posix(),
+            "SLURM_CPUS_PER_TASK": "2",
+            "SLURM_JOB_ID": "5101",
+        },
+    )
+
+    assert completed.returncode == 78
+    assert "Enroot 4 or newer" in completed.stderr
+    assert enroot_log.read_text() == "version\n"
 
 
 @pytest.mark.parametrize(
@@ -483,6 +540,7 @@ def test_standalone_serving_inspector_binds_version_and_executable_to_one_distri
     installed_file = Path("../../../bin/vllm")
     entry_point = SimpleNamespace(group="console_scripts", name="vllm")
     distribution = SimpleNamespace(
+        metadata={"Name": "vllm"},
         version="0.21.0",
         entry_points=(entry_point,),
         files=(installed_file,),
@@ -490,7 +548,7 @@ def test_standalone_serving_inspector_binds_version_and_executable_to_one_distri
     )
 
     with (
-        patch.object(resource_inspector.importlib.metadata, "distribution", return_value=distribution),
+        patch.object(resource_inspector.importlib.metadata, "distributions", return_value=(distribution,)),
     ):
         payload = resource_inspector.inspect_image("serving", "d" * 64)
 
@@ -514,6 +572,7 @@ def test_standalone_serving_inspector_rejects_unverifiable_distribution_console_
     match: str,
 ) -> None:
     distribution = SimpleNamespace(
+        metadata={"Name": "vllm"},
         version="0.21.0",
         entry_points=entry_points,
         files=files,
@@ -521,7 +580,7 @@ def test_standalone_serving_inspector_rejects_unverifiable_distribution_console_
     )
 
     with (
-        patch.object(resource_inspector.importlib.metadata, "distribution", return_value=distribution),
+        patch.object(resource_inspector.importlib.metadata, "distributions", return_value=(distribution,)),
         pytest.raises(RuntimeError, match=match),
     ):
         resource_inspector.inspect_image("serving", "d" * 64)

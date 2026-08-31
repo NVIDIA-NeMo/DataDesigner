@@ -86,12 +86,7 @@ def _inspect_client() -> dict[str, object]:
     missing = tuple(name for name in _REQUIRED_CLIENT_DISTRIBUTIONS if name not in versions)
     if missing:
         raise RuntimeError(f"required client distributions are not installed: {', '.join(missing)}")
-    installer_distributions = tuple(
-        distribution for distribution in distributions if _distribution_name(distribution) == "pip"
-    )
-    if len(installer_distributions) != 1:
-        raise RuntimeError("required distribution 'pip' is not installed exactly once")
-    installer_distribution = installer_distributions[0]
+    installer_distribution = find_unique_distribution(distributions, "pip")
     installer_path = find_distribution_console_script(installer_distribution, "pip")
     cache_tag = sys.implementation.cache_tag
     if cache_tag is None:
@@ -109,10 +104,7 @@ def _inspect_client() -> dict[str, object]:
 
 
 def _inspect_serving() -> dict[str, object]:
-    try:
-        distribution = importlib.metadata.distribution("vllm")
-    except importlib.metadata.PackageNotFoundError as error:
-        raise RuntimeError("required distribution 'vllm' is not installed") from error
+    distribution = find_unique_distribution(importlib.metadata.distributions(), "vllm")
     executable_path = find_distribution_console_script(distribution, "vllm")
     return {
         "kind": "serving",
@@ -137,6 +129,22 @@ def _distribution_name(distribution: importlib.metadata.Distribution) -> str:
     if not raw_name:
         raise RuntimeError("installed distribution is missing its canonical name")
     return re.sub(r"[-_.]+", "-", raw_name).casefold()
+
+
+def find_unique_distribution(
+    distributions: Iterable[importlib.metadata.Distribution],
+    name: str,
+) -> importlib.metadata.Distribution:
+    """Select exactly one installed distribution by canonical name."""
+    canonical_name = re.sub(r"[-_.]+", "-", name).casefold()
+    matches = tuple(
+        distribution for distribution in distributions if _distribution_name(distribution) == canonical_name
+    )
+    if not matches:
+        raise RuntimeError(f"required distribution {canonical_name!r} is not installed")
+    if len(matches) != 1:
+        raise RuntimeError(f"required distribution {canonical_name!r} is not installed exactly once")
+    return matches[0]
 
 
 def find_distribution_console_script(distribution: importlib.metadata.Distribution, name: str) -> str:

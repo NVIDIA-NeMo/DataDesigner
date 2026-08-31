@@ -34,6 +34,7 @@ _PLAN_FILENAME = "image-lifecycle-plan.json"
 _SCRIPT_FILENAME = "image-lifecycle.sbatch"
 _RESOURCE_PACKAGE = "data_designer.slurm.images.resources"
 _IDENTIFIER_ADAPTER = TypeAdapter(Identifier)
+_MINIMUM_ENROOT_MAJOR = 4
 
 
 @dataclass(frozen=True, slots=True)
@@ -132,14 +133,18 @@ def render_image_lifecycle_script(plan: ImageLifecyclePlan) -> str:
         )
     )
     source_block = ""
+    existing_sqsh_preflight = ""
     if plan.operation is ImageLifecycleOperation.IMPORT_OCI:
         source_block = f"""readonly DD_OCI_SOURCE={quote_shell_value(_format_enroot_oci_uri(plan.request.source))}
 if [[ -e "${{DD_IMAGE_SQSH}}" || -L "${{DD_IMAGE_SQSH}}" ]]; then
     printf '%s\\n' 'candidate SQSH path already exists' >&2
     exit 73
 fi
+verify_enroot_compatibility
 enroot import -o "${{DD_IMAGE_SQSH}}" "${{DD_OCI_SOURCE}}"
 """
+    else:
+        existing_sqsh_preflight = "verify_enroot_compatibility\n"
 
     return f"""#!/usr/bin/env bash
 {directives}
@@ -166,6 +171,20 @@ verify_sha256() {{
     [[ "$(compute_file_sha256 "$2")" == "$1" ]]
 }}
 
+verify_enroot_compatibility() {{
+    local version major
+    version="$(enroot version)"
+    if [[ ! ${{version}} =~ ^([0-9]+)\\.([0-9]+)\\.([0-9]+)([-+][0-9A-Za-z.-]+)?$ ]]; then
+        printf '%s\\n' 'Enroot version output is invalid' >&2
+        exit 78
+    fi
+    major="${{BASH_REMATCH[1]}}"
+    if (( 10#${{major}} < {_MINIMUM_ENROOT_MAJOR} )); then
+        printf '%s\\n' 'Enroot 4 or newer is required for digest imports and processor-bounded extraction' >&2
+        exit 78
+    fi
+}}
+
 verify_sha256 "${{DD_INSPECTOR_SHA256}}" "${{DD_INSPECTOR}}"
 verify_sha256 "${{DD_ENROOT_RC_SHA256}}" "${{DD_ENROOT_RC}}"
 install -d -m 0700 \
@@ -188,7 +207,7 @@ export ENROOT_MAX_PROCESSORS="${{SLURM_CPUS_PER_TASK}}"
     printf '%s\\n' 'SQSH path must be a regular non-symlink file' >&2
     exit 66
 fi
-readonly DD_SQSH_SHA256="$(compute_file_sha256 "${{DD_IMAGE_SQSH}}")"
+{existing_sqsh_preflight}readonly DD_SQSH_SHA256="$(compute_file_sha256 "${{DD_IMAGE_SQSH}}")"
 if [[ ! ${{DD_SQSH_SHA256}} =~ ^[0-9a-f]{{64}}$ ]]; then
     printf '%s\\n' 'SQSH checksum output is invalid' >&2
     exit 65
