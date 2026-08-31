@@ -23,12 +23,10 @@ from data_designer.slurm.planning.models import (
     ResolvedTopology,
     ResumeWorkspace,
 )
-from data_designer.slurm.planning.validation import PlanContractError, validate_resolved_plan
 
 __all__ = [
     "ArtifactReference",
     "LockedPackage",
-    "PlanContractError",
     "PlannedShard",
     "PortClaim",
     "RecordRange",
@@ -43,5 +41,4 @@ __all__ = [
     "ResolvedSubmission",
     "ResolvedTopology",
     "ResumeWorkspace",
-    "validate_resolved_plan",
 ]

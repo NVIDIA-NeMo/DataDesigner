@@ -11,7 +11,7 @@ import pytest
 
 import data_designer.slurm.serving.resolver as resolver_module
 from data_designer.slurm.config import QueueBackpressureConfig
-from data_designer.slurm.contracts import pretty_json
+from data_designer.slurm.contracts import compute_serialized_json_sha256, pretty_json
 from data_designer.slurm.planning import ResolvedDeployment, ResolvedSlurmRunPlan
 from data_designer.slurm.serving.deployment import ResolvedVllmServerDeployment
 from data_designer.slurm.serving.resolver import (
@@ -261,6 +261,11 @@ def _multi_group_plan(plan: ResolvedSlurmRunPlan) -> ResolvedSlurmRunPlan:
     payload = plan.model_dump(mode="json")
     payload["deployments"] = payload["deployments"][:1]
     payload["client"]["ports"] = payload["client"]["ports"][:1]
+    payload["builder"]["inline"]["data_designer"]["model_configs"] = payload["builder"]["inline"]["data_designer"][
+        "model_configs"
+    ][:1]
+    payload["builder"]["model_aliases"] = ["generator"]
+    payload["builder"]["content_sha256"] = compute_serialized_json_sha256(payload["builder"]["inline"])
     deployment = payload["deployments"][0]
     deployment["authored"]["resources"]["nodes"] = 4
     deployment["authored"]["topology"]["tensor_parallel"] = 4
