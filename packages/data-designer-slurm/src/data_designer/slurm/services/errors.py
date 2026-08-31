@@ -1,0 +1,100 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+"""Stable errors raised by public Slurm services."""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from enum import Enum
+from typing import TypeVar
+
+from data_designer.errors import DataDesignerError
+
+_ResultT = TypeVar("_ResultT")
+
+
+class SlurmServiceErrorCode(str, Enum):
+    """Machine-readable public service error categories."""
+
+    INVALID_REQUEST = "invalid_request"
+    NOT_FOUND = "not_found"
+    CONFLICT = "conflict"
+    UNAVAILABLE = "unavailable"
+    INTERNAL = "internal"
+
+
+class SlurmServiceOperation(str, Enum):
+    """Public operations with stable error attribution."""
+
+    PLAN_RUN = "plan_run"
+    RENDER_ATTEMPT = "render_attempt"
+    RESOLVE_IMAGE = "resolve_image"
+    RUN_BENCHMARK = "run_benchmark"
+    ANALYZE_BENCHMARK = "analyze_benchmark"
+
+
+class SlurmServiceError(DataDesignerError):
+    """Normalized public service failure with a stable code and operation.
+
+    The string form is caller-visible. Non-``INTERNAL`` messages must be
+    sanitized before construction and must never include raw exception details.
+    Facades replace dependency-raised ``INTERNAL`` messages with fixed text.
+
+    Args:
+        code: Machine-readable failure category.
+        operation: Public operation that failed.
+        message: Caller-safe text containing 1 to 512 characters.
+
+    Attributes:
+        code: Machine-readable failure category.
+        operation: Public operation that failed.
+    """
+
+    def __init__(
+        self,
+        code: SlurmServiceErrorCode,
+        operation: SlurmServiceOperation,
+        message: str,
+    ) -> None:
+        if not isinstance(code, SlurmServiceErrorCode):
+            raise TypeError("code must be a SlurmServiceErrorCode")
+        if not isinstance(operation, SlurmServiceOperation):
+            raise TypeError("operation must be a SlurmServiceOperation")
+        if type(message) is not str or not message or len(message) > 512:
+            raise ValueError("service error message must contain 1 to 512 characters")
+        if any(ord(character) < 32 or ord(character) == 127 for character in message):
+            raise ValueError("service error message must not contain control characters")
+        self.code = code
+        self.operation = operation
+        super().__init__(message)
+
+    def __reduce__(
+        self,
+    ) -> tuple[type[SlurmServiceError], tuple[SlurmServiceErrorCode, SlurmServiceOperation, str]]:
+        return type(self), (self.code, self.operation, str(self))
+
+
+def _make_invalid_request_error(operation: SlurmServiceOperation, message: str) -> SlurmServiceError:
+    """Build one normalized invalid-request error."""
+    return SlurmServiceError(SlurmServiceErrorCode.INVALID_REQUEST, operation, message)
+
+
+def _invoke_service_backend(operation: SlurmServiceOperation, call: Callable[[], _ResultT]) -> _ResultT:
+    """Preserve caller-safe failures and redact backend-internal details."""
+    try:
+        return call()
+    except SlurmServiceError as error:
+        if error.code is SlurmServiceErrorCode.INTERNAL:
+            pass
+        elif error.operation is operation:
+            raise
+        else:
+            raise SlurmServiceError(error.code, operation, str(error)) from None
+    except Exception:
+        pass
+    raise SlurmServiceError(
+        SlurmServiceErrorCode.INTERNAL,
+        operation,
+        f"{operation.value.replace('_', ' ')} failed",
+    ) from None
