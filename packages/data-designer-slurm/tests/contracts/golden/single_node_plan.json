@@ -1,15 +1,15 @@
 {
   "array_tasks": {
     "count": 1,
-    "max_concurrent": 1
+    "max_concurrent": null
   },
   "authored_config": {
     "path": "/workspace/primary/runs/run-single/authored-config.json",
-    "sha256": "3d092f4a6d3731d048c519b5e5a41b5f0c2973a4b3aff6459710dfbe64f66e18"
+    "sha256": "5b7614af448e9c647a2244257da37923784c3897e221a15f0a050b3e5f0c0324"
   },
   "builder": {
     "authored_source": null,
-    "content_sha256": "b3ef5fc1fe675a8e004633f84842ac60cf82d5ba3dc68b4d50ee4438448b0570",
+    "content_sha256": "0bac3a88498774a30b64f0a62617511c8e75601ca54e0b775d86484bb13788d8",
     "inline": {
       "data_designer": {
         "columns": [],
@@ -25,7 +25,6 @@
     "model_aliases": [
       "generator"
     ],
-    "referenced_model_aliases": [],
     "source": null
   },
   "client": {
@@ -201,6 +200,10 @@
       "resume": "never",
       "run_config": {}
     },
+    "effective_input_bindings": {
+      "managed_assets_path": "/workspace/primary/managed-assets",
+      "seed_path": null
+    },
     "effective_run_config": {
       "async_trace": false,
       "buffer_size": 16384,
@@ -231,7 +234,7 @@
   "resolved_gpus_per_node": 8,
   "run_id": "run-single",
   "runtime_bundle": {
-    "path": "/workspace/primary/runtime/runtime.tar.gz",
+    "path": "/workspace/primary/runtime/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee.tar.gz",
     "sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
   },
   "schema_version": 1,
