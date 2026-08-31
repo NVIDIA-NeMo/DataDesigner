@@ -10,18 +10,18 @@ import pytest
 from pydantic import ValidationError
 
 from data_designer.slurm.config import BuilderInput, ClientDependencies, DataDesignerSlurmConfig
-from data_designer.slurm.contracts import compute_canonical_json_sha256
+from data_designer.slurm.contracts import compute_serialized_json_sha256
 from data_designer.slurm.planning import (
     ArtifactReference,
-    PlanContractError,
     ResolvedBuilderInput,
     ResolvedDependencyLock,
     ResolvedDeployment,
     ResolvedSlurmRunPlan,
     ResolvedSubmission,
     ResolvedTopology,
-    validate_resolved_plan,
 )
+from data_designer.slurm.planning.errors import SlurmPlanContractError
+from data_designer.slurm.planning.validation import validate_resolved_plan
 
 
 def test_resolved_topology_derives_all_resource_fields() -> None:
@@ -105,7 +105,7 @@ def test_resolved_builder_rejects_plaintext_secrets(multi_node_plan: ResolvedSlu
     inline = payload["inline"]
     assert isinstance(inline, dict)
     inline["plugin_config"] = {"api_key": "VERY_SECRET_VALUE"}
-    payload["content_sha256"] = compute_canonical_json_sha256(inline)
+    payload["content_sha256"] = compute_serialized_json_sha256(inline)
 
     with pytest.raises(ValidationError, match="plaintext values under secret-bearing keys") as error:
         ResolvedBuilderInput.model_validate_json(json.dumps(payload))
@@ -134,6 +134,12 @@ def test_resolved_builder_rejects_plaintext_secrets(multi_node_plan: ResolvedSlu
         lambda payload: payload["output"].update(root="/outside/output"),
         lambda payload: payload.update(container_mounts=[]),
         lambda payload: payload["deployments"][0]["topology"].update(replica_count=2),
+        lambda payload: payload["invocation"]["effective_input_bindings"].update(
+            managed_assets_path="/workspace/other-assets"
+        ),
+        lambda payload: payload["runtime_bundle"].update(path="/tmp/" + "e" * 64 + ".tar.gz"),
+        lambda payload: payload["runtime_bundle"].update(path="/workspace/primary/runtime/runtime.tar.gz"),
+        lambda payload: payload["output"].update(root="/workspace/primary/managed-assets"),
     ],
 )
 def test_plan_rejects_invalid_boundaries(multi_node_plan: ResolvedSlurmRunPlan, mutator: object) -> None:
@@ -152,13 +158,13 @@ def test_plan_rejects_unmaterialized_run_config(multi_node_plan: ResolvedSlurmRu
         ResolvedSlurmRunPlan.model_validate(payload)
 
 
-def test_plan_preserves_default_non_inference_worker_count(
+def test_plan_requires_default_non_inference_worker_count(
     multi_node_plan: ResolvedSlurmRunPlan,
 ) -> None:
     payload = multi_node_plan.model_dump(mode="json")
     payload["invocation"]["effective_run_config"]["non_inference_max_parallel_workers"] = 32
 
-    with pytest.raises(ValidationError, match="RunConfig default"):
+    with pytest.raises(ValidationError, match="Data Designer default"):
         ResolvedSlurmRunPlan.model_validate_json(json.dumps(payload))
 
 
@@ -166,12 +172,31 @@ def test_plan_preserves_explicit_non_inference_worker_override(
     multi_node_plan: ResolvedSlurmRunPlan,
 ) -> None:
     payload = multi_node_plan.model_dump(mode="json")
-    payload["invocation"]["authored"]["run_config"]["non_inference_max_parallel_workers"] = 32
-    payload["invocation"]["effective_run_config"]["non_inference_max_parallel_workers"] = 32
+    payload["invocation"]["authored"]["run_config"]["non_inference_max_parallel_workers"] = 16
+    payload["invocation"]["effective_run_config"]["non_inference_max_parallel_workers"] = 16
 
     plan = ResolvedSlurmRunPlan.model_validate_json(json.dumps(payload))
 
-    assert plan.invocation.effective_run_config["non_inference_max_parallel_workers"] == 32
+    assert plan.invocation.effective_run_config["non_inference_max_parallel_workers"] == 16
+
+
+def test_plan_materializes_default_managed_assets_path(single_node_plan: ResolvedSlurmRunPlan) -> None:
+    assert single_node_plan.invocation.authored.input_bindings.managed_assets_path is None
+    assert single_node_plan.invocation.effective_input_bindings.managed_assets_path == (
+        "/workspace/primary/managed-assets"
+    )
+
+
+def test_plan_rejects_managed_assets_overlapping_workspace_state(
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    payload = single_node_plan.model_dump(mode="json")
+    managed_assets_path = "/workspace/primary/runs"
+    payload["invocation"]["authored"]["input_bindings"]["managed_assets_path"] = managed_assets_path
+    payload["invocation"]["effective_input_bindings"]["managed_assets_path"] = managed_assets_path
+
+    with pytest.raises(ValidationError, match="managed_assets_path"):
+        ResolvedSlurmRunPlan.model_validate_json(json.dumps(payload))
 
 
 def test_plan_rejects_otel_port_collision(multi_node_plan: ResolvedSlurmRunPlan) -> None:
@@ -207,19 +232,9 @@ def test_plan_rejects_deployment_alias_missing_from_builder(multi_node_plan: Res
         "model_configs"
     ][:1]
     payload["builder"]["model_aliases"] = ["generator"]
-    payload["builder"]["content_sha256"] = compute_canonical_json_sha256(payload["builder"]["inline"])
+    payload["builder"]["content_sha256"] = compute_serialized_json_sha256(payload["builder"]["inline"])
 
     with pytest.raises(ValidationError, match="deployment alias"):
-        ResolvedSlurmRunPlan.model_validate_json(json.dumps(payload))
-
-
-def test_plan_rejects_referenced_alias_without_deployment(multi_node_plan: ResolvedSlurmRunPlan) -> None:
-    payload = multi_node_plan.model_dump(mode="json")
-    payload["builder"]["inline"]["data_designer"]["columns"] = [{"model_alias": "missing"}]
-    payload["builder"]["referenced_model_aliases"] = ["missing"]
-    payload["builder"]["content_sha256"] = compute_canonical_json_sha256(payload["builder"]["inline"])
-
-    with pytest.raises(ValidationError, match="referenced Data Designer model alias"):
         ResolvedSlurmRunPlan.model_validate_json(json.dumps(payload))
 
 
@@ -273,19 +288,19 @@ def test_sourced_builder_validation_requires_resolved_payload(
     multi_node_plan: ResolvedSlurmRunPlan,
 ) -> None:
     sourced_authored = authored_run.model_copy(update={"builder": BuilderInput(source="builder.json")})
+    builder_digest = compute_serialized_json_sha256(authored_run.builder.inline)
     payload = multi_node_plan.model_dump(mode="json")
     payload["authored_config"]["sha256"] = sourced_authored.compute_sha256()
     payload["builder"] = {
         "authored_source": "builder.json",
-        "source": {"path": "/workspace/primary/runs/run-001/builder.json", "sha256": "a" * 64},
+        "source": {"path": "/workspace/primary/runs/run-001/builder-config.json", "sha256": builder_digest},
         "inline": None,
-        "content_sha256": "a" * 64,
+        "content_sha256": builder_digest,
         "model_aliases": ["generator", "judge"],
-        "referenced_model_aliases": [],
     }
     sourced_plan = ResolvedSlurmRunPlan.model_validate_json(json.dumps(payload))
 
-    with pytest.raises(PlanContractError, match="resolved payload"):
+    with pytest.raises(SlurmPlanContractError, match="resolved payload"):
         validate_resolved_plan(sourced_authored, dependency_lock, sourced_plan)
 
     assert (
@@ -297,6 +312,26 @@ def test_sourced_builder_validation_requires_resolved_payload(
         )
         is sourced_plan
     )
+
+
+@pytest.mark.parametrize(
+    ("builder_update", "message"),
+    [
+        ({"content_sha256": "a" * 64}, "builder digest"),
+        ({"model_aliases": ("other",)}, "model aliases"),
+    ],
+)
+def test_inline_builder_validation_rederives_identity(
+    authored_run: DataDesignerSlurmConfig,
+    dependency_lock: ResolvedDependencyLock,
+    multi_node_plan: ResolvedSlurmRunPlan,
+    builder_update: dict[str, object],
+    message: str,
+) -> None:
+    invalid = multi_node_plan.model_copy(update={"builder": multi_node_plan.builder.model_copy(update=builder_update)})
+
+    with pytest.raises(SlurmPlanContractError, match=message):
+        validate_resolved_plan(authored_run, dependency_lock, invalid)
 
 
 @pytest.mark.parametrize(
@@ -394,7 +429,7 @@ def test_cross_record_validation_rejects_authored_digest(
         }
     )
 
-    with pytest.raises(PlanContractError, match="authored config digest"):
+    with pytest.raises(SlurmPlanContractError, match="authored config digest"):
         validate_resolved_plan(authored_run, dependency_lock, invalid)
 
 
@@ -413,7 +448,7 @@ def test_cross_record_validation_rejects_dependency_lock_digest(
     )
     invalid = multi_node_plan.model_copy(update={"client": client})
 
-    with pytest.raises(PlanContractError, match="dependency lock digest"):
+    with pytest.raises(SlurmPlanContractError, match="dependency lock digest"):
         validate_resolved_plan(authored_run, dependency_lock, invalid)
 
 
@@ -431,7 +466,7 @@ def test_cross_record_validation_binds_authored_lock_source(
     plan_payload["client"]["authored"] = authored.client.model_dump(mode="json")
     plan = ResolvedSlurmRunPlan.model_validate_json(json.dumps(plan_payload))
 
-    with pytest.raises(PlanContractError, match="authored lock file"):
+    with pytest.raises(SlurmPlanContractError, match="authored lock file"):
         validate_resolved_plan(authored, dependency_lock, plan)
 
     lock_payload = dependency_lock.model_dump(mode="json")
@@ -454,7 +489,7 @@ def test_cross_record_validation_binds_authored_lock_source(
             )
         }
     )
-    with pytest.raises(PlanContractError, match="present for authored requirements"):
+    with pytest.raises(SlurmPlanContractError, match="present for authored requirements"):
         validate_resolved_plan(authored_run, matching_lock, unexpected_source_plan)
 
     matching_plan = plan.model_copy(
@@ -487,7 +522,7 @@ def test_cross_record_validation_rejects_python_abi(
     )
     invalid_plan = multi_node_plan.model_copy(update={"client": client})
 
-    with pytest.raises(PlanContractError, match="Python ABI"):
+    with pytest.raises(SlurmPlanContractError, match="Python ABI"):
         validate_resolved_plan(authored_run, invalid_lock, invalid_plan)
 
 
@@ -506,7 +541,7 @@ def test_cross_record_validation_rejects_image_inventory(
     )
     invalid_plan = multi_node_plan.model_copy(update={"client": client})
 
-    with pytest.raises(PlanContractError, match="image inventory"):
+    with pytest.raises(SlurmPlanContractError, match="image inventory"):
         validate_resolved_plan(authored_run, invalid_lock, invalid_plan)
 
 
@@ -520,7 +555,7 @@ def test_cross_record_validation_rejects_changed_invocation(
     )
     invalid = multi_node_plan.model_copy(update={"invocation": invocation})
 
-    with pytest.raises(PlanContractError, match="invocation"):
+    with pytest.raises(SlurmPlanContractError, match="invocation"):
         validate_resolved_plan(authored_run, dependency_lock, invalid)
 
 
@@ -533,5 +568,5 @@ def test_cross_record_validation_preserves_explicit_run_config(
     payload["invocation"]["effective_run_config"]["buffer_size"] = 16384
     invalid = ResolvedSlurmRunPlan.model_validate_json(json.dumps(payload))
 
-    with pytest.raises(PlanContractError, match="run_config.buffer_size"):
+    with pytest.raises(SlurmPlanContractError, match="run_config.buffer_size"):
         validate_resolved_plan(authored_run, dependency_lock, invalid)
