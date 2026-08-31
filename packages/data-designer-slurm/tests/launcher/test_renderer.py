@@ -36,6 +36,16 @@ def test_renderer_matches_contract_bound_goldens(
     assert render_generation_attempt_script(plan, attempt_ordinal=1) == (GOLDEN_DIRECTORY / fixture_name).read_text()
 
 
+def test_renderer_omits_unspecified_array_throttle(multi_node_plan: ResolvedSlurmRunPlan) -> None:
+    array_tasks = multi_node_plan.array_tasks.model_copy(update={"max_concurrent": None})
+    plan = multi_node_plan.model_copy(update={"array_tasks": array_tasks})
+
+    script = render_generation_attempt_script(plan, attempt_ordinal=1)
+
+    assert "#SBATCH --array=0-1\n" in script
+    assert "#SBATCH --array=0-1%" not in script
+
+
 def test_renderer_omits_gres_for_visible_mode_and_emits_optional_submission_fields(
     single_node_plan: ResolvedSlurmRunPlan,
 ) -> None:
@@ -98,7 +108,8 @@ def test_renderer_rejects_mem_per_gpu_without_a_slurm_gpu_request(
             "scheduler": SchedulerProfile(account="research", partition="batch", mem_per_gpu="80G"),
         }
     )
-    plan = single_node_plan.model_copy(update={"selected_profile": injected_profile(profile)})
+    selected_profile = single_node_plan.selected_profile.model_copy(update={"profile": profile})
+    plan = single_node_plan.model_copy(update={"selected_profile": selected_profile})
 
     with pytest.raises(SlurmBatchRenderError, match="requires GRES"):
         render_generation_attempt_script(plan, attempt_ordinal=1)

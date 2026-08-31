@@ -695,6 +695,7 @@ def test_run_validates_public_run_config_and_shard_count(authored_run: DataDesig
 
 @pytest.mark.parametrize("readiness_path", ["health", "//other-host/health", "/health check"])
 def test_small_config_values_validate_at_boundary(readiness_path: str) -> None:
+    assert ArrayTasksConfig(count=2).max_concurrent is None
     with pytest.raises(ValidationError, match="concurrency"):
         ArrayTasksConfig(count=2, max_concurrent=3)
     with pytest.raises(ValidationError, match="minutes"):
