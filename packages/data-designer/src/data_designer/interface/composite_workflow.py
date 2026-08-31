@@ -220,10 +220,11 @@ class CompositeWorkflow:
         _validate_dir_name(name, "stage name")
         if any(stage.name == name for stage in self._stages):
             raise DataDesignerWorkflowError(f"Stage name {name!r} is already used in workflow {self.name!r}.")
-        if num_records is not None and (
-            not isinstance(num_records, int) or isinstance(num_records, bool) or num_records < 1
-        ):
-            raise DataDesignerWorkflowError("Stage num_records must be at least 1.")
+        if num_records is not None:
+            if not isinstance(num_records, int) or isinstance(num_records, bool):
+                raise DataDesignerWorkflowError("Stage num_records must be an integer.")
+            if num_records < 1:
+                raise DataDesignerWorkflowError("Stage num_records must be at least 1.")
         if on_success_version is not None and not isinstance(on_success_version, str):
             raise DataDesignerWorkflowError("Stage on_success_version must be a string.")
         if not isinstance(allow_empty, bool):

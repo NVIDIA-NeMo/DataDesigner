@@ -372,6 +372,9 @@ def test_composite_workflow_rejects_invalid_stage_outputs(
 @pytest.mark.parametrize(
     ("kwargs", "match"),
     [
+        ({"num_records": "3"}, "num_records must be an integer"),
+        ({"num_records": True}, "num_records must be an integer"),
+        ({"num_records": 0}, "num_records must be at least 1"),
         ({"on_success_version": 1}, "on_success_version must be a string"),
         ({"allow_empty": "yes"}, "allow_empty must be a boolean"),
         ({"sampling_strategy": "ordered"}, "sampling_strategy must be a SamplingStrategy"),
