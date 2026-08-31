@@ -36,11 +36,11 @@ from data_designer.slurm.types import (
 # TODO: Remove these compatibility exports after Stage 2 branches import shared scalars from slurm.types.
 ModelAlias = str
 
-_Key = TypeVar("_Key")
-_Value = TypeVar("_Value")
+_KeyT = TypeVar("_KeyT")
+_ValueT = TypeVar("_ValueT")
 
 
-class _FrozenList(list[_Value]):
+class _FrozenList(list[_ValueT]):
     """List that retains JSON compatibility without exposing mutation."""
 
     def _immutable(self, *args: object, **kwargs: object) -> None:
@@ -61,7 +61,7 @@ class _FrozenList(list[_Value]):
     sort = _immutable
 
 
-class _FrozenDict(dict[_Key, _Value]):
+class _FrozenDict(dict[_KeyT, _ValueT]):
     """Dictionary that retains JSON compatibility without exposing mutation."""
 
     def _immutable(self, *args: object, **kwargs: object) -> None:
@@ -94,8 +94,8 @@ class ContractValue(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
         frozen=True,
-        allow_inf_nan=False,
         hide_input_in_errors=True,
+        allow_inf_nan=False,
         protected_namespaces=(),
         strict=True,
         validate_default=True,
@@ -167,6 +167,26 @@ def pretty_json(value: object) -> str:
 def compute_canonical_json_sha256(value: object) -> Sha256Digest:
     """Compute the canonical JSON digest of a JSON-compatible value."""
     return hashlib.sha256(canonical_json(value)).hexdigest()
+
+
+def compute_serialized_json_sha256(value: object) -> Sha256Digest:
+    """Compute the digest of deterministic persisted JSON bytes."""
+    return hashlib.sha256(pretty_json(value).encode("utf-8")).hexdigest()
+
+
+def derive_managed_assets_path(workspace_root: str) -> str:
+    """Derive the default managed-assets path from a workspace root."""
+    return posixpath.join(workspace_root, "managed-assets")
+
+
+def is_path_below(path: str, root: str) -> bool:
+    """Return whether a path is strictly below a root."""
+    return path != root and posixpath.commonpath((path, root)) == root
+
+
+def paths_overlap(left: str, right: str) -> bool:
+    """Return whether either path contains the other."""
+    return left == right or is_path_below(left, right) or is_path_below(right, left)
 
 
 # TODO: Remove after in-flight Stage 2 branches adopt the explicit canonical-JSON digest name.
@@ -284,6 +304,7 @@ __all__ = [
     "Duration",
     "EnvironmentName",
     "Identifier",
+    "ModelAlias",
     "NetworkPort",
     "NonNegativeDuration",
     "RecordRange",
@@ -293,6 +314,11 @@ __all__ = [
     "ShardId",
     "canonical_json",
     "compute_canonical_json_sha256",
+    "compute_serialized_json_sha256",
+    "compute_sha256",
+    "derive_managed_assets_path",
+    "is_path_below",
+    "paths_overlap",
     "pretty_json",
     "validate_absolute_path",
     "validate_local_config_path",
