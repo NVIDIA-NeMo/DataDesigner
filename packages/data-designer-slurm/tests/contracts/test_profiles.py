@@ -124,3 +124,12 @@ def test_profile_requires_explicit_version(profile_catalog: SlurmProfileCatalog)
 
     with pytest.raises(ValidationError, match="schema_version"):
         SlurmProfile.model_validate(payload)
+
+
+def test_profile_rejects_mem_per_gpu_without_gres(profile_catalog: SlurmProfileCatalog) -> None:
+    payload = profile_catalog.clusters["primary"].model_dump(mode="json")
+    payload["gpu_request_mode"] = "visible"
+    payload["scheduler"]["mem_per_gpu"] = "80G"
+
+    with pytest.raises(ValidationError, match="requires GRES"):
+        SlurmProfile.model_validate(payload)
