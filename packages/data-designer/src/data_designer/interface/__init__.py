@@ -22,19 +22,36 @@ if TYPE_CHECKING:
         DataDesignerWorkflowError,
     )
     from data_designer.interface.results import DatasetCreationResults  # noqa: F401
+    from data_designer.interface.workflow_metadata import (  # noqa: F401
+        CompletedWorkflowStageMetadata,
+        FailedWorkflowStageMetadata,
+        RunningWorkflowStageMetadata,
+        SkippedWorkflowStageMetadata,
+        WorkflowMetadata,
+        WorkflowStageMetadata,
+    )
 
 _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "CompositeWorkflow": ("data_designer.interface.composite_workflow", "CompositeWorkflow"),
     "CompositeWorkflowResults": ("data_designer.interface.composite_workflow", "CompositeWorkflowResults"),
+    "CompletedWorkflowStageMetadata": (
+        "data_designer.interface.workflow_metadata",
+        "CompletedWorkflowStageMetadata",
+    ),
     "DataDesigner": ("data_designer.interface.data_designer", "DataDesigner"),
     "DataDesignerEarlyShutdownError": ("data_designer.interface.errors", "DataDesignerEarlyShutdownError"),
     "DataDesignerGenerationError": ("data_designer.interface.errors", "DataDesignerGenerationError"),
     "DataDesignerProfilingError": ("data_designer.interface.errors", "DataDesignerProfilingError"),
     "DataDesignerWorkflowError": ("data_designer.interface.errors", "DataDesignerWorkflowError"),
     "DatasetCreationResults": ("data_designer.interface.results", "DatasetCreationResults"),
+    "FailedWorkflowStageMetadata": ("data_designer.interface.workflow_metadata", "FailedWorkflowStageMetadata"),
     "ResumeMode": ("data_designer.config.run_config", "ResumeMode"),
+    "RunningWorkflowStageMetadata": ("data_designer.interface.workflow_metadata", "RunningWorkflowStageMetadata"),
     "SkippedStageResult": ("data_designer.interface.composite_workflow", "SkippedStageResult"),
     "SkippedStageStatus": ("data_designer.interface.composite_workflow", "SkippedStageStatus"),
+    "SkippedWorkflowStageMetadata": ("data_designer.interface.workflow_metadata", "SkippedWorkflowStageMetadata"),
+    "WorkflowMetadata": ("data_designer.interface.workflow_metadata", "WorkflowMetadata"),
+    "WorkflowStageMetadata": ("data_designer.interface.workflow_metadata", "WorkflowStageMetadata"),
 }
 
 __all__ = list(_LAZY_IMPORTS.keys())

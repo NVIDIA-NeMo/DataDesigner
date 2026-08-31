@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import shutil
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
@@ -22,6 +23,7 @@ from data_designer.config.seed_source import LocalFileSeedSource
 from data_designer.config.seed_source_dataframe import DataFrameSeedSource
 from data_designer.engine.secret_resolver import PlaintextResolver
 from data_designer.engine.storage.artifact_storage import ArtifactStorage, BatchStage, ResumeMode
+from data_designer.interface import WorkflowMetadata
 from data_designer.interface.composite_workflow import SkippedStageResult, SkippedStageStatus
 from data_designer.interface.data_designer import DataDesigner
 from data_designer.interface.errors import DataDesignerWorkflowError
@@ -194,6 +196,9 @@ def test_composite_workflow_runs_linear_stages_with_disk_handoff(
     assert data_designer.artifact_path == stub_artifact_path
 
     metadata = _load_workflow_metadata(stub_artifact_path, "linear-chain")
+    metadata_path = stub_artifact_path / "linear-chain" / "workflow-metadata.json"
+    validated_metadata = WorkflowMetadata.model_validate_json(metadata_path.read_text())
+    assert validated_metadata.model_dump(mode="json", exclude_unset=True) == metadata
     assert [stage["status"] for stage in metadata["stages"]] == ["completed", "completed"]
     assert metadata["stages"][1]["seeded_from_stage"] == "base"
     assert metadata["stages"][1]["depends_on"] == ["base"]
@@ -362,6 +367,30 @@ def test_composite_workflow_rejects_invalid_stage_outputs(
 
     with pytest.raises(DataDesignerWorkflowError):
         workflow.add_stage("base", _category_builder(stub_model_configs), output=output)
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "match"),
+    [
+        ({"on_success_version": 1}, "on_success_version must be a string"),
+        ({"allow_empty": "yes"}, "allow_empty must be a boolean"),
+        ({"sampling_strategy": "ordered"}, "sampling_strategy must be a SamplingStrategy"),
+        ({"selection_strategy": {}}, "selection_strategy must be an IndexRange or PartitionBlock"),
+    ],
+)
+def test_composite_workflow_rejects_invalid_stage_metadata_before_artifacts(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_model_configs: list[ModelConfig],
+    kwargs: dict[str, Any],
+    match: str,
+) -> None:
+    workflow = _data_designer(stub_artifact_path, stub_model_providers).compose_workflow(name="invalid-version")
+
+    with pytest.raises(DataDesignerWorkflowError, match=match):
+        workflow.add_stage("base", _category_builder(stub_model_configs), **kwargs)
+
+    assert not stub_artifact_path.exists()
 
 
 def test_composite_workflow_rejects_unknown_processor_stage_output(
@@ -568,7 +597,7 @@ def test_composite_workflow_stage_output_override_path_must_exist(
     assert create_mock.call_count == 0
 
 
-def test_composite_workflow_resume_if_possible_skips_completed_stages(
+def test_composite_workflow_resume_if_possible_skips_legacy_completed_stages(
     stub_artifact_path: Path,
     stub_model_providers: list[ModelProvider],
     stub_model_configs: list[ModelConfig],
@@ -580,6 +609,13 @@ def test_composite_workflow_resume_if_possible_skips_completed_stages(
     workflow.add_stage("base", _category_builder(stub_model_configs), num_records=3)
     workflow.add_stage("copy", _copy_builder(stub_model_configs))
     workflow.run()
+    metadata_path = stub_artifact_path / "resume-skip" / "workflow-metadata.json"
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    metadata["workflow_extension"] = True
+    for stage in metadata["stages"]:
+        stage.pop("stage_output_override_path")
+        stage["stage_extension"] = {"value": stage["index"]}
+    metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
     create_mock.reset_mock()
 
     resumed = data_designer.compose_workflow(name="resume-skip")
@@ -590,6 +626,10 @@ def test_composite_workflow_resume_if_possible_skips_completed_stages(
     assert create_mock.call_count == 0
     assert results.count_records() == 3
     assert results.load_dataset()["category"].tolist() == ["alpha", "alpha", "alpha"]
+    resumed_metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    assert resumed_metadata["workflow_extension"] is True
+    assert [stage["stage_extension"] for stage in resumed_metadata["stages"]] == [{"value": 0}, {"value": 1}]
+    assert all("stage_output_override_path" not in stage for stage in resumed_metadata["stages"])
 
 
 def test_composite_workflow_resume_if_possible_skips_stage_with_output_processors(
@@ -825,6 +865,30 @@ def test_composite_workflow_resume_if_possible_invalid_metadata_shape_starts_fre
     assert [call.kwargs["dataset_name"] for call in create_mock.call_args_list] == ["stage-0-base", "stage-1-copy"]
 
 
+def test_composite_workflow_resume_if_possible_invalid_stage_metadata_starts_fresh(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_model_configs: list[ModelConfig],
+    stub_dataset_profiler_results,
+) -> None:
+    data_designer = _data_designer(stub_artifact_path, stub_model_providers)
+    create_mock = _patch_create(data_designer, stub_dataset_profiler_results)
+    workflow = data_designer.compose_workflow(name="resume-invalid-stage")
+    workflow.add_stage("base", _category_builder(stub_model_configs), num_records=2)
+    workflow.run()
+    metadata_path = stub_artifact_path / "resume-invalid-stage" / "workflow-metadata.json"
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    metadata["stages"][0]["status"] = "unknown"
+    metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+    create_mock.reset_mock()
+
+    resumed = data_designer.compose_workflow(name="resume-invalid-stage")
+    resumed.add_stage("base", _category_builder(stub_model_configs), num_records=2)
+    resumed.run(resume=ResumeMode.IF_POSSIBLE)
+
+    assert [call.kwargs["dataset_name"] for call in create_mock.call_args_list] == ["stage-0-base"]
+
+
 @pytest.mark.parametrize("status", ["running", "failed"])
 def test_composite_workflow_resume_if_possible_delegates_matching_resumable_stage(
     stub_artifact_path: Path,
@@ -932,6 +996,29 @@ def test_composite_workflow_resume_always_rejects_invalid_metadata_shape(
 
     resumed = data_designer.compose_workflow(name="resume-invalid-shape-always")
     resumed.add_stage("base", _category_builder(stub_model_configs), num_records=2)
+    with pytest.raises(DataDesignerWorkflowError, match="workflow metadata has invalid shape"):
+        resumed.run(resume=ResumeMode.ALWAYS)
+
+
+def test_composite_workflow_resume_always_rejects_invalid_stage_metadata(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_model_configs: list[ModelConfig],
+    stub_dataset_profiler_results,
+) -> None:
+    data_designer = _data_designer(stub_artifact_path, stub_model_providers)
+    _patch_create(data_designer, stub_dataset_profiler_results)
+    workflow = data_designer.compose_workflow(name="resume-invalid-stage-always")
+    workflow.add_stage("base", _category_builder(stub_model_configs), num_records=2)
+    workflow.run()
+    metadata_path = stub_artifact_path / "resume-invalid-stage-always" / "workflow-metadata.json"
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    metadata["stages"][0]["status"] = "unknown"
+    metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+
+    resumed = data_designer.compose_workflow(name="resume-invalid-stage-always")
+    resumed.add_stage("base", _category_builder(stub_model_configs), num_records=2)
+
     with pytest.raises(DataDesignerWorkflowError, match="workflow metadata has invalid shape"):
         resumed.run(resume=ResumeMode.ALWAYS)
 
