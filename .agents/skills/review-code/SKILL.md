@@ -177,7 +177,7 @@ Re-read the changed files with a focus on **structure and design of the new/modi
 - If one module owns distinct phases such as authored config, resolution, compilation, and validation, would splitting those responsibilities make ownership and future changes clearer?
 - Are new dependencies flowing in the right direction?
 - Could this introduce circular imports or unnecessary coupling?
-- Does every symbol live in the module that owns it? A leading-underscore helper imported by sibling modules is a misplaced shared API, not truly private.
+- Does every symbol live in the module that owns it? Treat a leading-underscore helper imported by sibling modules as a signal to inspect ownership and package-export intent. Package-private sharing can be legitimate when the defining module owns the helper and it remains intentionally unexported.
 - Are helpers scoped to their actual consumers? Logic used only to validate or construct one class usually belongs on that class instead of in module-level generic machinery.
 - Are re-exports intentional and sourced from the defining module rather than incidental import chains?
 - Is there one canonical public entry point per operation, or do class methods plus module-level wrappers expose redundant APIs?
@@ -203,13 +203,13 @@ Review every item in the Step 3 inventory individually, using the invariant map 
 - Does the API vocabulary match neighboring builders and established cardinality? For example, repeatable collection operations should follow the existing `add_*` convention, while `with_*` should retain its established singleton/configuration meaning.
 - Is every exported symbol meant to become a compatibility commitment? Keep implementation bases, compiler internals, and shared utilities private unless external callers need them.
 - Are exceptions named and located at the right subsystem boundary? Avoid generic names that become ambiguous when imported, and prefer the project's canonical error hierarchy over parallel local taxonomies.
-- Can callers determine parameter semantics, accepted representations, return values, lifecycle transitions, and raised project errors from the public contract itself? Flag ambiguous or incomplete API design, not missing comments or docstrings.
+- Can callers determine parameter semantics, accepted representations, return values, lifecycle transitions, and raised project errors from the public contract itself? Flag ambiguous or incomplete API design separately from project-standard docstring coverage.
 
 **Boundary and representation checks:**
 
 - Treat plugin-owned or opaque payloads as opaque. Core code may validate a stable envelope it owns, but should not infer extension semantics from familiar-looking keys or current built-in payload shapes.
 - Test the boundary with an unfamiliar future extension value. If valid unknown fields or plugin payloads are rejected, stripped, or reinterpreted, the abstraction is not actually extensible.
-- At exception boundaries, inspect both the public exception and its chained cause. The wrapper should give stable project context without hiding the actionable third-party validation detail.
+- At exception boundaries, inspect the public error and how actionable detail is preserved. Use a safe chained cause when it will not expose sensitive provider data; otherwise put sanitized detail on the public error and suppress the raw cause with `raise ... from None` according to boundary policy.
 
 **Documentation alignment (same pass — scoped, not a full docs audit):**
 
@@ -235,7 +235,7 @@ Final pass focused on **project conventions and test quality for new/modified co
 - Are mocks/stubs used appropriately (at boundaries, not deep internals)?
 - Do new test names clearly describe what they verify?
 - For new public contracts, do tests exercise direct supported construction as well as builder/factory paths, lifecycle transitions, malformed boundary input, and an unfamiliar extension/plugin case where applicable?
-- For normalized exceptions, do tests assert the stable public error and verify that the chained cause preserves useful underlying detail?
+- For normalized exceptions, do tests assert the stable public error and verify that actionable detail is preserved through either a safe chained cause or sanitized public-error detail without leaking provider secrets?
 
 **Project Standards (from AGENTS.md and STYLEGUIDE.md) — apply to new/modified code only:**
 
@@ -248,6 +248,7 @@ Verify the items below on lines introduced or changed by this branch. Refer to `
 - Absolute imports only (no relative imports)
 - Lazy loading for heavy third-party imports via `lazy_heavy_imports` + `TYPE_CHECKING`
 - Naming: snake_case functions starting with a verb, PascalCase classes, UPPER_SNAKE_CASE constants
+- Public API classes and functions have Google-style docstrings; private helpers need them only when their logic is non-obvious
 - No vacuous comments — comments only for non-obvious intent
 - Public before private ordering in new classes
 - Design principles: DRY (extract on third occurrence), KISS (flat over clever), YAGNI (no speculative abstractions)
@@ -289,7 +290,7 @@ Write as a supportive teammate, not a gatekeeper. The goal is to help the author
 
 Write the review as **GitHub-flavored Markdown** ready to post as a PR comment. Save it to a temporary file outside the repository (e.g. `/tmp/review-<pr-or-branch>.md`) so it doesn't pollute `git status`. Do not commit this file; treat it as ephemeral.
 
-Use the template below exactly — omit a severity section if it has no findings and omit the optional Residual Risk section when empty, but keep all other sections.
+Use the template below exactly — omit a severity section if it has no findings, include Open Questions only with **Needs discussion**, and omit Residual Risk when empty, but keep all other sections.
 
 ---
 
@@ -324,6 +325,10 @@ Separate each finding with a blank line. Use bold file-and-title as a heading li
 ### What Looks Good
 
 Call out 2-3 things done well (good abstractions, thorough tests, clean refactoring, etc.). Be genuine — positive feedback is part of a good review and helps the author know what to keep doing.
+
+### Open Questions (Needs discussion only)
+
+State the material question, why it affects compatibility or merge readiness, and the team decision needed.
 
 ### Residual Risk (optional)
 
@@ -381,7 +386,7 @@ In branch mode, skip this step — display the review to the user and note the t
 - Issues that are supposed to be caught by CI (linter, typechecker, formatter) — mention "run `make check-all`" if relevant, but don't list every style nit
 - Pre-existing issues on unmodified lines
 - Pedantic nits that don't affect correctness or maintainability
-- Missing comments or docstrings when behavior and the public contract are otherwise clear; flag the underlying ambiguity when they are not
+- Missing docstrings on private helpers when their purpose is clear, or prose-only comment/docstring nits that do not affect correctness or understanding; public API docstrings remain required by `STYLEGUIDE.md`
 - Intentional functionality or API changes that are clearly documented, unless the new design introduces a concrete correctness, extensibility, or compatibility risk, or a maintainability risk that would require a breaking change to correct
 
 ## Edge Cases
