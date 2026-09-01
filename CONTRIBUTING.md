@@ -50,7 +50,7 @@ The repository includes skills for common development tasks. These are located i
 
 ## Pull Requests
 
-- PRs must link to the issue they address (`Fixes #NNN` or `Closes #NNN`). For external contributors, this is enforced by a required status check: the linked issue must exist and carry the `triaged` label (added by a maintainer after review). Collaborators are exempt from this check. You can open the PR before the issue is triaged - the check re-runs automatically once a maintainer adds the label.
+- PRs should link to the issue they address (`Fixes #NNN` or `Closes #NNN`). For external contributors, the linked-issue workflow reports whether the issue exists, is open, and carries the `triaged` label (added by a maintainer after review). Collaborators are exempt from this check. Repository rules must separately require `Linked Issue Check / check` for the result to block merging. You can open the PR before the issue is triaged - the check re-runs automatically when the selected issue gains or loses the label, is closed, or is reopened.
 - PRs with failing checks that remain inactive are automatically reminded after 7 days and closed after 14 days (collaborators: 14/28 days). Push an update or leave a comment to reset the timer. If you need more time, ask a maintainer to add the `keep-open` label.
 - Use the `create-pr` skill for well-formatted PR descriptions, or follow the PR template
 - Ensure all checks pass before requesting review:
