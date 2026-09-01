@@ -29,6 +29,7 @@ if TYPE_CHECKING:
         SkippedWorkflowStageMetadata,
         WorkflowMetadata,
         WorkflowStageMetadata,
+        WorkflowStageMetadataVariant,
     )
 
 _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
@@ -52,6 +53,10 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "SkippedWorkflowStageMetadata": ("data_designer.interface.workflow_metadata", "SkippedWorkflowStageMetadata"),
     "WorkflowMetadata": ("data_designer.interface.workflow_metadata", "WorkflowMetadata"),
     "WorkflowStageMetadata": ("data_designer.interface.workflow_metadata", "WorkflowStageMetadata"),
+    "WorkflowStageMetadataVariant": (
+        "data_designer.interface.workflow_metadata",
+        "WorkflowStageMetadataVariant",
+    ),
 }
 
 __all__ = list(_LAZY_IMPORTS.keys())

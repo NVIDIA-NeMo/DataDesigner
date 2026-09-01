@@ -909,8 +909,20 @@ def test_composite_workflow_resume_if_possible_delegates_matching_resumable_stag
     metadata_path = stub_artifact_path / "resume-partial" / "workflow-metadata.json"
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
     _mark_stage_resumable(metadata, 0, status)
+    # duration_sec is schema-owned by failed metadata, but is an extension on running metadata.
+    if status == "failed":
+        metadata["stages"][0]["duration_sec"] = 123.0
+    metadata["stages"][0]["stage_extension"] = {"value": status}
     metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
     create_mock.reset_mock()
+    create_side_effect = create_mock.side_effect
+    metadata_at_create: list[dict[str, Any]] = []
+
+    def capture_create(*args: Any, **kwargs: Any) -> DatasetCreationResults:
+        metadata_at_create.append(json.loads(metadata_path.read_text(encoding="utf-8")))
+        return create_side_effect(*args, **kwargs)
+
+    create_mock.side_effect = capture_create
 
     resumed = data_designer.compose_workflow(name="resume-partial")
     resumed.add_stage("base", _category_builder(stub_model_configs), num_records=2)
@@ -919,6 +931,10 @@ def test_composite_workflow_resume_if_possible_delegates_matching_resumable_stag
 
     assert [call.kwargs["dataset_name"] for call in create_mock.call_args_list] == ["stage-0-base", "stage-1-copy"]
     assert [call.kwargs["resume"] for call in create_mock.call_args_list] == [ResumeMode.ALWAYS, ResumeMode.NEVER]
+    assert metadata_at_create[0]["stages"][0]["stage_extension"] == {"value": status}
+    assert "duration_sec" not in metadata_at_create[0]["stages"][0]
+    resumed_metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    assert resumed_metadata["stages"][0]["stage_extension"] == {"value": status}
 
 
 def test_composite_workflow_resume_always_reruns_descendants_after_partial_stage(

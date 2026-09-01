@@ -5,10 +5,10 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal, TypeAlias
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, RootModel
 
 
-class WorkflowStageMetadata(BaseModel):
+class _WorkflowStageMetadataBase(BaseModel):
     """Common metadata for a composite workflow stage."""
 
     model_config = ConfigDict(extra="allow")
@@ -26,7 +26,7 @@ class WorkflowStageMetadata(BaseModel):
     selection_strategy: dict[str, Any] | None
 
 
-class _StartedWorkflowStageMetadata(WorkflowStageMetadata):
+class _StartedWorkflowStageMetadata(_WorkflowStageMetadataBase):
     fingerprint: str
     num_records_requested: int
     seeded_from_stage: str | None
@@ -60,20 +60,24 @@ class CompletedWorkflowStageMetadata(_StartedWorkflowStageMetadata):
     duration_sec: float
 
 
-class SkippedWorkflowStageMetadata(WorkflowStageMetadata):
+class SkippedWorkflowStageMetadata(_WorkflowStageMetadataBase):
     """Metadata for a stage skipped after an empty upstream stage."""
 
     status: Literal["skipped_empty_upstream"]
     upstream_stage: str
 
 
-_WorkflowStageMetadataVariant: TypeAlias = Annotated[
+WorkflowStageMetadataVariant: TypeAlias = Annotated[
     RunningWorkflowStageMetadata
     | FailedWorkflowStageMetadata
     | CompletedWorkflowStageMetadata
     | SkippedWorkflowStageMetadata,
     Field(discriminator="status"),
 ]
+
+
+class WorkflowStageMetadata(RootModel[WorkflowStageMetadataVariant]):
+    """Status-specific stage metadata, with the concrete model available through ``root``."""
 
 
 class WorkflowMetadata(BaseModel):
@@ -83,4 +87,4 @@ class WorkflowMetadata(BaseModel):
 
     name: str
     library_version: str
-    stages: list[_WorkflowStageMetadataVariant]
+    stages: list[WorkflowStageMetadataVariant]

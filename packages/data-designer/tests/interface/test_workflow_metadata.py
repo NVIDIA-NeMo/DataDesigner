@@ -16,6 +16,7 @@ from data_designer.interface import (
     SkippedWorkflowStageMetadata,
     WorkflowMetadata,
     WorkflowStageMetadata,
+    WorkflowStageMetadataVariant,
 )
 
 
@@ -49,11 +50,11 @@ def started_stage_metadata() -> dict[str, Any]:
 def test_workflow_metadata_models_are_public() -> None:
     assert interface.WorkflowMetadata is WorkflowMetadata
     assert interface.WorkflowStageMetadata is WorkflowStageMetadata
+    assert interface.WorkflowStageMetadataVariant is WorkflowStageMetadataVariant
     assert interface.RunningWorkflowStageMetadata is RunningWorkflowStageMetadata
     assert interface.FailedWorkflowStageMetadata is FailedWorkflowStageMetadata
     assert interface.CompletedWorkflowStageMetadata is CompletedWorkflowStageMetadata
     assert interface.SkippedWorkflowStageMetadata is SkippedWorkflowStageMetadata
-    assert issubclass(RunningWorkflowStageMetadata, WorkflowStageMetadata)
 
 
 @pytest.mark.parametrize(
@@ -102,9 +103,14 @@ def test_workflow_metadata_supports_stage_statuses(
     stage = base_stage_metadata | status_fields
     if status_fields["status"] != "skipped_empty_upstream":
         stage |= started_stage_metadata
+    stage["stage_extension"] = {"value": status_fields["status"]}
 
+    standalone_metadata = WorkflowStageMetadata.model_validate(stage)
     metadata = WorkflowMetadata.model_validate({"name": "example", "library_version": "0.9.2", "stages": [stage]})
 
+    assert isinstance(standalone_metadata.root, expected_type)
+    assert standalone_metadata.model_dump(mode="json", exclude_unset=True) == stage
+    assert WorkflowStageMetadata.model_validate_json(standalone_metadata.model_dump_json()) == standalone_metadata
     assert isinstance(metadata.stages[0], expected_type)
     restored = WorkflowMetadata.model_validate_json(metadata.model_dump_json())
     assert restored == metadata
@@ -168,11 +174,16 @@ def test_workflow_metadata_rejects_invalid_stage_metadata(
     base_stage_metadata: dict[str, Any],
     stage_fields: dict[str, Any],
 ) -> None:
+    stage = base_stage_metadata | stage_fields
+
+    with pytest.raises(ValidationError):
+        WorkflowStageMetadata.model_validate(stage)
+
     with pytest.raises(ValidationError):
         WorkflowMetadata.model_validate(
             {
                 "name": "example",
                 "library_version": "0.9.2",
-                "stages": [base_stage_metadata | stage_fields],
+                "stages": [stage],
             }
         )

@@ -40,7 +40,7 @@ from data_designer.interface.results import (
     _export_jsonl,
     _export_parquet,
 )
-from data_designer.interface.workflow_metadata import WorkflowMetadata
+from data_designer.interface.workflow_metadata import WorkflowMetadata, WorkflowStageMetadata
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -400,6 +400,10 @@ class CompositeWorkflow:
                 raise DataDesignerWorkflowError(
                     f"Cannot resume workflow {self.name!r}: stage {stage.name!r} is not reusable."
                 )
+
+            if stage_resume == ResumeMode.ALWAYS and prior_stage_metadata is not None:
+                prior_stage = WorkflowStageMetadata.model_validate(prior_stage_metadata).root
+                stage_metadata.update(prior_stage.model_extra or {})
 
             if stage_resume == ResumeMode.NEVER and stage_path.exists():
                 shutil.rmtree(stage_path)
