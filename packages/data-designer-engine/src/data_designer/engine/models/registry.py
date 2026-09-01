@@ -93,10 +93,10 @@ class ModelRegistry:
         return self._retry_config
 
     def register_model_configs(self, model_configs: list[ModelConfig]) -> None:
-        """Register a new Model configuration at runtime.
+        """Register new Model configurations at runtime.
 
         Args:
-            model_config: A new Model configuration to register. If an
+            model_configs: New Model configurations to register. If a
                 Model configuration already exists in the registry
                 with the same name, then it will be overwritten.
         """

@@ -9,11 +9,12 @@ on:
     types: [opened, edited, synchronize, reopened]
     branches: [main]
 
-  # Re-check open PRs when a maintainer adds the "triaged" label to an issue.
+  # Re-check open PRs when linked-issue validity changes.
   issues:
-    types: [labeled]
+    types: [labeled, unlabeled, closed, reopened]
 
 permissions:
+  actions: write
   contents: read
   pull-requests: write
   issues: read
@@ -88,7 +89,7 @@ jobs:
           echo "issue_num=${ISSUE_NUM}" >> "$GITHUB_OUTPUT"
           echo "Parsed issue number: ${ISSUE_NUM:-<none>}"
 
-      - name: Validate issue exists and is triaged
+      - name: Validate issue is open and triaged
         id: validate
         if: steps.author.outputs.is_collaborator != 'true' && steps.parse.outputs.issue_num != ''
         env:
@@ -97,6 +98,7 @@ jobs:
         run: |
           RESPONSE=$(gh api "repos/${{ github.repository }}/issues/${ISSUE_NUM}" 2>/dev/null) || {
             echo "issue_exists=false" >> "$GITHUB_OUTPUT"
+            echo "is_open=false" >> "$GITHUB_OUTPUT"
             echo "is_triaged=false" >> "$GITHUB_OUTPUT"
             echo "Issue #${ISSUE_NUM} not found"
             exit 0
@@ -106,6 +108,7 @@ jobs:
           IS_PR=$(echo "$RESPONSE" | jq -r 'has("pull_request")')
           if [ "$IS_PR" = "true" ]; then
             echo "issue_exists=false" >> "$GITHUB_OUTPUT"
+            echo "is_open=false" >> "$GITHUB_OUTPUT"
             echo "is_triaged=false" >> "$GITHUB_OUTPUT"
             echo "#${ISSUE_NUM} is a pull request, not an issue"
             exit 0
@@ -113,9 +116,17 @@ jobs:
 
           echo "issue_exists=true" >> "$GITHUB_OUTPUT"
 
+          ISSUE_OPEN=$(echo "$RESPONSE" | jq -r '.state == "open"')
+          echo "is_open=${ISSUE_OPEN}" >> "$GITHUB_OUTPUT"
+          if [ "$ISSUE_OPEN" != "true" ]; then
+            echo "is_triaged=false" >> "$GITHUB_OUTPUT"
+            echo "Issue #${ISSUE_NUM} is closed"
+            exit 0
+          fi
+
           TRIAGED=$(echo "$RESPONSE" | jq -r '[.labels[].name] | any(. == "triaged")')
           echo "is_triaged=${TRIAGED}" >> "$GITHUB_OUTPUT"
-          echo "Issue #${ISSUE_NUM} exists, triaged=${TRIAGED}"
+          echo "Issue #${ISSUE_NUM} is open, triaged=${TRIAGED}"
 
       - name: Build comment body and post result
         id: comment
@@ -124,6 +135,7 @@ jobs:
           IS_COLLABORATOR: ${{ steps.author.outputs.is_collaborator }}
           ISSUE_NUM: ${{ steps.parse.outputs.issue_num }}
           ISSUE_EXISTS: ${{ steps.validate.outputs.issue_exists }}
+          ISSUE_OPEN: ${{ steps.validate.outputs.is_open }}
           IS_TRIAGED: ${{ steps.validate.outputs.is_triaged }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           REPO: ${{ github.repository }}
@@ -131,9 +143,11 @@ jobs:
           MARKER="<!-- linked-issue-check -->"
 
           # Find existing bot comment with our marker.
-          COMMENT_ID=$(gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" \
-            --jq "[.[] | select(.user.login == \"github-actions[bot]\") | select(.body | contains(\"${MARKER}\"))] | last | .id // empty" \
+          COMMENT_IDS=$(gh api --paginate \
+            "repos/${REPO}/issues/${PR_NUMBER}/comments?per_page=100" \
+            --jq ".[] | select(.user.login == \"github-actions[bot]\") | select(.body | contains(\"${MARKER}\")) | .id" \
             2>/dev/null || echo "")
+          COMMENT_ID=$(printf '%s\n' "$COMMENT_IDS" | tail -1)
 
           if [ "$IS_COLLABORATOR" = "true" ]; then
             echo "status=pass" >> "$GITHUB_OUTPUT"
@@ -152,7 +166,7 @@ jobs:
           ### Linked Issue Check
 
           This PR does not reference an issue. External contributions must link to
-          a triaged issue before the PR can be merged.
+          an open, triaged issue for this check to pass.
 
           Add one of the following to your PR description:
           - `Fixes #<issue-number>`
@@ -174,6 +188,15 @@ jobs:
           The referenced issue #${ISSUE_NUM} was not found. Please check the issue
           number in your PR description.
           MSG
+          elif [ "$ISSUE_OPEN" != "true" ]; then
+            STATUS="fail"
+            cat > /tmp/comment-body.md <<MSG
+          <!-- linked-issue-check -->
+          ### Linked Issue Check
+
+          Issue #${ISSUE_NUM} is closed. Please link an open, triaged issue in your
+          PR description.
+          MSG
           elif [ "$IS_TRIAGED" != "true" ]; then
             STATUS="fail"
             cat > /tmp/comment-body.md <<MSG
@@ -181,7 +204,7 @@ jobs:
           ### Linked Issue Check
 
           Issue #${ISSUE_NUM} has not been triaged yet. A maintainer needs to review
-          the issue and add the \`triaged\` label before this PR can be merged.
+          the issue and add the \`triaged\` label for this check to pass.
 
           You can continue working on the PR in the meantime. The check will
           re-run automatically once the issue is triaged.
@@ -211,12 +234,20 @@ jobs:
           echo "::error::Linked issue check failed. See the PR comment for details."
           exit 1
 
-  # ── Job 2: re-trigger check when an issue gets triaged ────────────────
+  # ── Job 2: re-trigger check when linked-issue validity changes ───────
   retrigger:
     if: >-
       github.repository_owner == 'NVIDIA-NeMo'
       && github.event_name == 'issues'
-      && github.event.label.name == 'triaged'
+      && (
+        github.event.action == 'closed'
+        || github.event.action == 'reopened'
+        || (
+          (github.event.action == 'labeled' || github.event.action == 'unlabeled')
+          && github.event.label.name == 'triaged'
+          && github.event.issue.state == 'open'
+        )
+      )
     runs-on: ubuntu-latest
     steps:
       - name: Find PRs referencing this issue
@@ -228,7 +259,13 @@ jobs:
           # List open PRs and find those whose body references this issue.
           PRS=$(gh pr list --repo "${{ github.repository }}" --state open \
             --json number,body --limit 200 \
-            | jq -r "[.[] | select(.body != null) | select(.body | test(\"(?i)(fixes|closes|resolves)\\\\s+#${ISSUE_NUMBER}\\\\b\")) | .number] | .[]")
+            | jq -r --arg issue "$ISSUE_NUMBER" '
+                .[]
+                | select(.body != null)
+                | (.body | ascii_downcase | capture("(?:fixes|closes|resolves)\\s+#(?<issue>[0-9]+)")?) as $reference
+                | select($reference.issue == $issue)
+                | .number
+              ')
 
           if [ -z "$PRS" ]; then
             echo "No open PRs reference issue #${ISSUE_NUMBER}"
@@ -242,31 +279,50 @@ jobs:
         if: steps.find-prs.outputs.prs != ''
         env:
           GH_TOKEN: ${{ github.token }}
+          ISSUE_ACTION: ${{ github.event.action }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           PR_NUMBERS: ${{ steps.find-prs.outputs.prs }}
         run: |
-          TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          case "$ISSUE_ACTION" in
+            labeled)
+              EVENT_DESCRIPTION='received the `triaged` label'
+              ;;
+            unlabeled)
+              EVENT_DESCRIPTION='lost the `triaged` label'
+              ;;
+            closed)
+              EVENT_DESCRIPTION="was closed"
+              ;;
+            reopened)
+              EVENT_DESCRIPTION="was reopened"
+              ;;
+            *)
+              echo "::error::Unsupported issue action: ${ISSUE_ACTION}"
+              exit 1
+              ;;
+          esac
 
           for PR_NUM in $PR_NUMBERS; do
             echo "Re-triggering check for PR #${PR_NUM}..."
 
-            # Read current PR body to a file to avoid shell expansion issues.
-            gh pr view "$PR_NUM" --repo "${{ github.repository }}" --json body -q '.body' > /tmp/current-body.txt
+            # Find the latest completed run for this PR's current head commit.
+            # Editing the PR with the workflow's GITHUB_TOKEN would not trigger
+            # another workflow run.
+            HEAD_SHA=$(gh pr view "$PR_NUM" --repo "${{ github.repository }}" \
+              --json headRefOid --jq '.headRefOid')
+            RUN_ID=$(gh run list --repo "${{ github.repository }}" \
+              --workflow pr-linked-issue.yml --event pull_request_target \
+              --commit "$HEAD_SHA" --status completed --limit 1 \
+              --json databaseId --jq '.[0].databaseId')
 
-            # Append or update hidden timestamp to trigger the 'edited' event,
-            # which re-runs the check job.
-            MARKER="<!-- triaged-recheck"
-            if grep -q "$MARKER" /tmp/current-body.txt; then
-              sed "s|<!-- triaged-recheck[^>]*-->|<!-- triaged-recheck: ${TIMESTAMP} -->|" \
-                /tmp/current-body.txt > /tmp/pr-body.md
-            else
-              cp /tmp/current-body.txt /tmp/pr-body.md
-              printf '\n<!-- triaged-recheck: %s -->' "$TIMESTAMP" >> /tmp/pr-body.md
+            if [ -z "$RUN_ID" ]; then
+              echo "::warning::No completed Linked Issue Check run found for PR #${PR_NUM}"
+              continue
             fi
 
-            gh pr edit "$PR_NUM" --repo "${{ github.repository }}" --body-file /tmp/pr-body.md
+            gh run rerun "$RUN_ID" --repo "${{ github.repository }}"
 
             # Post a visible comment so the author knows what happened.
             gh pr comment "$PR_NUM" --repo "${{ github.repository }}" --body \
-              "Issue #${ISSUE_NUMBER} has been triaged. The linked issue check is being re-evaluated."
+              "Issue #${ISSUE_NUMBER} ${EVENT_DESCRIPTION}. The linked issue check is being re-evaluated."
           done
