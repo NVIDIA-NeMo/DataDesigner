@@ -12,16 +12,16 @@ from types import MappingProxyType
 from data_designer.slurm.client import ClientOutcome, ClientResult
 from data_designer.slurm.contracts import ArtifactReference, ShardId
 from data_designer.slurm.planning import PlannedShard, ResolvedSlurmRunPlan
-from data_designer.slurm.state import (
+from data_designer.slurm.state.execution import (
     AttemptLifecycleState,
     AttemptManifest,
-    AttemptReadiness,
     AttemptTerminalClassification,
-    CandidateOutputManifest,
-    ReadinessState,
     RunManifest,
     ShardManifest,
-    ShardWinner,
+)
+from data_designer.slurm.state.outputs import CandidateOutputManifest, ShardWinner
+from data_designer.slurm.state.readiness import AttemptReadiness, ReadinessState
+from data_designer.slurm.state.validation import (
     StateContractError,
     validate_shard_set,
 )

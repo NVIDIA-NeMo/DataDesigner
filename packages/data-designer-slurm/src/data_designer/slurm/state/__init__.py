@@ -21,6 +21,12 @@ from data_designer.slurm.state.base import (
     StateRecord,
     StateValue,
 )
+from data_designer.slurm.state.errors import (
+    SlurmStateError,
+    StateConflictError,
+    StateCorruptionError,
+    StateNotFoundError,
+)
 from data_designer.slurm.state.execution import (
     AttemptLifecycleState,
     AttemptManifest,
@@ -54,6 +60,7 @@ from data_designer.slurm.state.scheduler import (
     SchedulerObservation,
     SchedulerState,
 )
+from data_designer.slurm.state.store import SlurmStateWriter
 from data_designer.slurm.state.validation import (
     StateContractError,
     validate_attempt_manifest,
@@ -98,7 +105,12 @@ __all__ = [
     "ShardManifest",
     "ShardId",
     "ShardWinner",
+    "SlurmStateError",
+    "SlurmStateWriter",
+    "StateConflictError",
     "StateContractError",
+    "StateCorruptionError",
+    "StateNotFoundError",
     "StateRecord",
     "StateValue",
     "reconcile_attempt_observation",
