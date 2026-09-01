@@ -56,6 +56,7 @@ _LOCK_DIRECTORY_NAME = ".locks"
 _MAXIMUM_RECORD_SIZE = 16 * 1024 * 1024
 _SHARD_NAME_PATTERN = re.compile(r"^shard-[0-9]{5,}$")
 _ATTEMPT_NAME_PATTERN = re.compile(r"^attempt-[0-9]{4,}$")
+_TEMPORARY_NAME_PATTERN = re.compile(r"^\.state\.[0-9a-f]{16}\.tmp$")
 _IDENTIFIER_ADAPTER = TypeAdapter(Identifier)
 _SHARD_ID_ADAPTER = TypeAdapter(ShardId)
 _ATTEMPT_ID_ADAPTER = TypeAdapter(AttemptId)
@@ -124,10 +125,24 @@ class SlurmStateWriter:
             raise SlurmStateError(f"cannot initialize persisted run {self._run_id!r}") from error
 
     def load_run(self) -> RunManifest:
-        """Load the committed immutable run manifest."""
+        """Load the committed immutable run manifest.
+
+        Raises:
+            StateNotFoundError: If the run has not committed initialization.
+            StateCorruptionError: If the manifest is unsafe or invalid.
+        """
         try:
             with self._open_run_directory() as run_descriptor:
-                return self._read_record(run_descriptor, _RUN_FILENAME, self._run_root / _RUN_FILENAME, RunManifest)
+                run = self._read_record(run_descriptor, _RUN_FILENAME, self._run_root / _RUN_FILENAME, RunManifest)
+            expected_authored_path = (self._run_root / _AUTHORED_CONFIG_FILENAME).as_posix()
+            expected_plan_path = (self._run_root / _RESOLVED_PLAN_FILENAME).as_posix()
+            if (
+                run.run_id != self._run_id
+                or run.authored_config.path != expected_authored_path
+                or run.resolved_plan.path != expected_plan_path
+            ):
+                raise StateCorruptionError(f"run {self._run_id!r} manifest does not match its persisted location")
+            return run
         except FileNotFoundError as error:
             raise StateNotFoundError(f"run {self._run_id!r} is not initialized") from error
         except StateCorruptionError:
@@ -136,72 +151,43 @@ class SlurmStateWriter:
             raise StateCorruptionError(f"cannot load persisted run {self._run_id!r}") from error
 
     def load_authored_config(self) -> DataDesignerSlurmConfig:
-        """Load and digest-verify the run's immutable authored config."""
-        run = self.load_run()
-        try:
-            with self._open_run_directory() as run_descriptor:
-                authored_config = self._read_record(
-                    run_descriptor,
-                    _AUTHORED_CONFIG_FILENAME,
-                    self._run_root / _AUTHORED_CONFIG_FILENAME,
-                    DataDesignerSlurmConfig,
-                )
-        except (FileNotFoundError, OSError) as error:
-            raise StateCorruptionError(f"run {self._run_id!r} has no valid authored config") from error
-        expected_path = (self._run_root / _AUTHORED_CONFIG_FILENAME).as_posix()
-        if run.authored_config.path != expected_path or run.authored_config.sha256 != authored_config.compute_sha256():
-            raise StateCorruptionError(f"run {self._run_id!r} authored config does not match its manifest")
-        return authored_config
+        """Load and digest-verify the run's immutable authored config.
+
+        Raises:
+            StateNotFoundError: If the run has not committed initialization.
+            StateCorruptionError: If the config is unsafe, invalid, or does not match its manifest.
+        """
+        return self._load_authored_config_for_run(self.load_run())
 
     def load_resolved_plan(self) -> ResolvedSlurmRunPlan:
-        """Load and digest-verify the run's immutable resolved plan."""
-        run = self.load_run()
-        try:
-            with self._open_run_directory() as run_descriptor:
-                plan = self._read_record(
-                    run_descriptor,
-                    _RESOLVED_PLAN_FILENAME,
-                    self._run_root / _RESOLVED_PLAN_FILENAME,
-                    ResolvedSlurmRunPlan,
-                )
-        except (FileNotFoundError, OSError) as error:
-            raise StateCorruptionError(f"run {self._run_id!r} has no valid resolved plan") from error
-        expected_path = (self._run_root / _RESOLVED_PLAN_FILENAME).as_posix()
-        if run.resolved_plan.path != expected_path or run.resolved_plan.sha256 != plan.compute_sha256():
-            raise StateCorruptionError(f"run {self._run_id!r} resolved plan does not match its manifest")
-        if run.authored_config != plan.authored_config:
-            raise StateCorruptionError(f"run {self._run_id!r} resolved plan does not bind its authored config")
-        self.load_authored_config()
-        return plan
+        """Load and digest-verify the run's immutable resolved plan.
+
+        Raises:
+            StateNotFoundError: If the run has not committed initialization.
+            StateCorruptionError: If persisted intent is unsafe, invalid, or digest-inconsistent.
+        """
+        return self._load_resolved_plan_for_run(self.load_run())
 
     def load_shards(self) -> tuple[ShardManifest, ...]:
-        """Load and validate the complete ordered shard set."""
+        """Load and validate the complete ordered shard set.
+
+        Raises:
+            StateNotFoundError: If the run has not committed initialization.
+            StateCorruptionError: If the shard set is unsafe, incomplete, or disagrees with the plan.
+        """
         run = self.load_run()
-        try:
-            with self._open_run_directory() as run_descriptor:
-                with open_verified_child_directory(
-                    run_descriptor,
-                    _SHARDS_DIRECTORY_NAME,
-                    self._run_root / _SHARDS_DIRECTORY_NAME,
-                ) as shards_descriptor:
-                    expected_names = tuple(f"shard-{index:05d}" for index in range(run.shard_count))
-                    actual_names = tuple(
-                        sorted(name for name in os.listdir(shards_descriptor) if not name.startswith("."))
-                    )
-                    if actual_names != expected_names:
-                        raise StateCorruptionError(f"run {self._run_id!r} has an incomplete shard directory set")
-                    shards = tuple(self._read_shard(shards_descriptor, shard_name) for shard_name in expected_names)
-            PlanStateValidator(self.load_resolved_plan()).validate_plan_shards(run, shards)
-            return shards
-        except (IntegrationContractError, StateContractError) as error:
-            raise StateCorruptionError(f"run {self._run_id!r} has invalid persisted shards") from error
-        except StateCorruptionError:
-            raise
-        except (FileNotFoundError, OSError) as error:
-            raise StateCorruptionError(f"run {self._run_id!r} has unreadable persisted shards") from error
+        plan = self._load_resolved_plan_for_run(run)
+        return self._load_shards_for_context(run, plan)
 
     def create_attempt(self, attempt: AttemptManifest) -> AttemptManifest:
-        """Publish the next monotonically numbered attempt for one shard."""
+        """Publish the next monotonically numbered attempt for one shard.
+
+        Raises:
+            StateConflictError: If the attempt is not the next ordinal or conflicts with persisted state.
+            StateNotFoundError: If its run or shard is not persisted.
+            StateCorruptionError: If existing run state is invalid.
+            SlurmStateError: If the attempt cannot be published safely.
+        """
         self._validate_attempt_location(attempt)
         try:
             with self._run_lock(), self._shard_lock(attempt.shard_id):
@@ -236,7 +222,14 @@ class SlurmStateWriter:
             raise SlurmStateError(f"cannot create attempt {attempt.attempt_id!r}") from error
 
     def update_attempt(self, attempt: AttemptManifest) -> AttemptManifest:
-        """Atomically replace one attempt after validating its monotonic transition."""
+        """Atomically replace one attempt after validating its monotonic transition.
+
+        Raises:
+            StateConflictError: If the update violates attempt transition or scheduler ownership rules.
+            StateNotFoundError: If the attempt is not persisted.
+            StateCorruptionError: If existing run state is invalid.
+            SlurmStateError: If the update cannot be published safely.
+        """
         self._validate_attempt_location(attempt)
         try:
             with self._run_lock(), self._shard_lock(attempt.shard_id):
@@ -264,9 +257,14 @@ class SlurmStateWriter:
             raise SlurmStateError(f"cannot update attempt {attempt.attempt_id!r}") from error
 
     def load_attempts(self, shard_id: ShardId) -> tuple[AttemptManifest, ...]:
-        """Load one shard's attempts in ordinal order."""
+        """Load one shard's attempts in ordinal order.
+
+        Raises:
+            StateNotFoundError: If the run or shard is not persisted.
+            StateCorruptionError: If any persisted attempt is unsafe or violates run-wide invariants.
+            SlurmStateError: If the shard identity is invalid.
+        """
         normalized_shard_id = self._validate_shard_id(shard_id)
-        self.load_run()
         try:
             run, plan, shards = self._load_context()
             self._get_shard(shards, normalized_shard_id)
@@ -279,7 +277,13 @@ class SlurmStateWriter:
             raise StateCorruptionError(f"cannot load attempts for shard {normalized_shard_id!r}") from error
 
     def load_attempt(self, shard_id: ShardId, attempt_id: AttemptId) -> AttemptManifest:
-        """Load one persisted attempt."""
+        """Load one persisted attempt.
+
+        Raises:
+            StateNotFoundError: If the run, shard, or attempt is not persisted.
+            StateCorruptionError: If persisted attempt state is invalid.
+            SlurmStateError: If an input identity is invalid.
+        """
         normalized_shard_id = self._validate_shard_id(shard_id)
         normalized_attempt_id = self._validate_attempt_id(attempt_id)
         for attempt in self.load_attempts(normalized_shard_id):
@@ -288,7 +292,14 @@ class SlurmStateWriter:
         raise StateNotFoundError(f"attempt {normalized_attempt_id!r} is not persisted")
 
     def write_readiness(self, readiness: AttemptReadiness) -> AttemptReadiness:
-        """Create or atomically replace one validated readiness snapshot."""
+        """Create or atomically replace one validated readiness snapshot.
+
+        Raises:
+            StateConflictError: If the snapshot does not use the exact next valid revision.
+            StateNotFoundError: If its run, shard, or attempt is not persisted.
+            StateCorruptionError: If existing run or readiness state is invalid.
+            SlurmStateError: If the snapshot cannot be published safely.
+        """
         self._validate_readiness_location(readiness)
         try:
             with self._shard_lock(readiness.shard_id):
@@ -313,6 +324,12 @@ class SlurmStateWriter:
                             maximum_size=_MAXIMUM_RECORD_SIZE,
                         )
                         return readiness
+                    try:
+                        PlanStateValidator(plan).validate_readiness_snapshot(attempt, previous)
+                    except IntegrationContractError as error:
+                        raise StateCorruptionError(
+                            f"attempt {readiness.attempt_id!r} has invalid persisted readiness"
+                        ) from error
                     if previous == readiness:
                         return previous
                     validate_readiness_transition(previous, readiness)
@@ -332,22 +349,42 @@ class SlurmStateWriter:
             raise SlurmStateError(f"cannot persist readiness for attempt {readiness.attempt_id!r}") from error
 
     def load_readiness(self, shard_id: ShardId, attempt_id: AttemptId) -> AttemptReadiness:
-        """Load one attempt's latest readiness snapshot."""
+        """Load one attempt's latest readiness snapshot.
+
+        Raises:
+            StateNotFoundError: If the attempt or its readiness snapshot is not persisted.
+            StateCorruptionError: If the snapshot is unsafe or disagrees with planned state.
+            SlurmStateError: If an input identity is invalid.
+        """
         normalized_shard_id = self._validate_shard_id(shard_id)
         normalized_attempt_id = self._validate_attempt_id(attempt_id)
-        self.load_attempt(normalized_shard_id, normalized_attempt_id)
+        try:
+            run, plan, shards = self._load_context()
+            self._get_shard(shards, normalized_shard_id)
+            attempts_by_shard = self._load_validated_attempts(run, plan, shards)
+            attempt = self._get_attempt(attempts_by_shard[normalized_shard_id], normalized_attempt_id)
+        except (IntegrationContractError, StateContractError) as error:
+            raise StateCorruptionError(f"shard {normalized_shard_id!r} has invalid attempts") from error
+        except (StateCorruptionError, StateNotFoundError):
+            raise
+        except (FileNotFoundError, OSError) as error:
+            raise StateCorruptionError(f"cannot load attempts for shard {normalized_shard_id!r}") from error
         try:
             with self._open_attempt_directory(normalized_shard_id, normalized_attempt_id) as attempt_descriptor:
-                return self._read_record(
+                readiness = self._read_record(
                     attempt_descriptor,
                     _READINESS_FILENAME,
                     self._readiness_path(normalized_shard_id, normalized_attempt_id),
                     AttemptReadiness,
                 )
+            PlanStateValidator(plan).validate_readiness_snapshot(attempt, readiness)
+            return readiness
         except FileNotFoundError as error:
             raise StateNotFoundError(f"attempt {normalized_attempt_id!r} has no readiness snapshot") from error
         except StateCorruptionError:
             raise
+        except IntegrationContractError as error:
+            raise StateCorruptionError(f"attempt {normalized_attempt_id!r} has invalid persisted readiness") from error
         except OSError as error:
             raise StateCorruptionError(f"attempt {normalized_attempt_id!r} has unreadable readiness") from error
 
@@ -359,34 +396,48 @@ class SlurmStateWriter:
         shards: tuple[ShardManifest, ...],
     ) -> None:
         try:
-            if not isinstance(authored_config, DataDesignerSlurmConfig):
-                raise StateContractError("authored config has an invalid type")
-            if not isinstance(resolved_plan, ResolvedSlurmRunPlan):
-                raise StateContractError("resolved plan has an invalid type")
-            if not isinstance(run, RunManifest):
-                raise StateContractError("run manifest has an invalid type")
-            if not isinstance(shards, tuple) or any(not isinstance(shard, ShardManifest) for shard in shards):
-                raise StateContractError("shard manifests have an invalid type")
-            if run.run_id != self._run_id or resolved_plan.run_id != self._run_id:
-                raise StateContractError("run identity does not match the state writer")
-            if resolved_plan.selected_profile.profile.workspace_root != self._workspace_root.as_posix():
-                raise StateContractError("resolved plan workspace does not match the state writer")
-            if resolved_plan.authored_config.sha256 != authored_config.compute_sha256():
-                raise StateContractError("authored config digest does not match the resolved plan")
-            if run.authored_config != resolved_plan.authored_config:
-                raise StateContractError("run authored config does not match the resolved plan")
-            expected_authored_path = (self._run_root / _AUTHORED_CONFIG_FILENAME).as_posix()
-            if run.authored_config.path != expected_authored_path:
-                raise StateContractError("run authored config reference does not match its persisted location")
-            expected_plan_path = (self._run_root / _RESOLVED_PLAN_FILENAME).as_posix()
-            if (
-                run.resolved_plan.path != expected_plan_path
-                or run.resolved_plan.sha256 != resolved_plan.compute_sha256()
-            ):
-                raise StateContractError("run resolved plan reference does not match persisted plan bytes")
+            self._validate_initial_record_types(authored_config, resolved_plan, run, shards)
+            self._validate_initial_bindings(authored_config, resolved_plan, run)
             PlanStateValidator(resolved_plan).validate_plan_shards(run, shards)
         except (IntegrationContractError, StateContractError) as error:
             raise StateConflictError("run initialization does not match resolved plan intent") from error
+
+    @staticmethod
+    def _validate_initial_record_types(
+        authored_config: DataDesignerSlurmConfig,
+        resolved_plan: ResolvedSlurmRunPlan,
+        run: RunManifest,
+        shards: tuple[ShardManifest, ...],
+    ) -> None:
+        if not isinstance(authored_config, DataDesignerSlurmConfig):
+            raise StateContractError("authored config has an invalid type")
+        if not isinstance(resolved_plan, ResolvedSlurmRunPlan):
+            raise StateContractError("resolved plan has an invalid type")
+        if not isinstance(run, RunManifest):
+            raise StateContractError("run manifest has an invalid type")
+        if not isinstance(shards, tuple) or any(not isinstance(shard, ShardManifest) for shard in shards):
+            raise StateContractError("shard manifests have an invalid type")
+
+    def _validate_initial_bindings(
+        self,
+        authored_config: DataDesignerSlurmConfig,
+        resolved_plan: ResolvedSlurmRunPlan,
+        run: RunManifest,
+    ) -> None:
+        if run.run_id != self._run_id or resolved_plan.run_id != self._run_id:
+            raise StateContractError("run identity does not match the state writer")
+        if resolved_plan.selected_profile.profile.workspace_root != self._workspace_root.as_posix():
+            raise StateContractError("resolved plan workspace does not match the state writer")
+        if resolved_plan.authored_config.sha256 != authored_config.compute_sha256():
+            raise StateContractError("authored config digest does not match the resolved plan")
+        if run.authored_config != resolved_plan.authored_config:
+            raise StateContractError("run authored config does not match the resolved plan")
+        expected_authored_path = (self._run_root / _AUTHORED_CONFIG_FILENAME).as_posix()
+        if run.authored_config.path != expected_authored_path:
+            raise StateContractError("run authored config reference does not match its persisted location")
+        expected_plan_path = (self._run_root / _RESOLVED_PLAN_FILENAME).as_posix()
+        if run.resolved_plan.path != expected_plan_path or run.resolved_plan.sha256 != resolved_plan.compute_sha256():
+            raise StateContractError("run resolved plan reference does not match persisted plan bytes")
 
     def _initialize_run_locked(
         self,
@@ -522,9 +573,70 @@ class SlurmStateWriter:
 
     def _load_context(self) -> tuple[RunManifest, ResolvedSlurmRunPlan, tuple[ShardManifest, ...]]:
         run = self.load_run()
-        plan = self.load_resolved_plan()
-        shards = self.load_shards()
+        plan = self._load_resolved_plan_for_run(run)
+        shards = self._load_shards_for_context(run, plan)
         return run, plan, shards
+
+    def _load_authored_config_for_run(self, run: RunManifest) -> DataDesignerSlurmConfig:
+        try:
+            with self._open_run_directory() as run_descriptor:
+                authored_config = self._read_record(
+                    run_descriptor,
+                    _AUTHORED_CONFIG_FILENAME,
+                    self._run_root / _AUTHORED_CONFIG_FILENAME,
+                    DataDesignerSlurmConfig,
+                )
+        except (FileNotFoundError, OSError) as error:
+            raise StateCorruptionError(f"run {self._run_id!r} has no valid authored config") from error
+        expected_path = (self._run_root / _AUTHORED_CONFIG_FILENAME).as_posix()
+        if run.authored_config.path != expected_path or run.authored_config.sha256 != authored_config.compute_sha256():
+            raise StateCorruptionError(f"run {self._run_id!r} authored config does not match its manifest")
+        return authored_config
+
+    def _load_resolved_plan_for_run(self, run: RunManifest) -> ResolvedSlurmRunPlan:
+        try:
+            with self._open_run_directory() as run_descriptor:
+                plan = self._read_record(
+                    run_descriptor,
+                    _RESOLVED_PLAN_FILENAME,
+                    self._run_root / _RESOLVED_PLAN_FILENAME,
+                    ResolvedSlurmRunPlan,
+                )
+        except (FileNotFoundError, OSError) as error:
+            raise StateCorruptionError(f"run {self._run_id!r} has no valid resolved plan") from error
+        expected_path = (self._run_root / _RESOLVED_PLAN_FILENAME).as_posix()
+        if run.resolved_plan.path != expected_path or run.resolved_plan.sha256 != plan.compute_sha256():
+            raise StateCorruptionError(f"run {self._run_id!r} resolved plan does not match its manifest")
+        if run.authored_config != plan.authored_config:
+            raise StateCorruptionError(f"run {self._run_id!r} resolved plan does not bind its authored config")
+        self._load_authored_config_for_run(run)
+        return plan
+
+    def _load_shards_for_context(
+        self,
+        run: RunManifest,
+        plan: ResolvedSlurmRunPlan,
+    ) -> tuple[ShardManifest, ...]:
+        try:
+            with self._open_run_directory() as run_descriptor:
+                with open_verified_child_directory(
+                    run_descriptor,
+                    _SHARDS_DIRECTORY_NAME,
+                    self._run_root / _SHARDS_DIRECTORY_NAME,
+                ) as shards_descriptor:
+                    expected_names = tuple(f"shard-{index:05d}" for index in range(run.shard_count))
+                    actual_names = set(os.listdir(shards_descriptor))
+                    if actual_names != set(expected_names):
+                        raise StateCorruptionError(f"run {self._run_id!r} has an incomplete shard directory set")
+                    shards = tuple(self._read_shard(shards_descriptor, shard_name) for shard_name in expected_names)
+            PlanStateValidator(plan).validate_plan_shards(run, shards)
+            return shards
+        except (IntegrationContractError, StateContractError) as error:
+            raise StateCorruptionError(f"run {self._run_id!r} has invalid persisted shards") from error
+        except StateCorruptionError:
+            raise
+        except (FileNotFoundError, OSError) as error:
+            raise StateCorruptionError(f"run {self._run_id!r} has unreadable persisted shards") from error
 
     def _read_shard(self, shards_descriptor: int, shard_id: str) -> ShardManifest:
         if _SHARD_NAME_PATTERN.fullmatch(shard_id) is None:
@@ -538,22 +650,24 @@ class SlurmStateWriter:
                 ShardManifest,
             )
 
-    def _load_attempts_locked(self, shard_id: ShardId) -> tuple[AttemptManifest, ...]:
+    def _load_attempts_from_storage(self, shard_id: ShardId) -> tuple[AttemptManifest, ...]:
         with self._open_shard_directory(shard_id) as shard_descriptor:
             with open_verified_child_directory(
                 shard_descriptor,
                 _ATTEMPTS_DIRECTORY_NAME,
                 self._shard_path(shard_id) / _ATTEMPTS_DIRECTORY_NAME,
             ) as attempts_descriptor:
-                names = tuple(sorted(name for name in os.listdir(attempts_descriptor) if not name.startswith(".")))
+                names = tuple(os.listdir(attempts_descriptor))
                 if any(_ATTEMPT_NAME_PATTERN.fullmatch(name) is None for name in names):
                     raise StateCorruptionError(f"shard {shard_id!r} contains an invalid attempt directory")
+                names = tuple(sorted(names, key=lambda name: int(name.rsplit("-", maxsplit=1)[1])))
                 published_attempts: list[AttemptManifest] = []
                 incomplete_names: list[str] = []
                 for name in names:
                     try:
                         published_attempts.append(self._read_attempt(attempts_descriptor, shard_id, name))
                     except FileNotFoundError:
+                        self._validate_incomplete_attempt(attempts_descriptor, shard_id, name)
                         incomplete_names.append(name)
                 attempts = tuple(published_attempts)
         ordinals = tuple(attempt.attempt_ordinal for attempt in attempts)
@@ -565,6 +679,15 @@ class SlurmStateWriter:
         if incomplete_names not in ([], [expected_incomplete]):
             raise StateCorruptionError(f"shard {shard_id!r} contains an invalid incomplete attempt")
         return attempts
+
+    def _validate_incomplete_attempt(self, attempts_descriptor: int, shard_id: ShardId, attempt_id: str) -> None:
+        attempt_root = self._attempt_path(shard_id, attempt_id)
+        with open_verified_child_directory(attempts_descriptor, attempt_id, attempt_root) as attempt_descriptor:
+            unexpected = tuple(
+                name for name in os.listdir(attempt_descriptor) if _TEMPORARY_NAME_PATTERN.fullmatch(name) is None
+            )
+        if unexpected:
+            raise StateCorruptionError(f"attempt {attempt_id!r} contains unpublished state records")
 
     def _read_attempt(self, attempts_descriptor: int, shard_id: ShardId, attempt_id: str) -> AttemptManifest:
         attempt_root = self._attempt_path(shard_id, attempt_id)
@@ -583,7 +706,7 @@ class SlurmStateWriter:
         shards: tuple[ShardManifest, ...],
     ) -> dict[ShardId, tuple[AttemptManifest, ...]]:
         try:
-            attempts_by_shard = {shard.shard_id: self._load_attempts_locked(shard.shard_id) for shard in shards}
+            attempts_by_shard = {shard.shard_id: self._load_attempts_from_storage(shard.shard_id) for shard in shards}
             all_attempts = tuple(attempt for shard in shards for attempt in attempts_by_shard[shard.shard_id])
             for shard in shards:
                 for attempt in attempts_by_shard[shard.shard_id]:

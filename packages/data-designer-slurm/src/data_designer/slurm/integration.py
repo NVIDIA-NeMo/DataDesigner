@@ -92,14 +92,23 @@ class PlanStateValidator:
         readiness: AttemptReadiness,
     ) -> AttemptReadiness:
         """Anchor the first readiness snapshot to a fully validated planned attempt."""
+        self.validate_readiness_snapshot(attempt, readiness)
+        _require(readiness.revision == 1, "initial readiness must use revision 1")
+        _require(readiness.state is ReadinessState.PENDING, "initial readiness must be pending")
+        return readiness
+
+    def validate_readiness_snapshot(
+        self,
+        attempt: AttemptManifest,
+        readiness: AttemptReadiness,
+    ) -> AttemptReadiness:
+        """Bind any persisted readiness revision to its planned attempt and deployments."""
         planned_shard = self._get_planned_shard(attempt.shard_id)
         self.validate_planned_attempt(planned_shard, attempt)
         _require(readiness.run_id == attempt.run_id, "readiness run_id does not match the attempt")
         _require(readiness.shard_id == attempt.shard_id, "readiness shard_id does not match the attempt")
         _require(readiness.attempt_id == attempt.attempt_id, "readiness attempt_id does not match the attempt")
-        _require(readiness.revision == 1, "initial readiness must use revision 1")
-        _require(readiness.state is ReadinessState.PENDING, "initial readiness must be pending")
-        _require(readiness.updated_at >= attempt.created_at, "initial readiness cannot precede attempt creation")
+        _require(readiness.updated_at >= attempt.created_at, "readiness cannot precede attempt creation")
 
         expected = tuple(
             (
@@ -113,7 +122,7 @@ class PlanStateValidator:
             (deployment.deployment_id, deployment.model_alias, deployment.expected_backends)
             for deployment in readiness.deployments
         )
-        _require(actual == expected, "initial readiness deployments do not match the resolved plan")
+        _require(actual == expected, "readiness deployments do not match the resolved plan")
         return readiness
 
     def validate_planned_attempt(

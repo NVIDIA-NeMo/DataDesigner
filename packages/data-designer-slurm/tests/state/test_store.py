@@ -42,7 +42,7 @@ from data_designer.slurm.state import store as state_store
 _ValueT = TypeVar("_ValueT", bound=ContractValue)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class _StateCase:
     workspace: Path
     authored_config: DataDesignerSlurmConfig
@@ -76,6 +76,67 @@ def test_run_initialization_is_idempotent_restrictive_and_reloadable(
     assert all(stat.S_IMODE(path.stat().st_mode) == 0o700 for path in package_directories)
     assert all(stat.S_IMODE(path.stat().st_mode) == 0o600 for path in package_files)
     assert not tuple((case.workspace / "runs").rglob(".state.*.tmp"))
+
+
+def test_concurrent_identical_run_initialization_converges(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    case = _build_case(tmp_path, authored_run_single, single_node_plan)
+    barrier = Barrier(2)
+
+    def initialize() -> RunManifest:
+        barrier.wait()
+        writer = SlurmStateWriter(case.workspace, case.plan.run_id)
+        return writer.initialize_run(case.authored_config, case.plan, case.run, case.shards)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = tuple(executor.map(lambda _: initialize(), range(2)))
+
+    assert results == (case.run, case.run)
+    assert case.writer.load_run() == case.run
+
+
+def test_context_loading_reads_each_immutable_record_once(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    case = _initialized_case(tmp_path, authored_run_single, single_node_plan)
+    original_read_record = SlurmStateWriter._read_record
+    record_names: list[str] = []
+
+    def track_read(
+        self: SlurmStateWriter,
+        directory_descriptor: int,
+        name: str,
+        display_path: Path,
+        record_type: type[_ValueT],
+    ) -> _ValueT:
+        record_names.append(name)
+        return original_read_record(self, directory_descriptor, name, display_path, record_type)
+
+    monkeypatch.setattr(SlurmStateWriter, "_read_record", track_read)
+
+    assert case.writer.load_attempts("shard-00000") == ()
+    assert record_names.count("run.json") == 1
+    assert record_names.count("authored-config.json") == 1
+    assert record_names.count("resolved-plan.json") == 1
+    assert record_names.count("shard.json") == 1
+
+    attempt = _submitted_attempt(case)
+    case.writer.create_attempt(attempt)
+    readiness = _readiness(case, attempt)
+    case.writer.write_readiness(readiness)
+    record_names.clear()
+
+    assert case.writer.load_readiness(attempt.shard_id, attempt.attempt_id) == readiness
+    assert record_names.count("run.json") == 1
+    assert record_names.count("authored-config.json") == 1
+    assert record_names.count("resolved-plan.json") == 1
+    assert record_names.count("shard.json") == 1
 
 
 def test_run_commit_marker_is_published_last_and_interrupted_initialization_retries(
@@ -133,7 +194,20 @@ def test_run_initialization_never_replaces_different_immutable_bytes(
     assert case.writer.load_run() == case.run
 
 
-@pytest.mark.parametrize("record_kind", ("symlink", "fifo", "permissive"))
+def test_run_reader_rejects_manifest_bound_to_a_different_run(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    case = _initialized_case(tmp_path, authored_run_single, single_node_plan)
+    mismatched = _validated_copy(case.run, run_id="other-run")
+    (case.writer.run_root / "run.json").write_text(mismatched.serialize_json())
+
+    with pytest.raises(StateCorruptionError, match="persisted location"):
+        case.writer.load_run()
+
+
+@pytest.mark.parametrize("record_kind", ("symlink", "hardlink", "fifo", "permissive"))
 def test_run_reader_rejects_unsafe_record_types_and_modes(
     tmp_path: Path,
     authored_run_single: DataDesignerSlurmConfig,
@@ -148,6 +222,12 @@ def test_run_reader_rejects_unsafe_record_types_and_modes(
         outside.chmod(0o600)
         run_path.unlink()
         run_path.symlink_to(outside)
+    elif record_kind == "hardlink":
+        outside = tmp_path / "outside-run.json"
+        outside.write_text(case.run.serialize_json())
+        outside.chmod(0o600)
+        run_path.unlink()
+        os.link(outside, run_path)
     elif record_kind == "fifo":
         run_path.unlink()
         os.mkfifo(run_path)
@@ -172,6 +252,109 @@ def test_initialization_rejects_symlinked_package_storage_without_touching_targe
         case.writer.initialize_run(case.authored_config, case.plan, case.run, case.shards)
 
     assert tuple(outside.iterdir()) == ()
+
+
+@pytest.mark.parametrize("lock_kind", ("symlink", "fifo"))
+def test_initialization_rejects_unsafe_run_lock_without_changing_target(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+    lock_kind: str,
+) -> None:
+    case = _build_case(tmp_path, authored_run_single, single_node_plan)
+    lock_root = case.workspace / "runs" / ".locks"
+    lock_root.mkdir(parents=True, mode=0o700)
+    lock_path = lock_root / f"run-{case.plan.run_id}.lock"
+    if lock_kind == "symlink":
+        outside = tmp_path / "outside.lock"
+        outside.write_text("outside")
+        outside.chmod(0o640)
+        lock_path.symlink_to(outside)
+    else:
+        os.mkfifo(lock_path)
+
+    with pytest.raises(SlurmStateError, match="cannot initialize"):
+        case.writer.initialize_run(case.authored_config, case.plan, case.run, case.shards)
+
+    if lock_kind == "symlink":
+        assert stat.S_IMODE(outside.stat().st_mode) == 0o640
+
+
+def test_temporary_file_permission_failure_leaves_no_partial_record(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    case = _build_case(tmp_path, authored_run_single, single_node_plan)
+    original_fchmod = state_filesystem.os.fchmod
+    regular_file_calls = 0
+
+    def fail_second_regular_file(descriptor: int, mode: int) -> None:
+        nonlocal regular_file_calls
+        if stat.S_ISREG(os.fstat(descriptor).st_mode):
+            regular_file_calls += 1
+            if regular_file_calls == 2:
+                raise OSError("simulated permission failure")
+        original_fchmod(descriptor, mode)
+
+    monkeypatch.setattr(state_filesystem.os, "fchmod", fail_second_regular_file)
+    with pytest.raises(SlurmStateError, match="cannot initialize"):
+        case.writer.initialize_run(case.authored_config, case.plan, case.run, case.shards)
+
+    assert not tuple((case.workspace / "runs").rglob(".state.*.tmp"))
+    assert not (case.writer.run_root / "authored-config.json").exists()
+
+
+def test_run_lock_rejects_path_replacement_during_acquisition(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    case = _build_case(tmp_path, authored_run_single, single_node_plan)
+    lock_path = case.workspace / "runs" / ".locks" / f"run-{case.plan.run_id}.lock"
+    original_flock = state_filesystem.fcntl.flock
+    replaced = False
+
+    def replace_acquired_lock(descriptor: int, operation: int) -> None:
+        nonlocal replaced
+        original_flock(descriptor, operation)
+        if operation == state_filesystem.fcntl.LOCK_EX and not replaced:
+            replaced = True
+            lock_path.unlink()
+            lock_path.write_text("")
+            lock_path.chmod(0o600)
+
+    monkeypatch.setattr(state_filesystem.fcntl, "flock", replace_acquired_lock)
+    with pytest.raises(SlurmStateError, match="cannot initialize"):
+        case.writer.initialize_run(case.authored_config, case.plan, case.run, case.shards)
+
+    assert not (case.writer.run_root / "run.json").exists()
+
+
+def test_run_lock_closes_descriptor_when_acquisition_is_interrupted(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    case = _build_case(tmp_path, authored_run_single, single_node_plan)
+    lock_descriptor: int | None = None
+
+    def interrupt_flock(descriptor: int, operation: int) -> None:
+        nonlocal lock_descriptor
+        del operation
+        lock_descriptor = descriptor
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(state_filesystem.fcntl, "flock", interrupt_flock)
+    with pytest.raises(KeyboardInterrupt):
+        case.writer.initialize_run(case.authored_config, case.plan, case.run, case.shards)
+
+    assert lock_descriptor is not None
+    with pytest.raises(OSError):
+        os.fstat(lock_descriptor)
 
 
 def test_reader_rejects_package_directory_with_loosened_permissions(
@@ -214,6 +397,43 @@ def test_attempt_creation_recovers_an_unpublished_next_directory_and_updates_mon
 
     with pytest.raises(StateConflictError, match="monotonic transition"):
         case.writer.update_attempt(attempt)
+
+
+def test_attempt_recovery_rejects_unexpected_unpublished_records(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    case = _initialized_case(tmp_path, authored_run_single, single_node_plan)
+    attempt = _attempt(case)
+    partial_root = case.writer.run_root / "shards" / attempt.shard_id / "attempts" / attempt.attempt_id
+    partial_root.mkdir(mode=0o700)
+    (partial_root / "readiness.json").write_text("{}")
+    (partial_root / "readiness.json").chmod(0o600)
+
+    with pytest.raises(StateCorruptionError, match="unpublished state records"):
+        case.writer.load_attempts(attempt.shard_id)
+
+
+@pytest.mark.parametrize("collection_root", ("shards", "attempts"))
+def test_collection_readers_reject_hidden_unowned_entries(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+    collection_root: str,
+) -> None:
+    case = _initialized_case(tmp_path, authored_run_single, single_node_plan)
+    root = case.writer.run_root / "shards"
+    if collection_root == "attempts":
+        root = root / "shard-00000" / "attempts"
+    (root / ".unowned").write_text("unexpected")
+    (root / ".unowned").chmod(0o600)
+
+    with pytest.raises(StateCorruptionError):
+        if collection_root == "shards":
+            case.writer.load_shards()
+        else:
+            case.writer.load_attempts("shard-00000")
 
 
 def test_concurrent_attempt_updates_choose_one_scheduler_identity(
@@ -321,6 +541,69 @@ def test_failed_atomic_attempt_replacement_preserves_previous_manifest(
     assert not tuple((case.writer.run_root / "shards").rglob(".state.*.tmp"))
 
 
+def test_attempt_update_retry_converges_after_post_replace_fsync_failure(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    case = _initialized_case(tmp_path, authored_run_single, single_node_plan)
+    attempt = _attempt(case)
+    case.writer.create_attempt(attempt)
+    submitted = _validated_copy(
+        attempt,
+        state=AttemptLifecycleState.SUBMITTED,
+        scheduler=SchedulerIdentity(array_job_id=4101, array_task_id=0),
+        updated_at=case.created_at + timedelta(minutes=2),
+    )
+    original_fsync = state_filesystem.os.fsync
+    failed = False
+
+    def fail_first_directory_fsync(descriptor: int) -> None:
+        nonlocal failed
+        if not failed and stat.S_ISDIR(os.fstat(descriptor).st_mode):
+            failed = True
+            raise OSError("simulated post-replace fsync failure")
+        original_fsync(descriptor)
+
+    monkeypatch.setattr(state_filesystem.os, "fsync", fail_first_directory_fsync)
+    with pytest.raises(SlurmStateError, match="cannot update"):
+        case.writer.update_attempt(submitted)
+
+    monkeypatch.setattr(state_filesystem.os, "fsync", original_fsync)
+    assert case.writer.update_attempt(submitted) == submitted
+    assert case.writer.load_attempt(attempt.shard_id, attempt.attempt_id) == submitted
+
+
+def test_concurrent_conflicting_attempt_creation_publishes_one_candidate(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    case = _initialized_case(tmp_path, authored_run_single, single_node_plan)
+    first = _attempt(case)
+    second = _validated_copy(
+        first,
+        created_at=first.created_at + timedelta(seconds=1),
+        updated_at=first.updated_at + timedelta(seconds=1),
+    )
+    barrier = Barrier(2)
+
+    def create(candidate: AttemptManifest) -> AttemptManifest:
+        barrier.wait()
+        return SlurmStateWriter(case.workspace, case.plan.run_id).create_attempt(candidate)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = tuple(executor.submit(create, candidate) for candidate in (first, second))
+
+    outcomes = tuple(future.result() for future in futures if future.exception() is None)
+    failures = tuple(future.exception() for future in futures if future.exception() is not None)
+    assert len(outcomes) == 1
+    assert len(failures) == 1
+    assert isinstance(failures[0], StateConflictError)
+    assert case.writer.load_attempt(first.shard_id, first.attempt_id) == outcomes[0]
+
+
 def test_readiness_revisions_are_idempotent_monotonic_and_atomic(
     tmp_path: Path,
     authored_run_single: DataDesignerSlurmConfig,
@@ -354,6 +637,85 @@ def test_readiness_revisions_are_idempotent_monotonic_and_atomic(
     skipped = _validated_copy(revision_two, revision=4, updated_at=case.created_at + timedelta(minutes=5))
     with pytest.raises(StateConflictError, match="monotonic transition"):
         case.writer.write_readiness(skipped)
+    assert case.writer.load_readiness(attempt.shard_id, attempt.attempt_id) == revision_two
+
+
+def test_readiness_reader_rebinds_snapshot_to_its_attempt(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    case = _initialized_case(tmp_path, authored_run_single, single_node_plan)
+    attempt = _submitted_attempt(case)
+    case.writer.create_attempt(attempt)
+    initial = _readiness(case, attempt)
+    case.writer.write_readiness(initial)
+    mismatched = _validated_copy(initial, run_id="other-run")
+    readiness_path = (
+        case.writer.run_root / "shards" / attempt.shard_id / "attempts" / attempt.attempt_id / "readiness.json"
+    )
+    readiness_path.write_text(mismatched.serialize_json())
+
+    with pytest.raises(StateCorruptionError, match="invalid persisted readiness"):
+        SlurmStateWriter(case.workspace, case.plan.run_id).load_readiness(attempt.shard_id, attempt.attempt_id)
+
+
+def test_idempotent_readiness_write_revalidates_persisted_snapshot(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    case = _initialized_case(tmp_path, authored_run_single, single_node_plan)
+    attempt = _submitted_attempt(case)
+    case.writer.create_attempt(attempt)
+    initial = _readiness(case, attempt)
+    case.writer.write_readiness(initial)
+    mismatched_deployment = _validated_copy(initial.deployments[0], model_alias="other-model")
+    mismatched = _validated_copy(initial, deployments=(mismatched_deployment,))
+    readiness_path = (
+        case.writer.run_root / "shards" / attempt.shard_id / "attempts" / attempt.attempt_id / "readiness.json"
+    )
+    readiness_path.write_text(mismatched.serialize_json())
+
+    with pytest.raises(StateCorruptionError, match="invalid persisted readiness"):
+        case.writer.write_readiness(mismatched)
+
+
+def test_readiness_retry_converges_after_post_replace_fsync_failure(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    case = _initialized_case(tmp_path, authored_run_single, single_node_plan)
+    attempt = _submitted_attempt(case)
+    case.writer.create_attempt(attempt)
+    initial = _readiness(case, attempt)
+    case.writer.write_readiness(initial)
+    starting = _validated_copy(initial.deployments[0], state=ReadinessState.STARTING)
+    revision_two = _validated_copy(
+        initial,
+        revision=2,
+        updated_at=case.created_at + timedelta(minutes=4),
+        state=ReadinessState.STARTING,
+        deployments=(starting,),
+    )
+    original_fsync = state_filesystem.os.fsync
+    failed = False
+
+    def fail_first_directory_fsync(descriptor: int) -> None:
+        nonlocal failed
+        if not failed and stat.S_ISDIR(os.fstat(descriptor).st_mode):
+            failed = True
+            raise OSError("simulated post-replace fsync failure")
+        original_fsync(descriptor)
+
+    monkeypatch.setattr(state_filesystem.os, "fsync", fail_first_directory_fsync)
+    with pytest.raises(SlurmStateError, match="cannot persist readiness"):
+        case.writer.write_readiness(revision_two)
+
+    monkeypatch.setattr(state_filesystem.os, "fsync", original_fsync)
+    assert case.writer.write_readiness(revision_two) == revision_two
     assert case.writer.load_readiness(attempt.shard_id, attempt.attempt_id) == revision_two
 
 
@@ -414,6 +776,25 @@ def test_fresh_process_loads_only_persisted_state(
 
     assert completed.returncode == 0, completed.stderr
     assert completed.stdout == case.run.serialize_json()
+
+
+def test_state_package_defers_writer_dependencies_until_access() -> None:
+    command = (
+        "import sys; "
+        "import data_designer.slurm.state as state; "
+        "assert 'data_designer.slurm.state.store' not in sys.modules; "
+        "assert 'data_designer.slurm.config' not in sys.modules; "
+        "assert 'SlurmStateWriter' in dir(state)"
+    )
+
+    completed = subprocess.run(
+        (sys.executable, "-c", command),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
 
 
 def _build_case(

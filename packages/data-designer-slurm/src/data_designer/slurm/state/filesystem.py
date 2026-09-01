@@ -26,7 +26,7 @@ def acquire_file_lock(directory_descriptor: int, name: str, display_path: Path) 
             try:
                 descriptor = os.open(
                     name,
-                    os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0),
+                    os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0),
                     _FILE_MODE,
                     dir_fd=directory_descriptor,
                 )
@@ -42,7 +42,15 @@ def acquire_file_lock(directory_descriptor: int, name: str, display_path: Path) 
         if os.fstat(descriptor).st_mode & 0o077:
             raise OSError(f"state lock {display_path} does not have restrictive permissions")
         fcntl.flock(descriptor, fcntl.LOCK_EX)
-    except OSError:
+        locked_status = os.fstat(descriptor)
+        current_status = os.stat(name, dir_fd=directory_descriptor, follow_symlinks=False)
+        if (
+            (locked_status.st_dev, locked_status.st_ino) != (current_status.st_dev, current_status.st_ino)
+            or not stat.S_ISREG(current_status.st_mode)
+            or current_status.st_nlink != 1
+        ):
+            raise OSError(f"state lock {display_path} changed while it was being acquired")
+    except BaseException:
         if descriptor is not None:
             os.close(descriptor)
         raise
@@ -281,6 +289,7 @@ def _create_temporary_file(directory_descriptor: int) -> tuple[int, str]:
             os.fchmod(descriptor, _FILE_MODE)
         except OSError:
             os.close(descriptor)
+            os.unlink(name, dir_fd=directory_descriptor)
             raise
         return descriptor, name
     raise OSError("cannot allocate a unique state record temporary name")
@@ -291,4 +300,4 @@ def _get_file_facts(status: os.stat_result) -> tuple[int, int, int, int, int]:
 
 
 def _is_restrictive_regular(status: os.stat_result) -> bool:
-    return stat.S_ISREG(status.st_mode) and not status.st_mode & 0o077
+    return stat.S_ISREG(status.st_mode) and status.st_nlink == 1 and not status.st_mode & 0o077
