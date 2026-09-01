@@ -57,11 +57,11 @@ class VerifiedImageRegistry:
                 sqsh_sha256=inspection.sqsh_sha256,
                 inspection=inspection,
             )
-            verify = lambda _image: _verify_snapshot(image, snapshot)
+            verify_identity = lambda _image: _verify_snapshot_identity(image, snapshot)
             return self._registry.register(
                 image,
-                verify_before_publish=verify,
-                verify_after_publish=verify,
+                verify_before_publish=verify_identity,
+                verify_after_publish=verify_identity,
                 replace=replace,
             )
 
@@ -72,6 +72,7 @@ class VerifiedImageRegistry:
         candidate_path: Path,
         *,
         source_oci_digest: Sha256Digest,
+        candidate_directory_descriptor: int | None = None,
         replace: bool = False,
     ) -> RegisteredImage:
         """Publish one verified lifecycle-owned OCI import and register its alias.
@@ -85,6 +86,8 @@ class VerifiedImageRegistry:
             inspection: Package-owned facts bound to the imported SQSH digest.
             candidate_path: Lifecycle-owned SQSH candidate beneath workspace temporary storage.
             source_oci_digest: Resolved source digest carried by the lifecycle plan.
+            candidate_directory_descriptor: Optional verified lifecycle directory used to access the candidate
+                descriptor-relative.
             replace: Whether an existing alias may be replaced explicitly.
 
         Returns:
@@ -121,12 +124,18 @@ class VerifiedImageRegistry:
             inspection=inspection,
         )
         created_artifact_identity: tuple[int, int] | None = None
-        with _open_verified_sqsh(candidate_path) as candidate_snapshot, ExitStack() as final_stack:
+        with (
+            _open_verified_sqsh(
+                candidate_path,
+                directory_descriptor=candidate_directory_descriptor,
+            ) as candidate_snapshot,
+            ExitStack() as final_stack,
+        ):
             if candidate_snapshot.sha256 != inspection.sqsh_sha256:
                 raise ImageVerificationError("image inspection does not match the imported SQSH digest")
             final_snapshot: _VerifiedSqshSnapshot | None = None
 
-            def publish_before_registry(_image: RegisteredImage) -> None:
+            def prepare_before_registry(_image: RegisteredImage) -> None:
                 nonlocal created_artifact_identity, final_snapshot
                 _verify_snapshot(image, candidate_snapshot)
                 ensure_private_directory(artifact_directory, parents=False)
@@ -134,6 +143,7 @@ class VerifiedImageRegistry:
                     candidate_path,
                     artifact_path,
                     expected_identity=candidate_snapshot.facts[:2],
+                    candidate_directory_descriptor=candidate_directory_descriptor,
                 )
                 try:
                     final_snapshot = final_stack.enter_context(_open_verified_sqsh(artifact_path))
@@ -150,10 +160,15 @@ class VerifiedImageRegistry:
                 _sync_snapshot(final_snapshot)
                 _verify_snapshot(image, final_snapshot)
 
+            def verify_before_registry(_image: RegisteredImage) -> None:
+                if final_snapshot is None:
+                    raise ImageVerificationError("published SQSH artifact was not opened for verification")
+                _verify_snapshot_identity(image, final_snapshot)
+
             def verify_after_registry(_image: RegisteredImage) -> None:
                 if final_snapshot is None:
                     raise ImageVerificationError("published SQSH artifact was not opened for verification")
-                _verify_snapshot(image, final_snapshot)
+                _verify_snapshot_identity(image, final_snapshot)
 
             def rollback_after_failure(_image: RegisteredImage) -> None:
                 if created_artifact_identity is not None:
@@ -161,7 +176,8 @@ class VerifiedImageRegistry:
 
             return self._registry.register(
                 image,
-                verify_before_publish=publish_before_registry,
+                prepare_before_publish=prepare_before_registry,
+                verify_before_publish=verify_before_registry,
                 verify_after_publish=verify_after_registry,
                 rollback_after_failure=rollback_after_failure,
                 replace=replace,
@@ -229,43 +245,81 @@ class _VerifiedSqshSnapshot:
     descriptor: int
     facts: tuple[int, int, int, int]
     sha256: Sha256Digest
+    directory_descriptor: int | None = None
 
     def verify_unchanged(self) -> None:
         """Verify that the open bytes and their public path still match the snapshot."""
         descriptor_status = os.fstat(self.descriptor)
-        path_status = self.path.lstat()
+        if not stat.S_ISREG(descriptor_status.st_mode) or _get_file_facts(descriptor_status) != self.facts:
+            raise ImageVerificationError(f"image path {self.path} changed while it was being verified")
+        actual_sha256 = _hash_descriptor(self.descriptor)
+        descriptor_status = os.fstat(self.descriptor)
+        path_status = self._stat_path()
         if (
             not stat.S_ISREG(descriptor_status.st_mode)
             or not stat.S_ISREG(path_status.st_mode)
             or _get_file_facts(descriptor_status) != self.facts
             or _get_file_facts(path_status) != self.facts
-            or _hash_descriptor(self.descriptor) != self.sha256
+            or actual_sha256 != self.sha256
         ):
             raise ImageVerificationError(f"image path {self.path} changed while it was being verified")
 
+    def verify_identity_unchanged(self) -> None:
+        """Verify descriptor and path identity without rereading the SQSH bytes."""
+        descriptor_status = os.fstat(self.descriptor)
+        path_status = self._stat_path()
+        if (
+            not stat.S_ISREG(descriptor_status.st_mode)
+            or not stat.S_ISREG(path_status.st_mode)
+            or _get_file_facts(descriptor_status) != self.facts
+            or _get_file_facts(path_status) != self.facts
+        ):
+            raise ImageVerificationError(f"image path {self.path} changed while it was being verified")
+
+    def _stat_path(self) -> os.stat_result:
+        if self.directory_descriptor is None:
+            return self.path.lstat()
+        return os.stat(
+            self.path.name,
+            dir_fd=self.directory_descriptor,
+            follow_symlinks=False,
+        )
+
 
 @contextmanager
-def _open_verified_sqsh(path: Path) -> Iterator[_VerifiedSqshSnapshot]:
+def _open_verified_sqsh(
+    path: Path,
+    *,
+    directory_descriptor: int | None = None,
+) -> Iterator[_VerifiedSqshSnapshot]:
     descriptor: int | None = None
     try:
-        before_open = path.lstat()
+        before_open = (
+            path.lstat()
+            if directory_descriptor is None
+            else os.stat(path.name, dir_fd=directory_descriptor, follow_symlinks=False)
+        )
         if not stat.S_ISREG(before_open.st_mode):
             raise ImageVerificationError(f"image path {path} must be a regular non-symlink file")
+        open_path = path if directory_descriptor is None else Path(path.name)
         descriptor = os.open(
-            path,
+            open_path,
             os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0),
+            dir_fd=directory_descriptor,
         )
         after_open = os.fstat(descriptor)
         if (before_open.st_dev, before_open.st_ino) != (after_open.st_dev, after_open.st_ino):
             raise ImageVerificationError(f"image path {path} changed while it was being opened")
         facts = _get_file_facts(after_open)
+        sha256 = _hash_descriptor(descriptor)
         snapshot = _VerifiedSqshSnapshot(
             path=path,
             descriptor=descriptor,
             facts=facts,
-            sha256=_hash_descriptor(descriptor),
+            sha256=sha256,
+            directory_descriptor=directory_descriptor,
         )
-        snapshot.verify_unchanged()
+        snapshot.verify_identity_unchanged()
         yield snapshot
     except FileNotFoundError as error:
         raise ImageVerificationError(f"image path {path} does not exist") from error
@@ -302,17 +356,27 @@ def _verify_snapshot(image: RegisteredImage, snapshot: _VerifiedSqshSnapshot) ->
         raise ImageVerificationError(f"registered image {image.name!r} no longer matches its SQSH digest")
 
 
+def _verify_snapshot_identity(image: RegisteredImage, snapshot: _VerifiedSqshSnapshot) -> None:
+    try:
+        snapshot.verify_identity_unchanged()
+    except ImageVerificationError as error:
+        raise ImageVerificationError(f"registered image {image.name!r} no longer matches its SQSH digest") from error
+    if snapshot.sha256 != image.sqsh_sha256:
+        raise ImageVerificationError(f"registered image {image.name!r} no longer matches its SQSH digest")
+
+
 def _publish_candidate(
     candidate_path: Path,
     artifact_path: Path,
     *,
     expected_identity: tuple[int, int],
+    candidate_directory_descriptor: int | None = None,
 ) -> tuple[int, int] | None:
     try:
-        with (
-            open_verified_directory(candidate_path.parent) as candidate_directory_descriptor,
-            open_verified_directory(artifact_path.parent) as artifact_directory_descriptor,
-        ):
+        with ExitStack() as stack:
+            if candidate_directory_descriptor is None:
+                candidate_directory_descriptor = stack.enter_context(open_verified_directory(candidate_path.parent))
+            artifact_directory_descriptor = stack.enter_context(open_verified_directory(artifact_path.parent))
             candidate_status = os.stat(
                 candidate_path.name,
                 dir_fd=candidate_directory_descriptor,

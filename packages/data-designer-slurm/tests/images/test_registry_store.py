@@ -17,6 +17,7 @@ import pytest
 import yaml
 from slurm_test_fakes import FakeInspectionEnvironment
 
+import data_designer.slurm.images.service as image_service
 from data_designer.slurm.config import ImageBuildRequest, ImageInspectionRecord, InstalledDistribution
 from data_designer.slurm.images.errors import ImageConflictError, ImageRegistryError, ImageVerificationError
 from data_designer.slurm.images.inspection import ClientImageInspector, ServingImageInspector
@@ -257,6 +258,23 @@ def test_sqsh_reader_rejects_fifo_substituted_between_check_and_open(tmp_path: P
         compute_sqsh_file_sha256(image_path)
 
 
+def test_sqsh_reader_rejects_path_replaced_during_hash(tmp_path: Path) -> None:
+    image_path = _write_sqsh(tmp_path / "client.sqsh", b"client")
+    replacement = _write_sqsh(tmp_path / "replacement.sqsh", b"replacement")
+    original_hash_descriptor = image_service._hash_descriptor
+
+    def replace_path_after_hash(descriptor: int) -> str:
+        digest = original_hash_descriptor(descriptor)
+        replacement.replace(image_path)
+        return digest
+
+    with (
+        patch("data_designer.slurm.images.service._hash_descriptor", side_effect=replace_path_after_hash),
+        pytest.raises(ImageVerificationError, match="changed while it was being verified"),
+    ):
+        compute_sqsh_file_sha256(image_path)
+
+
 def test_registry_rejects_symlinked_lock_file_without_changing_target(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     lock_directory = workspace / "images" / ".locks"
@@ -351,6 +369,44 @@ def test_registration_blocks_readers_until_final_verification(tmp_path: Path) ->
     assert tuple(registered.name for registered in ImageRegistryStore(workspace).list_images()) == ("client",)
 
 
+def test_existing_sqsh_hashing_does_not_block_registry_readers(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    first_path = _write_sqsh(tmp_path / "first.sqsh", b"first")
+    second_path = _write_sqsh(tmp_path / "second.sqsh", b"second")
+    registry = VerifiedImageRegistry(workspace)
+    first = registry.register_existing(
+        ImageBuildRequest(name="first", kind="client", source=first_path.as_posix()),
+        _inspect_client(first_path),
+    )
+    second_inspection = _inspect_client(second_path)
+    hash_started = Event()
+    finish_hash = Event()
+    original_hash_descriptor = image_service._hash_descriptor
+
+    def block_second_hash(descriptor: int) -> str:
+        descriptor_status = os.fstat(descriptor)
+        second_status = second_path.stat()
+        if (descriptor_status.st_dev, descriptor_status.st_ino) == (second_status.st_dev, second_status.st_ino):
+            hash_started.set()
+            assert finish_hash.wait(timeout=5)
+        return original_hash_descriptor(descriptor)
+
+    with (
+        patch("data_designer.slurm.images.service._hash_descriptor", side_effect=block_second_hash),
+        ThreadPoolExecutor(max_workers=2) as executor,
+    ):
+        writer = executor.submit(
+            registry.register_existing,
+            ImageBuildRequest(name="second", kind="client", source=second_path.as_posix()),
+            second_inspection,
+        )
+        assert hash_started.wait(timeout=5)
+        reader = executor.submit(VerifiedImageRegistry(workspace).list_images)
+        assert reader.result(timeout=5) == (first,)
+        finish_hash.set()
+        assert writer.result(timeout=5).name == "second"
+
+
 def test_failed_registration_runs_rollback_before_releasing_target_lock(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     first = _get_registered_client_image(_write_sqsh(tmp_path / "shared.sqsh", b"shared"), name="first")
@@ -430,7 +486,7 @@ def test_fresh_reader_keeps_committed_registry_after_interrupted_marker_cleanup(
     assert ImageRegistryStore(workspace).list_images() == (replacement,)
 
 
-def test_committed_marker_sync_failure_keeps_new_registry_for_fresh_process(tmp_path: Path) -> None:
+def test_committed_marker_sync_failure_reports_failure_and_keeps_recovery_state(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     image = _get_registered_client_image(_write_sqsh(tmp_path / "client.sqsh", b"client"))
     store = ImageRegistryStore(workspace)
@@ -450,8 +506,11 @@ def test_committed_marker_sync_failure_keeps_new_registry_for_fresh_process(tmp_
                 raise OSError("injected committed marker sync failure")
         original_fsync(descriptor)
 
-    with patch("data_designer.slurm.images.registry.os.fsync", side_effect=fail_committed_marker_sync):
-        assert store.register(image, verify_before_publish=lambda _image: None) == image
+    with (
+        patch("data_designer.slurm.images.registry.os.fsync", side_effect=fail_committed_marker_sync),
+        pytest.raises(ImageRegistryError, match="commit state requires recovery"),
+    ):
+        store.register(image, verify_before_publish=lambda _image: None)
 
     committed_marker = store.image_root / ".registry.committed.yaml"
     assert committed_marker.is_file()

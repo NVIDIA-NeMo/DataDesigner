@@ -99,6 +99,7 @@ class ImageRegistryStore:
         image: RegisteredImage,
         *,
         verify_before_publish: Callable[[RegisteredImage], None],
+        prepare_before_publish: Callable[[RegisteredImage], None] | None = None,
         verify_after_publish: Callable[[RegisteredImage], None] | None = None,
         rollback_after_failure: Callable[[RegisteredImage], None] | None = None,
         replace: bool = False,
@@ -108,8 +109,11 @@ class ImageRegistryStore:
         Args:
             image: Immutable alias and artifact facts to persist.
             verify_before_publish: Final verification or artifact-publication callback run under all writer locks.
+            prepare_before_publish: Optional expensive preparation run under the alias and target locks, but outside
+                the global registry lock. The registry is revalidated after this callback returns.
             verify_after_publish: Optional verification run after registry replacement but before commit.
-            rollback_after_failure: Optional no-fail cleanup run under all writer locks after registry rollback.
+            rollback_after_failure: Optional no-fail cleanup run under the alias and target locks after registry
+                rollback.
             replace: Whether an existing alias may be replaced explicitly.
 
         Returns:
@@ -134,33 +138,40 @@ class ImageRegistryStore:
                     target_lock_name,
                     self._lock_directory / target_lock_name,
                 ),
-                acquire_file_lock(
-                    lock_directory_descriptor,
-                    _REGISTRY_LOCK_FILENAME,
-                    self._lock_directory / _REGISTRY_LOCK_FILENAME,
-                ),
             ):
-                self._recover_transaction(image_root_descriptor)
-                snapshot = self._load_from_directory(image_root_descriptor)
-                existing = next((entry for entry in snapshot.images if entry.name == image.name), None)
-                if existing is not None and not replace:
-                    raise ImageConflictError(f"image alias {image.name!r} is already registered")
-                self._validate_path_facts(snapshot, image, replacing=existing)
-                images = tuple(entry for entry in snapshot.images if entry.name != image.name) + (image,)
-                updated = ImageRegistryDocument(
-                    schema_version=1,
-                    images=tuple(sorted(images, key=lambda entry: entry.name)),
-                )
                 try:
-                    self._save(
-                        image_root_descriptor,
-                        snapshot,
-                        updated,
-                        verify_before_publish=lambda: verify_before_publish(image),
-                        verify_after_publish=(
-                            None if verify_after_publish is None else lambda: verify_after_publish(image)
-                        ),
-                    )
+                    if prepare_before_publish is not None:
+                        with acquire_file_lock(
+                            lock_directory_descriptor,
+                            _REGISTRY_LOCK_FILENAME,
+                            self._lock_directory / _REGISTRY_LOCK_FILENAME,
+                        ):
+                            self._recover_transaction(image_root_descriptor)
+                            self._build_registration(
+                                self._load_from_directory(image_root_descriptor),
+                                image,
+                                replace=replace,
+                            )
+                        prepare_before_publish(image)
+                    with acquire_file_lock(
+                        lock_directory_descriptor,
+                        _REGISTRY_LOCK_FILENAME,
+                        self._lock_directory / _REGISTRY_LOCK_FILENAME,
+                    ):
+                        self._recover_transaction(image_root_descriptor)
+                        snapshot = self._load_from_directory(image_root_descriptor)
+                        updated = self._build_registration(snapshot, image, replace=replace)
+                        self._save(
+                            image_root_descriptor,
+                            snapshot,
+                            updated,
+                            verify_before_publish=lambda: verify_before_publish(image),
+                            verify_after_publish=(
+                                None if verify_after_publish is None else lambda: verify_after_publish(image)
+                            ),
+                        )
+                except _RegistryCommitUncertainError:
+                    raise
                 except BaseException:
                     if rollback_after_failure is not None:
                         rollback_after_failure(image)
@@ -286,8 +297,10 @@ class ImageRegistryStore:
             rollback_installed = False
             try:
                 os.fsync(image_root_descriptor)
-            except OSError:
-                return
+            except OSError as error:
+                raise _RegistryCommitUncertainError(
+                    f"cannot persist image registry {self._registry_path}; commit state requires recovery"
+                ) from error
             try:
                 os.unlink(_REGISTRY_COMMITTED_FILENAME, dir_fd=image_root_descriptor)
                 os.fsync(image_root_descriptor)
@@ -392,6 +405,23 @@ class ImageRegistryStore:
             raise ImageRegistryError(f"cannot access image registry beneath {self._image_root}") from error
 
     @staticmethod
+    def _build_registration(
+        snapshot: ImageRegistryDocument,
+        image: RegisteredImage,
+        *,
+        replace: bool,
+    ) -> ImageRegistryDocument:
+        existing = next((entry for entry in snapshot.images if entry.name == image.name), None)
+        if existing is not None and not replace:
+            raise ImageConflictError(f"image alias {image.name!r} is already registered")
+        ImageRegistryStore._validate_path_facts(snapshot, image, replacing=existing)
+        images = tuple(entry for entry in snapshot.images if entry.name != image.name) + (image,)
+        return ImageRegistryDocument(
+            schema_version=1,
+            images=tuple(sorted(images, key=lambda entry: entry.name)),
+        )
+
+    @staticmethod
     def _validate_path_facts(
         snapshot: ImageRegistryDocument,
         image: RegisteredImage,
@@ -405,6 +435,10 @@ class ImageRegistryStore:
                 continue
             if existing.immutable_facts != image.immutable_facts:
                 raise ImageConflictError(f"image path {image.path!r} already has different immutable facts")
+
+
+class _RegistryCommitUncertainError(ImageRegistryError):
+    """Report a failed commit sync while preserving its recovery marker."""
 
 
 class _UniqueKeySafeLoader(yaml.SafeLoader):

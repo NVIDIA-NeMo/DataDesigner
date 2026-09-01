@@ -8,6 +8,8 @@ from __future__ import annotations
 import hashlib
 import os
 import stat
+from collections.abc import Iterator
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, field
 from importlib import resources
 from pathlib import Path
@@ -365,7 +367,8 @@ def submit_prepared_image_lifecycle(
     client: SlurmCommandClient,
 ) -> SlurmJobSubmissionReceipt:
     """Verify and submit one prepared image lifecycle script."""
-    verified_script = _verify_prepared_lifecycle(prepared)
+    with _open_prepared_job_directory(prepared) as job_directory_descriptor:
+        verified_script = _verify_prepared_lifecycle(prepared, job_directory_descriptor)
     try:
         script_text = verified_script.decode("utf-8", errors="strict")
     except UnicodeError as error:
@@ -392,29 +395,42 @@ def publish_completed_image_lifecycle(
             Cleanup failure after a committed publication does not invalidate the alias.
     """
     try:
-        _verify_prepared_lifecycle(prepared)
-        inspection_content = _read_regular_file(
-            Path(prepared.plan.inspection_output_path),
-            maximum_size=_MAXIMUM_INSPECTION_SIZE,
-        )
-        try:
-            inspection = ImageInspectionRecord.model_validate_json(inspection_content, strict=True)
-        except (UnicodeError, ValueError, ValidationError) as error:
-            raise ImageLifecycleError("image lifecycle inspection output is invalid") from error
-        registry = VerifiedImageRegistry(prepared.plan.selected_profile.profile.workspace_root)
-        if prepared.plan.operation is ImageLifecycleOperation.IMPORT_OCI:
-            source_oci_digest = prepared.plan.source_oci_digest
-            if source_oci_digest is None:
-                raise ImageLifecycleError("OCI image lifecycle result is missing its source digest")
-            registered = registry.publish_imported(
-                prepared.plan.request,
-                inspection,
-                Path(prepared.plan.sqsh_path),
-                source_oci_digest=source_oci_digest,
-                replace=replace,
-            )
-        else:
-            registered = registry.register_existing(prepared.plan.request, inspection, replace=replace)
+        with _open_prepared_job_directory(prepared) as job_directory_descriptor:
+            _verify_prepared_lifecycle(prepared, job_directory_descriptor)
+            inspection_path = Path(prepared.plan.inspection_output_path)
+            try:
+                with open_verified_child_directory(
+                    job_directory_descriptor,
+                    inspection_path.parent.name,
+                    inspection_path.parent,
+                ) as inspection_directory_descriptor:
+                    inspection_content = _read_regular_file(
+                        inspection_directory_descriptor,
+                        inspection_path.name,
+                        inspection_path,
+                        maximum_size=_MAXIMUM_INSPECTION_SIZE,
+                    )
+            except OSError as error:
+                raise ImageLifecycleError("cannot read prepared image lifecycle inspection output") from error
+            try:
+                inspection = ImageInspectionRecord.model_validate_json(inspection_content, strict=True)
+            except (UnicodeError, ValueError, ValidationError) as error:
+                raise ImageLifecycleError("image lifecycle inspection output is invalid") from error
+            registry = VerifiedImageRegistry(prepared.plan.selected_profile.profile.workspace_root)
+            if prepared.plan.operation is ImageLifecycleOperation.IMPORT_OCI:
+                source_oci_digest = prepared.plan.source_oci_digest
+                if source_oci_digest is None:
+                    raise ImageLifecycleError("OCI image lifecycle result is missing its source digest")
+                registered = registry.publish_imported(
+                    prepared.plan.request,
+                    inspection,
+                    Path(prepared.plan.sqsh_path),
+                    source_oci_digest=source_oci_digest,
+                    candidate_directory_descriptor=job_directory_descriptor,
+                    replace=replace,
+                )
+            else:
+                registered = registry.register_existing(prepared.plan.request, inspection, replace=replace)
     except BaseException:
         _try_remove_job_directory(
             Path(prepared.plan.job_directory),
@@ -440,7 +456,10 @@ def cleanup_prepared_image_lifecycle(prepared: PreparedImageLifecycleJob) -> Non
         raise ImageLifecycleError(f"cannot clean image lifecycle job {prepared.plan.lifecycle_id!r}") from error
 
 
-def _verify_prepared_lifecycle(prepared: PreparedImageLifecycleJob) -> bytes:
+def _verify_prepared_lifecycle(
+    prepared: PreparedImageLifecycleJob,
+    job_directory_descriptor: int,
+) -> bytes:
     expected_artifacts = (
         (
             "plan",
@@ -458,7 +477,11 @@ def _verify_prepared_lifecycle(prepared: PreparedImageLifecycleJob) -> bytes:
     verified_script: bytes | None = None
     for label, artifact, expected_path, expected_content in expected_artifacts:
         expected_sha256 = hashlib.sha256(expected_content).hexdigest()
-        actual_content = _read_regular_file(expected_path)
+        actual_content = _read_regular_file(
+            job_directory_descriptor,
+            expected_path.name,
+            expected_path,
+        )
         if (
             artifact.path != expected_path.as_posix()
             or artifact.sha256 != expected_sha256
@@ -470,6 +493,27 @@ def _verify_prepared_lifecycle(prepared: PreparedImageLifecycleJob) -> bytes:
     if verified_script is None:
         raise ImageLifecycleError("prepared image lifecycle script was not verified")
     return verified_script
+
+
+@contextmanager
+def _open_prepared_job_directory(prepared: PreparedImageLifecycleJob) -> Iterator[int]:
+    job_directory = Path(prepared.plan.job_directory)
+    with ExitStack() as stack:
+        try:
+            parent_descriptor = stack.enter_context(open_verified_directory(job_directory.parent))
+            job_directory_descriptor = stack.enter_context(
+                open_verified_child_directory(
+                    parent_descriptor,
+                    job_directory.name,
+                    job_directory,
+                )
+            )
+            status = os.fstat(job_directory_descriptor)
+        except OSError as error:
+            raise ImageLifecycleError("cannot access prepared image lifecycle job directory") from error
+        if (status.st_dev, status.st_ino) != prepared._job_directory_identity:
+            raise ImageLifecycleError("prepared image lifecycle job directory no longer matches its identity")
+        yield job_directory_descriptor
 
 
 def _stage_resource(job_directory: Path, filename: str) -> ArtifactReference:
@@ -506,15 +550,22 @@ def _write_file(path: Path, content: bytes, *, mode: int) -> ArtifactReference:
     return ArtifactReference(path=path.as_posix(), sha256=hashlib.sha256(content).hexdigest())
 
 
-def _read_regular_file(path: Path, *, maximum_size: int | None = None) -> bytes:
+def _read_regular_file(
+    directory_descriptor: int,
+    name: str,
+    display_path: Path,
+    *,
+    maximum_size: int | None = None,
+) -> bytes:
     descriptor: int | None = None
     try:
-        before_open = path.lstat()
+        before_open = os.stat(name, dir_fd=directory_descriptor, follow_symlinks=False)
         if not stat.S_ISREG(before_open.st_mode):
             raise ImageLifecycleError("prepared image lifecycle file is not regular")
         descriptor = os.open(
-            path,
+            name,
             os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0),
+            dir_fd=directory_descriptor,
         )
         path_status = os.fstat(descriptor)
         if not stat.S_ISREG(path_status.st_mode) or (before_open.st_dev, before_open.st_ino) != (
@@ -526,7 +577,7 @@ def _read_regular_file(path: Path, *, maximum_size: int | None = None) -> bytes:
             descriptor = None
             content = source.read() if maximum_size is None else source.read(maximum_size + 1)
             after_read = os.fstat(source.fileno())
-            after_path = path.lstat()
+            after_path = os.stat(name, dir_fd=directory_descriptor, follow_symlinks=False)
         if (
             not stat.S_ISREG(after_read.st_mode)
             or not stat.S_ISREG(after_path.st_mode)
@@ -538,7 +589,7 @@ def _read_regular_file(path: Path, *, maximum_size: int | None = None) -> bytes:
             raise ImageLifecycleError("image lifecycle inspection output is too large")
         return content
     except OSError as error:
-        raise ImageLifecycleError("cannot read prepared image lifecycle file") from error
+        raise ImageLifecycleError(f"cannot read prepared image lifecycle file {display_path!s}") from error
     finally:
         if descriptor is not None:
             os.close(descriptor)

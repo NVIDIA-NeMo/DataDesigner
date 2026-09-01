@@ -6,6 +6,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
 import stat
 import subprocess
 from collections.abc import Sequence
@@ -20,6 +21,7 @@ import pytest
 from pydantic import ValidationError
 from slurm_test_fakes import FakeSlurmJob, FakeSlurmRunner
 
+import data_designer.slurm.images.lifecycle as image_lifecycle
 from data_designer.slurm.config import (
     ClientImageInspection,
     ImageBuildProfile,
@@ -509,6 +511,24 @@ def test_submit_rejects_modified_prepared_files(tmp_path: Path, artifact_name: s
         submit_prepared_image_lifecycle(prepared, SlurmCommandClient(FakeSlurmRunner()))
 
 
+def test_submit_rejects_recreated_prepared_job_directory(tmp_path: Path) -> None:
+    prepared = prepare_image_lifecycle_job(
+        ImageBuildRequest(name="client", kind="client", source=(tmp_path / "client.sqsh").as_posix()),
+        _get_selected_profile(tmp_path / "workspace"),
+        lifecycle_id="image-job-recreated-before-submit",
+    )
+    job_directory = Path(prepared.plan.job_directory)
+    detached_job_directory = job_directory.with_name("detached-before-submit")
+    job_directory.rename(detached_job_directory)
+    shutil.copytree(detached_job_directory, job_directory)
+    runner = FakeSlurmRunner()
+
+    with pytest.raises(ImageLifecycleError, match="directory no longer matches its identity"):
+        submit_prepared_image_lifecycle(prepared, SlurmCommandClient(runner))
+
+    assert runner.calls == []
+
+
 def test_submit_rejects_modified_script_even_when_artifact_digest_is_rebound(tmp_path: Path) -> None:
     prepared = prepare_image_lifecycle_job(
         ImageBuildRequest(name="client", kind="client", source=(tmp_path / "client.sqsh").as_posix()),
@@ -586,6 +606,79 @@ def test_publish_completed_lifecycle_registers_digest_bound_image_in_fresh_proce
     )
     assert resolved.path == expected_path.as_posix()
     assert resolved.sha256 == hashlib.sha256(content).hexdigest()
+
+
+def test_publish_rejects_recreated_job_directory_with_substituted_result(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    prepared = _prepare_completed_oci_lifecycle(
+        workspace,
+        lifecycle_id="recreated-before-publication",
+        content=b"original",
+    )
+    _write_completed_inspection(prepared, _get_client_inspection(b"original"))
+    job_directory = Path(prepared.plan.job_directory)
+    detached_job_directory = job_directory.with_name("detached-before-publication")
+    job_directory.rename(detached_job_directory)
+    shutil.copytree(detached_job_directory, job_directory)
+    Path(prepared.plan.sqsh_path).write_bytes(b"substituted")
+    _write_completed_inspection(prepared, _get_client_inspection(b"substituted"))
+
+    with pytest.raises(ImageLifecycleError, match="directory no longer matches its identity"):
+        publish_completed_image_lifecycle(prepared)
+
+    assert VerifiedImageRegistry(workspace).list_images() == ()
+    assert Path(prepared.plan.sqsh_path).read_bytes() == b"substituted"
+    assert detached_job_directory.is_dir()
+
+
+def test_publish_reads_original_job_descriptor_after_directory_replacement(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    prepared = _prepare_completed_oci_lifecycle(
+        workspace,
+        lifecycle_id="replaced-during-publication",
+        content=b"original",
+    )
+    _write_completed_inspection(prepared, _get_client_inspection(b"original"))
+    job_directory = Path(prepared.plan.job_directory)
+    detached_job_directory = job_directory.with_name("detached-during-publication")
+    original_read_regular_file = image_lifecycle._read_regular_file
+    replaced = False
+
+    def replace_job_directory_before_read(
+        directory_descriptor: int,
+        name: str,
+        display_path: Path,
+        *,
+        maximum_size: int | None = None,
+    ) -> bytes:
+        nonlocal replaced
+        if not replaced:
+            replaced = True
+            job_directory.rename(detached_job_directory)
+            shutil.copytree(detached_job_directory, job_directory)
+            Path(prepared.plan.sqsh_path).write_bytes(b"substituted")
+            _write_completed_inspection(prepared, _get_client_inspection(b"substituted"))
+        return original_read_regular_file(
+            directory_descriptor,
+            name,
+            display_path,
+            maximum_size=maximum_size,
+        )
+
+    with (
+        patch(
+            "data_designer.slurm.images.lifecycle._read_regular_file",
+            side_effect=replace_job_directory_before_read,
+        ),
+        pytest.raises(ImageLifecycleError, match="cannot clean image lifecycle job"),
+    ):
+        publish_completed_image_lifecycle(prepared)
+
+    registered = VerifiedImageRegistry(workspace).list_images()
+    assert len(registered) == 1
+    assert Path(registered[0].path).read_bytes() == b"original"
+    assert Path(prepared.plan.sqsh_path).read_bytes() == b"substituted"
+    assert detached_job_directory.is_dir()
 
 
 @pytest.mark.parametrize(
@@ -1110,6 +1203,49 @@ def test_registry_directory_sync_failure_restores_prior_alias_and_artifact(tmp_p
     assert Path(original.path).read_bytes() == b"first"
     assert tuple((workspace / "images" / "artifacts").glob("*.sqsh")) == (Path(original.path),)
     assert not Path(second.plan.job_directory).exists()
+
+
+def test_committed_marker_sync_failure_preserves_artifact_for_recovery(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    prepared = _prepare_completed_oci_lifecycle(
+        workspace,
+        lifecycle_id="committed-marker-sync-failure",
+        content=b"candidate",
+    )
+    inspection = _get_client_inspection(b"candidate")
+    _write_completed_inspection(prepared, inspection)
+    artifact_path = workspace / "images" / "artifacts" / f"client-{inspection.sqsh_sha256}.sqsh"
+    image_root = workspace / "images"
+    image_root_sync_count = 0
+    original_fsync = os.fsync
+
+    def fail_committed_marker_sync(descriptor: int) -> None:
+        nonlocal image_root_sync_count
+        descriptor_status = os.fstat(descriptor)
+        image_root_status = image_root.stat()
+        if (descriptor_status.st_dev, descriptor_status.st_ino) == (
+            image_root_status.st_dev,
+            image_root_status.st_ino,
+        ):
+            image_root_sync_count += 1
+            if image_root_sync_count == 3:
+                raise OSError("injected committed marker sync failure")
+        original_fsync(descriptor)
+
+    with (
+        patch("data_designer.slurm.images.registry.os.fsync", side_effect=fail_committed_marker_sync),
+        pytest.raises(ImageRegistryError, match="commit state requires recovery"),
+    ):
+        publish_completed_image_lifecycle(prepared)
+
+    committed_marker = image_root / ".registry.committed.yaml"
+    assert committed_marker.is_file()
+    assert artifact_path.read_bytes() == b"candidate"
+    registered = VerifiedImageRegistry(workspace).list_images()
+    assert len(registered) == 1
+    assert registered[0].path == artifact_path.as_posix()
+    assert not committed_marker.exists()
+    assert not Path(prepared.plan.job_directory).exists()
 
 
 def test_existing_sqsh_replacement_after_registry_rename_rolls_back_alias(tmp_path: Path) -> None:
