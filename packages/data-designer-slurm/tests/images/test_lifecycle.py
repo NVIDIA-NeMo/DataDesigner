@@ -86,6 +86,10 @@ def test_prepare_existing_sqsh_inspects_in_place_without_oci_identity(tmp_path: 
     script = Path(prepared.script_file.path).read_text()
     assert "enroot import" not in script
     assert f'readonly DD_IMAGE_SQSH="{image_path.as_posix()}"' in script
+    assert 'verify_enroot_compatibility 3 5 "existing SQSH inspection"' in script
+    assert "enroot start --root" in script
+    assert "inspect_image.py:x-create=file,bind,ro" in script
+    assert "/output:x-create=dir,bind" in script
 
 
 def test_image_lifecycle_renderer_uses_explicit_cpu_profile_and_safe_mounts(tmp_path: Path) -> None:
@@ -111,19 +115,26 @@ def test_image_lifecycle_renderer_uses_explicit_cpu_profile_and_safe_mounts(tmp_
     assert 'enroot import -o "${DD_IMAGE_SQSH}" "${DD_OCI_SOURCE}"' in script
     assert "inspect_image.py:x-create=file,bind,ro" in script
     assert "/opt/data-designer-slurm/output:x-create=dir,bind" in script
+    assert 'export HOME="${DD_JOB_DIR}/home"' in script
     assert 'export ENROOT_CONFIG_PATH="${DD_JOB_DIR}/enroot/config"' in script
     assert 'export ENROOT_MAX_PROCESSORS="${SLURM_CPUS_PER_TASK}"' in script
+    assert script.index('export HOME="${DD_JOB_DIR}/home"') < script.rindex("\nverify_enroot_compatibility 4 0")
     assert 'version="$(enroot version)"' in script
-    assert "if (( 10#${major} < 4 )); then" in script
+    assert 'verify_enroot_compatibility 4 0 "digest-pinned OCI imports"' in script
     assert f'--mount "{prepared.plan.job_directory}:' not in script
     completed = subprocess.run(("bash", "-n"), input=script, capture_output=True, text=True, check=False)
     assert completed.returncode == 0, completed.stderr
 
 
-@pytest.mark.parametrize("source_kind", ("oci", "existing"), ids=("oci-import", "existing-sqsh"))
+@pytest.mark.parametrize(
+    ("source_kind", "enroot_version"),
+    (("oci", "4.0.0"), ("existing", "3.5.0")),
+    ids=("oci-import-enroot-4", "existing-sqsh-enroot-3.5"),
+)
 def test_rendered_image_lifecycle_job_computes_digest_and_runs_inspection(
     tmp_path: Path,
     source_kind: str,
+    enroot_version: str,
 ) -> None:
     if source_kind == "oci":
         source = f"registry.example.test/client@sha256:{'a' * 64}"
@@ -142,11 +153,17 @@ def test_rendered_image_lifecycle_job_computes_digest_and_runs_inspection(
     fake_enroot.write_text(
         "#!/usr/bin/env bash\n"
         "set -Eeuo pipefail\n"
+        ': "${HOME:?HOME must be set}"\n'
+        'printf \'%s\\n\' "${HOME}" >> "${DD_TEST_HOME_LOG}"\n'
+        'printf \'%s\\n\' "$1" >> "${DD_TEST_ENROOT_LOG}"\n'
         'if [[ "$1" == "version" ]]; then\n'
-        "    printf '%s\\n' '4.0.0'\n"
+        f"    printf '%s\\n' '{enroot_version}'\n"
         'elif [[ "$1" == "import" ]]; then\n'
         "    printf '%s\\n' 'imported image' > \"$3\"\n"
         'elif [[ "$1" == "start" ]]; then\n'
+        '    [[ " $* " == *" --root "* ]]\n'
+        '    [[ "$*" == *":x-create=file,bind,ro"* ]]\n'
+        '    [[ "$*" == *":x-create=dir,bind"* ]]\n'
         "    printf '%s\\n' '{}' > \"${DD_TEST_INSPECTION_OUTPUT}\"\n"
         "fi\n"
     )
@@ -156,6 +173,8 @@ def test_rendered_image_lifecycle_job_computes_digest_and_runs_inspection(
         f'export PATH="{fake_bin.as_posix()}:',
         1,
     )
+    home_log = tmp_path / "home.log"
+    enroot_log = tmp_path / "enroot.log"
 
     completed = subprocess.run(
         ("bash",),
@@ -164,6 +183,8 @@ def test_rendered_image_lifecycle_job_computes_digest_and_runs_inspection(
         text=True,
         check=False,
         env={
+            "DD_TEST_ENROOT_LOG": enroot_log.as_posix(),
+            "DD_TEST_HOME_LOG": home_log.as_posix(),
             "DD_TEST_INSPECTION_OUTPUT": prepared.plan.inspection_output_path,
             "SLURM_CPUS_PER_TASK": "2",
             "SLURM_JOB_ID": "5101",
@@ -171,15 +192,27 @@ def test_rendered_image_lifecycle_job_computes_digest_and_runs_inspection(
     )
 
     assert completed.returncode == 0, completed.stderr
+    expected_home = Path(prepared.plan.job_directory) / "home"
+    assert set(home_log.read_text().splitlines()) == {expected_home.as_posix()}
+    assert stat.S_IMODE(expected_home.stat().st_mode) == 0o700
     assert Path(prepared.plan.inspection_output_path).read_text() == "{}\n"
     if source_kind == "oci":
+        assert enroot_log.read_text().splitlines() == ["version", "import", "create", "start", "remove"]
         assert Path(prepared.plan.sqsh_path).read_text() == "imported image\n"
+    else:
+        assert enroot_log.read_text().splitlines() == ["version", "create", "start", "remove"]
 
 
-@pytest.mark.parametrize("source_kind", ("oci", "existing"), ids=("digest-import", "existing-sqsh"))
-def test_rendered_image_lifecycle_rejects_enroot_before_version_4_before_image_operations(
+@pytest.mark.parametrize(
+    ("source_kind", "enroot_version", "required_version"),
+    (("oci", "3.5.0", "4.0"), ("existing", "3.4.1", "3.5")),
+    ids=("digest-import-before-4", "existing-sqsh-before-3.5"),
+)
+def test_rendered_image_lifecycle_rejects_unsupported_enroot_before_image_operations(
     tmp_path: Path,
     source_kind: str,
+    enroot_version: str,
+    required_version: str,
 ) -> None:
     if source_kind == "oci":
         source = f"registry.example.test/client@sha256:{'a' * 64}"
@@ -200,7 +233,7 @@ def test_rendered_image_lifecycle_rejects_enroot_before_version_4_before_image_o
         "set -Eeuo pipefail\n"
         'printf \'%s\\n\' "$1" >> "${DD_TEST_ENROOT_LOG}"\n'
         'if [[ "$1" == "version" ]]; then\n'
-        "    printf '%s\\n' '3.5.0'\n"
+        f"    printf '%s\\n' '{enroot_version}'\n"
         "fi\n"
     )
     fake_enroot.chmod(0o700)
@@ -225,7 +258,7 @@ def test_rendered_image_lifecycle_rejects_enroot_before_version_4_before_image_o
     )
 
     assert completed.returncode == 78
-    assert "Enroot 4 or newer" in completed.stderr
+    assert f"Enroot {required_version} or newer" in completed.stderr
     assert enroot_log.read_text() == "version\n"
 
 

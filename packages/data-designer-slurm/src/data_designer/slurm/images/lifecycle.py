@@ -34,7 +34,8 @@ _PLAN_FILENAME = "image-lifecycle-plan.json"
 _SCRIPT_FILENAME = "image-lifecycle.sbatch"
 _RESOURCE_PACKAGE = "data_designer.slurm.images.resources"
 _IDENTIFIER_ADAPTER = TypeAdapter(Identifier)
-_MINIMUM_ENROOT_MAJOR = 4
+_MINIMUM_ENROOT_OCI_VERSION = (4, 0)
+_MINIMUM_ENROOT_SQSH_VERSION = (3, 5)
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,16 +136,20 @@ def render_image_lifecycle_script(plan: ImageLifecyclePlan) -> str:
     source_block = ""
     existing_sqsh_preflight = ""
     if plan.operation is ImageLifecycleOperation.IMPORT_OCI:
+        minimum_major, minimum_minor = _MINIMUM_ENROOT_OCI_VERSION
         source_block = f"""readonly DD_OCI_SOURCE={quote_shell_value(_format_enroot_oci_uri(plan.request.source))}
 if [[ -e "${{DD_IMAGE_SQSH}}" || -L "${{DD_IMAGE_SQSH}}" ]]; then
     printf '%s\\n' 'candidate SQSH path already exists' >&2
     exit 73
 fi
-verify_enroot_compatibility
+verify_enroot_compatibility {minimum_major} {minimum_minor} "digest-pinned OCI imports"
 enroot import -o "${{DD_IMAGE_SQSH}}" "${{DD_OCI_SOURCE}}"
 """
     else:
-        existing_sqsh_preflight = "verify_enroot_compatibility\n"
+        minimum_major, minimum_minor = _MINIMUM_ENROOT_SQSH_VERSION
+        existing_sqsh_preflight = (
+            f'verify_enroot_compatibility {minimum_major} {minimum_minor} "existing SQSH inspection"\n'
+        )
 
     return f"""#!/usr/bin/env bash
 {directives}
@@ -172,15 +177,19 @@ verify_sha256() {{
 }}
 
 verify_enroot_compatibility() {{
-    local version major
+    local required_major="$1" required_minor="$2" purpose="$3"
+    local version major minor
     version="$(enroot version)"
     if [[ ! ${{version}} =~ ^([0-9]+)\\.([0-9]+)\\.([0-9]+)([-+][0-9A-Za-z.-]+)?$ ]]; then
         printf '%s\\n' 'Enroot version output is invalid' >&2
         exit 78
     fi
     major="${{BASH_REMATCH[1]}}"
-    if (( 10#${{major}} < {_MINIMUM_ENROOT_MAJOR} )); then
-        printf '%s\\n' 'Enroot 4 or newer is required for digest imports and processor-bounded extraction' >&2
+    minor="${{BASH_REMATCH[2]}}"
+    if (( 10#${{major}} < 10#${{required_major}} )) ||
+        (( 10#${{major}} == 10#${{required_major}} && 10#${{minor}} < 10#${{required_minor}} )); then
+        printf 'Enroot %s.%s or newer is required for %s\\n' \\
+            "${{required_major}}" "${{required_minor}}" "${{purpose}}" >&2
         exit 78
     fi
 }}
@@ -188,11 +197,13 @@ verify_enroot_compatibility() {{
 verify_sha256 "${{DD_INSPECTOR_SHA256}}" "${{DD_INSPECTOR}}"
 verify_sha256 "${{DD_ENROOT_RC_SHA256}}" "${{DD_ENROOT_RC}}"
 install -d -m 0700 \
+    "${{DD_JOB_DIR}}/home" \
     "${{DD_JOB_DIR}}/enroot/cache" \
     "${{DD_JOB_DIR}}/enroot/config" \
     "${{DD_JOB_DIR}}/enroot/data" \
     "${{DD_JOB_DIR}}/enroot/tmp" \
     "${{DD_INSPECTION_DIRECTORY}}"
+export HOME="${{DD_JOB_DIR}}/home"
 export ENROOT_CACHE_PATH="${{DD_JOB_DIR}}/enroot/cache"
 export ENROOT_CONFIG_PATH="${{DD_JOB_DIR}}/enroot/config"
 export ENROOT_DATA_PATH="${{DD_JOB_DIR}}/enroot/data"
