@@ -5,8 +5,10 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import stat
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -37,11 +39,17 @@ from data_designer.slurm.images.records import ImageRegistryDocument, Registered
 _LOCK_DIRECTORY_NAME = ".locks"
 _REGISTRY_FILENAME = "registry.yaml"
 _REGISTRY_LOCK_FILENAME = "registry.lock"
+_REGISTRY_ROLLBACK_FILENAME = ".registry.rollback.yaml"
+_REGISTRY_COMMITTED_FILENAME = ".registry.committed.yaml"
 _IDENTIFIER_ADAPTER = TypeAdapter(Identifier)
 
 
 class ImageRegistryStore:
-    """Persist image aliases beneath one explicitly selected shared workspace."""
+    """Persist image aliases beneath one explicitly selected shared workspace.
+
+    Writers acquire alias, target when present, then registry locks; readers
+    acquire only the registry lock. Keeping this order fixed prevents deadlocks.
+    """
 
     def __init__(self, workspace_root: str | Path) -> None:
         try:
@@ -91,11 +99,29 @@ class ImageRegistryStore:
         image: RegisteredImage,
         *,
         verify_before_publish: Callable[[RegisteredImage], None],
+        verify_after_publish: Callable[[RegisteredImage], None] | None = None,
+        rollback_after_failure: Callable[[RegisteredImage], None] | None = None,
         replace: bool = False,
     ) -> RegisteredImage:
-        """Atomically add or explicitly replace one verified image alias."""
+        """Atomically add or explicitly replace one verified image alias.
+
+        Args:
+            image: Immutable alias and artifact facts to persist.
+            verify_before_publish: Final verification or artifact-publication callback run under all writer locks.
+            verify_after_publish: Optional verification run after registry replacement but before commit.
+            rollback_after_failure: Optional no-fail cleanup run under all writer locks after registry rollback.
+            replace: Whether an existing alias may be replaced explicitly.
+
+        Returns:
+            The registered alias facts.
+
+        Raises:
+            ImageConflictError: If the alias or target facts conflict with existing state.
+            ImageRegistryError: If registry storage cannot be locked, read, recovered, or persisted.
+        """
         self._ensure_storage()
         alias_lock_name = f"alias-{image.name}.lock"
+        target_lock_name = _get_target_lock_name(image.path)
         with self._open_storage() as (image_root_descriptor, lock_directory_descriptor):
             with (
                 acquire_file_lock(
@@ -105,10 +131,16 @@ class ImageRegistryStore:
                 ),
                 acquire_file_lock(
                     lock_directory_descriptor,
+                    target_lock_name,
+                    self._lock_directory / target_lock_name,
+                ),
+                acquire_file_lock(
+                    lock_directory_descriptor,
                     _REGISTRY_LOCK_FILENAME,
                     self._lock_directory / _REGISTRY_LOCK_FILENAME,
                 ),
             ):
+                self._recover_transaction(image_root_descriptor)
                 snapshot = self._load_from_directory(image_root_descriptor)
                 existing = next((entry for entry in snapshot.images if entry.name == image.name), None)
                 if existing is not None and not replace:
@@ -119,11 +151,20 @@ class ImageRegistryStore:
                     schema_version=1,
                     images=tuple(sorted(images, key=lambda entry: entry.name)),
                 )
-                self._save(
-                    image_root_descriptor,
-                    updated,
-                    verify_before_publish=lambda: verify_before_publish(image),
-                )
+                try:
+                    self._save(
+                        image_root_descriptor,
+                        snapshot,
+                        updated,
+                        verify_before_publish=lambda: verify_before_publish(image),
+                        verify_after_publish=(
+                            None if verify_after_publish is None else lambda: verify_after_publish(image)
+                        ),
+                    )
+                except BaseException:
+                    if rollback_after_failure is not None:
+                        rollback_after_failure(image)
+                    raise
         return image
 
     def unregister(self, name: Identifier) -> RegisteredImage:
@@ -144,6 +185,7 @@ class ImageRegistryStore:
                     self._lock_directory / _REGISTRY_LOCK_FILENAME,
                 ),
             ):
+                self._recover_transaction(image_root_descriptor)
                 snapshot = self._load_from_directory(image_root_descriptor)
                 try:
                     removed = next(image for image in snapshot.images if image.name == name)
@@ -153,15 +195,29 @@ class ImageRegistryStore:
                     schema_version=1,
                     images=tuple(image for image in snapshot.images if image.name != name),
                 )
-                self._save(image_root_descriptor, updated)
+                self._save(image_root_descriptor, snapshot, updated)
         return removed
 
     def _load(self) -> ImageRegistryDocument:
         try:
-            with open_verified_directory(self._image_root) as image_root_descriptor:
-                return self._load_from_directory(image_root_descriptor)
+            self._image_root.lstat()
         except FileNotFoundError:
             return ImageRegistryDocument(schema_version=1)
+        except OSError as error:
+            raise ImageRegistryError(f"cannot load image registry {self._registry_path}") from error
+        try:
+            self._ensure_storage()
+        except ImageRegistryError as error:
+            raise ImageRegistryError(f"cannot load image registry {self._registry_path}") from error
+        try:
+            with self._open_storage() as (image_root_descriptor, lock_directory_descriptor):
+                with acquire_file_lock(
+                    lock_directory_descriptor,
+                    _REGISTRY_LOCK_FILENAME,
+                    self._lock_directory / _REGISTRY_LOCK_FILENAME,
+                ):
+                    self._recover_transaction(image_root_descriptor)
+                    return self._load_from_directory(image_root_descriptor)
         except OSError as error:
             raise ImageRegistryError(f"cannot load image registry {self._registry_path}") from error
 
@@ -180,16 +236,95 @@ class ImageRegistryStore:
     def _save(
         self,
         image_root_descriptor: int,
+        previous: ImageRegistryDocument,
         snapshot: ImageRegistryDocument,
         *,
         verify_before_publish: Callable[[], None] | None = None,
+        verify_after_publish: Callable[[], None] | None = None,
     ) -> None:
         temporary_name: str | None = None
+        rollback_temporary_name: str | None = None
+        rollback_installed = False
+        try:
+            rollback_temporary_name = self._write_temporary_snapshot(
+                image_root_descriptor,
+                previous,
+                prefix=".registry.rollback.",
+            )
+            os.replace(
+                rollback_temporary_name,
+                _REGISTRY_ROLLBACK_FILENAME,
+                src_dir_fd=image_root_descriptor,
+                dst_dir_fd=image_root_descriptor,
+            )
+            rollback_temporary_name = None
+            rollback_installed = True
+            os.fsync(image_root_descriptor)
+            temporary_name = self._write_temporary_snapshot(
+                image_root_descriptor,
+                snapshot,
+                prefix=".registry.",
+            )
+            if verify_before_publish is not None:
+                verify_before_publish()
+            os.replace(
+                temporary_name,
+                _REGISTRY_FILENAME,
+                src_dir_fd=image_root_descriptor,
+                dst_dir_fd=image_root_descriptor,
+            )
+            temporary_name = None
+            if verify_after_publish is not None:
+                verify_after_publish()
+            os.fsync(image_root_descriptor)
+            os.replace(
+                _REGISTRY_ROLLBACK_FILENAME,
+                _REGISTRY_COMMITTED_FILENAME,
+                src_dir_fd=image_root_descriptor,
+                dst_dir_fd=image_root_descriptor,
+            )
+            rollback_installed = False
+            try:
+                os.fsync(image_root_descriptor)
+            except OSError:
+                return
+            try:
+                os.unlink(_REGISTRY_COMMITTED_FILENAME, dir_fd=image_root_descriptor)
+                os.fsync(image_root_descriptor)
+            except OSError:
+                pass
+        except BaseException as error:
+            if rollback_installed:
+                try:
+                    self._recover_transaction(image_root_descriptor)
+                    rollback_installed = False
+                except ImageRegistryError:
+                    pass
+            if isinstance(error, (OSError, TypeError, yaml.YAMLError)):
+                raise ImageRegistryError(f"cannot persist image registry {self._registry_path}") from error
+            raise
+        finally:
+            for name in (temporary_name, rollback_temporary_name):
+                if name is None:
+                    continue
+                try:
+                    os.unlink(name, dir_fd=image_root_descriptor)
+                except OSError:
+                    pass
+
+    def _write_temporary_snapshot(
+        self,
+        image_root_descriptor: int,
+        snapshot: ImageRegistryDocument,
+        *,
+        prefix: str,
+    ) -> str:
         descriptor: int | None = None
+        temporary_name: str | None = None
         try:
             descriptor, temporary_name = create_temporary_file(
                 image_root_descriptor,
-                prefix=".registry.",
+                prefix=prefix,
                 suffix=".tmp",
             )
             output = os.fdopen(descriptor, "w", encoding="utf-8")
@@ -203,18 +338,8 @@ class ImageRegistryStore:
                 )
                 output.flush()
                 os.fsync(output.fileno())
-            if verify_before_publish is not None:
-                verify_before_publish()
-            os.replace(
-                temporary_name,
-                _REGISTRY_FILENAME,
-                src_dir_fd=image_root_descriptor,
-                dst_dir_fd=image_root_descriptor,
-            )
-            os.fsync(image_root_descriptor)
-        except (OSError, TypeError, yaml.YAMLError) as error:
-            raise ImageRegistryError(f"cannot persist image registry {self._registry_path}") from error
-        finally:
+            return temporary_name
+        except BaseException:
             if descriptor is not None:
                 os.close(descriptor)
             if temporary_name is not None:
@@ -222,6 +347,29 @@ class ImageRegistryStore:
                     os.unlink(temporary_name, dir_fd=image_root_descriptor)
                 except OSError:
                     pass
+            raise
+
+    def _recover_transaction(self, image_root_descriptor: int) -> None:
+        try:
+            rollback_exists = _has_regular_marker(image_root_descriptor, _REGISTRY_ROLLBACK_FILENAME)
+            committed_exists = _has_regular_marker(image_root_descriptor, _REGISTRY_COMMITTED_FILENAME)
+            if rollback_exists and committed_exists:
+                raise OSError("image registry contains conflicting transaction markers")
+            if committed_exists:
+                os.unlink(_REGISTRY_COMMITTED_FILENAME, dir_fd=image_root_descriptor)
+                os.fsync(image_root_descriptor)
+                return
+            if not rollback_exists:
+                return
+            os.replace(
+                _REGISTRY_ROLLBACK_FILENAME,
+                _REGISTRY_FILENAME,
+                src_dir_fd=image_root_descriptor,
+                dst_dir_fd=image_root_descriptor,
+            )
+            os.fsync(image_root_descriptor)
+        except OSError as error:
+            raise ImageRegistryError(f"cannot recover image registry {self._registry_path}") from error
 
     def _ensure_storage(self) -> None:
         try:
@@ -300,3 +448,18 @@ def _validate_image_alias(name: str) -> Identifier:
         return _IDENTIFIER_ADAPTER.validate_python(name, strict=True)
     except ValidationError as error:
         raise ImageRegistryError(f"invalid image alias {name!r}") from error
+
+
+def _get_target_lock_name(path: str) -> str:
+    digest = hashlib.sha256(path.encode("utf-8")).hexdigest()
+    return f"target-{digest}.lock"
+
+
+def _has_regular_marker(directory_descriptor: int, name: str) -> bool:
+    try:
+        marker_status = os.stat(name, dir_fd=directory_descriptor, follow_symlinks=False)
+    except FileNotFoundError:
+        return False
+    if not stat.S_ISREG(marker_status.st_mode):
+        raise OSError(f"image registry transaction marker {name} is not a regular file")
+    return True

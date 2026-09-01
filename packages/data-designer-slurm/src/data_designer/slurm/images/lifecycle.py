@@ -8,22 +8,28 @@ from __future__ import annotations
 import hashlib
 import os
 import stat
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from importlib import resources
 from pathlib import Path
 
 from pydantic import TypeAdapter, ValidationError
 
-from data_designer.slurm.config import ImageBuildRequest, SelectedSlurmProfile
+from data_designer.slurm.config import ImageBuildRequest, ImageInspectionRecord, SelectedSlurmProfile
 from data_designer.slurm.contracts import ArtifactReference, Identifier
 from data_designer.slurm.images.errors import ImageLifecycleError
-from data_designer.slurm.images.filesystem import ensure_private_directory
+from data_designer.slurm.images.filesystem import (
+    ensure_private_directory,
+    open_verified_child_directory,
+    open_verified_directory,
+)
 from data_designer.slurm.images.records import (
     ImageLifecycleOperation,
     ImageLifecyclePlan,
+    RegisteredImage,
     validate_enroot_mount_path,
     validate_oci_source_for_lifecycle,
 )
+from data_designer.slurm.images.service import VerifiedImageRegistry
 from data_designer.slurm.launcher.batch import quote_shell_value, render_batch_directives
 from data_designer.slurm.launcher.client import SlurmCommandClient
 from data_designer.slurm.launcher.models import SlurmJobSubmissionReceipt
@@ -36,15 +42,23 @@ _RESOURCE_PACKAGE = "data_designer.slurm.images.resources"
 _IDENTIFIER_ADAPTER = TypeAdapter(Identifier)
 _MINIMUM_ENROOT_OCI_VERSION = (4, 0)
 _MINIMUM_ENROOT_SQSH_VERSION = (3, 5)
+_MAXIMUM_INSPECTION_SIZE = 1024 * 1024
 
 
 @dataclass(frozen=True, slots=True)
 class PreparedImageLifecycleJob:
-    """Persisted, checksum-bound files ready for one Slurm submission."""
+    """Persisted, checksum-bound files ready for one Slurm submission.
+
+    Attributes:
+        plan: Structured lifecycle intent and package-owned paths.
+        plan_file: Checksum-bound persisted plan.
+        script_file: Checksum-bound batch script.
+    """
 
     plan: ImageLifecyclePlan
     plan_file: ArtifactReference
     script_file: ArtifactReference
+    _job_directory_identity: tuple[int, int] = field(repr=False, compare=False)
 
 
 def prepare_image_lifecycle_job(
@@ -73,11 +87,16 @@ def prepare_image_lifecycle_job(
     temporary_root = image_root / ".tmp"
     job_root = temporary_root / "jobs"
     job_directory = job_root / lifecycle_id
+    job_directory_created = False
+    job_directory_identity: tuple[int, int] | None = None
     try:
         ensure_private_directory(image_root, parents=True)
         ensure_private_directory(temporary_root, parents=False)
         ensure_private_directory(job_root, parents=False)
         job_directory.mkdir(mode=0o700)
+        job_directory_created = True
+        job_directory_status = job_directory.lstat()
+        job_directory_identity = (job_directory_status.st_dev, job_directory_status.st_ino)
         inspection_directory = job_directory / "output"
         ensure_private_directory(inspection_directory, parents=False)
         inspector_script = _stage_resource(job_directory, _INSPECTOR_FILENAME)
@@ -105,8 +124,16 @@ def prepare_image_lifecycle_job(
             mode=0o500,
         )
     except (OSError, ValueError) as error:
+        if job_directory_created and job_directory_identity is not None:
+            _try_remove_job_directory(job_directory, expected_identity=job_directory_identity)
         raise ImageLifecycleError(f"cannot prepare image lifecycle job {lifecycle_id!r}") from error
-    return PreparedImageLifecycleJob(plan=plan, plan_file=plan_file, script_file=script_file)
+    assert job_directory_identity is not None
+    return PreparedImageLifecycleJob(
+        plan=plan,
+        plan_file=plan_file,
+        script_file=script_file,
+        _job_directory_identity=job_directory_identity,
+    )
 
 
 def render_image_lifecycle_script(plan: ImageLifecyclePlan) -> str:
@@ -143,6 +170,7 @@ if [[ -e "${{DD_IMAGE_SQSH}}" || -L "${{DD_IMAGE_SQSH}}" ]]; then
     exit 73
 fi
 verify_enroot_compatibility {minimum_major} {minimum_minor} "digest-pinned OCI imports"
+DD_REMOVE_SQSH_ON_FAILURE=1
 enroot import -o "${{DD_IMAGE_SQSH}}" "${{DD_OCI_SOURCE}}"
 """
     else:
@@ -150,6 +178,28 @@ enroot import -o "${{DD_IMAGE_SQSH}}" "${{DD_OCI_SOURCE}}"
         existing_sqsh_preflight = (
             f'verify_enroot_compatibility {minimum_major} {minimum_minor} "existing SQSH inspection"\n'
         )
+    inspection_source_block = (
+        f"""DD_INSPECTION_SQSH={quote_shell_value(f"{plan.job_directory}/verified.sqsh")}
+if [[ -e "${{DD_INSPECTION_SQSH}}" || -L "${{DD_INSPECTION_SQSH}}" ]]; then
+    printf '%s\\n' 'verified SQSH snapshot path already exists' >&2
+    exit 73
+fi
+DD_REMOVE_INSPECTION_SQSH_ON_EXIT=1
+if cp --help 2>&1 | grep -q -- '--reflink'; then
+    cp --reflink=auto -- "${{DD_VERIFIED_SQSH}}" "${{DD_INSPECTION_SQSH}}"
+else
+    cp -- "${{DD_VERIFIED_SQSH}}" "${{DD_INSPECTION_SQSH}}"
+fi
+chmod 0400 "${{DD_INSPECTION_SQSH}}"
+readonly DD_INSPECTION_SQSH_SHA256="$(compute_file_sha256 "${{DD_INSPECTION_SQSH}}")"
+if [[ "${{DD_INSPECTION_SQSH_SHA256}}" != "${{DD_SQSH_SHA256}}" ]]; then
+    printf '%s\\n' 'SQSH bytes changed while creating the inspection snapshot' >&2
+    exit 74
+fi
+"""
+        if plan.operation is ImageLifecycleOperation.INSPECT_SQSH
+        else 'DD_INSPECTION_SQSH="${DD_IMAGE_SQSH}"\n'
+    )
 
     return f"""#!/usr/bin/env bash
 {directives}
@@ -165,6 +215,29 @@ readonly DD_INSPECTOR={quote_shell_value(plan.inspector_script.path)}
 readonly DD_INSPECTOR_SHA256={quote_shell_value(plan.inspector_script.sha256)}
 readonly DD_ENROOT_RC={quote_shell_value(plan.enroot_rc.path)}
 readonly DD_ENROOT_RC_SHA256={quote_shell_value(plan.enroot_rc.sha256)}
+DD_CONTAINER_NAME=""
+DD_REMOVE_SQSH_ON_FAILURE=0
+DD_INSPECTION_SQSH=""
+DD_REMOVE_INSPECTION_SQSH_ON_EXIT=0
+
+cleanup() {{
+    local status="$?"
+    if [[ -n "${{DD_CONTAINER_NAME}}" ]]; then
+        enroot remove -f "${{DD_CONTAINER_NAME}}" >/dev/null 2>&1 || true
+    fi
+    exec 9<&- 2>/dev/null || true
+    if (( DD_REMOVE_INSPECTION_SQSH_ON_EXIT == 1 )); then
+        rm -f -- "${{DD_INSPECTION_SQSH}}" >/dev/null 2>&1 || true
+    fi
+    if (( status != 0 )); then
+        rm -f -- "${{DD_INSPECTION_OUTPUT}}" >/dev/null 2>&1 || true
+        if (( DD_REMOVE_SQSH_ON_FAILURE == 1 )); then
+            rm -f -- "${{DD_IMAGE_SQSH}}" >/dev/null 2>&1 || true
+        fi
+    fi
+    return "${{status}}"
+}}
+trap cleanup EXIT
 
 compute_file_sha256() {{
     local actual_sha256
@@ -227,14 +300,25 @@ if [[ ! ${{SLURM_JOB_ID:-}} =~ ^[1-9][0-9]*$ ]]; then
     printf '%s\\n' 'SLURM_JOB_ID must be a positive integer' >&2
     exit 64
 fi
-readonly DD_CONTAINER_NAME="dd-image-${{SLURM_JOB_ID}}"
+DD_CONTAINER_NAME="dd-image-${{SLURM_JOB_ID}}"
+exec 9<"${{DD_IMAGE_SQSH}}"
+if [[ -e /proc/self/fd/9 ]]; then
+    readonly DD_VERIFIED_SQSH="/proc/self/fd/9"
+else
+    readonly DD_VERIFIED_SQSH="${{DD_IMAGE_SQSH}}"
+fi
+if [[ ! -f "${{DD_VERIFIED_SQSH}}" ]]; then
+    printf '%s\\n' 'SQSH descriptor is not a regular file' >&2
+    exit 74
+fi
+readonly DD_VERIFIED_SQSH_SHA256="$(compute_file_sha256 "${{DD_VERIFIED_SQSH}}")"
+if [[ "${{DD_VERIFIED_SQSH_SHA256}}" != "${{DD_SQSH_SHA256}}" ]]; then
+    printf '%s\\n' 'SQSH bytes changed before inspection' >&2
+    exit 74
+fi
+{inspection_source_block}
 
-cleanup() {{
-    enroot remove -f "${{DD_CONTAINER_NAME}}" >/dev/null 2>&1 || true
-}}
-trap cleanup EXIT
-
-enroot create -f --name "${{DD_CONTAINER_NAME}}" "${{DD_IMAGE_SQSH}}"
+enroot create -f --name "${{DD_CONTAINER_NAME}}" "${{DD_INSPECTION_SQSH}}"
 ENROOT_LOGIN_SHELL=no ENROOT_MOUNT_HOME=no enroot start --root \
     --rc "${{DD_ENROOT_RC}}" \
     --mount "${{DD_INSPECTOR}}:/opt/data-designer-slurm/inspect_image.py:x-create=file,bind,ro" \
@@ -253,6 +337,26 @@ exec "${{python_path}}" "$@"
     /opt/data-designer-slurm/output/inspection.json
 
 [[ -s "${{DD_INSPECTION_OUTPUT}}" ]]
+readonly DD_FINAL_INSPECTION_SQSH_SHA256="$(compute_file_sha256 "${{DD_INSPECTION_SQSH}}")"
+if [[ "${{DD_FINAL_INSPECTION_SQSH_SHA256}}" != "${{DD_SQSH_SHA256}}" ]]; then
+    printf '%s\n' 'SQSH inspection snapshot changed during inspection' >&2
+    exit 74
+fi
+readonly DD_FINAL_SQSH_SHA256="$(compute_file_sha256 "${{DD_VERIFIED_SQSH}}")"
+if [[ "${{DD_FINAL_SQSH_SHA256}}" != "${{DD_SQSH_SHA256}}" ]]; then
+    printf '%s\\n' 'SQSH bytes changed during inspection' >&2
+    exit 74
+fi
+if [[ ! -f "${{DD_IMAGE_SQSH}}" || -L "${{DD_IMAGE_SQSH}}" ]]; then
+    printf '%s\\n' 'SQSH path changed during inspection' >&2
+    exit 74
+fi
+readonly DD_FINAL_PATH_SHA256="$(compute_file_sha256 "${{DD_IMAGE_SQSH}}")"
+if [[ "${{DD_FINAL_PATH_SHA256}}" != "${{DD_SQSH_SHA256}}" ]]; then
+    printf '%s\\n' 'SQSH path changed during inspection' >&2
+    exit 74
+fi
+true
 """
 
 
@@ -261,6 +365,82 @@ def submit_prepared_image_lifecycle(
     client: SlurmCommandClient,
 ) -> SlurmJobSubmissionReceipt:
     """Verify and submit one prepared image lifecycle script."""
+    verified_script = _verify_prepared_lifecycle(prepared)
+    try:
+        script_text = verified_script.decode("utf-8", errors="strict")
+    except UnicodeError as error:
+        raise ImageLifecycleError("prepared image lifecycle script is not valid UTF-8") from error
+    return client.submit_script(script_text)
+
+
+def publish_completed_image_lifecycle(
+    prepared: PreparedImageLifecycleJob,
+    *,
+    replace: bool = False,
+) -> RegisteredImage:
+    """Validate, atomically publish, and register one completed lifecycle result.
+
+    Args:
+        prepared: The exact checksum-bound job whose inspection has completed.
+        replace: Whether an existing alias may be replaced explicitly.
+
+    Returns:
+        The durable alias binding for the verified SQSH.
+
+    Raises:
+        SlurmImageError: If validation, publication, registration, or cleanup fails.
+            Cleanup failure after a committed publication does not invalidate the alias.
+    """
+    try:
+        _verify_prepared_lifecycle(prepared)
+        inspection_content = _read_regular_file(
+            Path(prepared.plan.inspection_output_path),
+            maximum_size=_MAXIMUM_INSPECTION_SIZE,
+        )
+        try:
+            inspection = ImageInspectionRecord.model_validate_json(inspection_content, strict=True)
+        except (UnicodeError, ValueError, ValidationError) as error:
+            raise ImageLifecycleError("image lifecycle inspection output is invalid") from error
+        registry = VerifiedImageRegistry(prepared.plan.selected_profile.profile.workspace_root)
+        if prepared.plan.operation is ImageLifecycleOperation.IMPORT_OCI:
+            source_oci_digest = prepared.plan.source_oci_digest
+            if source_oci_digest is None:
+                raise ImageLifecycleError("OCI image lifecycle result is missing its source digest")
+            registered = registry.publish_imported(
+                prepared.plan.request,
+                inspection,
+                Path(prepared.plan.sqsh_path),
+                source_oci_digest=source_oci_digest,
+                replace=replace,
+            )
+        else:
+            registered = registry.register_existing(prepared.plan.request, inspection, replace=replace)
+    except BaseException:
+        _try_remove_job_directory(
+            Path(prepared.plan.job_directory),
+            expected_identity=prepared._job_directory_identity,
+        )
+        raise
+    cleanup_prepared_image_lifecycle(prepared)
+    return registered
+
+
+def cleanup_prepared_image_lifecycle(prepared: PreparedImageLifecycleJob) -> None:
+    """Remove package-owned temporary state for one completed or failed lifecycle job.
+
+    Raises:
+        ImageLifecycleError: If the package-owned job directory cannot be removed.
+    """
+    job_directory = Path(prepared.plan.job_directory)
+    try:
+        _delete_job_directory(job_directory, expected_identity=prepared._job_directory_identity)
+    except FileNotFoundError:
+        return
+    except OSError as error:
+        raise ImageLifecycleError(f"cannot clean image lifecycle job {prepared.plan.lifecycle_id!r}") from error
+
+
+def _verify_prepared_lifecycle(prepared: PreparedImageLifecycleJob) -> bytes:
     expected_artifacts = (
         (
             "plan",
@@ -289,11 +469,7 @@ def submit_prepared_image_lifecycle(
             verified_script = actual_content
     if verified_script is None:
         raise ImageLifecycleError("prepared image lifecycle script was not verified")
-    try:
-        script_text = verified_script.decode("utf-8", errors="strict")
-    except UnicodeError as error:
-        raise ImageLifecycleError("prepared image lifecycle script is not valid UTF-8") from error
-    return client.submit_script(script_text)
+    return verified_script
 
 
 def _stage_resource(job_directory: Path, filename: str) -> ArtifactReference:
@@ -330,18 +506,88 @@ def _write_file(path: Path, content: bytes, *, mode: int) -> ArtifactReference:
     return ArtifactReference(path=path.as_posix(), sha256=hashlib.sha256(content).hexdigest())
 
 
-def _read_regular_file(path: Path) -> bytes:
+def _read_regular_file(path: Path, *, maximum_size: int | None = None) -> bytes:
     descriptor: int | None = None
     try:
-        descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        before_open = path.lstat()
+        if not stat.S_ISREG(before_open.st_mode):
+            raise ImageLifecycleError("prepared image lifecycle file is not regular")
+        descriptor = os.open(
+            path,
+            os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0),
+        )
         path_status = os.fstat(descriptor)
-        if not stat.S_ISREG(path_status.st_mode):
+        if not stat.S_ISREG(path_status.st_mode) or (before_open.st_dev, before_open.st_ino) != (
+            path_status.st_dev,
+            path_status.st_ino,
+        ):
             raise ImageLifecycleError("prepared image lifecycle file is not regular")
         with os.fdopen(descriptor, "rb") as source:
             descriptor = None
-            return source.read()
+            content = source.read() if maximum_size is None else source.read(maximum_size + 1)
+            after_read = os.fstat(source.fileno())
+            after_path = path.lstat()
+        if (
+            not stat.S_ISREG(after_read.st_mode)
+            or not stat.S_ISREG(after_path.st_mode)
+            or _get_file_facts(path_status) != _get_file_facts(after_read)
+            or _get_file_facts(after_read) != _get_file_facts(after_path)
+        ):
+            raise ImageLifecycleError("prepared image lifecycle file changed while it was being read")
+        if maximum_size is not None and len(content) > maximum_size:
+            raise ImageLifecycleError("image lifecycle inspection output is too large")
+        return content
     except OSError as error:
         raise ImageLifecycleError("cannot read prepared image lifecycle file") from error
     finally:
         if descriptor is not None:
             os.close(descriptor)
+
+
+def _get_file_facts(status: os.stat_result) -> tuple[int, int, int, int, int]:
+    return (status.st_dev, status.st_ino, status.st_size, status.st_mtime_ns, status.st_ctime_ns)
+
+
+def _delete_job_directory(job_directory: Path, *, expected_identity: tuple[int, int]) -> None:
+    with open_verified_directory(job_directory.parent) as parent_descriptor:
+        with open_verified_child_directory(
+            parent_descriptor,
+            job_directory.name,
+            job_directory,
+        ) as job_directory_descriptor:
+            status = os.fstat(job_directory_descriptor)
+            if (status.st_dev, status.st_ino) != expected_identity:
+                raise OSError(f"image lifecycle job directory {job_directory} changed before cleanup")
+            _clear_directory(job_directory_descriptor, job_directory)
+        current_status = os.stat(job_directory.name, dir_fd=parent_descriptor, follow_symlinks=False)
+        if (current_status.st_dev, current_status.st_ino) != expected_identity:
+            raise OSError(f"image lifecycle job directory {job_directory} changed during cleanup")
+        os.rmdir(job_directory.name, dir_fd=parent_descriptor)
+        os.fsync(parent_descriptor)
+
+
+def _clear_directory(directory_descriptor: int, display_path: Path) -> None:
+    for name in os.listdir(directory_descriptor):
+        status = os.stat(name, dir_fd=directory_descriptor, follow_symlinks=False)
+        child_path = display_path / name
+        if stat.S_ISDIR(status.st_mode):
+            with open_verified_child_directory(
+                directory_descriptor,
+                name,
+                child_path,
+            ) as child_descriptor:
+                _clear_directory(child_descriptor, child_path)
+            current_status = os.stat(name, dir_fd=directory_descriptor, follow_symlinks=False)
+            if (current_status.st_dev, current_status.st_ino) != (status.st_dev, status.st_ino):
+                raise OSError(f"image lifecycle directory {child_path} changed during cleanup")
+            os.rmdir(name, dir_fd=directory_descriptor)
+        else:
+            os.unlink(name, dir_fd=directory_descriptor)
+    os.fsync(directory_descriptor)
+
+
+def _try_remove_job_directory(job_directory: Path, *, expected_identity: tuple[int, int]) -> None:
+    try:
+        _delete_job_directory(job_directory, expected_identity=expected_identity)
+    except OSError:
+        pass

@@ -3,18 +3,22 @@
 
 from __future__ import annotations
 
+import json
 import os
 import stat
+import subprocess
+import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from threading import Barrier, Event
+from unittest.mock import patch
 
 import pytest
 import yaml
 from slurm_test_fakes import FakeInspectionEnvironment
 
 from data_designer.slurm.config import ImageBuildRequest, ImageInspectionRecord, InstalledDistribution
-from data_designer.slurm.images.errors import ImageConflictError, ImageRegistryError
+from data_designer.slurm.images.errors import ImageConflictError, ImageRegistryError, ImageVerificationError
 from data_designer.slurm.images.inspection import ClientImageInspector, ServingImageInspector
 from data_designer.slurm.images.records import RegisteredImage
 from data_designer.slurm.images.registry import ImageRegistryStore
@@ -180,6 +184,79 @@ def test_registry_rejects_nonregular_state_file_without_blocking(tmp_path: Path)
         ImageRegistryStore(workspace).list_images()
 
 
+def test_registry_rejects_fifo_substituted_between_check_and_open(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    image = _get_registered_client_image(_write_sqsh(tmp_path / "client.sqsh", b"client"))
+    store = ImageRegistryStore(workspace)
+    store.register(image, verify_before_publish=lambda _image: None)
+    registry_path = store.registry_path
+    original_stat = os.stat
+    replaced = False
+
+    def replace_registry_after_stat(path: str, **kwargs: object) -> os.stat_result:
+        nonlocal replaced
+        status = original_stat(path, **kwargs)
+        if path == "registry.yaml" and not replaced:
+            replaced = True
+            registry_path.unlink()
+            os.mkfifo(registry_path)
+        return status
+
+    with (
+        patch("data_designer.slurm.images.filesystem.os.stat", side_effect=replace_registry_after_stat),
+        pytest.raises(ImageRegistryError, match="cannot load"),
+    ):
+        store.list_images()
+
+
+def test_registry_rejects_state_mutated_during_read(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    image = _get_registered_client_image(_write_sqsh(tmp_path / "client.sqsh", b"client"))
+    store = ImageRegistryStore(workspace)
+    store.register(image, verify_before_publish=lambda _image: None)
+    registry_path = store.registry_path
+    registry_inode = registry_path.stat().st_ino
+    original_fstat = os.fstat
+    registry_fstat_count = 0
+
+    def mutate_before_final_registry_fstat(descriptor: int) -> os.stat_result:
+        nonlocal registry_fstat_count
+        status = original_fstat(descriptor)
+        if status.st_ino == registry_inode:
+            registry_fstat_count += 1
+            if registry_fstat_count == 2:
+                registry_path.write_text("mutated")
+                status = original_fstat(descriptor)
+        return status
+
+    with (
+        patch("data_designer.slurm.images.filesystem.os.fstat", side_effect=mutate_before_final_registry_fstat),
+        pytest.raises(ImageRegistryError, match="cannot load"),
+    ):
+        store.list_images()
+
+
+def test_sqsh_reader_rejects_fifo_substituted_between_check_and_open(tmp_path: Path) -> None:
+    image_path = _write_sqsh(tmp_path / "client.sqsh", b"client")
+    original_lstat = Path.lstat
+    replaced = False
+
+    def replace_sqsh_after_lstat(path: Path) -> os.stat_result:
+        nonlocal replaced
+        status = original_lstat(path)
+        if path == image_path and not replaced:
+            replaced = True
+            image_path.unlink()
+            os.mkfifo(image_path)
+        return status
+
+    with (
+        patch.object(Path, "lstat", replace_sqsh_after_lstat),
+        pytest.raises(ImageVerificationError, match="changed while it was being opened"),
+    ):
+        compute_sqsh_file_sha256(image_path)
+
+
 def test_registry_rejects_symlinked_lock_file_without_changing_target(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     lock_directory = workspace / "images" / ".locks"
@@ -243,9 +320,11 @@ def test_registry_uses_restrictive_atomic_workspace_storage(tmp_path: Path) -> N
     assert stat.S_IMODE(image_root.stat().st_mode) == 0o700
     assert stat.S_IMODE(lock_directory.stat().st_mode) == 0o700
     assert not tuple(registry_path.parent.glob(".registry.*.tmp"))
+    assert not (registry_path.parent / ".registry.rollback.yaml").exists()
+    assert not (registry_path.parent / ".registry.committed.yaml").exists()
 
 
-def test_registration_remains_unpublished_until_final_verification(tmp_path: Path) -> None:
+def test_registration_blocks_readers_until_final_verification(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     image = _get_registered_client_image(_write_sqsh(tmp_path / "client.sqsh", b"client"))
     store = ImageRegistryStore(workspace)
@@ -256,18 +335,129 @@ def test_registration_remains_unpublished_until_final_verification(tmp_path: Pat
         verification_started.set()
         assert finish_verification.wait(timeout=5)
 
-    with ThreadPoolExecutor(max_workers=1) as executor:
-        future = executor.submit(
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        writer = executor.submit(
             store.register,
             image,
             verify_before_publish=verify_before_publish,
         )
         assert verification_started.wait(timeout=5)
-        assert ImageRegistryStore(workspace).list_images() == ()
+        reader = executor.submit(ImageRegistryStore(workspace).list_images)
+        assert not reader.done()
         finish_verification.set()
-        assert future.result().name == "client"
+        assert writer.result().name == "client"
+        assert tuple(registered.name for registered in reader.result()) == ("client",)
 
     assert tuple(registered.name for registered in ImageRegistryStore(workspace).list_images()) == ("client",)
+
+
+def test_failed_registration_runs_rollback_before_releasing_target_lock(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    first = _get_registered_client_image(_write_sqsh(tmp_path / "shared.sqsh", b"shared"), name="first")
+    second = first.model_copy(update={"name": "second"})
+    store = ImageRegistryStore(workspace)
+    rollback_started = Event()
+    finish_rollback = Event()
+
+    def fail_after_publish(_image: RegisteredImage) -> None:
+        raise ImageVerificationError("injected post-publication failure")
+
+    def rollback_after_failure(_image: RegisteredImage) -> None:
+        rollback_started.set()
+        assert finish_rollback.wait(timeout=5)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        failed_writer = executor.submit(
+            store.register,
+            first,
+            verify_before_publish=lambda _image: None,
+            verify_after_publish=fail_after_publish,
+            rollback_after_failure=rollback_after_failure,
+        )
+        assert rollback_started.wait(timeout=5)
+        succeeding_writer = executor.submit(
+            store.register,
+            second,
+            verify_before_publish=lambda _image: None,
+        )
+        assert not succeeding_writer.done()
+        finish_rollback.set()
+        with pytest.raises(ImageVerificationError, match="injected post-publication failure"):
+            failed_writer.result()
+        assert succeeding_writer.result() == second
+
+    assert ImageRegistryStore(workspace).list_images() == (second,)
+
+
+def test_fresh_reader_recovers_previous_registry_after_interrupted_publication(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    original = _get_registered_client_image(_write_sqsh(tmp_path / "original.sqsh", b"original"))
+    replacement = _get_registered_client_image(_write_sqsh(tmp_path / "replacement.sqsh", b"replacement"))
+    store = ImageRegistryStore(workspace)
+    store.register(original, verify_before_publish=lambda _image: None)
+    registry_path = store.registry_path
+    previous_content = registry_path.read_bytes()
+    (registry_path.parent / ".registry.rollback.yaml").write_bytes(previous_content)
+    registry_path.write_text(
+        yaml.safe_dump(
+            {"schema_version": 1, "images": [replacement.model_dump(mode="json")]},
+            sort_keys=True,
+        )
+    )
+
+    assert _list_image_names_in_fresh_process(workspace) == (original.name,)
+    assert not (registry_path.parent / ".registry.rollback.yaml").exists()
+    assert ImageRegistryStore(workspace).list_images() == (original,)
+
+
+def test_fresh_reader_keeps_committed_registry_after_interrupted_marker_cleanup(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    original = _get_registered_client_image(_write_sqsh(tmp_path / "original.sqsh", b"original"))
+    replacement = _get_registered_client_image(_write_sqsh(tmp_path / "replacement.sqsh", b"replacement"))
+    store = ImageRegistryStore(workspace)
+    store.register(original, verify_before_publish=lambda _image: None)
+    registry_path = store.registry_path
+    (registry_path.parent / ".registry.committed.yaml").write_bytes(registry_path.read_bytes())
+    registry_path.write_text(
+        yaml.safe_dump(
+            {"schema_version": 1, "images": [replacement.model_dump(mode="json")]},
+            sort_keys=True,
+        )
+    )
+
+    assert _list_image_names_in_fresh_process(workspace) == (replacement.name,)
+    assert not (registry_path.parent / ".registry.committed.yaml").exists()
+    assert ImageRegistryStore(workspace).list_images() == (replacement,)
+
+
+def test_committed_marker_sync_failure_keeps_new_registry_for_fresh_process(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    image = _get_registered_client_image(_write_sqsh(tmp_path / "client.sqsh", b"client"))
+    store = ImageRegistryStore(workspace)
+    image_root_sync_count = 0
+    original_fsync = os.fsync
+
+    def fail_committed_marker_sync(descriptor: int) -> None:
+        nonlocal image_root_sync_count
+        descriptor_status = os.fstat(descriptor)
+        image_root_status = store.image_root.stat()
+        if (descriptor_status.st_dev, descriptor_status.st_ino) == (
+            image_root_status.st_dev,
+            image_root_status.st_ino,
+        ):
+            image_root_sync_count += 1
+            if image_root_sync_count == 3:
+                raise OSError("injected committed marker sync failure")
+        original_fsync(descriptor)
+
+    with patch("data_designer.slurm.images.registry.os.fsync", side_effect=fail_committed_marker_sync):
+        assert store.register(image, verify_before_publish=lambda _image: None) == image
+
+    committed_marker = store.image_root / ".registry.committed.yaml"
+    assert committed_marker.is_file()
+    assert _list_image_names_in_fresh_process(workspace) == (image.name,)
+    assert not committed_marker.exists()
+    assert store.list_images() == (image,)
 
 
 def test_registry_transaction_stays_bound_when_image_root_path_is_replaced(tmp_path: Path) -> None:
@@ -329,6 +519,26 @@ def _write_registry_content(workspace: Path, content: bytes) -> None:
     registry_path = _get_registry_path(workspace)
     registry_path.parent.mkdir(parents=True)
     registry_path.write_bytes(content)
+
+
+def _list_image_names_in_fresh_process(workspace: Path) -> tuple[str, ...]:
+    completed = subprocess.run(
+        (
+            sys.executable,
+            "-c",
+            (
+                "import json,sys; "
+                "from data_designer.slurm.images.registry import ImageRegistryStore; "
+                "print(json.dumps([image.name for image in ImageRegistryStore(sys.argv[1]).list_images()]))"
+            ),
+            workspace.as_posix(),
+        ),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+    return tuple(json.loads(completed.stdout))
 
 
 def _write_registry_images(workspace: Path, images: tuple[dict[str, object], ...]) -> None:
