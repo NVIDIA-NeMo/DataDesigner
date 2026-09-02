@@ -7,13 +7,9 @@ from __future__ import annotations
 
 import argparse
 import os
-import signal
 import sys
 from collections.abc import Mapping, Sequence
-from contextlib import contextmanager
 from pathlib import Path
-from types import FrameType
-from typing import Callable, Iterator
 
 from data_designer.slurm.planning import PlannedShard
 from data_designer.slurm.runtime.controller import OneNodeAllocationController
@@ -21,6 +17,7 @@ from data_designer.slurm.runtime.errors import SlurmRuntimeError, SlurmRuntimeEr
 from data_designer.slurm.runtime.models import AllocationContext
 from data_designer.slurm.runtime.preflight import SystemAllocationPreflight
 from data_designer.slurm.runtime.probes import HttpReadinessProber
+from data_designer.slurm.runtime.signals import TerminationSignalCoordinator
 from data_designer.slurm.runtime.steps import DefaultClientStepBuilder
 from data_designer.slurm.runtime.supervisor import StepSupervisor, SubprocessStepRunner, SystemRuntimeClock
 from data_designer.slurm.state import SlurmStateWriter
@@ -51,7 +48,8 @@ def main(arguments: Sequence[str] | None = None) -> int:
 def _run(plan_path: Path, attempt_directory: Path, environment: Mapping[str, str]) -> None:
     context, writer = _load_allocation_context(plan_path, attempt_directory, environment)
     clock = SystemRuntimeClock()
-    supervisor = StepSupervisor(SubprocessStepRunner(), clock=clock)
+    signals = TerminationSignalCoordinator()
+    supervisor = StepSupervisor(SubprocessStepRunner(), signals=signals, clock=clock)
     controller = OneNodeAllocationController(
         context,
         runtime_proxy_path=Path(__file__).with_name("proxy.py"),
@@ -63,7 +61,7 @@ def _run(plan_path: Path, attempt_directory: Path, environment: Mapping[str, str
         clock=clock,
         environment=environment,
     )
-    with _interrupt_on_termination(supervisor.cleanup):
+    with signals.interrupt_on_termination(supervisor.cleanup):
         controller.run()
 
 
@@ -118,32 +116,6 @@ def _scheduler_task_id(value: str | None) -> int:
             "SLURM_ARRAY_TASK_ID must be a non-negative integer",
         )
     return int(value)
-
-
-@contextmanager
-def _interrupt_on_termination(cleanup: Callable[[], None]) -> Iterator[None]:
-    previous: dict[signal.Signals, signal.Handlers] = {}
-    interrupted = False
-
-    def interrupt(signum: int, frame: FrameType | None) -> None:
-        nonlocal interrupted
-        del signum, frame
-        if interrupted:
-            return
-        interrupted = True
-        try:
-            cleanup()
-        finally:
-            raise KeyboardInterrupt
-
-    for selected in (signal.SIGINT, signal.SIGTERM):
-        previous[selected] = signal.getsignal(selected)
-        signal.signal(selected, interrupt)
-    try:
-        yield
-    finally:
-        for selected, handler in previous.items():
-            signal.signal(selected, handler)
 
 
 if __name__ == "__main__":  # pragma: no cover - exercised through the installed module

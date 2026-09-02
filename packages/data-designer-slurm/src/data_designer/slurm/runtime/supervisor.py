@@ -14,13 +14,11 @@ from collections.abc import Iterator
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from types import FrameType
 from typing import Protocol
 
 from data_designer.slurm.runtime.errors import SlurmRuntimeError, SlurmRuntimeErrorCode
 from data_designer.slurm.runtime.models import RuntimeStep
-
-_TERMINATION_SIGNALS = frozenset((signal.SIGINT, signal.SIGTERM))
+from data_designer.slurm.runtime.signals import TerminationSignalCoordinator
 
 
 class RuntimeClock(Protocol):
@@ -152,6 +150,7 @@ class StepSupervisor:
         self,
         runner: RuntimeStepRunner,
         *,
+        signals: TerminationSignalCoordinator,
         clock: RuntimeClock | None = None,
         poll_interval_seconds: float = 0.1,
         termination_grace_seconds: float = 10.0,
@@ -159,6 +158,7 @@ class StepSupervisor:
         if poll_interval_seconds <= 0 or termination_grace_seconds <= 0:
             raise ValueError("runtime polling and termination intervals must be positive")
         self._runner = runner
+        self._signals = signals
         self._clock = clock or SystemRuntimeClock()
         self._poll_interval_seconds = poll_interval_seconds
         self._termination_grace_seconds = termination_grace_seconds
@@ -182,7 +182,7 @@ class StepSupervisor:
         if self._cleanup_started:
             raise SlurmRuntimeError(SlurmRuntimeErrorCode.CLEANUP_FAILED, "cannot start a step after cleanup")
         try:
-            with _defer_termination_signals():
+            with self._signals.defer_termination():
                 managed = ManagedStep(step=step, process=self._runner.start(step))
                 self._managed.append(managed)
         except (OSError, subprocess.SubprocessError) as error:
@@ -224,7 +224,7 @@ class StepSupervisor:
         self._cleanup_started = True
         self._cleanup_in_progress = True
         try:
-            with _block_termination_signals():
+            with self._signals.block_termination():
                 failures = self._stop_managed_steps()
                 self._cleanup_complete = self._are_all_steps_stopped()
         finally:
@@ -309,44 +309,3 @@ def _open_step_logs(step: RuntimeStep) -> Iterator[tuple[int, int]]:
         stderr_descriptor = _create_log_file(directory_descriptor, step.stderr_path.name)
         resources.callback(os.close, stderr_descriptor)
         yield stdout_descriptor, stderr_descriptor
-
-
-@contextmanager
-def _block_termination_signals() -> Iterator[None]:
-    previous = signal.pthread_sigmask(signal.SIG_BLOCK, _TERMINATION_SIGNALS)
-    try:
-        yield
-    finally:
-        signal.pthread_sigmask(signal.SIG_SETMASK, previous)
-
-
-@contextmanager
-def _defer_termination_signals() -> Iterator[None]:
-    previous = {selected: signal.getsignal(selected) for selected in _TERMINATION_SIGNALS}
-    deferred: list[signal.Signals] = []
-
-    def defer(signum: int, frame: FrameType | None) -> None:
-        del frame
-        if not deferred:
-            deferred.append(signal.Signals(signum))
-
-    for selected in _TERMINATION_SIGNALS:
-        signal.signal(selected, defer)
-    try:
-        yield
-    finally:
-        for selected, handler in previous.items():
-            signal.signal(selected, handler)
-    if deferred:
-        _deliver_deferred_signal(deferred[0], previous[deferred[0]])
-
-
-def _deliver_deferred_signal(selected: signal.Signals, handler: signal.Handlers) -> None:
-    if handler is signal.SIG_IGN:
-        return
-    if callable(handler):
-        handler(selected, None)
-        return
-    if selected is signal.SIGINT:
-        raise KeyboardInterrupt
-    os.kill(os.getpid(), selected)

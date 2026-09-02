@@ -17,6 +17,7 @@ from data_designer.slurm.contracts import ArtifactReference
 from data_designer.slurm.runtime.controller import OneNodeAllocationController
 from data_designer.slurm.runtime.errors import SlurmRuntimeError, SlurmRuntimeErrorCode
 from data_designer.slurm.runtime.models import RuntimeStep, RuntimeStepRole
+from data_designer.slurm.runtime.signals import TerminationSignalCoordinator
 from data_designer.slurm.runtime.supervisor import StepSupervisor
 from data_designer.slurm.state import (
     AttemptLifecycleState,
@@ -115,11 +116,27 @@ class _FakeProber:
         return self.ready
 
 
+def _supervisor(
+    runner: _FakeRunner,
+    clock: FakeClock,
+    *,
+    poll_interval_seconds: float = 0.1,
+    termination_grace_seconds: float = 10.0,
+) -> StepSupervisor:
+    return StepSupervisor(
+        runner,
+        signals=TerminationSignalCoordinator(),
+        clock=clock,
+        poll_interval_seconds=poll_interval_seconds,
+        termination_grace_seconds=termination_grace_seconds,
+    )
+
+
 def test_controller_runs_preflight_servers_endpoint_client_and_cleanup(runtime_case: RuntimeCase) -> None:
     clock = FakeClock(runtime_case.created_at.replace(second=10), monotonic_time=100)
     state = FakeStateStore(runtime_case.context.attempt)
     runner = _FakeRunner(generation_hook=lambda: _write_complete_result(runtime_case, clock))
-    supervisor = StepSupervisor(runner, clock=clock, poll_interval_seconds=0.1)
+    supervisor = _supervisor(runner, clock, poll_interval_seconds=0.1)
     controller = OneNodeAllocationController(
         runtime_case.context,
         runtime_proxy_path=runtime_case.context.attempt_directory / "runtime/proxy.py",
@@ -159,7 +176,7 @@ def test_preflight_failure_starts_no_process_and_fails_attempt(runtime_case: Run
         runtime_case.context,
         runtime_proxy_path=runtime_case.context.attempt_directory / "runtime/proxy.py",
         state=state,
-        supervisor=StepSupervisor(runner, clock=clock),
+        supervisor=_supervisor(runner, clock),
         preflight=FakePreflight(failure),
         client_steps=FakeClientStepBuilder(),
         prober=_FakeProber(ready=True, clock=clock),
@@ -192,7 +209,7 @@ def test_running_attempt_is_not_restarted_without_owned_process_identity(runtime
         context,
         runtime_proxy_path=context.attempt_directory / "runtime/proxy.py",
         state=state,
-        supervisor=StepSupervisor(runner, clock=clock),
+        supervisor=_supervisor(runner, clock),
         preflight=FakePreflight(),
         client_steps=FakeClientStepBuilder(),
         prober=_FakeProber(ready=True, clock=clock),
@@ -216,7 +233,7 @@ def test_required_server_exit_fails_and_cleans_partial_start(runtime_case: Runti
         runtime_case.context,
         runtime_proxy_path=runtime_case.context.attempt_directory / "runtime/proxy.py",
         state=state,
-        supervisor=StepSupervisor(runner, clock=clock),
+        supervisor=_supervisor(runner, clock),
         preflight=FakePreflight(),
         client_steps=FakeClientStepBuilder(),
         prober=_FakeProber(ready=True, clock=clock),
@@ -247,7 +264,7 @@ def test_interrupted_failed_readiness_write_cannot_bypass_cleanup(runtime_case: 
         runtime_case.context,
         runtime_proxy_path=runtime_case.context.attempt_directory / "runtime/proxy.py",
         state=state,
-        supervisor=StepSupervisor(runner, clock=clock),
+        supervisor=_supervisor(runner, clock),
         preflight=FakePreflight(),
         client_steps=FakeClientStepBuilder(),
         prober=_FakeProber(ready=True, clock=clock),
@@ -271,7 +288,7 @@ def test_readiness_timeout_fails_and_terminates_server(runtime_case: RuntimeCase
         runtime_case.context,
         runtime_proxy_path=runtime_case.context.attempt_directory / "runtime/proxy.py",
         state=state,
-        supervisor=StepSupervisor(runner, clock=clock),
+        supervisor=_supervisor(runner, clock),
         preflight=FakePreflight(),
         client_steps=FakeClientStepBuilder(),
         prober=_FakeProber(ready=False, clock=clock, advance_on_failure=10_000),
@@ -307,7 +324,7 @@ def test_managed_step_failure_fails_attempt_and_cleans_started_services(
         runtime_case.context,
         runtime_proxy_path=runtime_case.context.attempt_directory / "runtime/proxy.py",
         state=state,
-        supervisor=StepSupervisor(runner, clock=clock),
+        supervisor=_supervisor(runner, clock),
         preflight=FakePreflight(),
         client_steps=FakeClientStepBuilder(),
         prober=_FakeProber(ready=True, clock=clock),
@@ -339,9 +356,9 @@ def test_cleanup_failure_prevents_false_success(runtime_case: RuntimeCase) -> No
         runtime_case.context,
         runtime_proxy_path=runtime_case.context.attempt_directory / "runtime/proxy.py",
         state=state,
-        supervisor=StepSupervisor(
+        supervisor=_supervisor(
             runner,
-            clock=clock,
+            clock,
             poll_interval_seconds=1,
             termination_grace_seconds=1,
         ),
@@ -367,9 +384,9 @@ def test_cleanup_failure_is_retained_as_a_note_on_the_primary_failure(runtime_ca
         runtime_case.context,
         runtime_proxy_path=runtime_case.context.attempt_directory / "runtime/proxy.py",
         state=state,
-        supervisor=StepSupervisor(
+        supervisor=_supervisor(
             runner,
-            clock=clock,
+            clock,
             poll_interval_seconds=1,
             termination_grace_seconds=1,
         ),
@@ -398,9 +415,9 @@ def test_incomplete_cleanup_does_not_publish_stopped_readiness(runtime_case: Run
         runtime_case.context,
         runtime_proxy_path=runtime_case.context.attempt_directory / "runtime/proxy.py",
         state=state,
-        supervisor=StepSupervisor(
+        supervisor=_supervisor(
             runner,
-            clock=clock,
+            clock,
             poll_interval_seconds=1,
             termination_grace_seconds=1,
         ),
@@ -432,7 +449,7 @@ def test_future_client_timestamp_cannot_push_persisted_state_clock_forward(runti
         runtime_case.context,
         runtime_proxy_path=runtime_case.context.attempt_directory / "runtime/proxy.py",
         state=state,
-        supervisor=StepSupervisor(runner, clock=clock),
+        supervisor=_supervisor(runner, clock),
         preflight=FakePreflight(),
         client_steps=FakeClientStepBuilder(),
         prober=_FakeProber(ready=True, clock=clock),
@@ -446,6 +463,29 @@ def test_future_client_timestamp_cannot_push_persisted_state_clock_forward(runti
     assert state.attempt.state is AttemptLifecycleState.FAILED
 
 
+def test_partial_client_result_is_classified_before_candidate_loading(runtime_case: RuntimeCase) -> None:
+    clock = FakeClock(runtime_case.created_at.replace(second=10), monotonic_time=100)
+    state = FakeStateStore(runtime_case.context.attempt)
+    runner = _FakeRunner(generation_hook=lambda: _write_partial_result(runtime_case, clock))
+    controller = OneNodeAllocationController(
+        runtime_case.context,
+        runtime_proxy_path=runtime_case.context.attempt_directory / "runtime/proxy.py",
+        state=state,
+        supervisor=_supervisor(runner, clock),
+        preflight=FakePreflight(),
+        client_steps=FakeClientStepBuilder(),
+        prober=_FakeProber(ready=True, clock=clock),
+        clock=clock,
+        environment={},
+    )
+
+    with pytest.raises(SlurmRuntimeError) as raised:
+        controller.run()
+
+    assert raised.value.code is SlurmRuntimeErrorCode.CLIENT_FAILED
+    assert not (runtime_case.context.attempt_directory / "output-manifest.json").exists()
+
+
 def test_stale_candidate_from_an_earlier_generation_cannot_succeed(runtime_case: RuntimeCase) -> None:
     clock = FakeClock(runtime_case.created_at.replace(second=10), monotonic_time=100)
     _write_complete_result(runtime_case, clock)
@@ -455,7 +495,7 @@ def test_stale_candidate_from_an_earlier_generation_cannot_succeed(runtime_case:
         runtime_case.context,
         runtime_proxy_path=runtime_case.context.attempt_directory / "runtime/proxy.py",
         state=state,
-        supervisor=StepSupervisor(_FakeRunner(), clock=clock),
+        supervisor=_supervisor(_FakeRunner(), clock),
         preflight=FakePreflight(),
         client_steps=FakeClientStepBuilder(),
         prober=_FakeProber(ready=True, clock=clock),
@@ -514,6 +554,30 @@ def _write_complete_result(runtime_case: RuntimeCase, clock: FakeClock) -> None:
         candidate_output_manifest=ArtifactReference(
             path=candidate_path.as_posix(),
             sha256=candidate.compute_sha256(),
+        ),
+    )
+    _write_record(context.attempt_directory / "client-result.json", result.serialize_json())
+
+
+def _write_partial_result(runtime_case: RuntimeCase, clock: FakeClock) -> None:
+    context = runtime_case.context
+    candidate_path = context.attempt_directory / "output-manifest.json"
+    result = ClientResult(
+        schema_version=1,
+        run_id=context.plan.run_id,
+        shard_id=context.shard.shard_id,
+        attempt_id=context.attempt.attempt_id,
+        completed_at=clock.now(),
+        requested_records=context.shard.requested_records,
+        actual_records=context.shard.requested_records - 1,
+        outcome=ClientOutcome.PARTIAL,
+        dataset_path=(context.attempt_directory / "dataset").as_posix(),
+        early_shutdown=True,
+        requested_resume_mode=context.plan.invocation.authored.resume,
+        effective_resume_mode="never",
+        candidate_output_manifest=ArtifactReference(
+            path=candidate_path.as_posix(),
+            sha256="a" * 64,
         ),
     )
     _write_record(context.attempt_directory / "client-result.json", result.serialize_json())

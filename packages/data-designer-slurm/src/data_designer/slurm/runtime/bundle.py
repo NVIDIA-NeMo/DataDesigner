@@ -27,6 +27,8 @@ _MAXIMUM_SOURCE_SIZE = 16 * 1024 * 1024
 _TEMPORARY_NAME_PATTERN = re.compile(r"^\.runtime\.[0-9a-f]{16}\.tmp$")
 _ENTRYPOINT_NAME = "entrypoint.sh"
 _SLURM_PACKAGE_NAME = "data_designer/slurm/__init__.py"
+_RUNTIME_PACKAGE_ROOT = "data_designer/slurm/runtime"
+_SOURCE_MANIFEST_NAME = f"{_RUNTIME_PACKAGE_ROOT}/runtime-sources.txt"
 _SLURM_PACKAGE_SHIM = (
     b"# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.\n"
     b"# SPDX-License-Identifier: Apache-2.0\n\n"
@@ -76,6 +78,7 @@ def stage_runtime_bundle(workspace_root: str | Path) -> ArtifactReference:
 
 
 def _build_runtime_archive() -> bytes:
+    sources = _collect_runtime_sources(Path(__file__).parent)
     output = io.BytesIO()
     with (
         gzip.GzipFile(fileobj=output, mode="wb", filename="", mtime=0) as compressed,
@@ -83,11 +86,21 @@ def _build_runtime_archive() -> bytes:
     ):
         _add_archive_file(archive, _ENTRYPOINT_NAME, _ENTRYPOINT, mode=_ENTRYPOINT_MODE)
         _add_archive_file(archive, _SLURM_PACKAGE_NAME, _SLURM_PACKAGE_SHIM, mode=_SOURCE_MODE)
-        source_root = Path(__file__).parent
-        for source_path in sorted(source_root.glob("*.py")):
-            archive_name = f"data_designer/slurm/runtime/{source_path.name}"
+        manifest = "".join(f"{archive_name}\n" for archive_name, _ in sources).encode()
+        _add_archive_file(archive, _SOURCE_MANIFEST_NAME, manifest, mode=_SOURCE_MODE)
+        for archive_name, source_path in sources:
             _add_archive_file(archive, archive_name, _read_runtime_source(source_path), mode=_SOURCE_MODE)
     return output.getvalue()
+
+
+def _collect_runtime_sources(source_root: Path) -> tuple[tuple[str, Path], ...]:
+    relative_sources = sorted(
+        (path.relative_to(source_root) for path in source_root.rglob("*.py")),
+        key=lambda path: path.as_posix(),
+    )
+    return tuple(
+        (f"{_RUNTIME_PACKAGE_ROOT}/{relative.as_posix()}", source_root / relative) for relative in relative_sources
+    )
 
 
 def _add_archive_file(archive: tarfile.TarFile, name: str, content: bytes, *, mode: int) -> None:

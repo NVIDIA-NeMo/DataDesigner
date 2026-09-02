@@ -6,15 +6,17 @@ from __future__ import annotations
 import subprocess
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
 from slurm_test_fakes import FakeClock
 
-from data_designer.slurm.runtime import supervisor as runtime_supervisor
+from data_designer.slurm.runtime import signals as runtime_signals
 from data_designer.slurm.runtime.errors import SlurmRuntimeError
 from data_designer.slurm.runtime.models import RuntimeStep, RuntimeStepRole
+from data_designer.slurm.runtime.signals import TerminationSignalCoordinator
 from data_designer.slurm.runtime.supervisor import StepSupervisor, SubprocessStepRunner
 
 
@@ -58,7 +60,7 @@ def test_cleanup_is_reverse_order_and_idempotent(tmp_path: Path, fake_clock: Fak
     first = _Process(1)
     second = _Process(2)
     runner = _Runner([first, second])
-    supervisor = StepSupervisor(runner, clock=fake_clock)
+    supervisor = StepSupervisor(runner, signals=TerminationSignalCoordinator(), clock=fake_clock)
     supervisor.start(_step(tmp_path, "first"))
     supervisor.start(_step(tmp_path, "second"))
 
@@ -74,7 +76,11 @@ def test_cleanup_is_reverse_order_and_idempotent(tmp_path: Path, fake_clock: Fak
 def test_wait_fails_when_required_service_exits(tmp_path: Path, fake_clock: FakeClock) -> None:
     service = _Process(1, returncode=19)
     target = _Process(2)
-    supervisor = StepSupervisor(_Runner([service, target]), clock=fake_clock)
+    supervisor = StepSupervisor(
+        _Runner([service, target]),
+        signals=TerminationSignalCoordinator(),
+        clock=fake_clock,
+    )
     managed_service = supervisor.start(_step(tmp_path, "service"))
     managed_target = supervisor.start(_step(tmp_path, "target"))
 
@@ -146,6 +152,7 @@ def test_subprocess_cleanup_terminates_the_complete_step_process_group(tmp_path:
     )
     supervisor = StepSupervisor(
         SubprocessStepRunner(),
+        signals=TerminationSignalCoordinator(),
         poll_interval_seconds=0.01,
         termination_grace_seconds=3,
     )
@@ -168,47 +175,73 @@ def test_start_normalizes_process_creation_failure(tmp_path: Path, fake_clock: F
             raise subprocess.SubprocessError("injected")
 
     with pytest.raises(SlurmRuntimeError, match="cannot start"):
-        StepSupervisor(_FailingRunner(), clock=fake_clock).start(_step(tmp_path, "failed"))
+        StepSupervisor(
+            _FailingRunner(),
+            signals=TerminationSignalCoordinator(),
+            clock=fake_clock,
+        ).start(_step(tmp_path, "failed"))
 
 
-def test_start_registers_process_before_restoring_termination_signals(
+def test_start_registers_process_before_replaying_deferred_termination(
     tmp_path: Path,
     fake_clock: FakeClock,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     process = _Process(1)
     installed_handlers: dict[object, object] = {}
+    signals = TerminationSignalCoordinator()
     supervisor: StepSupervisor
-
-    def previous_handler(signum: int, frame: object) -> None:
-        del signum, frame
-        assert len(supervisor.managed_steps) == 1
-        raise KeyboardInterrupt("deferred termination")
 
     def fake_getsignal(selected: object) -> object:
         del selected
-        return previous_handler
+        return runtime_signals.signal.SIG_DFL
 
     def fake_signal(selected: object, handler: object) -> object:
         installed_handlers[selected] = handler
-        return previous_handler
+        return runtime_signals.signal.SIG_DFL
+
+    def fake_kill(process_id: int, selected: object) -> None:
+        del process_id
+        assert len(supervisor.managed_steps) == 1
+        handler = installed_handlers[selected]
+        assert callable(handler)
+        handler(selected, None)
 
     class _InterruptingRunner(_Runner):
         def start(self, step: RuntimeStep) -> _Process:
             started = super().start(step)
-            handler = installed_handlers[runtime_supervisor.signal.SIGTERM]
+            handler = installed_handlers[runtime_signals.signal.SIGTERM]
             assert callable(handler)
-            handler(runtime_supervisor.signal.SIGTERM, None)
+            handler(runtime_signals.signal.SIGTERM, None)
             return started
 
-    monkeypatch.setattr(runtime_supervisor.signal, "getsignal", fake_getsignal)
-    monkeypatch.setattr(runtime_supervisor.signal, "signal", fake_signal)
-    supervisor = StepSupervisor(_InterruptingRunner([process]), clock=fake_clock)
+    monkeypatch.setattr(runtime_signals.signal, "getsignal", fake_getsignal)
+    monkeypatch.setattr(runtime_signals.signal, "signal", fake_signal)
+    monkeypatch.setattr(runtime_signals.os, "kill", fake_kill)
+    supervisor = StepSupervisor(_InterruptingRunner([process]), signals=signals, clock=fake_clock)
 
-    with pytest.raises(KeyboardInterrupt, match="deferred termination"):
+    with (
+        pytest.raises(KeyboardInterrupt),
+        signals.interrupt_on_termination(supervisor.cleanup),
+    ):
         supervisor.start(_step(tmp_path, "server"))
 
     assert supervisor.managed_steps[0].process is process
+    assert process.terminated == 1
+
+
+def test_start_can_register_from_a_worker_thread(tmp_path: Path, fake_clock: FakeClock) -> None:
+    signals = TerminationSignalCoordinator()
+    supervisor = StepSupervisor(_Runner([_Process(1)]), signals=signals, clock=fake_clock)
+
+    with (
+        signals.interrupt_on_termination(supervisor.cleanup),
+        ThreadPoolExecutor(max_workers=1) as executor,
+    ):
+        managed = executor.submit(supervisor.start, _step(tmp_path, "server")).result()
+
+    assert supervisor.managed_steps == (managed,)
+    supervisor.cleanup()
 
 
 def test_cleanup_remains_incomplete_while_a_process_is_still_running(
@@ -229,6 +262,7 @@ def test_cleanup_remains_incomplete_while_a_process_is_still_running(
     process = _StubbornProcess(1)
     supervisor = StepSupervisor(
         _Runner([process]),
+        signals=TerminationSignalCoordinator(),
         clock=fake_clock,
         poll_interval_seconds=1,
         termination_grace_seconds=1,
