@@ -137,6 +137,13 @@ class StateStorage:
                 raise SlurmStateError(f"cannot lock dataset workspace for shard {shard_id!r}") from error
             yield
 
+    @contextmanager
+    def acquire_resume_and_shard_locks(self, shard_id: ShardId) -> Iterator[None]:
+        """Acquire dataset-resume then shard state locks in the canonical order."""
+        with self.acquire_resume_lock(shard_id):
+            with self.acquire_shard_lock(shard_id):
+                yield
+
     def publish_initial_state(
         self,
         authored_config: DataDesignerSlurmConfig,
@@ -303,6 +310,16 @@ class StateStorage:
                 CandidateOutputManifest,
             )
         return client_result, candidate
+
+    def publish_finalization_records(
+        self,
+        client_result: ClientResult,
+        candidate: CandidateOutputManifest,
+    ) -> None:
+        """Convergently publish one producer-owned attempt result pair."""
+        with self.open_attempt_directory(candidate.shard_id, candidate.attempt_id) as descriptor:
+            self._publish_immutable_record(descriptor, _CANDIDATE_OUTPUT_FILENAME, candidate)
+            self._publish_immutable_record(descriptor, _CLIENT_RESULT_FILENAME, client_result)
 
     def read_winner(self, shard_id: ShardId) -> ShardWinner:
         with self.open_shard_directory(shard_id) as descriptor:
@@ -479,7 +496,7 @@ class StateStorage:
             return self.get_shard_path(record.shard_id) / name
         if isinstance(record, ShardWinner):
             return self.get_winner_path(record.shard_id)
-        if isinstance(record, (AttemptManifest, AttemptReadiness)):
+        if isinstance(record, (AttemptManifest, AttemptReadiness, ClientResult, CandidateOutputManifest)):
             return self.get_attempt_path(record.shard_id, record.attempt_id) / name
         raise TypeError(f"unsupported persisted record type: {type(record).__name__}")
 

@@ -13,6 +13,7 @@ from typing import Literal
 
 from pydantic import TypeAdapter, ValidationError
 
+from data_designer.slurm.client import ClientResult
 from data_designer.slurm.config import DataDesignerSlurmConfig
 from data_designer.slurm.contracts import AttemptId, Identifier, ShardId, validate_absolute_path
 from data_designer.slurm.planning import ResolvedSlurmRunPlan
@@ -24,11 +25,12 @@ from data_designer.slurm.state.errors import (
 )
 from data_designer.slurm.state.execution import AttemptManifest, RunManifest, ShardManifest
 from data_designer.slurm.state.finalization import WinnerFinalizer
-from data_designer.slurm.state.outputs import ShardWinner
+from data_designer.slurm.state.outputs import CandidateOutputManifest, ShardWinner
 from data_designer.slurm.state.plan_validation import PersistedPlanStateValidator, PlanStateContractError
 from data_designer.slurm.state.reader import StateReader
 from data_designer.slurm.state.readiness import AttemptReadiness
 from data_designer.slurm.state.reconciliation import validate_readiness_transition
+from data_designer.slurm.state.results import AttemptResultPublisher
 from data_designer.slurm.state.storage import StateStorage
 from data_designer.slurm.state.validation import (
     StateContractError,
@@ -63,6 +65,7 @@ class SlurmStateWriter:
             raise SlurmStateError("invalid persisted run location") from error
         self._storage = StateStorage(Path(normalized_root), normalized_run_id)
         self._reader = StateReader(self._storage, normalized_run_id)
+        self._results = AttemptResultPublisher(self._storage, self._reader)
         self._finalizer = WinnerFinalizer(self._storage, self._reader)
         self._run_id = normalized_run_id
 
@@ -161,6 +164,14 @@ class SlurmStateWriter:
         normalized_attempt_id = self._validate_attempt_id(attempt_id)
         return self._reader.load_readiness(normalized_shard_id, normalized_attempt_id)
 
+    def publish_attempt_result(
+        self,
+        client_result: ClientResult,
+        candidate: CandidateOutputManifest,
+    ) -> tuple[ClientResult, CandidateOutputManifest]:
+        """Validate and immutably publish one producer-owned attempt result pair."""
+        return self._results.publish(client_result, candidate)
+
     @contextmanager
     def acquire_dataset_workspace(
         self,
@@ -203,10 +214,7 @@ class SlurmStateWriter:
         return self._finalizer.load_winner(self._validate_shard_id(shard_id))
 
     def _create_attempt_with_locks(self, attempt: AttemptManifest) -> AttemptManifest:
-        with (
-            self._storage.acquire_resume_lock(attempt.shard_id),
-            self._storage.acquire_shard_lock(attempt.shard_id),
-        ):
+        with self._storage.acquire_resume_and_shard_locks(attempt.shard_id):
             run, plan, shard = self._reader.load_shard_context(attempt.shard_id)
             shard_attempts = self._reader.load_validated_shard_attempts(run, plan, shard)
             existing = next((item for item in shard_attempts if item.attempt_id == attempt.attempt_id), None)

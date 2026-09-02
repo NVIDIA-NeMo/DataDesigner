@@ -9,10 +9,10 @@ import hashlib
 import os
 import stat
 from collections.abc import Iterator
-from contextlib import ExitStack, contextmanager
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Literal
+from typing import Protocol
 
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.slurm.state.filesystem import (
@@ -21,6 +21,26 @@ from data_designer.slurm.state.filesystem import (
     open_verified_regular_file,
 )
 from data_designer.slurm.state.outputs import CandidateOutputFile, CandidateOutputManifest
+
+
+class SerializedCandidateSchema(Protocol):
+    """Serialized schema bytes returned by an Arrow-compatible schema."""
+
+    def to_pybytes(self) -> bytes:
+        """Return the canonical serialized schema bytes."""
+        ...
+
+
+class CandidateSchema(Protocol):
+    """Structural schema interface used by candidate producers and readers."""
+
+    def remove_metadata(self) -> CandidateSchema:
+        """Return the schema without producer-specific metadata."""
+        ...
+
+    def serialize(self) -> SerializedCandidateSchema:
+        """Serialize the normalized schema."""
+        ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,129 +62,147 @@ class _DirectoryBinding:
 
 
 @dataclass(frozen=True, slots=True)
-class _FileBinding:
-    parent_descriptor: int
-    name: str
-    descriptor: int
-    display_path: Path
-
-    def rebind(self) -> None:
-        opened = os.fstat(self.descriptor)
-        current = os.stat(self.name, dir_fd=self.parent_descriptor, follow_symlinks=False)
-        if not _is_safe_file(current) or _file_facts(current) != _file_facts(opened):
-            raise OSError(f"candidate file {self.display_path} changed during finalization")
+class _ArtifactBinding:
+    relative_path: str
+    directory_identities: tuple[tuple[int, int], ...]
+    file_facts: tuple[int, int, int, int, int]
 
 
 @dataclass(frozen=True, slots=True)
 class VerifiedCandidateArtifacts:
-    """Held candidate descriptors plus metadata derived from their bytes."""
+    """Bounded candidate root lease plus metadata derived from artifact bytes."""
 
     record_counts: tuple[int, ...]
     dataset_schema_digest: str
-    _directories: tuple[_DirectoryBinding, ...]
-    _files: tuple[_FileBinding, ...]
+    _candidate: CandidateOutputManifest
+    _dataset: _DirectoryBinding
+    _bindings: tuple[_ArtifactBinding, ...]
 
     def rebind(self) -> None:
-        """Verify every held directory and file still occupies its original path."""
-        for directory in self._directories:
-            directory.rebind()
-        for output_file in self._files:
-            output_file.rebind()
+        """Reopen every artifact transiently and verify the original metadata."""
+        self._dataset.rebind()
+        record_counts, schema_digest, bindings = _inspect_candidate_files(
+            self._dataset.descriptor,
+            self._dataset.display_path,
+            self._candidate.files,
+        )
+        if (
+            record_counts != self.record_counts
+            or schema_digest != self.dataset_schema_digest
+            or bindings != self._bindings
+        ):
+            raise OSError("candidate paths or metadata changed during finalization")
 
 
 class CandidateArtifactVerifier:
-    """Open, verify, and retain one candidate's complete artifact chain."""
+    """Verify one candidate while retaining only its root directory descriptor."""
 
     @contextmanager
-    def verify(
-        self,
-        candidate: CandidateOutputManifest,
-        output_format: Literal["parquet", "jsonl", "csv"],
-    ) -> Iterator[VerifiedCandidateArtifacts]:
-        if output_format != "parquet":
-            raise OSError("winner metadata verification currently requires Parquet candidate output")
+    def verify(self, candidate: CandidateOutputManifest) -> Iterator[VerifiedCandidateArtifacts]:
         dataset_path = Path(candidate.dataset_path)
-        with ExitStack() as resources:
-            dataset_descriptor = resources.enter_context(open_verified_directory(dataset_path, require_private=True))
-            directories = [_DirectoryBinding(None, None, dataset_descriptor, dataset_path)]
-            opened_files = tuple(
-                self._open_output_file(resources, dataset_path, dataset_descriptor, output_file, directories)
-                for output_file in candidate.files
+        with open_verified_directory(dataset_path, require_private=True) as dataset_descriptor:
+            dataset = _DirectoryBinding(None, None, dataset_descriptor, dataset_path)
+            record_counts, schema_digest, bindings = _inspect_candidate_files(
+                dataset_descriptor,
+                dataset_path,
+                candidate.files,
             )
-            schema_payloads = tuple(schema_payload for _, _, schema_payload in opened_files)
-            if not schema_payloads or any(payload != schema_payloads[0] for payload in schema_payloads[1:]):
-                raise OSError("candidate Parquet files do not share one dataset schema")
-            verified = VerifiedCandidateArtifacts(
-                record_counts=tuple(record_count for _, record_count, _ in opened_files),
-                dataset_schema_digest=hashlib.sha256(schema_payloads[0]).hexdigest(),
-                _directories=tuple(directories),
-                _files=tuple(binding for binding, _, _ in opened_files),
+            yield VerifiedCandidateArtifacts(
+                record_counts=record_counts,
+                dataset_schema_digest=schema_digest,
+                _candidate=candidate,
+                _dataset=dataset,
+                _bindings=bindings,
             )
-            yield verified
 
-    def _open_output_file(
-        self,
-        resources: ExitStack,
-        dataset_path: Path,
-        dataset_descriptor: int,
-        output_file: CandidateOutputFile,
-        directories: list[_DirectoryBinding],
-    ) -> tuple[_FileBinding, int, bytes]:
-        parent_descriptor, parent_path = self._open_parent_directories(
-            resources,
-            dataset_path,
-            dataset_descriptor,
-            PurePosixPath(output_file.relative_path).parts[:-1],
-            directories,
-        )
-        name = PurePosixPath(output_file.relative_path).parts[-1]
+
+def compute_candidate_schema_digest(schema: CandidateSchema) -> str:
+    """Compute the version-1 digest for an attempt-local candidate schema."""
+    payload = schema.remove_metadata().serialize().to_pybytes()
+    return hashlib.sha256(payload).hexdigest()
+
+
+def _inspect_candidate_files(
+    dataset_descriptor: int,
+    dataset_path: Path,
+    output_files: tuple[CandidateOutputFile, ...],
+) -> tuple[tuple[int, ...], str, tuple[_ArtifactBinding, ...]]:
+    metadata = tuple(
+        _inspect_output_file(dataset_descriptor, dataset_path, output_file) for output_file in output_files
+    )
+    schema_digests = tuple(schema_digest for _, schema_digest, _ in metadata)
+    if not schema_digests or any(digest != schema_digests[0] for digest in schema_digests[1:]):
+        raise OSError("candidate Parquet files do not share one dataset schema")
+    return (
+        tuple(record_count for record_count, _, _ in metadata),
+        schema_digests[0],
+        tuple(binding for _, _, binding in metadata),
+    )
+
+
+def _inspect_output_file(
+    dataset_descriptor: int,
+    dataset_path: Path,
+    output_file: CandidateOutputFile,
+) -> tuple[int, str, _ArtifactBinding]:
+    parts = PurePosixPath(output_file.relative_path).parts
+    with _open_parent_directory(dataset_descriptor, dataset_path, parts[:-1]) as (
+        parent_descriptor,
+        parent_path,
+        directory_identities,
+    ):
+        name = parts[-1]
         display_path = parent_path / name
-        descriptor = resources.enter_context(
-            open_verified_regular_file(
-                parent_descriptor,
-                name,
-                display_path,
-                expected_size=output_file.byte_size,
-                expected_sha256=output_file.sha256,
-                require_private=False,
+        with open_verified_regular_file(
+            parent_descriptor,
+            name,
+            display_path,
+            expected_size=output_file.byte_size,
+            expected_sha256=output_file.sha256,
+            require_private=False,
+        ) as descriptor:
+            record_count, schema_digest = _read_parquet_metadata(descriptor, display_path)
+            binding = _ArtifactBinding(
+                relative_path=output_file.relative_path,
+                directory_identities=directory_identities,
+                file_facts=_file_facts(os.fstat(descriptor)),
             )
-        )
-        record_count, schema_payload = _read_parquet_metadata(descriptor, display_path)
-        return _FileBinding(parent_descriptor, name, descriptor, display_path), record_count, schema_payload
+            return record_count, schema_digest, binding
 
-    @staticmethod
-    def _open_parent_directories(
-        resources: ExitStack,
-        dataset_path: Path,
-        dataset_descriptor: int,
-        parts: tuple[str, ...],
-        directories: list[_DirectoryBinding],
-    ) -> tuple[int, Path]:
-        parent_descriptor = dataset_descriptor
-        parent_path = dataset_path
+
+@contextmanager
+def _open_parent_directory(
+    dataset_descriptor: int,
+    dataset_path: Path,
+    parts: tuple[str, ...],
+) -> Iterator[tuple[int, Path, tuple[tuple[int, int], ...]]]:
+    parent_descriptor = os.dup(dataset_descriptor)
+    parent_path = dataset_path
+    directory_identities: list[tuple[int, int]] = []
+    try:
         for part in parts:
             child_path = parent_path / part
-            child_descriptor = resources.enter_context(
-                open_verified_child_directory(
-                    parent_descriptor,
-                    part,
-                    child_path,
-                    require_private=False,
-                )
-            )
-            binding = _DirectoryBinding(parent_descriptor, part, child_descriptor, child_path)
-            binding.rebind()
-            directories.append(binding)
-            parent_descriptor, parent_path = child_descriptor, child_path
-        return parent_descriptor, parent_path
+            with open_verified_child_directory(
+                parent_descriptor,
+                part,
+                child_path,
+                require_private=False,
+            ) as child_descriptor:
+                next_descriptor = os.dup(child_descriptor)
+            os.close(parent_descriptor)
+            parent_descriptor = next_descriptor
+            parent_path = child_path
+            directory_identities.append(_identity(os.fstat(parent_descriptor)))
+        yield parent_descriptor, parent_path, tuple(directory_identities)
+    finally:
+        os.close(parent_descriptor)
 
 
-def _read_parquet_metadata(descriptor: int, display_path: Path) -> tuple[int, bytes]:
+def _read_parquet_metadata(descriptor: int, display_path: Path) -> tuple[int, str]:
     try:
         with os.fdopen(os.dup(descriptor), "rb") as source:
             parquet_file = lazy.pq.ParquetFile(source)
-            schema_payload = parquet_file.schema_arrow.remove_metadata().serialize().to_pybytes()
-            return parquet_file.metadata.num_rows, schema_payload
+            return parquet_file.metadata.num_rows, compute_candidate_schema_digest(parquet_file.schema_arrow)
     except (OSError, lazy.pa.ArrowException) as error:
         raise OSError(f"candidate Parquet metadata {display_path} is invalid") from error
 
@@ -177,5 +215,10 @@ def _file_facts(status: os.stat_result) -> tuple[int, int, int, int, int]:
     return status.st_dev, status.st_ino, status.st_size, status.st_mtime_ns, status.st_ctime_ns
 
 
-def _is_safe_file(status: os.stat_result) -> bool:
-    return stat.S_ISREG(status.st_mode) and status.st_nlink == 1 and not status.st_mode & 0o022
+__all__ = [
+    "CandidateArtifactVerifier",
+    "CandidateSchema",
+    "SerializedCandidateSchema",
+    "VerifiedCandidateArtifacts",
+    "compute_candidate_schema_digest",
+]

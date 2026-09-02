@@ -139,7 +139,7 @@ class WinnerFinalizer:
         resolution: _WinnerResolution,
     ) -> VerifiedCandidateArtifacts:
         try:
-            return resources.enter_context(self._artifacts.verify(resolution.candidate, resolution.plan.output.format))
+            return resources.enter_context(self._artifacts.verify(resolution.candidate))
         except OSError as error:
             raise StateContractError("candidate output files are unavailable or invalid") from error
 

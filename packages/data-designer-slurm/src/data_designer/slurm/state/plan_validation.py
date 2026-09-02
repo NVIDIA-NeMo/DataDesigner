@@ -156,6 +156,16 @@ class PersistedPlanStateValidator:
         except FinalizationContractError as error:
             raise PlanStateContractError(str(error)) from error
 
+    def validate_attempt_result(
+        self,
+        planned_shard: PlannedShard,
+        attempt: AttemptManifest,
+        client_result: ClientResult,
+        candidate: CandidateOutputManifest,
+    ) -> None:
+        """Validate producer-owned result records before immutable publication."""
+        self._validate_attempt_result_contract(planned_shard, attempt, client_result, candidate)
+
     def validate_client_candidate(
         self,
         planned_shard: PlannedShard,
@@ -164,6 +174,16 @@ class PersistedPlanStateValidator:
         candidate: CandidateOutputManifest,
     ) -> CandidateOutputManifest:
         """Validate producer-owned records before terminal winner publication."""
+        self._validate_attempt_result_contract(planned_shard, attempt, client_result, candidate)
+        return candidate
+
+    def _validate_attempt_result_contract(
+        self,
+        planned_shard: PlannedShard,
+        attempt: AttemptManifest,
+        client_result: ClientResult,
+        candidate: CandidateOutputManifest,
+    ) -> None:
         self.validate_planned_attempt(planned_shard, attempt)
         try:
             self._finalization_validator.validate_attempt_result(
@@ -174,7 +194,6 @@ class PersistedPlanStateValidator:
             )
         except FinalizationContractError as error:
             raise PlanStateContractError(str(error)) from error
-        return candidate
 
     def _get_planned_shard(self, shard_id: ShardId) -> PlannedShard:
         planned_shard = self._shards_by_id.get(shard_id)

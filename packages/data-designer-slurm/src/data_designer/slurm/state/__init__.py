@@ -19,6 +19,7 @@ from data_designer.slurm.contracts import (
     Sha256Digest,
     ShardId,
 )
+from data_designer.slurm.state.artifacts import compute_candidate_schema_digest
 from data_designer.slurm.state.base import (
     SchedulerIdentity,
     StateRecord,
@@ -38,6 +39,7 @@ from data_designer.slurm.state.execution import (
     ShardManifest,
 )
 from data_designer.slurm.state.outputs import (
+    CANDIDATE_OUTPUT_FORMAT,
     CandidateOutcome,
     CandidateOutputFile,
     CandidateOutputManifest,
@@ -91,8 +93,10 @@ __all__ = [
     "AttemptReadiness",
     "AttemptTerminalClassification",
     "CandidateOutcome",
+    "CANDIDATE_OUTPUT_FORMAT",
     "CandidateOutputFile",
     "CandidateOutputManifest",
+    "compute_candidate_schema_digest",
     "CollectionPlan",
     "CollectionShard",
     "ContractRecord",

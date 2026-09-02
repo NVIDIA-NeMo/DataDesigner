@@ -24,6 +24,8 @@ from data_designer.slurm.state.base import (
     validate_utc_timestamp,
 )
 
+CANDIDATE_OUTPUT_FORMAT: Literal["parquet"] = "parquet"
+
 
 class CandidateOutcome(str, Enum):
     COMPLETE = "complete"

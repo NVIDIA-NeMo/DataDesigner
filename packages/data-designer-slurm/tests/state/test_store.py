@@ -48,6 +48,7 @@ from data_designer.slurm.state import (
     StateConflictError,
     StateCorruptionError,
     StateNotFoundError,
+    compute_candidate_schema_digest,
 )
 from data_designer.slurm.state import artifacts as state_artifacts
 from data_designer.slurm.state import filesystem as state_filesystem
@@ -75,6 +76,40 @@ class _FinalizationCase:
     candidate: CandidateOutputManifest
     published_at: datetime
     output_path: Path
+
+
+def test_combined_dataset_and_state_lock_owns_the_canonical_order(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    events: list[str] = []
+
+    @contextmanager
+    def resume_lock(storage: state_storage.StateStorage, shard_id: ShardId) -> Iterator[None]:
+        del storage, shard_id
+        events.append("resume-enter")
+        try:
+            yield
+        finally:
+            events.append("resume-exit")
+
+    @contextmanager
+    def shard_lock(storage: state_storage.StateStorage, shard_id: ShardId) -> Iterator[None]:
+        del storage, shard_id
+        events.append("shard-enter")
+        try:
+            yield
+        finally:
+            events.append("shard-exit")
+
+    monkeypatch.setattr(state_storage.StateStorage, "acquire_resume_lock", resume_lock)
+    monkeypatch.setattr(state_storage.StateStorage, "acquire_shard_lock", shard_lock)
+    storage = state_storage.StateStorage(tmp_path, "run-lock-order")
+
+    with storage.acquire_resume_and_shard_locks("shard-00000"):
+        events.append("body")
+
+    assert events == ["resume-enter", "shard-enter", "body", "shard-exit", "resume-exit"]
 
 
 def test_run_initialization_is_idempotent_restrictive_and_reloadable(
@@ -1140,6 +1175,13 @@ def test_candidate_finalization_publishes_one_reloadable_winner_and_seals_the_sh
     assert winner.candidate_manifest == finalization.client_result.candidate_output_manifest
     assert case.writer.load_winner(finalization.attempt.shard_id) == winner
     assert stat.S_IMODE((case.writer.run_root / "shards/shard-00000/winner.json").stat().st_mode) == 0o600
+    attempt_root = _attempt_root(case, finalization.attempt)
+    assert stat.S_IMODE((attempt_root / "client-result.json").stat().st_mode) == 0o600
+    assert stat.S_IMODE((attempt_root / "output-manifest.json").stat().st_mode) == 0o600
+    assert case.writer.publish_attempt_result(finalization.client_result, finalization.candidate) == (
+        finalization.client_result,
+        finalization.candidate,
+    )
     assert (
         case.writer.finalize_winner(
             finalization.attempt.shard_id,
@@ -1164,6 +1206,118 @@ def test_candidate_finalization_publishes_one_reloadable_winner_and_seals_the_sh
             finalization.attempt.attempt_id,
             published_at=finalization.published_at.replace(tzinfo=None),
         )
+
+
+@pytest.mark.parametrize("export_format", ("jsonl", "csv"))
+def test_finalization_keeps_candidate_parquet_separate_from_export_format(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+    export_format: str,
+) -> None:
+    authored = authored_run_single.model_copy(
+        update={"output": authored_run_single.output.model_copy(update={"format": export_format})}
+    )
+    plan = single_node_plan.model_copy(
+        update={
+            "authored_config": single_node_plan.authored_config.model_copy(
+                update={"sha256": authored.compute_sha256()}
+            ),
+            "output": single_node_plan.output.model_copy(update={"format": export_format}),
+        }
+    )
+    case = _initialized_case(tmp_path, authored, plan)
+    finalization = _complete_finalization_case(case)
+
+    winner = case.writer.finalize_winner(
+        finalization.attempt.shard_id,
+        finalization.attempt.attempt_id,
+        published_at=finalization.published_at,
+    )
+
+    assert winner.attempt_id == finalization.attempt.attempt_id
+    assert finalization.candidate.files[0].relative_path.endswith(".parquet")
+
+
+def test_candidate_verifier_keeps_file_descriptors_bounded_by_one_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dataset_path = tmp_path / "dataset"
+    dataset_path.mkdir(mode=0o700)
+    table = lazy.pa.table({"record_id": [1]})
+    files: list[CandidateOutputFile] = []
+    for index in range(16):
+        output_path = dataset_path / f"part-{index:05d}.parquet"
+        lazy.pq.write_table(table, output_path)
+        output_path.chmod(0o644)
+        content = output_path.read_bytes()
+        files.append(
+            CandidateOutputFile(
+                relative_path=output_path.name,
+                sha256=hashlib.sha256(content).hexdigest(),
+                byte_size=len(content),
+                record_count=1,
+            )
+        )
+    candidate = CandidateOutputManifest(
+        schema_version=1,
+        run_id="run-bounded",
+        shard_id="shard-00000",
+        attempt_id="attempt-0001",
+        attempt_ordinal=1,
+        created_at=datetime(2026, 9, 1, tzinfo=timezone.utc),
+        dataset_path=dataset_path.as_posix(),
+        requested_records=len(files),
+        actual_records=len(files),
+        outcome=CandidateOutcome.COMPLETE,
+        files=tuple(files),
+        dataset_schema_digest=compute_candidate_schema_digest(table.schema),
+        provenance_digest="a" * 64,
+    )
+    original_open = state_artifacts.open_verified_regular_file
+    active_files = 0
+    maximum_active_files = 0
+
+    @contextmanager
+    def track_open_file(
+        directory_descriptor: int,
+        name: str,
+        display_path: Path,
+        *,
+        expected_size: int,
+        expected_sha256: str,
+        require_private: bool = True,
+    ) -> Iterator[int]:
+        nonlocal active_files, maximum_active_files
+        with original_open(
+            directory_descriptor,
+            name,
+            display_path,
+            expected_size=expected_size,
+            expected_sha256=expected_sha256,
+            require_private=require_private,
+        ) as descriptor:
+            active_files += 1
+            maximum_active_files = max(maximum_active_files, active_files)
+            try:
+                yield descriptor
+            finally:
+                active_files -= 1
+
+    monkeypatch.setattr(state_artifacts, "open_verified_regular_file", track_open_file)
+    with state_artifacts.CandidateArtifactVerifier().verify(candidate) as artifacts:
+        assert active_files == 0
+        artifacts.rebind()
+
+    assert maximum_active_files == 1
+
+
+def test_candidate_schema_digest_ignores_arrow_metadata() -> None:
+    schema = lazy.pa.schema([("record_id", lazy.pa.int64())])
+    annotated = schema.with_metadata({b"producer": b"worker-a"})
+
+    assert compute_candidate_schema_digest(annotated) == compute_candidate_schema_digest(schema)
 
 
 def test_finalization_rejects_partial_client_results_and_candidate_file_drift(
@@ -1949,6 +2103,12 @@ def _persist_complete_result(
     physical_records: int | None = None,
     reported_schema_digest: str | None = None,
 ) -> _FinalizationCase:
+    running_attempt = _validated_copy(
+        attempt,
+        state=AttemptLifecycleState.RUNNING,
+        updated_at=case.created_at + timedelta(minutes=2, seconds=30),
+    )
+    case.writer.update_attempt(running_attempt)
     output_path = dataset_path / relative_path
     output_path.parent.mkdir(mode=0o755, parents=True, exist_ok=True)
     for parent in output_path.parents:
@@ -1960,7 +2120,6 @@ def _persist_complete_result(
     lazy.pq.write_table(table, output_path)
     output_path.chmod(0o644)
     content = output_path.read_bytes()
-    schema_payload = table.schema.remove_metadata().serialize().to_pybytes()
     candidate = CandidateOutputManifest(
         schema_version=1,
         run_id=case.plan.run_id,
@@ -1980,7 +2139,7 @@ def _persist_complete_result(
                 record_count=requested_records,
             ),
         ),
-        dataset_schema_digest=reported_schema_digest or hashlib.sha256(schema_payload).hexdigest(),
+        dataset_schema_digest=reported_schema_digest or compute_candidate_schema_digest(table.schema),
         provenance_digest=case.plan.compute_sha256(),
     )
     candidate_path = _attempt_root(case, attempt) / "output-manifest.json"
@@ -2003,10 +2162,9 @@ def _persist_complete_result(
         effective_resume_mode="never",
         candidate_output_manifest=candidate_reference,
     )
-    _write_state_record(candidate_path, candidate.serialize_json())
-    _write_state_record(_attempt_root(case, attempt) / "client-result.json", client_result.serialize_json())
+    case.writer.publish_attempt_result(client_result, candidate)
     completed_attempt = _validated_copy(
-        attempt,
+        running_attempt,
         state=AttemptLifecycleState.SUCCEEDED,
         terminal_classification=AttemptTerminalClassification.SUCCEEDED,
         candidate_output=candidate_reference,
