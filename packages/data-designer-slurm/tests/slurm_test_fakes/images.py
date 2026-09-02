@@ -39,16 +39,9 @@ class FakeInspectionEnvironment:
         """Return the configured distribution inventory."""
         return self.distributions
 
-    def get_distribution_version(self, name: str) -> str:
-        """Return one configured distribution version."""
+    def get_distribution_console_script(self, name: str) -> tuple[str, str]:
+        """Return one configured distribution version and console-script path."""
         try:
-            return self.distribution_versions[name]
+            return (self.distribution_versions[name], self.executables[name])
         except KeyError:
-            raise ImageInspectionError(f"required distribution {name!r} is not installed") from None
-
-    def find_executable(self, name: str) -> str:
-        """Return one configured executable path."""
-        try:
-            return self.executables[name]
-        except KeyError:
-            raise ImageInspectionError(f"required executable {name!r} is not installed") from None
+            raise ImageInspectionError(f"required distribution console script {name!r} is not installed") from None

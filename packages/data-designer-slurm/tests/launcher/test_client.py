@@ -28,6 +28,18 @@ def test_client_submits_and_observes_one_managed_array(fake_slurm_runner: FakeSl
     ]
 
 
+def test_client_submits_verified_script_text_through_standard_input() -> None:
+    runner = FakeSlurmRunner(jobs=(FakeSlurmJob(job_id=5101),))
+    client = SlurmCommandClient(runner)
+    script = "#!/usr/bin/env bash\nexit 0\n"
+
+    submission = client.submit_script(script)
+
+    assert submission.job_id == 5101
+    assert runner.calls == [("sbatch", "--parsable", "--export=NIL")]
+    assert runner.inputs == [script]
+
+
 def test_client_queries_accounting_and_cancels_one_array_task(fake_slurm_runner: FakeSlurmRunner) -> None:
     client = SlurmCommandClient(fake_slurm_runner)
     client.submit("run.sbatch")
@@ -243,6 +255,16 @@ def test_client_rejects_invalid_script_path(fake_slurm_runner: FakeSlurmRunner, 
 
     with pytest.raises(ValueError, match="batch script path"):
         client.submit(script_path)
+
+    assert fake_slurm_runner.calls == []
+
+
+@pytest.mark.parametrize("script", ("", "bad\0script", b"not text"))
+def test_client_rejects_invalid_script_text(fake_slurm_runner: FakeSlurmRunner, script: object) -> None:
+    client = SlurmCommandClient(fake_slurm_runner)
+
+    with pytest.raises(ValueError, match="batch script text"):
+        client.submit_script(script)  # type: ignore[arg-type]
 
     assert fake_slurm_runner.calls == []
 

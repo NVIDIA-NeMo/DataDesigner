@@ -70,6 +70,44 @@ def test_subprocess_runner_default_environment_forwards_only_search_path(monkeyp
     assert runner.environment == {"LC_ALL": "C", "PATH": "/workspace/slurm/bin:/usr/bin"}
 
 
+def test_subprocess_runner_forwards_explicit_standard_input(monkeypatch: pytest.MonkeyPatch) -> None:
+    observed: dict[str, object] = {}
+
+    def fake_run(
+        command: Sequence[str],
+        *,
+        check: bool,
+        input: str,
+        capture_output: bool,
+        text: bool,
+        encoding: str,
+        errors: str,
+        env: Mapping[str, str],
+        timeout: float,
+    ) -> subprocess.CompletedProcess[str]:
+        observed.update(command=command, check=check, input=input, env=env, timeout=timeout)
+        assert capture_output is text is True
+        assert encoding == "utf-8"
+        assert errors == "replace"
+        return subprocess.CompletedProcess(command, 0, stdout="5101\n", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    completed = SubprocessRunner(environment={"PATH": "/usr/bin"}).run(
+        ("sbatch", "--parsable"),
+        input_text="#!/bin/sh\n",
+    )
+
+    assert completed.stdout == "5101\n"
+    assert observed == {
+        "command": ("sbatch", "--parsable"),
+        "check": False,
+        "input": "#!/bin/sh\n",
+        "env": {"LC_ALL": "C", "PATH": "/usr/bin"},
+        "timeout": 30.0,
+    }
+
+
 def test_subprocess_runner_default_environment_replaces_empty_search_path(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PATH", "")
 
