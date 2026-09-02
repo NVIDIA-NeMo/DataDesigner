@@ -5,13 +5,16 @@
 
 from __future__ import annotations
 
+from data_designer.slurm.client import ClientResult
 from data_designer.slurm.config import DataDesignerSlurmConfig
 from data_designer.slurm.contracts import AttemptId, Identifier, ShardId
 from data_designer.slurm.planning import ResolvedSlurmRunPlan
 from data_designer.slurm.state.errors import StateCorruptionError, StateNotFoundError
 from data_designer.slurm.state.execution import AttemptLifecycleState, AttemptManifest, RunManifest, ShardManifest
+from data_designer.slurm.state.outputs import CandidateOutputManifest
 from data_designer.slurm.state.plan_validation import PersistedPlanStateValidator, PlanStateContractError
 from data_designer.slurm.state.readiness import AttemptReadiness
+from data_designer.slurm.state.scheduler import SchedulerObservation
 from data_designer.slurm.state.storage import StateStorage
 from data_designer.slurm.state.validation import (
     StateContractError,
@@ -139,18 +142,65 @@ class StateReader:
         context = self.load_shard_context(shard_id)
         _, plan, _ = context
         attempt = self.get_attempt(self.load_attempts(shard_id, context), attempt_id)
+        readiness = self.load_optional_readiness(plan, attempt)
+        if readiness is None:
+            raise StateNotFoundError(f"attempt {attempt_id!r} has no readiness snapshot")
+        return readiness
+
+    def load_optional_readiness(
+        self,
+        plan: ResolvedSlurmRunPlan,
+        attempt: AttemptManifest,
+    ) -> AttemptReadiness | None:
+        """Load validated readiness when the runtime has published it."""
         try:
-            readiness = self._storage.read_readiness(shard_id, attempt_id)
+            readiness = self._storage.read_readiness(attempt.shard_id, attempt.attempt_id)
             PersistedPlanStateValidator(plan).validate_readiness_snapshot(attempt, readiness)
             return readiness
-        except FileNotFoundError as error:
-            raise StateNotFoundError(f"attempt {attempt_id!r} has no readiness snapshot") from error
-        except StateCorruptionError:
-            raise
+        except FileNotFoundError:
+            return None
         except PlanStateContractError as error:
-            raise StateCorruptionError(f"attempt {attempt_id!r} has invalid persisted readiness") from error
+            raise StateCorruptionError(f"attempt {attempt.attempt_id!r} has invalid persisted readiness") from error
         except OSError as error:
-            raise StateCorruptionError(f"attempt {attempt_id!r} has unreadable readiness") from error
+            raise StateCorruptionError(f"attempt {attempt.attempt_id!r} has unreadable readiness") from error
+
+    def load_optional_scheduler_observation(self, attempt: AttemptManifest) -> SchedulerObservation | None:
+        """Load and identity-check the most recent scheduler observation."""
+        try:
+            observation = self._storage.read_scheduler_observation(attempt.shard_id, attempt.attempt_id)
+        except FileNotFoundError:
+            return None
+        except OSError as error:
+            raise StateCorruptionError(f"attempt {attempt.attempt_id!r} has unreadable scheduler evidence") from error
+        if attempt.scheduler is None or observation.scheduler != attempt.scheduler:
+            raise StateCorruptionError(f"attempt {attempt.attempt_id!r} has mismatched scheduler evidence")
+        if observation.observed_at < attempt.created_at:
+            raise StateCorruptionError(f"attempt {attempt.attempt_id!r} has scheduler evidence before its creation")
+        return observation
+
+    def load_optional_attempt_result(
+        self,
+        plan: ResolvedSlurmRunPlan,
+        shard: ShardManifest,
+        attempt: AttemptManifest,
+    ) -> tuple[ClientResult, CandidateOutputManifest] | None:
+        """Load and validate a complete producer result pair when present."""
+        try:
+            client_result, candidate = self._storage.read_finalization_records(shard.shard_id, attempt.attempt_id)
+        except FileNotFoundError:
+            return None
+        except OSError as error:
+            raise StateCorruptionError(f"attempt {attempt.attempt_id!r} has unreadable generation results") from error
+        try:
+            PersistedPlanStateValidator(plan).validate_attempt_result(
+                plan.shards[shard.shard_index],
+                attempt,
+                client_result,
+                candidate,
+            )
+        except PlanStateContractError as error:
+            raise StateCorruptionError(f"attempt {attempt.attempt_id!r} has invalid generation results") from error
+        return client_result, candidate
 
     def load_validated_attempts(
         self,

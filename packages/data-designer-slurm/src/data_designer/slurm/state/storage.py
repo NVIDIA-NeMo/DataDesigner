@@ -34,6 +34,7 @@ from data_designer.slurm.state.filesystem import (
 )
 from data_designer.slurm.state.outputs import CandidateOutputManifest, ShardWinner
 from data_designer.slurm.state.readiness import AttemptReadiness
+from data_designer.slurm.state.scheduler import SchedulerObservation
 
 _RUN_FILENAME = "run.json"
 _AUTHORED_CONFIG_FILENAME = "authored-config.json"
@@ -44,6 +45,7 @@ _SHARD_FILENAME = "shard.json"
 _SHARD_LOCK_FILENAME = "shard.lock"
 _ATTEMPT_FILENAME = "attempt.json"
 _READINESS_FILENAME = "readiness.json"
+_SCHEDULER_OBSERVATION_FILENAME = "scheduler.json"
 _CLIENT_RESULT_FILENAME = "client-result.json"
 _CANDIDATE_OUTPUT_FILENAME = "output-manifest.json"
 _WINNER_FILENAME = "winner.json"
@@ -81,6 +83,9 @@ class StateStorage:
 
     def get_readiness_path(self, shard_id: str, attempt_id: str) -> Path:
         return self.get_attempt_path(shard_id, attempt_id) / _READINESS_FILENAME
+
+    def get_scheduler_observation_path(self, shard_id: str, attempt_id: str) -> Path:
+        return self.get_attempt_path(shard_id, attempt_id) / _SCHEDULER_OBSERVATION_FILENAME
 
     def get_winner_path(self, shard_id: str) -> Path:
         return self.get_shard_path(shard_id) / _WINNER_FILENAME
@@ -269,6 +274,55 @@ class StateStorage:
     def replace_readiness(self, readiness: AttemptReadiness) -> None:
         with self.open_attempt_directory(readiness.shard_id, readiness.attempt_id) as attempt_descriptor:
             self._replace_record(attempt_descriptor, _READINESS_FILENAME, readiness)
+
+    def read_scheduler_observation(
+        self,
+        shard_id: ShardId,
+        attempt_id: AttemptId,
+    ) -> SchedulerObservation:
+        """Read one attempt's latest reconciled scheduler evidence."""
+        path = self.get_scheduler_observation_path(shard_id, attempt_id)
+        with self.open_attempt_directory(shard_id, attempt_id) as attempt_descriptor:
+            return self.read_record(
+                attempt_descriptor,
+                _SCHEDULER_OBSERVATION_FILENAME,
+                path,
+                SchedulerObservation,
+            )
+
+    def publish_scheduler_observation(
+        self,
+        shard_id: ShardId,
+        attempt_id: AttemptId,
+        observation: SchedulerObservation,
+    ) -> None:
+        """Publish the first scheduler observation for one attempt."""
+        path = self.get_scheduler_observation_path(shard_id, attempt_id)
+        with self.open_attempt_directory(shard_id, attempt_id) as attempt_descriptor:
+            publish_immutable_text(
+                attempt_descriptor,
+                _SCHEDULER_OBSERVATION_FILENAME,
+                observation.serialize_json(),
+                path,
+                maximum_size=_MAXIMUM_RECORD_SIZE,
+            )
+
+    def replace_scheduler_observation(
+        self,
+        shard_id: ShardId,
+        attempt_id: AttemptId,
+        observation: SchedulerObservation,
+    ) -> None:
+        """Atomically replace one attempt's scheduler observation."""
+        path = self.get_scheduler_observation_path(shard_id, attempt_id)
+        with self.open_attempt_directory(shard_id, attempt_id) as attempt_descriptor:
+            replace_text(
+                attempt_descriptor,
+                _SCHEDULER_OBSERVATION_FILENAME,
+                observation.serialize_json(),
+                path,
+                maximum_size=_MAXIMUM_RECORD_SIZE,
+            )
 
     def sync_attempt_directory(self, shard_id: ShardId, attempt_id: AttemptId) -> None:
         with self.open_attempt_directory(shard_id, attempt_id) as attempt_descriptor:
