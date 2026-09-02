@@ -22,6 +22,7 @@ _HOP_HEADERS = frozenset(
         "keep-alive",
         "proxy-authenticate",
         "proxy-authorization",
+        "proxy-connection",
         "te",
         "trailer",
         "transfer-encoding",
@@ -173,10 +174,12 @@ class _ProxyHandler(BaseHTTPRequestHandler):
         return content
 
     def _request_backend(self, backend: _Backend, body: bytes) -> tuple[int, bytes, dict[str, str]]:
+        request_headers = tuple(self.headers.items())
+        hop_headers = _get_hop_headers(request_headers)
         headers = {
             name: value
-            for name, value in self.headers.items()
-            if name.lower() not in _HOP_HEADERS and name.lower() not in {"host", "content-length"}
+            for name, value in request_headers
+            if name.lower() not in hop_headers and name.lower() not in {"host", "content-length"}
         }
         headers["Content-Length"] = str(len(body))
         connection = http.client.HTTPConnection(backend.host, backend.port, timeout=300)
@@ -186,10 +189,12 @@ class _ProxyHandler(BaseHTTPRequestHandler):
             payload = response.read(_MAXIMUM_RESPONSE_BYTES + 1)
             if len(payload) > _MAXIMUM_RESPONSE_BYTES:
                 return 502, b'{"error":"backend response too large"}\n', {"Content-Type": "application/json"}
+            raw_response_headers = tuple(response.getheaders())
+            response_hop_headers = _get_hop_headers(raw_response_headers)
             response_headers = {
                 name: value
-                for name, value in response.getheaders()
-                if name.lower() not in _HOP_HEADERS and name.lower() != "content-length"
+                for name, value in raw_response_headers
+                if name.lower() not in response_hop_headers and name.lower() != "content-length"
             }
             return response.status, payload, response_headers
         except (OSError, http.client.HTTPException):
@@ -253,6 +258,17 @@ def _retry_after_headers(headers: dict[str, str], retry_after_seconds: int | Non
     if retry_after_seconds is not None:
         selected["Retry-After"] = str(retry_after_seconds)
     return selected
+
+
+def _get_hop_headers(headers: Sequence[tuple[str, str]]) -> frozenset[str]:
+    nominated = {
+        token.strip().lower()
+        for name, value in headers
+        if name.lower() == "connection"
+        for token in value.split(",")
+        if token.strip()
+    }
+    return _HOP_HEADERS | nominated
 
 
 if __name__ == "__main__":  # pragma: no cover - exercised as a managed step

@@ -145,6 +145,54 @@ def test_proxy_bounds_backend_response_buffering(monkeypatch: pytest.MonkeyPatch
     )
 
 
+def test_proxy_strips_connection_nominated_headers_in_both_directions(monkeypatch: pytest.MonkeyPatch) -> None:
+    class _Response:
+        status = 200
+
+        def read(self, amount: int) -> bytes:
+            del amount
+            return b"complete"
+
+        def getheaders(self) -> list[tuple[str, str]]:
+            return [
+                ("Connection", "X-Backend-Hop"),
+                ("X-Backend-Hop", "private"),
+                ("Content-Type", "application/json"),
+            ]
+
+    class _Connection:
+        forwarded_headers: dict[str, str] = {}
+
+        def __init__(self, host: str, port: int, timeout: int) -> None:
+            del host, port, timeout
+
+        def request(self, method: str, path: str, *, body: bytes, headers: dict[str, str]) -> None:
+            del method, path, body
+            type(self).forwarded_headers = headers
+
+        def getresponse(self) -> _Response:
+            return _Response()
+
+        def close(self) -> None:
+            pass
+
+    handler = object.__new__(_ProxyHandler)
+    handler.command = "POST"
+    handler.path = "/v1/chat/completions"
+    handler.headers = Message()
+    handler.headers["Connection"] = "X-Client-Hop"
+    handler.headers["X-Client-Hop"] = "private"
+    handler.headers["Proxy-Connection"] = "keep-alive"
+    handler.headers["Authorization"] = "Bearer reviewed"
+    monkeypatch.setattr(runtime_proxy.http.client, "HTTPConnection", _Connection)
+
+    status, body, headers = handler._request_backend(_Backend("127.0.0.1", 8001), b"{}")
+
+    assert (status, body) == (200, b"complete")
+    assert _Connection.forwarded_headers == {"Authorization": "Bearer reviewed", "Content-Length": "2"}
+    assert headers == {"Content-Type": "application/json"}
+
+
 @pytest.mark.parametrize(
     "value",
     (
