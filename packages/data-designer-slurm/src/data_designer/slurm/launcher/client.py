@@ -76,6 +76,16 @@ class SlurmCommandClient:
         output = self._run((self._executables.sbatch, "--parsable", "--export=NIL", path))
         return parse_submission(output)
 
+    def submit_script(self, script: str) -> SlurmJobSubmissionReceipt:
+        """Submit verified batch-script text through standard input."""
+        if type(script) is not str or not script or "\0" in script:
+            raise ValueError("batch script text must be non-empty UTF-8 text without NUL")
+        output = self._run(
+            (self._executables.sbatch, "--parsable", "--export=NIL"),
+            input_text=script,
+        )
+        return parse_submission(output)
+
     def query_queue(self, selectors: Sequence[_JobSelector]) -> tuple[SlurmQueueEntry, ...]:
         """Return normalized active-queue rows for explicit managed jobs."""
         requested = tuple(selectors)
@@ -133,10 +143,12 @@ class SlurmCommandClient:
             command.append(f"--partition={partition}")
         return parse_gpu_counts(self._run(command))
 
-    def _run(self, command: Sequence[str]) -> str:
+    def _run(self, command: Sequence[str], *, input_text: str | None = None) -> str:
         command_name = Path(command[0]).name
         try:
-            completed = self._runner.run(command)
+            completed = (
+                self._runner.run(command) if input_text is None else self._runner.run(command, input_text=input_text)
+            )
         except (OSError, subprocess.SubprocessError) as error:
             raise SlurmCommandError(f"{command_name} could not be executed: {_format_error_detail(error)}") from error
         returncode = getattr(completed, "returncode", None)
