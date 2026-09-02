@@ -9,6 +9,7 @@ import gzip
 import hashlib
 import io
 import os
+import re
 import secrets
 import stat
 import tarfile
@@ -23,6 +24,7 @@ _FILE_MODE = 0o600
 _ENTRYPOINT_MODE = 0o500
 _SOURCE_MODE = 0o400
 _MAXIMUM_SOURCE_SIZE = 16 * 1024 * 1024
+_TEMPORARY_NAME_PATTERN = re.compile(r"^\.runtime\.[0-9a-f]{16}\.tmp$")
 _ENTRYPOINT_NAME = "entrypoint.sh"
 _SLURM_PACKAGE_NAME = "data_designer/slurm/__init__.py"
 _SLURM_PACKAGE_SHIM = (
@@ -191,7 +193,10 @@ def _publish_archive(runtime_root: Path, name: str, content: bytes) -> None:
         except FileExistsError:
             if _read_existing_archive(directory_descriptor, name, expected_size=expected_size) != content:
                 raise OSError("content-addressed runtime bundle contains different bytes") from None
-        os.unlink(temporary_name, dir_fd=directory_descriptor)
+        try:
+            os.unlink(temporary_name, dir_fd=directory_descriptor)
+        except FileNotFoundError:
+            pass
         temporary_name = None
         os.fsync(directory_descriptor)
     finally:
@@ -208,6 +213,7 @@ def _read_existing_archive(directory_descriptor: int, name: str, *, expected_siz
         before = os.stat(name, dir_fd=directory_descriptor, follow_symlinks=False)
     except FileNotFoundError:
         return None
+    before = _repair_interrupted_archive_publication(directory_descriptor, name, before)
     if (
         not stat.S_ISREG(before.st_mode)
         or before.st_nlink != 1
@@ -238,3 +244,40 @@ def _read_existing_archive(directory_descriptor: int, name: str, *, expected_siz
 
 def _file_identity(status: os.stat_result) -> tuple[int, int, int, int, int]:
     return status.st_dev, status.st_ino, status.st_size, status.st_mtime_ns, status.st_ctime_ns
+
+
+def _repair_interrupted_archive_publication(
+    directory_descriptor: int,
+    name: str,
+    status: os.stat_result,
+) -> os.stat_result:
+    if status.st_nlink == 1:
+        return status
+    if not stat.S_ISREG(status.st_mode) or status.st_mode & 0o077 or status.st_nlink != 2:
+        return status
+    matching_names: list[str] = []
+    for candidate in os.listdir(directory_descriptor):
+        if _TEMPORARY_NAME_PATTERN.fullmatch(candidate) is None:
+            continue
+        try:
+            candidate_status = os.stat(candidate, dir_fd=directory_descriptor, follow_symlinks=False)
+        except FileNotFoundError:
+            continue
+        if (candidate_status.st_dev, candidate_status.st_ino) == (status.st_dev, status.st_ino):
+            matching_names.append(candidate)
+    if len(matching_names) != 1:
+        return status
+    try:
+        os.unlink(matching_names[0], dir_fd=directory_descriptor)
+        os.fsync(directory_descriptor)
+    except FileNotFoundError:
+        pass
+    repaired = os.stat(name, dir_fd=directory_descriptor, follow_symlinks=False)
+    if (
+        (repaired.st_dev, repaired.st_ino) != (status.st_dev, status.st_ino)
+        or not stat.S_ISREG(repaired.st_mode)
+        or repaired.st_nlink != 1
+        or repaired.st_mode & 0o077
+    ):
+        raise OSError("runtime bundle changed while recovering interrupted publication")
+    return repaired

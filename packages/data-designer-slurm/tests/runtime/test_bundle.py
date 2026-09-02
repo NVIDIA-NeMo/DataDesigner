@@ -58,6 +58,35 @@ def test_runtime_bundle_rejects_different_bytes_at_digest_path(tmp_path: Path) -
         stage_runtime_bundle(workspace)
 
 
+def test_runtime_bundle_recovers_an_interrupted_immutable_publication(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir(mode=0o700)
+    original_unlink = runtime_bundle.os.unlink
+
+    def interrupt_temporary_unlink(path: str, *, dir_fd: int | None = None) -> None:
+        del path, dir_fd
+        raise KeyboardInterrupt("injected runtime publication interruption")
+
+    monkeypatch.setattr(runtime_bundle.os, "unlink", interrupt_temporary_unlink)
+    with pytest.raises(KeyboardInterrupt, match="runtime publication interruption"):
+        stage_runtime_bundle(workspace)
+
+    runtime_root = workspace / "runtime"
+    archive_paths = tuple(runtime_root.glob("*.tar.gz"))
+    temporary_paths = tuple(runtime_root.glob(".runtime.*.tmp"))
+    assert len(archive_paths) == len(temporary_paths) == 1
+    assert archive_paths[0].stat().st_ino == temporary_paths[0].stat().st_ino
+    assert archive_paths[0].stat().st_nlink == 2
+
+    monkeypatch.setattr(runtime_bundle.os, "unlink", original_unlink)
+    reference = stage_runtime_bundle(workspace)
+    assert Path(reference.path).stat().st_nlink == 1
+    assert not tuple(runtime_root.glob(".runtime.*.tmp"))
+
+
 def test_runtime_bundle_rejects_symlinked_runtime_root(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     outside = tmp_path / "outside"
