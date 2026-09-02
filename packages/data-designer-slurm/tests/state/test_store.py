@@ -1233,6 +1233,44 @@ def test_finalization_rejects_unsafe_candidate_files(
         )
 
 
+def test_finalization_rejects_candidate_path_replacement_after_digest_read(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    case = _initialized_case(tmp_path, authored_run_single, single_node_plan)
+    finalization = _complete_finalization_case(case)
+    replacement = tmp_path / "replacement.parquet"
+    replacement.write_bytes(finalization.output_path.read_bytes())
+    replacement.chmod(0o600)
+    original_fstat = state_filesystem.os.fstat
+    output_inode = finalization.output_path.stat().st_ino
+    candidate_fstat_calls = 0
+    replaced = False
+
+    def replace_after_descriptor_validation(descriptor: int) -> os.stat_result:
+        nonlocal candidate_fstat_calls, replaced
+        status = original_fstat(descriptor)
+        if status.st_ino == output_inode:
+            candidate_fstat_calls += 1
+            if candidate_fstat_calls == 2:
+                os.replace(replacement, finalization.output_path)
+                replaced = True
+        return status
+
+    monkeypatch.setattr(state_filesystem.os, "fstat", replace_after_descriptor_validation)
+
+    with pytest.raises(StateConflictError, match="not eligible"):
+        case.writer.finalize_winner(
+            finalization.attempt.shard_id,
+            finalization.attempt.attempt_id,
+            published_at=finalization.published_at,
+        )
+
+    assert replaced
+
+
 @pytest.mark.parametrize("record_name", ("client-result.json", "output-manifest.json"))
 def test_finalization_classifies_unsafe_result_records_as_corruption(
     tmp_path: Path,

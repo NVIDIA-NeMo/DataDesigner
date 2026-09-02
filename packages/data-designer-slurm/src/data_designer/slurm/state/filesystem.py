@@ -168,6 +168,9 @@ def verify_regular_file(
             raise OSError(f"candidate file {display_path} changed while it was being read")
         if digest.hexdigest() != expected_sha256:
             raise OSError(f"candidate file {display_path} digest does not match its manifest")
+        current = os.stat(name, dir_fd=directory_descriptor, follow_symlinks=False)
+        if not _is_restrictive_regular(current) or _get_file_facts(after_read) != _get_file_facts(current):
+            raise OSError(f"candidate file {display_path} was replaced while it was being verified")
     finally:
         if descriptor is not None:
             os.close(descriptor)
