@@ -1271,6 +1271,38 @@ def test_finalization_rejects_candidate_path_replacement_after_digest_read(
     assert replaced
 
 
+@pytest.mark.parametrize("replace_parent_with_symlink", (False, True))
+def test_finalization_verifies_nested_candidate_directories(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+    replace_parent_with_symlink: bool,
+) -> None:
+    case = _initialized_case(tmp_path, authored_run_single, single_node_plan)
+    finalization = _complete_finalization_case(case, relative_path="partition/day-01/part-00000.parquet")
+    partition_path = finalization.output_path.parents[1]
+    if replace_parent_with_symlink:
+        outside = tmp_path / "outside-partition"
+        partition_path.rename(outside)
+        partition_path.symlink_to(outside, target_is_directory=True)
+
+        with pytest.raises(StateConflictError, match="not eligible"):
+            case.writer.finalize_winner(
+                finalization.attempt.shard_id,
+                finalization.attempt.attempt_id,
+                published_at=finalization.published_at,
+            )
+    else:
+        assert (
+            case.writer.finalize_winner(
+                finalization.attempt.shard_id,
+                finalization.attempt.attempt_id,
+                published_at=finalization.published_at,
+            ).attempt_id
+            == finalization.attempt.attempt_id
+        )
+
+
 @pytest.mark.parametrize("record_name", ("client-result.json", "output-manifest.json"))
 def test_finalization_classifies_unsafe_result_records_as_corruption(
     tmp_path: Path,
@@ -1746,15 +1778,30 @@ def _readiness(case: _StateCase, attempt: AttemptManifest) -> AttemptReadiness:
     )
 
 
-def _complete_finalization_case(case: _StateCase) -> _FinalizationCase:
+def _complete_finalization_case(
+    case: _StateCase,
+    *,
+    relative_path: str = "part-00000.parquet",
+) -> _FinalizationCase:
     attempt = _submitted_attempt(case)
     case.writer.create_attempt(attempt)
     with case.writer.acquire_dataset_workspace(attempt.shard_id, attempt.attempt_id, "never") as dataset_path:
-        return _persist_complete_result(case, attempt, dataset_path)
+        return _persist_complete_result(case, attempt, dataset_path, relative_path=relative_path)
 
 
-def _persist_complete_result(case: _StateCase, attempt: AttemptManifest, dataset_path: Path) -> _FinalizationCase:
-    output_path = dataset_path / "part-00000.parquet"
+def _persist_complete_result(
+    case: _StateCase,
+    attempt: AttemptManifest,
+    dataset_path: Path,
+    *,
+    relative_path: str = "part-00000.parquet",
+) -> _FinalizationCase:
+    output_path = dataset_path / relative_path
+    output_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    for parent in output_path.parents:
+        if parent == dataset_path:
+            break
+        parent.chmod(0o700)
     content = b"candidate parquet bytes"
     output_path.write_bytes(content)
     output_path.chmod(0o600)
@@ -1772,7 +1819,7 @@ def _persist_complete_result(case: _StateCase, attempt: AttemptManifest, dataset
         outcome=CandidateOutcome.COMPLETE,
         files=(
             CandidateOutputFile(
-                relative_path=output_path.name,
+                relative_path=relative_path,
                 sha256=hashlib.sha256(content).hexdigest(),
                 byte_size=len(content),
                 record_count=requested_records,
