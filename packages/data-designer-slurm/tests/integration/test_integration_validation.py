@@ -391,6 +391,8 @@ def test_client_candidate_validation_supports_preterminal_runtime_state(records:
         ("stale_winner", "winner attempt_id"),
         ("digest_mismatch", "digest"),
         ("dataset_path_mismatch", "dataset path"),
+        ("wrong_file_extension", "output file extensions"),
+        ("empty_file_with_records", "must contain bytes"),
         ("client_before_candidate", "client completion"),
         ("winner_before_attempt", "winner publication"),
     ],
@@ -441,6 +443,12 @@ def test_finalization_rejects_invalid_chains(
         candidate = candidate.model_copy(update={"provenance_digest": "c" * 64})
     elif mutation == "dataset_path_mismatch":
         candidate = candidate.model_copy(update={"dataset_path": "/workspace/other/dataset"})
+    elif mutation == "wrong_file_extension":
+        candidate = candidate.model_copy(
+            update={"files": (candidate.files[0].model_copy(update={"relative_path": "part-00000.txt"}),)}
+        )
+    elif mutation == "empty_file_with_records":
+        candidate = candidate.model_copy(update={"files": (candidate.files[0].model_copy(update={"byte_size": 0}),)})
     elif mutation == "client_before_candidate":
         client_result = client_result.model_copy(update={"completed_at": candidate.created_at - timedelta(seconds=1)})
     else:

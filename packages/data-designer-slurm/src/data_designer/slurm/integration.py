@@ -107,6 +107,15 @@ class PlanStateValidator(PersistedPlanStateValidator):
             client_result.actual_records == candidate.actual_records == planned_shard.requested_records,
             "client and candidate actual records must complete the planned shard",
         )
+        expected_suffix = f".{self.plan.output.format}"
+        _require(
+            all(output_file.relative_path.endswith(expected_suffix) for output_file in candidate.files),
+            "candidate output file extensions do not match the resolved output format",
+        )
+        _require(
+            all(output_file.byte_size > 0 for output_file in candidate.files if output_file.record_count > 0),
+            "non-empty candidate output files must contain bytes",
+        )
 
     def _validate_candidate_location(
         self,

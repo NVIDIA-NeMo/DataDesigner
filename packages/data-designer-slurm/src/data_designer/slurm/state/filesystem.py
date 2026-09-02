@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 import stat
 from collections.abc import Iterator
@@ -135,6 +136,41 @@ def read_regular_text(
             if descriptor is not None:
                 os.close(descriptor)
     raise OSError(f"state record {display_path} changed too often to read consistently")
+
+
+def verify_regular_file(
+    directory_descriptor: int,
+    name: str,
+    display_path: Path,
+    *,
+    expected_size: int,
+    expected_sha256: str,
+) -> None:
+    """Digest-verify one restrictive regular file without following a symlink."""
+    descriptor: int | None = None
+    try:
+        before_open = os.stat(name, dir_fd=directory_descriptor, follow_symlinks=False)
+        if not _is_restrictive_regular(before_open) or before_open.st_size != expected_size:
+            raise OSError(f"candidate file {display_path} is not the expected restrictive regular file")
+        descriptor = os.open(
+            name,
+            os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0),
+            dir_fd=directory_descriptor,
+        )
+        after_open = os.fstat(descriptor)
+        if not _is_restrictive_regular(after_open) or get_file_facts(before_open) != get_file_facts(after_open):
+            raise OSError(f"candidate file {display_path} changed while it was being opened")
+        digest = hashlib.sha256()
+        while chunk := os.read(descriptor, 1024 * 1024):
+            digest.update(chunk)
+        after_read = os.fstat(descriptor)
+        if not _is_restrictive_regular(after_read) or get_file_facts(after_open) != get_file_facts(after_read):
+            raise OSError(f"candidate file {display_path} changed while it was being read")
+        if digest.hexdigest() != expected_sha256:
+            raise OSError(f"candidate file {display_path} digest does not match its manifest")
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
 
 
 def publish_immutable_text(
