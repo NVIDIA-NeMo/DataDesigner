@@ -39,7 +39,7 @@ from data_designer.slurm.state import (
     StateNotFoundError,
 )
 from data_designer.slurm.state import filesystem as state_filesystem
-from data_designer.slurm.state import store as state_store
+from data_designer.slurm.state import storage as state_storage
 
 _ValueT = TypeVar("_ValueT", bound=ContractValue)
 
@@ -107,11 +107,11 @@ def test_context_loading_reads_each_immutable_record_once(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     case = _initialized_case(tmp_path, authored_run_single, single_node_plan)
-    original_read_record = SlurmStateWriter._read_record
+    original_read_record = state_storage._StateStorage.read_record
     record_names: list[str] = []
 
     def track_read(
-        self: SlurmStateWriter,
+        self: state_storage._StateStorage,
         directory_descriptor: int,
         name: str,
         display_path: Path,
@@ -120,7 +120,7 @@ def test_context_loading_reads_each_immutable_record_once(
         record_names.append(name)
         return original_read_record(self, directory_descriptor, name, display_path, record_type)
 
-    monkeypatch.setattr(SlurmStateWriter, "_read_record", track_read)
+    monkeypatch.setattr(state_storage._StateStorage, "read_record", track_read)
 
     assert case.writer.load_attempts("shard-00000") == ()
     assert record_names.count("run.json") == 1
@@ -148,7 +148,7 @@ def test_run_commit_marker_is_published_last_and_interrupted_initialization_retr
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     case = _build_case(tmp_path, authored_run_single, single_node_plan)
-    original_publish = state_store.publish_immutable_text
+    original_publish = state_storage.publish_immutable_text
 
     def interrupt_before_run_commit(
         directory_descriptor: int,
@@ -173,11 +173,11 @@ def test_run_commit_marker_is_published_last_and_interrupted_initialization_retr
             maximum_size=maximum_size,
         )
 
-    monkeypatch.setattr(state_store, "publish_immutable_text", interrupt_before_run_commit)
+    monkeypatch.setattr(state_storage, "publish_immutable_text", interrupt_before_run_commit)
     with pytest.raises(SlurmStateError, match="cannot initialize"):
         case.writer.initialize_run(case.authored_config, case.plan, case.run, case.shards)
 
-    monkeypatch.setattr(state_store, "publish_immutable_text", original_publish)
+    monkeypatch.setattr(state_storage, "publish_immutable_text", original_publish)
     assert case.writer.initialize_run(case.authored_config, case.plan, case.run, case.shards) == case.run
     assert case.writer.load_shards() == case.shards
 
@@ -328,6 +328,65 @@ def test_record_reader_retries_an_atomic_replacement_between_stat_and_open(
             == "new"
         )
     assert replaced
+
+
+def test_record_reader_preserves_on_disk_newlines(tmp_path: Path) -> None:
+    directory = tmp_path / "records"
+    directory.mkdir(mode=0o700)
+    record_path = directory / "record.json"
+    record_path.write_bytes(b"first\r\nsecond\r\n")
+    record_path.chmod(0o600)
+
+    with state_filesystem.open_verified_directory(directory, require_private=True) as directory_descriptor:
+        assert (
+            state_filesystem.read_regular_text(
+                directory_descriptor,
+                record_path.name,
+                record_path,
+                maximum_size=64,
+            )
+            == "first\r\nsecond\r\n"
+        )
+
+
+def test_immutable_publication_retry_resyncs_existing_record(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    directory = tmp_path / "records"
+    directory.mkdir(mode=0o700)
+    record_path = directory / "record.json"
+    original_fsync = state_filesystem.os.fsync
+    directory_syncs = 0
+
+    def fail_first_directory_fsync(descriptor: int) -> None:
+        nonlocal directory_syncs
+        if stat.S_ISDIR(os.fstat(descriptor).st_mode):
+            directory_syncs += 1
+            if directory_syncs == 1:
+                raise OSError("simulated post-publish fsync failure")
+        original_fsync(descriptor)
+
+    monkeypatch.setattr(state_filesystem.os, "fsync", fail_first_directory_fsync)
+    with state_filesystem.open_verified_directory(directory, require_private=True) as directory_descriptor:
+        with pytest.raises(OSError, match="post-publish"):
+            state_filesystem.publish_immutable_text(
+                directory_descriptor,
+                record_path.name,
+                "persisted",
+                record_path,
+                maximum_size=64,
+            )
+        syncs_before_retry = directory_syncs
+        assert not state_filesystem.publish_immutable_text(
+            directory_descriptor,
+            record_path.name,
+            "persisted",
+            record_path,
+            maximum_size=64,
+        )
+
+    assert directory_syncs > syncs_before_retry
 
 
 def test_run_initialization_never_replaces_different_immutable_bytes(
@@ -549,6 +608,40 @@ def test_attempt_creation_recovers_an_unpublished_next_directory_and_updates_mon
         case.writer.update_attempt(attempt)
 
 
+def test_attempt_reader_retries_when_publication_wins_missing_file_race(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    case = _initialized_case(tmp_path, authored_run_single, single_node_plan)
+    attempt = _attempt(case)
+    attempt_root = case.writer.run_root / "shards" / attempt.shard_id / "attempts" / attempt.attempt_id
+    attempt_root.mkdir(mode=0o700)
+    original_read = state_storage.read_regular_text
+    published = False
+
+    def publish_before_reporting_missing(
+        directory_descriptor: int,
+        name: str,
+        display_path: Path,
+        *,
+        maximum_size: int,
+    ) -> str:
+        nonlocal published
+        if name == "attempt.json" and not published:
+            published = True
+            display_path.write_text(attempt.serialize_json())
+            display_path.chmod(0o600)
+            raise FileNotFoundError(name)
+        return original_read(directory_descriptor, name, display_path, maximum_size=maximum_size)
+
+    monkeypatch.setattr(state_storage, "read_regular_text", publish_before_reporting_missing)
+
+    assert case.writer.load_attempts(attempt.shard_id) == (attempt,)
+    assert published
+
+
 def test_attempt_recovery_rejects_unexpected_unpublished_records(
     tmp_path: Path,
     authored_run_single: DataDesignerSlurmConfig,
@@ -731,21 +824,22 @@ def test_attempt_update_retry_converges_after_post_replace_fsync_failure(
         updated_at=case.created_at + timedelta(minutes=2),
     )
     original_fsync = state_filesystem.os.fsync
-    failed = False
+    directory_syncs = 0
 
     def fail_first_directory_fsync(descriptor: int) -> None:
-        nonlocal failed
-        if not failed and stat.S_ISDIR(os.fstat(descriptor).st_mode):
-            failed = True
-            raise OSError("simulated post-replace fsync failure")
+        nonlocal directory_syncs
+        if stat.S_ISDIR(os.fstat(descriptor).st_mode):
+            directory_syncs += 1
+            if directory_syncs == 1:
+                raise OSError("simulated post-replace fsync failure")
         original_fsync(descriptor)
 
     monkeypatch.setattr(state_filesystem.os, "fsync", fail_first_directory_fsync)
     with pytest.raises(SlurmStateError, match="cannot update"):
         case.writer.update_attempt(submitted)
 
-    monkeypatch.setattr(state_filesystem.os, "fsync", original_fsync)
     assert case.writer.update_attempt(submitted) == submitted
+    assert directory_syncs == 2
     assert case.writer.load_attempt(attempt.shard_id, attempt.attempt_id) == submitted
 
 
@@ -875,21 +969,22 @@ def test_readiness_retry_converges_after_post_replace_fsync_failure(
         deployments=(starting,),
     )
     original_fsync = state_filesystem.os.fsync
-    failed = False
+    directory_syncs = 0
 
     def fail_first_directory_fsync(descriptor: int) -> None:
-        nonlocal failed
-        if not failed and stat.S_ISDIR(os.fstat(descriptor).st_mode):
-            failed = True
-            raise OSError("simulated post-replace fsync failure")
+        nonlocal directory_syncs
+        if stat.S_ISDIR(os.fstat(descriptor).st_mode):
+            directory_syncs += 1
+            if directory_syncs == 1:
+                raise OSError("simulated post-replace fsync failure")
         original_fsync(descriptor)
 
     monkeypatch.setattr(state_filesystem.os, "fsync", fail_first_directory_fsync)
     with pytest.raises(SlurmStateError, match="cannot persist readiness"):
         case.writer.write_readiness(revision_two)
 
-    monkeypatch.setattr(state_filesystem.os, "fsync", original_fsync)
     assert case.writer.write_readiness(revision_two) == revision_two
+    assert directory_syncs == 2
     assert case.writer.load_readiness(attempt.shard_id, attempt.attempt_id) == revision_two
 
 

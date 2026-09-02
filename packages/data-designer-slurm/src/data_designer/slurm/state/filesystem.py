@@ -171,7 +171,7 @@ def read_regular_text(
                 raise OSError(f"state record {display_path} is not a restrictive regular file")
             if _get_file_facts(before_open) != _get_file_facts(after_open):
                 continue
-            record_file = os.fdopen(descriptor, "r", encoding="utf-8")
+            record_file = os.fdopen(descriptor, "r", encoding="utf-8", newline="")
             descriptor = None
             with record_file:
                 content = record_file.read(maximum_size + 1)
@@ -216,6 +216,7 @@ def publish_immutable_text(
                 maximum_size=maximum_size,
             )
             if existing == content:
+                sync_directory(directory_descriptor)
                 return False
             raise FileExistsError(f"state record {display_path} already contains different bytes") from None
         try:
@@ -223,13 +224,13 @@ def publish_immutable_text(
         except FileNotFoundError:
             pass
         temporary_name = None
-        os.fsync(directory_descriptor)
+        sync_directory(directory_descriptor)
         return True
     finally:
         if temporary_name is not None:
             try:
                 os.unlink(temporary_name, dir_fd=directory_descriptor)
-                os.fsync(directory_descriptor)
+                sync_directory(directory_descriptor)
             except OSError:
                 pass
 
@@ -255,13 +256,18 @@ def replace_text(
             dst_dir_fd=directory_descriptor,
         )
         temporary_name = None
-        os.fsync(directory_descriptor)
+        sync_directory(directory_descriptor)
     finally:
         if temporary_name is not None:
             try:
                 os.unlink(temporary_name, dir_fd=directory_descriptor)
             except OSError:
                 pass
+
+
+def sync_directory(directory_descriptor: int) -> None:
+    """Flush prior changes to an already verified directory."""
+    os.fsync(directory_descriptor)
 
 
 def _write_temporary_text(directory_descriptor: int, content: str, *, maximum_size: int) -> str:
@@ -338,7 +344,7 @@ def _repair_interrupted_publication(
         if (candidate_status.st_dev, candidate_status.st_ino) == (status.st_dev, status.st_ino):
             temporary_names.append(candidate_name)
     if len(temporary_names) != 1:
-        return status
+        return os.stat(name, dir_fd=directory_descriptor, follow_symlinks=False)
 
     try:
         os.unlink(temporary_names[0], dir_fd=directory_descriptor)
