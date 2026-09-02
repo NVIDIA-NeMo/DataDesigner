@@ -218,6 +218,24 @@ def sync_directory(directory_descriptor: int) -> None:
     os.fsync(directory_descriptor)
 
 
+def create_state_temporary_file(directory_descriptor: int) -> tuple[int, str]:
+    """Create one restrictive file using the persisted-state temporary convention."""
+    return create_restrictive_temporary_file(
+        directory_descriptor,
+        prefix=_TEMPORARY_PREFIX,
+        suffix=_TEMPORARY_SUFFIX,
+    )
+
+
+def is_state_temporary_name(name: str) -> bool:
+    """Return whether a name belongs to persisted-state temporary publication."""
+    return is_managed_temporary_name(
+        name,
+        prefix=_TEMPORARY_PREFIX,
+        suffix=_TEMPORARY_SUFFIX,
+    )
+
+
 def _write_temporary_text(directory_descriptor: int, content: str, *, maximum_size: int) -> str:
     encoded = content.encode("utf-8")
     if len(encoded) > maximum_size:
@@ -225,7 +243,7 @@ def _write_temporary_text(directory_descriptor: int, content: str, *, maximum_si
     descriptor: int | None = None
     temporary_name: str | None = None
     try:
-        descriptor, temporary_name = _create_temporary_file(directory_descriptor)
+        descriptor, temporary_name = create_state_temporary_file(directory_descriptor)
         output = os.fdopen(descriptor, "wb")
         descriptor = None
         with output:
@@ -244,14 +262,6 @@ def _write_temporary_text(directory_descriptor: int, content: str, *, maximum_si
         raise
 
 
-def _create_temporary_file(directory_descriptor: int) -> tuple[int, str]:
-    return create_restrictive_temporary_file(
-        directory_descriptor,
-        prefix=_TEMPORARY_PREFIX,
-        suffix=_TEMPORARY_SUFFIX,
-    )
-
-
 def _repair_interrupted_publication(
     directory_descriptor: int,
     name: str,
@@ -265,11 +275,7 @@ def _repair_interrupted_publication(
 
     temporary_names: list[str] = []
     for candidate_name in os.listdir(directory_descriptor):
-        if not is_managed_temporary_name(
-            candidate_name,
-            prefix=_TEMPORARY_PREFIX,
-            suffix=_TEMPORARY_SUFFIX,
-        ):
+        if not is_state_temporary_name(candidate_name):
             continue
         try:
             candidate_status = os.stat(candidate_name, dir_fd=directory_descriptor, follow_symlinks=False)

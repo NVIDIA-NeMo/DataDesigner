@@ -8,7 +8,7 @@ from __future__ import annotations
 import os
 import stat
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
 
 from data_designer.slurm.filesystem import (
@@ -29,16 +29,19 @@ from data_designer.slurm.images.errors import ImageRegistryError
 @contextmanager
 def acquire_file_lock(directory_descriptor: int, name: str, display_path: Path) -> Iterator[None]:
     """Acquire one exclusive advisory lock without reopening its parent path."""
-    try:
-        with acquire_restrictive_file_lock(
-            directory_descriptor,
-            name,
-            display_path,
-            resource_name="registry",
-        ):
-            yield
-    except OSError as error:
-        raise ImageRegistryError(f"cannot lock image registry target {display_path}") from error
+    with ExitStack() as resources:
+        try:
+            resources.enter_context(
+                acquire_restrictive_file_lock(
+                    directory_descriptor,
+                    name,
+                    display_path,
+                    resource_name="registry",
+                )
+            )
+        except OSError as error:
+            raise ImageRegistryError(f"cannot lock image registry target {display_path}") from error
+        yield
 
 
 def ensure_private_directory(path: Path, *, parents: bool) -> None:

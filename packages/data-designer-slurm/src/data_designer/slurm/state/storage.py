@@ -17,13 +17,13 @@ from pydantic import ValidationError
 
 from data_designer.slurm.config import DataDesignerSlurmConfig
 from data_designer.slurm.contracts import AttemptId, ContractRecord, Identifier, ShardId
-from data_designer.slurm.filesystem import is_managed_temporary_name
 from data_designer.slurm.planning import ResolvedSlurmRunPlan
 from data_designer.slurm.state.errors import StateCorruptionError, StateNotFoundError
 from data_designer.slurm.state.execution import AttemptManifest, RunManifest, ShardManifest
 from data_designer.slurm.state.filesystem import (
     acquire_file_lock,
     ensure_private_child_directory,
+    is_state_temporary_name,
     open_verified_child_directory,
     open_verified_directory,
     publish_immutable_text,
@@ -45,8 +45,6 @@ _READINESS_FILENAME = "readiness.json"
 _LOCK_DIRECTORY_NAME = ".locks"
 _MAXIMUM_RECORD_SIZE = 16 * 1024 * 1024
 _ATTEMPT_NAME_PATTERN = re.compile(r"^attempt-[0-9]{4,}$")
-_TEMPORARY_PREFIX = ".state."
-_TEMPORARY_SUFFIX = ".tmp"
 _RecordT = TypeVar("_RecordT", bound=ContractRecord)
 
 
@@ -349,11 +347,7 @@ class StateStorage:
 
         attempt_root = self.get_attempt_path(shard_id, attempt_id)
         with open_verified_child_directory(attempts_descriptor, attempt_id, attempt_root) as attempt_descriptor:
-            unexpected = tuple(
-                name
-                for name in os.listdir(attempt_descriptor)
-                if not is_managed_temporary_name(name, prefix=_TEMPORARY_PREFIX, suffix=_TEMPORARY_SUFFIX)
-            )
+            unexpected = tuple(name for name in os.listdir(attempt_descriptor) if not is_state_temporary_name(name))
         if unexpected == ():
             return None
         if unexpected == (_ATTEMPT_FILENAME,):

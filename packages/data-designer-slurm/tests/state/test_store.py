@@ -160,6 +160,36 @@ def test_shard_mutations_do_not_scan_unrelated_attempt_directories(
         case.writer.load_attempts("shard-00001")
 
 
+def test_shard_mutation_rejects_run_count_drift_without_scanning_other_shards(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    case = _initialized_case(tmp_path, authored_run_single, single_node_plan)
+    run_path = case.writer.run_root / "run.json"
+    run_path.write_text(case.run.model_copy(update={"shard_count": 2}).serialize_json())
+
+    with pytest.raises(StateCorruptionError, match="shard .* is invalid"):
+        case.writer.create_attempt(_submitted_attempt(case))
+
+
+def test_incomplete_attempt_recognizes_created_state_temporary_file(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    case = _initialized_case(tmp_path, authored_run_single, single_node_plan)
+    attempt = _attempt(case)
+    attempt_root = case.writer.run_root / "shards" / attempt.shard_id / "attempts" / attempt.attempt_id
+    attempt_root.mkdir(mode=0o700)
+    with state_filesystem.open_verified_directory(attempt_root, require_private=True) as directory_descriptor:
+        temporary_descriptor, temporary_name = state_filesystem.create_state_temporary_file(directory_descriptor)
+        os.close(temporary_descriptor)
+
+    assert state_filesystem.is_state_temporary_name(temporary_name)
+    assert case.writer.load_attempts(attempt.shard_id) == ()
+
+
 def test_reader_rejects_unsupported_persisted_schema_version(
     tmp_path: Path,
     authored_run_single: DataDesignerSlurmConfig,

@@ -45,12 +45,7 @@ class PersistedPlanStateValidator:
         shards: tuple[ShardManifest, ...],
     ) -> tuple[ShardManifest, ...]:
         """Validate the complete ordered state shard set against planned intent."""
-        _require(run.run_id == self.plan.run_id, "run manifest identity does not match the resolved plan")
-        _require(
-            run.authored_config == self.plan.authored_config, "run authored config does not match the resolved plan"
-        )
-        self._validate_plan_reference(run.resolved_plan)
-        _require(run.shard_count == len(self.plan.shards), "run shard count does not match the resolved plan")
+        self._validate_run(run)
         try:
             validate_shard_set(run, shards)
         except StateContractError as error:
@@ -67,8 +62,7 @@ class PersistedPlanStateValidator:
         persisted: ShardManifest,
     ) -> ShardManifest:
         """Validate one persisted shard against its canonical planned shard."""
-        _require(run.run_id == self.plan.run_id, "run manifest identity does not match the resolved plan")
-        self._validate_plan_reference(run.resolved_plan)
+        self._validate_run(run)
         try:
             validate_shard_manifest(run, persisted)
         except StateContractError as error:
@@ -148,6 +142,14 @@ class PersistedPlanStateValidator:
         if planned_shard is None:
             raise PlanStateContractError("attempt shard_id does not identify a planned shard")
         return planned_shard
+
+    def _validate_run(self, run: RunManifest) -> None:
+        _require(run.run_id == self.plan.run_id, "run manifest identity does not match the resolved plan")
+        _require(
+            run.authored_config == self.plan.authored_config, "run authored config does not match the resolved plan"
+        )
+        self._validate_plan_reference(run.resolved_plan)
+        _require(run.shard_count == len(self.plan.shards), "run shard count does not match the resolved plan")
 
     def _validate_plan_reference(self, reference: ArtifactReference) -> None:
         _require(
