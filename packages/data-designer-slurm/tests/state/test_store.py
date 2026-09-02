@@ -180,6 +180,35 @@ def test_run_commit_marker_is_published_last_and_interrupted_initialization_retr
     assert case.writer.load_shards() == case.shards
 
 
+def test_interrupted_immutable_publication_recovers_the_committed_hard_link(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    case = _build_case(tmp_path, authored_run_single, single_node_plan)
+    original_unlink = state_filesystem.os.unlink
+
+    def interrupt_temporary_unlink(path: str, *, dir_fd: int | None = None) -> None:
+        del path, dir_fd
+        raise KeyboardInterrupt("injected interruption after immutable publication")
+
+    monkeypatch.setattr(state_filesystem.os, "unlink", interrupt_temporary_unlink)
+    with pytest.raises(KeyboardInterrupt, match="after immutable publication"):
+        case.writer.initialize_run(case.authored_config, case.plan, case.run, case.shards)
+
+    committed_path = case.writer.run_root / "authored-config.json"
+    temporary_paths = tuple(case.writer.run_root.glob(".state.*.tmp"))
+    assert committed_path.stat().st_nlink == 2
+    assert len(temporary_paths) == 1
+    assert temporary_paths[0].stat().st_ino == committed_path.stat().st_ino
+
+    monkeypatch.setattr(state_filesystem.os, "unlink", original_unlink)
+    assert case.writer.initialize_run(case.authored_config, case.plan, case.run, case.shards) == case.run
+    assert committed_path.stat().st_nlink == 1
+    assert not tuple(case.writer.run_root.glob(".state.*.tmp"))
+
+
 def test_run_initialization_never_replaces_different_immutable_bytes(
     tmp_path: Path,
     authored_run_single: DataDesignerSlurmConfig,

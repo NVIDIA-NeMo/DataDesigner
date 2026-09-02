@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import fcntl
 import os
+import re
 import secrets
 import stat
 from collections.abc import Iterator
@@ -15,6 +16,7 @@ from pathlib import Path
 
 _DIRECTORY_MODE = 0o700
 _FILE_MODE = 0o600
+_TEMPORARY_NAME_PATTERN = re.compile(r"^\.state\.[0-9a-f]{16}\.tmp$")
 
 
 @contextmanager
@@ -147,7 +149,12 @@ def read_regular_text(
     """Read one restrictive regular UTF-8 file without following a symlink."""
     descriptor: int | None = None
     try:
-        before_open = os.stat(name, dir_fd=directory_descriptor, follow_symlinks=False)
+        before_open = _repair_interrupted_publication(
+            directory_descriptor,
+            name,
+            display_path,
+            os.stat(name, dir_fd=directory_descriptor, follow_symlinks=False),
+        )
         if not _is_restrictive_regular(before_open):
             raise OSError(f"state record {display_path} is not a restrictive regular file")
         if before_open.st_size > maximum_size:
@@ -297,6 +304,41 @@ def _create_temporary_file(directory_descriptor: int) -> tuple[int, str]:
 
 def _get_file_facts(status: os.stat_result) -> tuple[int, int, int, int, int]:
     return (status.st_dev, status.st_ino, status.st_size, status.st_mtime_ns, status.st_ctime_ns)
+
+
+def _repair_interrupted_publication(
+    directory_descriptor: int,
+    name: str,
+    display_path: Path,
+    status: os.stat_result,
+) -> os.stat_result:
+    if _is_restrictive_regular(status):
+        return status
+    if not stat.S_ISREG(status.st_mode) or status.st_mode & 0o077 or status.st_nlink != 2:
+        return status
+
+    temporary_names: list[str] = []
+    for candidate_name in os.listdir(directory_descriptor):
+        if _TEMPORARY_NAME_PATTERN.fullmatch(candidate_name) is None:
+            continue
+        try:
+            candidate_status = os.stat(candidate_name, dir_fd=directory_descriptor, follow_symlinks=False)
+        except FileNotFoundError:
+            continue
+        if (candidate_status.st_dev, candidate_status.st_ino) == (status.st_dev, status.st_ino):
+            temporary_names.append(candidate_name)
+    if len(temporary_names) != 1:
+        return status
+
+    try:
+        os.unlink(temporary_names[0], dir_fd=directory_descriptor)
+        os.fsync(directory_descriptor)
+    except FileNotFoundError:
+        pass
+    repaired = os.stat(name, dir_fd=directory_descriptor, follow_symlinks=False)
+    if (repaired.st_dev, repaired.st_ino) != (status.st_dev, status.st_ino) or not _is_restrictive_regular(repaired):
+        raise OSError(f"state record {display_path} changed while recovering interrupted publication")
+    return repaired
 
 
 def _is_restrictive_regular(status: os.stat_result) -> bool:
