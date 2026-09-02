@@ -14,7 +14,7 @@ from typing import Protocol
 
 from data_designer.slurm.contracts import ArtifactReference
 from data_designer.slurm.runtime.errors import SlurmRuntimeError, SlurmRuntimeErrorCode
-from data_designer.slurm.runtime.models import AllocationContext, RuntimeEndpoint
+from data_designer.slurm.runtime.models import AllocationContext, RuntimeEndpoint, RuntimeStep
 from data_designer.slurm.runtime.preflight import AllocationPreflight
 from data_designer.slurm.runtime.probes import ReadinessProber
 from data_designer.slurm.runtime.records import load_complete_client_candidate
@@ -60,6 +60,21 @@ class _DeploymentStatus:
     last_probe: ProbeEvidence | None = None
 
 
+@dataclass(slots=True)
+class _RunOutcome:
+    candidate_reference: ArtifactReference | None = None
+    client_completed_at: datetime | None = None
+    failure: SlurmRuntimeError | None = None
+    failure_cause: BaseException | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _RuntimeTopology:
+    deployments: tuple[ResolvedVllmServerDeployment, ...]
+    endpoint_steps: tuple[tuple[RuntimeStep, RuntimeEndpoint], ...]
+    endpoints: tuple[RuntimeEndpoint, ...]
+
+
 class OneNodeAllocationController:
     """Execute one planned shard attempt and finalize only complete candidates."""
 
@@ -97,62 +112,83 @@ class OneNodeAllocationController:
 
     def run(self) -> AttemptManifest:
         """Run the allocation and persist one terminal attempt on every owned path."""
-        failure: SlurmRuntimeError | None = None
-        failure_cause: BaseException | None = None
-        candidate_reference: ArtifactReference | None = None
-        client_completed_at: datetime | None = None
-        try:
-            candidate_reference, client_completed_at = self._execute()
-        except BaseException as error:
-            failure, failure_cause = _normalize_failure(error), error
+        outcome = self._capture_execution()
+        self._record_outcome_failure(outcome)
+        self._cleanup_runtime(outcome)
+        self._record_stopped_readiness(outcome)
+        terminal = self._persist_terminal_outcome(outcome)
+        if outcome.failure is not None:
+            if outcome.failure_cause is outcome.failure:
+                raise outcome.failure
+            raise outcome.failure from outcome.failure_cause
+        return terminal
 
-        if failure is not None:
-            failure = self._record_failed_readiness(failure)
+    def _capture_execution(self) -> _RunOutcome:
+        try:
+            candidate_reference, completed_at = self._execute()
+            return _RunOutcome(candidate_reference=candidate_reference, client_completed_at=completed_at)
+        except BaseException as error:
+            return _RunOutcome(failure=_normalize_failure(error), failure_cause=error)
+
+    def _record_outcome_failure(self, outcome: _RunOutcome) -> None:
+        if outcome.failure is not None:
+            outcome.failure = self._record_failed_readiness(outcome.failure)
+
+    def _cleanup_runtime(self, outcome: _RunOutcome) -> None:
         try:
             self._supervisor.cleanup()
         except BaseException as error:
-            if failure is None:
-                failure, failure_cause = _normalize_failure(error), error
-                failure = self._record_failed_readiness(failure)
+            if outcome.failure is None:
+                outcome.failure = _normalize_failure(error)
+                outcome.failure_cause = error
+                outcome.failure = self._record_failed_readiness(outcome.failure)
             else:
-                failure.add_note(f"cleanup also failed: {type(error).__name__}")
-        if self._readiness is not None:
-            try:
-                self._publish_stopped_readiness()
-            except BaseException as error:
-                if failure is None:
-                    failure, failure_cause = _normalize_failure(error), error
-                else:
-                    failure.add_note(f"stopped readiness could not be persisted: {type(error).__name__}")
+                outcome.failure.add_note(f"cleanup also failed: {type(error).__name__}")
+
+    def _record_stopped_readiness(self, outcome: _RunOutcome) -> None:
+        if self._readiness is None or not self._supervisor.cleanup_complete:
+            return
         try:
-            terminal = self._publish_terminal_attempt(
-                failure=failure,
-                candidate_reference=candidate_reference,
-                client_completed_at=client_completed_at,
+            self._publish_stopped_readiness()
+        except BaseException as error:
+            if outcome.failure is None:
+                outcome.failure = _normalize_failure(error)
+                outcome.failure_cause = error
+            else:
+                outcome.failure.add_note(f"stopped readiness could not be persisted: {type(error).__name__}")
+
+    def _persist_terminal_outcome(self, outcome: _RunOutcome) -> AttemptManifest:
+        try:
+            return self._publish_terminal_attempt(
+                failure=outcome.failure,
+                candidate_reference=outcome.candidate_reference,
+                client_completed_at=outcome.client_completed_at,
             )
         except BaseException as error:
             terminal_failure = _normalize_failure(error)
-            if failure is None:
-                failure, failure_cause = terminal_failure, error
+            if outcome.failure is None:
+                outcome.failure = terminal_failure
+                outcome.failure_cause = error
                 try:
-                    terminal = self._publish_terminal_attempt(
-                        failure=failure,
+                    return self._publish_terminal_attempt(
+                        failure=outcome.failure,
                         candidate_reference=None,
                         client_completed_at=None,
                     )
                 except BaseException as retry_error:
-                    failure.add_note(f"failed terminal attempt could not be persisted: {type(retry_error).__name__}")
-                    terminal = self._attempt
-            else:
-                failure.add_note(f"terminal attempt could not be persisted: {type(error).__name__}")
-                terminal = self._attempt
-        if failure is not None:
-            if failure_cause is failure:
-                raise failure
-            raise failure from failure_cause
-        return terminal
+                    outcome.failure.add_note(
+                        f"failed terminal attempt could not be persisted: {type(retry_error).__name__}"
+                    )
+                    return self._attempt
+            outcome.failure.add_note(f"terminal attempt could not be persisted: {type(error).__name__}")
+            return self._attempt
 
     def _execute(self) -> tuple[ArtifactReference, datetime]:
+        topology = self._prepare_runtime()
+        required_processes = self._start_runtime(topology)
+        return self._run_client(topology.endpoints, required_processes)
+
+    def _prepare_runtime(self) -> _RuntimeTopology:
         self._preflight.verify(self._context, self._environment)
         self._validate_attempt_state()
         self._mark_attempt_running()
@@ -162,7 +198,6 @@ class OneNodeAllocationController:
         )
         self._statuses = [_DeploymentStatus(deployment) for deployment in deployments]
         self._publish_readiness(ReadinessState.PENDING)
-
         endpoint_steps = build_endpoint_steps(
             deployments,
             self._context.plan,
@@ -180,24 +215,31 @@ class OneNodeAllocationController:
             self._environment,
         )
         self._supervisor.wait(self._supervisor.start(client_preflight))
+        return _RuntimeTopology(deployments, endpoint_steps, endpoints)
 
+    def _start_runtime(self, topology: _RuntimeTopology) -> tuple[ManagedStep, ...]:
         for status in self._statuses:
             status.state = ReadinessState.STARTING
         self._publish_readiness(ReadinessState.STARTING)
-        server_processes = self._start_servers(deployments)
+        server_processes = self._start_servers(topology.deployments)
         for status, required in zip(self._statuses, server_processes, strict=True):
             self._wait_for_backends(status, required)
         self._publish_readiness(ReadinessState.STARTING)
-
-        endpoint_processes = tuple(self._supervisor.start(step) for step, _ in endpoint_steps)
+        endpoint_processes = tuple(self._supervisor.start(step) for step, _ in topology.endpoint_steps)
         required_processes = tuple(process for group in server_processes for process in group) + endpoint_processes
-        self._wait_for_endpoints(endpoints, required_processes)
+        self._wait_for_endpoints(topology.endpoints, required_processes)
         for status in self._statuses:
             status.state = ReadinessState.READY
             status.endpoint_publication = EndpointPublicationState.PUBLISHED
             status.last_probe = _probe_evidence(self._now(), ProbeOutcome.SUCCESS, "endpoint_ready", "endpoint ready")
         self._publish_readiness(ReadinessState.READY)
+        return required_processes
 
+    def _run_client(
+        self,
+        endpoints: tuple[RuntimeEndpoint, ...],
+        required_processes: tuple[ManagedStep, ...],
+    ) -> tuple[ArtifactReference, datetime]:
         generation = self._client_steps.build_generation_step(
             self._context.plan,
             self._context.shard,
@@ -210,16 +252,7 @@ class OneNodeAllocationController:
         self._supervisor.wait(self._supervisor.start(generation), required=required_processes)
         self._supervisor.require_running(required_processes)
         client_result, candidate = load_complete_client_candidate(self._context)
-        if candidate.created_at < generation_started_at or client_result.completed_at < generation_started_at:
-            raise SlurmRuntimeError(
-                SlurmRuntimeErrorCode.FINALIZATION_FAILED,
-                "client result predates the current generation step",
-            )
-        if client_result.completed_at > self._now():
-            raise SlurmRuntimeError(
-                SlurmRuntimeErrorCode.FINALIZATION_FAILED,
-                "client completion timestamp is later than the allocation clock",
-            )
+        self._validate_client_timestamps(candidate.created_at, client_result.completed_at, generation_started_at)
         candidate_reference = client_result.candidate_output_manifest
         if candidate_reference is None:  # pragma: no cover - the record contract requires this for complete results
             raise SlurmRuntimeError(
@@ -227,6 +260,23 @@ class OneNodeAllocationController:
                 "complete client result has no candidate reference",
             )
         return candidate_reference, client_result.completed_at
+
+    def _validate_client_timestamps(
+        self,
+        candidate_created_at: datetime,
+        client_completed_at: datetime,
+        generation_started_at: datetime,
+    ) -> None:
+        if candidate_created_at < generation_started_at or client_completed_at < generation_started_at:
+            raise SlurmRuntimeError(
+                SlurmRuntimeErrorCode.FINALIZATION_FAILED,
+                "client result predates the current generation step",
+            )
+        if client_completed_at > self._now():
+            raise SlurmRuntimeError(
+                SlurmRuntimeErrorCode.FINALIZATION_FAILED,
+                "client completion timestamp is later than the allocation clock",
+            )
 
     def _validate_attempt_state(self) -> None:
         if self._attempt.state not in {
@@ -287,14 +337,7 @@ class OneNodeAllocationController:
                 for probe in probes
             )
             if ready != previous_ready:
-                status.ready_backends = ready
-                status.last_probe = _probe_evidence(
-                    self._now(),
-                    ProbeOutcome.SUCCESS if ready == len(probes) else ProbeOutcome.FAILURE,
-                    "backend_ready" if ready == len(probes) else "backend_starting",
-                    f"{ready} of {len(probes)} backends ready",
-                )
-                self._publish_readiness(ReadinessState.STARTING)
+                self._record_backend_probe(status, ready, len(probes))
                 previous_ready = ready
             if ready == len(probes):
                 return
@@ -304,6 +347,16 @@ class OneNodeAllocationController:
                     f"deployment {status.deployment.deployment_id!r} readiness timed out",
                 )
             self._clock.sleep(self._poll_interval_seconds)
+
+    def _record_backend_probe(self, status: _DeploymentStatus, ready: int, expected: int) -> None:
+        status.ready_backends = ready
+        status.last_probe = _probe_evidence(
+            self._now(),
+            ProbeOutcome.SUCCESS if ready == expected else ProbeOutcome.FAILURE,
+            "backend_ready" if ready == expected else "backend_starting",
+            f"{ready} of {expected} backends ready",
+        )
+        self._publish_readiness(ReadinessState.STARTING)
 
     def _wait_for_endpoints(
         self,
@@ -398,6 +451,16 @@ class OneNodeAllocationController:
         timestamp = self._now()
         if client_completed_at is not None and client_completed_at > timestamp:
             timestamp = client_completed_at
+        terminal = self._build_terminal_attempt(failure, candidate_reference, timestamp)
+        self._attempt = self._state.update_attempt(terminal)
+        return self._attempt
+
+    def _build_terminal_attempt(
+        self,
+        failure: SlurmRuntimeError | None,
+        candidate_reference: ArtifactReference | None,
+        timestamp: datetime,
+    ) -> AttemptManifest:
         if failure is None:
             if candidate_reference is None:
                 raise SlurmRuntimeError(
@@ -419,8 +482,7 @@ class OneNodeAllocationController:
                 candidate_output=None,
                 updated_at=timestamp,
             )
-        self._attempt = self._state.update_attempt(terminal)
-        return self._attempt
+        return terminal
 
     def _now(self) -> datetime:
         value = self._clock.now()

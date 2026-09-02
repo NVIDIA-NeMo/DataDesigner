@@ -125,39 +125,8 @@ class DefaultClientStepBuilder:
         endpoints: tuple[RuntimeEndpoint, ...],
         source_environment: Mapping[str, str],
     ) -> RuntimeStep:
-        endpoint_arguments = tuple(
-            argument
-            for endpoint in endpoints
-            for argument in (
-                "--endpoint",
-                f"{endpoint.model_alias}=http://{endpoint.host}:{endpoint.port}/v1",
-            )
-        )
-        command = (
-            "python3",
-            "-m",
-            "data_designer.slurm.client.worker",
-            operation,
-            "--plan",
-            get_container_path(plan, plan_path(plan)),
-            "--shard-id",
-            shard.shard_id,
-            "--attempt-id",
-            attempt.attempt_id,
-            "--attempt-dir",
-            get_container_path(plan, attempt_directory.as_posix(), require_writable=True),
-            *endpoint_arguments,
-        )
-        secret_names = _collect_client_secret_environment_names(plan)
-        environment = _base_environment(source_environment)
-        for name in secret_names:
-            try:
-                environment[name] = source_environment[name]
-            except KeyError:
-                raise SlurmRuntimeError(
-                    SlurmRuntimeErrorCode.PREFLIGHT_FAILED,
-                    f"required client secret environment {name!r} is unavailable",
-                ) from None
+        command = _build_client_command(operation, plan, shard, attempt, attempt_directory, endpoints)
+        secret_names, environment = _build_client_environment(plan, source_environment)
         return _build_srun_step(
             step_id=step_id,
             role=role,
@@ -168,6 +137,53 @@ class DefaultClientStepBuilder:
             plan=plan,
             attempt_directory=attempt_directory,
         )
+
+
+def _build_client_command(
+    operation: str,
+    plan: ResolvedSlurmRunPlan,
+    shard: PlannedShard,
+    attempt: AttemptManifest,
+    attempt_directory: Path,
+    endpoints: tuple[RuntimeEndpoint, ...],
+) -> tuple[str, ...]:
+    endpoint_arguments = tuple(
+        argument
+        for endpoint in endpoints
+        for argument in ("--endpoint", f"{endpoint.model_alias}=http://{endpoint.host}:{endpoint.port}/v1")
+    )
+    return (
+        "python3",
+        "-m",
+        "data_designer.slurm.client.worker",
+        operation,
+        "--plan",
+        get_container_path(plan, plan_path(plan)),
+        "--shard-id",
+        shard.shard_id,
+        "--attempt-id",
+        attempt.attempt_id,
+        "--attempt-dir",
+        get_container_path(plan, attempt_directory.as_posix(), require_writable=True),
+        *endpoint_arguments,
+    )
+
+
+def _build_client_environment(
+    plan: ResolvedSlurmRunPlan,
+    source_environment: Mapping[str, str],
+) -> tuple[tuple[str, ...], dict[str, str]]:
+    secret_names = _collect_client_secret_environment_names(plan)
+    environment = _base_environment(source_environment)
+    for name in secret_names:
+        try:
+            environment[name] = source_environment[name]
+        except KeyError:
+            raise SlurmRuntimeError(
+                SlurmRuntimeErrorCode.PREFLIGHT_FAILED,
+                f"required client secret environment {name!r} is unavailable",
+            ) from None
+    return secret_names, environment
 
 
 def build_vllm_steps(
@@ -193,37 +209,54 @@ def build_endpoint_steps(
     """Build one package-owned logical-endpoint process per deployment."""
     steps: list[tuple[RuntimeStep, RuntimeEndpoint]] = []
     for deployment in deployments:
-        endpoint = RuntimeEndpoint(
-            model_alias=deployment.model_alias,
-            served_model_name=deployment.served_model_name,
-            host="127.0.0.1",
-            port=deployment.logical_endpoint.port,
-        )
-        backends = tuple(f"http://127.0.0.1:{backend.port}" for backend in deployment.backend_endpoints)
-        retry_after_seconds = deployment.launch_policy.queue_backpressure.retry_after_seconds
-        retry_arguments = ("--retry-after-seconds", str(retry_after_seconds)) if retry_after_seconds is not None else ()
-        command = (
-            "python3",
-            get_container_path(plan, runtime_proxy_path.as_posix()),
-            "--listen-port",
-            str(endpoint.port),
-            "--max-waiting-requests",
-            str(deployment.launch_policy.queue_backpressure.max_waiting_requests),
-            *retry_arguments,
-            *(argument for backend in backends for argument in ("--backend", backend)),
-        )
-        step = _build_srun_step(
-            step_id=f"{deployment.deployment_id}-endpoint",
-            role=RuntimeStepRole.ENDPOINT,
-            image_path=plan.client.image.path,
-            command=command,
-            environment=_base_environment(source_environment),
-            container_environment=(),
-            plan=plan,
-            attempt_directory=attempt_directory,
-        )
-        steps.append((step, endpoint))
+        steps.append(_build_endpoint_step(deployment, plan, attempt_directory, source_environment, runtime_proxy_path))
     return tuple(steps)
+
+
+def _build_endpoint_step(
+    deployment: ResolvedVllmServerDeployment,
+    plan: ResolvedSlurmRunPlan,
+    attempt_directory: Path,
+    source_environment: Mapping[str, str],
+    runtime_proxy_path: Path,
+) -> tuple[RuntimeStep, RuntimeEndpoint]:
+    endpoint = RuntimeEndpoint(
+        model_alias=deployment.model_alias,
+        served_model_name=deployment.served_model_name,
+        host="127.0.0.1",
+        port=deployment.logical_endpoint.port,
+    )
+    command = _build_endpoint_command(deployment, plan, runtime_proxy_path, endpoint.port)
+    step = _build_srun_step(
+        step_id=f"{deployment.deployment_id}-endpoint",
+        role=RuntimeStepRole.ENDPOINT,
+        image_path=plan.client.image.path,
+        command=command,
+        environment=_base_environment(source_environment),
+        container_environment=(),
+        plan=plan,
+        attempt_directory=attempt_directory,
+    )
+    return step, endpoint
+
+
+def _build_endpoint_command(
+    deployment: ResolvedVllmServerDeployment,
+    plan: ResolvedSlurmRunPlan,
+    runtime_proxy_path: Path,
+    port: int,
+) -> tuple[str, ...]:
+    backends = tuple(f"http://127.0.0.1:{backend.port}" for backend in deployment.backend_endpoints)
+    retry_after_seconds = deployment.launch_policy.queue_backpressure.retry_after_seconds
+    retry_arguments = ("--retry-after-seconds", str(retry_after_seconds)) if retry_after_seconds is not None else ()
+    return (
+        "python3",
+        get_container_path(plan, runtime_proxy_path.as_posix()),
+        "--listen-port",
+        str(port),
+        *retry_arguments,
+        *(argument for backend in backends for argument in ("--backend", backend)),
+    )
 
 
 def plan_path(plan: ResolvedSlurmRunPlan) -> str:
@@ -238,11 +271,36 @@ def _build_vllm_step(
     attempt_directory: Path,
     source_environment: Mapping[str, str],
 ) -> RuntimeStep:
+    _validate_local_vllm_process(process)
+    command = _build_vllm_command(deployment, process)
+    environment, container_environment = _build_vllm_environment(deployment, source_environment)
+    return _build_srun_step(
+        step_id=process.process_id,
+        role=RuntimeStepRole.SERVER,
+        image_path=deployment.image.path,
+        command=command,
+        environment=environment,
+        container_environment=container_environment,
+        plan=plan,
+        attempt_directory=attempt_directory,
+        gpu_indices=tuple(process.gpu_indices),
+    )
+
+
+def _validate_local_vllm_process(process: ResolvedVllmProcess) -> None:
     if process.pipeline_parallel != 1 or process.node_index != 0 or process.http_port is None:
         raise SlurmRuntimeError(
             SlurmRuntimeErrorCode.INVALID_CONTEXT,
             "one-node runtime received a distributed vLLM process",
         )
+
+
+def _build_vllm_command(
+    deployment: ResolvedVllmServerDeployment,
+    process: ResolvedVllmProcess,
+) -> tuple[str, ...]:
+    if process.http_port is None:  # pragma: no cover - validated before command construction
+        raise AssertionError("vLLM HTTP port is unavailable")
     command: tuple[str, ...] = (
         deployment.executable_path,
         "serve",
@@ -258,11 +316,15 @@ def _build_vllm_step(
     )
     if deployment.launch_policy.enable_expert_parallel:
         command += ("--enable-expert-parallel",)
-    command += deployment.launch_policy.extra_args
+    return command + deployment.launch_policy.extra_args
 
+
+def _build_vllm_environment(
+    deployment: ResolvedVllmServerDeployment,
+    source_environment: Mapping[str, str],
+) -> tuple[dict[str, str], tuple[str, ...]]:
     environment = _base_environment(source_environment)
-    container_environment = ["CUDA_VISIBLE_DEVICES"]
-    environment["CUDA_VISIBLE_DEVICES"] = ",".join(str(index) for index in process.gpu_indices)
+    container_environment: list[str] = []
     for name, binding in deployment.launch_policy.environment.items():
         if isinstance(binding, LiteralEnvironmentBinding):
             environment[name] = binding.value
@@ -277,17 +339,7 @@ def _build_vllm_step(
         else:  # pragma: no cover - persisted contracts reject unknown bindings
             raise AssertionError(f"unhandled environment binding: {type(binding)!r}")
         container_environment.append(name)
-    return _build_srun_step(
-        step_id=process.process_id,
-        role=RuntimeStepRole.SERVER,
-        image_path=deployment.image.path,
-        command=command,
-        environment=environment,
-        container_environment=tuple(container_environment),
-        plan=plan,
-        attempt_directory=attempt_directory,
-        gpu_indices=tuple(process.gpu_indices),
-    )
+    return environment, tuple(container_environment)
 
 
 def _build_srun_step(
@@ -302,32 +354,9 @@ def _build_srun_step(
     attempt_directory: Path,
     gpu_indices: tuple[int, ...] = (),
 ) -> RuntimeStep:
-    mounts = _render_mounts(plan)
-    srun_command = [
-        "srun",
-        "--nodes=1",
-        "--ntasks=1",
-        "--exact",
-        "--overlap",
-        "--unbuffered",
-        "--export=ALL",
-        f"--cpus-per-task={plan.client.authored.cpus}",
-        f"--container-image={image_path}",
-    ]
-    if gpu_indices:
-        rendered_indices = ",".join(str(index) for index in gpu_indices)
-        srun_command.extend(
-            (
-                f"--gpus-per-task={len(gpu_indices)}",
-                f"--gpu-bind=map_gpu:{rendered_indices}",
-            )
-        )
-    else:
-        srun_command.append("--gres=none")
-    if mounts:
-        srun_command.append(f"--container-mounts={mounts}")
-    if container_environment:
-        srun_command.append(f"--container-env={','.join(sorted(set(container_environment)))}")
+    srun_command = _build_srun_prefix(plan, image_path)
+    _add_srun_resources(srun_command, gpu_indices)
+    _add_srun_container_options(srun_command, plan, container_environment)
     srun_command.extend(("--", *command))
     log_root = attempt_directory / "logs"
     return RuntimeStep(
@@ -338,6 +367,48 @@ def _build_srun_step(
         stdout_path=log_root / f"{step_id}.out",
         stderr_path=log_root / f"{step_id}.err",
     )
+
+
+def _build_srun_prefix(plan: ResolvedSlurmRunPlan, image_path: str) -> list[str]:
+    return [
+        "srun",
+        "--nodes=1",
+        "--ntasks=1",
+        "--exact",
+        "--overlap",
+        "--unbuffered",
+        "--export=ALL",
+        f"--cpus-per-task={plan.client.authored.cpus}",
+        f"--container-image={image_path}",
+    ]
+
+
+def _add_srun_resources(srun_command: list[str], gpu_indices: tuple[int, ...]) -> None:
+    if gpu_indices:
+        srun_command.extend(
+            (
+                f"--gpus-per-task={len(gpu_indices)}",
+                f"--gpu-bind=mask_gpu:{_get_gpu_mask(gpu_indices):#x}",
+            )
+        )
+    else:
+        srun_command.append("--gres=none")
+
+
+def _add_srun_container_options(
+    srun_command: list[str],
+    plan: ResolvedSlurmRunPlan,
+    container_environment: tuple[str, ...],
+) -> None:
+    mounts = _render_mounts(plan)
+    if mounts:
+        srun_command.append(f"--container-mounts={mounts}")
+    if container_environment:
+        srun_command.append(f"--container-env={','.join(sorted(set(container_environment)))}")
+
+
+def _get_gpu_mask(gpu_indices: tuple[int, ...]) -> int:
+    return sum(1 << index for index in gpu_indices)
 
 
 def _render_mounts(plan: ResolvedSlurmRunPlan) -> str:
@@ -368,21 +439,20 @@ def _base_environment(source_environment: Mapping[str, str]) -> dict[str, str]:
 
 def _collect_client_secret_environment_names(plan: ResolvedSlurmRunPlan) -> tuple[str, ...]:
     names: set[str] = set()
-
-    def visit(value: object) -> None:
-        if isinstance(value, SecretRef):
-            names.add(value.environment)
-            return
-        if isinstance(value, BaseModel):
-            for field_name in type(value).model_fields:
-                visit(getattr(value, field_name))
-        elif isinstance(value, Mapping):
-            for child in value.values():
-                visit(child)
-        elif isinstance(value, (tuple, list)):
-            for child in value:
-                visit(child)
-
-    visit(plan.client.authored.dependencies.index_credentials)
-    visit(plan.invocation.authored.mcp_providers)
+    _collect_secret_environment_names(plan.client.authored.dependencies.index_credentials, names)
+    _collect_secret_environment_names(plan.invocation.authored.mcp_providers, names)
     return tuple(sorted(names))
+
+
+def _collect_secret_environment_names(value: object, names: set[str]) -> None:
+    if isinstance(value, SecretRef):
+        names.add(value.environment)
+    elif isinstance(value, BaseModel):
+        for field_name in type(value).model_fields:
+            _collect_secret_environment_names(getattr(value, field_name), names)
+    elif isinstance(value, Mapping):
+        for child in value.values():
+            _collect_secret_environment_names(child, names)
+    elif isinstance(value, (tuple, list)):
+        for child in value:
+            _collect_secret_environment_names(child, names)

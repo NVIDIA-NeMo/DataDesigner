@@ -10,12 +10,17 @@ import signal
 import stat
 import subprocess
 import time
+from collections.abc import Iterator
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from types import FrameType
 from typing import Protocol
 
 from data_designer.slurm.runtime.errors import SlurmRuntimeError, SlurmRuntimeErrorCode
 from data_designer.slurm.runtime.models import RuntimeStep
+
+_TERMINATION_SIGNALS = frozenset((signal.SIGINT, signal.SIGTERM))
 
 
 class RuntimeClock(Protocol):
@@ -88,45 +93,18 @@ class SubprocessStepRunner:
 
     def start(self, step: RuntimeStep) -> StepProcess:
         """Start one step with restrictive package-owned log files."""
-        log_root = step.stdout_path.parent
-        log_root.mkdir(mode=0o700, parents=False, exist_ok=True)
-        before = log_root.lstat()
-        if not stat.S_ISDIR(before.st_mode):
-            raise OSError(f"runtime log root {log_root} is not a directory")
-        directory_descriptor = os.open(
-            log_root,
-            os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0),
-        )
-        try:
-            opened = os.fstat(directory_descriptor)
-            if (before.st_dev, before.st_ino) != (opened.st_dev, opened.st_ino):
-                raise OSError(f"runtime log root {log_root} changed while it was opened")
-            os.fchmod(directory_descriptor, 0o700)
-            stdout_descriptor = _create_log_file(directory_descriptor, step.stdout_path.name)
-            try:
-                stderr_descriptor = _create_log_file(directory_descriptor, step.stderr_path.name)
-            except BaseException:
-                os.close(stdout_descriptor)
-                raise
-            try:
-                process = _SessionStepProcess(
-                    subprocess.Popen(
-                        step.command,
-                        stdin=subprocess.DEVNULL,
-                        stdout=stdout_descriptor,
-                        stderr=stderr_descriptor,
-                        env=dict(step.environment),
-                        shell=False,
-                        start_new_session=True,
-                        close_fds=True,
-                    )
-                )
-            finally:
-                os.close(stdout_descriptor)
-                os.close(stderr_descriptor)
-        finally:
-            os.close(directory_descriptor)
-        return process
+        with _open_step_logs(step) as (stdout_descriptor, stderr_descriptor):
+            process = subprocess.Popen(
+                step.command,
+                stdin=subprocess.DEVNULL,
+                stdout=stdout_descriptor,
+                stderr=stderr_descriptor,
+                env=dict(step.environment),
+                shell=False,
+                start_new_session=True,
+                close_fds=True,
+            )
+        return _SessionStepProcess(process)
 
 
 @dataclass(frozen=True, slots=True)
@@ -194,18 +172,24 @@ class StepSupervisor:
         """Return the started process identities in launch order."""
         return tuple(self._managed)
 
+    @property
+    def cleanup_complete(self) -> bool:
+        """Return whether every registered process is confirmed exited."""
+        return self._cleanup_complete
+
     def start(self, step: RuntimeStep) -> ManagedStep:
         """Start and register one structured step."""
         if self._cleanup_started:
             raise SlurmRuntimeError(SlurmRuntimeErrorCode.CLEANUP_FAILED, "cannot start a step after cleanup")
         try:
-            managed = ManagedStep(step=step, process=self._runner.start(step))
+            with _defer_termination_signals():
+                managed = ManagedStep(step=step, process=self._runner.start(step))
+                self._managed.append(managed)
         except (OSError, subprocess.SubprocessError) as error:
             raise SlurmRuntimeError(
                 SlurmRuntimeErrorCode.STEP_FAILED,
                 f"cannot start runtime step {step.step_id!r}",
             ) from error
-        self._managed.append(managed)
         return managed
 
     def wait(self, target: ManagedStep, *, required: tuple[ManagedStep, ...] = ()) -> None:
@@ -239,35 +223,59 @@ class StepSupervisor:
             return
         self._cleanup_started = True
         self._cleanup_in_progress = True
-        failures: list[BaseException] = []
         try:
-            live = tuple(managed for managed in reversed(self._managed) if managed.process.poll() is None)
-            for managed in live:
-                try:
-                    managed.process.terminate()
-                except BaseException as error:
-                    failures.append(error)
-            deadline = self._clock.monotonic() + self._termination_grace_seconds
-            for managed in live:
-                while managed.process.poll() is None and self._clock.monotonic() < deadline:
-                    self._clock.sleep(self._poll_interval_seconds)
-                if managed.process.poll() is None:
-                    try:
-                        managed.process.kill()
-                    except BaseException as error:
-                        failures.append(error)
-                try:
-                    managed.process.wait(timeout=self._termination_grace_seconds)
-                except BaseException as error:
-                    failures.append(error)
+            with _block_termination_signals():
+                failures = self._stop_managed_steps()
+                self._cleanup_complete = self._are_all_steps_stopped()
         finally:
             self._cleanup_in_progress = False
+        if not self._cleanup_complete:
+            failures.append(RuntimeError("one or more runtime processes are still running"))
         if failures:
             raise SlurmRuntimeError(
                 SlurmRuntimeErrorCode.CLEANUP_FAILED,
                 f"cleanup failed for {len(failures)} runtime process operation(s)",
             ) from failures[0]
-        self._cleanup_complete = True
+
+    def _stop_managed_steps(self) -> list[BaseException]:
+        failures: list[BaseException] = []
+        live = tuple(managed for managed in reversed(self._managed) if self._is_running(managed, failures))
+        for managed in live:
+            try:
+                managed.process.terminate()
+            except BaseException as error:
+                failures.append(error)
+        deadline = self._clock.monotonic() + self._termination_grace_seconds
+        for managed in live:
+            self._stop_step(managed, deadline, failures)
+        return failures
+
+    def _stop_step(self, managed: ManagedStep, deadline: float, failures: list[BaseException]) -> None:
+        while self._is_running(managed, failures) and self._clock.monotonic() < deadline:
+            self._clock.sleep(self._poll_interval_seconds)
+        if self._is_running(managed, failures):
+            try:
+                managed.process.kill()
+            except BaseException as error:
+                failures.append(error)
+        try:
+            managed.process.wait(timeout=self._termination_grace_seconds)
+        except BaseException as error:
+            failures.append(error)
+
+    @staticmethod
+    def _is_running(managed: ManagedStep, failures: list[BaseException]) -> bool:
+        try:
+            return managed.process.poll() is None
+        except BaseException as error:
+            failures.append(error)
+            return True
+
+    def _are_all_steps_stopped(self) -> bool:
+        try:
+            return all(managed.process.poll() is not None for managed in self._managed)
+        except BaseException:
+            return False
 
 
 def _create_log_file(directory_descriptor: int, name: str) -> int:
@@ -277,3 +285,68 @@ def _create_log_file(directory_descriptor: int, name: str) -> int:
         0o600,
         dir_fd=directory_descriptor,
     )
+
+
+@contextmanager
+def _open_step_logs(step: RuntimeStep) -> Iterator[tuple[int, int]]:
+    log_root = step.stdout_path.parent
+    log_root.mkdir(mode=0o700, parents=False, exist_ok=True)
+    before = log_root.lstat()
+    if not stat.S_ISDIR(before.st_mode):
+        raise OSError(f"runtime log root {log_root} is not a directory")
+    with ExitStack() as resources:
+        directory_descriptor = os.open(
+            log_root,
+            os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0),
+        )
+        resources.callback(os.close, directory_descriptor)
+        opened = os.fstat(directory_descriptor)
+        if (before.st_dev, before.st_ino) != (opened.st_dev, opened.st_ino):
+            raise OSError(f"runtime log root {log_root} changed while it was opened")
+        os.fchmod(directory_descriptor, 0o700)
+        stdout_descriptor = _create_log_file(directory_descriptor, step.stdout_path.name)
+        resources.callback(os.close, stdout_descriptor)
+        stderr_descriptor = _create_log_file(directory_descriptor, step.stderr_path.name)
+        resources.callback(os.close, stderr_descriptor)
+        yield stdout_descriptor, stderr_descriptor
+
+
+@contextmanager
+def _block_termination_signals() -> Iterator[None]:
+    previous = signal.pthread_sigmask(signal.SIG_BLOCK, _TERMINATION_SIGNALS)
+    try:
+        yield
+    finally:
+        signal.pthread_sigmask(signal.SIG_SETMASK, previous)
+
+
+@contextmanager
+def _defer_termination_signals() -> Iterator[None]:
+    previous = {selected: signal.getsignal(selected) for selected in _TERMINATION_SIGNALS}
+    deferred: list[signal.Signals] = []
+
+    def defer(signum: int, frame: FrameType | None) -> None:
+        del frame
+        if not deferred:
+            deferred.append(signal.Signals(signum))
+
+    for selected in _TERMINATION_SIGNALS:
+        signal.signal(selected, defer)
+    try:
+        yield
+    finally:
+        for selected, handler in previous.items():
+            signal.signal(selected, handler)
+    if deferred:
+        _deliver_deferred_signal(deferred[0], previous[deferred[0]])
+
+
+def _deliver_deferred_signal(selected: signal.Signals, handler: signal.Handlers) -> None:
+    if handler is signal.SIG_IGN:
+        return
+    if callable(handler):
+        handler(selected, None)
+        return
+    if selected is signal.SIGINT:
+        raise KeyboardInterrupt
+    os.kill(os.getpid(), selected)

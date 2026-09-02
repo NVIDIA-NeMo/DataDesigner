@@ -42,38 +42,51 @@ class RuntimeStep:
     stderr_path: Path
 
     def __post_init__(self) -> None:
-        try:
-            normalized_step_id = _IDENTIFIER_ADAPTER.validate_python(self.step_id, strict=True)
-        except ValidationError as error:
-            raise SlurmRuntimeError(
-                SlurmRuntimeErrorCode.INVALID_CONTEXT, "runtime step identity is invalid"
-            ) from error
-        if normalized_step_id != self.step_id:
-            raise SlurmRuntimeError(SlurmRuntimeErrorCode.INVALID_CONTEXT, "runtime step identity is not canonical")
+        _validate_step_identity(self.step_id)
         if not isinstance(self.role, RuntimeStepRole):
             raise SlurmRuntimeError(SlurmRuntimeErrorCode.INVALID_CONTEXT, "runtime step role is invalid")
-        if not self.command or any(
-            type(argument) is not str or not argument or "\0" in argument for argument in self.command
-        ):
-            raise SlurmRuntimeError(SlurmRuntimeErrorCode.INVALID_CONTEXT, "runtime step command is invalid")
-        if not isinstance(self.environment, Mapping):
-            raise SlurmRuntimeError(SlurmRuntimeErrorCode.INVALID_CONTEXT, "runtime environment is invalid")
-        normalized_environment: dict[str, str] = {}
-        for name, value in self.environment.items():
-            if type(name) is not str or not name or "=" in name or "\0" in name:
-                raise SlurmRuntimeError(SlurmRuntimeErrorCode.INVALID_CONTEXT, "runtime environment name is invalid")
-            if type(value) is not str or "\0" in value:
-                raise SlurmRuntimeError(SlurmRuntimeErrorCode.INVALID_CONTEXT, "runtime environment value is invalid")
-            normalized_environment[name] = value
-        for path in (self.stdout_path, self.stderr_path):
-            if not path.is_absolute():
-                raise SlurmRuntimeError(SlurmRuntimeErrorCode.INVALID_CONTEXT, "runtime log paths must be absolute")
-        if self.stdout_path.parent != self.stderr_path.parent or self.stdout_path == self.stderr_path:
-            raise SlurmRuntimeError(
-                SlurmRuntimeErrorCode.INVALID_CONTEXT,
-                "runtime log paths must be distinct children of one directory",
-            )
+        _validate_step_command(self.command)
+        normalized_environment = _validate_step_environment(self.environment)
+        _validate_step_log_paths(self.stdout_path, self.stderr_path)
         object.__setattr__(self, "environment", MappingProxyType(normalized_environment))
+
+
+def _validate_step_identity(step_id: Identifier) -> None:
+    try:
+        normalized_step_id = _IDENTIFIER_ADAPTER.validate_python(step_id, strict=True)
+    except ValidationError as error:
+        raise SlurmRuntimeError(SlurmRuntimeErrorCode.INVALID_CONTEXT, "runtime step identity is invalid") from error
+    if normalized_step_id != step_id:
+        raise SlurmRuntimeError(SlurmRuntimeErrorCode.INVALID_CONTEXT, "runtime step identity is not canonical")
+
+
+def _validate_step_command(command: tuple[str, ...]) -> None:
+    if not command or any(type(argument) is not str or not argument or "\0" in argument for argument in command):
+        raise SlurmRuntimeError(SlurmRuntimeErrorCode.INVALID_CONTEXT, "runtime step command is invalid")
+
+
+def _validate_step_environment(environment: Mapping[str, str]) -> dict[str, str]:
+    if not isinstance(environment, Mapping):
+        raise SlurmRuntimeError(SlurmRuntimeErrorCode.INVALID_CONTEXT, "runtime environment is invalid")
+    normalized_environment: dict[str, str] = {}
+    for name, value in environment.items():
+        if type(name) is not str or not name or "=" in name or "\0" in name:
+            raise SlurmRuntimeError(SlurmRuntimeErrorCode.INVALID_CONTEXT, "runtime environment name is invalid")
+        if type(value) is not str or "\0" in value:
+            raise SlurmRuntimeError(SlurmRuntimeErrorCode.INVALID_CONTEXT, "runtime environment value is invalid")
+        normalized_environment[name] = value
+    return normalized_environment
+
+
+def _validate_step_log_paths(stdout_path: Path, stderr_path: Path) -> None:
+    for path in (stdout_path, stderr_path):
+        if not path.is_absolute():
+            raise SlurmRuntimeError(SlurmRuntimeErrorCode.INVALID_CONTEXT, "runtime log paths must be absolute")
+    if stdout_path.parent != stderr_path.parent or stdout_path == stderr_path:
+        raise SlurmRuntimeError(
+            SlurmRuntimeErrorCode.INVALID_CONTEXT,
+            "runtime log paths must be distinct children of one directory",
+        )
 
 
 @dataclass(frozen=True, slots=True)

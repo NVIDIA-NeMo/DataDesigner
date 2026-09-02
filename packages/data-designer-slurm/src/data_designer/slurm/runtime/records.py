@@ -58,41 +58,67 @@ def _validate_candidate(
     client_result: ClientResult,
     candidate: CandidateOutputManifest,
 ) -> None:
-    plan = context.plan
-    shard = context.shard
-    attempt = context.attempt
+    _validate_candidate_identities(context, client_result, candidate)
+    _validate_candidate_counts(context, client_result, candidate)
+    _validate_candidate_location(context, client_result, candidate)
+    if candidate.created_at < context.attempt.created_at or client_result.completed_at < candidate.created_at:
+        raise SlurmRuntimeError(
+            SlurmRuntimeErrorCode.FINALIZATION_FAILED,
+            "client and candidate timestamps are inconsistent",
+        )
+
+
+def _validate_candidate_identities(
+    context: AllocationContext,
+    client_result: ClientResult,
+    candidate: CandidateOutputManifest,
+) -> None:
     identities = (
-        client_result.run_id == candidate.run_id == plan.run_id,
-        client_result.shard_id == candidate.shard_id == shard.shard_id,
-        client_result.attempt_id == candidate.attempt_id == attempt.attempt_id,
-        candidate.attempt_ordinal == attempt.attempt_ordinal,
+        client_result.run_id == candidate.run_id == context.plan.run_id,
+        client_result.shard_id == candidate.shard_id == context.shard.shard_id,
+        client_result.attempt_id == candidate.attempt_id == context.attempt.attempt_id,
+        candidate.attempt_ordinal == context.attempt.attempt_ordinal,
     )
     if not all(identities):
         raise SlurmRuntimeError(
             SlurmRuntimeErrorCode.FINALIZATION_FAILED,
             "client and candidate identities do not match the allocation",
         )
+
+
+def _validate_candidate_counts(
+    context: AllocationContext,
+    client_result: ClientResult,
+    candidate: CandidateOutputManifest,
+) -> None:
     if not candidate.winner_eligible:
         raise SlurmRuntimeError(
             SlurmRuntimeErrorCode.FINALIZATION_FAILED,
             "candidate record counts do not complete the planned shard",
         )
     if (
-        client_result.requested_records != shard.requested_records
+        client_result.requested_records != context.shard.requested_records
         or client_result.actual_records != candidate.actual_records
-        or candidate.actual_records != shard.requested_records
+        or candidate.actual_records != context.shard.requested_records
     ):
         raise SlurmRuntimeError(
             SlurmRuntimeErrorCode.FINALIZATION_FAILED,
             "client and candidate record counts do not complete the planned shard",
         )
-    if client_result.requested_resume_mode != plan.invocation.authored.resume:
+
+
+def _validate_candidate_location(
+    context: AllocationContext,
+    client_result: ClientResult,
+    candidate: CandidateOutputManifest,
+) -> None:
+    if client_result.requested_resume_mode != context.plan.invocation.authored.resume:
         raise SlurmRuntimeError(
             SlurmRuntimeErrorCode.FINALIZATION_FAILED,
             "client resume mode does not match the resolved plan",
         )
     expected_dataset_path = (
-        shard.resume_workspace.path
+        context.shard.resume_workspace.path
         if client_result.effective_resume_mode == "always"
         else posixpath.join(context.attempt_directory.as_posix(), "dataset")
     )
@@ -100,11 +126,6 @@ def _validate_candidate(
         raise SlurmRuntimeError(
             SlurmRuntimeErrorCode.FINALIZATION_FAILED,
             "client and candidate dataset paths do not match the resolved plan",
-        )
-    if candidate.created_at < attempt.created_at or client_result.completed_at < candidate.created_at:
-        raise SlurmRuntimeError(
-            SlurmRuntimeErrorCode.FINALIZATION_FAILED,
-            "client and candidate timestamps are inconsistent",
         )
 
 

@@ -78,9 +78,10 @@ def test_all_processes_use_structured_srun_steps_and_sanitized_environment(runti
     server = server_steps[0]
     assert server.role is RuntimeStepRole.SERVER
     assert f"--gpus-per-task={deployment.topology.tensor_parallel}" in server.command
-    assert any(argument.startswith("--gpu-bind=map_gpu:") for argument in server.command)
-    assert "CUDA_VISIBLE_DEVICES" in server.environment
-    assert any(argument.startswith("--container-env=CUDA_VISIBLE_DEVICES") for argument in server.command)
+    expected_mask = sum(1 << index for index in deployment.processes[0].gpu_indices)
+    assert f"--gpu-bind=mask_gpu:{expected_mask:#x}" in server.command
+    assert "CUDA_VISIBLE_DEVICES" not in server.environment
+    assert all("CUDA_VISIBLE_DEVICES" not in argument for argument in server.command)
     assert all("--gpus-per-task=" not in argument for step in client_steps for argument in step.command)
     assert all("--gres=none" in step.command for step in client_steps)
     assert all("CUDA_VISIBLE_DEVICES" not in step.environment for step in client_steps)
@@ -121,7 +122,7 @@ def test_client_worker_receives_only_persisted_identity_and_logical_endpoint(run
     assert f"generator=http://127.0.0.1:{endpoints[0].port}/v1" in worker
 
 
-def test_endpoint_step_uses_resolved_backpressure_and_backends(runtime_case: RuntimeCase) -> None:
+def test_endpoint_step_uses_resolved_retry_policy_and_backends(runtime_case: RuntimeCase) -> None:
     context = runtime_case.context
     deployment = resolve_vllm_server(context.plan, context.plan.deployments[0].deployment_id)
 
@@ -135,7 +136,12 @@ def test_endpoint_step_uses_resolved_backpressure_and_backends(runtime_case: Run
 
     assert step.role is RuntimeStepRole.ENDPOINT
     assert endpoint.port == deployment.logical_endpoint.port
-    assert str(deployment.launch_policy.queue_backpressure.max_waiting_requests) in step.command
+    retry_after_seconds = deployment.launch_policy.queue_backpressure.retry_after_seconds
+    assert retry_after_seconds is not None
+    assert ("--retry-after-seconds", str(retry_after_seconds)) == step.command[
+        step.command.index("--retry-after-seconds") : step.command.index("--retry-after-seconds") + 2
+    ]
+    assert "--max-waiting-requests" not in step.command
     for backend in deployment.backend_endpoints:
         assert f"http://127.0.0.1:{backend.port}" in step.command
 
@@ -150,9 +156,8 @@ def test_endpoint_step_uses_resolved_backpressure_and_backends(runtime_case: Run
         {},
         context.attempt_directory / "runtime/proxy.py",
     )
-    assert "--max-waiting-requests" in disabled_step.command
-    assert "0" in disabled_step.command
     assert "--retry-after-seconds" not in disabled_step.command
+    assert "--max-waiting-requests" not in disabled_step.command
 
 
 def test_client_receives_client_secrets_without_server_only_secrets(

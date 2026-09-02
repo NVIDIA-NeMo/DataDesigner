@@ -8,7 +8,6 @@ from __future__ import annotations
 import argparse
 import http.client
 import threading
-import time
 from collections.abc import Sequence
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -38,12 +37,10 @@ class _Backend:
 
 
 class _BackendPool:
-    def __init__(self, backends: tuple[_Backend, ...], max_waiting: int, retry_after_seconds: int | None) -> None:
+    def __init__(self, backends: tuple[_Backend, ...], retry_after_seconds: int | None) -> None:
         self.backends = backends
-        self.max_waiting = max_waiting
         self.retry_after_seconds = retry_after_seconds
         self._active = [0] * len(backends)
-        self._waiting = 0
         self._cursor = 0
         self._lock = threading.Lock()
 
@@ -62,17 +59,6 @@ class _BackendPool:
     def release(self, index: int) -> None:
         with self._lock:
             self._active[index] -= 1
-
-    def begin_wait(self) -> bool:
-        with self._lock:
-            if self._waiting >= self.max_waiting:
-                return False
-            self._waiting += 1
-            return True
-
-    def end_wait(self) -> None:
-        with self._lock:
-            self._waiting -= 1
 
 
 class _ProxyServer(ThreadingHTTPServer):
@@ -112,29 +98,17 @@ class _ProxyHandler(BaseHTTPRequestHandler):
         request_body = self._read_request_body()
         if request_body is None:
             return
-        waiting = False
-        try:
-            while True:
-                final_response = self._try_backends(request_body)
-                if final_response is None:
-                    self.send_error(503)
-                    return
-                if final_response[0] != 429:
-                    self._write_response(*final_response)
-                    return
-                if not waiting:
-                    if not self.server.pool.begin_wait():
-                        headers = _retry_after_headers(
-                            final_response[2],
-                            self.server.pool.retry_after_seconds,
-                        )
-                        self._write_response(429, final_response[1], headers)
-                        return
-                    waiting = True
-                time.sleep(self.server.pool.retry_after_seconds or 1)
-        finally:
-            if waiting:
-                self.server.pool.end_wait()
+        final_response = self._try_backends(request_body)
+        if final_response is None:
+            self.send_error(503)
+            return
+        if final_response[0] == 429:
+            final_response = (
+                final_response[0],
+                final_response[1],
+                _retry_after_headers(final_response[2], self.server.pool.retry_after_seconds),
+            )
+        self._write_response(*final_response)
 
     def _try_backends(self, request_body: bytes) -> tuple[int, bytes, dict[str, str]] | None:
         excluded: set[int] = set()
@@ -217,17 +191,14 @@ def main(arguments: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="data-designer-slurm-proxy")
     parser.add_argument("--listen-port", required=True, type=int)
     parser.add_argument("--backend", action="append", required=True)
-    parser.add_argument("--max-waiting-requests", required=True, type=int)
     parser.add_argument("--retry-after-seconds", type=int)
     parsed = parser.parse_args(arguments)
     backends = tuple(_parse_backend(value) for value in parsed.backend)
     if not 1 <= parsed.listen_port <= 65535:
         parser.error("listen port must be between 1 and 65535")
-    if parsed.max_waiting_requests < 0:
-        parser.error("maximum waiting requests must be non-negative")
     if parsed.retry_after_seconds is not None and parsed.retry_after_seconds <= 0:
         parser.error("retry-after seconds must be positive")
-    pool = _BackendPool(backends, parsed.max_waiting_requests, parsed.retry_after_seconds)
+    pool = _BackendPool(backends, parsed.retry_after_seconds)
     with _ProxyServer(("127.0.0.1", parsed.listen_port), pool) as server:
         server.serve_forever(poll_interval=0.1)
     return 0

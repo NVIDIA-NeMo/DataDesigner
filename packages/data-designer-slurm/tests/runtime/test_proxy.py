@@ -7,7 +7,6 @@ import argparse
 import io
 from email.message import Message
 from types import MethodType
-from unittest.mock import patch
 
 import pytest
 
@@ -17,7 +16,7 @@ from data_designer.slurm.runtime.proxy import _Backend, _BackendPool, _parse_bac
 
 def test_proxy_retries_overload_on_another_least_active_backend() -> None:
     handler = object.__new__(_ProxyHandler)
-    pool = _BackendPool((_Backend("127.0.0.1", 8001), _Backend("127.0.0.1", 8002)), 4, 1)
+    pool = _BackendPool((_Backend("127.0.0.1", 8001), _Backend("127.0.0.1", 8002)), 1)
     handler.server = type("Server", (), {"pool": pool})()
     handler.path = "/v1/chat/completions"
     handler.command = "POST"
@@ -48,43 +47,24 @@ def test_proxy_retries_overload_on_another_least_active_backend() -> None:
     assert captured == [(200, b"complete", {"Content-Type": "application/json"})]
 
 
-def test_proxy_queues_a_bounded_overload_and_retries_until_available() -> None:
+def test_proxy_passes_final_overload_through_after_one_backend_pass() -> None:
     handler = object.__new__(_ProxyHandler)
-    pool = _BackendPool((_Backend("127.0.0.1", 8001),), 1, None)
+    pool = _BackendPool((_Backend("127.0.0.1", 8001), _Backend("127.0.0.1", 8002)), 3)
     handler.server = type("Server", (), {"pool": pool})()
     handler.path = "/v1/chat/completions"
     handler.command = "POST"
     handler.rfile = io.BytesIO(b"{}")
     handler.headers = Message()
     handler.headers["Content-Length"] = "2"
-    responses = iter(((429, b"overloaded", {}), (200, b"complete", {})))
+    calls: list[int] = []
     captured: list[tuple[int, bytes, dict[str, str]]] = []
 
-    handler._request_backend = MethodType(lambda self, backend, body: next(responses), handler)
-    handler._write_response = MethodType(
-        lambda self, status, body, headers: captured.append((status, body, headers)),
-        handler,
-    )
+    def request_backend(self: _ProxyHandler, backend: _Backend, body: bytes) -> tuple[int, bytes, dict[str, str]]:
+        del self, body
+        calls.append(backend.port)
+        return 429, f"overloaded-{backend.port}".encode(), {"Retry-After": "99"}
 
-    with patch("data_designer.slurm.runtime.proxy.time.sleep") as sleep:
-        handler._forward()
-
-    sleep.assert_called_once_with(1)
-    assert captured == [(200, b"complete", {})]
-
-
-def test_proxy_rejects_overload_immediately_when_queue_is_disabled() -> None:
-    handler = object.__new__(_ProxyHandler)
-    pool = _BackendPool((_Backend("127.0.0.1", 8001),), 0, None)
-    handler.server = type("Server", (), {"pool": pool})()
-    handler.path = "/v1/chat/completions"
-    handler.command = "POST"
-    handler.rfile = io.BytesIO(b"{}")
-    handler.headers = Message()
-    handler.headers["Content-Length"] = "2"
-    captured: list[tuple[int, bytes, dict[str, str]]] = []
-
-    handler._request_backend = MethodType(lambda self, backend, body: (429, b"overloaded", {}), handler)
+    handler._request_backend = MethodType(request_backend, handler)
     handler._write_response = MethodType(
         lambda self, status, body, headers: captured.append((status, body, headers)),
         handler,
@@ -92,7 +72,8 @@ def test_proxy_rejects_overload_immediately_when_queue_is_disabled() -> None:
 
     handler._forward()
 
-    assert captured == [(429, b"overloaded", {})]
+    assert calls == [8001, 8002]
+    assert captured == [(429, b"overloaded-8002", {"Retry-After": "3"})]
 
 
 def test_proxy_rejects_a_truncated_fixed_length_request() -> None:
@@ -209,7 +190,7 @@ def test_proxy_rejects_non_loopback_or_malformed_backend(value: str) -> None:
 
 
 def test_pool_selects_least_active_backend() -> None:
-    pool = _BackendPool((_Backend("127.0.0.1", 8001), _Backend("127.0.0.1", 8002)), 2, 1)
+    pool = _BackendPool((_Backend("127.0.0.1", 8001), _Backend("127.0.0.1", 8002)), 1)
     first = pool.acquire(frozenset())
     second = pool.acquire(frozenset())
     pool.release(second)

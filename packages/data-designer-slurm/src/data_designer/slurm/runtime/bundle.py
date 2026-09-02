@@ -67,7 +67,7 @@ def stage_runtime_bundle(workspace_root: str | Path) -> ArtifactReference:
         runtime_root = normalized_workspace / "runtime"
         archive_path = runtime_root / f"{digest}.tar.gz"
         _ensure_private_runtime_directory(normalized_workspace, runtime_root)
-        _publish_archive(runtime_root, archive_path.name, archive)
+        _ArchivePublisher(runtime_root).publish(archive_path.name, archive)
     except OSError as error:
         raise SlurmRuntimeError(
             SlurmRuntimeErrorCode.PREFLIGHT_FAILED, "cannot stage allocation runtime bundle"
@@ -148,40 +148,68 @@ def _ensure_private_runtime_directory(workspace_root: Path, runtime_root: Path) 
         os.close(descriptor)
 
 
-def _publish_archive(runtime_root: Path, name: str, content: bytes) -> None:
-    directory_descriptor = os.open(
-        runtime_root,
-        os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0),
-    )
-    temporary_name: str | None = None
-    descriptor: int | None = None
-    try:
-        expected_size = len(content)
-        existing = _read_existing_archive(directory_descriptor, name, expected_size=expected_size)
+class _ArchivePublisher:
+    """Own descriptor-bound publication of immutable runtime archives."""
+
+    def __init__(self, runtime_root: Path) -> None:
+        self._runtime_root = runtime_root
+
+    def publish(self, name: str, content: bytes) -> None:
+        """Publish one archive or confirm an identical durable publication."""
+        directory_descriptor = os.open(
+            self._runtime_root,
+            os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0),
+        )
+        try:
+            self._publish_in_directory(directory_descriptor, name, content)
+        finally:
+            os.close(directory_descriptor)
+
+    def _publish_in_directory(self, directory_descriptor: int, name: str, content: bytes) -> None:
+        existing = _read_existing_archive(directory_descriptor, name, expected_size=len(content))
         if existing is not None:
-            if existing != content:
-                raise OSError("content-addressed runtime bundle contains different bytes")
+            self._accept_existing(directory_descriptor, existing, content)
             return
-        for _ in range(100):
-            temporary_name = f".runtime.{secrets.token_hex(8)}.tmp"
-            try:
-                descriptor = os.open(
-                    temporary_name,
-                    os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0),
-                    _FILE_MODE,
-                    dir_fd=directory_descriptor,
-                )
-            except FileExistsError:
-                continue
-            break
-        if descriptor is None:
-            raise OSError("cannot allocate a unique runtime bundle temporary name")
-        os.fchmod(descriptor, _FILE_MODE)
-        with os.fdopen(descriptor, "wb") as output:
-            descriptor = None
-            output.write(content)
-            output.flush()
-            os.fsync(output.fileno())
+        temporary_name = self._write_temporary(directory_descriptor, content)
+        try:
+            self._link_or_accept_existing(directory_descriptor, temporary_name, name, content)
+        finally:
+            with suppress(FileNotFoundError):
+                os.unlink(temporary_name, dir_fd=directory_descriptor)
+        os.fsync(directory_descriptor)
+
+    @staticmethod
+    def _accept_existing(directory_descriptor: int, existing: bytes, content: bytes) -> None:
+        if existing != content:
+            raise OSError("content-addressed runtime bundle contains different bytes")
+        os.fsync(directory_descriptor)
+
+    @staticmethod
+    def _write_temporary(directory_descriptor: int, content: bytes) -> str:
+        temporary_name, descriptor = _create_temporary_archive(directory_descriptor)
+        try:
+            os.fchmod(descriptor, _FILE_MODE)
+            with os.fdopen(descriptor, "wb") as output:
+                descriptor = -1
+                output.write(content)
+                output.flush()
+                os.fsync(output.fileno())
+        except BaseException:
+            with suppress(OSError):
+                os.unlink(temporary_name, dir_fd=directory_descriptor)
+            raise
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
+        return temporary_name
+
+    @staticmethod
+    def _link_or_accept_existing(
+        directory_descriptor: int,
+        temporary_name: str,
+        name: str,
+        content: bytes,
+    ) -> None:
         try:
             os.link(
                 temporary_name,
@@ -191,21 +219,25 @@ def _publish_archive(runtime_root: Path, name: str, content: bytes) -> None:
                 follow_symlinks=False,
             )
         except FileExistsError:
-            if _read_existing_archive(directory_descriptor, name, expected_size=expected_size) != content:
+            existing = _read_existing_archive(directory_descriptor, name, expected_size=len(content))
+            if existing != content:
                 raise OSError("content-addressed runtime bundle contains different bytes") from None
+
+
+def _create_temporary_archive(directory_descriptor: int) -> tuple[str, int]:
+    for _ in range(100):
+        temporary_name = f".runtime.{secrets.token_hex(8)}.tmp"
         try:
-            os.unlink(temporary_name, dir_fd=directory_descriptor)
-        except FileNotFoundError:
-            pass
-        temporary_name = None
-        os.fsync(directory_descriptor)
-    finally:
-        if descriptor is not None:
-            os.close(descriptor)
-        if temporary_name is not None:
-            with suppress(OSError):
-                os.unlink(temporary_name, dir_fd=directory_descriptor)
-        os.close(directory_descriptor)
+            descriptor = os.open(
+                temporary_name,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0),
+                _FILE_MODE,
+                dir_fd=directory_descriptor,
+            )
+        except FileExistsError:
+            continue
+        return temporary_name, descriptor
+    raise OSError("cannot allocate a unique runtime bundle temporary name")
 
 
 def _read_existing_archive(directory_descriptor: int, name: str, *, expected_size: int) -> bytes | None:
@@ -214,13 +246,17 @@ def _read_existing_archive(directory_descriptor: int, name: str, *, expected_siz
     except FileNotFoundError:
         return None
     before = _repair_interrupted_archive_publication(directory_descriptor, name, before)
-    if (
-        not stat.S_ISREG(before.st_mode)
-        or before.st_nlink != 1
-        or before.st_mode & 0o077
-        or before.st_size != expected_size
-    ):
+    if not _is_valid_archive_status(before, expected_size):
         raise OSError("runtime bundle is not a restrictive single-link regular file")
+    return _read_bound_archive(directory_descriptor, name, before, expected_size)
+
+
+def _read_bound_archive(
+    directory_descriptor: int,
+    name: str,
+    before: os.stat_result,
+    expected_size: int,
+) -> bytes:
     descriptor = os.open(
         name,
         os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0),
@@ -240,6 +276,15 @@ def _read_existing_archive(directory_descriptor: int, name: str, *, expected_siz
     finally:
         if descriptor >= 0:
             os.close(descriptor)
+
+
+def _is_valid_archive_status(status: os.stat_result, expected_size: int) -> bool:
+    return (
+        stat.S_ISREG(status.st_mode)
+        and status.st_nlink == 1
+        and not status.st_mode & 0o077
+        and status.st_size == expected_size
+    )
 
 
 def _file_identity(status: os.stat_result) -> tuple[int, int, int, int, int]:
@@ -266,18 +311,13 @@ def _repair_interrupted_archive_publication(
         if (candidate_status.st_dev, candidate_status.st_ino) == (status.st_dev, status.st_ino):
             matching_names.append(candidate)
     if len(matching_names) != 1:
-        return status
+        return os.stat(name, dir_fd=directory_descriptor, follow_symlinks=False)
     try:
         os.unlink(matching_names[0], dir_fd=directory_descriptor)
         os.fsync(directory_descriptor)
     except FileNotFoundError:
         pass
     repaired = os.stat(name, dir_fd=directory_descriptor, follow_symlinks=False)
-    if (
-        (repaired.st_dev, repaired.st_ino) != (status.st_dev, status.st_ino)
-        or not stat.S_ISREG(repaired.st_mode)
-        or repaired.st_nlink != 1
-        or repaired.st_mode & 0o077
-    ):
+    if not stat.S_ISREG(repaired.st_mode) or repaired.st_nlink != 1 or repaired.st_mode & 0o077:
         raise OSError("runtime bundle changed while recovering interrupted publication")
     return repaired

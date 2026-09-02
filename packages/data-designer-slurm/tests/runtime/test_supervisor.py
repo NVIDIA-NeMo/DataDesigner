@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 from slurm_test_fakes import FakeClock
 
+from data_designer.slurm.runtime import supervisor as runtime_supervisor
 from data_designer.slurm.runtime.errors import SlurmRuntimeError
 from data_designer.slurm.runtime.models import RuntimeStep, RuntimeStepRole
 from data_designer.slurm.runtime.supervisor import StepSupervisor, SubprocessStepRunner
@@ -168,6 +169,77 @@ def test_start_normalizes_process_creation_failure(tmp_path: Path, fake_clock: F
 
     with pytest.raises(SlurmRuntimeError, match="cannot start"):
         StepSupervisor(_FailingRunner(), clock=fake_clock).start(_step(tmp_path, "failed"))
+
+
+def test_start_registers_process_before_restoring_termination_signals(
+    tmp_path: Path,
+    fake_clock: FakeClock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    process = _Process(1)
+    installed_handlers: dict[object, object] = {}
+    supervisor: StepSupervisor
+
+    def previous_handler(signum: int, frame: object) -> None:
+        del signum, frame
+        assert len(supervisor.managed_steps) == 1
+        raise KeyboardInterrupt("deferred termination")
+
+    def fake_getsignal(selected: object) -> object:
+        del selected
+        return previous_handler
+
+    def fake_signal(selected: object, handler: object) -> object:
+        installed_handlers[selected] = handler
+        return previous_handler
+
+    class _InterruptingRunner(_Runner):
+        def start(self, step: RuntimeStep) -> _Process:
+            started = super().start(step)
+            handler = installed_handlers[runtime_supervisor.signal.SIGTERM]
+            assert callable(handler)
+            handler(runtime_supervisor.signal.SIGTERM, None)
+            return started
+
+    monkeypatch.setattr(runtime_supervisor.signal, "getsignal", fake_getsignal)
+    monkeypatch.setattr(runtime_supervisor.signal, "signal", fake_signal)
+    supervisor = StepSupervisor(_InterruptingRunner([process]), clock=fake_clock)
+
+    with pytest.raises(KeyboardInterrupt, match="deferred termination"):
+        supervisor.start(_step(tmp_path, "server"))
+
+    assert supervisor.managed_steps[0].process is process
+
+
+def test_cleanup_remains_incomplete_while_a_process_is_still_running(
+    tmp_path: Path,
+    fake_clock: FakeClock,
+) -> None:
+    class _StubbornProcess(_Process):
+        def terminate(self) -> None:
+            self.terminated += 1
+
+        def kill(self) -> None:
+            self.killed += 1
+
+        def wait(self, timeout: float | None = None) -> int:
+            del timeout
+            raise TimeoutError("still running")
+
+    process = _StubbornProcess(1)
+    supervisor = StepSupervisor(
+        _Runner([process]),
+        clock=fake_clock,
+        poll_interval_seconds=1,
+        termination_grace_seconds=1,
+    )
+    supervisor.start(_step(tmp_path, "server"))
+
+    with pytest.raises(SlurmRuntimeError, match="cleanup failed"):
+        supervisor.cleanup()
+
+    assert process.terminated == process.killed == 1
+    assert not supervisor.cleanup_complete
 
 
 def _step(root: Path, step_id: str) -> RuntimeStep:

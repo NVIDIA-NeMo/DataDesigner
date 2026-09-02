@@ -15,6 +15,7 @@ from pathlib import Path
 from types import FrameType
 from typing import Callable, Iterator
 
+from data_designer.slurm.planning import PlannedShard
 from data_designer.slurm.runtime.controller import OneNodeAllocationController
 from data_designer.slurm.runtime.errors import SlurmRuntimeError, SlurmRuntimeErrorCode
 from data_designer.slurm.runtime.models import AllocationContext
@@ -48,41 +49,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
 
 
 def _run(plan_path: Path, attempt_directory: Path, environment: Mapping[str, str]) -> None:
-    if not plan_path.is_absolute() or not attempt_directory.is_absolute():
-        raise SlurmRuntimeError(SlurmRuntimeErrorCode.INVALID_CONTEXT, "runtime paths must be absolute")
-    if plan_path.name != "resolved-plan.json" or plan_path.parent.parent.name != "runs":
-        raise SlurmRuntimeError(SlurmRuntimeErrorCode.INVALID_CONTEXT, "resolved plan path is invalid")
-    workspace_root = plan_path.parent.parent.parent
-    run_id = plan_path.parent.name
-    writer = SlurmStateWriter(workspace_root, run_id)
-    plan = writer.load_resolved_plan()
-    expected_plan_path = Path(plan.authored_config.path).with_name("resolved-plan.json")
-    if plan_path != expected_plan_path:
-        raise SlurmRuntimeError(
-            SlurmRuntimeErrorCode.INVALID_CONTEXT,
-            "runtime plan path does not match persisted run intent",
-        )
-    task_id = _scheduler_task_id(environment.get("SLURM_ARRAY_TASK_ID"))
-    shards = tuple(shard for shard in plan.shards if shard.array_task_index == task_id)
-    if len(shards) != 1:
-        raise SlurmRuntimeError(
-            SlurmRuntimeErrorCode.INVALID_CONTEXT,
-            "scheduler array task does not identify exactly one planned shard",
-        )
-    shard = shards[0]
-    expected_attempt_root = plan_path.parent / "shards" / shard.shard_id / "attempts"
-    if attempt_directory.parent != expected_attempt_root:
-        raise SlurmRuntimeError(
-            SlurmRuntimeErrorCode.INVALID_CONTEXT,
-            "attempt directory does not match the scheduler array task",
-        )
-    attempt = writer.load_attempt(shard.shard_id, attempt_directory.name)
-    context = AllocationContext(
-        plan=plan,
-        shard=shard,
-        attempt=attempt,
-        attempt_directory=attempt_directory,
-    )
+    context, writer = _load_allocation_context(plan_path, attempt_directory, environment)
     clock = SystemRuntimeClock()
     supervisor = StepSupervisor(SubprocessStepRunner(), clock=clock)
     controller = OneNodeAllocationController(
@@ -98,6 +65,50 @@ def _run(plan_path: Path, attempt_directory: Path, environment: Mapping[str, str
     )
     with _interrupt_on_termination(supervisor.cleanup):
         controller.run()
+
+
+def _load_allocation_context(
+    plan_path: Path,
+    attempt_directory: Path,
+    environment: Mapping[str, str],
+) -> tuple[AllocationContext, SlurmStateWriter]:
+    writer = _load_state_writer(plan_path, attempt_directory)
+    plan = writer.load_resolved_plan()
+    expected_plan_path = Path(plan.authored_config.path).with_name("resolved-plan.json")
+    if plan_path != expected_plan_path:
+        raise SlurmRuntimeError(
+            SlurmRuntimeErrorCode.INVALID_CONTEXT,
+            "runtime plan path does not match persisted run intent",
+        )
+    shard = _select_shard(plan.shards, _scheduler_task_id(environment.get("SLURM_ARRAY_TASK_ID")))
+    expected_attempt_root = plan_path.parent / "shards" / shard.shard_id / "attempts"
+    if attempt_directory.parent != expected_attempt_root:
+        raise SlurmRuntimeError(
+            SlurmRuntimeErrorCode.INVALID_CONTEXT,
+            "attempt directory does not match the scheduler array task",
+        )
+    attempt = writer.load_attempt(shard.shard_id, attempt_directory.name)
+    return AllocationContext(plan, shard, attempt, attempt_directory), writer
+
+
+def _load_state_writer(plan_path: Path, attempt_directory: Path) -> SlurmStateWriter:
+    if not plan_path.is_absolute() or not attempt_directory.is_absolute():
+        raise SlurmRuntimeError(SlurmRuntimeErrorCode.INVALID_CONTEXT, "runtime paths must be absolute")
+    if plan_path.name != "resolved-plan.json" or plan_path.parent.parent.name != "runs":
+        raise SlurmRuntimeError(SlurmRuntimeErrorCode.INVALID_CONTEXT, "resolved plan path is invalid")
+    workspace_root = plan_path.parent.parent.parent
+    run_id = plan_path.parent.name
+    return SlurmStateWriter(workspace_root, run_id)
+
+
+def _select_shard(shards: tuple[PlannedShard, ...], task_id: int) -> PlannedShard:
+    selected = tuple(shard for shard in shards if shard.array_task_index == task_id)
+    if len(selected) != 1:
+        raise SlurmRuntimeError(
+            SlurmRuntimeErrorCode.INVALID_CONTEXT,
+            "scheduler array task does not identify exactly one planned shard",
+        )
+    return selected[0]
 
 
 def _scheduler_task_id(value: str | None) -> int:

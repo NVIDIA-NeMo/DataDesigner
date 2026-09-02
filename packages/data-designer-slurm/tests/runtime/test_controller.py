@@ -35,6 +35,7 @@ class _FakeProcess:
     pid: int
     returncode: int | None
     fail_terminate: bool = False
+    remain_running: bool = False
     terminate_calls: int = 0
     kill_calls: int = 0
 
@@ -45,11 +46,13 @@ class _FakeProcess:
         self.terminate_calls += 1
         if self.fail_terminate:
             raise OSError("injected termination failure")
-        self.returncode = -15
+        if not self.remain_running:
+            self.returncode = -15
 
     def kill(self) -> None:
         self.kill_calls += 1
-        self.returncode = -9
+        if not self.remain_running:
+            self.returncode = -9
 
     def wait(self, timeout: float | None = None) -> int:
         del timeout
@@ -66,11 +69,13 @@ class _FakeRunner:
         server_returncode: int | None = None,
         failed_role: RuntimeStepRole | None = None,
         fail_cleanup: bool = False,
+        incomplete_cleanup: bool = False,
     ) -> None:
         self.generation_hook = generation_hook
         self.server_returncode = server_returncode
         self.failed_role = failed_role
         self.fail_cleanup = fail_cleanup
+        self.incomplete_cleanup = incomplete_cleanup
         self.steps: list[RuntimeStep] = []
         self.processes: list[_FakeProcess] = []
 
@@ -89,6 +94,7 @@ class _FakeRunner:
             pid=1000 + len(self.processes),
             returncode=returncode,
             fail_terminate=self.fail_cleanup and is_managed_service,
+            remain_running=self.incomplete_cleanup and is_managed_service,
         )
         self.processes.append(process)
         return process
@@ -379,6 +385,38 @@ def test_cleanup_failure_is_retained_as_a_note_on_the_primary_failure(runtime_ca
 
     assert any("cleanup also failed" in note for note in raised.value.__notes__)
     assert state.attempt.state is AttemptLifecycleState.FAILED
+
+
+def test_incomplete_cleanup_does_not_publish_stopped_readiness(runtime_case: RuntimeCase) -> None:
+    clock = FakeClock(runtime_case.created_at.replace(second=10), monotonic_time=100)
+    state = FakeStateStore(runtime_case.context.attempt)
+    runner = _FakeRunner(
+        generation_hook=lambda: _write_complete_result(runtime_case, clock),
+        incomplete_cleanup=True,
+    )
+    controller = OneNodeAllocationController(
+        runtime_case.context,
+        runtime_proxy_path=runtime_case.context.attempt_directory / "runtime/proxy.py",
+        state=state,
+        supervisor=StepSupervisor(
+            runner,
+            clock=clock,
+            poll_interval_seconds=1,
+            termination_grace_seconds=1,
+        ),
+        preflight=FakePreflight(),
+        client_steps=FakeClientStepBuilder(),
+        prober=_FakeProber(ready=True, clock=clock),
+        clock=clock,
+        environment={},
+    )
+
+    with pytest.raises(SlurmRuntimeError, match="cleanup failed"):
+        controller.run()
+
+    assert state.attempt.state is AttemptLifecycleState.FAILED
+    assert state.readiness[-1].state is ReadinessState.FAILED
+    assert ReadinessState.STOPPED not in {readiness.state for readiness in state.readiness}
 
 
 def test_future_client_timestamp_cannot_push_persisted_state_clock_forward(runtime_case: RuntimeCase) -> None:
