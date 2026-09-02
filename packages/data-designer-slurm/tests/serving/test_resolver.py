@@ -112,13 +112,30 @@ def test_two_deployments_keep_images_and_endpoint_identities_isolated(
 
 def test_resolution_preserves_inspected_runtime_version_as_provenance(single_node_plan: ResolvedSlurmRunPlan) -> None:
     payload = single_node_plan.deployments[0].model_dump(mode="json")
-    payload["image"]["inspection"]["inspection"]["runtime_version"] = "vendor-vllm-build"
+    payload["image"]["inspection"]["inspection"]["runtime_version"] = "0.22.0+vendor.1"
     placement = ResolvedDeployment.model_validate_json(json.dumps(payload))
     plan = _plan_with_placement(single_node_plan, placement)
 
     resolved = _resolve(plan, placement.deployment_id)
 
-    assert resolved.image.inspection_facts.runtime_version == "vendor-vllm-build"
+    assert resolved.image.inspection_facts.runtime_version == "0.22.0+vendor.1"
+
+
+@pytest.mark.parametrize(
+    "runtime_version",
+    ("vendor-vllm-build", "0.20.9", "0.22.0rc1", "0.23.0"),
+)
+def test_resolution_rejects_unsupported_runtime_versions(
+    single_node_plan: ResolvedSlurmRunPlan,
+    runtime_version: str,
+) -> None:
+    payload = single_node_plan.deployments[0].model_dump(mode="json")
+    payload["image"]["inspection"]["inspection"]["runtime_version"] = runtime_version
+    placement = ResolvedDeployment.model_validate_json(json.dumps(payload))
+    plan = _plan_with_placement(single_node_plan, placement)
+
+    with pytest.raises(VllmServerResolutionError, match="unsupported vLLM runtime version"):
+        _resolve(plan, placement.deployment_id)
 
 
 def test_resolution_rejects_image_inspection_mismatch(single_node_plan: ResolvedSlurmRunPlan) -> None:

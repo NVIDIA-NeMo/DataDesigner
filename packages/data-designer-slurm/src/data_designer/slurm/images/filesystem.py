@@ -148,7 +148,7 @@ def read_regular_text(directory_descriptor: int, name: str, display_path: Path) 
             raise OSError(f"registry path {display_path} is not a regular file")
         descriptor = os.open(
             name,
-            os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
+            os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0),
             dir_fd=directory_descriptor,
         )
         after_open = os.fstat(descriptor)
@@ -157,7 +157,21 @@ def read_regular_text(directory_descriptor: int, name: str, display_path: Path) 
         registry_file = os.fdopen(descriptor, "r", encoding="utf-8")
         descriptor = None
         with registry_file:
-            return registry_file.read()
+            content = registry_file.read()
+            after_read = os.fstat(registry_file.fileno())
+            after_path = os.stat(name, dir_fd=directory_descriptor, follow_symlinks=False)
+        if (
+            not stat.S_ISREG(after_read.st_mode)
+            or not stat.S_ISREG(after_path.st_mode)
+            or _get_file_facts(after_open) != _get_file_facts(after_read)
+            or _get_file_facts(after_read) != _get_file_facts(after_path)
+        ):
+            raise OSError(f"registry path {display_path} changed while it was being read")
+        return content
     finally:
         if descriptor is not None:
             os.close(descriptor)
+
+
+def _get_file_facts(status: os.stat_result) -> tuple[int, int, int, int, int]:
+    return (status.st_dev, status.st_ino, status.st_size, status.st_mtime_ns, status.st_ctime_ns)
