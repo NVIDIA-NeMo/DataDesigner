@@ -28,3 +28,7 @@ class ImageConflictError(SlurmImageError):
 
 class ImageVerificationError(SlurmImageError):
     """Raised when an image file or inspection record fails verification."""
+
+
+class ImageLifecycleError(SlurmImageError):
+    """Raised when a CPU Slurm image lifecycle job cannot be prepared or submitted."""

@@ -7,9 +7,7 @@ from __future__ import annotations
 
 import importlib.metadata
 import platform
-import shutil
 import sys
-from pathlib import Path
 from typing import Protocol
 
 from packaging.utils import canonicalize_name
@@ -23,6 +21,10 @@ from data_designer.slurm.config import (
 )
 from data_designer.slurm.contracts import Identifier, Sha256Digest
 from data_designer.slurm.images.errors import ImageInspectionError
+from data_designer.slurm.images.resources.inspect_image import (
+    find_distribution_console_script,
+    find_unique_distribution,
+)
 
 INSPECTOR_VERSION: Identifier = "inspector-1"
 _REQUIRED_CLIENT_DISTRIBUTIONS = (
@@ -49,11 +51,8 @@ class InspectionEnvironment(Protocol):
     def list_distributions(self) -> tuple[InstalledDistribution, ...]:
         """Return the installed Python distribution inventory."""
 
-    def get_distribution_version(self, name: str) -> str:
-        """Return one installed distribution version."""
-
-    def find_executable(self, name: str) -> str:
-        """Return one absolute executable path."""
+    def get_distribution_console_script(self, name: str) -> tuple[str, str]:
+        """Return one distribution version and its owned console-script path."""
 
 
 class SystemInspectionEnvironment:
@@ -94,22 +93,14 @@ class SystemInspectionEnvironment:
         except ValidationError as error:
             raise ImageInspectionError("installed distribution inventory is invalid") from error
 
-    def get_distribution_version(self, name: str) -> str:
-        """Return one installed distribution version with a canonical missing-package error."""
+    def get_distribution_console_script(self, name: str) -> tuple[str, str]:
+        """Return one distribution version and its owned console-script path."""
         try:
-            return importlib.metadata.version(name)
-        except importlib.metadata.PackageNotFoundError as error:
-            raise ImageInspectionError(f"required distribution {name!r} is not installed") from error
-
-    def find_executable(self, name: str) -> str:
-        """Return one resolved executable path with a canonical missing-tool error."""
-        path = shutil.which(name)
-        if path is None:
-            raise ImageInspectionError(f"required executable {name!r} is not installed")
-        executable = Path(path)
-        if not executable.is_absolute():
-            raise ImageInspectionError(f"required executable {name!r} did not resolve to an absolute path")
-        return executable.as_posix()
+            distribution = find_unique_distribution(importlib.metadata.distributions(), name)
+            executable = find_distribution_console_script(distribution, name)
+        except (OSError, RuntimeError) as error:
+            raise ImageInspectionError(str(error)) from error
+        return (distribution.version, executable)
 
 
 class ClientImageInspector:
@@ -130,14 +121,17 @@ class ClientImageInspector:
             if missing_distributions:
                 missing = ", ".join(repr(name) for name in missing_distributions)
                 raise ImageInspectionError(f"required client distributions are not installed: {missing}")
+            installer_version, installer_path = environment.get_distribution_console_script("pip")
+            if installer_version != versions_by_name["pip"]:
+                raise ImageInspectionError("pip console script does not match the distribution inventory")
             inspection = ClientImageInspection(
                 kind="client",
                 python_implementation=environment.get_python_implementation(),
                 python_version=environment.get_python_version(),
                 python_abi=environment.get_python_abi(),
                 distributions=distributions,
-                installer_path=environment.find_executable("pip"),
-                installer_version=versions_by_name["pip"],
+                installer_path=installer_path,
+                installer_version=installer_version,
             )
             return ImageInspectionRecord(
                 schema_version=1,
@@ -161,11 +155,12 @@ class ServingImageInspector:
         """Return a digest-bound serving inspection for the active image environment."""
         environment = self._environment
         try:
+            runtime_version, executable_path = environment.get_distribution_console_script("vllm")
             inspection = ServingImageInspection(
                 kind="serving",
                 server_type="vllm",
-                runtime_version=environment.get_distribution_version("vllm"),
-                executable_path=environment.find_executable("vllm"),
+                runtime_version=runtime_version,
+                executable_path=executable_path,
             )
             return ImageInspectionRecord(
                 schema_version=1,

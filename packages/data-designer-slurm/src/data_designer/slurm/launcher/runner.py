@@ -16,7 +16,7 @@ from typing import Protocol
 class CommandRunner(Protocol):
     """Minimal command boundary implemented by production and fake runners."""
 
-    def run(self, command: Sequence[str]) -> subprocess.CompletedProcess[str]:
+    def run(self, command: Sequence[str], *, input_text: str | None = None) -> subprocess.CompletedProcess[str]:
         """Execute one argument-vector command."""
         ...
 
@@ -51,8 +51,20 @@ class SubprocessRunner:
         """Return the allowlisted environment forwarded to child processes."""
         return self._environment
 
-    def run(self, command: Sequence[str]) -> subprocess.CompletedProcess[str]:
+    def run(self, command: Sequence[str], *, input_text: str | None = None) -> subprocess.CompletedProcess[str]:
         """Execute an argument vector with captured text output."""
+        if input_text is not None:
+            return subprocess.run(
+                tuple(command),
+                check=False,
+                input=input_text,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                env=dict(self._environment),
+                timeout=self._timeout_seconds,
+            )
         return subprocess.run(
             tuple(command),
             check=False,

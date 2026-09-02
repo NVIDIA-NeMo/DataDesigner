@@ -99,6 +99,9 @@ def test_explicit_selection_rejects_unknown_cluster(profile_catalog: SlurmProfil
         lambda payload: payload["clusters"]["primary"].update(extra="unknown"),
         lambda payload: payload["clusters"]["primary"].update(workspace_root="relative"),
         lambda payload: payload["clusters"]["primary"].update(host_patterns=["login[broken"]),
+        lambda payload: payload["clusters"]["primary"]["image_build"].update(cpus_per_task=0),
+        lambda payload: payload["clusters"]["primary"]["image_build"].update(memory="0G"),
+        lambda payload: payload["clusters"]["primary"]["image_build"].update(time_limit="00:00:00"),
         lambda payload: payload["clusters"]["primary"].update(
             container_mounts=[
                 {"source": "/one", "target": "/same"},
