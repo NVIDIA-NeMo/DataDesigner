@@ -10,10 +10,14 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from data_designer.slurm.runtime.bundle import stage_runtime_bundle  # noqa: F401
-    from data_designer.slurm.runtime.controller import OneNodeAllocationController  # noqa: F401
+    from data_designer.slurm.runtime.controller import AllocationController, OneNodeAllocationController  # noqa: F401
     from data_designer.slurm.runtime.errors import SlurmRuntimeError, SlurmRuntimeErrorCode  # noqa: F401
 
 _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
+    "AllocationController": (
+        "data_designer.slurm.runtime.controller",
+        "AllocationController",
+    ),
     "OneNodeAllocationController": (
         "data_designer.slurm.runtime.controller",
         "OneNodeAllocationController",
@@ -24,6 +28,7 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
 }
 
 __all__ = [
+    "AllocationController",
     "OneNodeAllocationController",
     "SlurmRuntimeError",
     "SlurmRuntimeErrorCode",

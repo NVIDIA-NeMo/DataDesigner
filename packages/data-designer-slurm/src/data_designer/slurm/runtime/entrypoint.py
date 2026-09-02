@@ -12,7 +12,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 from data_designer.slurm.planning import PlannedShard
-from data_designer.slurm.runtime.controller import OneNodeAllocationController
+from data_designer.slurm.runtime.controller import AllocationController
 from data_designer.slurm.runtime.errors import SlurmRuntimeError, SlurmRuntimeErrorCode
 from data_designer.slurm.runtime.models import AllocationContext
 from data_designer.slurm.runtime.preflight import SystemAllocationPreflight
@@ -50,7 +50,7 @@ def _run(plan_path: Path, attempt_directory: Path, environment: Mapping[str, str
     clock = SystemRuntimeClock()
     signals = TerminationSignalCoordinator()
     supervisor = StepSupervisor(SubprocessStepRunner(), signals=signals, clock=clock)
-    controller = OneNodeAllocationController(
+    controller = AllocationController(
         context,
         runtime_proxy_path=Path(__file__).with_name("proxy.py"),
         state=writer,

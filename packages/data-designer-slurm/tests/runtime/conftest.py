@@ -16,6 +16,7 @@ from data_designer.slurm.config import SlurmProfile
 from data_designer.slurm.contracts import ArtifactReference, compute_canonical_json_sha256
 from data_designer.slurm.planning import ResolvedSlurmRunPlan
 from data_designer.slurm.runtime.models import AllocationContext, RuntimeEndpoint, RuntimeStep, RuntimeStepRole
+from data_designer.slurm.runtime.preflight import AllocationLayout
 from data_designer.slurm.state import (
     AttemptLifecycleState,
     AttemptManifest,
@@ -81,11 +82,13 @@ class FakePreflight:
         self.failure = failure
         self.calls = 0
 
-    def verify(self, context: AllocationContext, environment: object) -> None:
-        del context, environment
+    def verify(self, context: AllocationContext, environment: object) -> AllocationLayout:
+        del environment
         self.calls += 1
         if self.failure is not None:
             raise self.failure
+        node_count = max(index for deployment in context.plan.deployments for index in deployment.node_indices) + 1
+        return AllocationLayout(tuple(f"node-{index}" for index in range(node_count)))
 
 
 class FakeClientStepBuilder:
@@ -116,9 +119,18 @@ class FakeClientStepBuilder:
 
 @pytest.fixture
 def runtime_case(tmp_path: Path, single_node_plan: ResolvedSlurmRunPlan) -> RuntimeCase:
+    return _build_runtime_case(tmp_path, single_node_plan)
+
+
+@pytest.fixture
+def multi_node_runtime_case(tmp_path: Path, multi_node_plan: ResolvedSlurmRunPlan) -> RuntimeCase:
+    return _build_runtime_case(tmp_path, multi_node_plan)
+
+
+def _build_runtime_case(tmp_path: Path, source_plan: ResolvedSlurmRunPlan) -> RuntimeCase:
     workspace = tmp_path / "workspace"
     workspace.mkdir(mode=0o700)
-    plan = relocate_plan(single_node_plan, workspace)
+    plan = relocate_plan(source_plan, workspace)
     created_at = datetime(2026, 9, 1, 12, tzinfo=timezone.utc)
     plan_reference = ArtifactReference(
         path=Path(plan.authored_config.path).with_name("resolved-plan.json").as_posix(),

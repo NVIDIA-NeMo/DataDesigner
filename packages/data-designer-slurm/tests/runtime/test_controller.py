@@ -17,7 +17,8 @@ from data_designer.slurm.config import DataDesignerSlurmConfig
 from data_designer.slurm.contracts import ArtifactReference
 from data_designer.slurm.runtime.controller import OneNodeAllocationController
 from data_designer.slurm.runtime.errors import SlurmRuntimeError, SlurmRuntimeErrorCode
-from data_designer.slurm.runtime.models import RuntimeStep, RuntimeStepRole
+from data_designer.slurm.runtime.models import AllocationContext, RuntimeStep, RuntimeStepRole
+from data_designer.slurm.runtime.preflight import AllocationLayout
 from data_designer.slurm.runtime.signals import TerminationSignalCoordinator
 from data_designer.slurm.runtime.supervisor import StepSupervisor
 from data_designer.slurm.state import (
@@ -76,12 +77,14 @@ class _FakeRunner:
         failed_role: RuntimeStepRole | None = None,
         fail_cleanup: bool = False,
         incomplete_cleanup: bool = False,
+        failed_step_id: str | None = None,
     ) -> None:
         self.generation_hook = generation_hook
         self.server_returncode = server_returncode
         self.failed_role = failed_role
         self.fail_cleanup = fail_cleanup
         self.incomplete_cleanup = incomplete_cleanup
+        self.failed_step_id = failed_step_id
         self.steps: list[RuntimeStep] = []
         self.processes: list[_FakeProcess] = []
 
@@ -90,7 +93,7 @@ class _FakeRunner:
         if step.role is RuntimeStepRole.CLIENT and self.generation_hook is not None:
             self.generation_hook()
         is_managed_service = step.role in {RuntimeStepRole.SERVER, RuntimeStepRole.ENDPOINT}
-        if step.role is self.failed_role:
+        if step.role is self.failed_role or step.step_id == self.failed_step_id:
             returncode = 23
         elif step.role is RuntimeStepRole.SERVER:
             returncode = self.server_returncode
@@ -112,10 +115,12 @@ class _FakeProber:
         self.clock = clock
         self.advance_on_failure = advance_on_failure
         self.calls = 0
+        self.hosts: list[str] = []
 
     def is_ready(self, host: str, port: int, path: str, *, timeout_seconds: float) -> bool:
-        del host, port, path, timeout_seconds
+        del port, path, timeout_seconds
         self.calls += 1
+        self.hosts.append(host)
         if not self.ready and self.advance_on_failure:
             self.clock.advance(self.advance_on_failure)
         return self.ready
@@ -125,9 +130,11 @@ class _FakeProber:
 class _RestartAwarePreflight:
     state: FakeStateStore
 
-    def verify(self, context: object, environment: object) -> None:
-        del context, environment
+    def verify(self, context: AllocationContext, environment: object) -> AllocationLayout:
+        del environment
         assert self.state.readiness[-1].state is ReadinessState.RESTARTING
+        node_count = max(index for deployment in context.plan.deployments for index in deployment.node_indices) + 1
+        return AllocationLayout(tuple(f"node-{index}" for index in range(node_count)))
 
 
 def _supervisor(
@@ -170,6 +177,7 @@ def test_controller_runs_preflight_servers_endpoint_client_and_cleanup(runtime_c
     assert result.candidate_output is not None
     assert [step.role for step in runner.steps] == [
         RuntimeStepRole.CLIENT_PREFLIGHT,
+        RuntimeStepRole.SERVER_PREFLIGHT,
         RuntimeStepRole.SERVER,
         RuntimeStepRole.ENDPOINT,
         RuntimeStepRole.CLIENT,
@@ -180,6 +188,37 @@ def test_controller_runs_preflight_servers_endpoint_client_and_cleanup(runtime_c
     assert state.readiness[-1].deployments[0].endpoint_publication is EndpointPublicationState.PUBLISHED
     assert all(process.poll() is not None for process in runner.processes)
     assert {step.stdout_path.parent.name for step in runner.steps} == {"execution-00000001"}
+
+
+def test_controller_runs_multi_node_deployments_and_probes_remote_heads(
+    multi_node_runtime_case: RuntimeCase,
+) -> None:
+    runtime_case = multi_node_runtime_case
+    clock = FakeClock(runtime_case.created_at.replace(second=10), monotonic_time=100)
+    state = FakeStateStore(runtime_case.context.attempt)
+    runner = _FakeRunner(generation_hook=lambda: _write_complete_result(runtime_case, clock))
+    prober = _FakeProber(ready=True, clock=clock)
+    controller = OneNodeAllocationController(
+        runtime_case.context,
+        runtime_proxy_path=runtime_case.context.attempt_directory / "runtime/proxy.py",
+        state=state,
+        supervisor=_supervisor(runner, clock),
+        preflight=FakePreflight(),
+        client_steps=FakeClientStepBuilder(),
+        prober=prober,
+        clock=clock,
+        environment={"HF_TOKEN": "server-secret"},
+    )
+
+    result = controller.run()
+
+    assert result.state is AttemptLifecycleState.SUCCEEDED
+    server_steps = tuple(step for step in runner.steps if step.role is RuntimeStepRole.SERVER)
+    assert len(server_steps) == 2
+    assert "--nodelist=node-0,node-1" in server_steps[0].command
+    assert "--nodelist=node-2" in server_steps[1].command
+    assert {"node-0", "node-2", "127.0.0.1"}.issubset(prober.hosts)
+    assert all(process.poll() is not None for process in runner.processes)
 
 
 def test_controller_publishes_result_before_success_with_real_state_writer(
@@ -302,6 +341,7 @@ def test_requeued_running_attempt_publishes_restart_epoch_and_uses_fresh_logs(
     assert state.readiness[-1].state is ReadinessState.STOPPED
     assert [step.role for step in runner.steps] == [
         RuntimeStepRole.CLIENT_PREFLIGHT,
+        RuntimeStepRole.SERVER_PREFLIGHT,
         RuntimeStepRole.SERVER,
         RuntimeStepRole.ENDPOINT,
         RuntimeStepRole.CLIENT,
@@ -330,6 +370,39 @@ def test_required_server_exit_fails_and_cleans_partial_start(runtime_case: Runti
 
     assert state.attempt.state is AttemptLifecycleState.FAILED
     assert ReadinessState.FAILED in [item.state for item in state.readiness]
+    assert state.readiness[-1].state is ReadinessState.STOPPED
+
+
+def test_one_distributed_deployment_failure_stops_all_deployments(
+    multi_node_runtime_case: RuntimeCase,
+) -> None:
+    runtime_case = multi_node_runtime_case
+    clock = FakeClock(runtime_case.created_at.replace(second=10), monotonic_time=100)
+    state = FakeStateStore(runtime_case.context.attempt)
+    runner = _FakeRunner(failed_step_id="deployment-00001-serve")
+    controller = OneNodeAllocationController(
+        runtime_case.context,
+        runtime_proxy_path=runtime_case.context.attempt_directory / "runtime/proxy.py",
+        state=state,
+        supervisor=_supervisor(runner, clock),
+        preflight=FakePreflight(),
+        client_steps=FakeClientStepBuilder(),
+        prober=_FakeProber(ready=True, clock=clock),
+        clock=clock,
+        environment={"HF_TOKEN": "server-secret"},
+    )
+
+    with pytest.raises(SlurmRuntimeError, match="status 23"):
+        controller.run()
+
+    server_processes = tuple(
+        process
+        for step, process in zip(runner.steps, runner.processes, strict=True)
+        if step.role is RuntimeStepRole.SERVER
+    )
+    assert len(server_processes) == 2
+    assert all(process.poll() is not None for process in server_processes)
+    assert all(step.role is not RuntimeStepRole.ENDPOINT for step in runner.steps)
     assert state.readiness[-1].state is ReadinessState.STOPPED
 
 
@@ -395,7 +468,12 @@ def test_readiness_timeout_fails_and_terminates_server(runtime_case: RuntimeCase
 
 @pytest.mark.parametrize(
     "failed_role",
-    (RuntimeStepRole.CLIENT_PREFLIGHT, RuntimeStepRole.ENDPOINT, RuntimeStepRole.CLIENT),
+    (
+        RuntimeStepRole.SERVER_PREFLIGHT,
+        RuntimeStepRole.CLIENT_PREFLIGHT,
+        RuntimeStepRole.ENDPOINT,
+        RuntimeStepRole.CLIENT,
+    ),
 )
 def test_managed_step_failure_fails_attempt_and_cleans_started_services(
     runtime_case: RuntimeCase,

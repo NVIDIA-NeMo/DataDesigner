@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -13,7 +14,37 @@ from conftest import RuntimeCase
 from data_designer.slurm.contracts import ArtifactReference
 from data_designer.slurm.runtime import preflight as runtime_preflight
 from data_designer.slurm.runtime.errors import SlurmRuntimeError
-from data_designer.slurm.runtime.preflight import SystemAllocationPreflight, _verify_artifact
+from data_designer.slurm.runtime.preflight import (
+    AllocationLayout,
+    ScontrolAllocationHostResolver,
+    SystemAllocationPreflight,
+    verify_artifact,
+    verify_local_ports,
+)
+
+
+def test_allocation_layout_rejects_negative_indices() -> None:
+    layout = AllocationLayout(("compute-001", "compute-002"))
+    with pytest.raises(SlurmRuntimeError, match="outside"):
+        layout.get_host(-1)
+
+
+def test_scontrol_resolver_is_shell_free_and_rejects_option_injection(monkeypatch: pytest.MonkeyPatch) -> None:
+    commands: list[tuple[str, ...]] = []
+
+    def run(command: tuple[str, ...], **options: object) -> subprocess.CompletedProcess[str]:
+        del options
+        commands.append(command)
+        return subprocess.CompletedProcess(command, 0, stdout="compute-001\ncompute-002\n", stderr="")
+
+    monkeypatch.setattr(runtime_preflight.subprocess, "run", run)
+    resolver = ScontrolAllocationHostResolver()
+
+    assert resolver.resolve("compute-[001-002]", {"PATH": "/usr/bin"}) == ("compute-001", "compute-002")
+    assert commands == [("scontrol", "show", "hostnames", "compute-[001-002]")]
+    with pytest.raises(SlurmRuntimeError, match="node list"):
+        resolver.resolve("--help", {})
+    assert len(commands) == 1
 
 
 def test_scheduler_preflight_accepts_exact_one_node_gpu_shape(runtime_case: RuntimeCase) -> None:
@@ -62,17 +93,17 @@ def test_artifact_verification_checks_exact_bytes_and_rejects_symlink(tmp_path: 
     artifact.write_bytes(content)
     reference = ArtifactReference(path=artifact.as_posix(), sha256=hashlib.sha256(content).hexdigest())
 
-    _verify_artifact(reference)
+    verify_artifact(reference)
     artifact.write_bytes(b"changed")
     with pytest.raises(OSError, match="digest"):
-        _verify_artifact(reference)
+        verify_artifact(reference)
 
     target = tmp_path / "target.bin"
     target.write_bytes(content)
     artifact.unlink()
     artifact.symlink_to(target)
     with pytest.raises(OSError, match="regular file"):
-        _verify_artifact(reference)
+        verify_artifact(reference)
 
 
 def test_artifact_verification_rejects_path_replacement_during_read(
@@ -100,7 +131,7 @@ def test_artifact_verification_rejects_path_replacement_during_read(
 
     monkeypatch.setattr(runtime_preflight.os, "fstat", replace_after_descriptor_validation)
     with pytest.raises(OSError, match="replaced while it was verified"):
-        _verify_artifact(reference)
+        verify_artifact(reference)
     assert replaced
 
 
@@ -127,7 +158,7 @@ def test_port_preflight_detects_collision_before_launch(
     monkeypatch.setattr("data_designer.slurm.runtime.preflight.socket.socket", _UnavailableSocket)
 
     with pytest.raises(SlurmRuntimeError, match="ports are unavailable"):
-        SystemAllocationPreflight._verify_ports(runtime_case.context)
+        verify_local_ports(runtime_case.context)
     assert _UnavailableSocket.closed
 
 
