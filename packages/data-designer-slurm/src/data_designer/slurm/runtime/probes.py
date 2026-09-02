@@ -28,7 +28,6 @@ class HttpReadinessProber:
         try:
             connection.request("GET", path, headers={"Connection": "close"})
             response = connection.getresponse()
-            response.read()
             return response.status == 200
         except (OSError, http.client.HTTPException):
             return False
