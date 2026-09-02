@@ -123,9 +123,9 @@ class SystemAllocationPreflight:
         try:
             for port in ports:
                 reservation = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                reservations.append(reservation)
                 reservation.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 0)
                 reservation.bind(("127.0.0.1", port))
-                reservations.append(reservation)
         except OSError as error:
             raise SlurmRuntimeError(
                 SlurmRuntimeErrorCode.PREFLIGHT_FAILED,

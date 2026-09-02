@@ -109,6 +109,8 @@ def test_port_preflight_detects_collision_before_launch(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     class _UnavailableSocket:
+        closed: bool = False
+
         def __init__(self, *arguments: object) -> None:
             del arguments
 
@@ -120,12 +122,13 @@ def test_port_preflight_detects_collision_before_launch(
             raise OSError("injected port collision")
 
         def close(self) -> None:
-            pass
+            type(self).closed = True
 
     monkeypatch.setattr("data_designer.slurm.runtime.preflight.socket.socket", _UnavailableSocket)
 
     with pytest.raises(SlurmRuntimeError, match="ports are unavailable"):
         SystemAllocationPreflight._verify_ports(runtime_case.context)
+    assert _UnavailableSocket.closed
 
 
 def test_attempt_directory_must_be_restrictive(runtime_case: RuntimeCase) -> None:
