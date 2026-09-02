@@ -21,6 +21,7 @@ from data_designer.slurm.config import DataDesignerSlurmConfig, SlurmProfile
 from data_designer.slurm.contracts import ArtifactReference, ContractValue, compute_canonical_json_sha256
 from data_designer.slurm.planning import ResolvedSlurmRunPlan
 from data_designer.slurm.state import (
+    AttemptId,
     AttemptLifecycleState,
     AttemptManifest,
     AttemptReadiness,
@@ -29,6 +30,7 @@ from data_designer.slurm.state import (
     ReadinessState,
     RunManifest,
     SchedulerIdentity,
+    ShardId,
     ShardManifest,
     SlurmStateError,
     SlurmStateWriter,
@@ -474,6 +476,30 @@ def test_attempt_recovery_rejects_unexpected_unpublished_records(
 
     with pytest.raises(StateCorruptionError, match="unpublished state records"):
         case.writer.load_attempts(attempt.shard_id)
+
+
+def test_public_attempt_readers_normalize_invalid_and_missing_identities(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    case = _initialized_case(tmp_path, authored_run_single, single_node_plan)
+
+    with pytest.raises(SlurmStateError, match="invalid shard identity"):
+        case.writer.load_attempts(cast(ShardId, "invalid"))
+    with pytest.raises(StateNotFoundError, match="shard"):
+        case.writer.load_attempts(cast(ShardId, "shard-99999"))
+    with pytest.raises(StateConflictError, match="next shard ordinal"):
+        case.writer.create_attempt(_attempt(case, ordinal=2))
+
+    attempt = _submitted_attempt(case)
+    case.writer.create_attempt(attempt)
+    with pytest.raises(SlurmStateError, match="invalid attempt identity"):
+        case.writer.load_attempt(attempt.shard_id, cast(AttemptId, "invalid"))
+    with pytest.raises(StateNotFoundError, match="attempt"):
+        case.writer.load_attempt(attempt.shard_id, cast(AttemptId, "attempt-9999"))
+    with pytest.raises(StateNotFoundError, match="no readiness snapshot"):
+        case.writer.load_readiness(attempt.shard_id, attempt.attempt_id)
 
 
 @pytest.mark.parametrize("collection_root", ("shards", "attempts"))
