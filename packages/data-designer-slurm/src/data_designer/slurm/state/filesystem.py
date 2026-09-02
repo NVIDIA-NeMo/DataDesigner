@@ -16,6 +16,7 @@ from pathlib import Path
 
 _DIRECTORY_MODE = 0o700
 _FILE_MODE = 0o600
+_READ_RETRY_ATTEMPTS = 10
 _TEMPORARY_NAME_PATTERN = re.compile(r"^\.state\.[0-9a-f]{16}\.tmp$")
 
 
@@ -147,39 +148,45 @@ def read_regular_text(
     maximum_size: int,
 ) -> str:
     """Read one restrictive regular UTF-8 file without following a symlink."""
-    descriptor: int | None = None
-    try:
-        before_open = _repair_interrupted_publication(
-            directory_descriptor,
-            name,
-            display_path,
-            os.stat(name, dir_fd=directory_descriptor, follow_symlinks=False),
-        )
-        if not _is_restrictive_regular(before_open):
-            raise OSError(f"state record {display_path} is not a restrictive regular file")
-        if before_open.st_size > maximum_size:
-            raise OSError(f"state record {display_path} exceeds its size limit")
-        descriptor = os.open(
-            name,
-            os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0),
-            dir_fd=directory_descriptor,
-        )
-        after_open = os.fstat(descriptor)
-        if not _is_restrictive_regular(after_open) or _get_file_facts(before_open) != _get_file_facts(after_open):
-            raise OSError(f"state record {display_path} changed while it was being opened")
-        record_file = os.fdopen(descriptor, "r", encoding="utf-8")
-        descriptor = None
-        with record_file:
-            content = record_file.read(maximum_size + 1)
-            if len(content.encode("utf-8")) > maximum_size:
+    for _ in range(_READ_RETRY_ATTEMPTS):
+        descriptor: int | None = None
+        try:
+            before_open = _repair_interrupted_publication(
+                directory_descriptor,
+                name,
+                display_path,
+                os.stat(name, dir_fd=directory_descriptor, follow_symlinks=False),
+            )
+            if not _is_restrictive_regular(before_open):
+                raise OSError(f"state record {display_path} is not a restrictive regular file")
+            if before_open.st_size > maximum_size:
                 raise OSError(f"state record {display_path} exceeds its size limit")
-            after_read = os.fstat(record_file.fileno())
-        if not _is_restrictive_regular(after_read) or _get_file_facts(after_open) != _get_file_facts(after_read):
-            raise OSError(f"state record {display_path} changed while it was being read")
-        return content
-    finally:
-        if descriptor is not None:
-            os.close(descriptor)
+            descriptor = os.open(
+                name,
+                os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0),
+                dir_fd=directory_descriptor,
+            )
+            after_open = os.fstat(descriptor)
+            if not _is_restrictive_regular(after_open):
+                raise OSError(f"state record {display_path} is not a restrictive regular file")
+            if _get_file_facts(before_open) != _get_file_facts(after_open):
+                continue
+            record_file = os.fdopen(descriptor, "r", encoding="utf-8")
+            descriptor = None
+            with record_file:
+                content = record_file.read(maximum_size + 1)
+                if len(content.encode("utf-8")) > maximum_size:
+                    raise OSError(f"state record {display_path} exceeds its size limit")
+                after_read = os.fstat(record_file.fileno())
+            if not _is_restrictive_regular(after_read):
+                raise OSError(f"state record {display_path} is not a restrictive regular file")
+            if _get_file_facts(after_open) != _get_file_facts(after_read):
+                continue
+            return content
+        finally:
+            if descriptor is not None:
+                os.close(descriptor)
+    raise OSError(f"state record {display_path} changed too often to read consistently")
 
 
 def publish_immutable_text(
@@ -339,7 +346,7 @@ def _repair_interrupted_publication(
     except FileNotFoundError:
         pass
     repaired = os.stat(name, dir_fd=directory_descriptor, follow_symlinks=False)
-    if (repaired.st_dev, repaired.st_ino) != (status.st_dev, status.st_ino) or not _is_restrictive_regular(repaired):
+    if not _is_restrictive_regular(repaired):
         raise OSError(f"state record {display_path} changed while recovering interrupted publication")
     return repaired
 

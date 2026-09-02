@@ -243,6 +243,93 @@ def test_concurrent_recovery_does_not_make_the_immutable_publisher_fail(
     assert not tuple(case.writer.run_root.glob(".state.*.tmp"))
 
 
+def test_interrupted_publication_recovery_accepts_a_concurrent_atomic_replacement(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    directory = tmp_path / "records"
+    directory.mkdir(mode=0o700)
+    record_path = directory / "record.json"
+    record_path.write_text("old")
+    record_path.chmod(0o600)
+    temporary_path = directory / ".state.0123456789abcdef.tmp"
+    os.link(record_path, temporary_path)
+    replacement_path = directory / "replacement.json"
+    replacement_path.write_text("new")
+    replacement_path.chmod(0o600)
+    original_unlink = state_filesystem.os.unlink
+
+    def replace_after_recovery_unlink(path: str, *, dir_fd: int | None = None) -> None:
+        assert dir_fd is not None
+        original_unlink(path, dir_fd=dir_fd)
+        os.replace(
+            replacement_path.name,
+            record_path.name,
+            src_dir_fd=dir_fd,
+            dst_dir_fd=dir_fd,
+        )
+
+    with state_filesystem.open_verified_directory(directory, require_private=True) as directory_descriptor:
+        monkeypatch.setattr(state_filesystem.os, "unlink", replace_after_recovery_unlink)
+        assert (
+            state_filesystem.read_regular_text(
+                directory_descriptor,
+                record_path.name,
+                record_path,
+                maximum_size=16,
+            )
+            == "new"
+        )
+
+
+def test_record_reader_retries_an_atomic_replacement_between_stat_and_open(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    directory = tmp_path / "records"
+    directory.mkdir(mode=0o700)
+    record_path = directory / "record.json"
+    record_path.write_text("old")
+    record_path.chmod(0o600)
+    replacement_path = directory / "replacement.json"
+    replacement_path.write_text("new")
+    replacement_path.chmod(0o600)
+    original_open = state_filesystem.os.open
+    replaced = False
+
+    with state_filesystem.open_verified_directory(directory, require_private=True) as directory_descriptor:
+
+        def replace_before_open(
+            path: str | bytes,
+            flags: int,
+            mode: int = 0o777,
+            *,
+            dir_fd: int | None = None,
+        ) -> int:
+            nonlocal replaced
+            if path == record_path.name and not replaced:
+                replaced = True
+                os.replace(
+                    replacement_path.name,
+                    record_path.name,
+                    src_dir_fd=directory_descriptor,
+                    dst_dir_fd=directory_descriptor,
+                )
+            return original_open(path, flags, mode, dir_fd=dir_fd)
+
+        monkeypatch.setattr(state_filesystem.os, "open", replace_before_open)
+        assert (
+            state_filesystem.read_regular_text(
+                directory_descriptor,
+                record_path.name,
+                record_path,
+                maximum_size=16,
+            )
+            == "new"
+        )
+    assert replaced
+
+
 def test_run_initialization_never_replaces_different_immutable_bytes(
     tmp_path: Path,
     authored_run_single: DataDesignerSlurmConfig,
