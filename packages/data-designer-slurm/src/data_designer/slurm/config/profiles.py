@@ -34,6 +34,17 @@ class SchedulerProfile(AuthoredConfig):
 
 class ImageBuildProfile(AuthoredConfig):
     partition: Identifier
+    cpus_per_task: PositiveInt
+    memory: Annotated[str, StringConstraints(pattern=r"^[1-9][0-9]*(?:K|M|G|T)$")]
+    time_limit: Annotated[str, StringConstraints(pattern=r"^[0-9]+:[0-5][0-9]:[0-5][0-9]$")]
+
+    @field_validator("time_limit")
+    @classmethod
+    def validate_time_limit(cls, value: str) -> str:
+        hours, minutes, seconds = (int(component) for component in value.split(":"))
+        if hours == minutes == seconds == 0:
+            raise ValueError("image-build time limit must be positive")
+        return value
 
 
 class ContainerMount(AuthoredConfig):
