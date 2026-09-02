@@ -117,17 +117,10 @@ class _StateReader:
         return self.get_attempt(self.load_attempts(shard_id), attempt_id)
 
     def load_readiness(self, shard_id: ShardId, attempt_id: AttemptId) -> AttemptReadiness:
-        try:
-            context = self.load_context()
-            _, plan, shards = context
-            self.get_shard(shards, shard_id)
-            attempt = self.get_attempt(self.load_attempts(shard_id, context), attempt_id)
-        except (IntegrationContractError, StateContractError) as error:
-            raise StateCorruptionError(f"shard {shard_id!r} has invalid attempts") from error
-        except (StateCorruptionError, StateNotFoundError):
-            raise
-        except (FileNotFoundError, OSError) as error:
-            raise StateCorruptionError(f"cannot load attempts for shard {shard_id!r}") from error
+        context = self.load_context()
+        _, plan, shards = context
+        self.get_shard(shards, shard_id)
+        attempt = self.get_attempt(self.load_attempts(shard_id, context), attempt_id)
         try:
             readiness = self._storage.read_readiness(shard_id, attempt_id)
             PlanStateValidator(plan).validate_readiness_snapshot(attempt, readiness)

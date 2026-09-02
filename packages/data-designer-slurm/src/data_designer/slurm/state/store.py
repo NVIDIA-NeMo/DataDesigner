@@ -104,30 +104,7 @@ class SlurmStateWriter:
         """Publish the next monotonically numbered attempt for one shard."""
         self._validate_attempt_location(attempt)
         try:
-            with self._storage.acquire_run_lock(), self._storage.acquire_shard_lock(attempt.shard_id):
-                run, plan, shards = self._reader.load_context()
-                shard = self._reader.get_shard(shards, attempt.shard_id)
-                attempts_by_shard = self._reader.load_validated_attempts(run, plan, shards)
-                shard_attempts = attempts_by_shard[attempt.shard_id]
-                existing = next((item for item in shard_attempts if item.attempt_id == attempt.attempt_id), None)
-                if existing is not None:
-                    if existing == attempt:
-                        self._storage.sync_attempt_directory(attempt.shard_id, attempt.attempt_id)
-                        return existing
-                    raise StateConflictError(f"attempt {attempt.attempt_id!r} already contains different state")
-                expected_ordinal = len(shard_attempts) + 1
-                if (
-                    attempt.attempt_ordinal != expected_ordinal
-                    or attempt.attempt_id != f"attempt-{expected_ordinal:04d}"
-                ):
-                    raise StateConflictError("attempt identity does not match the next shard ordinal")
-                self._reader.validate_attempt_against_plan(run, plan, shard, attempt)
-                all_attempts = tuple(
-                    item for current_shard in shards for item in attempts_by_shard[current_shard.shard_id]
-                ) + (attempt,)
-                validate_attempt_set(run, shards, all_attempts)
-                self._storage.publish_attempt(attempt)
-                return attempt
+            return self._create_attempt_with_locks(attempt)
         except (StateConflictError, StateCorruptionError, StateNotFoundError):
             raise
         except (IntegrationContractError, StateContractError) as error:
@@ -139,24 +116,7 @@ class SlurmStateWriter:
         """Atomically replace one attempt after validating its monotonic transition."""
         self._validate_attempt_location(attempt)
         try:
-            with self._storage.acquire_run_lock(), self._storage.acquire_shard_lock(attempt.shard_id):
-                run, plan, shards = self._reader.load_context()
-                shard = self._reader.get_shard(shards, attempt.shard_id)
-                attempts_by_shard = self._reader.load_validated_attempts(run, plan, shards)
-                previous = self._reader.get_attempt(attempts_by_shard[attempt.shard_id], attempt.attempt_id)
-                if previous == attempt:
-                    self._storage.sync_attempt_directory(attempt.shard_id, attempt.attempt_id)
-                    return previous
-                validate_attempt_transition(previous, attempt)
-                self._reader.validate_attempt_against_plan(run, plan, shard, attempt)
-                all_attempts = tuple(
-                    attempt if item.shard_id == attempt.shard_id and item.attempt_id == attempt.attempt_id else item
-                    for current_shard in shards
-                    for item in attempts_by_shard[current_shard.shard_id]
-                )
-                validate_attempt_set(run, shards, all_attempts)
-                self._storage.replace_attempt(attempt)
-                return attempt
+            return self._update_attempt_with_locks(attempt)
         except (StateConflictError, StateCorruptionError, StateNotFoundError):
             raise
         except (IntegrationContractError, StateContractError) as error:
@@ -179,28 +139,7 @@ class SlurmStateWriter:
         """Create or atomically replace one validated readiness snapshot."""
         self._validate_readiness_location(readiness)
         try:
-            with self._storage.acquire_shard_lock(readiness.shard_id):
-                run, plan, shards = self._reader.load_context()
-                attempts_by_shard = self._reader.load_validated_attempts(run, plan, shards)
-                attempt = self._reader.get_attempt(attempts_by_shard[readiness.shard_id], readiness.attempt_id)
-                try:
-                    previous = self._storage.read_readiness(readiness.shard_id, readiness.attempt_id)
-                except FileNotFoundError:
-                    PlanStateValidator(plan).validate_initial_readiness(attempt, readiness)
-                    self._storage.publish_readiness(readiness)
-                    return readiness
-                try:
-                    PlanStateValidator(plan).validate_readiness_snapshot(attempt, previous)
-                except IntegrationContractError as error:
-                    raise StateCorruptionError(
-                        f"attempt {readiness.attempt_id!r} has invalid persisted readiness"
-                    ) from error
-                if previous == readiness:
-                    self._storage.sync_attempt_directory(readiness.shard_id, readiness.attempt_id)
-                    return previous
-                validate_readiness_transition(previous, readiness)
-                self._storage.replace_readiness(readiness)
-                return readiness
+            return self._write_readiness_with_lock(readiness)
         except (StateConflictError, StateCorruptionError, StateNotFoundError):
             raise
         except (IntegrationContractError, StateContractError) as error:
@@ -213,6 +152,84 @@ class SlurmStateWriter:
         normalized_shard_id = self._validate_shard_id(shard_id)
         normalized_attempt_id = self._validate_attempt_id(attempt_id)
         return self._reader.load_readiness(normalized_shard_id, normalized_attempt_id)
+
+    def _create_attempt_with_locks(self, attempt: AttemptManifest) -> AttemptManifest:
+        with self._storage.acquire_run_lock(), self._storage.acquire_shard_lock(attempt.shard_id):
+            run, plan, shards = self._reader.load_context()
+            shard = self._reader.get_shard(shards, attempt.shard_id)
+            attempts_by_shard = self._reader.load_validated_attempts(run, plan, shards)
+            shard_attempts = attempts_by_shard[attempt.shard_id]
+            existing = next((item for item in shard_attempts if item.attempt_id == attempt.attempt_id), None)
+            if existing is not None:
+                if existing != attempt:
+                    raise StateConflictError(f"attempt {attempt.attempt_id!r} already contains different state")
+                self._storage.sync_attempt_directory(attempt.shard_id, attempt.attempt_id)
+                return existing
+            expected_ordinal = len(shard_attempts) + 1
+            if attempt.attempt_ordinal != expected_ordinal or attempt.attempt_id != f"attempt-{expected_ordinal:04d}":
+                raise StateConflictError("attempt identity does not match the next shard ordinal")
+            self._reader.validate_attempt_against_plan(run, plan, shard, attempt)
+            all_attempts = tuple(
+                item for current_shard in shards for item in attempts_by_shard[current_shard.shard_id]
+            ) + (attempt,)
+            validate_attempt_set(run, shards, all_attempts)
+            self._storage.publish_attempt(attempt)
+            return attempt
+
+    def _update_attempt_with_locks(self, attempt: AttemptManifest) -> AttemptManifest:
+        with self._storage.acquire_run_lock(), self._storage.acquire_shard_lock(attempt.shard_id):
+            run, plan, shards = self._reader.load_context()
+            shard = self._reader.get_shard(shards, attempt.shard_id)
+            attempts_by_shard = self._reader.load_validated_attempts(run, plan, shards)
+            previous = self._reader.get_attempt(attempts_by_shard[attempt.shard_id], attempt.attempt_id)
+            if previous == attempt:
+                self._storage.sync_attempt_directory(attempt.shard_id, attempt.attempt_id)
+                return previous
+            validate_attempt_transition(previous, attempt)
+            self._reader.validate_attempt_against_plan(run, plan, shard, attempt)
+            all_attempts = tuple(
+                attempt if item.shard_id == attempt.shard_id and item.attempt_id == attempt.attempt_id else item
+                for current_shard in shards
+                for item in attempts_by_shard[current_shard.shard_id]
+            )
+            validate_attempt_set(run, shards, all_attempts)
+            self._storage.replace_attempt(attempt)
+            return attempt
+
+    def _write_readiness_with_lock(self, readiness: AttemptReadiness) -> AttemptReadiness:
+        with self._storage.acquire_shard_lock(readiness.shard_id):
+            run, plan, shards = self._reader.load_context()
+            attempts_by_shard = self._reader.load_validated_attempts(run, plan, shards)
+            attempt = self._reader.get_attempt(attempts_by_shard[readiness.shard_id], readiness.attempt_id)
+            previous = self._load_optional_readiness(readiness)
+            if previous is None:
+                PlanStateValidator(plan).validate_initial_readiness(attempt, readiness)
+                self._storage.publish_readiness(readiness)
+                return readiness
+            self._validate_persisted_readiness(plan, attempt, previous)
+            if previous == readiness:
+                self._storage.sync_attempt_directory(readiness.shard_id, readiness.attempt_id)
+                return previous
+            validate_readiness_transition(previous, readiness)
+            self._storage.replace_readiness(readiness)
+            return readiness
+
+    def _load_optional_readiness(self, readiness: AttemptReadiness) -> AttemptReadiness | None:
+        try:
+            return self._storage.read_readiness(readiness.shard_id, readiness.attempt_id)
+        except FileNotFoundError:
+            return None
+
+    @staticmethod
+    def _validate_persisted_readiness(
+        plan: ResolvedSlurmRunPlan,
+        attempt: AttemptManifest,
+        readiness: AttemptReadiness,
+    ) -> None:
+        try:
+            PlanStateValidator(plan).validate_readiness_snapshot(attempt, readiness)
+        except IntegrationContractError as error:
+            raise StateCorruptionError(f"attempt {readiness.attempt_id!r} has invalid persisted readiness") from error
 
     def _validate_initial_state(
         self,
