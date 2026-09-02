@@ -20,6 +20,7 @@ from data_designer.slurm.runtime.models import RuntimeStep, RuntimeStepRole
 from data_designer.slurm.runtime.supervisor import StepSupervisor
 from data_designer.slurm.state import (
     AttemptLifecycleState,
+    AttemptReadiness,
     AttemptTerminalClassification,
     CandidateOutcome,
     CandidateOutputFile,
@@ -223,6 +224,37 @@ def test_required_server_exit_fails_and_cleans_partial_start(runtime_case: Runti
     assert state.attempt.state is AttemptLifecycleState.FAILED
     assert ReadinessState.FAILED in [item.state for item in state.readiness]
     assert state.readiness[-1].state is ReadinessState.STOPPED
+
+
+def test_interrupted_failed_readiness_write_cannot_bypass_cleanup(runtime_case: RuntimeCase) -> None:
+    clock = FakeClock(runtime_case.created_at.replace(second=10), monotonic_time=100)
+
+    class InterruptingState(FakeStateStore):
+        def write_readiness(self, readiness: AttemptReadiness) -> AttemptReadiness:
+            if readiness.state is ReadinessState.FAILED:
+                raise KeyboardInterrupt("injected readiness interruption")
+            return super().write_readiness(readiness)
+
+    state = InterruptingState(runtime_case.context.attempt)
+    runner = _FakeRunner(server_returncode=17)
+    controller = OneNodeAllocationController(
+        runtime_case.context,
+        runtime_proxy_path=runtime_case.context.attempt_directory / "runtime/proxy.py",
+        state=state,
+        supervisor=StepSupervisor(runner, clock=clock),
+        preflight=FakePreflight(),
+        client_steps=FakeClientStepBuilder(),
+        prober=_FakeProber(ready=True, clock=clock),
+        clock=clock,
+        environment={},
+    )
+
+    with pytest.raises(SlurmRuntimeError, match="required runtime step") as raised:
+        controller.run()
+
+    assert any("failed readiness could not be persisted: KeyboardInterrupt" in note for note in raised.value.__notes__)
+    assert all(process.poll() is not None for process in runner.processes)
+    assert state.attempt.state is AttemptLifecycleState.FAILED
 
 
 def test_readiness_timeout_fails_and_terminates_server(runtime_case: RuntimeCase) -> None:

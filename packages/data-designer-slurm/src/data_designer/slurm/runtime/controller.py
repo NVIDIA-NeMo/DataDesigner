@@ -372,7 +372,7 @@ class OneNodeAllocationController:
                     "allocation runtime failed",
                 )
             self._publish_readiness(ReadinessState.FAILED)
-        except Exception as error:
+        except BaseException as error:
             failure.add_note(f"failed readiness could not be persisted: {type(error).__name__}")
         return failure
 
