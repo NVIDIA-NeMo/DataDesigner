@@ -154,6 +154,9 @@ def _verify_artifact(reference: ArtifactReference) -> None:
             raise OSError(f"artifact {path} changed while it was read")
         if digest.hexdigest() != reference.sha256:
             raise OSError(f"artifact {path} digest does not match the plan")
+        current = path.lstat()
+        if not stat.S_ISREG(current.st_mode) or _file_identity(after) != _file_identity(current):
+            raise OSError(f"artifact {path} was replaced while it was verified")
     finally:
         os.close(descriptor)
 

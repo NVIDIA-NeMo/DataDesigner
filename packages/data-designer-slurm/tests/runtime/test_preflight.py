@@ -4,12 +4,14 @@
 from __future__ import annotations
 
 import hashlib
+import os
 from pathlib import Path
 
 import pytest
 from conftest import RuntimeCase
 
 from data_designer.slurm.contracts import ArtifactReference
+from data_designer.slurm.runtime import preflight as runtime_preflight
 from data_designer.slurm.runtime.errors import SlurmRuntimeError
 from data_designer.slurm.runtime.preflight import SystemAllocationPreflight, _verify_artifact
 
@@ -71,6 +73,35 @@ def test_artifact_verification_checks_exact_bytes_and_rejects_symlink(tmp_path: 
     artifact.symlink_to(target)
     with pytest.raises(OSError, match="regular file"):
         _verify_artifact(reference)
+
+
+def test_artifact_verification_rejects_path_replacement_during_read(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    artifact = tmp_path / "artifact.bin"
+    content = b"reviewed artifact"
+    artifact.write_bytes(content)
+    reference = ArtifactReference(path=artifact.as_posix(), sha256=hashlib.sha256(content).hexdigest())
+    replacement = tmp_path / "replacement.bin"
+    replacement.write_bytes(b"different artifact")
+    original_fstat = runtime_preflight.os.fstat
+    fstat_calls = 0
+    replaced = False
+
+    def replace_after_descriptor_validation(descriptor: int) -> os.stat_result:
+        nonlocal fstat_calls, replaced
+        status = original_fstat(descriptor)
+        fstat_calls += 1
+        if fstat_calls == 2:
+            replaced = True
+            os.replace(replacement, artifact)
+        return status
+
+    monkeypatch.setattr(runtime_preflight.os, "fstat", replace_after_descriptor_validation)
+    with pytest.raises(OSError, match="replaced while it was verified"):
+        _verify_artifact(reference)
+    assert replaced
 
 
 def test_port_preflight_detects_collision_before_launch(
