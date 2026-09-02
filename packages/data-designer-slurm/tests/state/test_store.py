@@ -9,7 +9,9 @@ import os
 import stat
 import subprocess
 import sys
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -1494,6 +1496,40 @@ def test_dataset_lock_rejects_unsafe_files_without_reclassifying_body_errors(
     with pytest.raises(FileNotFoundError, match="body failure"):
         with case.writer.acquire_dataset_workspace(attempt.shard_id, attempt.attempt_id, "never"):
             raise FileNotFoundError("body failure")
+
+
+def test_dataset_lock_interruption_closes_an_open_shard_context(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    case = _initialized_case(tmp_path, authored_run_single, single_node_plan)
+    shard_closed = False
+
+    @contextmanager
+    def open_shard(shard_id: ShardId) -> Iterator[int]:
+        nonlocal shard_closed
+        del shard_id
+        try:
+            yield 17
+        finally:
+            shard_closed = True
+
+    @contextmanager
+    def interrupt_lock(directory_descriptor: int, name: str, display_path: Path) -> Iterator[None]:
+        del directory_descriptor, name, display_path
+        raise KeyboardInterrupt("injected lock interruption")
+        yield
+
+    monkeypatch.setattr(case.writer, "_open_shard_directory", open_shard)
+    monkeypatch.setattr(state_store, "acquire_file_lock", interrupt_lock)
+
+    with pytest.raises(KeyboardInterrupt, match="lock interruption"):
+        with case.writer.acquire_dataset_workspace("shard-00000", "attempt-0001", "never"):
+            pass
+
+    assert shard_closed
 
 
 def test_fresh_process_loads_only_persisted_state(
