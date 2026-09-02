@@ -1504,6 +1504,46 @@ def test_winner_reader_rejects_a_reference_to_an_unknown_attempt(
             pass
 
 
+def test_semantically_corrupted_winner_is_corruption_at_every_writer_boundary(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    case = _initialized_case(tmp_path, authored_run_single, single_node_plan)
+    finalization = _complete_finalization_case(case)
+    winner = case.writer.finalize_winner(
+        finalization.attempt.shard_id,
+        finalization.attempt.attempt_id,
+        published_at=finalization.published_at,
+    )
+    corrupted = winner.model_copy(
+        update={
+            "candidate_manifest": winner.candidate_manifest.model_copy(
+                update={"sha256": "d" * 64},
+            )
+        }
+    )
+    _write_state_record(case.writer.run_root / "shards/shard-00000/winner.json", corrupted.serialize_json())
+
+    with pytest.raises(StateCorruptionError, match="winner chain"):
+        case.writer.load_winner(finalization.attempt.shard_id)
+    with pytest.raises(StateCorruptionError, match="winner chain"):
+        case.writer.finalize_winner(
+            finalization.attempt.shard_id,
+            finalization.attempt.attempt_id,
+            published_at=finalization.published_at,
+        )
+    with pytest.raises(StateCorruptionError, match="winner chain"):
+        case.writer.create_attempt(_attempt(case, ordinal=2))
+    with pytest.raises(StateCorruptionError, match="winner chain"):
+        with case.writer.acquire_dataset_workspace(
+            finalization.attempt.shard_id,
+            finalization.attempt.attempt_id,
+            "never",
+        ):
+            pass
+
+
 def test_resumable_workspace_is_shard_owned_and_exclusively_locked(
     tmp_path: Path,
     authored_run_single: DataDesignerSlurmConfig,
