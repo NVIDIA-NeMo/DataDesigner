@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import timedelta
 from pathlib import Path
 from typing import Callable
@@ -164,6 +164,38 @@ def test_preflight_failure_starts_no_process_and_fails_attempt(runtime_case: Run
         controller.run()
 
     assert raised.value.__cause__ is None
+    assert runner.steps == []
+    assert state.readiness == []
+    assert state.attempt.state is AttemptLifecycleState.FAILED
+
+
+def test_running_attempt_is_not_restarted_without_owned_process_identity(runtime_case: RuntimeCase) -> None:
+    clock = FakeClock(runtime_case.created_at.replace(second=10), monotonic_time=100)
+    running_attempt = runtime_case.context.attempt.__class__.model_validate(
+        runtime_case.context.attempt.model_dump(mode="python")
+        | {
+            "state": AttemptLifecycleState.RUNNING,
+            "updated_at": runtime_case.created_at + timedelta(seconds=2),
+        }
+    )
+    context = replace(runtime_case.context, attempt=running_attempt)
+    state = FakeStateStore(running_attempt)
+    runner = _FakeRunner()
+    controller = OneNodeAllocationController(
+        context,
+        runtime_proxy_path=context.attempt_directory / "runtime/proxy.py",
+        state=state,
+        supervisor=StepSupervisor(runner, clock=clock),
+        preflight=FakePreflight(),
+        client_steps=FakeClientStepBuilder(),
+        prober=_FakeProber(ready=True, clock=clock),
+        clock=clock,
+        environment={},
+    )
+
+    with pytest.raises(SlurmRuntimeError, match="not executable"):
+        controller.run()
+
     assert runner.steps == []
     assert state.readiness == []
     assert state.attempt.state is AttemptLifecycleState.FAILED

@@ -232,7 +232,6 @@ class OneNodeAllocationController:
         if self._attempt.state not in {
             AttemptLifecycleState.SUBMITTED,
             AttemptLifecycleState.PENDING,
-            AttemptLifecycleState.RUNNING,
         }:
             raise SlurmRuntimeError(
                 SlurmRuntimeErrorCode.INVALID_CONTEXT,
