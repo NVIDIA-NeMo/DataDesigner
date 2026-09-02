@@ -22,6 +22,7 @@ from data_designer.slurm.contracts import (
 from data_designer.slurm.state.artifacts import compute_candidate_schema_digest
 from data_designer.slurm.state.base import (
     SchedulerIdentity,
+    SchedulerJobIdentity,
     StateRecord,
     StateValue,
 )
@@ -37,6 +38,12 @@ from data_designer.slurm.state.execution import (
     AttemptTerminalClassification,
     RunManifest,
     ShardManifest,
+)
+from data_designer.slurm.state.observation import (
+    SchedulerAccountingRecord,
+    SchedulerObservationClient,
+    SchedulerObservationCollector,
+    SchedulerQueueRecord,
 )
 from data_designer.slurm.state.outputs import (
     CANDIDATE_OUTPUT_FORMAT,
@@ -66,6 +73,13 @@ from data_designer.slurm.state.scheduler import (
     SchedulerObservation,
     SchedulerState,
 )
+from data_designer.slurm.state.status import (
+    AttemptStatus,
+    EffectiveRunState,
+    GenerationState,
+    RunStatus,
+    ShardStatus,
+)
 from data_designer.slurm.state.validation import (
     StateContractError,
     validate_attempt_manifest,
@@ -80,9 +94,11 @@ from data_designer.slurm.state.validation import (
 )
 
 if TYPE_CHECKING:
+    from data_designer.slurm.state.observer import SlurmStateReconciler  # noqa: F401
     from data_designer.slurm.state.store import SlurmStateWriter  # noqa: F401
 
 _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
+    "SlurmStateReconciler": ("data_designer.slurm.state.observer", "SlurmStateReconciler"),
     "SlurmStateWriter": ("data_designer.slurm.state.store", "SlurmStateWriter"),
 }
 
@@ -92,6 +108,7 @@ __all__ = [
     "AttemptManifest",
     "AttemptId",
     "AttemptReadiness",
+    "AttemptStatus",
     "AttemptTerminalClassification",
     "CandidateOutcome",
     "CANDIDATE_OUTPUT_FORMAT",
@@ -105,23 +122,33 @@ __all__ = [
     "ContractValue",
     "DeploymentReadiness",
     "EffectiveAttemptState",
+    "EffectiveRunState",
     "EndpointPublicationState",
     "Identifier",
+    "GenerationState",
     "ProbeEvidence",
     "ProbeOutcome",
     "ReadinessState",
     "ReasonCode",
     "RecordRange",
     "RunManifest",
+    "RunStatus",
     "ResumeWorkspace",
     "SchedulerIdentity",
+    "SchedulerJobIdentity",
+    "SchedulerAccountingRecord",
+    "SchedulerObservationClient",
+    "SchedulerObservationCollector",
+    "SchedulerQueueRecord",
     "SchedulerObservation",
     "SchedulerState",
     "Sha256Digest",
     "ShardManifest",
+    "ShardStatus",
     "ShardId",
     "ShardWinner",
     "SlurmStateError",
+    "SlurmStateReconciler",
     "SlurmStateWriter",
     "StateConflictError",
     "StateContractError",

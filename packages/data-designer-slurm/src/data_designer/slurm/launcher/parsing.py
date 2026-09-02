@@ -11,11 +11,10 @@ from data_designer.slurm.launcher.errors import SlurmCommandOutputError
 from data_designer.slurm.launcher.models import (
     SlurmAccountingEntry,
     SlurmJobSubmissionReceipt,
-    SlurmObservedJobIdentity,
     SlurmProcessExitCode,
     SlurmQueueEntry,
 )
-from data_designer.slurm.state import SchedulerIdentity, SchedulerState
+from data_designer.slurm.state import SchedulerIdentity, SchedulerJobIdentity, SchedulerState
 
 _ARRAY_ID_PATTERN = re.compile(r"^(?P<job>[1-9][0-9]*)_(?P<task>[0-9]+)$")
 _JOB_ID_PATTERN = re.compile(r"^[1-9][0-9]*$")
@@ -71,7 +70,7 @@ def parse_submission(output: str) -> SlurmJobSubmissionReceipt:
 def parse_queue(output: str) -> tuple[SlurmQueueEntry, ...]:
     """Parse ``squeue --format=%i|%T`` rows."""
     entries: list[SlurmQueueEntry] = []
-    identities: set[SlurmObservedJobIdentity] = set()
+    identities: set[SchedulerJobIdentity] = set()
     for line_number, line in _collect_nonempty_lines(output):
         fields = line.split("|")
         if len(fields) != 2:
@@ -85,7 +84,7 @@ def parse_queue(output: str) -> tuple[SlurmQueueEntry, ...]:
 def parse_accounting(output: str) -> tuple[SlurmAccountingEntry, ...]:
     """Parse job and array-task rows from ``sacct --format=JobID,State,ExitCode``."""
     entries: list[SlurmAccountingEntry] = []
-    identities: set[SlurmObservedJobIdentity] = set()
+    identities: set[SchedulerJobIdentity] = set()
     for line_number, line in _collect_nonempty_lines(output):
         fields = line.split("|")
         if len(fields) != 3:
@@ -184,7 +183,7 @@ def _parse_array_identity(value: str, *, command: str, line_number: int) -> Sche
     )
 
 
-def _parse_job_identity(value: str, *, command: str, line_number: int) -> SlurmObservedJobIdentity:
+def _parse_job_identity(value: str, *, command: str, line_number: int) -> SchedulerJobIdentity:
     message = f"{command} line {line_number} contains an invalid job or array-task ID"
     if _JOB_ID_PATTERN.fullmatch(value) is not None:
         return _parse_decimal(value, message=message)
@@ -218,8 +217,8 @@ def _parse_decimal(value: str, *, message: str) -> int:
 
 
 def _reject_duplicate(
-    job_identity: SlurmObservedJobIdentity,
-    identities: set[SlurmObservedJobIdentity],
+    job_identity: SchedulerJobIdentity,
+    identities: set[SchedulerJobIdentity],
     *,
     command: str,
     line_number: int,

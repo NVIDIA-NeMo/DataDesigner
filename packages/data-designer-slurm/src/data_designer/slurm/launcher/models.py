@@ -6,11 +6,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TypeAlias
 
-from data_designer.slurm.state import SchedulerIdentity, SchedulerState
-
-SlurmObservedJobIdentity: TypeAlias = int | SchedulerIdentity
+from data_designer.slurm.state import SchedulerJobIdentity, SchedulerState
 
 
 @dataclass(frozen=True)
@@ -32,7 +29,7 @@ class SlurmProcessExitCode:
 class SlurmQueueEntry:
     """One transient normalized active-queue entry."""
 
-    job_identity: SlurmObservedJobIdentity
+    job_identity: SchedulerJobIdentity
     state: SchedulerState
 
 
@@ -40,6 +37,6 @@ class SlurmQueueEntry:
 class SlurmAccountingEntry:
     """One transient normalized accounting entry."""
 
-    job_identity: SlurmObservedJobIdentity
+    job_identity: SchedulerJobIdentity
     state: SchedulerState
     process_exit_code: SlurmProcessExitCode

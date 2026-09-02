@@ -9,7 +9,7 @@ from enum import Enum
 from pydantic import field_validator, model_validator
 
 from data_designer.slurm.state.base import (
-    SchedulerIdentity,
+    SchedulerJobIdentity,
     StateRecord,
     validate_optional_utc_timestamp,
     validate_utc_timestamp,
@@ -34,7 +34,7 @@ class SchedulerState(str, Enum):
 class SchedulerObservation(StateRecord):
     """Normalized scheduler observation used for deterministic reconciliation."""
 
-    scheduler: SchedulerIdentity
+    scheduler: SchedulerJobIdentity
     observed_at: datetime
     state: SchedulerState
     reconciliation_deadline: datetime | None = None
@@ -61,3 +61,21 @@ class EffectiveAttemptState(str, Enum):
     FAILED = "failed"
     ACCOUNTING_LAG = "accounting_lag"
     UNKNOWN = "unknown"
+
+
+def is_scheduler_failure_state(state: SchedulerState) -> bool:
+    """Return whether a scheduler state is terminal failure evidence."""
+    return state in {
+        SchedulerState.FAILED,
+        SchedulerState.CANCELLED,
+        SchedulerState.TIMED_OUT,
+        SchedulerState.NODE_FAILED,
+        SchedulerState.PREEMPTED,
+        SchedulerState.REQUEUED,
+        SchedulerState.OUT_OF_MEMORY,
+    }
+
+
+def is_scheduler_terminal_state(state: SchedulerState) -> bool:
+    """Return whether a scheduler state is terminal accounting evidence."""
+    return state is SchedulerState.COMPLETED or is_scheduler_failure_state(state)
