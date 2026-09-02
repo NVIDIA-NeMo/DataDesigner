@@ -207,9 +207,10 @@ class ClientWorker:
             progress.required(ClientProgressPhase.GENERATING, completed_records=0)
             self._prepare_dataset_workspace(context, prepared)
             results = self._generate_dataset(context, progress)
-            progress.required(ClientProgressPhase.FINALIZING, completed_records=results.actual_num_records)
             try:
-                result = self._finalize(context, prepared, results)
+                creation = self._validate_creation_result(context, prepared, results)
+                progress.required(ClientProgressPhase.FINALIZING, completed_records=creation.actual_records)
+                result = self._finalize(context, prepared, results, creation)
             except ClientWorkerError:
                 raise
             except Exception as error:
@@ -288,7 +289,7 @@ class ClientWorker:
             return _ExecutionContext(plan, shard, builder, designer, requested_resume, dataset_path)
         except ClientWorkerError:
             raise
-        except (StopIteration, ValidationError, ValueError, OSError, KeyError, TypeError) as error:
+        except Exception as error:
             raise ClientWorkerError(ClientErrorCode.CONFIG_INVALID, "Data Designer configuration is invalid") from error
 
     @staticmethod
@@ -504,8 +505,8 @@ class ClientWorker:
         context: _ExecutionContext,
         prepared: PreparedClientEnvironment,
         results: CreationResults,
+        creation: _ValidatedCreation,
     ) -> ClientResult:
-        creation = self._validate_creation_result(context, prepared, results)
         dataset_path, exported_path = self._place_dataset(creation, results)
         candidate = self._build_candidate_manifest(context, prepared, creation, dataset_path, exported_path)
         return self._publish_success(context, prepared, creation, candidate)
@@ -518,7 +519,7 @@ class ClientWorker:
     ) -> _ValidatedCreation:
         requested = context.shard.requested_records
         actual = results.actual_num_records
-        if results.requested_num_records != requested or actual > requested:
+        if results.requested_num_records != requested or not 0 <= actual <= requested:
             raise ClientWorkerError(ClientErrorCode.OUTPUT_INVALID, "Data Designer result counts are invalid")
         if results.early_shutdown is None or results.effective_resume_mode is None:
             raise ClientWorkerError(ClientErrorCode.OUTPUT_INVALID, "Data Designer result metadata is incomplete")

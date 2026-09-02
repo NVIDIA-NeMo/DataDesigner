@@ -85,7 +85,7 @@ def _parse_arguments(argv: Sequence[str] | None) -> argparse.Namespace:
 def _parse_endpoints(values: list[str]) -> dict[str, str]:
     endpoints: dict[str, str] = {}
     for value in values:
-        alias, separator, endpoint = value.partition("=")
+        alias, separator, endpoint = value.rpartition("=")
         if not separator or not alias or not endpoint or alias in endpoints:
             raise ClientWorkerError(ClientErrorCode.INVALID_INPUT, "runtime endpoint argument is invalid")
         endpoints[alias] = endpoint

@@ -9,10 +9,13 @@ import sys
 from dataclasses import replace
 from functools import partial
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 from conftest import ClientWorkerCase, FakeDataDesigner
 
+import data_designer.slurm.client.worker as worker_module
 from data_designer.config import ResumeMode
 from data_designer.slurm.client.errors import ClientWorkerError
 from data_designer.slurm.client.execution import ClientWorker
@@ -71,6 +74,60 @@ def test_preflight_rejects_missing_managed_assets(client_worker_case: ClientWork
         (client_worker_case.attempt_dir / "client-environment.json").read_text()
     )
     assert manifest.outcome is ClientEnvironmentOutcome.FAILED
+
+
+def test_preflight_normalizes_context_construction_failure(client_worker_case: ClientWorkerCase) -> None:
+    def factory(**_: object) -> FakeDataDesigner:
+        raise RuntimeError("credential=do-not-persist")
+
+    with pytest.raises(ClientWorkerError) as error:
+        ClientWorker(data_designer_factory=factory).preflight(
+            client_worker_case.plan_path,
+            prepared=client_worker_case.prepared,
+            endpoints=client_worker_case.endpoints,
+            plugins=(),
+        )
+
+    assert error.value.code is ClientErrorCode.CONFIG_INVALID
+    persisted = (client_worker_case.attempt_dir / "client-environment.json").read_text()
+    assert "do-not-persist" not in persisted
+    assert ClientEnvironmentManifest.model_validate_json(persisted).error_code == ClientErrorCode.CONFIG_INVALID.value
+
+
+def test_main_preserves_equals_in_model_alias(
+    client_worker_case: ClientWorkerCase,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    environment_builder = Mock()
+    environment_builder.prepare.return_value = client_worker_case.prepared
+    worker = Mock()
+    modules = {
+        "data_designer.slurm.client.plugins": SimpleNamespace(discover_plugins=lambda _: ()),
+        "data_designer.slurm.client.execution": SimpleNamespace(ClientWorker=lambda: worker),
+    }
+    monkeypatch.setattr(worker_module, "ClientEnvironmentBuilder", lambda: environment_builder)
+    monkeypatch.setattr(worker_module, "activate_environment", lambda _: None)
+    monkeypatch.setattr(worker_module, "importlib", SimpleNamespace(import_module=modules.__getitem__))
+    endpoint = "http://127.0.0.1:17000/v1"
+
+    result = worker_module.main(
+        [
+            "preflight",
+            "--plan",
+            client_worker_case.plan_path.as_posix(),
+            "--shard-id",
+            client_worker_case.prepared.shard_id,
+            "--attempt-id",
+            client_worker_case.prepared.attempt_id,
+            "--attempt-dir",
+            client_worker_case.attempt_dir.as_posix(),
+            "--endpoint",
+            f"judge=v2={endpoint}",
+        ]
+    )
+
+    assert result == 0
+    assert worker.preflight.call_args.kwargs["endpoints"] == {"judge=v2": endpoint}
 
 
 @pytest.mark.parametrize(
@@ -142,6 +199,29 @@ def test_run_normalizes_generation_failures(
     persisted = (client_worker_case.attempt_dir / "client-result.json").read_text()
     assert "do-not-persist" not in persisted
     assert ClientResult.model_validate_json(persisted).error_code == expected_code.value
+
+
+def test_run_rejects_overcount_as_invalid_output(client_worker_case: ClientWorkerCase) -> None:
+    actual_records = client_worker_case.plan.shards[0].requested_records + 1
+    worker = ClientWorker(data_designer_factory=partial(FakeDataDesigner, actual_records=actual_records))
+    worker.preflight(
+        client_worker_case.plan_path,
+        prepared=client_worker_case.prepared,
+        endpoints=client_worker_case.endpoints,
+        plugins=(),
+    )
+
+    with pytest.raises(ClientWorkerError) as error:
+        worker.run(
+            client_worker_case.plan_path,
+            prepared=client_worker_case.prepared,
+            endpoints=client_worker_case.endpoints,
+            plugins=(),
+        )
+
+    assert error.value.code is ClientErrorCode.OUTPUT_INVALID
+    persisted = ClientResult.model_validate_json((client_worker_case.attempt_dir / "client-result.json").read_text())
+    assert persisted.error_code == ClientErrorCode.OUTPUT_INVALID.value
 
 
 def test_preflight_rejects_required_resume_without_workspace(client_worker_case: ClientWorkerCase) -> None:
