@@ -1522,6 +1522,27 @@ def test_candidate_file_verification_does_not_hold_the_run_state_lock(
         assert finalizer.result().attempt_id == finalization.attempt.attempt_id
 
 
+def test_finalization_does_not_scan_unrelated_attempt_directories(
+    tmp_path: Path,
+    authored_run: DataDesignerSlurmConfig,
+    multi_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    case = _initialized_case(tmp_path, authored_run, multi_node_plan)
+    finalization = _complete_finalization_case(case)
+    unrelated_attempts = case.writer.run_root / "shards" / "shard-00001" / "attempts"
+    (unrelated_attempts / "unexpected").mkdir(mode=0o700)
+
+    winner = case.writer.finalize_winner(
+        finalization.attempt.shard_id,
+        finalization.attempt.attempt_id,
+        published_at=finalization.published_at,
+    )
+
+    assert case.writer.load_winner(finalization.attempt.shard_id) == winner
+    with pytest.raises(StateCorruptionError, match="invalid attempt directory"):
+        case.writer.load_attempts("shard-00001")
+
+
 def test_finalization_waits_for_the_dataset_writer_to_release_its_lease(
     tmp_path: Path,
     authored_run_single: DataDesignerSlurmConfig,

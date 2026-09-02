@@ -16,7 +16,6 @@ from pydantic import ValidationError
 
 from data_designer.slurm.client import ClientResult
 from data_designer.slurm.contracts import AttemptId, ShardId
-from data_designer.slurm.integration import IntegrationContractError, PlanStateValidator
 from data_designer.slurm.planning import ResolvedSlurmRunPlan
 from data_designer.slurm.state.artifacts import CandidateArtifactVerifier, VerifiedCandidateArtifacts
 from data_designer.slurm.state.errors import (
@@ -27,6 +26,7 @@ from data_designer.slurm.state.errors import (
 )
 from data_designer.slurm.state.execution import AttemptLifecycleState, AttemptManifest, RunManifest, ShardManifest
 from data_designer.slurm.state.outputs import CandidateOutputManifest, ShardWinner
+from data_designer.slurm.state.plan_validation import PersistedPlanStateValidator, PlanStateContractError
 from data_designer.slurm.state.reader import StateReader
 from data_designer.slurm.state.storage import StateStorage
 from data_designer.slurm.state.validation import StateContractError, validate_shard_winner
@@ -65,7 +65,7 @@ class WinnerFinalizer:
                 return self._finalize_with_dataset_lease(shard_id, attempt_id, published_at)
         except (StateConflictError, StateCorruptionError, StateNotFoundError):
             raise
-        except (IntegrationContractError, StateContractError, ValidationError) as error:
+        except (PlanStateContractError, StateContractError, ValidationError) as error:
             raise StateConflictError("attempt result is not eligible for winner publication") from error
         except FileNotFoundError as error:
             raise StateNotFoundError(
@@ -76,16 +76,15 @@ class WinnerFinalizer:
 
     def load_winner(self, shard_id: ShardId) -> ShardWinner:
         try:
-            run, plan, shards = self._reader.load_context()
-            shard = self._reader.get_shard(shards, shard_id)
-            attempts = self._reader.load_validated_attempts(run, plan, shards)[shard_id]
+            run, plan, shard = self._reader.load_shard_context(shard_id)
+            attempts = self._reader.load_validated_shard_attempts(run, plan, shard)
             winner = self.load_optional_winner(run, plan, shard, attempts)
             if winner is None:
                 raise StateNotFoundError(f"shard {shard_id!r} has no winner")
             return winner
         except (StateCorruptionError, StateNotFoundError):
             raise
-        except (IntegrationContractError, StateContractError) as error:
+        except (PlanStateContractError, StateContractError) as error:
             raise StateCorruptionError(f"shard {shard_id!r} has an invalid winner chain") from error
         except (FileNotFoundError, OSError) as error:
             raise StateCorruptionError(f"shard {shard_id!r} has unreadable winner state") from error
@@ -116,7 +115,7 @@ class WinnerFinalizer:
         attempt = self._get_winner_attempt(attempts, winner)
         try:
             self._validate_persisted_winner(run, plan, shard, attempt, winner)
-        except (IntegrationContractError, StateContractError) as error:
+        except (PlanStateContractError, StateContractError) as error:
             raise StateCorruptionError("persisted winner chain is invalid") from error
         return winner
 
@@ -152,7 +151,7 @@ class WinnerFinalizer:
         expected: _WinnerResolution,
         artifacts: VerifiedCandidateArtifacts,
     ) -> ShardWinner:
-        with self._storage.acquire_run_lock(), self._storage.acquire_shard_lock(shard_id):
+        with self._storage.acquire_shard_lock(shard_id):
             current = self._resolve_winner(shard_id, attempt_id, published_at)
             if current.already_published:
                 return current.winner
@@ -171,7 +170,7 @@ class WinnerFinalizer:
         attempt_id: AttemptId,
         published_at: datetime,
     ) -> _WinnerResolution:
-        with self._storage.acquire_run_lock(), self._storage.acquire_shard_lock(shard_id):
+        with self._storage.acquire_shard_lock(shard_id):
             return self._resolve_winner(shard_id, attempt_id, published_at)
 
     def _resolve_winner(
@@ -180,9 +179,8 @@ class WinnerFinalizer:
         attempt_id: AttemptId,
         published_at: datetime,
     ) -> _WinnerResolution:
-        run, plan, shards = self._reader.load_context()
-        shard = self._reader.get_shard(shards, shard_id)
-        attempts = self._reader.load_validated_attempts(run, plan, shards)[shard_id]
+        run, plan, shard = self._reader.load_shard_context(shard_id)
+        attempts = self._reader.load_validated_shard_attempts(run, plan, shard)
         attempt = self._reader.get_attempt(attempts, attempt_id)
         existing = self.load_optional_winner(run, plan, shard, attempts)
         client_result, candidate = self._load_finalization_records(attempt)
@@ -200,10 +198,9 @@ class WinnerFinalizer:
         attempt_id: AttemptId,
         effective_resume_mode: Literal["never", "always"],
     ) -> Path:
-        with self._storage.acquire_run_lock(), self._storage.acquire_shard_lock(shard_id):
-            run, plan, shards = self._reader.load_context()
-            shard = self._reader.get_shard(shards, shard_id)
-            attempts = self._reader.load_validated_attempts(run, plan, shards)[shard_id]
+        with self._storage.acquire_shard_lock(shard_id):
+            run, plan, shard = self._reader.load_shard_context(shard_id)
+            attempts = self._reader.load_validated_shard_attempts(run, plan, shard)
             attempt = self._reader.get_attempt(attempts, attempt_id)
             self.require_no_winner(run, plan, shard, attempts)
             self._validate_workspace_mode(plan, attempt, effective_resume_mode)
@@ -227,7 +224,7 @@ class WinnerFinalizer:
             return self._prepare_dataset_workspace(shard_id, attempt_id, effective_resume_mode)
         except (StateConflictError, StateCorruptionError, StateNotFoundError, SlurmStateError):
             raise
-        except (IntegrationContractError, StateContractError) as error:
+        except (PlanStateContractError, StateContractError) as error:
             raise StateConflictError("attempt cannot acquire the requested dataset workspace") from error
         except OSError as error:
             raise SlurmStateError(f"cannot prepare dataset workspace for attempt {attempt_id!r}") from error
@@ -288,7 +285,7 @@ class WinnerFinalizer:
         candidate: CandidateOutputManifest,
         winner: ShardWinner,
     ) -> None:
-        PlanStateValidator(plan).validate_finalization_chain(
+        PersistedPlanStateValidator(plan).validate_finalization_chain(
             plan.shards[shard.shard_index],
             attempt,
             client_result,

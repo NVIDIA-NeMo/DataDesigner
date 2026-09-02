@@ -290,7 +290,7 @@ class OneNodeAllocationController:
         generation_started_at = self._now()
         self._supervisor.wait(self._supervisor.start(generation), required=required_processes)
         self._supervisor.require_running(required_processes)
-        client_result, candidate = load_complete_client_candidate(self._context)
+        client_result, candidate = load_complete_client_candidate(self._context, self._attempt)
         self._validate_client_timestamps(candidate.created_at, client_result.completed_at, generation_started_at)
         candidate_reference = client_result.candidate_output_manifest
         if candidate_reference is None:  # pragma: no cover - the record contract requires this for complete results

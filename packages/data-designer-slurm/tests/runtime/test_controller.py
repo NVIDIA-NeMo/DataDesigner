@@ -586,7 +586,7 @@ def _write_complete_result(runtime_case: RuntimeCase, clock: FakeClock) -> None:
             ),
         ),
         dataset_schema_digest="b" * 64,
-        provenance_digest="c" * 64,
+        provenance_digest=context.plan.compute_sha256(),
     )
     candidate_path = context.attempt_directory / "output-manifest.json"
     _write_record(candidate_path, candidate.serialize_json())
