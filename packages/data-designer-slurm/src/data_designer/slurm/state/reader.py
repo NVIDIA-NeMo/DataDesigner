@@ -12,7 +12,7 @@ from data_designer.slurm.planning import ResolvedSlurmRunPlan
 from data_designer.slurm.state.errors import StateCorruptionError, StateNotFoundError
 from data_designer.slurm.state.execution import AttemptLifecycleState, AttemptManifest, RunManifest, ShardManifest
 from data_designer.slurm.state.readiness import AttemptReadiness
-from data_designer.slurm.state.storage import _StateStorage
+from data_designer.slurm.state.storage import StateStorage
 from data_designer.slurm.state.validation import (
     StateContractError,
     validate_attempt_manifest,
@@ -20,10 +20,10 @@ from data_designer.slurm.state.validation import (
 )
 
 
-class _StateReader:
+class StateReader:
     """Compose physical records into plan-validated state snapshots."""
 
-    def __init__(self, storage: _StateStorage, run_id: Identifier) -> None:
+    def __init__(self, storage: StateStorage, run_id: Identifier) -> None:
         self._storage = storage
         self._run_id = run_id
 

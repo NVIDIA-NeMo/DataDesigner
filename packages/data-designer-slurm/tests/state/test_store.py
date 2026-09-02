@@ -107,11 +107,11 @@ def test_context_loading_reads_each_immutable_record_once(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     case = _initialized_case(tmp_path, authored_run_single, single_node_plan)
-    original_read_record = state_storage._StateStorage.read_record
+    original_read_record = state_storage.StateStorage.read_record
     record_names: list[str] = []
 
     def track_read(
-        self: state_storage._StateStorage,
+        self: state_storage.StateStorage,
         directory_descriptor: int,
         name: str,
         display_path: Path,
@@ -120,7 +120,7 @@ def test_context_loading_reads_each_immutable_record_once(
         record_names.append(name)
         return original_read_record(self, directory_descriptor, name, display_path, record_type)
 
-    monkeypatch.setattr(state_storage._StateStorage, "read_record", track_read)
+    monkeypatch.setattr(state_storage.StateStorage, "read_record", track_read)
 
     assert case.writer.load_attempts("shard-00000") == ()
     assert record_names.count("run.json") == 1

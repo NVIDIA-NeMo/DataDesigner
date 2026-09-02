@@ -20,10 +20,10 @@ from data_designer.slurm.state.errors import (
     StateNotFoundError,
 )
 from data_designer.slurm.state.execution import AttemptManifest, RunManifest, ShardManifest
-from data_designer.slurm.state.reader import _StateReader
+from data_designer.slurm.state.reader import StateReader
 from data_designer.slurm.state.readiness import AttemptReadiness
 from data_designer.slurm.state.reconciliation import validate_readiness_transition
-from data_designer.slurm.state.storage import _StateStorage
+from data_designer.slurm.state.storage import StateStorage
 from data_designer.slurm.state.validation import (
     StateContractError,
     validate_attempt_set,
@@ -54,8 +54,8 @@ class SlurmStateWriter:
             normalized_run_id = _IDENTIFIER_ADAPTER.validate_python(run_id, strict=True)
         except (ValidationError, ValueError) as error:
             raise SlurmStateError("invalid persisted run location") from error
-        self._storage = _StateStorage(Path(normalized_root), normalized_run_id)
-        self._reader = _StateReader(self._storage, normalized_run_id)
+        self._storage = StateStorage(Path(normalized_root), normalized_run_id)
+        self._reader = StateReader(self._storage, normalized_run_id)
         self._run_id = normalized_run_id
 
     @property

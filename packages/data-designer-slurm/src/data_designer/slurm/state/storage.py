@@ -47,7 +47,7 @@ _TEMPORARY_NAME_PATTERN = re.compile(r"^\.state\.[0-9a-f]{16}\.tmp$")
 _RecordT = TypeVar("_RecordT", bound=ContractRecord)
 
 
-class _StateStorage:
+class StateStorage:
     """Own descriptor-bound paths, locking, and record serialization."""
 
     def __init__(self, workspace_root: Path, run_id: Identifier) -> None:
