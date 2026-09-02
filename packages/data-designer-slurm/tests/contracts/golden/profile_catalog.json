@@ -8,7 +8,10 @@
         "lab-login-*"
       ],
       "image_build": {
-        "partition": "cpu"
+        "cpus_per_task": 2,
+        "memory": "8G",
+        "partition": "cpu",
+        "time_limit": "02:00:00"
       },
       "scheduler": {
         "account": "lab",
@@ -33,7 +36,10 @@
         "primary-login-*"
       ],
       "image_build": {
-        "partition": "cpu"
+        "cpus_per_task": 4,
+        "memory": "16G",
+        "partition": "cpu",
+        "time_limit": "04:00:00"
       },
       "scheduler": {
         "account": "research",

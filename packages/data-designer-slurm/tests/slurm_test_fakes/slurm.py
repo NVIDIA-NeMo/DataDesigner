@@ -102,13 +102,21 @@ class FakeSlurmRunner:
         self._scripted_responses: dict[str, deque[FakeCommandResponse]] = {}
         self._sinfo_responses = dict(sinfo_responses or {})
         self.calls: list[tuple[str, ...]] = []
+        self.inputs: list[str | None] = []
 
-    def run(self, command: Sequence[str], *, check: bool = False) -> subprocess.CompletedProcess[str]:
+    def run(
+        self,
+        command: Sequence[str],
+        *,
+        check: bool = False,
+        input_text: str | None = None,
+    ) -> subprocess.CompletedProcess[str]:
         """Run one fake Slurm command and optionally raise on failure."""
         if not command:
             raise ValueError("command must not be empty")
         argv = tuple(command)
         self.calls.append(argv)
+        self.inputs.append(input_text)
         command_name = Path(argv[0]).name
         scripted = self._scripted_responses.get(command_name)
         if scripted:
