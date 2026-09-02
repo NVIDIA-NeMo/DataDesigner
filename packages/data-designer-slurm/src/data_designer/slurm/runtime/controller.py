@@ -36,7 +36,14 @@ from data_designer.slurm.state import (
     ProbeEvidence,
     ProbeOutcome,
     ReadinessState,
+    StateNotFoundError,
 )
+
+_READINESS_PROGRESS = {
+    ReadinessState.PENDING: 0,
+    ReadinessState.STARTING: 1,
+    ReadinessState.READY: 2,
+}
 
 
 class RuntimeStateStore(Protocol):
@@ -48,6 +55,10 @@ class RuntimeStateStore(Protocol):
 
     def write_readiness(self, readiness: AttemptReadiness) -> AttemptReadiness:
         """Persist the exact next readiness revision."""
+        ...
+
+    def load_readiness(self, shard_id: str, attempt_id: str) -> AttemptReadiness:
+        """Load the latest readiness revision for restart recovery."""
         ...
 
 
@@ -196,7 +207,7 @@ class OneNodeAllocationController:
             resolve_vllm_server(self._context.plan, deployment.deployment_id)
             for deployment in self._context.plan.deployments
         )
-        self._statuses = [_DeploymentStatus(deployment) for deployment in deployments]
+        self._statuses = self._initialize_statuses(deployments)
         self._publish_readiness(ReadinessState.PENDING)
         endpoint_steps = build_endpoint_steps(
             deployments,
@@ -219,7 +230,8 @@ class OneNodeAllocationController:
 
     def _start_runtime(self, topology: _RuntimeTopology) -> tuple[ManagedStep, ...]:
         for status in self._statuses:
-            status.state = ReadinessState.STARTING
+            if status.state is ReadinessState.PENDING:
+                status.state = ReadinessState.STARTING
         self._publish_readiness(ReadinessState.STARTING)
         server_processes = self._start_servers(topology.deployments)
         for status, required in zip(self._statuses, server_processes, strict=True):
@@ -282,11 +294,51 @@ class OneNodeAllocationController:
         if self._attempt.state not in {
             AttemptLifecycleState.SUBMITTED,
             AttemptLifecycleState.PENDING,
+            AttemptLifecycleState.RUNNING,
         }:
             raise SlurmRuntimeError(
                 SlurmRuntimeErrorCode.INVALID_CONTEXT,
                 "allocation attempt is not executable",
             )
+        if self._attempt.state is AttemptLifecycleState.RUNNING:
+            self._load_restart_readiness()
+
+    def _load_restart_readiness(self) -> None:
+        try:
+            readiness = self._state.load_readiness(self._attempt.shard_id, self._attempt.attempt_id)
+        except StateNotFoundError:
+            return
+        if readiness.state in {ReadinessState.FAILED, ReadinessState.STOPPED}:
+            raise SlurmRuntimeError(
+                SlurmRuntimeErrorCode.INVALID_CONTEXT,
+                "allocation attempt has terminal readiness and cannot be restarted",
+            )
+        self._readiness = readiness
+
+    def _initialize_statuses(
+        self,
+        deployments: tuple[ResolvedVllmServerDeployment, ...],
+    ) -> list[_DeploymentStatus]:
+        if self._readiness is None:
+            return [_DeploymentStatus(deployment) for deployment in deployments]
+        readiness_by_id = {deployment.deployment_id: deployment for deployment in self._readiness.deployments}
+        return [
+            self._restore_deployment_status(deployment, readiness_by_id[deployment.deployment_id])
+            for deployment in deployments
+        ]
+
+    @staticmethod
+    def _restore_deployment_status(
+        deployment: ResolvedVllmServerDeployment,
+        readiness: DeploymentReadiness,
+    ) -> _DeploymentStatus:
+        return _DeploymentStatus(
+            deployment=deployment,
+            state=readiness.state,
+            ready_backends=readiness.ready_backends,
+            endpoint_publication=readiness.endpoint_publication,
+            last_probe=readiness.last_probe,
+        )
 
     def _mark_attempt_running(self) -> None:
         if self._attempt.state is AttemptLifecycleState.RUNNING:
@@ -349,6 +401,8 @@ class OneNodeAllocationController:
             self._clock.sleep(self._poll_interval_seconds)
 
     def _record_backend_probe(self, status: _DeploymentStatus, ready: int, expected: int) -> None:
+        if status.state is ReadinessState.READY and ready != expected:
+            return
         status.ready_backends = ready
         status.last_probe = _probe_evidence(
             self._now(),
@@ -385,6 +439,8 @@ class OneNodeAllocationController:
             self._clock.sleep(self._poll_interval_seconds)
 
     def _publish_readiness(self, state: ReadinessState) -> None:
+        if self._readiness is not None and not _can_advance_readiness(self._readiness.state, state):
+            return
         revision = 1 if self._readiness is None else self._readiness.revision + 1
         readiness = AttemptReadiness(
             schema_version=1,
@@ -514,6 +570,14 @@ def _probe_evidence(
         reason_code=reason_code,
         redacted_message=message,
     )
+
+
+def _can_advance_readiness(previous: ReadinessState, current: ReadinessState) -> bool:
+    previous_progress = _READINESS_PROGRESS.get(previous)
+    current_progress = _READINESS_PROGRESS.get(current)
+    if previous_progress is None or current_progress is None:
+        return True
+    return current_progress >= previous_progress
 
 
 def _normalize_failure(error: BaseException) -> SlurmRuntimeError:

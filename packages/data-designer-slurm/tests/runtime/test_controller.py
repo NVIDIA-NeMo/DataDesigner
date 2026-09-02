@@ -26,6 +26,7 @@ from data_designer.slurm.state import (
     CandidateOutcome,
     CandidateOutputFile,
     CandidateOutputManifest,
+    DeploymentReadiness,
     EndpointPublicationState,
     ReadinessState,
 )
@@ -193,7 +194,19 @@ def test_preflight_failure_starts_no_process_and_fails_attempt(runtime_case: Run
     assert state.attempt.state is AttemptLifecycleState.FAILED
 
 
-def test_running_attempt_is_not_restarted_without_owned_process_identity(runtime_case: RuntimeCase) -> None:
+@pytest.mark.parametrize(
+    ("persisted_state", "ready_backends", "endpoint_publication"),
+    (
+        (ReadinessState.STARTING, 0, EndpointPublicationState.PENDING),
+        (ReadinessState.READY, 1, EndpointPublicationState.PUBLISHED),
+    ),
+)
+def test_requeued_running_attempt_continues_readiness_revision_without_regression(
+    runtime_case: RuntimeCase,
+    persisted_state: ReadinessState,
+    ready_backends: int,
+    endpoint_publication: EndpointPublicationState,
+) -> None:
     clock = FakeClock(runtime_case.created_at.replace(second=10), monotonic_time=100)
     running_attempt = runtime_case.context.attempt.__class__.model_validate(
         runtime_case.context.attempt.model_dump(mode="python")
@@ -203,8 +216,28 @@ def test_running_attempt_is_not_restarted_without_owned_process_identity(runtime
         }
     )
     context = replace(runtime_case.context, attempt=running_attempt)
-    state = FakeStateStore(running_attempt)
-    runner = _FakeRunner()
+    persisted_readiness = AttemptReadiness(
+        schema_version=1,
+        run_id=running_attempt.run_id,
+        shard_id=running_attempt.shard_id,
+        attempt_id=running_attempt.attempt_id,
+        revision=7,
+        updated_at=runtime_case.created_at + timedelta(seconds=3),
+        state=persisted_state,
+        deployments=(
+            DeploymentReadiness(
+                deployment_id=context.plan.deployments[0].deployment_id,
+                model_alias=context.plan.deployments[0].authored.model_alias,
+                state=persisted_state,
+                expected_backends=context.plan.deployments[0].topology.replica_count,
+                ready_backends=ready_backends,
+                endpoint_publication=endpoint_publication,
+            ),
+        ),
+    )
+    state = FakeStateStore(running_attempt, readiness=[persisted_readiness])
+    restarted_case = replace(runtime_case, context=context)
+    runner = _FakeRunner(generation_hook=lambda: _write_complete_result(restarted_case, clock))
     controller = OneNodeAllocationController(
         context,
         runtime_proxy_path=context.attempt_directory / "runtime/proxy.py",
@@ -217,12 +250,22 @@ def test_running_attempt_is_not_restarted_without_owned_process_identity(runtime
         environment={},
     )
 
-    with pytest.raises(SlurmRuntimeError, match="not executable"):
-        controller.run()
+    result = controller.run()
 
-    assert runner.steps == []
-    assert state.readiness == []
-    assert state.attempt.state is AttemptLifecycleState.FAILED
+    assert result.state is AttemptLifecycleState.SUCCEEDED
+    assert state.readiness[1].revision == 8
+    assert all(readiness.state is not ReadinessState.PENDING for readiness in state.readiness[1:])
+    if persisted_state is ReadinessState.READY:
+        assert all(
+            readiness.state in {ReadinessState.READY, ReadinessState.STOPPED} for readiness in state.readiness[1:]
+        )
+    assert state.readiness[-1].state is ReadinessState.STOPPED
+    assert [step.role for step in runner.steps] == [
+        RuntimeStepRole.CLIENT_PREFLIGHT,
+        RuntimeStepRole.SERVER,
+        RuntimeStepRole.ENDPOINT,
+        RuntimeStepRole.CLIENT,
+    ]
 
 
 def test_required_server_exit_fails_and_cleans_partial_start(runtime_case: RuntimeCase) -> None:

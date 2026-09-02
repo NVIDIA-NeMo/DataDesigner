@@ -20,6 +20,7 @@ from data_designer.slurm.state import (
     AttemptManifest,
     AttemptReadiness,
     SchedulerIdentity,
+    StateNotFoundError,
     validate_attempt_transition,
     validate_readiness_transition,
 )
@@ -48,6 +49,14 @@ class FakeStateStore:
         else:
             assert readiness.revision == 1
         self.readiness.append(readiness)
+        return readiness
+
+    def load_readiness(self, shard_id: str, attempt_id: str) -> AttemptReadiness:
+        if not self.readiness:
+            raise StateNotFoundError(f"attempt {attempt_id!r} has no readiness snapshot")
+        readiness = self.readiness[-1]
+        assert readiness.shard_id == shard_id
+        assert readiness.attempt_id == attempt_id
         return readiness
 
 
