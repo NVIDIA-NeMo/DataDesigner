@@ -5,11 +5,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import shutil
 import stat
 import subprocess
 from collections.abc import Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from pathlib import Path
+from threading import Barrier
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -17,24 +21,39 @@ import pytest
 from pydantic import ValidationError
 from slurm_test_fakes import FakeSlurmJob, FakeSlurmRunner
 
+import data_designer.slurm.images.lifecycle as image_lifecycle
 from data_designer.slurm.config import (
+    ClientImageInspection,
     ImageBuildProfile,
     ImageBuildRequest,
     ImageInspectionRecord,
+    ImageKind,
+    ImageRef,
+    InstalledDistribution,
     SchedulerProfile,
     SelectedSlurmProfile,
+    ServingImageInspection,
     SlurmProfile,
     injected_profile,
 )
 from data_designer.slurm.contracts import ArtifactReference
-from data_designer.slurm.images.errors import ImageLifecycleError
+from data_designer.slurm.images.errors import (
+    ImageConflictError,
+    ImageLifecycleError,
+    ImageRegistryError,
+    ImageVerificationError,
+)
 from data_designer.slurm.images.lifecycle import (
+    PreparedImageLifecycleJob,
+    cleanup_prepared_image_lifecycle,
     prepare_image_lifecycle_job,
+    publish_completed_image_lifecycle,
     render_image_lifecycle_script,
     submit_prepared_image_lifecycle,
 )
 from data_designer.slurm.images.records import ImageLifecycleOperation, ImageLifecyclePlan
 from data_designer.slurm.images.resources import inspect_image as resource_inspector
+from data_designer.slurm.images.service import VerifiedImageRegistry
 from data_designer.slurm.launcher.client import SlurmCommandClient
 
 
@@ -90,6 +109,7 @@ def test_prepare_existing_sqsh_inspects_in_place_without_oci_identity(tmp_path: 
     assert "enroot start --root" in script
     assert "inspect_image.py:x-create=file,bind,ro" in script
     assert "/output:x-create=dir,bind" in script
+    assert f'DD_INSPECTION_SQSH="{prepared.plan.job_directory}/verified.sqsh"' in script
 
 
 def test_image_lifecycle_renderer_uses_explicit_cpu_profile_and_safe_mounts(tmp_path: Path) -> None:
@@ -320,12 +340,18 @@ def test_prepare_refuses_duplicate_and_invalid_lifecycle_ids(tmp_path: Path) -> 
     workspace = tmp_path / "workspace"
     profile = _get_selected_profile(workspace)
     request = ImageBuildRequest(name="client", kind="client", source=(tmp_path / "client.sqsh").as_posix())
-    prepare_image_lifecycle_job(request, profile, lifecycle_id="image-job-0004")
+    original = prepare_image_lifecycle_job(request, profile, lifecycle_id="image-job-0004")
+    original_job_directory = Path(original.plan.job_directory)
+    sentinel = original_job_directory / "keep-existing-job"
+    sentinel.write_text("active")
 
     with pytest.raises(ImageLifecycleError, match="cannot prepare"):
         prepare_image_lifecycle_job(request, profile, lifecycle_id="image-job-0004")
     with pytest.raises(ImageLifecycleError, match="ID is invalid"):
         prepare_image_lifecycle_job(request, profile, lifecycle_id="../escape")  # type: ignore[arg-type]
+    assert sentinel.read_text() == "active"
+    assert Path(original.plan_file.path).is_file()
+    assert Path(original.script_file.path).is_file()
     assert not (workspace / "images" / ".tmp" / "escape").exists()
 
 
@@ -485,6 +511,24 @@ def test_submit_rejects_modified_prepared_files(tmp_path: Path, artifact_name: s
         submit_prepared_image_lifecycle(prepared, SlurmCommandClient(FakeSlurmRunner()))
 
 
+def test_submit_rejects_recreated_prepared_job_directory(tmp_path: Path) -> None:
+    prepared = prepare_image_lifecycle_job(
+        ImageBuildRequest(name="client", kind="client", source=(tmp_path / "client.sqsh").as_posix()),
+        _get_selected_profile(tmp_path / "workspace"),
+        lifecycle_id="image-job-recreated-before-submit",
+    )
+    job_directory = Path(prepared.plan.job_directory)
+    detached_job_directory = job_directory.with_name("detached-before-submit")
+    job_directory.rename(detached_job_directory)
+    shutil.copytree(detached_job_directory, job_directory)
+    runner = FakeSlurmRunner()
+
+    with pytest.raises(ImageLifecycleError, match="directory no longer matches its identity"):
+        submit_prepared_image_lifecycle(prepared, SlurmCommandClient(runner))
+
+    assert runner.calls == []
+
+
 def test_submit_rejects_modified_script_even_when_artifact_digest_is_rebound(tmp_path: Path) -> None:
     prepared = prepare_image_lifecycle_job(
         ImageBuildRequest(name="client", kind="client", source=(tmp_path / "client.sqsh").as_posix()),
@@ -522,6 +566,858 @@ def test_submit_uses_verified_script_bytes_when_path_changes_during_submission(t
     assert runner.command == ("sbatch", "--parsable", "--export=NIL")
     assert runner.input_text == expected_script
     assert Path(prepared.script_file.path).read_text() == "replaced after verification\n"
+
+
+@pytest.mark.parametrize("source_kind", ("oci", "existing"), ids=("oci-import", "existing-sqsh"))
+def test_publish_completed_lifecycle_registers_digest_bound_image_in_fresh_process(
+    tmp_path: Path,
+    source_kind: str,
+) -> None:
+    workspace = tmp_path / "workspace"
+    content = f"{source_kind} image".encode()
+    if source_kind == "oci":
+        source_digest = "a" * 64
+        source = f"registry.example.test/client@sha256:{source_digest}"
+    else:
+        source_digest = None
+        source = (tmp_path / "external" / "client.sqsh").as_posix()
+    prepared = prepare_image_lifecycle_job(
+        ImageBuildRequest(name="client", kind="client", source=source),
+        _get_selected_profile(workspace),
+        lifecycle_id=f"publish-{source_kind}",
+    )
+    source_path = Path(prepared.plan.sqsh_path)
+    source_path.parent.mkdir(parents=True, exist_ok=True)
+    source_path.write_bytes(content)
+    _write_completed_inspection(prepared, _get_client_inspection(content))
+
+    registered = publish_completed_image_lifecycle(prepared)
+
+    expected_path = source_path
+    if source_kind == "oci":
+        expected_path = workspace / "images" / "artifacts" / f"client-{hashlib.sha256(content).hexdigest()}.sqsh"
+    assert registered.path == expected_path.as_posix()
+    assert registered.source_oci_digest == source_digest
+    assert expected_path.read_bytes() == content
+    assert not Path(prepared.plan.job_directory).exists()
+    resolved = VerifiedImageRegistry(workspace).resolve_for_planning(
+        ImageRef(name="client"),
+        expected_kind=ImageKind.CLIENT,
+    )
+    assert resolved.path == expected_path.as_posix()
+    assert resolved.sha256 == hashlib.sha256(content).hexdigest()
+
+
+def test_publish_rejects_recreated_job_directory_with_substituted_result(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    prepared = _prepare_completed_oci_lifecycle(
+        workspace,
+        lifecycle_id="recreated-before-publication",
+        content=b"original",
+    )
+    _write_completed_inspection(prepared, _get_client_inspection(b"original"))
+    job_directory = Path(prepared.plan.job_directory)
+    detached_job_directory = job_directory.with_name("detached-before-publication")
+    job_directory.rename(detached_job_directory)
+    shutil.copytree(detached_job_directory, job_directory)
+    Path(prepared.plan.sqsh_path).write_bytes(b"substituted")
+    _write_completed_inspection(prepared, _get_client_inspection(b"substituted"))
+
+    with pytest.raises(ImageLifecycleError, match="directory no longer matches its identity"):
+        publish_completed_image_lifecycle(prepared)
+
+    assert VerifiedImageRegistry(workspace).list_images() == ()
+    assert Path(prepared.plan.sqsh_path).read_bytes() == b"substituted"
+    assert detached_job_directory.is_dir()
+
+
+def test_publish_reads_original_job_descriptor_after_directory_replacement(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    prepared = _prepare_completed_oci_lifecycle(
+        workspace,
+        lifecycle_id="replaced-during-publication",
+        content=b"original",
+    )
+    _write_completed_inspection(prepared, _get_client_inspection(b"original"))
+    job_directory = Path(prepared.plan.job_directory)
+    detached_job_directory = job_directory.with_name("detached-during-publication")
+    original_read_regular_file = image_lifecycle._read_regular_file
+    replaced = False
+
+    def replace_job_directory_before_read(
+        directory_descriptor: int,
+        name: str,
+        display_path: Path,
+        *,
+        maximum_size: int | None = None,
+    ) -> bytes:
+        nonlocal replaced
+        if not replaced:
+            replaced = True
+            job_directory.rename(detached_job_directory)
+            shutil.copytree(detached_job_directory, job_directory)
+            Path(prepared.plan.sqsh_path).write_bytes(b"substituted")
+            _write_completed_inspection(prepared, _get_client_inspection(b"substituted"))
+        return original_read_regular_file(
+            directory_descriptor,
+            name,
+            display_path,
+            maximum_size=maximum_size,
+        )
+
+    with (
+        patch(
+            "data_designer.slurm.images.lifecycle._read_regular_file",
+            side_effect=replace_job_directory_before_read,
+        ),
+        pytest.raises(ImageLifecycleError, match="cannot clean image lifecycle job"),
+    ):
+        publish_completed_image_lifecycle(prepared)
+
+    registered = VerifiedImageRegistry(workspace).list_images()
+    assert len(registered) == 1
+    assert Path(registered[0].path).read_bytes() == b"original"
+    assert Path(prepared.plan.sqsh_path).read_bytes() == b"substituted"
+    assert detached_job_directory.is_dir()
+
+
+@pytest.mark.parametrize(
+    ("inspection_payload", "match"),
+    (
+        (b"not-json\n", "invalid"),
+        (b"{}\n", "invalid"),
+        (b"x" * (1024 * 1024 + 1), "too large"),
+    ),
+    ids=("invalid-json", "incomplete-record", "oversized-record"),
+)
+def test_publish_rejects_invalid_inspection_and_cleans_temporary_state(
+    tmp_path: Path,
+    inspection_payload: bytes,
+    match: str,
+) -> None:
+    workspace = tmp_path / "workspace"
+    prepared = _prepare_completed_oci_lifecycle(workspace, lifecycle_id="invalid-output", content=b"candidate")
+    Path(prepared.plan.inspection_output_path).write_bytes(inspection_payload)
+
+    with pytest.raises(ImageLifecycleError, match=match):
+        publish_completed_image_lifecycle(prepared)
+
+    assert not Path(prepared.plan.job_directory).exists()
+    assert VerifiedImageRegistry(workspace).list_images() == ()
+    assert not (workspace / "images" / "artifacts").exists()
+
+
+def test_publish_rejects_fifo_inspection_without_blocking(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    prepared = _prepare_completed_oci_lifecycle(
+        workspace,
+        lifecycle_id="fifo-inspection-output",
+        content=b"candidate",
+    )
+    os.mkfifo(prepared.plan.inspection_output_path)
+
+    with pytest.raises(ImageLifecycleError, match="not regular"):
+        publish_completed_image_lifecycle(prepared)
+
+    assert not Path(prepared.plan.job_directory).exists()
+    assert VerifiedImageRegistry(workspace).list_images() == ()
+
+
+def test_publish_rejects_inspection_mutated_during_read(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    prepared = _prepare_completed_oci_lifecycle(
+        workspace,
+        lifecycle_id="inspection-mutated-during-read",
+        content=b"candidate",
+    )
+    inspection_path = Path(prepared.plan.inspection_output_path)
+    _write_completed_inspection(prepared, _get_client_inspection(b"candidate"))
+    inspection_inode = inspection_path.stat().st_ino
+    original_fstat = os.fstat
+    inspection_fstat_count = 0
+
+    def mutate_before_final_inspection_fstat(descriptor: int) -> os.stat_result:
+        nonlocal inspection_fstat_count
+        status = original_fstat(descriptor)
+        if status.st_ino == inspection_inode:
+            inspection_fstat_count += 1
+            if inspection_fstat_count == 2:
+                inspection_path.write_text("mutated")
+                status = original_fstat(descriptor)
+        return status
+
+    with (
+        patch("data_designer.slurm.images.lifecycle.os.fstat", side_effect=mutate_before_final_inspection_fstat),
+        pytest.raises(ImageLifecycleError, match="changed while it was being read"),
+    ):
+        publish_completed_image_lifecycle(prepared)
+
+    assert not Path(prepared.plan.job_directory).exists()
+    assert VerifiedImageRegistry(workspace).list_images() == ()
+
+
+def test_cleanup_failure_preserves_primary_publication_error_and_keeps_output_unusable(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    prepared = _prepare_completed_oci_lifecycle(workspace, lifecycle_id="cleanup-failure", content=b"candidate")
+    Path(prepared.plan.inspection_output_path).write_text("not-json")
+
+    with (
+        patch("data_designer.slurm.images.lifecycle.os.listdir", side_effect=OSError("injected cleanup failure")),
+        pytest.raises(ImageLifecycleError, match="inspection output is invalid"),
+    ):
+        publish_completed_image_lifecycle(prepared)
+
+    assert Path(prepared.plan.job_directory).exists()
+    assert VerifiedImageRegistry(workspace).list_images() == ()
+    assert not (workspace / "images" / "artifacts").exists()
+    cleanup_prepared_image_lifecycle(prepared)
+
+
+def test_explicit_cleanup_normalizes_failure(tmp_path: Path) -> None:
+    prepared = _prepare_completed_oci_lifecycle(
+        tmp_path / "workspace",
+        lifecycle_id="explicit-cleanup-failure",
+        content=b"candidate",
+    )
+
+    with (
+        patch("data_designer.slurm.images.lifecycle.os.listdir", side_effect=OSError("injected cleanup failure")),
+        pytest.raises(ImageLifecycleError, match="cannot clean image lifecycle job"),
+    ):
+        cleanup_prepared_image_lifecycle(prepared)
+
+    cleanup_prepared_image_lifecycle(prepared)
+
+
+def test_cleanup_refuses_replaced_job_directory(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    prepared = _prepare_completed_oci_lifecycle(
+        workspace,
+        lifecycle_id="replaced-cleanup-directory",
+        content=b"candidate",
+    )
+    job_directory = Path(prepared.plan.job_directory)
+    detached_job_directory = job_directory.with_name("detached-cleanup-directory")
+    job_directory.rename(detached_job_directory)
+    job_directory.mkdir()
+    replacement_sentinel = job_directory / "must-not-delete"
+    replacement_sentinel.write_text("replacement")
+
+    with pytest.raises(ImageLifecycleError, match="cannot clean"):
+        cleanup_prepared_image_lifecycle(prepared)
+
+    assert replacement_sentinel.read_text() == "replacement"
+    assert detached_job_directory.is_dir()
+    replacement_sentinel.unlink()
+    job_directory.rmdir()
+    detached_job_directory.rename(job_directory)
+    cleanup_prepared_image_lifecycle(prepared)
+
+
+def test_cleanup_does_not_descend_into_directory_replaced_after_identity_check(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    prepared = _prepare_completed_oci_lifecycle(
+        workspace,
+        lifecycle_id="replacement-during-cleanup",
+        content=b"candidate",
+    )
+    job_directory = Path(prepared.plan.job_directory)
+    detached_job_directory = job_directory.with_name("detached-during-cleanup")
+    replacement_sentinel = job_directory / "must-not-delete"
+    original_listdir = os.listdir
+    replaced = False
+
+    def replace_before_recursive_cleanup(directory_descriptor: int) -> list[str]:
+        nonlocal replaced
+        if not replaced:
+            replaced = True
+            job_directory.rename(detached_job_directory)
+            job_directory.mkdir()
+            replacement_sentinel.write_text("replacement")
+        return original_listdir(directory_descriptor)
+
+    with (
+        patch("data_designer.slurm.images.lifecycle.os.listdir", side_effect=replace_before_recursive_cleanup),
+        pytest.raises(ImageLifecycleError, match="cannot clean"),
+    ):
+        cleanup_prepared_image_lifecycle(prepared)
+
+    assert replacement_sentinel.read_text() == "replacement"
+    assert detached_job_directory.is_dir()
+    replacement_sentinel.unlink()
+    job_directory.rmdir()
+    detached_job_directory.rename(job_directory)
+    cleanup_prepared_image_lifecycle(prepared)
+
+
+def test_successful_publication_reports_cleanup_failure_without_invalidating_alias(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    prepared = _prepare_completed_oci_lifecycle(
+        workspace,
+        lifecycle_id="successful-cleanup-failure",
+        content=b"candidate",
+    )
+    _write_completed_inspection(prepared, _get_client_inspection(b"candidate"))
+
+    with (
+        patch("data_designer.slurm.images.lifecycle.os.listdir", side_effect=OSError("injected cleanup failure")),
+        pytest.raises(ImageLifecycleError, match="cannot clean image lifecycle job"),
+    ):
+        publish_completed_image_lifecycle(prepared)
+
+    assert Path(prepared.plan.job_directory).exists()
+    resolved = VerifiedImageRegistry(workspace).resolve_for_planning(
+        ImageRef(name="client"),
+        expected_kind=ImageKind.CLIENT,
+    )
+    assert Path(resolved.path).read_bytes() == b"candidate"
+    cleanup_prepared_image_lifecycle(prepared)
+
+
+@pytest.mark.parametrize("mismatch", ("digest", "kind"))
+def test_publish_rejects_mismatched_inspection_without_exposing_artifact(
+    tmp_path: Path,
+    mismatch: str,
+) -> None:
+    workspace = tmp_path / "workspace"
+    content = b"candidate"
+    prepared = _prepare_completed_oci_lifecycle(workspace, lifecycle_id=f"mismatch-{mismatch}", content=content)
+    inspection = (
+        _get_client_inspection(b"different") if mismatch == "digest" else _get_serving_inspection(content, "0.21.0")
+    )
+    _write_completed_inspection(prepared, inspection)
+
+    with pytest.raises(ImageVerificationError, match="digest|kind"):
+        publish_completed_image_lifecycle(prepared)
+
+    assert not Path(prepared.plan.job_directory).exists()
+    assert VerifiedImageRegistry(workspace).list_images() == ()
+    assert not (workspace / "images" / "artifacts").exists()
+
+
+def test_publish_requires_explicit_alias_replacement_and_preserves_prior_state(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    first = _prepare_completed_oci_lifecycle(workspace, lifecycle_id="first", content=b"first")
+    _write_completed_inspection(first, _get_client_inspection(b"first"))
+    original = publish_completed_image_lifecycle(first)
+    second = _prepare_completed_oci_lifecycle(workspace, lifecycle_id="second", content=b"second")
+    _write_completed_inspection(second, _get_client_inspection(b"second"))
+
+    with pytest.raises(ImageConflictError, match="already registered"):
+        publish_completed_image_lifecycle(second)
+
+    resolved = VerifiedImageRegistry(workspace).resolve_for_planning(
+        ImageRef(name="client"),
+        expected_kind=ImageKind.CLIENT,
+    )
+    assert resolved.path == original.path
+    assert Path(original.path).read_bytes() == b"first"
+    assert not Path(second.plan.job_directory).exists()
+    assert tuple((workspace / "images" / "artifacts").glob("*.sqsh")) == (Path(original.path),)
+
+
+def test_explicit_alias_replacement_publishes_new_artifact_without_deleting_prior_artifact(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    first = _prepare_completed_oci_lifecycle(workspace, lifecycle_id="first-replace", content=b"first")
+    _write_completed_inspection(first, _get_client_inspection(b"first"))
+    original = publish_completed_image_lifecycle(first)
+    second = _prepare_completed_oci_lifecycle(workspace, lifecycle_id="second-replace", content=b"second")
+    _write_completed_inspection(second, _get_client_inspection(b"second"))
+
+    replacement = publish_completed_image_lifecycle(second, replace=True)
+
+    assert replacement.path != original.path
+    assert Path(replacement.path).read_bytes() == b"second"
+    assert Path(original.path).read_bytes() == b"first"
+    assert VerifiedImageRegistry(workspace).list_images() == (replacement,)
+
+
+@pytest.mark.parametrize("existing_content", (b"candidate", b"conflict"), ids=("identical", "conflicting"))
+def test_artifact_path_collision_is_deterministic(tmp_path: Path, existing_content: bytes) -> None:
+    workspace = tmp_path / "workspace"
+    content = b"candidate"
+    prepared = _prepare_completed_oci_lifecycle(workspace, lifecycle_id="artifact-collision", content=content)
+    inspection = _get_client_inspection(content)
+    _write_completed_inspection(prepared, inspection)
+    artifact_path = workspace / "images" / "artifacts" / f"client-{inspection.sqsh_sha256}.sqsh"
+    artifact_path.parent.mkdir(parents=True)
+    artifact_path.write_bytes(existing_content)
+
+    if existing_content == content:
+        registered = publish_completed_image_lifecycle(prepared)
+        assert registered.path == artifact_path.as_posix()
+        assert artifact_path.read_bytes() == content
+    else:
+        with pytest.raises(ImageConflictError, match="conflicting bytes"):
+            publish_completed_image_lifecycle(prepared)
+        assert VerifiedImageRegistry(workspace).list_images() == ()
+        assert artifact_path.read_bytes() == existing_content
+    assert not Path(prepared.plan.job_directory).exists()
+
+
+@pytest.mark.parametrize("collision_kind", ("directory", "fifo", "symlink"))
+def test_nonregular_artifact_path_collision_is_deterministic(tmp_path: Path, collision_kind: str) -> None:
+    workspace = tmp_path / "workspace"
+    content = b"candidate"
+    prepared = _prepare_completed_oci_lifecycle(
+        workspace, lifecycle_id="nonregular-artifact-collision", content=content
+    )
+    inspection = _get_client_inspection(content)
+    _write_completed_inspection(prepared, inspection)
+    artifact_path = workspace / "images" / "artifacts" / f"client-{inspection.sqsh_sha256}.sqsh"
+    artifact_path.parent.mkdir(parents=True)
+    if collision_kind == "directory":
+        artifact_path.mkdir()
+    elif collision_kind == "fifo":
+        os.mkfifo(artifact_path)
+    else:
+        symlink_target = tmp_path / "symlink-target.sqsh"
+        symlink_target.write_bytes(b"outside")
+        artifact_path.symlink_to(symlink_target)
+    original_status = artifact_path.lstat()
+
+    with pytest.raises(ImageConflictError, match="cannot be reused"):
+        publish_completed_image_lifecycle(prepared)
+
+    current_status = artifact_path.lstat()
+    assert (current_status.st_dev, current_status.st_ino, stat.S_IFMT(current_status.st_mode)) == (
+        original_status.st_dev,
+        original_status.st_ino,
+        stat.S_IFMT(original_status.st_mode),
+    )
+    assert VerifiedImageRegistry(workspace).list_images() == ()
+    assert not Path(prepared.plan.job_directory).exists()
+
+
+def test_registry_failure_rolls_back_new_artifact_and_keeps_alias_unpublished(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    prepared = _prepare_completed_oci_lifecycle(workspace, lifecycle_id="registry-failure", content=b"candidate")
+    _write_completed_inspection(prepared, _get_client_inspection(b"candidate"))
+    original_replace = os.replace
+
+    def fail_registry_publish(source: str, destination: str, **kwargs: int) -> None:
+        if destination == "registry.yaml":
+            assert not Path(prepared.plan.sqsh_path).exists()
+            raise OSError("injected registry publication failure")
+        original_replace(source, destination, **kwargs)
+
+    with (
+        patch("data_designer.slurm.images.registry.os.replace", side_effect=fail_registry_publish),
+        pytest.raises(ImageRegistryError, match="cannot persist"),
+    ):
+        publish_completed_image_lifecycle(prepared)
+
+    assert VerifiedImageRegistry(workspace).list_images() == ()
+    assert not tuple((workspace / "images" / "artifacts").glob("*.sqsh"))
+    assert not Path(prepared.plan.job_directory).exists()
+
+
+def test_registry_failure_does_not_remove_replaced_artifact_path(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    prepared = _prepare_completed_oci_lifecycle(
+        workspace,
+        lifecycle_id="registry-failure-replaced-artifact",
+        content=b"candidate",
+    )
+    inspection = _get_client_inspection(b"candidate")
+    _write_completed_inspection(prepared, inspection)
+    artifact_path = workspace / "images" / "artifacts" / f"client-{inspection.sqsh_sha256}.sqsh"
+    original_replace = os.replace
+
+    def replace_artifact_before_registry_failure(source: str, destination: str, **kwargs: int) -> None:
+        if destination == "registry.yaml":
+            artifact_path.unlink()
+            artifact_path.write_bytes(b"replacement")
+            raise OSError("injected registry publication failure")
+        original_replace(source, destination, **kwargs)
+
+    with (
+        patch("data_designer.slurm.images.registry.os.replace", side_effect=replace_artifact_before_registry_failure),
+        pytest.raises(ImageRegistryError, match="cannot persist"),
+    ):
+        publish_completed_image_lifecycle(prepared)
+
+    assert VerifiedImageRegistry(workspace).list_images() == ()
+    assert artifact_path.read_bytes() == b"replacement"
+    assert not Path(prepared.plan.job_directory).exists()
+
+
+def test_artifact_directory_sync_failure_removes_new_artifact_and_alias(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    prepared = _prepare_completed_oci_lifecycle(workspace, lifecycle_id="artifact-sync-failure", content=b"candidate")
+    _write_completed_inspection(prepared, _get_client_inspection(b"candidate"))
+    artifact_directory = workspace / "images" / "artifacts"
+    original_fsync = os.fsync
+
+    def fail_artifact_directory_sync(descriptor: int) -> None:
+        descriptor_status = os.fstat(descriptor)
+        if artifact_directory.exists():
+            artifact_status = artifact_directory.stat()
+            if (descriptor_status.st_dev, descriptor_status.st_ino) == (
+                artifact_status.st_dev,
+                artifact_status.st_ino,
+            ):
+                raise OSError("injected sync failure")
+        original_fsync(descriptor)
+
+    with (
+        patch("data_designer.slurm.images.service.os.fsync", side_effect=fail_artifact_directory_sync),
+        pytest.raises(ImageVerificationError, match="cannot publish image artifact"),
+    ):
+        publish_completed_image_lifecycle(prepared)
+
+    assert VerifiedImageRegistry(workspace).list_images() == ()
+    assert not tuple((workspace / "images" / "artifacts").glob("*.sqsh"))
+    assert not Path(prepared.plan.job_directory).exists()
+
+
+def test_artifact_identity_lookup_failure_removes_new_artifact_and_alias(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    prepared = _prepare_completed_oci_lifecycle(
+        workspace,
+        lifecycle_id="artifact-identity-failure",
+        content=b"candidate",
+    )
+    inspection = _get_client_inspection(b"candidate")
+    _write_completed_inspection(prepared, inspection)
+    artifact_path = workspace / "images" / "artifacts" / f"client-{inspection.sqsh_sha256}.sqsh"
+    original_stat = os.stat
+    failed = False
+
+    def fail_artifact_identity_lookup(path: str, **kwargs: object) -> os.stat_result:
+        nonlocal failed
+        if path == artifact_path.name and not failed:
+            failed = True
+            raise OSError("injected artifact identity failure")
+        return original_stat(path, **kwargs)
+
+    with (
+        patch("data_designer.slurm.images.service.os.stat", side_effect=fail_artifact_identity_lookup),
+        pytest.raises(ImageVerificationError, match="cannot publish image artifact"),
+    ):
+        publish_completed_image_lifecycle(prepared)
+
+    assert VerifiedImageRegistry(workspace).list_images() == ()
+    assert not artifact_path.exists()
+    assert not Path(prepared.plan.job_directory).exists()
+
+
+def test_candidate_directory_sync_failure_removes_new_artifact_and_alias(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    prepared = _prepare_completed_oci_lifecycle(
+        workspace,
+        lifecycle_id="candidate-sync-failure",
+        content=b"candidate",
+    )
+    _write_completed_inspection(prepared, _get_client_inspection(b"candidate"))
+    candidate_directory = Path(prepared.plan.sqsh_path).parent
+    original_fsync = os.fsync
+    failed = False
+
+    def fail_candidate_directory_sync(descriptor: int) -> None:
+        nonlocal failed
+        descriptor_status = os.fstat(descriptor)
+        candidate_directory_status = candidate_directory.stat()
+        if not failed and (descriptor_status.st_dev, descriptor_status.st_ino) == (
+            candidate_directory_status.st_dev,
+            candidate_directory_status.st_ino,
+        ):
+            failed = True
+            raise OSError("injected candidate sync failure")
+        original_fsync(descriptor)
+
+    with (
+        patch("data_designer.slurm.images.service.os.fsync", side_effect=fail_candidate_directory_sync),
+        pytest.raises(ImageVerificationError, match="cannot publish image artifact"),
+    ):
+        publish_completed_image_lifecycle(prepared)
+
+    assert VerifiedImageRegistry(workspace).list_images() == ()
+    assert not tuple((workspace / "images" / "artifacts").glob("*.sqsh"))
+    assert not Path(prepared.plan.job_directory).exists()
+
+
+def test_artifact_file_sync_failure_removes_new_artifact_and_alias(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    prepared = _prepare_completed_oci_lifecycle(
+        workspace, lifecycle_id="artifact-file-sync-failure", content=b"candidate"
+    )
+    _write_completed_inspection(prepared, _get_client_inspection(b"candidate"))
+    artifact_path = workspace / "images" / "artifacts" / f"client-{hashlib.sha256(b'candidate').hexdigest()}.sqsh"
+    original_fsync = os.fsync
+
+    def fail_regular_file_sync(descriptor: int) -> None:
+        descriptor_status = os.fstat(descriptor)
+        if artifact_path.exists():
+            artifact_status = artifact_path.stat()
+            if (descriptor_status.st_dev, descriptor_status.st_ino) == (
+                artifact_status.st_dev,
+                artifact_status.st_ino,
+            ):
+                raise OSError("injected file sync failure")
+        original_fsync(descriptor)
+
+    with (
+        patch("data_designer.slurm.images.service.os.fsync", side_effect=fail_regular_file_sync),
+        pytest.raises(ImageVerificationError, match="cannot synchronize image artifact"),
+    ):
+        publish_completed_image_lifecycle(prepared)
+
+    assert VerifiedImageRegistry(workspace).list_images() == ()
+    assert not tuple((workspace / "images" / "artifacts").glob("*.sqsh"))
+    assert not Path(prepared.plan.job_directory).exists()
+
+
+def test_registry_directory_sync_failure_restores_prior_alias_and_artifact(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    first = _prepare_completed_oci_lifecycle(workspace, lifecycle_id="before-registry-sync", content=b"first")
+    _write_completed_inspection(first, _get_client_inspection(b"first"))
+    original = publish_completed_image_lifecycle(first)
+    second = _prepare_completed_oci_lifecycle(workspace, lifecycle_id="registry-sync-failure", content=b"second")
+    _write_completed_inspection(second, _get_client_inspection(b"second"))
+    original_fsync = os.fsync
+    image_root = workspace / "images"
+    image_root_sync_count = 0
+
+    def fail_published_registry_sync(descriptor: int) -> None:
+        nonlocal image_root_sync_count
+        descriptor_status = os.fstat(descriptor)
+        image_root_status = image_root.stat()
+        if (descriptor_status.st_dev, descriptor_status.st_ino) == (
+            image_root_status.st_dev,
+            image_root_status.st_ino,
+        ):
+            image_root_sync_count += 1
+            if image_root_sync_count == 2:
+                raise OSError("injected registry sync failure")
+        original_fsync(descriptor)
+
+    with (
+        patch("data_designer.slurm.images.registry.os.fsync", side_effect=fail_published_registry_sync),
+        pytest.raises(ImageRegistryError, match="cannot persist"),
+    ):
+        publish_completed_image_lifecycle(second, replace=True)
+
+    registry = VerifiedImageRegistry(workspace)
+    assert registry.list_images() == (original,)
+    assert Path(original.path).read_bytes() == b"first"
+    assert tuple((workspace / "images" / "artifacts").glob("*.sqsh")) == (Path(original.path),)
+    assert not Path(second.plan.job_directory).exists()
+
+
+def test_committed_marker_sync_failure_preserves_artifact_for_recovery(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    prepared = _prepare_completed_oci_lifecycle(
+        workspace,
+        lifecycle_id="committed-marker-sync-failure",
+        content=b"candidate",
+    )
+    inspection = _get_client_inspection(b"candidate")
+    _write_completed_inspection(prepared, inspection)
+    artifact_path = workspace / "images" / "artifacts" / f"client-{inspection.sqsh_sha256}.sqsh"
+    image_root = workspace / "images"
+    image_root_sync_count = 0
+    original_fsync = os.fsync
+
+    def fail_committed_marker_sync(descriptor: int) -> None:
+        nonlocal image_root_sync_count
+        descriptor_status = os.fstat(descriptor)
+        image_root_status = image_root.stat()
+        if (descriptor_status.st_dev, descriptor_status.st_ino) == (
+            image_root_status.st_dev,
+            image_root_status.st_ino,
+        ):
+            image_root_sync_count += 1
+            if image_root_sync_count == 3:
+                raise OSError("injected committed marker sync failure")
+        original_fsync(descriptor)
+
+    with (
+        patch("data_designer.slurm.images.registry.os.fsync", side_effect=fail_committed_marker_sync),
+        pytest.raises(ImageRegistryError, match="commit state requires recovery"),
+    ):
+        publish_completed_image_lifecycle(prepared)
+
+    committed_marker = image_root / ".registry.committed.yaml"
+    assert committed_marker.is_file()
+    assert artifact_path.read_bytes() == b"candidate"
+    registered = VerifiedImageRegistry(workspace).list_images()
+    assert len(registered) == 1
+    assert registered[0].path == artifact_path.as_posix()
+    assert not committed_marker.exists()
+    assert not Path(prepared.plan.job_directory).exists()
+
+
+def test_existing_sqsh_replacement_after_registry_rename_rolls_back_alias(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    image_path = tmp_path / "external" / "client.sqsh"
+    image_path.parent.mkdir()
+    image_path.write_bytes(b"client")
+    prepared = prepare_image_lifecycle_job(
+        ImageBuildRequest(name="client", kind="client", source=image_path.as_posix()),
+        _get_selected_profile(workspace),
+        lifecycle_id="existing-replacement",
+    )
+    _write_completed_inspection(prepared, _get_client_inspection(b"client"))
+    replacement = tmp_path / "replacement.sqsh"
+    replacement.write_bytes(b"replacement")
+    original_replace = os.replace
+
+    def replace_after_registry_publish(source: str, destination: str, **kwargs: int) -> None:
+        original_replace(source, destination, **kwargs)
+        if destination == "registry.yaml":
+            replacement.replace(image_path)
+
+    with (
+        patch("data_designer.slurm.images.registry.os.replace", side_effect=replace_after_registry_publish),
+        pytest.raises(ImageVerificationError, match="no longer matches"),
+    ):
+        publish_completed_image_lifecycle(prepared)
+
+    assert VerifiedImageRegistry(workspace).list_images() == ()
+    assert image_path.read_bytes() == b"replacement"
+    assert not Path(prepared.plan.job_directory).exists()
+
+
+def test_concurrent_same_alias_publications_have_one_consistent_winner(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    barrier = Barrier(2)
+
+    def publish(content: bytes) -> str:
+        prepared = _prepare_completed_oci_lifecycle(
+            workspace,
+            lifecycle_id=f"concurrent-{content.decode()}",
+            content=content,
+        )
+        _write_completed_inspection(prepared, _get_client_inspection(content))
+        barrier.wait()
+        return publish_completed_image_lifecycle(prepared).path
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = tuple(executor.submit(publish, content) for content in (b"first", b"second"))
+
+    successes = tuple(future.result() for future in futures if future.exception() is None)
+    failures = tuple(future.exception() for future in futures if future.exception() is not None)
+    assert len(successes) == 1
+    assert len(failures) == 1
+    assert isinstance(failures[0], ImageConflictError)
+    registered = VerifiedImageRegistry(workspace).list_images()
+    assert len(registered) == 1
+    assert registered[0].path == successes[0]
+    assert hashlib.sha256(Path(successes[0]).read_bytes()).hexdigest() == registered[0].sqsh_sha256
+    assert tuple((workspace / "images" / "artifacts").glob("*.sqsh")) == (Path(successes[0]),)
+
+
+def test_concurrent_aliases_for_same_existing_sqsh_preserve_both_bindings(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    image_path = tmp_path / "external" / "shared.sqsh"
+    image_path.parent.mkdir()
+    image_path.write_bytes(b"shared")
+    inspection = _get_client_inspection(b"shared")
+    barrier = Barrier(2)
+
+    def publish(name: str) -> str:
+        prepared = prepare_image_lifecycle_job(
+            ImageBuildRequest(name=name, kind="client", source=image_path.as_posix()),
+            _get_selected_profile(workspace),
+            lifecycle_id=f"shared-{name}",
+        )
+        _write_completed_inspection(prepared, inspection)
+        barrier.wait()
+        return publish_completed_image_lifecycle(prepared).name
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        names = tuple(executor.map(publish, ("alpha", "beta")))
+
+    assert names == ("alpha", "beta")
+    registered = VerifiedImageRegistry(workspace).list_images()
+    assert tuple(image.name for image in registered) == ("alpha", "beta")
+    assert {image.path for image in registered} == {image_path.as_posix()}
+
+
+def test_two_supported_serving_images_publish_and_resolve_independently(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    expected_versions = {"vllm-021": "0.21.3", "vllm-022": "0.22.1"}
+
+    for name, runtime_version in expected_versions.items():
+        content = f"{name}-{runtime_version}".encode()
+        prepared = prepare_image_lifecycle_job(
+            ImageBuildRequest(
+                name=name,
+                kind="serving",
+                source=f"registry.example.test/{name}@sha256:{hashlib.sha256(name.encode()).hexdigest()}",
+            ),
+            _get_selected_profile(workspace),
+            lifecycle_id=f"publish-{name}",
+        )
+        Path(prepared.plan.sqsh_path).write_bytes(content)
+        _write_completed_inspection(prepared, _get_serving_inspection(content, runtime_version))
+        publish_completed_image_lifecycle(prepared)
+
+    registry = VerifiedImageRegistry(workspace)
+    resolved = {
+        name: registry.resolve_for_planning(ImageRef(name=name), expected_kind=ImageKind.SERVING)
+        for name in expected_versions
+    }
+    assert {name: image.inspection_facts.runtime_version for name, image in resolved.items()} == expected_versions
+    assert resolved["vllm-021"].path != resolved["vllm-022"].path
+    assert resolved["vllm-021"].sha256 != resolved["vllm-022"].sha256
+
+
+def test_rendered_existing_inspection_rejects_path_replacement_and_cleans_output(tmp_path: Path) -> None:
+    image_path = tmp_path / "client.sqsh"
+    image_path.write_bytes(b"client image")
+    replacement = tmp_path / "replacement.sqsh"
+    replacement.write_bytes(b"replacement image")
+    prepared = prepare_image_lifecycle_job(
+        ImageBuildRequest(name="client", kind="client", source=image_path.as_posix()),
+        _get_selected_profile(tmp_path / "workspace"),
+        lifecycle_id="existing-path-replacement",
+    )
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_enroot = fake_bin / "enroot"
+    fake_enroot.write_text(
+        "#!/usr/bin/env bash\n"
+        "set -Eeuo pipefail\n"
+        'if [[ "$1" == "version" ]]; then\n'
+        "    printf '%s\\n' '4.0.0'\n"
+        'elif [[ "$1" == "create" ]]; then\n'
+        '    cp "${@: -1}" "${DD_TEST_INSPECTED_SQSH}"\n'
+        '    mv "${DD_TEST_REPLACEMENT}" "${DD_TEST_SOURCE}"\n'
+        'elif [[ "$1" == "start" ]]; then\n'
+        "    printf '%s\\n' '{}' > \"${DD_TEST_INSPECTION_OUTPUT}\"\n"
+        "fi\n"
+    )
+    fake_enroot.chmod(0o700)
+    script = render_image_lifecycle_script(prepared.plan).replace(
+        'export PATH="',
+        f'export PATH="{fake_bin.as_posix()}:',
+        1,
+    )
+
+    completed = subprocess.run(
+        ("bash",),
+        input=script,
+        capture_output=True,
+        text=True,
+        check=False,
+        env={
+            "DD_TEST_INSPECTION_OUTPUT": prepared.plan.inspection_output_path,
+            "DD_TEST_INSPECTED_SQSH": (tmp_path / "inspected.sqsh").as_posix(),
+            "DD_TEST_REPLACEMENT": replacement.as_posix(),
+            "DD_TEST_SOURCE": image_path.as_posix(),
+            "SLURM_CPUS_PER_TASK": "2",
+            "SLURM_JOB_ID": "5101",
+        },
+    )
+
+    assert completed.returncode == 74
+    assert "changed during inspection" in completed.stderr
+    assert (tmp_path / "inspected.sqsh").read_bytes() == b"client image"
+    assert image_path.read_bytes() == b"replacement image"
+    assert not Path(prepared.plan.inspection_output_path).exists()
+    assert not (Path(prepared.plan.job_directory) / "verified.sqsh").exists()
 
 
 def test_standalone_client_inspector_binds_pip_to_its_distribution(
@@ -642,6 +1538,72 @@ def _get_selected_profile(workspace: Path) -> SelectedSlurmProfile:
         ),
     )
     return injected_profile(profile)
+
+
+def _prepare_completed_oci_lifecycle(
+    workspace: Path,
+    *,
+    lifecycle_id: str,
+    content: bytes,
+) -> PreparedImageLifecycleJob:
+    prepared = prepare_image_lifecycle_job(
+        ImageBuildRequest(
+            name="client",
+            kind="client",
+            source=f"registry.example.test/client@sha256:{'a' * 64}",
+        ),
+        _get_selected_profile(workspace),
+        lifecycle_id=lifecycle_id,
+    )
+    Path(prepared.plan.sqsh_path).write_bytes(content)
+    return prepared
+
+
+def _write_completed_inspection(
+    prepared: PreparedImageLifecycleJob,
+    inspection: ImageInspectionRecord,
+) -> None:
+    Path(prepared.plan.inspection_output_path).write_text(inspection.model_dump_json())
+
+
+def _get_client_inspection(content: bytes) -> ImageInspectionRecord:
+    distributions = tuple(
+        InstalledDistribution(name=name, version="0.9.2")
+        for name in (
+            "data-designer",
+            "data-designer-config",
+            "data-designer-engine",
+            "data-designer-slurm",
+        )
+    ) + (InstalledDistribution(name="pip", version="26.1"),)
+    return ImageInspectionRecord(
+        schema_version=1,
+        inspector_version="inspector-1",
+        sqsh_sha256=hashlib.sha256(content).hexdigest(),
+        inspection=ClientImageInspection(
+            kind="client",
+            python_implementation="cpython",
+            python_version="3.13.3",
+            python_abi="cp313",
+            distributions=distributions,
+            installer_path="/usr/bin/pip",
+            installer_version="26.1",
+        ),
+    )
+
+
+def _get_serving_inspection(content: bytes, runtime_version: str) -> ImageInspectionRecord:
+    return ImageInspectionRecord(
+        schema_version=1,
+        inspector_version="inspector-1",
+        sqsh_sha256=hashlib.sha256(content).hexdigest(),
+        inspection=ServingImageInspection(
+            kind="serving",
+            server_type="vllm",
+            runtime_version=runtime_version,
+            executable_path="/usr/local/bin/vllm",
+        ),
+    )
 
 
 class _MutatingSubmissionRunner:
