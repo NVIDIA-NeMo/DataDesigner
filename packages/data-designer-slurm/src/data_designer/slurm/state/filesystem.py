@@ -138,42 +138,127 @@ def read_regular_text(
     raise OSError(f"state record {display_path} changed too often to read consistently")
 
 
-def verify_regular_file(
+@contextmanager
+def open_verified_regular_file(
     directory_descriptor: int,
     name: str,
     display_path: Path,
     *,
     expected_size: int,
     expected_sha256: str,
-) -> None:
-    """Digest-verify one restrictive regular file without following a symlink."""
-    descriptor: int | None = None
+    require_private: bool = True,
+) -> Iterator[int]:
+    """Hold one digest-verified regular file without following a symlink."""
+    descriptor, before_open = _open_digest_verified_file(
+        directory_descriptor,
+        name,
+        display_path,
+        expected_size,
+        expected_sha256,
+        require_private,
+    )
+    body_failed = False
     try:
-        before_open = os.stat(name, dir_fd=directory_descriptor, follow_symlinks=False)
-        if not _is_restrictive_regular(before_open) or before_open.st_size != expected_size:
-            raise OSError(f"candidate file {display_path} is not the expected restrictive regular file")
-        descriptor = os.open(
-            name,
-            os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0),
-            dir_fd=directory_descriptor,
-        )
-        after_open = os.fstat(descriptor)
-        if not _is_restrictive_regular(after_open) or get_file_facts(before_open) != get_file_facts(after_open):
-            raise OSError(f"candidate file {display_path} changed while it was being opened")
-        digest = hashlib.sha256()
-        while chunk := os.read(descriptor, 1024 * 1024):
-            digest.update(chunk)
-        after_read = os.fstat(descriptor)
-        if not _is_restrictive_regular(after_read) or get_file_facts(after_open) != get_file_facts(after_read):
-            raise OSError(f"candidate file {display_path} changed while it was being read")
-        if digest.hexdigest() != expected_sha256:
-            raise OSError(f"candidate file {display_path} digest does not match its manifest")
-        current = os.stat(name, dir_fd=directory_descriptor, follow_symlinks=False)
-        if not _is_restrictive_regular(current) or _get_file_facts(after_read) != _get_file_facts(current):
-            raise OSError(f"candidate file {display_path} was replaced while it was being verified")
+        yield descriptor
+    except BaseException:
+        body_failed = True
+        raise
     finally:
-        if descriptor is not None:
-            os.close(descriptor)
+        _close_verified_file(
+            directory_descriptor,
+            name,
+            display_path,
+            descriptor,
+            before_open,
+            require_private,
+            body_failed,
+        )
+
+
+def _open_digest_verified_file(
+    directory_descriptor: int,
+    name: str,
+    display_path: Path,
+    expected_size: int,
+    expected_sha256: str,
+    require_private: bool,
+) -> tuple[int, os.stat_result]:
+    before_open = os.stat(name, dir_fd=directory_descriptor, follow_symlinks=False)
+    if not _is_safe_regular(before_open, require_private) or before_open.st_size != expected_size:
+        raise OSError(f"candidate file {display_path} is not the expected safe regular file")
+    descriptor = os.open(
+        name,
+        os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0),
+        dir_fd=directory_descriptor,
+    )
+    try:
+        _verify_opened_file(descriptor, before_open, display_path, expected_sha256, require_private)
+        return descriptor, before_open
+    except BaseException:
+        os.close(descriptor)
+        raise
+
+
+def _verify_opened_file(
+    descriptor: int,
+    before_open: os.stat_result,
+    display_path: Path,
+    expected_sha256: str,
+    require_private: bool,
+) -> None:
+    after_open = os.fstat(descriptor)
+    if not _is_safe_regular(after_open, require_private) or get_file_facts(before_open) != get_file_facts(after_open):
+        raise OSError(f"candidate file {display_path} changed while it was being opened")
+    digest = hashlib.sha256()
+    while chunk := os.read(descriptor, 1024 * 1024):
+        digest.update(chunk)
+    if digest.hexdigest() != expected_sha256:
+        raise OSError(f"candidate file {display_path} digest does not match its manifest")
+    os.lseek(descriptor, 0, os.SEEK_SET)
+
+
+def _close_verified_file(
+    directory_descriptor: int,
+    name: str,
+    display_path: Path,
+    descriptor: int,
+    before_open: os.stat_result,
+    require_private: bool,
+    body_failed: bool,
+) -> None:
+    try:
+        _verify_open_file_binding(
+            directory_descriptor,
+            name,
+            display_path,
+            descriptor,
+            before_open,
+            require_private,
+        )
+    except OSError:
+        if not body_failed:
+            raise
+    finally:
+        os.close(descriptor)
+
+
+def _verify_open_file_binding(
+    directory_descriptor: int,
+    name: str,
+    display_path: Path,
+    descriptor: int,
+    before_open: os.stat_result,
+    require_private: bool,
+) -> None:
+    after_read = os.fstat(descriptor)
+    current = os.stat(name, dir_fd=directory_descriptor, follow_symlinks=False)
+    if (
+        not _is_safe_regular(after_read, require_private)
+        or not _is_safe_regular(current, require_private)
+        or get_file_facts(before_open) != get_file_facts(after_read)
+        or get_file_facts(after_read) != get_file_facts(current)
+    ):
+        raise OSError(f"candidate file {display_path} changed while it was being verified")
 
 
 def publish_immutable_text(
@@ -338,3 +423,8 @@ def _repair_interrupted_publication(
 
 def _is_restrictive_regular(status: os.stat_result) -> bool:
     return stat.S_ISREG(status.st_mode) and status.st_nlink == 1 and not status.st_mode & 0o077
+
+
+def _is_safe_regular(status: os.stat_result, require_private: bool) -> bool:
+    forbidden_mode = 0o077 if require_private else 0o022
+    return stat.S_ISREG(status.st_mode) and status.st_nlink == 1 and not status.st_mode & forbidden_mode

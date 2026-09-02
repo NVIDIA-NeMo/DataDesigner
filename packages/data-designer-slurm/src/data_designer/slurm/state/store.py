@@ -5,7 +5,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
+from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Literal
 
 from pydantic import TypeAdapter, ValidationError
 
@@ -19,6 +23,8 @@ from data_designer.slurm.state.errors import (
     StateNotFoundError,
 )
 from data_designer.slurm.state.execution import AttemptManifest, RunManifest, ShardManifest
+from data_designer.slurm.state.finalization import WinnerFinalizer
+from data_designer.slurm.state.outputs import ShardWinner
 from data_designer.slurm.state.plan_validation import PersistedPlanStateValidator, PlanStateContractError
 from data_designer.slurm.state.reader import StateReader
 from data_designer.slurm.state.readiness import AttemptReadiness
@@ -57,6 +63,7 @@ class SlurmStateWriter:
             raise SlurmStateError("invalid persisted run location") from error
         self._storage = StateStorage(Path(normalized_root), normalized_run_id)
         self._reader = StateReader(self._storage, normalized_run_id)
+        self._finalizer = WinnerFinalizer(self._storage, self._reader)
         self._run_id = normalized_run_id
 
     @property
@@ -154,8 +161,52 @@ class SlurmStateWriter:
         normalized_attempt_id = self._validate_attempt_id(attempt_id)
         return self._reader.load_readiness(normalized_shard_id, normalized_attempt_id)
 
+    @contextmanager
+    def acquire_dataset_workspace(
+        self,
+        shard_id: ShardId,
+        attempt_id: AttemptId,
+        effective_resume_mode: Literal["never", "always"],
+    ) -> Iterator[Path]:
+        """Yield one validated dataset path while holding its shard lease."""
+        normalized_shard_id = self._validate_shard_id(shard_id)
+        normalized_attempt_id = self._validate_attempt_id(attempt_id)
+        if type(effective_resume_mode) is not str or effective_resume_mode not in {"never", "always"}:
+            raise StateConflictError("effective resume mode must be 'never' or 'always'")
+        with self._finalizer.acquire_dataset_workspace(
+            normalized_shard_id,
+            normalized_attempt_id,
+            effective_resume_mode,
+        ) as dataset_path:
+            yield dataset_path
+
+    def finalize_winner(
+        self,
+        shard_id: ShardId,
+        attempt_id: AttemptId,
+        *,
+        published_at: datetime,
+    ) -> ShardWinner:
+        """Validate attempt-local artifacts and publish one immutable winner."""
+        normalized_shard_id = self._validate_shard_id(shard_id)
+        normalized_attempt_id = self._validate_attempt_id(attempt_id)
+        if (
+            not isinstance(published_at, datetime)
+            or published_at.tzinfo is None
+            or published_at.utcoffset() != timedelta(0)
+        ):
+            raise StateConflictError("winner publication timestamp must be timezone-aware UTC")
+        return self._finalizer.finalize_winner(normalized_shard_id, normalized_attempt_id, published_at)
+
+    def load_winner(self, shard_id: ShardId) -> ShardWinner:
+        """Load and validate one shard's immutable winner chain."""
+        return self._finalizer.load_winner(self._validate_shard_id(shard_id))
+
     def _create_attempt_with_locks(self, attempt: AttemptManifest) -> AttemptManifest:
-        with self._storage.acquire_shard_lock(attempt.shard_id):
+        with (
+            self._storage.acquire_resume_lock(attempt.shard_id),
+            self._storage.acquire_shard_lock(attempt.shard_id),
+        ):
             run, plan, shard = self._reader.load_shard_context(attempt.shard_id)
             shard_attempts = self._reader.load_validated_shard_attempts(run, plan, shard)
             existing = next((item for item in shard_attempts if item.attempt_id == attempt.attempt_id), None)
@@ -164,6 +215,7 @@ class SlurmStateWriter:
                     raise StateConflictError(f"attempt {attempt.attempt_id!r} already contains different state")
                 self._storage.sync_attempt_directory(attempt.shard_id, attempt.attempt_id)
                 return existing
+            self._finalizer.require_no_winner(run, plan, shard, shard_attempts)
             expected_ordinal = len(shard_attempts) + 1
             if attempt.attempt_ordinal != expected_ordinal or attempt.attempt_id != f"attempt-{expected_ordinal:04d}":
                 raise StateConflictError("attempt identity does not match the next shard ordinal")

@@ -125,6 +125,10 @@ class PlanStateValidator(PersistedPlanStateValidator):
         candidate: CandidateOutputManifest,
     ) -> None:
         _require(
+            candidate.provenance_digest == self.plan.compute_sha256(),
+            "candidate provenance digest does not match the resolved plan",
+        )
+        _require(
             client_result.requested_resume_mode == self.plan.invocation.authored.resume,
             "client requested resume mode does not match the resolved plan",
         )

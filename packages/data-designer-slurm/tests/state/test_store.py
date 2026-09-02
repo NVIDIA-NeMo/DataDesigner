@@ -20,6 +20,7 @@ from typing import TypeVar, cast
 
 import pytest
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.slurm import filesystem as slurm_filesystem
 from data_designer.slurm.client import ClientOutcome, ClientResult
 from data_designer.slurm.config import DataDesignerSlurmConfig, SlurmProfile
@@ -48,7 +49,9 @@ from data_designer.slurm.state import (
     StateCorruptionError,
     StateNotFoundError,
 )
+from data_designer.slurm.state import artifacts as state_artifacts
 from data_designer.slurm.state import filesystem as state_filesystem
+from data_designer.slurm.state import finalization as state_finalization
 from data_designer.slurm.state import storage as state_storage
 
 _ValueT = TypeVar("_ValueT", bound=ContractValue)
@@ -1207,7 +1210,7 @@ def test_finalization_rejects_partial_client_results_and_candidate_file_drift(
         case.writer.load_winner(finalization.attempt.shard_id)
 
 
-@pytest.mark.parametrize("file_kind", ("symlink", "hardlink", "fifo", "permissive"))
+@pytest.mark.parametrize("file_kind", ("symlink", "hardlink", "fifo", "writable"))
 def test_finalization_rejects_unsafe_candidate_files(
     tmp_path: Path,
     authored_run_single: DataDesignerSlurmConfig,
@@ -1217,8 +1220,8 @@ def test_finalization_rejects_unsafe_candidate_files(
     case = _initialized_case(tmp_path, authored_run_single, single_node_plan)
     finalization = _complete_finalization_case(case)
     output_path = finalization.output_path
-    if file_kind == "permissive":
-        output_path.chmod(0o644)
+    if file_kind == "writable":
+        output_path.chmod(0o666)
     else:
         outside = tmp_path / "outside-output"
         outside.write_bytes(output_path.read_bytes())
@@ -1275,6 +1278,83 @@ def test_finalization_rejects_candidate_path_replacement_after_digest_read(
         )
 
     assert replaced
+
+
+def test_finalization_rebinds_dataset_tree_immediately_before_winner_publication(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    case = _initialized_case(tmp_path, authored_run_single, single_node_plan)
+    finalization = _complete_finalization_case(case)
+    dataset_path = finalization.output_path.parent
+    moved_path = dataset_path.with_name("moved-dataset")
+    original_rebind = state_artifacts.VerifiedCandidateArtifacts.rebind
+
+    def replace_before_rebind(artifacts: state_artifacts.VerifiedCandidateArtifacts) -> None:
+        dataset_path.rename(moved_path)
+        dataset_path.mkdir(mode=0o700)
+        original_rebind(artifacts)
+
+    monkeypatch.setattr(state_artifacts.VerifiedCandidateArtifacts, "rebind", replace_before_rebind)
+
+    with pytest.raises(StateConflictError, match="not eligible"):
+        case.writer.finalize_winner(
+            finalization.attempt.shard_id,
+            finalization.attempt.attempt_id,
+            published_at=finalization.published_at,
+        )
+
+    assert not (case.writer.run_root / "shards/shard-00000/winner.json").exists()
+
+
+def test_finalization_derives_parquet_row_counts_before_publication(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    case = _initialized_case(tmp_path, authored_run_single, single_node_plan)
+    attempt = _submitted_attempt(case)
+    case.writer.create_attempt(attempt)
+    with case.writer.acquire_dataset_workspace(attempt.shard_id, attempt.attempt_id, "never") as dataset_path:
+        finalization = _persist_complete_result(
+            case,
+            attempt,
+            dataset_path,
+            physical_records=case.plan.shards[0].requested_records - 1,
+        )
+
+    with pytest.raises(StateConflictError, match="not eligible"):
+        case.writer.finalize_winner(
+            finalization.attempt.shard_id,
+            finalization.attempt.attempt_id,
+            published_at=finalization.published_at,
+        )
+
+
+def test_finalization_derives_parquet_schema_before_publication(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    case = _initialized_case(tmp_path, authored_run_single, single_node_plan)
+    attempt = _submitted_attempt(case)
+    case.writer.create_attempt(attempt)
+    with case.writer.acquire_dataset_workspace(attempt.shard_id, attempt.attempt_id, "never") as dataset_path:
+        finalization = _persist_complete_result(
+            case,
+            attempt,
+            dataset_path,
+            reported_schema_digest="d" * 64,
+        )
+
+    with pytest.raises(StateConflictError, match="not eligible"):
+        case.writer.finalize_winner(
+            finalization.attempt.shard_id,
+            finalization.attempt.attempt_id,
+            published_at=finalization.published_at,
+        )
 
 
 @pytest.mark.parametrize("replace_parent_with_symlink", (False, True))
@@ -1366,7 +1446,7 @@ def test_finalization_retry_converges_after_post_publish_fsync_failure(
     case = _initialized_case(tmp_path, authored_run_single, single_node_plan)
     finalization = _complete_finalization_case(case)
     winner_path = case.writer.run_root / "shards/shard-00000/winner.json"
-    original_fsync = state_store.os.fsync
+    original_fsync = state_filesystem.os.fsync
     failed = False
 
     def fail_after_winner_link(descriptor: int) -> None:
@@ -1376,7 +1456,7 @@ def test_finalization_retry_converges_after_post_publish_fsync_failure(
             raise OSError("injected winner directory fsync failure")
         original_fsync(descriptor)
 
-    monkeypatch.setattr(state_store.os, "fsync", fail_after_winner_link)
+    monkeypatch.setattr(state_filesystem.os, "fsync", fail_after_winner_link)
     with pytest.raises(SlurmStateError, match="cannot finalize"):
         case.writer.finalize_winner(
             finalization.attempt.shard_id,
@@ -1384,7 +1464,7 @@ def test_finalization_retry_converges_after_post_publish_fsync_failure(
             published_at=finalization.published_at,
         )
 
-    monkeypatch.setattr(state_store.os, "fsync", original_fsync)
+    monkeypatch.setattr(state_filesystem.os, "fsync", original_fsync)
     winner = case.writer.finalize_winner(
         finalization.attempt.shard_id,
         finalization.attempt.attempt_id,
@@ -1404,14 +1484,18 @@ def test_candidate_file_verification_does_not_hold_the_run_state_lock(
     finalization = _complete_finalization_case(case)
     verification_started = Event()
     release_verification = Event()
-    original_verify = SlurmStateWriter._verify_candidate_files
+    original_validate = state_finalization.WinnerFinalizer._validate_artifact_metadata
 
-    def block_verification(candidate: CandidateOutputManifest) -> None:
+    def block_verification(candidate: CandidateOutputManifest, artifacts: object) -> None:
         verification_started.set()
         assert release_verification.wait(timeout=5)
-        original_verify(candidate)
+        original_validate(candidate, artifacts)
 
-    monkeypatch.setattr(SlurmStateWriter, "_verify_candidate_files", staticmethod(block_verification))
+    monkeypatch.setattr(
+        state_finalization.WinnerFinalizer,
+        "_validate_artifact_metadata",
+        staticmethod(block_verification),
+    )
 
     with ThreadPoolExecutor(max_workers=1) as executor:
         finalizer = executor.submit(
@@ -1638,8 +1722,8 @@ def test_dataset_lock_interruption_closes_an_open_shard_context(
         raise KeyboardInterrupt("injected lock interruption")
         yield
 
-    monkeypatch.setattr(case.writer, "_open_shard_directory", open_shard)
-    monkeypatch.setattr(state_store, "acquire_file_lock", interrupt_lock)
+    monkeypatch.setattr(case.writer._storage, "open_shard_directory", open_shard)
+    monkeypatch.setattr(state_storage, "acquire_file_lock", interrupt_lock)
 
     with pytest.raises(KeyboardInterrupt, match="lock interruption"):
         with case.writer.acquire_dataset_workspace("shard-00000", "attempt-0001", "never"):
@@ -1841,17 +1925,21 @@ def _persist_complete_result(
     dataset_path: Path,
     *,
     relative_path: str = "part-00000.parquet",
+    physical_records: int | None = None,
+    reported_schema_digest: str | None = None,
 ) -> _FinalizationCase:
     output_path = dataset_path / relative_path
-    output_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    output_path.parent.mkdir(mode=0o755, parents=True, exist_ok=True)
     for parent in output_path.parents:
         if parent == dataset_path:
             break
-        parent.chmod(0o700)
-    content = b"candidate parquet bytes"
-    output_path.write_bytes(content)
-    output_path.chmod(0o600)
+        parent.chmod(0o755)
     requested_records = case.plan.shards[0].requested_records
+    table = lazy.pa.table({"record_id": range(requested_records if physical_records is None else physical_records)})
+    lazy.pq.write_table(table, output_path)
+    output_path.chmod(0o644)
+    content = output_path.read_bytes()
+    schema_payload = table.schema.remove_metadata().serialize().to_pybytes()
     candidate = CandidateOutputManifest(
         schema_version=1,
         run_id=case.plan.run_id,
@@ -1871,8 +1959,8 @@ def _persist_complete_result(
                 record_count=requested_records,
             ),
         ),
-        dataset_schema_digest="b" * 64,
-        provenance_digest="c" * 64,
+        dataset_schema_digest=reported_schema_digest or hashlib.sha256(schema_payload).hexdigest(),
+        provenance_digest=case.plan.compute_sha256(),
     )
     candidate_path = _attempt_root(case, attempt) / "output-manifest.json"
     candidate_reference = ArtifactReference(

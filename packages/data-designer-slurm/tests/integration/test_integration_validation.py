@@ -610,7 +610,11 @@ def test_finalization_accepts_effective_resume_always(records: IntegrationRecord
     plan = ResolvedSlurmRunPlan.model_validate(plan_payload)
     planned_shard = plan.shards[0]
     candidate = CandidateOutputManifest.model_validate(
-        records.candidate.model_dump(mode="python") | {"dataset_path": planned_shard.resume_workspace.path}
+        records.candidate.model_dump(mode="python")
+        | {
+            "dataset_path": planned_shard.resume_workspace.path,
+            "provenance_digest": plan.compute_sha256(),
+        }
     )
     original_candidate_reference = records.client_result.candidate_output_manifest
     assert original_candidate_reference is not None

@@ -9,16 +9,17 @@ import json
 import os
 import re
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
-from typing import TypeVar
+from typing import Literal, TypeVar
 
 from pydantic import ValidationError
 
+from data_designer.slurm.client import ClientResult
 from data_designer.slurm.config import DataDesignerSlurmConfig
 from data_designer.slurm.contracts import AttemptId, ContractRecord, Identifier, ShardId
 from data_designer.slurm.planning import ResolvedSlurmRunPlan
-from data_designer.slurm.state.errors import StateCorruptionError, StateNotFoundError
+from data_designer.slurm.state.errors import SlurmStateError, StateCorruptionError, StateNotFoundError
 from data_designer.slurm.state.execution import AttemptManifest, RunManifest, ShardManifest
 from data_designer.slurm.state.filesystem import (
     acquire_file_lock,
@@ -31,6 +32,7 @@ from data_designer.slurm.state.filesystem import (
     replace_text,
     sync_directory,
 )
+from data_designer.slurm.state.outputs import CandidateOutputManifest, ShardWinner
 from data_designer.slurm.state.readiness import AttemptReadiness
 
 _RUN_FILENAME = "run.json"
@@ -42,6 +44,11 @@ _SHARD_FILENAME = "shard.json"
 _SHARD_LOCK_FILENAME = "shard.lock"
 _ATTEMPT_FILENAME = "attempt.json"
 _READINESS_FILENAME = "readiness.json"
+_CLIENT_RESULT_FILENAME = "client-result.json"
+_CANDIDATE_OUTPUT_FILENAME = "output-manifest.json"
+_WINNER_FILENAME = "winner.json"
+_DATASET_DIRECTORY_NAME = "dataset"
+_RESUME_LOCK_FILENAME = "resume.lock"
 _LOCK_DIRECTORY_NAME = ".locks"
 _MAXIMUM_RECORD_SIZE = 16 * 1024 * 1024
 _ATTEMPT_NAME_PATTERN = re.compile(r"^attempt-[0-9]{4,}$")
@@ -74,6 +81,9 @@ class StateStorage:
 
     def get_readiness_path(self, shard_id: str, attempt_id: str) -> Path:
         return self.get_attempt_path(shard_id, attempt_id) / _READINESS_FILENAME
+
+    def get_winner_path(self, shard_id: str) -> Path:
+        return self.get_shard_path(shard_id) / _WINNER_FILENAME
 
     def ensure_storage(self) -> None:
         with open_verified_directory(self.workspace_root) as workspace_descriptor:
@@ -108,6 +118,24 @@ class StateStorage:
                     yield
         except FileNotFoundError as error:
             raise StateNotFoundError(f"shard {shard_id!r} is not persisted") from error
+
+    @contextmanager
+    def acquire_resume_lock(self, shard_id: ShardId) -> Iterator[None]:
+        with ExitStack() as contexts:
+            try:
+                shard_descriptor = contexts.enter_context(self.open_shard_directory(shard_id))
+                contexts.enter_context(
+                    acquire_file_lock(
+                        shard_descriptor,
+                        _RESUME_LOCK_FILENAME,
+                        self.get_shard_path(shard_id) / _RESUME_LOCK_FILENAME,
+                    )
+                )
+            except FileNotFoundError as error:
+                raise StateNotFoundError(f"shard {shard_id!r} is not persisted") from error
+            except OSError as error:
+                raise SlurmStateError(f"cannot lock dataset workspace for shard {shard_id!r}") from error
+            yield
 
     def publish_initial_state(
         self,
@@ -238,6 +266,51 @@ class StateStorage:
     def sync_attempt_directory(self, shard_id: ShardId, attempt_id: AttemptId) -> None:
         with self.open_attempt_directory(shard_id, attempt_id) as attempt_descriptor:
             sync_directory(attempt_descriptor)
+
+    def ensure_dataset_directory(
+        self,
+        shard_id: ShardId,
+        attempt_id: AttemptId,
+        effective_resume_mode: Literal["never", "always"],
+    ) -> Path:
+        if effective_resume_mode == "always":
+            dataset_path = self.get_shard_path(shard_id) / _DATASET_DIRECTORY_NAME
+            with self.open_shard_directory(shard_id) as descriptor:
+                ensure_private_child_directory(descriptor, _DATASET_DIRECTORY_NAME, dataset_path)
+            return dataset_path
+        dataset_path = self.get_attempt_path(shard_id, attempt_id) / _DATASET_DIRECTORY_NAME
+        with self.open_attempt_directory(shard_id, attempt_id) as descriptor:
+            ensure_private_child_directory(descriptor, _DATASET_DIRECTORY_NAME, dataset_path)
+        return dataset_path
+
+    def read_finalization_records(
+        self,
+        shard_id: ShardId,
+        attempt_id: AttemptId,
+    ) -> tuple[ClientResult, CandidateOutputManifest]:
+        attempt_path = self.get_attempt_path(shard_id, attempt_id)
+        with self.open_attempt_directory(shard_id, attempt_id) as descriptor:
+            client_result = self.read_record(
+                descriptor,
+                _CLIENT_RESULT_FILENAME,
+                attempt_path / _CLIENT_RESULT_FILENAME,
+                ClientResult,
+            )
+            candidate = self.read_record(
+                descriptor,
+                _CANDIDATE_OUTPUT_FILENAME,
+                attempt_path / _CANDIDATE_OUTPUT_FILENAME,
+                CandidateOutputManifest,
+            )
+        return client_result, candidate
+
+    def read_winner(self, shard_id: ShardId) -> ShardWinner:
+        with self.open_shard_directory(shard_id) as descriptor:
+            return self.read_record(descriptor, _WINNER_FILENAME, self.get_winner_path(shard_id), ShardWinner)
+
+    def publish_winner(self, winner: ShardWinner) -> None:
+        with self.open_shard_directory(winner.shard_id) as descriptor:
+            self._publish_immutable_record(descriptor, _WINNER_FILENAME, winner)
 
     def read_record(
         self,
@@ -404,6 +477,8 @@ class StateStorage:
             return self.run_root / name
         if isinstance(record, ShardManifest):
             return self.get_shard_path(record.shard_id) / name
+        if isinstance(record, ShardWinner):
+            return self.get_winner_path(record.shard_id)
         if isinstance(record, (AttemptManifest, AttemptReadiness)):
             return self.get_attempt_path(record.shard_id, record.attempt_id) / name
         raise TypeError(f"unsupported persisted record type: {type(record).__name__}")
