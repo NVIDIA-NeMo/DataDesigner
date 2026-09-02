@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 import pytest
 
+from data_designer.slurm.runtime import proxy as runtime_proxy
 from data_designer.slurm.runtime.proxy import _Backend, _BackendPool, _parse_backend, _ProxyHandler
 
 
@@ -104,6 +105,44 @@ def test_proxy_rejects_a_truncated_fixed_length_request() -> None:
 
     assert handler._read_request_body() is None
     assert errors == [400]
+
+
+def test_proxy_bounds_backend_response_buffering(monkeypatch: pytest.MonkeyPatch) -> None:
+    class _Response:
+        status = 200
+
+        def read(self, amount: int) -> bytes:
+            assert amount == 5
+            return b"12345"
+
+        def getheaders(self) -> list[tuple[str, str]]:
+            return []
+
+    class _Connection:
+        def __init__(self, host: str, port: int, timeout: int) -> None:
+            del host, port, timeout
+
+        def request(self, method: str, path: str, *, body: bytes, headers: dict[str, str]) -> None:
+            del method, path, body, headers
+
+        def getresponse(self) -> _Response:
+            return _Response()
+
+        def close(self) -> None:
+            pass
+
+    handler = object.__new__(_ProxyHandler)
+    handler.command = "POST"
+    handler.path = "/v1/chat/completions"
+    handler.headers = Message()
+    monkeypatch.setattr(runtime_proxy, "_MAXIMUM_RESPONSE_BYTES", 4)
+    monkeypatch.setattr(runtime_proxy.http.client, "HTTPConnection", _Connection)
+
+    assert handler._request_backend(_Backend("127.0.0.1", 8001), b"{}") == (
+        502,
+        b'{"error":"backend response too large"}\n',
+        {"Content-Type": "application/json"},
+    )
 
 
 @pytest.mark.parametrize(

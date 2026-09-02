@@ -15,6 +15,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import SplitResult, urlsplit
 
 _MAXIMUM_REQUEST_BYTES = 64 * 1024 * 1024
+_MAXIMUM_RESPONSE_BYTES = 64 * 1024 * 1024
 _HOP_HEADERS = frozenset(
     {
         "connection",
@@ -182,7 +183,9 @@ class _ProxyHandler(BaseHTTPRequestHandler):
         try:
             connection.request(self.command, self.path, body=body, headers=headers)
             response = connection.getresponse()
-            payload = response.read()
+            payload = response.read(_MAXIMUM_RESPONSE_BYTES + 1)
+            if len(payload) > _MAXIMUM_RESPONSE_BYTES:
+                return 502, b'{"error":"backend response too large"}\n', {"Content-Type": "application/json"}
             response_headers = {
                 name: value
                 for name, value in response.getheaders()
