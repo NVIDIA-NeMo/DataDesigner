@@ -96,8 +96,8 @@ def test_subprocess_runner_uses_restrictive_logs_and_rejects_symlink_root(tmp_pa
         role=RuntimeStepRole.CLIENT_PREFLIGHT,
         command=(sys.executable, "-c", "import sys; print('out'); print('err', file=sys.stderr)"),
         environment={"PATH": "/usr/bin", "LC_ALL": "C"},
-        stdout_path=attempt / "logs" / "real-step.out",
-        stderr_path=attempt / "logs" / "real-step.err",
+        stdout_path=attempt / "logs" / "execution-00000001" / "real-step.out",
+        stderr_path=attempt / "logs" / "execution-00000001" / "real-step.err",
     )
 
     process = SubprocessStepRunner().start(step)
@@ -106,18 +106,30 @@ def test_subprocess_runner_uses_restrictive_logs_and_rejects_symlink_root(tmp_pa
     assert step.stderr_path.read_text() == "err\n"
     assert step.stdout_path.stat().st_mode & 0o077 == 0
 
+    restarted = RuntimeStep(
+        step_id=step.step_id,
+        role=step.role,
+        command=step.command,
+        environment=step.environment,
+        stdout_path=attempt / "logs" / "execution-00000002" / "real-step.out",
+        stderr_path=attempt / "logs" / "execution-00000002" / "real-step.err",
+    )
+    restarted_process = SubprocessStepRunner().start(restarted)
+    assert restarted_process.wait(timeout=10) == 0
+    assert restarted.stdout_path.read_text() == "out\n"
+
     outside = tmp_path / "outside"
     outside.mkdir()
     symlink_attempt = tmp_path / "symlink-attempt"
-    symlink_attempt.mkdir()
+    symlink_attempt.mkdir(mode=0o700)
     (symlink_attempt / "logs").symlink_to(outside, target_is_directory=True)
     unsafe = RuntimeStep(
         step_id="unsafe-step",
         role=RuntimeStepRole.CLIENT,
         command=("true",),
         environment={"PATH": "/usr/bin"},
-        stdout_path=symlink_attempt / "logs" / "unsafe.out",
-        stderr_path=symlink_attempt / "logs" / "unsafe.err",
+        stdout_path=symlink_attempt / "logs" / "execution-00000001" / "unsafe.out",
+        stderr_path=symlink_attempt / "logs" / "execution-00000001" / "unsafe.err",
     )
     with pytest.raises(OSError, match="not a directory"):
         SubprocessStepRunner().start(unsafe)
@@ -147,8 +159,8 @@ def test_subprocess_cleanup_terminates_the_complete_step_process_group(tmp_path:
         role=RuntimeStepRole.SERVER,
         command=(sys.executable, "-c", parent_code),
         environment={"PATH": "/usr/bin"},
-        stdout_path=attempt / "logs" / "process-tree.out",
-        stderr_path=attempt / "logs" / "process-tree.err",
+        stdout_path=attempt / "logs" / "execution-00000001" / "process-tree.out",
+        stderr_path=attempt / "logs" / "execution-00000001" / "process-tree.err",
     )
     supervisor = StepSupervisor(
         SubprocessStepRunner(),

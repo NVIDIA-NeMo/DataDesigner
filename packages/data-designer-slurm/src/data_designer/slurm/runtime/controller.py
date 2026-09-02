@@ -14,6 +14,7 @@ from typing import Protocol
 
 from data_designer.slurm.contracts import ArtifactReference
 from data_designer.slurm.runtime.errors import SlurmRuntimeError, SlurmRuntimeErrorCode
+from data_designer.slurm.runtime.logs import bind_execution_logs, execution_log_directory
 from data_designer.slurm.runtime.models import AllocationContext, RuntimeEndpoint, RuntimeStep
 from data_designer.slurm.runtime.preflight import AllocationPreflight
 from data_designer.slurm.runtime.probes import ReadinessProber
@@ -41,6 +42,7 @@ from data_designer.slurm.state import (
 
 _READINESS_PROGRESS = {
     ReadinessState.PENDING: 0,
+    ReadinessState.RESTARTING: 0,
     ReadinessState.STARTING: 1,
     ReadinessState.READY: 2,
 }
@@ -120,6 +122,7 @@ class OneNodeAllocationController:
         self._attempt = context.attempt
         self._readiness: AttemptReadiness | None = None
         self._statuses: list[_DeploymentStatus] = []
+        self._log_directory: Path | None = None
 
     def run(self) -> AttemptManifest:
         """Run the allocation and persist one terminal attempt on every owned path."""
@@ -200,37 +203,59 @@ class OneNodeAllocationController:
         return self._run_client(topology.endpoints, required_processes)
 
     def _prepare_runtime(self) -> _RuntimeTopology:
-        self._preflight.verify(self._context, self._environment)
         self._validate_attempt_state()
-        self._mark_attempt_running()
         deployments = tuple(
             resolve_vllm_server(self._context.plan, deployment.deployment_id)
             for deployment in self._context.plan.deployments
         )
-        self._statuses = self._initialize_statuses(deployments)
-        self._publish_readiness(ReadinessState.PENDING)
-        endpoint_steps = build_endpoint_steps(
-            deployments,
-            self._context.plan,
-            self._context.attempt_directory,
-            self._environment,
-            self._runtime_proxy_path,
+        restarting = self._readiness is not None
+        if restarting:
+            self._begin_execution(deployments, ReadinessState.RESTARTING)
+        self._preflight.verify(self._context, self._environment)
+        self._mark_attempt_running()
+        if not restarting:
+            self._begin_execution(deployments, ReadinessState.PENDING)
+        endpoint_steps = tuple(
+            (self._bind_logs(step), endpoint)
+            for step, endpoint in build_endpoint_steps(
+                deployments,
+                self._context.plan,
+                self._context.attempt_directory,
+                self._environment,
+                self._runtime_proxy_path,
+            )
         )
         endpoints = tuple(endpoint for _, endpoint in endpoint_steps)
-        client_preflight = self._client_steps.build_preflight_step(
-            self._context.plan,
-            self._context.shard,
-            self._attempt,
-            self._context.attempt_directory,
-            endpoints,
-            self._environment,
+        client_preflight = self._bind_logs(
+            self._client_steps.build_preflight_step(
+                self._context.plan,
+                self._context.shard,
+                self._attempt,
+                self._context.attempt_directory,
+                endpoints,
+                self._environment,
+            )
         )
         self._supervisor.wait(self._supervisor.start(client_preflight))
         return _RuntimeTopology(deployments, endpoint_steps, endpoints)
 
+    def _begin_execution(
+        self,
+        deployments: tuple[ResolvedVllmServerDeployment, ...],
+        state: ReadinessState,
+    ) -> None:
+        self._statuses = [_DeploymentStatus(deployment, state=state) for deployment in deployments]
+        self._publish_readiness(state)
+        if self._readiness is None:  # pragma: no cover - persistence returns the published snapshot
+            raise AssertionError("runtime readiness was not published")
+        self._log_directory = execution_log_directory(
+            self._context.attempt_directory,
+            self._readiness.revision,
+        )
+
     def _start_runtime(self, topology: _RuntimeTopology) -> tuple[ManagedStep, ...]:
         for status in self._statuses:
-            if status.state is ReadinessState.PENDING:
+            if status.state in {ReadinessState.PENDING, ReadinessState.RESTARTING}:
                 status.state = ReadinessState.STARTING
         self._publish_readiness(ReadinessState.STARTING)
         server_processes = self._start_servers(topology.deployments)
@@ -252,13 +277,15 @@ class OneNodeAllocationController:
         endpoints: tuple[RuntimeEndpoint, ...],
         required_processes: tuple[ManagedStep, ...],
     ) -> tuple[ArtifactReference, datetime]:
-        generation = self._client_steps.build_generation_step(
-            self._context.plan,
-            self._context.shard,
-            self._attempt,
-            self._context.attempt_directory,
-            endpoints,
-            self._environment,
+        generation = self._bind_logs(
+            self._client_steps.build_generation_step(
+                self._context.plan,
+                self._context.shard,
+                self._attempt,
+                self._context.attempt_directory,
+                endpoints,
+                self._environment,
+            )
         )
         generation_started_at = self._now()
         self._supervisor.wait(self._supervisor.start(generation), required=required_processes)
@@ -315,31 +342,6 @@ class OneNodeAllocationController:
             )
         self._readiness = readiness
 
-    def _initialize_statuses(
-        self,
-        deployments: tuple[ResolvedVllmServerDeployment, ...],
-    ) -> list[_DeploymentStatus]:
-        if self._readiness is None:
-            return [_DeploymentStatus(deployment) for deployment in deployments]
-        readiness_by_id = {deployment.deployment_id: deployment for deployment in self._readiness.deployments}
-        return [
-            self._restore_deployment_status(deployment, readiness_by_id[deployment.deployment_id])
-            for deployment in deployments
-        ]
-
-    @staticmethod
-    def _restore_deployment_status(
-        deployment: ResolvedVllmServerDeployment,
-        readiness: DeploymentReadiness,
-    ) -> _DeploymentStatus:
-        return _DeploymentStatus(
-            deployment=deployment,
-            state=readiness.state,
-            ready_backends=readiness.ready_backends,
-            endpoint_publication=readiness.endpoint_publication,
-            last_probe=readiness.last_probe,
-        )
-
     def _mark_attempt_running(self) -> None:
         if self._attempt.state is AttemptLifecycleState.RUNNING:
             return
@@ -358,11 +360,14 @@ class OneNodeAllocationController:
         for deployment in deployments:
             started_at = self._clock.monotonic()
             managed: list[ManagedStep] = []
-            steps = build_vllm_steps(
-                deployment,
-                self._context.plan,
-                self._context.attempt_directory,
-                self._environment,
+            steps = tuple(
+                self._bind_logs(step)
+                for step in build_vllm_steps(
+                    deployment,
+                    self._context.plan,
+                    self._context.attempt_directory,
+                    self._environment,
+                )
             )
             for process, step in zip(deployment.processes, steps, strict=True):
                 self._supervisor.require_running(tuple(managed))
@@ -551,6 +556,11 @@ class OneNodeAllocationController:
             raise SlurmRuntimeError(SlurmRuntimeErrorCode.INVALID_CONTEXT, "runtime clock moved backward")
         return value
 
+    def _bind_logs(self, step: RuntimeStep) -> RuntimeStep:
+        if self._log_directory is None:
+            raise SlurmRuntimeError(SlurmRuntimeErrorCode.INVALID_CONTEXT, "runtime log directory is unavailable")
+        return bind_execution_logs(step, self._log_directory)
+
 
 def _copy_attempt(attempt: AttemptManifest, **updates: object) -> AttemptManifest:
     payload = attempt.model_dump(mode="python")
@@ -573,6 +583,8 @@ def _probe_evidence(
 
 
 def _can_advance_readiness(previous: ReadinessState, current: ReadinessState) -> bool:
+    if current is ReadinessState.RESTARTING:
+        return previous not in {ReadinessState.FAILED, ReadinessState.STOPPED}
     previous_progress = _READINESS_PROGRESS.get(previous)
     current_progress = _READINESS_PROGRESS.get(current)
     if previous_progress is None or current_progress is None:

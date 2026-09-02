@@ -117,6 +117,15 @@ class _FakeProber:
         return self.ready
 
 
+@dataclass(slots=True)
+class _RestartAwarePreflight:
+    state: FakeStateStore
+
+    def verify(self, context: object, environment: object) -> None:
+        del context, environment
+        assert self.state.readiness[-1].state is ReadinessState.RESTARTING
+
+
 def _supervisor(
     runner: _FakeRunner,
     clock: FakeClock,
@@ -166,6 +175,7 @@ def test_controller_runs_preflight_servers_endpoint_client_and_cleanup(runtime_c
     assert state.readiness[-1].state is ReadinessState.STOPPED
     assert state.readiness[-1].deployments[0].endpoint_publication is EndpointPublicationState.PUBLISHED
     assert all(process.poll() is not None for process in runner.processes)
+    assert {step.stdout_path.parent.name for step in runner.steps} == {"execution-00000001"}
 
 
 def test_preflight_failure_starts_no_process_and_fails_attempt(runtime_case: RuntimeCase) -> None:
@@ -201,7 +211,7 @@ def test_preflight_failure_starts_no_process_and_fails_attempt(runtime_case: Run
         (ReadinessState.READY, 1, EndpointPublicationState.PUBLISHED),
     ),
 )
-def test_requeued_running_attempt_continues_readiness_revision_without_regression(
+def test_requeued_running_attempt_publishes_restart_epoch_and_uses_fresh_logs(
     runtime_case: RuntimeCase,
     persisted_state: ReadinessState,
     ready_backends: int,
@@ -243,7 +253,7 @@ def test_requeued_running_attempt_continues_readiness_revision_without_regressio
         runtime_proxy_path=context.attempt_directory / "runtime/proxy.py",
         state=state,
         supervisor=_supervisor(runner, clock),
-        preflight=FakePreflight(),
+        preflight=_RestartAwarePreflight(state),
         client_steps=FakeClientStepBuilder(),
         prober=_FakeProber(ready=True, clock=clock),
         clock=clock,
@@ -254,11 +264,10 @@ def test_requeued_running_attempt_continues_readiness_revision_without_regressio
 
     assert result.state is AttemptLifecycleState.SUCCEEDED
     assert state.readiness[1].revision == 8
-    assert all(readiness.state is not ReadinessState.PENDING for readiness in state.readiness[1:])
-    if persisted_state is ReadinessState.READY:
-        assert all(
-            readiness.state in {ReadinessState.READY, ReadinessState.STOPPED} for readiness in state.readiness[1:]
-        )
+    assert state.readiness[1].state is ReadinessState.RESTARTING
+    assert state.readiness[1].deployments[0].state is ReadinessState.RESTARTING
+    assert state.readiness[1].deployments[0].ready_backends == 0
+    assert state.readiness[1].deployments[0].endpoint_publication is EndpointPublicationState.PENDING
     assert state.readiness[-1].state is ReadinessState.STOPPED
     assert [step.role for step in runner.steps] == [
         RuntimeStepRole.CLIENT_PREFLIGHT,
@@ -266,6 +275,7 @@ def test_requeued_running_attempt_continues_readiness_revision_without_regressio
         RuntimeStepRole.ENDPOINT,
         RuntimeStepRole.CLIENT,
     ]
+    assert {step.stdout_path.parent.name for step in runner.steps} == {"execution-00000008"}
 
 
 def test_required_server_exit_fails_and_cleans_partial_start(runtime_case: RuntimeCase) -> None:

@@ -7,16 +7,14 @@ from __future__ import annotations
 
 import os
 import signal
-import stat
 import subprocess
 import time
-from collections.abc import Iterator
-from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Protocol
 
 from data_designer.slurm.runtime.errors import SlurmRuntimeError, SlurmRuntimeErrorCode
+from data_designer.slurm.runtime.logs import open_step_logs
 from data_designer.slurm.runtime.models import RuntimeStep
 from data_designer.slurm.runtime.signals import TerminationSignalCoordinator
 
@@ -91,7 +89,7 @@ class SubprocessStepRunner:
 
     def start(self, step: RuntimeStep) -> StepProcess:
         """Start one step with restrictive package-owned log files."""
-        with _open_step_logs(step) as (stdout_descriptor, stderr_descriptor):
+        with open_step_logs(step) as (stdout_descriptor, stderr_descriptor):
             process = subprocess.Popen(
                 step.command,
                 stdin=subprocess.DEVNULL,
@@ -276,36 +274,3 @@ class StepSupervisor:
             return all(managed.process.poll() is not None for managed in self._managed)
         except BaseException:
             return False
-
-
-def _create_log_file(directory_descriptor: int, name: str) -> int:
-    return os.open(
-        name,
-        os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0),
-        0o600,
-        dir_fd=directory_descriptor,
-    )
-
-
-@contextmanager
-def _open_step_logs(step: RuntimeStep) -> Iterator[tuple[int, int]]:
-    log_root = step.stdout_path.parent
-    log_root.mkdir(mode=0o700, parents=False, exist_ok=True)
-    before = log_root.lstat()
-    if not stat.S_ISDIR(before.st_mode):
-        raise OSError(f"runtime log root {log_root} is not a directory")
-    with ExitStack() as resources:
-        directory_descriptor = os.open(
-            log_root,
-            os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0),
-        )
-        resources.callback(os.close, directory_descriptor)
-        opened = os.fstat(directory_descriptor)
-        if (before.st_dev, before.st_ino) != (opened.st_dev, opened.st_ino):
-            raise OSError(f"runtime log root {log_root} changed while it was opened")
-        os.fchmod(directory_descriptor, 0o700)
-        stdout_descriptor = _create_log_file(directory_descriptor, step.stdout_path.name)
-        resources.callback(os.close, stdout_descriptor)
-        stderr_descriptor = _create_log_file(directory_descriptor, step.stderr_path.name)
-        resources.callback(os.close, stderr_descriptor)
-        yield stdout_descriptor, stderr_descriptor
