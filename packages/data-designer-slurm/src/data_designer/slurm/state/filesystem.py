@@ -211,7 +211,10 @@ def publish_immutable_text(
             if existing == content:
                 return False
             raise FileExistsError(f"state record {display_path} already contains different bytes") from None
-        os.unlink(temporary_name, dir_fd=directory_descriptor)
+        try:
+            os.unlink(temporary_name, dir_fd=directory_descriptor)
+        except FileNotFoundError:
+            pass
         temporary_name = None
         os.fsync(directory_descriptor)
         return True

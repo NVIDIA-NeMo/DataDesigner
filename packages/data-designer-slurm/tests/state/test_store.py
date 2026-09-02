@@ -209,6 +209,38 @@ def test_interrupted_immutable_publication_recovers_the_committed_hard_link(
     assert not tuple(case.writer.run_root.glob(".state.*.tmp"))
 
 
+def test_concurrent_recovery_does_not_make_the_immutable_publisher_fail(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    case = _build_case(tmp_path, authored_run_single, single_node_plan)
+    original_unlink = state_filesystem.os.unlink
+    recovered = False
+
+    def recover_before_publisher_unlink(path: str, *, dir_fd: int | None = None) -> None:
+        nonlocal recovered
+        assert dir_fd is not None
+        monkeypatch.setattr(state_filesystem.os, "unlink", original_unlink)
+        assert (
+            state_filesystem.read_regular_text(
+                dir_fd,
+                "authored-config.json",
+                case.writer.run_root / "authored-config.json",
+                maximum_size=16 * 1024 * 1024,
+            )
+            == authored_run_single.serialize_json()
+        )
+        recovered = True
+        original_unlink(path, dir_fd=dir_fd)
+
+    monkeypatch.setattr(state_filesystem.os, "unlink", recover_before_publisher_unlink)
+    assert case.writer.initialize_run(case.authored_config, case.plan, case.run, case.shards) == case.run
+    assert recovered
+    assert not tuple(case.writer.run_root.glob(".state.*.tmp"))
+
+
 def test_run_initialization_never_replaces_different_immutable_bytes(
     tmp_path: Path,
     authored_run_single: DataDesignerSlurmConfig,
