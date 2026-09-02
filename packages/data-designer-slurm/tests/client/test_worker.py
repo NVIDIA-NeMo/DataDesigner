@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 from dataclasses import replace
 from functools import partial
 from pathlib import Path
@@ -24,7 +26,7 @@ from data_designer.slurm.client.records import (
     ClientResult,
 )
 from data_designer.slurm.contracts import compute_serialized_json_sha256
-from data_designer.slurm.planning import ResolvedSlurmRunPlan
+from data_designer.slurm.planning import ResolvedDependencyLock, ResolvedSlurmRunPlan
 from data_designer.slurm.state import CandidateOutputManifest
 
 
@@ -269,6 +271,123 @@ def test_preflight_rejects_builder_with_missing_plugin(client_worker_case: Clien
     payload = client_worker_case.plan.model_dump(mode="json")
     builder = payload["builder"]["inline"]
     builder["data_designer"]["columns"] = [{"name": "custom", "column_type": "missing-plugin"}]
+    payload["builder"]["content_sha256"] = compute_serialized_json_sha256(builder)
+    plan = ResolvedSlurmRunPlan.model_validate_json(json.dumps(payload))
+    client_worker_case.plan_path.write_text(plan.serialize_json())
+
+    with pytest.raises(ClientWorkerError) as error:
+        ClientWorker(data_designer_factory=FakeDataDesigner).preflight(
+            client_worker_case.plan_path,
+            prepared=client_worker_case.prepared,
+            endpoints=client_worker_case.endpoints,
+            plugins=(),
+        )
+
+    assert error.value.code is ClientErrorCode.CONFIG_INVALID
+
+
+def test_preflight_rejects_plugin_secondary_model_alias(
+    client_worker_case: ClientWorkerCase,
+    fake_plugin_overlay: Path,
+) -> None:
+    payload = client_worker_case.plan.model_dump(mode="json")
+    builder = payload["builder"]["inline"]
+    builder["data_designer"]["columns"] = [{"name": "custom", "column_type": "fake-slurm-column"}]
+    payload["builder"]["content_sha256"] = compute_serialized_json_sha256(builder)
+    lock_payload = client_worker_case.lock.model_dump(mode="json")
+    wheel_path = (
+        client_worker_case.plan_path.parent / "dependencies" / "fake_data_designer_plugin-1.0.0-py3-none-any.whl"
+    )
+    lock_payload["authored_requirements"] = ["fake-data-designer-plugin==1.0.0"]
+    lock_payload["overlay_packages"] = [
+        {
+            "name": "fake-data-designer-plugin",
+            "version": "1.0.0",
+            "artifact": {"path": wheel_path.as_posix(), "sha256": "a" * 64},
+        }
+    ]
+    lock = ResolvedDependencyLock.model_validate_json(json.dumps(lock_payload))
+    Path(client_worker_case.plan.client.dependency_lock.path).write_text(lock.serialize_json())
+    payload["client"]["dependency_lock"]["sha256"] = lock.compute_sha256()
+    plan = ResolvedSlurmRunPlan.model_validate_json(json.dumps(payload))
+    client_worker_case.plan_path.write_text(plan.serialize_json())
+    script = """
+import json
+import sys
+from pathlib import Path
+
+import data_designer.slurm.client.worker as worker
+from data_designer.slurm.client.environment import PreparedClientEnvironment
+from data_designer.slurm.client.records import ClientErrorCode, ClientInstallerOutcome
+from data_designer.slurm.contracts import ArtifactReference, InstalledDistribution
+
+plan_path = Path(sys.argv[1])
+attempt_dir = Path(sys.argv[2])
+plan = json.loads(plan_path.read_text())
+lock = json.loads(Path(plan["client"]["dependency_lock"]["path"]).read_text())
+installed = tuple(
+    sorted(
+        (
+            *(InstalledDistribution(**item) for item in lock["image_distributions"]),
+            *(InstalledDistribution(name=item["name"], version=item["version"]) for item in lock["overlay_packages"]),
+        ),
+        key=lambda item: item.name,
+    )
+)
+prepared = PreparedClientEnvironment(
+    run_id=plan["run_id"],
+    shard_id=plan["shards"][0]["shard_id"],
+    attempt_id="attempt-0001",
+    attempt_dir=attempt_dir,
+    overlay_path=Path(sys.argv[3]),
+    dependency_lock=ArtifactReference(**plan["client"]["dependency_lock"]),
+    client_image_sha256=plan["client"]["image"]["sha256"],
+    python_abi=lock["python_abi"],
+    installer_outcome=ClientInstallerOutcome.REUSED,
+    installed_distributions=installed,
+)
+worker.activate_environment(prepared)
+
+from data_designer.slurm.client.plugins import discover_plugins
+
+plugins = discover_plugins(installed)
+from data_designer.slurm.client.execution import ClientWorker
+from data_designer.slurm.client.errors import ClientWorkerError
+
+try:
+    ClientWorker().preflight(
+        plan_path,
+        prepared=prepared,
+        endpoints={"generator": "http://127.0.0.1:17000/v1"},
+        plugins=plugins,
+    )
+except ClientWorkerError as error:
+    assert error.code is ClientErrorCode.CONFIG_INVALID
+    assert error.redacted_message == "builder references unavailable model aliases"
+else:
+    raise AssertionError("preflight accepted a missing secondary model alias")
+"""
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            script,
+            client_worker_case.plan_path.as_posix(),
+            client_worker_case.attempt_dir.as_posix(),
+            fake_plugin_overlay.as_posix(),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_preflight_rejects_profiler_model_alias(client_worker_case: ClientWorkerCase) -> None:
+    payload = client_worker_case.plan.model_dump(mode="json")
+    builder = payload["builder"]["inline"]
+    builder["data_designer"]["profilers"] = [{"model_alias": "missing"}]
     payload["builder"]["content_sha256"] = compute_serialized_json_sha256(builder)
     plan = ResolvedSlurmRunPlan.model_validate_json(json.dumps(payload))
     client_worker_case.plan_path.write_text(plan.serialize_json())

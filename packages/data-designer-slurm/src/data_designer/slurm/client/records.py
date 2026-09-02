@@ -5,22 +5,25 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Annotated, Literal
+from typing import TYPE_CHECKING, Annotated, Literal
 
 from pydantic import NonNegativeInt, PositiveInt, StringConstraints, field_validator, model_validator
 
-from data_designer.slurm.config.images import InstalledDistribution
 from data_designer.slurm.contracts import (
     ArtifactReference,
     AttemptId,
     ContractRecord,
     ContractValue,
     Identifier,
+    InstalledDistribution,
     Sha256Digest,
     ShardId,
     validate_absolute_path,
     validate_plain_text,
 )
+
+if TYPE_CHECKING:
+    from data_designer.slurm.client.environment import PreparedClientEnvironment
 
 
 class ClientErrorCode(str, Enum):
@@ -88,6 +91,35 @@ class ClientEnvironmentManifest(ContractRecord):
     redacted_message: Annotated[str, StringConstraints(max_length=512)] | None = None
 
     _overlay_path_is_absolute = field_validator("overlay_path")(validate_absolute_path)
+
+    @classmethod
+    def from_prepared(
+        cls,
+        prepared: PreparedClientEnvironment,
+        *,
+        created_at: datetime,
+        outcome: ClientEnvironmentOutcome,
+        plugins: tuple[ClientPluginEntryPoint, ...],
+        error_code: ClientErrorCode | None = None,
+        redacted_message: str | None = None,
+    ) -> ClientEnvironmentManifest:
+        return cls(
+            schema_version=1,
+            run_id=prepared.run_id,
+            shard_id=prepared.shard_id,
+            attempt_id=prepared.attempt_id,
+            created_at=created_at,
+            outcome=outcome,
+            dependency_lock=prepared.dependency_lock,
+            client_image_sha256=prepared.client_image_sha256,
+            python_abi=prepared.python_abi,
+            overlay_path=prepared.overlay_path.as_posix(),
+            installer_outcome=prepared.installer_outcome,
+            installed_distributions=prepared.installed_distributions,
+            plugins=plugins,
+            error_code=error_code,
+            redacted_message=redacted_message,
+        )
 
     @field_validator("created_at")
     @classmethod

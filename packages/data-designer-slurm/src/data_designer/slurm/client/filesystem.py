@@ -63,17 +63,8 @@ def compute_file_sha256(path: Path, *, missing_code: ClientErrorCode) -> str:
 
 def replace_private_text(path: Path, text: str) -> None:
     """Atomically replace one private attempt-local record."""
-    payload = text.encode("utf-8")
-    if len(payload) > _MAXIMUM_RECORD_SIZE:
-        raise ClientWorkerError(ClientErrorCode.OUTPUT_INVALID, "client record exceeds the size limit")
-    ensure_private_directory(path.parent)
-    temporary = path.parent / f".client.{uuid.uuid4().hex}.tmp"
-    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    _, temporary = _write_private_temporary(path, text)
     try:
-        with os.fdopen(descriptor, "wb", closefd=True) as stream:
-            stream.write(payload)
-            stream.flush()
-            os.fsync(stream.fileno())
         os.replace(temporary, path)
         path.chmod(0o600)
     finally:
@@ -85,6 +76,19 @@ def replace_private_text(path: Path, text: str) -> None:
 
 def publish_private_text(path: Path, text: str) -> None:
     """Convergently publish one immutable private attempt-local record."""
+    payload, temporary = _write_private_temporary(path, text)
+    try:
+        try:
+            os.link(temporary, path)
+        except FileExistsError:
+            if read_regular_bytes(path, missing_code=ClientErrorCode.OUTPUT_INVALID) != payload:
+                raise ClientWorkerError(ClientErrorCode.OUTPUT_INVALID, "immutable client record already differs")
+        path.chmod(0o600)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def _write_private_temporary(path: Path, text: str) -> tuple[bytes, Path]:
     payload = text.encode("utf-8")
     if len(payload) > _MAXIMUM_RECORD_SIZE:
         raise ClientWorkerError(ClientErrorCode.OUTPUT_INVALID, "client record exceeds the size limit")
@@ -96,11 +100,7 @@ def publish_private_text(path: Path, text: str) -> None:
             stream.write(payload)
             stream.flush()
             os.fsync(stream.fileno())
-        try:
-            os.link(temporary, path)
-        except FileExistsError:
-            if read_regular_bytes(path, missing_code=ClientErrorCode.OUTPUT_INVALID) != payload:
-                raise ClientWorkerError(ClientErrorCode.OUTPUT_INVALID, "immutable client record already differs")
-        path.chmod(0o600)
-    finally:
+        return payload, temporary
+    except Exception:
         temporary.unlink(missing_ok=True)
+        raise

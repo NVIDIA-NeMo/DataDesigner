@@ -8,10 +8,9 @@ from importlib.metadata import entry_points
 from packaging.utils import canonicalize_name
 
 from data_designer.plugins import Plugin
-from data_designer.plugins.registry import PluginRegistry
 from data_designer.slurm.client.errors import ClientWorkerError
 from data_designer.slurm.client.records import ClientErrorCode, ClientPluginEntryPoint
-from data_designer.slurm.config.images import InstalledDistribution
+from data_designer.slurm.contracts import InstalledDistribution
 
 
 def discover_plugins(
@@ -47,10 +46,6 @@ def discover_plugins(
                     plugin_type=plugin.plugin_type.value,
                 )
             )
-        PluginRegistry.reset()
-        registered = PluginRegistry()
-        for plugin in discovered:
-            registered.get_plugin(plugin.plugin_name)
     except ClientWorkerError:
         raise
     except Exception as error:

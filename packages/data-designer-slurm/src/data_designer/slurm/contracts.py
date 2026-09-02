@@ -9,7 +9,7 @@ import hashlib
 import json
 import posixpath
 from collections.abc import Mapping
-from typing import TypeVar
+from typing import Annotated, TypeVar
 from urllib.parse import urlsplit
 
 from pydantic import (
@@ -17,6 +17,7 @@ from pydantic import (
     ConfigDict,
     NonNegativeInt,
     PositiveInt,
+    StringConstraints,
     field_validator,
     model_validator,
 )
@@ -105,6 +106,21 @@ class ContractValue(BaseModel):
     @classmethod
     def freeze_collections(cls, value: object) -> object:
         return _freeze_collections(value)
+
+
+DistributionName = Annotated[
+    str,
+    StringConstraints(
+        min_length=1,
+        max_length=128,
+        pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$",
+    ),
+]
+
+
+class InstalledDistribution(ContractValue):
+    name: DistributionName
+    version: Annotated[str, StringConstraints(min_length=1, max_length=128)]
 
 
 class AuthoredConfig(ContractValue):

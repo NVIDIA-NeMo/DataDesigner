@@ -80,6 +80,72 @@ class _ExecutionContext:
     dataset_path: Path
 
 
+@dataclass(frozen=True)
+class _ValidatedCreation:
+    requested_records: int
+    actual_records: int
+    dataset_path: Path
+    expected_path: Path
+    effective_resume: ResumeMode
+    early_shutdown: bool
+
+
+class _ProgressWriter:
+    def __init__(
+        self,
+        context: _ExecutionContext,
+        prepared: PreparedClientEnvironment,
+        clock: Clock,
+        *,
+        revision: int = 0,
+    ) -> None:
+        self._context = context
+        self._prepared = prepared
+        self._clock = clock
+        self._revision = revision
+
+    def required(
+        self,
+        phase: ClientProgressPhase,
+        *,
+        completed_records: int | None = None,
+        error_code: ClientErrorCode | None = None,
+    ) -> None:
+        self._revision += 1
+        progress = ClientProgress(
+            schema_version=1,
+            run_id=self._context.plan.run_id,
+            shard_id=self._context.shard.shard_id,
+            attempt_id=self._prepared.attempt_id,
+            revision=self._revision,
+            updated_at=self._clock(),
+            phase=phase,
+            requested_records=self._context.shard.requested_records,
+            completed_records=completed_records,
+            error_code=error_code,
+        )
+        replace_private_text(self._prepared.attempt_dir / "client-progress.json", progress.serialize_json())
+
+    def best_effort(
+        self,
+        phase: ClientProgressPhase,
+        *,
+        completed_records: int | None = None,
+        error_code: ClientErrorCode | None = None,
+    ) -> None:
+        try:
+            self.required(phase, completed_records=completed_records, error_code=error_code)
+        except Exception:
+            logger.warning("Could not persist client %s progress", phase.value)
+
+    def on_batch_complete(self, path: Path) -> None:
+        generated_records = sum(lazy.pq.read_metadata(item).num_rows for item in path.parent.glob("*.parquet"))
+        self.best_effort(
+            ClientProgressPhase.GENERATING,
+            completed_records=min(generated_records, self._context.shard.requested_records),
+        )
+
+
 class ClientWorker:
     """Validate and execute one planned Data Designer shard."""
 
@@ -103,22 +169,14 @@ class ClientWorker:
         """Validate packages, plugins, assets, and config without generation."""
         try:
             context = self._build_context(plan_path, prepared=prepared, endpoints=endpoints)
-            self._write_progress(context, prepared, 1, ClientProgressPhase.VALIDATING_PLUGINS)
-            self._write_progress(context, prepared, 2, ClientProgressPhase.VALIDATING_CONFIG)
+            progress = _ProgressWriter(context, prepared, self._clock)
+            progress.required(ClientProgressPhase.VALIDATING_PLUGINS)
+            progress.required(ClientProgressPhase.VALIDATING_CONFIG)
             context.designer.validate(context.builder)
-            manifest = ClientEnvironmentManifest(
-                schema_version=1,
-                run_id=context.plan.run_id,
-                shard_id=context.shard.shard_id,
-                attempt_id=prepared.attempt_id,
+            manifest = ClientEnvironmentManifest.from_prepared(
+                prepared,
                 created_at=self._clock(),
                 outcome=ClientEnvironmentOutcome.READY,
-                dependency_lock=prepared.dependency_lock,
-                client_image_sha256=prepared.client_image_sha256,
-                python_abi=prepared.python_abi,
-                overlay_path=prepared.overlay_path.as_posix(),
-                installer_outcome=prepared.installer_outcome,
-                installed_distributions=prepared.installed_distributions,
                 plugins=plugins,
             )
             replace_private_text(prepared.attempt_dir / "client-environment.json", manifest.serialize_json())
@@ -141,90 +199,39 @@ class ClientWorker:
     ) -> ClientResult:
         """Invoke the public Data Designer generation contract and persist its result."""
         context: _ExecutionContext | None = None
-        revision = 2
+        progress: _ProgressWriter | None = None
         try:
             context = self._build_context(plan_path, prepared=prepared, endpoints=endpoints)
-            active_context = context
+            progress = _ProgressWriter(context, prepared, self._clock, revision=2)
             self._validate_environment_manifest(context, prepared, plugins)
-            revision = 3
-            self._write_progress(context, prepared, revision, ClientProgressPhase.GENERATING, completed_records=0)
-            if context.dataset_path.parent == prepared.attempt_dir:
-                ensure_private_directory(context.dataset_path.parent)
-            elif not context.dataset_path.parent.is_dir():
-                raise ClientWorkerError(ClientErrorCode.OUTPUT_INVALID, "shard dataset workspace is unavailable")
-            if context.requested_resume is not ResumeMode.NEVER:
-                ensure_private_directory(context.dataset_path)
-            if context.requested_resume is ResumeMode.NEVER and context.dataset_path.exists():
-                if not context.dataset_path.is_dir() or any(context.dataset_path.iterdir()):
-                    raise ClientWorkerError(ClientErrorCode.OUTPUT_INVALID, "attempt dataset workspace is not empty")
-
-            generated_records = 0
-
-            def on_batch_complete(path: Path) -> None:
-                nonlocal generated_records, revision
-                generated_records = sum(lazy.pq.read_metadata(item).num_rows for item in path.parent.glob("*.parquet"))
-                revision += 1
-                try:
-                    self._write_progress(
-                        active_context,
-                        prepared,
-                        revision,
-                        ClientProgressPhase.GENERATING,
-                        completed_records=min(generated_records, active_context.shard.requested_records),
-                    )
-                except Exception:
-                    logger.warning("Could not persist client generation progress")
-
-            results = cast(
-                CreationResults,
-                context.designer.create(
-                    context.builder,
-                    num_records=context.shard.requested_records,
-                    dataset_name=context.dataset_path.name,
-                    resume=context.requested_resume,
-                    artifact_path=context.dataset_path.parent,
-                    on_batch_complete=on_batch_complete,
-                ),
-            )
-            revision += 1
-            self._write_progress(
-                context,
-                prepared,
-                revision,
-                ClientProgressPhase.FINALIZING,
-                completed_records=results.actual_num_records,
-            )
+            progress.required(ClientProgressPhase.GENERATING, completed_records=0)
+            self._prepare_dataset_workspace(context, prepared)
+            results = self._generate_dataset(context, progress)
+            progress.required(ClientProgressPhase.FINALIZING, completed_records=results.actual_num_records)
             try:
                 result = self._finalize(context, prepared, results)
             except ClientWorkerError:
                 raise
             except Exception as error:
                 raise ClientWorkerError(ClientErrorCode.OUTPUT_INVALID, "Data Designer output is invalid") from error
-            revision += 1
-            try:
-                self._write_progress(
-                    context,
-                    prepared,
-                    revision,
-                    ClientProgressPhase.COMPLETE,
-                    completed_records=cast(int, result.actual_records),
-                )
-            except Exception:
-                logger.warning("Could not persist client completion progress")
+            progress.best_effort(
+                ClientProgressPhase.COMPLETE,
+                completed_records=cast(int, result.actual_records),
+            )
             return result
         except ClientWorkerError as error:
             if context is not None:
-                self._write_failure(context, prepared, error, revision=revision + 1)
+                self._write_failure(context, prepared, error, progress=progress)
             raise
         except (KeyboardInterrupt, SystemExit) as error:
             failure = ClientWorkerError(ClientErrorCode.INTERRUPTED, "Data Designer generation was interrupted")
             if context is not None:
-                self._write_failure(context, prepared, failure, revision=revision + 1)
+                self._write_failure(context, prepared, failure, progress=progress)
             raise failure from error
         except Exception as error:
             failure = ClientWorkerError(ClientErrorCode.GENERATION_FAILED, "Data Designer generation failed")
             if context is not None:
-                self._write_failure(context, prepared, failure, revision=revision + 1)
+                self._write_failure(context, prepared, failure, progress=progress)
             raise failure from error
 
     def _build_context(
@@ -264,6 +271,7 @@ class ClientWorker:
             builder_payload = self._load_builder(plan)
             builder = DataDesignerConfigBuilder.from_config(builder_payload)
             providers = self._materialize_model_endpoints(plan, builder, endpoints)
+            self._validate_model_references(builder)
             self._materialize_seed(plan, shard, builder)
             mcp_providers = self._materialize_mcp_providers(plan)
             self._validate_assets(plan)
@@ -360,6 +368,16 @@ class ClientWorker:
         return providers
 
     @staticmethod
+    def _validate_model_references(builder: DataDesignerConfigBuilder) -> None:
+        available = {config.alias for config in builder.model_configs}
+        referenced = {alias for column in builder.get_column_configs() for alias in column.get_model_aliases()}
+        referenced.update(
+            profiler.model_alias for profiler in builder.get_profilers() if hasattr(profiler, "model_alias")
+        )
+        if not referenced.issubset(available):
+            raise ClientWorkerError(ClientErrorCode.CONFIG_INVALID, "builder references unavailable model aliases")
+
+    @staticmethod
     def _materialize_seed(
         plan: ResolvedSlurmRunPlan,
         shard: PlannedShard,
@@ -442,12 +460,62 @@ class ClientWorker:
             raise ClientWorkerError(ClientErrorCode.CONFIG_INVALID, "resume workspace is invalid")
         return resume_path
 
+    @staticmethod
+    def _prepare_dataset_workspace(
+        context: _ExecutionContext,
+        prepared: PreparedClientEnvironment,
+    ) -> None:
+        if context.dataset_path.parent == prepared.attempt_dir:
+            ensure_private_directory(context.dataset_path.parent)
+        elif not context.dataset_path.parent.is_dir():
+            raise ClientWorkerError(ClientErrorCode.OUTPUT_INVALID, "shard dataset workspace is unavailable")
+        if context.requested_resume is not ResumeMode.NEVER:
+            ensure_private_directory(context.dataset_path)
+        if context.requested_resume is ResumeMode.NEVER and context.dataset_path.exists():
+            if not context.dataset_path.is_dir() or any(context.dataset_path.iterdir()):
+                raise ClientWorkerError(ClientErrorCode.OUTPUT_INVALID, "attempt dataset workspace is not empty")
+
+    @staticmethod
+    def _generate_dataset(
+        context: _ExecutionContext,
+        progress: _ProgressWriter,
+    ) -> CreationResults:
+        try:
+            return cast(
+                CreationResults,
+                context.designer.create(
+                    context.builder,
+                    num_records=context.shard.requested_records,
+                    dataset_name=context.dataset_path.name,
+                    resume=context.requested_resume,
+                    artifact_path=context.dataset_path.parent,
+                    on_batch_complete=progress.on_batch_complete,
+                ),
+            )
+        except ClientWorkerError:
+            raise
+        except (KeyboardInterrupt, SystemExit) as error:
+            raise ClientWorkerError(ClientErrorCode.INTERRUPTED, "Data Designer generation was interrupted") from error
+        except Exception as error:
+            raise ClientWorkerError(ClientErrorCode.GENERATION_FAILED, "Data Designer generation failed") from error
+
     def _finalize(
         self,
         context: _ExecutionContext,
         prepared: PreparedClientEnvironment,
         results: CreationResults,
     ) -> ClientResult:
+        creation = self._validate_creation_result(context, prepared, results)
+        dataset_path, exported_path = self._place_dataset(creation, results)
+        candidate = self._build_candidate_manifest(context, prepared, creation, dataset_path, exported_path)
+        return self._publish_success(context, prepared, creation, candidate)
+
+    @staticmethod
+    def _validate_creation_result(
+        context: _ExecutionContext,
+        prepared: PreparedClientEnvironment,
+        results: CreationResults,
+    ) -> _ValidatedCreation:
         requested = context.shard.requested_records
         actual = results.actual_num_records
         if results.requested_num_records != requested or actual > requested:
@@ -478,23 +546,47 @@ class ClientWorker:
             )
         ):
             raise ClientWorkerError(ClientErrorCode.OUTPUT_INVALID, "Data Designer dataset path is invalid")
-        exported_path: Path | None = None
-        if actual:
-            exported_path = results.export(dataset_path / "part-00000.parquet", format="parquet")
-        if dataset_path != expected_path:
-            ensure_private_directory(expected_path.parent)
-            dataset_path.rename(expected_path)
-            if exported_path is not None:
-                exported_path = expected_path / exported_path.relative_to(dataset_path)
-            dataset_path = expected_path
-        if dataset_path != expected_path:
-            raise ClientWorkerError(ClientErrorCode.OUTPUT_INVALID, "Data Designer dataset path is invalid")
+        return _ValidatedCreation(
+            requested_records=requested,
+            actual_records=actual,
+            dataset_path=dataset_path,
+            expected_path=expected_path,
+            effective_resume=effective_resume,
+            early_shutdown=results.early_shutdown,
+        )
 
+    @staticmethod
+    def _place_dataset(
+        creation: _ValidatedCreation,
+        results: CreationResults,
+    ) -> tuple[Path, Path | None]:
+        dataset_path = creation.dataset_path
+        exported_path: Path | None = None
+        if creation.actual_records:
+            exported_path = results.export(dataset_path / "part-00000.parquet", format="parquet")
+        if dataset_path != creation.expected_path:
+            ensure_private_directory(creation.expected_path.parent)
+            dataset_path.rename(creation.expected_path)
+            if exported_path is not None:
+                exported_path = creation.expected_path / exported_path.relative_to(dataset_path)
+            dataset_path = creation.expected_path
+        if dataset_path != creation.expected_path:
+            raise ClientWorkerError(ClientErrorCode.OUTPUT_INVALID, "Data Designer dataset path is invalid")
+        return dataset_path, exported_path
+
+    def _build_candidate_manifest(
+        self,
+        context: _ExecutionContext,
+        prepared: PreparedClientEnvironment,
+        creation: _ValidatedCreation,
+        dataset_path: Path,
+        exported_path: Path | None,
+    ) -> CandidateOutputManifest:
         files: tuple[CandidateOutputFile, ...] = ()
         schema_digest = context.plan.builder.content_sha256
         if exported_path is not None:
             metadata = lazy.pq.read_metadata(exported_path)
-            if metadata.num_rows != actual:
+            if metadata.num_rows != creation.actual_records:
                 raise ClientWorkerError(ClientErrorCode.OUTPUT_INVALID, "exported record count differs")
             schema_digest = hashlib.sha256(lazy.pq.read_schema(exported_path).serialize().to_pybytes()).hexdigest()
             files = (
@@ -502,7 +594,7 @@ class ClientWorker:
                     relative_path=exported_path.relative_to(dataset_path).as_posix(),
                     sha256=compute_file_sha256(exported_path, missing_code=ClientErrorCode.OUTPUT_INVALID),
                     byte_size=exported_path.stat().st_size,
-                    record_count=actual,
+                    record_count=creation.actual_records,
                 ),
             )
         created_at = self._clock()
@@ -518,7 +610,7 @@ class ClientWorker:
                 "shard_id": context.shard.shard_id,
             }
         )
-        candidate = CandidateOutputManifest(
+        return CandidateOutputManifest(
             schema_version=1,
             run_id=context.plan.run_id,
             shard_id=context.shard.shard_id,
@@ -526,19 +618,27 @@ class ClientWorker:
             attempt_ordinal=int(prepared.attempt_id.removeprefix("attempt-")),
             created_at=created_at,
             dataset_path=dataset_path.as_posix(),
-            requested_records=requested,
-            actual_records=actual,
+            requested_records=creation.requested_records,
+            actual_records=creation.actual_records,
             outcome=(
                 CandidateOutcome.EMPTY
-                if actual == 0
+                if creation.actual_records == 0
                 else CandidateOutcome.COMPLETE
-                if actual == requested
+                if creation.actual_records == creation.requested_records
                 else CandidateOutcome.PARTIAL
             ),
             files=files,
             dataset_schema_digest=schema_digest,
             provenance_digest=provenance_digest,
         )
+
+    def _publish_success(
+        self,
+        context: _ExecutionContext,
+        prepared: PreparedClientEnvironment,
+        creation: _ValidatedCreation,
+        candidate: CandidateOutputManifest,
+    ) -> ClientResult:
         candidate_path = prepared.attempt_dir / "output-manifest.json"
         publish_private_text(candidate_path, candidate.serialize_json())
         result = ClientResult(
@@ -547,13 +647,17 @@ class ClientWorker:
             shard_id=context.shard.shard_id,
             attempt_id=prepared.attempt_id,
             completed_at=self._clock(),
-            requested_records=requested,
-            actual_records=actual,
-            outcome=ClientOutcome.COMPLETE if actual == requested else ClientOutcome.PARTIAL,
-            dataset_path=dataset_path.as_posix(),
-            early_shutdown=results.early_shutdown,
+            requested_records=creation.requested_records,
+            actual_records=creation.actual_records,
+            outcome=(
+                ClientOutcome.COMPLETE
+                if creation.actual_records == creation.requested_records
+                else ClientOutcome.PARTIAL
+            ),
+            dataset_path=candidate.dataset_path,
+            early_shutdown=creation.early_shutdown,
             requested_resume_mode=context.requested_resume.value,
-            effective_resume_mode=effective_resume.value,
+            effective_resume_mode=creation.effective_resume.value,
             candidate_output_manifest=ArtifactReference(
                 path=candidate_path.as_posix(), sha256=candidate.compute_sha256()
             ),
@@ -598,19 +702,10 @@ class ClientWorker:
         plugins: tuple[ClientPluginEntryPoint, ...],
         error: ClientWorkerError,
     ) -> None:
-        manifest = ClientEnvironmentManifest(
-            schema_version=1,
-            run_id=prepared.run_id,
-            shard_id=prepared.shard_id,
-            attempt_id=prepared.attempt_id,
+        manifest = ClientEnvironmentManifest.from_prepared(
+            prepared,
             created_at=self._clock(),
             outcome=ClientEnvironmentOutcome.FAILED,
-            dependency_lock=prepared.dependency_lock,
-            client_image_sha256=prepared.client_image_sha256,
-            python_abi=prepared.python_abi,
-            overlay_path=prepared.overlay_path.as_posix(),
-            installer_outcome=prepared.installer_outcome,
-            installed_distributions=prepared.installed_distributions,
             plugins=plugins,
             error_code=error.code,
             redacted_message=error.redacted_message,
@@ -620,7 +715,7 @@ class ClientWorker:
             context = self._build_context(plan_path, prepared=prepared, endpoints=endpoints)
         except ClientWorkerError:
             return
-        self._write_failure(context, prepared, error, revision=3)
+        self._write_failure(context, prepared, error, progress=None)
 
     def _write_failure(
         self,
@@ -628,7 +723,7 @@ class ClientWorker:
         prepared: PreparedClientEnvironment,
         error: ClientWorkerError,
         *,
-        revision: int,
+        progress: _ProgressWriter | None,
     ) -> None:
         result = ClientResult(
             schema_version=1,
@@ -644,40 +739,8 @@ class ClientWorker:
             redacted_message=error.redacted_message,
         )
         publish_private_text(prepared.attempt_dir / "client-result.json", result.serialize_json())
-        try:
-            self._write_progress(
-                context,
-                prepared,
-                revision,
-                ClientProgressPhase.FAILED,
-                error_code=error.code,
-            )
-        except Exception:
-            logger.warning("Could not persist client failure progress")
-
-    def _write_progress(
-        self,
-        context: _ExecutionContext,
-        prepared: PreparedClientEnvironment,
-        revision: int,
-        phase: ClientProgressPhase,
-        *,
-        completed_records: int | None = None,
-        error_code: ClientErrorCode | None = None,
-    ) -> None:
-        progress = ClientProgress(
-            schema_version=1,
-            run_id=context.plan.run_id,
-            shard_id=context.shard.shard_id,
-            attempt_id=prepared.attempt_id,
-            revision=revision,
-            updated_at=self._clock(),
-            phase=phase,
-            requested_records=context.shard.requested_records,
-            completed_records=completed_records,
-            error_code=error_code,
-        )
-        replace_private_text(prepared.attempt_dir / "client-progress.json", progress.serialize_json())
+        progress = progress or _ProgressWriter(context, prepared, self._clock, revision=2)
+        progress.best_effort(ClientProgressPhase.FAILED, error_code=error.code)
 
 
 def _resolve_secret(reference: SecretRef) -> str:

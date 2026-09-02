@@ -21,8 +21,7 @@ from packaging.utils import canonicalize_name, parse_wheel_filename
 from data_designer.slurm.client.errors import ClientWorkerError
 from data_designer.slurm.client.filesystem import compute_file_sha256, ensure_private_directory, read_regular_bytes
 from data_designer.slurm.client.records import ClientErrorCode, ClientInstallerOutcome
-from data_designer.slurm.config.images import InstalledDistribution
-from data_designer.slurm.contracts import ArtifactReference
+from data_designer.slurm.contracts import ArtifactReference, InstalledDistribution
 
 DistributionInventory = Callable[[Path | None], tuple[InstalledDistribution, ...]]
 CommandRunner = Callable[[tuple[str, ...]], None]
@@ -40,6 +39,26 @@ class PreparedClientEnvironment:
     python_abi: str
     installer_outcome: ClientInstallerOutcome
     installed_distributions: tuple[InstalledDistribution, ...]
+
+
+@dataclass(frozen=True)
+class _BootstrapInputs:
+    run_id: str
+    run_root: Path
+    shard_id: str
+    attempt_id: str
+    attempt_dir: Path
+    client_image_sha256: str
+    python_abi: str
+    installer_path: Path
+    inspection: dict[str, object]
+    dependency_lock: ArtifactReference
+
+
+@dataclass(frozen=True)
+class _VerifiedDependencies:
+    image_distributions: tuple[InstalledDistribution, ...]
+    overlay_packages: tuple[dict[str, object], ...]
 
 
 class ClientEnvironmentBuilder:
@@ -63,6 +82,35 @@ class ClientEnvironmentBuilder:
         attempt_dir: Path,
     ) -> PreparedClientEnvironment:
         """Verify the plan and lock subset needed before plugin-aware imports."""
+        inputs = self._load_bootstrap_inputs(
+            plan_path,
+            shard_id=shard_id,
+            attempt_id=attempt_id,
+            attempt_dir=attempt_dir,
+        )
+        dependencies = self._verify_dependency_lock(inputs)
+        overlay_path, installer_outcome, installed = self._prepare_overlay(inputs, dependencies)
+        return PreparedClientEnvironment(
+            run_id=inputs.run_id,
+            shard_id=inputs.shard_id,
+            attempt_id=inputs.attempt_id,
+            attempt_dir=inputs.attempt_dir,
+            overlay_path=overlay_path,
+            dependency_lock=inputs.dependency_lock,
+            client_image_sha256=inputs.client_image_sha256,
+            python_abi=inputs.python_abi,
+            installer_outcome=installer_outcome,
+            installed_distributions=installed,
+        )
+
+    @staticmethod
+    def _load_bootstrap_inputs(
+        plan_path: Path,
+        *,
+        shard_id: str,
+        attempt_id: str,
+        attempt_dir: Path,
+    ) -> _BootstrapInputs:
         _validate_input_path(plan_path, "resolved plan")
         _validate_input_path(attempt_dir, "attempt directory")
         if not re.fullmatch(r"shard-[0-9]{5,}", shard_id):
@@ -96,19 +144,33 @@ class ClientEnvironmentBuilder:
         lock_reference = _artifact_reference(_require_object(client, "dependency_lock"))
         if Path(lock_reference.path).as_posix() != (run_root / "dependency-lock.json").as_posix():
             raise ClientWorkerError(ClientErrorCode.INVALID_INPUT, "dependency lock path is not canonical")
-        lock_bytes = read_regular_bytes(
-            Path(lock_reference.path), missing_code=ClientErrorCode.DEPENDENCY_ARTIFACT_MISSING
+        return _BootstrapInputs(
+            run_id=run_id,
+            run_root=run_root,
+            shard_id=shard_id,
+            attempt_id=attempt_id,
+            attempt_dir=attempt_dir,
+            client_image_sha256=image_sha256,
+            python_abi=python_abi,
+            installer_path=installer_path,
+            inspection=inspection,
+            dependency_lock=lock_reference,
         )
-        if _sha256_bytes(lock_bytes) != lock_reference.sha256:
+
+    def _verify_dependency_lock(self, inputs: _BootstrapInputs) -> _VerifiedDependencies:
+        lock_bytes = read_regular_bytes(
+            Path(inputs.dependency_lock.path), missing_code=ClientErrorCode.DEPENDENCY_ARTIFACT_MISSING
+        )
+        if _sha256_bytes(lock_bytes) != inputs.dependency_lock.sha256:
             raise ClientWorkerError(ClientErrorCode.DEPENDENCY_DIGEST_MISMATCH, "dependency lock digest differs")
         lock = _parse_json_bytes(lock_bytes, ClientErrorCode.DEPENDENCY_CONFLICT)
-        if _require_digest(lock, "client_image_sha256") != image_sha256:
+        if _require_digest(lock, "client_image_sha256") != inputs.client_image_sha256:
             raise ClientWorkerError(ClientErrorCode.DEPENDENCY_CONFLICT, "dependency lock targets another image")
-        if _require_string(lock, "python_abi") != python_abi:
+        if _require_string(lock, "python_abi") != inputs.python_abi:
             raise ClientWorkerError(ClientErrorCode.DEPENDENCY_CONFLICT, "dependency lock targets another Python ABI")
 
         expected_image = _parse_distributions(lock.get("image_distributions"))
-        inspected_image = _parse_distributions(inspection.get("distributions"))
+        inspected_image = _parse_distributions(inputs.inspection.get("distributions"))
         try:
             actual_image = self._inventory(None)
         except ClientWorkerError:
@@ -123,25 +185,26 @@ class ClientEnvironmentBuilder:
         source = lock.get("source")
         if source is not None:
             source_reference = _artifact_reference(_as_object(source))
-            _verify_input_artifact(source_reference, run_root / "inputs")
-
-        overlay_packages = _as_object_list(lock.get("overlay_packages"))
-        expected_overlay, wheels = _verify_wheels(overlay_packages, run_root / "dependencies", expected_image)
-        overlay_path = attempt_dir / "client-env" / "site-packages"
-        installer_outcome = self._install_overlay(installer_path, wheels, expected_overlay, overlay_path)
-        installed = tuple(sorted((*expected_image, *expected_overlay), key=lambda item: item.name))
-        return PreparedClientEnvironment(
-            run_id=run_id,
-            shard_id=shard_id,
-            attempt_id=attempt_id,
-            attempt_dir=attempt_dir,
-            overlay_path=overlay_path,
-            dependency_lock=lock_reference,
-            client_image_sha256=image_sha256,
-            python_abi=python_abi,
-            installer_outcome=installer_outcome,
-            installed_distributions=installed,
+            _verify_input_artifact(source_reference, inputs.run_root / "inputs")
+        return _VerifiedDependencies(
+            image_distributions=expected_image,
+            overlay_packages=tuple(_as_object_list(lock.get("overlay_packages"))),
         )
+
+    def _prepare_overlay(
+        self,
+        inputs: _BootstrapInputs,
+        dependencies: _VerifiedDependencies,
+    ) -> tuple[Path, ClientInstallerOutcome, tuple[InstalledDistribution, ...]]:
+        expected_overlay, wheels = _verify_wheels(
+            dependencies.overlay_packages,
+            inputs.run_root / "dependencies",
+            dependencies.image_distributions,
+        )
+        overlay_path = inputs.attempt_dir / "client-env" / "site-packages"
+        outcome = self._install_overlay(inputs.installer_path, wheels, expected_overlay, overlay_path)
+        installed = tuple(sorted((*dependencies.image_distributions, *expected_overlay), key=lambda item: item.name))
+        return overlay_path, outcome, installed
 
     def _install_overlay(
         self,
@@ -229,7 +292,7 @@ def _run_installer(command: tuple[str, ...]) -> None:
 
 
 def _verify_wheels(
-    packages: list[dict[str, object]],
+    packages: tuple[dict[str, object], ...],
     dependencies_root: Path,
     image_distributions: tuple[InstalledDistribution, ...],
 ) -> tuple[tuple[InstalledDistribution, ...], tuple[Path, ...]]:

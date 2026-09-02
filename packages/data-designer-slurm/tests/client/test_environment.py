@@ -6,18 +6,19 @@ from __future__ import annotations
 import hashlib
 import importlib
 import json
+import subprocess
+import sys
 from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
 from conftest import ClientWorkerCase
 
-from data_designer.plugins.registry import PluginRegistry
 from data_designer.slurm.client.environment import ClientEnvironmentBuilder, inspect_distributions
 from data_designer.slurm.client.errors import ClientWorkerError
 from data_designer.slurm.client.plugins import discover_plugins
 from data_designer.slurm.client.records import ClientErrorCode, ClientInstallerOutcome
-from data_designer.slurm.config.images import InstalledDistribution
+from data_designer.slurm.contracts import InstalledDistribution
 from data_designer.slurm.planning import ResolvedSlurmRunPlan
 
 
@@ -185,12 +186,60 @@ def test_discover_plugins_loads_verified_entry_point(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.syspath_prepend(fake_plugin_overlay.as_posix())
-    monkeypatch.setattr("data_designer.plugins.registry.PLUGINS_DISABLED", False)
     importlib.invalidate_caches()
-    PluginRegistry.reset()
 
     plugins = discover_plugins((InstalledDistribution(name="fake-data-designer-plugin", version="1.0.0"),))
 
     assert len(plugins) == 1
     assert plugins[0].plugin_name == "fake-slurm-column"
-    PluginRegistry.reset()
+
+
+def test_worker_bootstrap_loads_overlay_plugin_before_config_import(
+    fake_plugin_overlay: Path,
+    tmp_path: Path,
+) -> None:
+    script = """
+import sys
+from pathlib import Path
+
+import data_designer.slurm.client.worker as worker
+
+assert "data_designer.config.column_types" not in sys.modules
+from data_designer.slurm.client.environment import PreparedClientEnvironment
+from data_designer.slurm.client.records import ClientInstallerOutcome
+from data_designer.slurm.contracts import ArtifactReference, InstalledDistribution
+
+prepared = PreparedClientEnvironment(
+    run_id="run-test",
+    shard_id="shard-00000",
+    attempt_id="attempt-0001",
+    attempt_dir=Path(sys.argv[2]),
+    overlay_path=Path(sys.argv[1]),
+    dependency_lock=ArtifactReference(path=(Path(sys.argv[2]) / "dependency-lock.json").as_posix(), sha256="a" * 64),
+    client_image_sha256="b" * 64,
+    python_abi="test",
+    installer_outcome=ClientInstallerOutcome.REUSED,
+    installed_distributions=(InstalledDistribution(name="fake-data-designer-plugin", version="1.0.0"),),
+)
+worker.activate_environment(prepared)
+
+from data_designer.slurm.client.plugins import discover_plugins
+
+plugins = discover_plugins(prepared.installed_distributions)
+assert plugins[0].plugin_name == "fake-slurm-column"
+
+from data_designer.config import DataDesignerConfigBuilder
+
+builder = DataDesignerConfigBuilder.from_config(
+    {"data_designer": {"columns": [{"name": "custom", "column_type": "fake-slurm-column"}], "model_configs": []}}
+)
+assert builder.get_column_configs()[0].column_type == "fake-slurm-column"
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script, fake_plugin_overlay.as_posix(), (tmp_path / "attempt").as_posix()],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr

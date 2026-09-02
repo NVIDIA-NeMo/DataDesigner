@@ -4,18 +4,19 @@
 from __future__ import annotations
 
 import json
+import platform
 from dataclasses import dataclass
 from pathlib import Path
 
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
+from packaging.tags import interpreter_name, interpreter_version
 
 from data_designer.config import ResumeMode
 from data_designer.slurm.client.environment import PreparedClientEnvironment
 from data_designer.slurm.client.records import ClientInstallerOutcome
-from data_designer.slurm.config.images import InstalledDistribution
-from data_designer.slurm.contracts import compute_canonical_json_sha256
+from data_designer.slurm.contracts import InstalledDistribution, compute_canonical_json_sha256
 from data_designer.slurm.planning import ResolvedDependencyLock, ResolvedSlurmRunPlan
 
 GOLDEN_DIRECTORY = Path(__file__).parents[1] / "contracts" / "golden"
@@ -109,11 +110,18 @@ def client_worker_case(tmp_path: Path) -> ClientWorkerCase:
     payload = json.loads(
         (GOLDEN_DIRECTORY / "single_node_plan.json").read_text().replace("/workspace/primary", workspace.as_posix())
     )
+    python_abi = f"{interpreter_name()}{interpreter_version()}"
+    payload["client"]["image"]["inspection"]["inspection"].update(
+        {"python_abi": python_abi, "python_version": platform.python_version()}
+    )
+    lock_payload = json.loads((GOLDEN_DIRECTORY / "dependency_lock_single.json").read_text())
+    lock_payload["python_abi"] = python_abi
+    lock = ResolvedDependencyLock.model_validate_json(json.dumps(lock_payload))
+    payload["client"]["dependency_lock"]["sha256"] = lock.compute_sha256()
     payload["selected_profile"]["profile_sha256"] = compute_canonical_json_sha256(
         payload["selected_profile"]["profile"]
     )
     plan = ResolvedSlurmRunPlan.model_validate_json(json.dumps(payload))
-    lock = ResolvedDependencyLock.model_validate_json((GOLDEN_DIRECTORY / "dependency_lock_single.json").read_text())
     plan_path = workspace / "runs" / plan.run_id / "resolved-plan.json"
     plan_path.parent.mkdir(parents=True)
     plan_path.write_text(plan.serialize_json())

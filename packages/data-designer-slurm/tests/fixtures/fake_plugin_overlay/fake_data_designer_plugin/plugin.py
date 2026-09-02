@@ -13,6 +13,19 @@ class FakePluginConfig(SingleColumnConfig):
     """Minimal custom column configuration."""
 
     column_type: Literal["fake-slurm-column"] = "fake-slurm-column"
+    model_alias: str = "generator"
+    judge_model_alias: str = "judge"
+
+    @property
+    def required_columns(self) -> list[str]:
+        return []
+
+    @property
+    def side_effect_columns(self) -> list[str]:
+        return []
+
+    def get_model_aliases(self) -> list[str]:
+        return [self.model_alias, self.judge_model_alias]
 
 
 class FakePluginImplementation:

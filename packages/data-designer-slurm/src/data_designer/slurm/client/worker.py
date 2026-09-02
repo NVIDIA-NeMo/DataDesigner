@@ -97,19 +97,10 @@ def _write_plugin_failure(
     plugins: tuple[ClientPluginEntryPoint, ...],
     error: ClientWorkerError,
 ) -> None:
-    manifest = ClientEnvironmentManifest(
-        schema_version=1,
-        run_id=prepared.run_id,
-        shard_id=prepared.shard_id,
-        attempt_id=prepared.attempt_id,
+    manifest = ClientEnvironmentManifest.from_prepared(
+        prepared,
         created_at=datetime.now(timezone.utc),
         outcome=ClientEnvironmentOutcome.FAILED,
-        dependency_lock=prepared.dependency_lock,
-        client_image_sha256=prepared.client_image_sha256,
-        python_abi=prepared.python_abi,
-        overlay_path=prepared.overlay_path.as_posix(),
-        installer_outcome=prepared.installer_outcome,
-        installed_distributions=prepared.installed_distributions,
         plugins=plugins,
         error_code=error.code,
         redacted_message=error.redacted_message,

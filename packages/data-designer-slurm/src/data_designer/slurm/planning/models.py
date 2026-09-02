@@ -16,7 +16,6 @@ from data_designer.config import RunConfig
 from data_designer.slurm.config.environment import validate_no_plaintext_secrets
 from data_designer.slurm.config.images import (
     ClientImageInspection,
-    DistributionName,
     ImageInspectionRecord,
     ImageKind,
     ImageRef,
@@ -37,6 +36,7 @@ from data_designer.slurm.contracts import (
     ArtifactReference,
     ContractRecord,
     ContractValue,
+    DistributionName,
     Identifier,
     ModelAlias,
     RecordRange,
