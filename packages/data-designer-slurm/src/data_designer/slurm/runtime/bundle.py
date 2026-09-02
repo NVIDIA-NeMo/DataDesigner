@@ -26,17 +26,8 @@ _SOURCE_MODE = 0o400
 _MAXIMUM_SOURCE_SIZE = 16 * 1024 * 1024
 _TEMPORARY_NAME_PATTERN = re.compile(r"^\.runtime\.[0-9a-f]{16}\.tmp$")
 _ENTRYPOINT_NAME = "entrypoint.sh"
-_SLURM_PACKAGE_NAME = "data_designer/slurm/__init__.py"
-_RUNTIME_PACKAGE_ROOT = "data_designer/slurm/runtime"
-_SOURCE_MANIFEST_NAME = f"{_RUNTIME_PACKAGE_ROOT}/runtime-sources.txt"
-_SLURM_PACKAGE_SHIM = (
-    b"# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.\n"
-    b"# SPDX-License-Identifier: Apache-2.0\n\n"
-    b'"""Runtime-bundle package shim that extends into the installed Slurm package."""\n\n'
-    b"from __future__ import annotations\n\n"
-    b"from pkgutil import extend_path\n\n"
-    b"__path__ = extend_path(__path__, __name__)\n"
-)
+_SLURM_PACKAGE_ROOT = "data_designer/slurm"
+_SOURCE_MANIFEST_NAME = f"{_SLURM_PACKAGE_ROOT}/runtime/slurm-sources.txt"
 _ENTRYPOINT = b"""#!/usr/bin/env bash
 set -Eeuo pipefail
 
@@ -78,14 +69,13 @@ def stage_runtime_bundle(workspace_root: str | Path) -> ArtifactReference:
 
 
 def _build_runtime_archive() -> bytes:
-    sources = _collect_runtime_sources(Path(__file__).parent)
+    sources = _collect_slurm_sources(Path(__file__).parents[1])
     output = io.BytesIO()
     with (
         gzip.GzipFile(fileobj=output, mode="wb", filename="", mtime=0) as compressed,
         tarfile.open(fileobj=compressed, mode="w", format=tarfile.PAX_FORMAT) as archive,
     ):
         _add_archive_file(archive, _ENTRYPOINT_NAME, _ENTRYPOINT, mode=_ENTRYPOINT_MODE)
-        _add_archive_file(archive, _SLURM_PACKAGE_NAME, _SLURM_PACKAGE_SHIM, mode=_SOURCE_MODE)
         manifest = "".join(f"{archive_name}\n" for archive_name, _ in sources).encode()
         _add_archive_file(archive, _SOURCE_MANIFEST_NAME, manifest, mode=_SOURCE_MODE)
         for archive_name, source_path in sources:
@@ -93,13 +83,13 @@ def _build_runtime_archive() -> bytes:
     return output.getvalue()
 
 
-def _collect_runtime_sources(source_root: Path) -> tuple[tuple[str, Path], ...]:
+def _collect_slurm_sources(source_root: Path) -> tuple[tuple[str, Path], ...]:
     relative_sources = sorted(
         (path.relative_to(source_root) for path in source_root.rglob("*.py")),
         key=lambda path: path.as_posix(),
     )
     return tuple(
-        (f"{_RUNTIME_PACKAGE_ROOT}/{relative.as_posix()}", source_root / relative) for relative in relative_sources
+        (f"{_SLURM_PACKAGE_ROOT}/{relative.as_posix()}", source_root / relative) for relative in relative_sources
     )
 
 

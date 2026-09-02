@@ -36,10 +36,12 @@ def test_runtime_bundle_is_deterministic_content_addressed_and_restrictive(tmp_p
     with tarfile.open(fileobj=io.BytesIO(content), mode="r:gz") as archive:
         names = archive.getnames()
         assert names[0] == "entrypoint.sh"
-        assert names[1] == "data_designer/slurm/__init__.py"
-        assert names[2] == "data_designer/slurm/runtime/runtime-sources.txt"
+        assert names[1] == "data_designer/slurm/runtime/slurm-sources.txt"
+        assert names[2] == "data_designer/slurm/__init__.py"
         assert "data_designer/slurm/runtime/controller.py" in names
         assert "data_designer/slurm/runtime/entrypoint.py" in names
+        assert "data_designer/slurm/state/store.py" in names
+        assert "data_designer/slurm/contracts.py" in names
         assert archive.getmember("entrypoint.sh").mode == 0o500
         assert all(archive.getmember(name).uid == 0 for name in names)
         entrypoint = archive.extractfile("entrypoint.sh")
@@ -52,21 +54,23 @@ def test_runtime_bundle_recursively_collects_and_imports_nested_packages(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workspace = tmp_path / "workspace"
-    source_root = tmp_path / "source" / "runtime"
-    nested_root = source_root / "nested"
+    source_root = tmp_path / "source" / "slurm"
+    runtime_root = source_root / "runtime"
+    nested_root = runtime_root / "nested"
     workspace.mkdir(mode=0o700)
     nested_root.mkdir(parents=True)
     (source_root / "__init__.py").write_text("")
-    (source_root / "bundle.py").write_text("")
+    (runtime_root / "__init__.py").write_text("")
+    (runtime_root / "bundle.py").write_text("")
     (nested_root / "__init__.py").write_text("")
     (nested_root / "worker.py").write_text("VALUE = 42\n")
-    monkeypatch.setattr(runtime_bundle, "__file__", (source_root / "bundle.py").as_posix())
+    monkeypatch.setattr(runtime_bundle, "__file__", (runtime_root / "bundle.py").as_posix())
 
     reference = stage_runtime_bundle(workspace)
     extracted = tmp_path / "extracted"
     with tarfile.open(reference.path, mode="r:gz") as archive:
         archive.extractall(extracted, filter="data")
-    manifest_path = extracted / "data_designer/slurm/runtime/runtime-sources.txt"
+    manifest_path = extracted / "data_designer/slurm/runtime/slurm-sources.txt"
     manifest = manifest_path.read_text().splitlines()
     assert "data_designer/slurm/runtime/nested/worker.py" in manifest
     environment = dict(os.environ)
@@ -208,7 +212,7 @@ def test_extracted_bundle_runtime_takes_precedence_over_installed_sources(tmp_pa
         archive.extractall(extracted, filter="data")
     environment = dict(os.environ)
     environment["PYTHONPATH"] = extracted.as_posix()
-    manifest = (extracted / "data_designer/slurm/runtime/runtime-sources.txt").read_text().splitlines()
+    manifest = (extracted / "data_designer/slurm/runtime/slurm-sources.txt").read_text().splitlines()
     modules = tuple(_get_module_name(source_name) for source_name in manifest)
     import_all = "; ".join(f"importlib.import_module({module_name!r})" for module_name in modules)
 
