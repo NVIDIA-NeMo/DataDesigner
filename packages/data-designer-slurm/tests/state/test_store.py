@@ -1155,6 +1155,12 @@ def test_candidate_finalization_publishes_one_reloadable_winner_and_seals_the_sh
             "never",
         ):
             pass
+    with pytest.raises(StateConflictError, match="timezone-aware UTC"):
+        case.writer.finalize_winner(
+            finalization.attempt.shard_id,
+            finalization.attempt.attempt_id,
+            published_at=finalization.published_at.replace(tzinfo=None),
+        )
 
 
 def test_finalization_rejects_partial_client_results_and_candidate_file_drift(
