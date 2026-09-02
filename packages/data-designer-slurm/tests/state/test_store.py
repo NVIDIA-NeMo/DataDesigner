@@ -17,8 +17,9 @@ from typing import TypeVar, cast
 
 import pytest
 
+from data_designer.slurm import filesystem as slurm_filesystem
 from data_designer.slurm.config import DataDesignerSlurmConfig, SlurmProfile
-from data_designer.slurm.contracts import ArtifactReference, ContractValue, compute_canonical_json_sha256
+from data_designer.slurm.contracts import ArtifactReference, ContractValue, compute_canonical_json_sha256, pretty_json
 from data_designer.slurm.planning import ResolvedSlurmRunPlan
 from data_designer.slurm.state import (
     AttemptId,
@@ -139,6 +140,54 @@ def test_context_loading_reads_each_immutable_record_once(
     assert record_names.count("authored-config.json") == 1
     assert record_names.count("resolved-plan.json") == 1
     assert record_names.count("shard.json") == 1
+
+
+def test_shard_mutations_do_not_scan_unrelated_attempt_directories(
+    tmp_path: Path,
+    authored_run: DataDesignerSlurmConfig,
+    multi_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    case = _initialized_case(tmp_path, authored_run, multi_node_plan)
+    unrelated_attempts = case.writer.run_root / "shards" / "shard-00001" / "attempts"
+    (unrelated_attempts / "unexpected").mkdir(mode=0o700)
+    attempt = _submitted_attempt(case)
+
+    assert case.writer.create_attempt(attempt) == attempt
+    readiness = _readiness(case, attempt)
+    assert case.writer.write_readiness(readiness) == readiness
+    assert case.writer.load_attempts(attempt.shard_id) == (attempt,)
+    with pytest.raises(StateCorruptionError, match="invalid attempt directory"):
+        case.writer.load_attempts("shard-00001")
+
+
+def test_reader_rejects_unsupported_persisted_schema_version(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    case = _initialized_case(tmp_path, authored_run_single, single_node_plan)
+    run_path = case.writer.run_root / "run.json"
+    payload = json.loads(run_path.read_text())
+    payload["schema_version"] = 2
+    run_path.write_text(pretty_json(payload))
+
+    with pytest.raises(StateCorruptionError, match="unsupported schema_version"):
+        case.writer.load_run()
+
+
+def test_reader_rejects_noncanonical_record_that_relies_on_new_defaults(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    case = _initialized_case(tmp_path, authored_run_single, single_node_plan)
+    authored_config_path = case.writer.run_root / "authored-config.json"
+    payload = json.loads(authored_config_path.read_text())
+    del payload["array_tasks"]
+    authored_config_path.write_text(pretty_json(payload))
+
+    with pytest.raises(StateCorruptionError, match="schema migrations are not supported"):
+        case.writer.load_authored_config()
 
 
 def test_run_commit_marker_is_published_last_and_interrupted_initialization_retries(
@@ -523,19 +572,19 @@ def test_run_lock_rejects_path_replacement_during_acquisition(
 ) -> None:
     case = _build_case(tmp_path, authored_run_single, single_node_plan)
     lock_path = case.workspace / "runs" / ".locks" / f"run-{case.plan.run_id}.lock"
-    original_flock = state_filesystem.fcntl.flock
+    original_flock = slurm_filesystem.fcntl.flock
     replaced = False
 
     def replace_acquired_lock(descriptor: int, operation: int) -> None:
         nonlocal replaced
         original_flock(descriptor, operation)
-        if operation == state_filesystem.fcntl.LOCK_EX and not replaced:
+        if operation == slurm_filesystem.fcntl.LOCK_EX and not replaced:
             replaced = True
             lock_path.unlink()
             lock_path.write_text("")
             lock_path.chmod(0o600)
 
-    monkeypatch.setattr(state_filesystem.fcntl, "flock", replace_acquired_lock)
+    monkeypatch.setattr(slurm_filesystem.fcntl, "flock", replace_acquired_lock)
     with pytest.raises(SlurmStateError, match="cannot initialize"):
         case.writer.initialize_run(case.authored_config, case.plan, case.run, case.shards)
 
@@ -557,7 +606,7 @@ def test_run_lock_closes_descriptor_when_acquisition_is_interrupted(
         lock_descriptor = descriptor
         raise KeyboardInterrupt
 
-    monkeypatch.setattr(state_filesystem.fcntl, "flock", interrupt_flock)
+    monkeypatch.setattr(slurm_filesystem.fcntl, "flock", interrupt_flock)
     with pytest.raises(KeyboardInterrupt):
         case.writer.initialize_run(case.authored_config, case.plan, case.run, case.shards)
 
@@ -1054,6 +1103,23 @@ def test_state_package_defers_writer_dependencies_until_access() -> None:
         "assert 'data_designer.slurm.state.store' not in sys.modules; "
         "assert 'data_designer.slurm.config' not in sys.modules; "
         "assert 'SlurmStateWriter' in dir(state)"
+    )
+
+    completed = subprocess.run(
+        (sys.executable, "-c", command),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_state_persistence_does_not_import_integration_layer() -> None:
+    command = (
+        "import sys; "
+        "import data_designer.slurm.state.store; "
+        "assert 'data_designer.slurm.integration' not in sys.modules"
     )
 
     completed = subprocess.run(

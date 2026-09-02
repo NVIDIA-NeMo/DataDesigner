@@ -7,16 +7,17 @@ from __future__ import annotations
 
 from data_designer.slurm.config import DataDesignerSlurmConfig
 from data_designer.slurm.contracts import AttemptId, Identifier, ShardId
-from data_designer.slurm.integration import IntegrationContractError, PlanStateValidator
 from data_designer.slurm.planning import ResolvedSlurmRunPlan
 from data_designer.slurm.state.errors import StateCorruptionError, StateNotFoundError
 from data_designer.slurm.state.execution import AttemptLifecycleState, AttemptManifest, RunManifest, ShardManifest
+from data_designer.slurm.state.plan_validation import PersistedPlanStateValidator, PlanStateContractError
 from data_designer.slurm.state.readiness import AttemptReadiness
 from data_designer.slurm.state.storage import StateStorage
 from data_designer.slurm.state.validation import (
     StateContractError,
     validate_attempt_manifest,
     validate_attempt_set,
+    validate_shard_attempt_set,
 )
 
 
@@ -82,9 +83,9 @@ class StateReader:
         bound_plan = self.load_resolved_plan(bound_run) if plan is None else plan
         try:
             shards = self._storage.read_shards(bound_run.shard_count)
-            PlanStateValidator(bound_plan).validate_plan_shards(bound_run, shards)
+            PersistedPlanStateValidator(bound_plan).validate_plan_shards(bound_run, shards)
             return shards
-        except (IntegrationContractError, StateContractError) as error:
+        except (PlanStateContractError, StateContractError) as error:
             raise StateCorruptionError(f"run {self._run_id!r} has invalid persisted shards") from error
         except StateCorruptionError:
             raise
@@ -97,16 +98,34 @@ class StateReader:
         shards = self.load_shards(run, plan)
         return run, plan, shards
 
+    def load_shard_context(self, shard_id: ShardId) -> tuple[RunManifest, ResolvedSlurmRunPlan, ShardManifest]:
+        """Load and validate only the immutable context needed by one shard."""
+        run = self.load_run()
+        plan = self.load_resolved_plan(run)
+        try:
+            shard = self._storage.read_shard(shard_id)
+            PersistedPlanStateValidator(plan).validate_plan_shard(run, shard)
+            return run, plan, shard
+        except (PlanStateContractError, StateContractError) as error:
+            raise StateCorruptionError(f"shard {shard_id!r} is invalid") from error
+        except StateCorruptionError:
+            raise
+        except FileNotFoundError as error:
+            raise StateNotFoundError(f"shard {shard_id!r} is not persisted") from error
+        except OSError as error:
+            raise StateCorruptionError(f"shard {shard_id!r} is unreadable") from error
+
     def load_attempts(
         self,
         shard_id: ShardId,
-        context: tuple[RunManifest, ResolvedSlurmRunPlan, tuple[ShardManifest, ...]] | None = None,
+        context: tuple[RunManifest, ResolvedSlurmRunPlan, ShardManifest] | None = None,
     ) -> tuple[AttemptManifest, ...]:
         try:
-            run, plan, shards = self.load_context() if context is None else context
-            self.get_shard(shards, shard_id)
-            return self.load_validated_attempts(run, plan, shards)[shard_id]
-        except (IntegrationContractError, StateContractError) as error:
+            run, plan, shard = self.load_shard_context(shard_id) if context is None else context
+            if shard.shard_id != shard_id:
+                raise StateContractError("shard context does not match the requested shard")
+            return self.load_validated_shard_attempts(run, plan, shard)
+        except (PlanStateContractError, StateContractError) as error:
             raise StateCorruptionError(f"shard {shard_id!r} has invalid attempts") from error
         except (StateCorruptionError, StateNotFoundError):
             raise
@@ -117,19 +136,18 @@ class StateReader:
         return self.get_attempt(self.load_attempts(shard_id), attempt_id)
 
     def load_readiness(self, shard_id: ShardId, attempt_id: AttemptId) -> AttemptReadiness:
-        context = self.load_context()
-        _, plan, shards = context
-        self.get_shard(shards, shard_id)
+        context = self.load_shard_context(shard_id)
+        _, plan, _ = context
         attempt = self.get_attempt(self.load_attempts(shard_id, context), attempt_id)
         try:
             readiness = self._storage.read_readiness(shard_id, attempt_id)
-            PlanStateValidator(plan).validate_readiness_snapshot(attempt, readiness)
+            PersistedPlanStateValidator(plan).validate_readiness_snapshot(attempt, readiness)
             return readiness
         except FileNotFoundError as error:
             raise StateNotFoundError(f"attempt {attempt_id!r} has no readiness snapshot") from error
         except StateCorruptionError:
             raise
-        except IntegrationContractError as error:
+        except PlanStateContractError as error:
             raise StateCorruptionError(f"attempt {attempt_id!r} has invalid persisted readiness") from error
         except OSError as error:
             raise StateCorruptionError(f"attempt {attempt_id!r} has unreadable readiness") from error
@@ -148,8 +166,24 @@ class StateReader:
                     self.validate_attempt_against_plan(run, plan, shard, attempt)
             validate_attempt_set(run, shards, all_attempts)
             return attempts_by_shard
-        except (IntegrationContractError, StateContractError) as error:
+        except (PlanStateContractError, StateContractError) as error:
             raise StateCorruptionError(f"run {self._run_id!r} has invalid persisted attempts") from error
+
+    def load_validated_shard_attempts(
+        self,
+        run: RunManifest,
+        plan: ResolvedSlurmRunPlan,
+        shard: ShardManifest,
+    ) -> tuple[AttemptManifest, ...]:
+        """Read and plan-validate attempts for one shard only."""
+        try:
+            attempts = self._storage.read_attempts(shard.shard_id)
+            for attempt in attempts:
+                self.validate_attempt_against_plan(run, plan, shard, attempt)
+            validate_shard_attempt_set(run, shard, attempts)
+            return attempts
+        except (PlanStateContractError, StateContractError) as error:
+            raise StateCorruptionError(f"shard {shard.shard_id!r} has invalid persisted attempts") from error
 
     @staticmethod
     def validate_attempt_against_plan(
@@ -167,7 +201,7 @@ class StateReader:
         if attempt.scheduler is not None and attempt.scheduler.array_task_id != planned_shard.array_task_index:
             raise StateContractError("attempt scheduler task does not match the resolved plan shard")
         if attempt.state is not AttemptLifecycleState.CREATED:
-            PlanStateValidator(plan).validate_planned_attempt(planned_shard, attempt)
+            PersistedPlanStateValidator(plan).validate_planned_attempt(planned_shard, attempt)
 
     @staticmethod
     def get_shard(shards: tuple[ShardManifest, ...], shard_id: ShardId) -> ShardManifest:

@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 from collections.abc import Iterator
@@ -16,6 +17,7 @@ from pydantic import ValidationError
 
 from data_designer.slurm.config import DataDesignerSlurmConfig
 from data_designer.slurm.contracts import AttemptId, ContractRecord, Identifier, ShardId
+from data_designer.slurm.filesystem import is_managed_temporary_name
 from data_designer.slurm.planning import ResolvedSlurmRunPlan
 from data_designer.slurm.state.errors import StateCorruptionError, StateNotFoundError
 from data_designer.slurm.state.execution import AttemptManifest, RunManifest, ShardManifest
@@ -43,7 +45,8 @@ _READINESS_FILENAME = "readiness.json"
 _LOCK_DIRECTORY_NAME = ".locks"
 _MAXIMUM_RECORD_SIZE = 16 * 1024 * 1024
 _ATTEMPT_NAME_PATTERN = re.compile(r"^attempt-[0-9]{4,}$")
-_TEMPORARY_NAME_PATTERN = re.compile(r"^\.state\.[0-9a-f]{16}\.tmp$")
+_TEMPORARY_PREFIX = ".state."
+_TEMPORARY_SUFFIX = ".tmp"
 _RecordT = TypeVar("_RecordT", bound=ContractRecord)
 
 
@@ -168,6 +171,16 @@ class StateStorage:
                     raise StateCorruptionError(f"run {self.run_id!r} has an incomplete shard directory set")
                 return tuple(self._read_shard(shards_descriptor, shard_name) for shard_name in expected_names)
 
+    def read_shard(self, shard_id: ShardId) -> ShardManifest:
+        """Read one shard without scanning unrelated shard state."""
+        with self.open_run_directory() as run_descriptor:
+            with open_verified_child_directory(
+                run_descriptor,
+                _SHARDS_DIRECTORY_NAME,
+                self.run_root / _SHARDS_DIRECTORY_NAME,
+            ) as shards_descriptor:
+                return self._read_shard(shards_descriptor, shard_id)
+
     def read_attempts(self, shard_id: ShardId) -> tuple[AttemptManifest, ...]:
         with self.open_shard_directory(shard_id) as shard_descriptor:
             with open_verified_child_directory(
@@ -242,10 +255,16 @@ class StateStorage:
                 display_path,
                 maximum_size=_MAXIMUM_RECORD_SIZE,
             )
+            _validate_supported_record_version(content, display_path)
             record = record_type.model_validate_json(content)
             if record.serialize_json() != content:
-                raise ValueError("record is not deterministically serialized")
+                raise StateCorruptionError(
+                    f"persisted state record {display_path.name!r} is not canonical for schema_version 1; "
+                    "persisted schema migrations are not supported"
+                )
             return record
+        except StateCorruptionError:
+            raise
         except (RecursionError, UnicodeError, ValueError, ValidationError) as error:
             raise StateCorruptionError(f"persisted state record {display_path.name!r} is invalid") from error
 
@@ -331,7 +350,9 @@ class StateStorage:
         attempt_root = self.get_attempt_path(shard_id, attempt_id)
         with open_verified_child_directory(attempts_descriptor, attempt_id, attempt_root) as attempt_descriptor:
             unexpected = tuple(
-                name for name in os.listdir(attempt_descriptor) if _TEMPORARY_NAME_PATTERN.fullmatch(name) is None
+                name
+                for name in os.listdir(attempt_descriptor)
+                if not is_managed_temporary_name(name, prefix=_TEMPORARY_PREFIX, suffix=_TEMPORARY_SUFFIX)
             )
         if unexpected == ():
             return None
@@ -392,3 +413,9 @@ class StateStorage:
         if isinstance(record, (AttemptManifest, AttemptReadiness)):
             return self.get_attempt_path(record.shard_id, record.attempt_id) / name
         raise TypeError(f"unsupported persisted record type: {type(record).__name__}")
+
+
+def _validate_supported_record_version(content: str, display_path: Path) -> None:
+    payload = json.loads(content)
+    if not isinstance(payload, dict) or payload.get("schema_version") != 1:
+        raise StateCorruptionError(f"persisted state record {display_path.name!r} uses an unsupported schema_version")

@@ -5,74 +5,48 @@
 
 from __future__ import annotations
 
-import fcntl
 import os
-import re
-import secrets
 import stat
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-_DIRECTORY_MODE = 0o700
-_FILE_MODE = 0o600
+from data_designer.slurm.filesystem import (
+    PRIVATE_DIRECTORY_MODE,
+    acquire_restrictive_file_lock,
+    create_restrictive_temporary_file,
+    get_file_facts,
+    is_managed_temporary_name,
+)
+from data_designer.slurm.filesystem import (
+    open_verified_child_directory as open_shared_child_directory,
+)
+from data_designer.slurm.filesystem import (
+    open_verified_directory as open_shared_directory,
+)
+
 _READ_RETRY_ATTEMPTS = 10
-_TEMPORARY_NAME_PATTERN = re.compile(r"^\.state\.[0-9a-f]{16}\.tmp$")
+_TEMPORARY_PREFIX = ".state."
+_TEMPORARY_SUFFIX = ".tmp"
 
 
 @contextmanager
 def acquire_file_lock(directory_descriptor: int, name: str, display_path: Path) -> Iterator[None]:
     """Acquire an exclusive package-owned lock relative to a verified directory."""
-    descriptor: int | None = None
-    try:
-        for _ in range(10):
-            try:
-                descriptor = os.open(
-                    name,
-                    os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0),
-                    _FILE_MODE,
-                    dir_fd=directory_descriptor,
-                )
-            except FileNotFoundError:
-                continue
-            break
-        if descriptor is None:
-            raise OSError(f"state lock {display_path} could not be opened")
-        status = os.fstat(descriptor)
-        if not stat.S_ISREG(status.st_mode) or status.st_nlink != 1:
-            raise OSError(f"state lock {display_path} is not a regular file")
-        os.fchmod(descriptor, _FILE_MODE)
-        if os.fstat(descriptor).st_mode & 0o077:
-            raise OSError(f"state lock {display_path} does not have restrictive permissions")
-        fcntl.flock(descriptor, fcntl.LOCK_EX)
-        locked_status = os.fstat(descriptor)
-        current_status = os.stat(name, dir_fd=directory_descriptor, follow_symlinks=False)
-        if (
-            (locked_status.st_dev, locked_status.st_ino) != (current_status.st_dev, current_status.st_ino)
-            or not stat.S_ISREG(current_status.st_mode)
-            or current_status.st_nlink != 1
-        ):
-            raise OSError(f"state lock {display_path} changed while it was being acquired")
-    except BaseException:
-        if descriptor is not None:
-            os.close(descriptor)
-        raise
-
-    try:
+    with acquire_restrictive_file_lock(
+        directory_descriptor,
+        name,
+        display_path,
+        resource_name="state",
+    ):
         yield
-    finally:
-        assert descriptor is not None
-        try:
-            fcntl.flock(descriptor, fcntl.LOCK_UN)
-        finally:
-            os.close(descriptor)
 
 
 def ensure_private_child_directory(parent_descriptor: int, name: str, display_path: Path) -> None:
     """Create or restrict one child of an already verified directory."""
     created = False
     try:
-        os.mkdir(name, _DIRECTORY_MODE, dir_fd=parent_descriptor)
+        os.mkdir(name, PRIVATE_DIRECTORY_MODE, dir_fd=parent_descriptor)
         created = True
     except FileExistsError:
         pass
@@ -82,7 +56,7 @@ def ensure_private_child_directory(parent_descriptor: int, name: str, display_pa
         display_path,
         require_private=False,
     ) as descriptor:
-        os.fchmod(descriptor, _DIRECTORY_MODE)
+        os.fchmod(descriptor, PRIVATE_DIRECTORY_MODE)
         os.fsync(descriptor)
     if created:
         os.fsync(parent_descriptor)
@@ -91,24 +65,8 @@ def ensure_private_child_directory(parent_descriptor: int, name: str, display_pa
 @contextmanager
 def open_verified_directory(path: Path, *, require_private: bool = False) -> Iterator[int]:
     """Open one real directory and reject path replacement during the open."""
-    descriptor: int | None = None
-    try:
-        before_open = path.lstat()
-        if not stat.S_ISDIR(before_open.st_mode):
-            raise OSError(f"state directory {path} is not a directory")
-        flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
-        descriptor = os.open(path, flags)
-        after_open = os.fstat(descriptor)
-        if (before_open.st_dev, before_open.st_ino) != (after_open.st_dev, after_open.st_ino):
-            raise OSError(f"state directory {path} changed while it was being opened")
-        if not stat.S_ISDIR(after_open.st_mode):
-            raise OSError(f"state directory {path} is not a directory")
-        if require_private and after_open.st_mode & 0o077:
-            raise OSError(f"state directory {path} does not have restrictive permissions")
+    with open_shared_directory(path, resource_name="state", require_private=require_private) as descriptor:
         yield descriptor
-    finally:
-        if descriptor is not None:
-            os.close(descriptor)
 
 
 @contextmanager
@@ -120,24 +78,14 @@ def open_verified_child_directory(
     require_private: bool = True,
 ) -> Iterator[int]:
     """Open one real child directory relative to a verified parent."""
-    descriptor: int | None = None
-    try:
-        before_open = os.stat(name, dir_fd=parent_descriptor, follow_symlinks=False)
-        if not stat.S_ISDIR(before_open.st_mode):
-            raise OSError(f"state directory {display_path} is not a directory")
-        flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
-        descriptor = os.open(name, flags, dir_fd=parent_descriptor)
-        after_open = os.fstat(descriptor)
-        if (before_open.st_dev, before_open.st_ino) != (after_open.st_dev, after_open.st_ino):
-            raise OSError(f"state directory {display_path} changed while it was being opened")
-        if not stat.S_ISDIR(after_open.st_mode):
-            raise OSError(f"state directory {display_path} is not a directory")
-        if require_private and after_open.st_mode & 0o077:
-            raise OSError(f"state directory {display_path} does not have restrictive permissions")
+    with open_shared_child_directory(
+        parent_descriptor,
+        name,
+        display_path,
+        resource_name="state",
+        require_private=require_private,
+    ) as descriptor:
         yield descriptor
-    finally:
-        if descriptor is not None:
-            os.close(descriptor)
 
 
 def read_regular_text(
@@ -169,7 +117,7 @@ def read_regular_text(
             after_open = os.fstat(descriptor)
             if not _is_restrictive_regular(after_open):
                 raise OSError(f"state record {display_path} is not a restrictive regular file")
-            if _get_file_facts(before_open) != _get_file_facts(after_open):
+            if get_file_facts(before_open) != get_file_facts(after_open):
                 continue
             record_file = os.fdopen(descriptor, "r", encoding="utf-8", newline="")
             descriptor = None
@@ -180,7 +128,7 @@ def read_regular_text(
                 after_read = os.fstat(record_file.fileno())
             if not _is_restrictive_regular(after_read):
                 raise OSError(f"state record {display_path} is not a restrictive regular file")
-            if _get_file_facts(after_open) != _get_file_facts(after_read):
+            if get_file_facts(after_open) != get_file_facts(after_read):
                 continue
             return content
         finally:
@@ -297,29 +245,11 @@ def _write_temporary_text(directory_descriptor: int, content: str, *, maximum_si
 
 
 def _create_temporary_file(directory_descriptor: int) -> tuple[int, str]:
-    for _ in range(100):
-        name = f".state.{secrets.token_hex(8)}.tmp"
-        try:
-            descriptor = os.open(
-                name,
-                os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0),
-                _FILE_MODE,
-                dir_fd=directory_descriptor,
-            )
-        except FileExistsError:
-            continue
-        try:
-            os.fchmod(descriptor, _FILE_MODE)
-        except OSError:
-            os.close(descriptor)
-            os.unlink(name, dir_fd=directory_descriptor)
-            raise
-        return descriptor, name
-    raise OSError("cannot allocate a unique state record temporary name")
-
-
-def _get_file_facts(status: os.stat_result) -> tuple[int, int, int, int, int]:
-    return (status.st_dev, status.st_ino, status.st_size, status.st_mtime_ns, status.st_ctime_ns)
+    return create_restrictive_temporary_file(
+        directory_descriptor,
+        prefix=_TEMPORARY_PREFIX,
+        suffix=_TEMPORARY_SUFFIX,
+    )
 
 
 def _repair_interrupted_publication(
@@ -335,7 +265,11 @@ def _repair_interrupted_publication(
 
     temporary_names: list[str] = []
     for candidate_name in os.listdir(directory_descriptor):
-        if _TEMPORARY_NAME_PATTERN.fullmatch(candidate_name) is None:
+        if not is_managed_temporary_name(
+            candidate_name,
+            prefix=_TEMPORARY_PREFIX,
+            suffix=_TEMPORARY_SUFFIX,
+        ):
             continue
         try:
             candidate_status = os.stat(candidate_name, dir_fd=directory_descriptor, follow_symlinks=False)
