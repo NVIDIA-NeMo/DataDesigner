@@ -195,6 +195,7 @@ def test_client_removes_terminal_controls_from_command_failures(fake_slurm_runne
         ("HF_TOKEN=super-secret-value", "super-secret-value"),
         ('HF_TOKEN="quoted secret value"', "quoted secret value"),
         ("--api-key plaintext-secret", "plaintext-secret"),
+        ("Authorization: Bearer bearer-secret;suffix status=failed", "bearer-secret;suffix"),
         ('{"access_token":"json-secret"}', "json-secret"),
         ("Authorization: Bearer bearer-secret", "bearer-secret"),
         ("https://user:url-secret@example.test/index", "url-secret"),
@@ -204,6 +205,7 @@ def test_client_removes_terminal_controls_from_command_failures(fake_slurm_runne
         "environment",
         "quoted-environment",
         "option",
+        "authorization-punctuation",
         "json",
         "authorization",
         "url",
@@ -228,18 +230,23 @@ def test_client_redacts_secrets_from_command_failures(
 @pytest.mark.parametrize(
     ("diagnostic", "expected"),
     (
-        ("HF_TOKEN=secret;status=failed", "HF_TOKEN=<redacted>;status=failed"),
-        ("HF_TOKEN=secret,status=failed", "HF_TOKEN=<redacted>,status=failed"),
+        ("HF_TOKEN=secret;status=failed job=4", "HF_TOKEN=<redacted> job=4"),
+        ("HF_TOKEN=secret,status=failed job=4", "HF_TOKEN=<redacted> job=4"),
         ("HF_TOKEN=secret status=failed", "HF_TOKEN=<redacted> status=failed"),
-        ("status=failed;HF_TOKEN=secret;job=4", "status=failed;HF_TOKEN=<redacted>;job=4"),
-        ("status=failed,HF_TOKEN=secret,job=4", "status=failed,HF_TOKEN=<redacted>,job=4"),
+        ("status=failed;HF_TOKEN=secret;job=4 next=ready", "status=failed;HF_TOKEN=<redacted> next=ready"),
+        ("status=failed,HF_TOKEN=secret,job=4 next=ready", "status=failed,HF_TOKEN=<redacted> next=ready"),
         ("status=failed HF_TOKEN=secret job=4", "status=failed HF_TOKEN=<redacted> job=4"),
-        ("status=failed; HF_TOKEN=secret, job=4", "status=failed; HF_TOKEN=<redacted>, job=4"),
+        ("status=failed; HF_TOKEN=secret, job=4", "status=failed; HF_TOKEN=<redacted> job=4"),
         ("status=failed;HF_TOKEN=secret", "status=failed;HF_TOKEN=<redacted>"),
         ("status=failed,HF_TOKEN=secret", "status=failed,HF_TOKEN=<redacted>"),
         ("status=failed HF_TOKEN=secret", "status=failed HF_TOKEN=<redacted>"),
+        ("status=failed|HF_TOKEN=secret", "status=failed|HF_TOKEN=<redacted>"),
+        ("status=failed/HF_TOKEN=secret", "status=failed/HF_TOKEN=<redacted>"),
         ("HF_TOKEN=secret;suffix status=failed", "HF_TOKEN=<redacted> status=failed"),
         ("HF_TOKEN=secret,suffix status=failed", "HF_TOKEN=<redacted> status=failed"),
+        ("HF_TOKEN=secret;part=value status=failed", "HF_TOKEN=<redacted> status=failed"),
+        ("HF_TOKEN=secret,part=value status=failed", "HF_TOKEN=<redacted> status=failed"),
+        ('HF_TOKEN="secret";status=failed', "HF_TOKEN=<redacted>;status=failed"),
     ),
     ids=(
         "first-semicolon",
@@ -252,11 +259,16 @@ def test_client_redacts_secrets_from_command_failures(
         "last-semicolon",
         "last-comma",
         "last-whitespace",
+        "pipe-before-secret",
+        "slash-before-secret",
         "semicolon-inside-value",
         "comma-inside-value",
+        "assignment-looking-semicolon-suffix",
+        "assignment-looking-comma-suffix",
+        "quoted-value-boundary",
     ),
 )
-def test_client_redacts_adjacent_assignments_without_swallowing_diagnostics(
+def test_client_redacts_adjacent_assignments_fail_closed(
     fake_slurm_runner: FakeSlurmRunner,
     diagnostic: str,
     expected: str,
@@ -271,6 +283,28 @@ def test_client_redacts_adjacent_assignments_without_swallowing_diagnostics(
 
     assert expected in str(error.value)
     assert "HF_TOKEN=secret" not in str(error.value)
+
+
+@pytest.mark.parametrize(
+    ("diagnostic", "expected"),
+    (
+        ("--format compact|--api-key secret", "--format compact|--api-key <redacted>"),
+        ("--api-key secret;part=value status=failed", "--api-key <redacted> status=failed"),
+    ),
+    ids=("unknown-separator", "assignment-looking-suffix"),
+)
+def test_client_redacts_option_values_without_overlap(
+    fake_slurm_runner: FakeSlurmRunner,
+    diagnostic: str,
+    expected: str,
+) -> None:
+    fake_slurm_runner.script_next("squeue", FakeCommandResponse(stderr=diagnostic, returncode=2))
+
+    with pytest.raises(SlurmCommandError) as error:
+        SlurmCommandClient(fake_slurm_runner).query_queue((4101,))
+
+    assert expected in str(error.value)
+    assert "api-key secret" not in str(error.value)
 
 
 def test_client_bounds_command_failure_detail(fake_slurm_runner: FakeSlurmRunner) -> None:
