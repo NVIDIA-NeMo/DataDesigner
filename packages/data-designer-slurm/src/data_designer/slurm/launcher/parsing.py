@@ -6,11 +6,13 @@
 from __future__ import annotations
 
 import re
+from typing import Literal
 
 from data_designer.slurm.launcher.errors import SlurmCommandOutputError
 from data_designer.slurm.launcher.models import (
     SlurmAccountingEntry,
     SlurmJobSubmissionReceipt,
+    SlurmNamedJobEntry,
     SlurmProcessExitCode,
     SlurmQueueEntry,
 )
@@ -98,6 +100,25 @@ def parse_accounting(output: str) -> tuple[SlurmAccountingEntry, ...]:
                 process_exit_code=_parse_exit_code(fields[2], line_number=line_number),
             )
         )
+    return tuple(entries)
+
+
+def parse_named_jobs(output: str, *, command: Literal["sacct", "squeue"]) -> tuple[SlurmNamedJobEntry, ...]:
+    """Parse scheduler allocations returned for an exact job-name lookup."""
+    entries: list[SlurmNamedJobEntry] = []
+    identities: set[tuple[int, int | None, str]] = set()
+    for line_number, line in _collect_nonempty_lines(output):
+        fields = tuple(field.strip() for field in line.split("|"))
+        if len(fields) != 2 or not fields[1]:
+            raise SlurmCommandOutputError(f"{command} line {line_number} must contain a job ID and name")
+        identity = _parse_job_identity(fields[0], command=command, line_number=line_number)
+        job_id = identity.array_job_id if isinstance(identity, SchedulerIdentity) else identity
+        array_task_id = identity.array_task_id if isinstance(identity, SchedulerIdentity) else None
+        key = (job_id, array_task_id, fields[1])
+        if key in identities:
+            continue
+        identities.add(key)
+        entries.append(SlurmNamedJobEntry(job_id=job_id, array_task_id=array_task_id, job_name=fields[1]))
     return tuple(entries)
 
 

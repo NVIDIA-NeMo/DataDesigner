@@ -5,12 +5,13 @@ from __future__ import annotations
 
 import subprocess
 from collections.abc import Sequence
+from datetime import datetime, timezone
 
 import pytest
 from slurm_test_fakes import FakeCommandResponse, FakeSlurmJob, FakeSlurmRunner
 
 from data_designer.slurm.launcher.client import SlurmCommandClient, SlurmExecutables
-from data_designer.slurm.launcher.errors import SlurmCommandError, SlurmCommandOutputError
+from data_designer.slurm.launcher.errors import SlurmCommandError, SlurmCommandOutputError, SlurmSubmissionError
 from data_designer.slurm.state import SchedulerIdentity, SchedulerState
 
 
@@ -40,6 +41,23 @@ def test_client_submits_verified_script_text_through_standard_input() -> None:
     assert runner.inputs == [script]
 
 
+def test_script_submission_classifies_scheduler_rejection_as_definite() -> None:
+    runner = FakeSlurmRunner()
+    runner.script_next("sbatch", FakeCommandResponse(stderr="rejected", returncode=2))
+
+    with pytest.raises(SlurmSubmissionError, match="rejected") as error:
+        SlurmCommandClient(runner).submit_script("#!/bin/sh\n")
+
+    assert not error.value.may_have_succeeded
+
+
+def test_script_submission_classifies_timeout_as_ambiguous() -> None:
+    with pytest.raises(SlurmSubmissionError, match="timed out") as error:
+        SlurmCommandClient(_TimeoutRunner()).submit_script("#!/bin/sh\n")
+
+    assert error.value.may_have_succeeded
+
+
 def test_client_queries_accounting_and_cancels_one_array_task(fake_slurm_runner: FakeSlurmRunner) -> None:
     client = SlurmCommandClient(fake_slurm_runner)
     client.submit("run.sbatch")
@@ -63,6 +81,51 @@ def test_client_queries_accounting_and_cancels_one_array_task(fake_slurm_runner:
             "--jobs=4101_1",
         ),
     ]
+
+
+def test_client_finds_one_exact_named_array_across_queue_and_accounting() -> None:
+    runner = FakeSlurmRunner()
+    job_name = f"dd-retry-{'a' * 32}"
+    runner.script_next("squeue", FakeCommandResponse(stdout=f"4201_0|{job_name}\n"))
+    runner.script_next("sacct", FakeCommandResponse(stdout=f"4201_0|{job_name}\n4201_1|{job_name}\n"))
+    submitted_after = datetime(2026, 9, 2, 18, tzinfo=timezone.utc)
+
+    matches = SlurmCommandClient(runner).query_submissions_by_name(job_name, submitted_after=submitted_after)
+
+    assert len(matches) == 1
+    assert matches[0].job_id == 4201
+    assert matches[0].array_task_ids == (0, 1)
+    assert runner.calls[0] == (
+        "squeue",
+        "--noheader",
+        "--array",
+        "--format=%i|%.128j",
+        "--me",
+        f"--name={job_name}",
+    )
+    assert runner.calls[1][0:6] == (
+        "sacct",
+        "--noheader",
+        "--array",
+        "--allocations",
+        "--parsable2",
+        "--format=JobIDRaw,JobName%128",
+    )
+    assert runner.calls[1][6].startswith("--uid=")
+    assert runner.calls[1][7].startswith("--starttime=")
+    assert runner.calls[1][8] == f"--name={job_name}"
+
+
+def test_client_rejects_a_named_lookup_result_with_a_different_name() -> None:
+    runner = FakeSlurmRunner()
+    runner.script_next("squeue", FakeCommandResponse(stdout="4201|unrelated\n"))
+    runner.script_next("sacct", FakeCommandResponse())
+
+    with pytest.raises(SlurmCommandOutputError, match="outside the requested exact name"):
+        SlurmCommandClient(runner).query_submissions_by_name(
+            f"dd-retry-{'a' * 32}",
+            submitted_after=datetime(2026, 9, 2, 18, tzinfo=timezone.utc),
+        )
 
 
 def test_client_deduplicates_explicit_job_selectors(fake_slurm_runner: FakeSlurmRunner) -> None:
@@ -282,7 +345,14 @@ class _FailingRunner:
 
 
 class _TimeoutRunner:
-    def run(self, command: Sequence[str]) -> subprocess.CompletedProcess[str]:
+    def run(
+        self,
+        command: Sequence[str],
+        *,
+        check: bool = False,
+        input_text: str | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        del check, input_text
         raise subprocess.TimeoutExpired(command, 30.0)
 
 
