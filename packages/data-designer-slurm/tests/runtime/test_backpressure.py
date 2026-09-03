@@ -80,3 +80,39 @@ async def test_middleware_fails_open_when_metrics_are_unavailable() -> None:
     await middleware({"type": "http", "path": "/v1/completions"}, receive, send)
 
     assert called
+
+
+def test_sampler_fails_open_after_reader_error_and_recovers() -> None:
+    readings: list[Exception | int] = [RuntimeError("metrics unavailable"), 4]
+
+    def read_queue_depth() -> int:
+        reading = readings.pop(0)
+        if isinstance(reading, Exception):
+            raise reading
+        return reading
+
+    controller = QueueBackpressureController(
+        QueueBackpressureSettings(2, 3),
+        reader=read_queue_depth,
+        start_sampler=False,
+    )
+
+    failed_snapshot = controller.sample_once()
+    failed_reject, _ = controller.should_reject()
+    recovered_snapshot = controller.sample_once()
+    recovered_reject, _ = controller.should_reject()
+
+    assert failed_snapshot.depth is None
+    assert not failed_reject
+    assert recovered_snapshot.depth == 4
+    assert recovered_reject
+
+
+def test_sampler_preserves_process_control_exceptions() -> None:
+    def interrupt() -> int:
+        raise KeyboardInterrupt
+
+    controller = QueueBackpressureController(reader=interrupt, start_sampler=False)
+
+    with pytest.raises(KeyboardInterrupt):
+        controller.sample_once()

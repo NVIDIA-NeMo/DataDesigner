@@ -91,8 +91,11 @@ class QueueBackpressureController:
         self._thread: threading.Thread | None = None
 
     def sample_once(self) -> QueueSnapshot:
-        """Refresh the cached queue depth once."""
-        depth = self._reader()
+        """Refresh the cached queue depth, failing open on reader errors."""
+        try:
+            depth = self._reader()
+        except Exception:
+            depth = None
         if depth is not None:
             depth = max(0, depth)
         snapshot = QueueSnapshot(depth, time.monotonic())
