@@ -19,6 +19,7 @@ from slurm_test_fakes import FakeInspectionEnvironment
 
 import data_designer.slurm.images.service as image_service
 from data_designer.slurm.config import ImageBuildRequest, ImageInspectionRecord, InstalledDistribution
+from data_designer.slurm.images import filesystem as image_filesystem
 from data_designer.slurm.images.errors import ImageConflictError, ImageRegistryError, ImageVerificationError
 from data_designer.slurm.images.inspection import ClientImageInspector, ServingImageInspector
 from data_designer.slurm.images.records import RegisteredImage
@@ -300,6 +301,19 @@ def test_registry_rejects_nonregular_lock_file(tmp_path: Path) -> None:
 
     with pytest.raises(ImageRegistryError, match="cannot lock"):
         ImageRegistryStore(workspace).register(image, verify_before_publish=lambda _image: None)
+
+
+def test_registry_lock_preserves_operation_oserror(tmp_path: Path) -> None:
+    lock_directory = tmp_path / "locks"
+    lock_directory.mkdir(mode=0o700)
+    lock_path = lock_directory / "registry.lock"
+
+    with image_filesystem.open_verified_directory(lock_directory) as directory_descriptor:
+        with pytest.raises(OSError, match="registry operation failed") as caught:
+            with image_filesystem.acquire_file_lock(directory_descriptor, lock_path.name, lock_path):
+                raise OSError("registry operation failed")
+
+    assert type(caught.value) is OSError
 
 
 @pytest.mark.parametrize("directory", ("images", "locks"))
