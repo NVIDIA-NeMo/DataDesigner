@@ -359,6 +359,27 @@ def test_plan_state_validator_reuses_one_context_for_an_attempt_batch() -> None:
     )
 
 
+def test_client_candidate_validation_supports_preterminal_runtime_state(records: IntegrationRecords) -> None:
+    attempt = AttemptManifest.model_validate(
+        records.attempt.model_dump(mode="python")
+        | {
+            "state": AttemptLifecycleState.RUNNING,
+            "terminal_classification": None,
+            "candidate_output": None,
+        }
+    )
+
+    assert (
+        records.validator.validate_client_candidate(
+            records.plan.shards[0],
+            attempt,
+            records.client_result,
+            records.candidate,
+        )
+        is records.candidate
+    )
+
+
 @pytest.mark.parametrize(
     ("mutation", "message"),
     [
@@ -446,8 +467,8 @@ def test_finalization_rejects_invalid_chains(
         ("winner_shard_id", "winner shard_id"),
         ("client_attempt_id", "client result attempt_id"),
         ("candidate_attempt_id", "candidate attempt_id"),
-        ("candidate_ordinal", "attempt ordinals"),
-        ("winner_ordinal", "attempt ordinals"),
+        ("candidate_ordinal", "attempt ordinal"),
+        ("winner_ordinal", "attempt ordinal"),
         ("client_requested_records", "requested records"),
         ("candidate_requested_records", "requested records"),
         ("client_actual_records", "actual records"),
