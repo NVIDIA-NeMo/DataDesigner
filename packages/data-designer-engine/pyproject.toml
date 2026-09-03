@@ -58,6 +58,7 @@ dependencies = [
     "pydantic>=2.9.2,<3",
     "pyjwt[crypto]>=2.13.0,<3", # 2.13.0 fixes PyJWT security advisories pulled in by mcp
     "python-multipart>=0.0.32,<1", # 0.0.32 addresses multipart security advisories pulled in by mcp
+    "rich>=13.7.1,<15",
     "ruff>=0.14.10,<1",
     "scipy>=1.11.0,<2",
     "sqlfluff>=4.1.0,<5",

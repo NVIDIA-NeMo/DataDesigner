@@ -94,6 +94,8 @@ def create_resource_provider(
         run_config: Optional runtime configuration.
         mcp_providers: Optional list of MCP provider configurations.
         tool_configs: Optional list of tool configurations.
+        client_concurrency_mode: Optional ClientConcurrencyMode; defaults to
+            ClientConcurrencyMode.ASYNC when not provided.
         request_admission: Optional shared request-admission controller for model clients.
         scheduler_event_sink: Optional direct sink for scheduler events.
         request_event_sink: Optional direct sink for request-admission and model-request events.

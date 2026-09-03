@@ -360,7 +360,7 @@ PREDEFINED_PROVIDERS_MODEL_MAP = {
             "inference_parameters": NEMOTRON_3_NANO_OMNI_30B_A3B_REASONING_INFERENCE_PARAMS,
         },
         "embedding": {
-            "model": "nvidia/llama-nemotron-embed-1b-v2",
+            "model": "nvidia/nemotron-3-embed-1b",
             "inference_parameters": DEFAULT_EMBEDDING_INFERENCE_PARAMS | {"extra_body": {"input_type": "query"}},
         },
     },
