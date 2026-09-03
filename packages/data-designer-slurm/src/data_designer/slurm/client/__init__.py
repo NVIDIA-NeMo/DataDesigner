@@ -5,6 +5,26 @@
 
 from __future__ import annotations
 
-from data_designer.slurm.client.records import ClientOutcome, ClientResult
+from data_designer.slurm.client.records import (
+    ClientEnvironmentManifest,
+    ClientEnvironmentOutcome,
+    ClientErrorCode,
+    ClientInstallerOutcome,
+    ClientOutcome,
+    ClientPluginEntryPoint,
+    ClientProgress,
+    ClientProgressPhase,
+    ClientResult,
+)
 
-__all__ = ["ClientOutcome", "ClientResult"]
+__all__ = [
+    "ClientEnvironmentManifest",
+    "ClientEnvironmentOutcome",
+    "ClientErrorCode",
+    "ClientInstallerOutcome",
+    "ClientOutcome",
+    "ClientPluginEntryPoint",
+    "ClientProgress",
+    "ClientProgressPhase",
+    "ClientResult",
+]
