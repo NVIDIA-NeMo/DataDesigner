@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""One-node allocation orchestration with one process and cleanup owner."""
+"""Distributed allocation orchestration with one process and cleanup owner."""
 
 from __future__ import annotations
 
@@ -14,17 +14,16 @@ from typing import Protocol
 
 from data_designer.slurm.client import ClientResult
 from data_designer.slurm.contracts import ArtifactReference
+from data_designer.slurm.runtime.endpoint_steps import build_endpoint_steps
 from data_designer.slurm.runtime.errors import SlurmRuntimeError, SlurmRuntimeErrorCode
 from data_designer.slurm.runtime.logs import bind_execution_logs, execution_log_directory
 from data_designer.slurm.runtime.models import AllocationContext, RuntimeEndpoint, RuntimeStep
-from data_designer.slurm.runtime.preflight import AllocationPreflight
+from data_designer.slurm.runtime.preflight import AllocationLayout, AllocationPreflight
 from data_designer.slurm.runtime.probes import ReadinessProber
 from data_designer.slurm.runtime.records import load_complete_client_candidate
-from data_designer.slurm.runtime.steps import (
-    ClientStepBuilder,
-    build_endpoint_steps,
-    build_vllm_steps,
-)
+from data_designer.slurm.runtime.server_steps import build_vllm_steps
+from data_designer.slurm.runtime.step_factory import place_step_on_host
+from data_designer.slurm.runtime.steps import ClientStepBuilder
 from data_designer.slurm.runtime.supervisor import ManagedStep, RuntimeClock, StepSupervisor
 from data_designer.slurm.serving.deployment import ResolvedVllmServerDeployment
 from data_designer.slurm.serving.resolver import resolve_vllm_server
@@ -94,11 +93,13 @@ class _RunOutcome:
 @dataclass(frozen=True, slots=True)
 class _RuntimeTopology:
     deployments: tuple[ResolvedVllmServerDeployment, ...]
+    layout: AllocationLayout
+    server_steps: tuple[RuntimeStep, ...]
     endpoint_steps: tuple[tuple[RuntimeStep, RuntimeEndpoint], ...]
     endpoints: tuple[RuntimeEndpoint, ...]
 
 
-class OneNodeAllocationController:
+class AllocationController:
     """Execute one planned shard attempt and finalize only complete candidates."""
 
     def __init__(
@@ -210,7 +211,7 @@ class OneNodeAllocationController:
     def _execute(self) -> tuple[ArtifactReference, datetime]:
         topology = self._prepare_runtime()
         required_processes = self._start_runtime(topology)
-        return self._run_client(topology.endpoints, required_processes)
+        return self._run_client(topology.endpoints, topology.layout, required_processes)
 
     def _prepare_runtime(self) -> _RuntimeTopology:
         self._validate_attempt_state()
@@ -221,7 +222,7 @@ class OneNodeAllocationController:
         restarting = self._readiness is not None
         if restarting:
             self._begin_execution(deployments, ReadinessState.RESTARTING)
-        self._preflight.verify(self._context, self._environment)
+        layout = self._preflight.verify(self._context, self._environment)
         self._mark_attempt_running()
         if not restarting:
             self._begin_execution(deployments, ReadinessState.PENDING)
@@ -233,21 +234,62 @@ class OneNodeAllocationController:
                 self._context.attempt_directory,
                 self._environment,
                 self._runtime_proxy_path,
+                layout,
             )
         )
         endpoints = tuple(endpoint for _, endpoint in endpoint_steps)
+        server_preflight_steps, server_steps = self._build_server_steps(deployments, layout)
         client_preflight = self._bind_logs(
-            self._client_steps.build_preflight_step(
-                self._context.plan,
-                self._context.shard,
-                self._attempt,
-                self._context.attempt_directory,
-                endpoints,
-                self._environment,
+            place_step_on_host(
+                self._client_steps.build_preflight_step(
+                    self._context.plan,
+                    self._context.shard,
+                    self._attempt,
+                    self._context.attempt_directory,
+                    endpoints,
+                    self._environment,
+                ),
+                layout.get_host(self._context.plan.client.host_node_index),
             )
         )
         self._supervisor.wait(self._supervisor.start(client_preflight))
-        return _RuntimeTopology(deployments, endpoint_steps, endpoints)
+        for step in server_preflight_steps:
+            self._supervisor.wait(self._supervisor.start(step))
+        return _RuntimeTopology(deployments, layout, server_steps, endpoint_steps, endpoints)
+
+    def _build_server_steps(
+        self,
+        deployments: tuple[ResolvedVllmServerDeployment, ...],
+        layout: AllocationLayout,
+    ) -> tuple[tuple[RuntimeStep, ...], tuple[RuntimeStep, ...]]:
+        runtime_node_worker_path = self._runtime_proxy_path.with_name("node_worker.py")
+        preflight_steps: list[RuntimeStep] = []
+        server_steps: list[RuntimeStep] = []
+        for deployment in deployments:
+            preflight_steps.extend(
+                self._bind_logs(step)
+                for step in build_vllm_steps(
+                    deployment,
+                    self._context.plan,
+                    self._context.attempt_directory,
+                    self._environment,
+                    runtime_node_worker_path,
+                    layout,
+                    preflight=True,
+                )
+            )
+            server_steps.extend(
+                self._bind_logs(step)
+                for step in build_vllm_steps(
+                    deployment,
+                    self._context.plan,
+                    self._context.attempt_directory,
+                    self._environment,
+                    runtime_node_worker_path,
+                    layout,
+                )
+            )
+        return tuple(preflight_steps), tuple(server_steps)
 
     def _begin_execution(
         self,
@@ -268,12 +310,12 @@ class OneNodeAllocationController:
             if status.state in {ReadinessState.PENDING, ReadinessState.RESTARTING}:
                 status.state = ReadinessState.STARTING
         self._publish_readiness(ReadinessState.STARTING)
-        server_processes = self._start_servers(topology.deployments)
-        for status, required in zip(self._statuses, server_processes, strict=True):
-            self._wait_for_backends(status, required)
+        server_processes = self._start_server_steps(topology.server_steps)
+        for status in self._statuses:
+            self._wait_for_backends(status, topology.layout, server_processes)
         self._publish_readiness(ReadinessState.STARTING)
         endpoint_processes = tuple(self._supervisor.start(step) for step, _ in topology.endpoint_steps)
-        required_processes = tuple(process for group in server_processes for process in group) + endpoint_processes
+        required_processes = server_processes + endpoint_processes
         self._wait_for_endpoints(topology.endpoints, required_processes)
         for status in self._statuses:
             status.state = ReadinessState.READY
@@ -282,19 +324,30 @@ class OneNodeAllocationController:
         self._publish_readiness(ReadinessState.READY)
         return required_processes
 
+    def _start_server_steps(self, steps: tuple[RuntimeStep, ...]) -> tuple[ManagedStep, ...]:
+        managed: list[ManagedStep] = []
+        for step in steps:
+            self._supervisor.require_running(tuple(managed))
+            managed.append(self._supervisor.start(step))
+        return tuple(managed)
+
     def _run_client(
         self,
         endpoints: tuple[RuntimeEndpoint, ...],
+        layout: AllocationLayout,
         required_processes: tuple[ManagedStep, ...],
     ) -> tuple[ArtifactReference, datetime]:
         generation = self._bind_logs(
-            self._client_steps.build_generation_step(
-                self._context.plan,
-                self._context.shard,
-                self._attempt,
-                self._context.attempt_directory,
-                endpoints,
-                self._environment,
+            place_step_on_host(
+                self._client_steps.build_generation_step(
+                    self._context.plan,
+                    self._context.shard,
+                    self._attempt,
+                    self._context.attempt_directory,
+                    endpoints,
+                    self._environment,
+                ),
+                layout.get_host(self._context.plan.client.host_node_index),
             )
         )
         generation_started_at = self._now()
@@ -364,33 +417,12 @@ class OneNodeAllocationController:
         )
         self._attempt = self._state.update_attempt(self._attempt)
 
-    def _start_servers(
+    def _wait_for_backends(
         self,
-        deployments: tuple[ResolvedVllmServerDeployment, ...],
-    ) -> tuple[tuple[ManagedStep, ...], ...]:
-        all_managed: list[tuple[ManagedStep, ...]] = []
-        for deployment in deployments:
-            started_at = self._clock.monotonic()
-            managed: list[ManagedStep] = []
-            steps = tuple(
-                self._bind_logs(step)
-                for step in build_vllm_steps(
-                    deployment,
-                    self._context.plan,
-                    self._context.attempt_directory,
-                    self._environment,
-                )
-            )
-            for process, step in zip(deployment.processes, steps, strict=True):
-                self._supervisor.require_running(tuple(managed))
-                remaining_delay = process.launch_delay_seconds - (self._clock.monotonic() - started_at)
-                if remaining_delay > 0:
-                    self._clock.sleep(remaining_delay)
-                managed.append(self._supervisor.start(step))
-            all_managed.append(tuple(managed))
-        return tuple(all_managed)
-
-    def _wait_for_backends(self, status: _DeploymentStatus, required: tuple[ManagedStep, ...]) -> None:
+        status: _DeploymentStatus,
+        layout: AllocationLayout,
+        required: tuple[ManagedStep, ...],
+    ) -> None:
         probes = status.deployment.readiness_probes
         deadline = self._clock.monotonic() + max(probe.deadline_seconds for probe in probes)
         previous_ready = -1
@@ -398,7 +430,7 @@ class OneNodeAllocationController:
             self._supervisor.require_running(required)
             ready = sum(
                 self._prober.is_ready(
-                    "127.0.0.1",
+                    layout.get_host(probe.node_index),
                     probe.port,
                     probe.path,
                     timeout_seconds=self._probe_timeout_seconds,
@@ -616,4 +648,6 @@ def _normalize_failure(error: BaseException) -> SlurmRuntimeError:
     )
 
 
-__all__ = ["OneNodeAllocationController", "RuntimeStateStore"]
+OneNodeAllocationController = AllocationController
+
+__all__ = ["AllocationController", "OneNodeAllocationController", "RuntimeStateStore"]

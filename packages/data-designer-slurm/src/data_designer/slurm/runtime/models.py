@@ -25,6 +25,7 @@ class RuntimeStepRole(str, Enum):
     """Lifecycle role of one allocation-local Slurm step."""
 
     CLIENT_PREFLIGHT = "client_preflight"
+    SERVER_PREFLIGHT = "server_preflight"
     SERVER = "server"
     ENDPOINT = "endpoint"
     CLIENT = "client"
@@ -104,7 +105,7 @@ class RuntimeEndpoint:
         if type(self.served_model_name) is not str or not self.served_model_name:
             raise SlurmRuntimeError(SlurmRuntimeErrorCode.INVALID_CONTEXT, "endpoint model name is invalid")
         if self.host != "127.0.0.1":
-            raise SlurmRuntimeError(SlurmRuntimeErrorCode.INVALID_CONTEXT, "one-node endpoints must use loopback")
+            raise SlurmRuntimeError(SlurmRuntimeErrorCode.INVALID_CONTEXT, "logical endpoints must use loopback")
         if type(self.port) is not int or not 1 <= self.port <= 65535:
             raise SlurmRuntimeError(SlurmRuntimeErrorCode.INVALID_CONTEXT, "endpoint port is invalid")
 

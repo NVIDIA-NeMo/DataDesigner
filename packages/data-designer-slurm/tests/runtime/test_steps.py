@@ -12,8 +12,14 @@ from conftest import RuntimeCase, relocate_plan
 from data_designer.slurm.config import QueueBackpressureConfig
 from data_designer.slurm.contracts import ArtifactReference
 from data_designer.slurm.planning import ResolvedSlurmRunPlan
+from data_designer.slurm.runtime.backpressure import (
+    MAX_WAITING_REQUESTS_ENVIRONMENT,
+    RETRY_AFTER_SECONDS_ENVIRONMENT,
+)
 from data_designer.slurm.runtime.errors import SlurmRuntimeError
 from data_designer.slurm.runtime.models import RuntimeEndpoint, RuntimeStepRole
+from data_designer.slurm.runtime.node_spec import decode_node_worker_spec
+from data_designer.slurm.runtime.preflight import AllocationLayout
 from data_designer.slurm.runtime.steps import (
     DefaultClientStepBuilder,
     build_endpoint_steps,
@@ -77,9 +83,9 @@ def test_all_processes_use_structured_srun_steps_and_sanitized_environment(runti
 
     server = server_steps[0]
     assert server.role is RuntimeStepRole.SERVER
-    assert f"--gpus-per-task={deployment.topology.tensor_parallel}" in server.command
-    expected_mask = sum(1 << index for index in deployment.processes[0].gpu_indices)
-    assert f"--gpu-bind=mask_gpu:{expected_mask:#x}" in server.command
+    assert f"--gpus-per-task={deployment.gpus_per_node}" in server.command
+    assert "--gpu-bind=none" in server.command
+    assert "--kill-on-bad-exit=1" in server.command
     assert "CUDA_VISIBLE_DEVICES" not in server.environment
     assert all("CUDA_VISIBLE_DEVICES" not in argument for argument in server.command)
     assert all("--gpus-per-task=" not in argument for step in client_steps for argument in step.command)
@@ -158,6 +164,78 @@ def test_endpoint_step_uses_resolved_retry_policy_and_backends(runtime_case: Run
     )
     assert "--retry-after-seconds" not in disabled_step.command
     assert "--max-waiting-requests" not in disabled_step.command
+
+
+def test_multi_node_deployment_is_one_coordinated_step_with_ranked_lane_commands(
+    tmp_path: Path,
+    multi_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    plan = relocate_plan(multi_node_plan, workspace)
+    deployment = resolve_vllm_server(plan, plan.deployments[0].deployment_id)
+    layout = AllocationLayout(("compute-001", "compute-002", "compute-003"))
+
+    (step,) = build_vllm_steps(
+        deployment,
+        plan,
+        workspace / "attempt",
+        {"HF_TOKEN": "server-secret"},
+        workspace / "runtime/data_designer/slurm/runtime/node_worker.py",
+        layout,
+    )
+
+    assert "--nodes=2" in step.command
+    assert "--ntasks=2" in step.command
+    assert "--ntasks-per-node=1" in step.command
+    assert "--nodelist=compute-001,compute-002" in step.command
+    assert "--kill-on-bad-exit=1" in step.command
+    encoded = step.command[step.command.index("--spec") + 1]
+    spec = decode_node_worker_spec(encoded)
+    assert tuple(node.host for node in spec.nodes) == ("compute-001", "compute-002")
+    head, follower = (node.processes[0] for node in spec.nodes)
+    assert "--node-rank" in head.command
+    assert head.command[head.command.index("--node-rank") + 1] == "0"
+    assert head.command[head.command.index("--master-addr") + 1] == "compute-001"
+    assert head.command[head.command.index("--distributed-executor-backend") + 1] == "mp"
+    assert head.command[head.command.index("--data-parallel-backend") + 1] == "mp"
+    assert "--headless" not in head.command
+    assert follower.command[follower.command.index("--node-rank") + 1] == "1"
+    assert "--headless" in follower.command
+    assert head.launch_delay_seconds == follower.launch_delay_seconds
+    assert step.environment[MAX_WAITING_REQUESTS_ENVIRONMENT] == str(
+        deployment.launch_policy.queue_backpressure.max_waiting_requests
+    )
+    assert step.environment[RETRY_AFTER_SECONDS_ENVIRONMENT] == str(
+        deployment.launch_policy.queue_backpressure.retry_after_seconds
+    )
+
+
+def test_multi_node_endpoint_targets_resolved_remote_heads(
+    tmp_path: Path,
+    multi_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    plan = relocate_plan(multi_node_plan, workspace)
+    deployments = tuple(resolve_vllm_server(plan, item.deployment_id) for item in plan.deployments)
+    layout = AllocationLayout(("compute-001", "compute-002", "compute-003"))
+
+    endpoint_steps = build_endpoint_steps(
+        deployments,
+        plan,
+        workspace / "attempt",
+        {},
+        workspace / "runtime/data_designer/slurm/runtime/proxy.py",
+        layout,
+    )
+
+    first_command = endpoint_steps[0][0].command
+    second_command = endpoint_steps[1][0].command
+    assert "http://compute-001:18000" in first_command
+    assert "--allowed-host" in first_command
+    assert "http://compute-003:18007" in second_command
+    assert all("--nodelist=compute-001" in step.command for step, _ in endpoint_steps)
 
 
 def test_client_receives_client_secrets_without_server_only_secrets(
