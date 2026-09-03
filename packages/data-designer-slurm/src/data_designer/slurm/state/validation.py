@@ -95,10 +95,15 @@ def validate_attempt_set(
     validate_shard_set(run, shards)
     shard_by_id = {shard.shard_id: shard for shard in shards}
 
+    for shard in shards:
+        validate_shard_attempt_set(
+            run,
+            shard,
+            tuple(attempt for attempt in attempts if attempt.shard_id == shard.shard_id),
+        )
     for attempt in attempts:
         shard = shard_by_id.get(attempt.shard_id)
         _require(shard is not None, f"attempt references unknown shard {attempt.shard_id!r}")
-        validate_attempt_manifest(run, shard, attempt)
 
     attempt_ids = tuple((attempt.shard_id, attempt.attempt_id) for attempt in attempts)
     shard_ordinals = tuple((attempt.shard_id, attempt.attempt_ordinal) for attempt in attempts)
@@ -111,6 +116,27 @@ def validate_attempt_set(
     _require(
         len(set(scheduler_identities)) == len(scheduler_identities),
         "scheduler identities must be unique across attempts",
+    )
+    return attempts
+
+
+def validate_shard_attempt_set(
+    run: RunManifest,
+    shard: ShardManifest,
+    attempts: tuple[AttemptManifest, ...],
+) -> tuple[AttemptManifest, ...]:
+    """Validate attempt identities and scheduler ownership within one shard."""
+    validate_shard_manifest(run, shard)
+    for attempt in attempts:
+        validate_attempt_manifest(run, shard, attempt)
+    attempt_ids = tuple(attempt.attempt_id for attempt in attempts)
+    ordinals = tuple(attempt.attempt_ordinal for attempt in attempts)
+    scheduler_identities = tuple(attempt.scheduler for attempt in attempts if attempt.scheduler is not None)
+    _require(len(set(attempt_ids)) == len(attempts), "attempt IDs must be unique within each shard")
+    _require(len(set(ordinals)) == len(attempts), "attempt ordinals must be unique within each shard")
+    _require(
+        len(set(scheduler_identities)) == len(scheduler_identities),
+        "scheduler identities must be unique within each shard",
     )
     return attempts
 

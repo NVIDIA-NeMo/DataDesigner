@@ -21,6 +21,7 @@ from data_designer.slurm.state import (
 )
 
 GOLDEN_DIRECTORY = Path(__file__).parent / "golden"
+CONTRACT_GOLDEN_DIRECTORY = Path(__file__).parents[1] / "contracts" / "golden"
 GOLDEN_MODELS: tuple[tuple[str, type[StateRecord]], ...] = (
     ("run_manifest.json", RunManifest),
     ("shard_manifest.json", ShardManifest),
@@ -39,6 +40,11 @@ GOLDEN_MODELS: tuple[tuple[str, type[StateRecord]], ...] = (
     ("shard_winner.json", ShardWinner),
     ("collection_plan.json", CollectionPlan),
 )
+PERSISTED_INTENT_FIXTURES = (
+    CONTRACT_GOLDEN_DIRECTORY / "authored_run_single.json",
+    CONTRACT_GOLDEN_DIRECTORY / "single_node_plan.json",
+)
+_COMPATIBILITY_FIXTURE_DIGEST = "1a51941bbb2d8aac7114c197f51105104297de1c6a367cfab0f4111b5d7eebaa"
 
 
 @pytest.mark.parametrize(("filename", "model"), GOLDEN_MODELS)
@@ -66,3 +72,15 @@ def test_golden_artifact_references_hash_exact_persisted_bytes() -> None:
     assert attempt.candidate_output.sha256 == hashlib.sha256(candidate_bytes).hexdigest()
     assert winner.candidate_manifest.sha256 == hashlib.sha256(candidate_bytes).hexdigest()
     assert collection.planned_shards[0].winner_manifest.sha256 == hashlib.sha256(winner_bytes).hexdigest()
+
+
+def test_persisted_state_compatibility_fixtures_are_frozen() -> None:
+    """Make persisted v1 byte changes an explicit compatibility decision."""
+    fixture_bytes = b"".join(
+        path.name.encode("utf-8") + b"\0" + path.read_bytes() for path in PERSISTED_INTENT_FIXTURES
+    )
+    fixture_bytes += b"".join(
+        filename.encode("utf-8") + b"\0" + (GOLDEN_DIRECTORY / filename).read_bytes() for filename, _ in GOLDEN_MODELS
+    )
+
+    assert hashlib.sha256(fixture_bytes).hexdigest() == _COMPATIBILITY_FIXTURE_DIGEST
