@@ -32,6 +32,11 @@ Data Designer helps you create synthetic datasets that go beyond simple LLM prom
 pip install data-designer
 ```
 
+> [!NOTE]
+> This project will download and install additional third-party open source
+> software projects. Review the license terms of these open source projects
+> before use.
+
 Or install from source:
 
 ```bash
