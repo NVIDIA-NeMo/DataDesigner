@@ -193,6 +193,8 @@ def test_client_removes_terminal_controls_from_command_failures(fake_slurm_runne
     ("diagnostic", "secret"),
     (
         ("HF_TOKEN=super-secret-value", "super-secret-value"),
+        ("HF_TOKEN=secret;suffix status=failed", "secret;suffix"),
+        ("HF_TOKEN=secret,suffix status=failed", "secret,suffix"),
         ('HF_TOKEN="quoted secret value"', "quoted secret value"),
         ("--api-key plaintext-secret", "plaintext-secret"),
         ('{"access_token":"json-secret"}', "json-secret"),
@@ -200,7 +202,17 @@ def test_client_removes_terminal_controls_from_command_failures(fake_slurm_runne
         ("https://user:url-secret@example.test/index", "url-secret"),
         (f"token github_pat_{'a' * 24}", f"github_pat_{'a' * 24}"),
     ),
-    ids=("environment", "quoted-environment", "option", "json", "authorization", "url", "known-token"),
+    ids=(
+        "environment",
+        "semicolon-environment",
+        "comma-environment",
+        "quoted-environment",
+        "option",
+        "json",
+        "authorization",
+        "url",
+        "known-token",
+    ),
 )
 def test_client_redacts_secrets_from_command_failures(
     fake_slurm_runner: FakeSlurmRunner,
@@ -215,6 +227,22 @@ def test_client_redacts_secrets_from_command_failures(
 
     assert secret not in str(error.value)
     assert "<redacted>" in str(error.value)
+
+
+@pytest.mark.parametrize("separator", (";", ","), ids=("semicolon", "comma"))
+def test_client_preserves_diagnostic_fields_after_redacted_assignment(
+    fake_slurm_runner: FakeSlurmRunner,
+    separator: str,
+) -> None:
+    fake_slurm_runner.script_next(
+        "squeue",
+        FakeCommandResponse(stderr=f"HF_TOKEN=secret{separator}suffix status=failed", returncode=2),
+    )
+
+    with pytest.raises(SlurmCommandError) as error:
+        SlurmCommandClient(fake_slurm_runner).query_queue((4101,))
+
+    assert "HF_TOKEN=<redacted> status=failed" in str(error.value)
 
 
 def test_client_bounds_command_failure_detail(fake_slurm_runner: FakeSlurmRunner) -> None:

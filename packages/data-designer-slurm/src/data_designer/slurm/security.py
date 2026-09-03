@@ -11,7 +11,7 @@ from data_designer.slurm.config.environment import is_secret_bearing_name
 
 _ASSIGNMENT_PATTERN = re.compile(
     r"(?P<prefix>(?P<quote>[\"']?)(?P<name>-{0,2}[A-Za-z][A-Za-z0-9_.-]*)"
-    r"(?P=quote)\s*[:=]\s*)(?P<value>\"[^\"]*\"|'[^']*'|[^\s,;]+)"
+    r"(?P=quote)\s*[:=]\s*)(?P<value>\"[^\"]*\"|'[^']*'|[^\s]+)"
 )
 _OPTION_PATTERN = re.compile(r"(?P<prefix>(?P<name>--[A-Za-z][A-Za-z0-9.-]*)\s+)(?P<value>\"[^\"]*\"|'[^']*'|[^\s]+)")
 _AUTHORIZATION_PATTERN = re.compile(r"(?i)(?P<prefix>\bauthorization\s*[:=]\s*(?:basic|bearer)\s+)(?P<value>[^\s,;]+)")
