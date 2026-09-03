@@ -13,6 +13,7 @@ from conftest import FakeClientStepBuilder, FakePreflight, FakeStateStore, Runti
 from slurm_test_fakes import FakeClock
 
 from data_designer.slurm.client import ClientOutcome, ClientResult
+from data_designer.slurm.config import DataDesignerSlurmConfig
 from data_designer.slurm.contracts import ArtifactReference
 from data_designer.slurm.runtime.controller import OneNodeAllocationController
 from data_designer.slurm.runtime.errors import SlurmRuntimeError, SlurmRuntimeErrorCode
@@ -29,6 +30,9 @@ from data_designer.slurm.state import (
     DeploymentReadiness,
     EndpointPublicationState,
     ReadinessState,
+    RunManifest,
+    ShardManifest,
+    SlurmStateWriter,
 )
 
 
@@ -176,6 +180,33 @@ def test_controller_runs_preflight_servers_endpoint_client_and_cleanup(runtime_c
     assert state.readiness[-1].deployments[0].endpoint_publication is EndpointPublicationState.PUBLISHED
     assert all(process.poll() is not None for process in runner.processes)
     assert {step.stdout_path.parent.name for step in runner.steps} == {"execution-00000001"}
+
+
+def test_controller_publishes_result_before_success_with_real_state_writer(
+    runtime_case: RuntimeCase,
+    authored_run_single: DataDesignerSlurmConfig,
+) -> None:
+    clock = FakeClock(runtime_case.created_at.replace(second=10), monotonic_time=100)
+    state = _initialize_real_state(runtime_case, authored_run_single)
+    runner = _FakeRunner(generation_hook=lambda: _write_complete_result(runtime_case, clock))
+    controller = OneNodeAllocationController(
+        runtime_case.context,
+        runtime_proxy_path=runtime_case.context.attempt_directory / "runtime/proxy.py",
+        state=state,
+        supervisor=_supervisor(runner, clock),
+        preflight=FakePreflight(),
+        client_steps=FakeClientStepBuilder(),
+        prober=_FakeProber(ready=True, clock=clock),
+        clock=clock,
+        environment={},
+    )
+
+    result = controller.run()
+
+    persisted = state.load_attempt(result.shard_id, result.attempt_id)
+    assert persisted == result
+    assert persisted.state is AttemptLifecycleState.SUCCEEDED
+    assert persisted.candidate_output is not None
 
 
 def test_preflight_failure_starts_no_process_and_fails_attempt(runtime_case: RuntimeCase) -> None:
@@ -426,6 +457,7 @@ def test_cleanup_failure_prevents_false_success(runtime_case: RuntimeCase) -> No
         controller.run()
 
     assert state.attempt.state is AttemptLifecycleState.FAILED
+    assert state.attempt.candidate_output is not None
     assert all(process.poll() is not None for process in runner.processes)
 
 
@@ -586,7 +618,7 @@ def _write_complete_result(runtime_case: RuntimeCase, clock: FakeClock) -> None:
             ),
         ),
         dataset_schema_digest="b" * 64,
-        provenance_digest="c" * 64,
+        provenance_digest=context.plan.compute_sha256(),
     )
     candidate_path = context.attempt_directory / "output-manifest.json"
     _write_record(candidate_path, candidate.serialize_json())
@@ -610,6 +642,36 @@ def _write_complete_result(runtime_case: RuntimeCase, clock: FakeClock) -> None:
         ),
     )
     _write_record(context.attempt_directory / "client-result.json", result.serialize_json())
+
+
+def _initialize_real_state(
+    runtime_case: RuntimeCase,
+    authored_config: DataDesignerSlurmConfig,
+) -> SlurmStateWriter:
+    context = runtime_case.context
+    planned_shard = context.shard
+    run = RunManifest(
+        schema_version=1,
+        run_id=context.plan.run_id,
+        created_at=runtime_case.created_at,
+        authored_config=context.plan.authored_config,
+        resolved_plan=context.attempt.resolved_plan,
+        shard_count=len(context.plan.shards),
+    )
+    shard = ShardManifest(
+        schema_version=1,
+        run_id=context.plan.run_id,
+        shard_id=planned_shard.shard_id,
+        shard_index=planned_shard.shard_index,
+        record_range=planned_shard.record_range,
+        input_partition=planned_shard.input_partition,
+        resume_workspace=planned_shard.resume_workspace,
+        created_at=runtime_case.created_at,
+    )
+    state = SlurmStateWriter(runtime_case.workspace, context.plan.run_id)
+    state.initialize_run(authored_config, context.plan, run, (shard,))
+    state.create_attempt(context.attempt)
+    return state
 
 
 def _write_partial_result(runtime_case: RuntimeCase, clock: FakeClock) -> None:
