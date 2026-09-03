@@ -10,6 +10,7 @@ import os
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
 from pathlib import Path
+from time import sleep
 
 from pydantic import TypeAdapter, ValidationError
 
@@ -32,6 +33,7 @@ from data_designer.slurm.state.reader import StateReader
 from data_designer.slurm.state.storage import StateStorage
 
 _IDENTIFIER_ADAPTER = TypeAdapter(Identifier)
+_SCHEDULER_BINDING_WAIT_ATTEMPTS = 300
 
 
 class SlurmCollectionWorker:
@@ -57,8 +59,9 @@ class SlurmCollectionWorker:
 
     def run(self, *, completed_at: datetime | None = None) -> CollectionResult:
         """Validate, merge, and atomically publish one collection output."""
-        started_at = _utc_now() if completed_at is None else completed_at
         try:
+            self._wait_for_scheduler_binding()
+            started_at = _utc_now() if completed_at is None else completed_at
             return self._run_locked(started_at, completed_at)
         except (StateConflictError, SlurmStateError):
             raise
@@ -194,6 +197,20 @@ class SlurmCollectionWorker:
         observed_job_id = self._environment.get("SLURM_JOB_ID")
         if observed_job_id != str(scheduler):
             raise StateConflictError("collection worker must run inside its recorded Slurm job")
+
+    def _wait_for_scheduler_binding(self) -> None:
+        if self._environment.get("SLURM_JOB_ID") is None:
+            raise StateConflictError("collection worker must run inside its recorded Slurm job")
+        for attempt in range(_SCHEDULER_BINDING_WAIT_ATTEMPTS):
+            status = self._collections.read_status(self._collection_id)
+            if status.scheduler is not None:
+                self._require_scheduler_job(status)
+                return
+            if status.state is not CollectionState.PREPARED:
+                raise StateConflictError("collection worker requires an ordinary Slurm job identity")
+            if attempt + 1 < _SCHEDULER_BINDING_WAIT_ATTEMPTS:
+                sleep(1)
+        raise StateConflictError("collection scheduler identity was not published before allocation startup")
 
     def _validate_identity(self, plan_run_id: Identifier, status_run_id: Identifier) -> None:
         if plan_run_id != self._run_id or status_run_id != self._run_id:

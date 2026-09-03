@@ -66,6 +66,8 @@ def test_collection_renderer_uses_authorized_mounts_and_no_gpu_directives(
 
     script = render_collection_script(plan, collection, destination)
 
+    assert f"#SBATCH --job-name={collection.submission_job_name}" in script
+    assert f"dd-collect-{plan.run_id}" not in script
     assert 'readonly DD_STATE_MOUNT="/workspace/primary:/workspace/primary"' in script
     assert 'readonly DD_OUTPUT_MOUNT="/workspace/primary/runs/run-001:/exports"' in script
     assert (
@@ -102,6 +104,8 @@ def test_retry_renderer_waits_for_persisted_attempt_before_starting_runtime(
 
     script = render_generation_retry_script(multi_node_plan, retry)
 
+    assert f"#SBATCH --job-name={retry.submission_job_name}" in script
+    assert multi_node_plan.submission.job_name not in script
     assert "#SBATCH --array=1%2" in script
     assert 'DD_ATTEMPT_ORDINAL="0002"' in script
     assert 'readonly DD_ATTEMPT_MANIFEST="${DD_ATTEMPT_DIR}/attempt.json"' in script

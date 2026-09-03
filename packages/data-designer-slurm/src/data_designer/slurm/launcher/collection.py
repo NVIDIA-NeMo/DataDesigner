@@ -36,7 +36,7 @@ def render_collection_script(
     collection_plan_path = posixpath.join(collection_root, "plan.json")
     directives = render_batch_directives(
         (
-            ("job-name", f"dd-collect-{resolved_plan.run_id}"),
+            ("job-name", collection_plan.submission_job_name),
             ("account", resolved_plan.submission.account),
             ("partition", resolved_plan.submission.partition),
             ("nodes", "1"),

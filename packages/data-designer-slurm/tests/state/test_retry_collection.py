@@ -10,6 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from threading import Event
 from typing import cast
 
 import pytest
@@ -19,6 +20,7 @@ import data_designer.lazy_heavy_imports as lazy
 import data_designer.slurm.state.collection_filesystem as collection_filesystem
 import data_designer.slurm.state.collection_merge as collection_merge
 import data_designer.slurm.state.collection_storage as collection_storage_module
+import data_designer.slurm.state.collection_worker as collection_worker_module
 from data_designer.slurm.client import ClientOutcome, ClientResult
 from data_designer.slurm.config import DataDesignerSlurmConfig, SlurmProfile
 from data_designer.slurm.contracts import ArtifactReference, compute_canonical_json_sha256
@@ -234,7 +236,7 @@ def test_retry_submits_only_the_failed_sparse_array_task(
     assert 'case "${DD_ARRAY_TASK_ID}"' in cast(str, runner.inputs[-1])
 
 
-def test_retry_ambiguous_submission_remains_prepared_and_blocks_duplicate(
+def test_retry_ambiguous_submission_waits_for_scheduler_visibility_without_a_duplicate(
     tmp_path: Path,
     authored_run_single: DataDesignerSlurmConfig,
     single_node_plan: ResolvedSlurmRunPlan,
@@ -265,9 +267,134 @@ def test_retry_ambiguous_submission_remains_prepared_and_blocks_duplicate(
 
     retry_storage = RetryStorage(StateStorage(case.workspace, case.plan.run_id))
     assert retry_storage.read_status("retry-0001").state is RetryState.PREPARED
-    with pytest.raises(StateConflictError, match="ambiguous scheduler outcome"):
-        coordinator.retry(effective_resume_mode="never", observed_at=case.created_at + timedelta(minutes=6))
+    runner.script_next("squeue", FakeCommandResponse())
+    runner.script_next("sacct", FakeCommandResponse())
+    with pytest.raises(StateConflictError, match="still being reconciled"):
+        SlurmRetryCoordinator(case.workspace, case.plan.run_id, scheduler).retry(
+            effective_resume_mode="never",
+            observed_at=case.created_at + timedelta(minutes=6),
+        )
     assert submissions == 1
+
+
+def test_retry_recovers_an_accepted_submission_after_the_receipt_is_lost(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    initial = FakeSlurmTask(SchedulerIdentity(array_job_id=4101, array_task_id=0))
+    retried = FakeSlurmTask(SchedulerIdentity(array_job_id=4201, array_task_id=0))
+    runner = FakeSlurmRunner(arrays=(FakeSlurmArray(tasks=(initial,)), FakeSlurmArray(tasks=(retried,))))
+    scheduler = SlurmCommandClient(runner)
+    scheduler.submit_script("initial")
+    case = _initialize_run(tmp_path, authored_run_single, single_node_plan)
+    first_attempt = _submitted_attempt(case, case.shards[0], scheduler=initial.scheduler)
+    case.writer.create_attempt(first_attempt)
+    runner.set_task_state(initial.scheduler, queue_state=None, accounting_state="FAILED", exit_code="1:0")
+    original_submit = scheduler.submit_script
+
+    def accept_then_lose_receipt(script: str) -> object:
+        original_submit(script)
+        raise SlurmSubmissionError("sbatch response was lost", may_have_succeeded=True)
+
+    monkeypatch.setattr(scheduler, "submit_script", accept_then_lose_receipt)
+    with pytest.raises(SlurmStateError, match="cannot submit retry"):
+        SlurmRetryCoordinator(case.workspace, case.plan.run_id, scheduler).retry(
+            effective_resume_mode="never",
+            observed_at=case.created_at + timedelta(minutes=5),
+        )
+    monkeypatch.setattr(scheduler, "submit_script", original_submit)
+    storage = RetryStorage(StateStorage(case.workspace, case.plan.run_id))
+    retry_plan = storage.read_plan("retry-0001")
+    runner.script_next(
+        "squeue",
+        FakeCommandResponse(stdout=f"4201_0|{retry_plan.submission_job_name}\n"),
+    )
+    runner.script_next("sacct", FakeCommandResponse())
+
+    recovered = SlurmRetryCoordinator(case.workspace, case.plan.run_id, scheduler).retry(
+        effective_resume_mode="never",
+        observed_at=case.created_at + timedelta(minutes=6),
+    )
+
+    assert recovered[0].scheduler == SchedulerIdentity(array_job_id=4201, array_task_id=0)
+    assert case.writer.load_attempts(case.shards[0].shard_id) == (first_attempt, recovered[0])
+    assert storage.read_status("retry-0001").state is RetryState.COMPLETED
+    assert (
+        SlurmRetryCoordinator(case.workspace, case.plan.run_id, scheduler).retry(
+            effective_resume_mode="never",
+            observed_at=case.created_at + timedelta(minutes=7),
+        )
+        == recovered
+    )
+    assert sum(Path(call[0]).name == "sbatch" for call in runner.calls) == 2
+
+
+@pytest.mark.parametrize(
+    ("accepted_before_receipt_loss", "replacement_job_id", "submission_count"),
+    [
+        pytest.param(False, 4201, 2, id="unaccepted"),
+        pytest.param(True, 4301, 3, id="accepted-but-still-invisible"),
+    ],
+)
+def test_retry_replaces_or_fences_an_ambiguous_submission_after_its_deadline(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+    monkeypatch: pytest.MonkeyPatch,
+    accepted_before_receipt_loss: bool,
+    replacement_job_id: int,
+    submission_count: int,
+) -> None:
+    initial = FakeSlurmTask(SchedulerIdentity(array_job_id=4101, array_task_id=0))
+    hidden = FakeSlurmTask(SchedulerIdentity(array_job_id=4201, array_task_id=0))
+    replacement = FakeSlurmTask(SchedulerIdentity(array_job_id=replacement_job_id, array_task_id=0))
+    retry_arrays = (FakeSlurmArray(tasks=(hidden,)),) if accepted_before_receipt_loss else ()
+    runner = FakeSlurmRunner(
+        arrays=(FakeSlurmArray(tasks=(initial,)), *retry_arrays, FakeSlurmArray(tasks=(replacement,)))
+    )
+    scheduler = SlurmCommandClient(runner)
+    scheduler.submit_script("initial")
+    case = _initialize_run(tmp_path, authored_run_single, single_node_plan)
+    first_attempt = _submitted_attempt(case, case.shards[0], scheduler=initial.scheduler)
+    case.writer.create_attempt(first_attempt)
+    runner.set_task_state(initial.scheduler, queue_state=None, accounting_state="FAILED", exit_code="1:0")
+    original_submit = scheduler.submit_script
+
+    def lose_submission_receipt(script: str) -> object:
+        if accepted_before_receipt_loss:
+            original_submit(script)
+        raise SlurmSubmissionError("sbatch response was lost", may_have_succeeded=True)
+
+    monkeypatch.setattr(scheduler, "submit_script", lose_submission_receipt)
+    with pytest.raises(SlurmStateError, match="cannot submit retry"):
+        SlurmRetryCoordinator(case.workspace, case.plan.run_id, scheduler).retry(
+            effective_resume_mode="never",
+            observed_at=case.created_at + timedelta(minutes=5),
+        )
+    monkeypatch.setattr(scheduler, "submit_script", original_submit)
+    runner.script_next("squeue", FakeCommandResponse())
+    runner.script_next("sacct", FakeCommandResponse())
+
+    attempts = SlurmRetryCoordinator(case.workspace, case.plan.run_id, scheduler).retry(
+        effective_resume_mode="never",
+        observed_at=case.created_at + timedelta(minutes=11),
+    )
+
+    storage = RetryStorage(StateStorage(case.workspace, case.plan.run_id))
+    assert storage.read_status("retry-0001").state is RetryState.FAILED
+    assert storage.read_status("retry-0002").state is RetryState.COMPLETED
+    assert attempts[0].scheduler == SchedulerIdentity(array_job_id=replacement_job_id, array_task_id=0)
+    with pytest.raises(StateConflictError, match="scheduler identity"):
+        require_attempt_scheduler_identity(
+            case.workspace,
+            case.plan.run_id,
+            attempts[0].shard_id,
+            attempts[0].attempt_id,
+            SchedulerIdentity(array_job_id=4201 if accepted_before_receipt_loss else 4301, array_task_id=0),
+        )
+    assert sum(Path(call[0]).name == "sbatch" for call in runner.calls) == submission_count
 
 
 def test_retry_definite_submission_failure_settles_and_can_be_retried(
@@ -678,7 +805,7 @@ def test_concurrent_collection_submission_converges_on_one_job(
     assert sum(Path(call[0]).name == "sbatch" for call in runner.calls) == 1
 
 
-def test_collection_ambiguous_submission_remains_prepared_and_blocks_duplicate(
+def test_collection_ambiguous_submission_waits_for_scheduler_visibility_without_a_duplicate(
     tmp_path: Path,
     authored_run: DataDesignerSlurmConfig,
     multi_node_plan: ResolvedSlurmRunPlan,
@@ -686,7 +813,8 @@ def test_collection_ambiguous_submission_remains_prepared_and_blocks_duplicate(
 ) -> None:
     case = _initialize_run(tmp_path, authored_run, multi_node_plan)
     _publish_all_winners(case)
-    scheduler = SlurmCommandClient(FakeSlurmRunner())
+    runner = FakeSlurmRunner()
+    scheduler = SlurmCommandClient(runner)
     submissions = 0
 
     def ambiguous_submit(script: str) -> object:
@@ -703,9 +831,125 @@ def test_collection_ambiguous_submission_remains_prepared_and_blocks_duplicate(
 
     storage = CollectionStorage(StateStorage(case.workspace, case.plan.run_id))
     assert storage.read_status("collection-0001").state is CollectionState.PREPARED
-    with pytest.raises(StateConflictError, match="ambiguous scheduler outcome"):
-        coordinator.submit(submitted_at=case.created_at + timedelta(minutes=11))
+    runner.script_next("squeue", FakeCommandResponse())
+    runner.script_next("sacct", FakeCommandResponse())
+    with pytest.raises(StateConflictError, match="still being reconciled"):
+        SlurmCollectionCoordinator(case.workspace, case.plan.run_id, scheduler).submit(
+            submitted_at=case.created_at + timedelta(minutes=11)
+        )
     assert submissions == 1
+
+
+def test_collection_recovers_an_accepted_submission_after_the_receipt_is_lost(
+    tmp_path: Path,
+    authored_run: DataDesignerSlurmConfig,
+    multi_node_plan: ResolvedSlurmRunPlan,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    case = _initialize_run(tmp_path, authored_run, multi_node_plan)
+    _publish_all_winners(case)
+    runner = FakeSlurmRunner(jobs=(FakeSlurmJob(5101),))
+    scheduler = SlurmCommandClient(runner)
+    original_submit = scheduler.submit_script
+
+    def accept_then_lose_receipt(script: str) -> object:
+        original_submit(script)
+        raise SlurmSubmissionError("sbatch response was lost", may_have_succeeded=True)
+
+    monkeypatch.setattr(scheduler, "submit_script", accept_then_lose_receipt)
+    with pytest.raises(SlurmStateError, match="cannot submit collection"):
+        SlurmCollectionCoordinator(case.workspace, case.plan.run_id, scheduler).submit(
+            submitted_at=case.created_at + timedelta(minutes=10)
+        )
+    monkeypatch.setattr(scheduler, "submit_script", original_submit)
+    storage = CollectionStorage(StateStorage(case.workspace, case.plan.run_id))
+    collection_plan = storage.read_plan("collection-0001")
+    runner.script_next(
+        "squeue",
+        FakeCommandResponse(stdout=f"5101|{collection_plan.submission_job_name}\n"),
+    )
+    runner.script_next("sacct", FakeCommandResponse())
+    waiting_for_binding = Event()
+    binding_published = Event()
+
+    def wait_for_binding(seconds: float) -> None:
+        assert seconds == 1
+        waiting_for_binding.set()
+        assert binding_published.wait(timeout=2)
+
+    monkeypatch.setattr(collection_worker_module, "sleep", wait_for_binding)
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        worker_result = executor.submit(
+            SlurmCollectionWorker(
+                case.workspace,
+                case.plan.run_id,
+                "collection-0001",
+                environment={"SLURM_JOB_ID": "5101"},
+            ).run,
+            completed_at=case.created_at + timedelta(minutes=12),
+        )
+        assert waiting_for_binding.wait(timeout=2)
+        recovered = SlurmCollectionCoordinator(case.workspace, case.plan.run_id, scheduler).refresh(
+            observed_at=case.created_at + timedelta(minutes=11)
+        )
+        binding_published.set()
+        result = worker_result.result(timeout=5)
+
+    assert recovered.collection_id == "collection-0001"
+    assert recovered.state is CollectionState.PENDING
+    assert recovered.scheduler == 5101
+    assert result.actual_records == case.plan.invocation.authored.num_records
+    settled = SlurmCollectionCoordinator(case.workspace, case.plan.run_id, scheduler).submit(
+        submitted_at=case.created_at + timedelta(minutes=13)
+    )
+    assert settled.state is CollectionState.SUCCEEDED
+    assert sum(Path(call[0]).name == "sbatch" for call in runner.calls) == 1
+
+
+def test_collection_fences_an_invisible_accepted_submission_before_replacement_writes(
+    tmp_path: Path,
+    authored_run: DataDesignerSlurmConfig,
+    multi_node_plan: ResolvedSlurmRunPlan,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    case = _initialize_run(tmp_path, authored_run, multi_node_plan)
+    _publish_all_winners(case)
+    runner = FakeSlurmRunner(jobs=(FakeSlurmJob(5101), FakeSlurmJob(5102)))
+    scheduler = SlurmCommandClient(runner)
+    original_submit = scheduler.submit_script
+
+    def accept_then_lose_receipt(script: str) -> object:
+        original_submit(script)
+        raise SlurmSubmissionError("sbatch response was lost", may_have_succeeded=True)
+
+    monkeypatch.setattr(scheduler, "submit_script", accept_then_lose_receipt)
+    with pytest.raises(SlurmStateError, match="cannot submit collection"):
+        SlurmCollectionCoordinator(case.workspace, case.plan.run_id, scheduler).submit(
+            submitted_at=case.created_at + timedelta(minutes=10)
+        )
+    monkeypatch.setattr(scheduler, "submit_script", original_submit)
+    runner.script_next("squeue", FakeCommandResponse())
+    runner.script_next("sacct", FakeCommandResponse())
+
+    submitted = SlurmCollectionCoordinator(case.workspace, case.plan.run_id, scheduler).submit(
+        submitted_at=case.created_at + timedelta(minutes=16)
+    )
+
+    storage = CollectionStorage(StateStorage(case.workspace, case.plan.run_id))
+    assert storage.read_status("collection-0001").state is CollectionState.FAILED
+    assert submitted.collection_id == "collection-0002"
+    assert submitted.state is CollectionState.SUBMITTED
+    assert submitted.scheduler == 5102
+    with pytest.raises(StateConflictError, match="ordinary Slurm job identity"):
+        SlurmCollectionWorker(
+            case.workspace,
+            case.plan.run_id,
+            "collection-0001",
+            environment={"SLURM_JOB_ID": "5101"},
+        ).run(completed_at=case.created_at + timedelta(minutes=17))
+    assert not Path(case.plan.output.root).exists()
+    assert sum(Path(call[0]).name == "sbatch" for call in runner.calls) == 2
 
 
 def test_collection_definite_submission_failure_settles_and_can_be_retried(

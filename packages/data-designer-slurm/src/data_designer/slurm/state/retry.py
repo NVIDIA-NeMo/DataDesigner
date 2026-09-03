@@ -16,7 +16,7 @@ from pydantic import TypeAdapter, ValidationError
 from data_designer.slurm.contracts import Identifier, ShardId, validate_absolute_path
 from data_designer.slurm.launcher.client import SlurmCommandClient
 from data_designer.slurm.launcher.errors import SlurmLauncherError, SlurmSubmissionError
-from data_designer.slurm.launcher.models import SlurmJobSubmissionReceipt
+from data_designer.slurm.launcher.models import SlurmJobSubmissionReceipt, SlurmSubmissionMatch
 from data_designer.slurm.launcher.renderer import render_generation_retry_script
 from data_designer.slurm.state.base import SchedulerIdentity
 from data_designer.slurm.state.errors import SlurmStateError, StateConflictError, StateCorruptionError
@@ -31,6 +31,11 @@ from data_designer.slurm.state.retry_storage import RetryStorage
 from data_designer.slurm.state.scheduler import EffectiveAttemptState
 from data_designer.slurm.state.status import RunStatus, ShardStatus
 from data_designer.slurm.state.storage import StateStorage
+from data_designer.slurm.state.submission_recovery import (
+    SUBMISSION_VISIBILITY_WINDOW,
+    PreparedSubmission,
+    resolve_prepared_submission,
+)
 from data_designer.slurm.state.validation import (
     StateContractError,
     validate_attempt_transition,
@@ -45,6 +50,15 @@ class RetryScheduler(SchedulerObservationClient, Protocol):
 
     def submit_script(self, script: str) -> SlurmJobSubmissionReceipt:
         """Submit one rendered retry array."""
+        ...
+
+    def query_submissions_by_name(
+        self,
+        job_name: Identifier,
+        *,
+        submitted_after: datetime,
+    ) -> tuple[SlurmSubmissionMatch, ...]:
+        """Return allocations matching one exact retry submission name."""
         ...
 
 
@@ -80,7 +94,7 @@ class SlurmRetryCoordinator:
                 raise StateConflictError("effective resume mode must be 'never' or 'always'")
             with self._retries.acquire_lock():
                 self._retries.discard_incomplete_tail()
-                self._settle_submitted_retry(timestamp)
+                self._settle_pending_retry(timestamp)
                 status = self._reconciler.refresh(observed_at=timestamp)
                 active = self._load_active_retry(status, shard_ids, effective_resume_mode)
                 if active is not None:
@@ -100,7 +114,7 @@ class SlurmRetryCoordinator:
         except (OSError, ValidationError, ValueError) as error:
             raise SlurmStateError(f"cannot retry persisted run {self._run_id!r}") from error
 
-    def _settle_submitted_retry(self, updated_at: datetime) -> None:
+    def _settle_pending_retry(self, updated_at: datetime) -> None:
         retry_ids = self._retries.list_retry_ids()
         if not retry_ids:
             return
@@ -108,7 +122,7 @@ class SlurmRetryCoordinator:
         status = self._retries.read_status(latest_id)
         plan = self._load_bound_plan(status)
         if status.state is RetryState.PREPARED:
-            raise StateConflictError("previous retry submission has an ambiguous scheduler outcome")
+            status = self._reconcile_prepared_retry(plan, status, updated_at)
         if status.state is not RetryState.SUBMITTED:
             return
         assert status.array_job_id is not None
@@ -118,6 +132,28 @@ class SlurmRetryCoordinator:
         with self._acquire_selection_locks(selected):
             _, superseded = self._publish_attempts(plan, status.array_job_id, plan.created_at)
             self._settle_retry(plan, status.array_job_id, updated_at, superseded=superseded)
+
+    def _reconcile_prepared_retry(
+        self,
+        plan: RetryPlan,
+        status: RetryStatus,
+        updated_at: datetime,
+    ) -> RetryStatus:
+        assert status.reconciliation_deadline is not None
+        job_id = resolve_prepared_submission(
+            self._scheduler,
+            PreparedSubmission(
+                job_name=plan.submission_job_name,
+                submitted_after=plan.created_at,
+                reconciliation_deadline=status.reconciliation_deadline,
+                expected_array_task_ids=tuple(shard.array_task_index for shard in plan.planned_shards),
+            ),
+            observed_at=updated_at,
+        )
+        if job_id is not None:
+            return self._publish_submitted_status(plan, job_id, updated_at)
+        self._fail_retry(plan, updated_at)
+        return self._retries.read_status(plan.retry_id)
 
     def _build_retry_plan(
         self,
@@ -249,6 +285,7 @@ class SlurmRetryCoordinator:
                 revision=1,
                 updated_at=timestamp,
                 state=RetryState.PREPARED,
+                reconciliation_deadline=timestamp + SUBMISSION_VISIBILITY_WINDOW,
             )
         )
 
@@ -261,6 +298,10 @@ class SlurmRetryCoordinator:
             raise SlurmStateError(f"cannot submit retry {plan.retry_id!r}") from error
         except SlurmLauncherError as error:
             raise SlurmStateError(f"cannot submit retry {plan.retry_id!r}") from error
+        self._publish_submitted_status(plan, receipt.job_id, timestamp)
+        return receipt
+
+    def _publish_submitted_status(self, plan: RetryPlan, array_job_id: int, timestamp: datetime) -> RetryStatus:
         plan_reference = self._retries.get_plan_reference(plan)
         submitted = RetryStatus(
             schema_version=1,
@@ -270,11 +311,11 @@ class SlurmRetryCoordinator:
             revision=2,
             updated_at=timestamp,
             state=RetryState.SUBMITTED,
-            array_job_id=receipt.job_id,
+            array_job_id=array_job_id,
         )
         validate_retry_status_transition(self._retries.read_status(plan.retry_id), submitted)
         self._retries.replace_status(submitted)
-        return receipt
+        return submitted
 
     def _publish_attempts(
         self,
