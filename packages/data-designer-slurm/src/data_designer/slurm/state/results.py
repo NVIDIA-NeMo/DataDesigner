@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Validated publication boundary for producer-owned attempt results."""
+"""Validated publication and attempt-binding boundary for producer-owned results."""
 
 from __future__ import annotations
 
@@ -12,14 +12,16 @@ from data_designer.slurm.state.errors import (
     StateCorruptionError,
     StateNotFoundError,
 )
+from data_designer.slurm.state.execution import AttemptManifest
 from data_designer.slurm.state.outputs import CandidateOutputManifest
 from data_designer.slurm.state.plan_validation import PersistedPlanStateValidator, PlanStateContractError
 from data_designer.slurm.state.reader import StateReader
 from data_designer.slurm.state.storage import StateStorage
+from data_designer.slurm.state.validation import StateContractError, validate_attempt_transition
 
 
 class AttemptResultPublisher:
-    """Validate and immutably publish one client-result/candidate pair."""
+    """Publish one result pair and bind its candidate reference as the commit marker."""
 
     def __init__(self, storage: StateStorage, reader: StateReader) -> None:
         self._storage = storage
@@ -30,7 +32,7 @@ class AttemptResultPublisher:
         client_result: ClientResult,
         candidate: CandidateOutputManifest,
     ) -> tuple[ClientResult, CandidateOutputManifest]:
-        """Publish a semantically bound result pair under its shard lock."""
+        """Publish a result pair and bind the attempt under its shard lock."""
         self._validate_record_location(client_result, candidate)
         try:
             with self._storage.acquire_shard_lock(candidate.shard_id):
@@ -43,11 +45,16 @@ class AttemptResultPublisher:
                     client_result,
                     candidate,
                 )
+                bound_attempt = self._bind_candidate_reference(attempt, client_result)
                 self._storage.publish_finalization_records(client_result, candidate)
+                if bound_attempt != attempt:
+                    self._storage.replace_attempt(bound_attempt)
+                else:
+                    self._storage.sync_attempt_directory(attempt.shard_id, attempt.attempt_id)
             return client_result, candidate
         except (StateConflictError, StateCorruptionError, StateNotFoundError):
             raise
-        except (FileExistsError, PlanStateContractError) as error:
+        except (FileExistsError, PlanStateContractError, StateContractError) as error:
             raise StateConflictError("attempt result does not match persisted run intent") from error
         except OSError as error:
             raise SlurmStateError(f"cannot publish result for attempt {candidate.attempt_id!r}") from error
@@ -63,6 +70,17 @@ class AttemptResultPublisher:
             raise StateConflictError("attempt result run identity does not match the state writer")
         if client_result.shard_id != candidate.shard_id or client_result.attempt_id != candidate.attempt_id:
             raise StateConflictError("attempt result records do not identify the same attempt")
+
+    @staticmethod
+    def _bind_candidate_reference(attempt: AttemptManifest, client_result: ClientResult) -> AttemptManifest:
+        reference = client_result.candidate_output_manifest
+        if reference is None:
+            raise StateContractError("complete client result has no candidate manifest reference")
+        if attempt.candidate_output == reference:
+            return attempt
+        bound_attempt = attempt.model_copy(update={"candidate_output": reference})
+        validate_attempt_transition(attempt, bound_attempt)
+        return bound_attempt
 
 
 __all__ = ["AttemptResultPublisher"]

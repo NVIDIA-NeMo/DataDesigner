@@ -40,6 +40,7 @@ from data_designer.slurm.state.execution import (
 )
 from data_designer.slurm.state.outputs import (
     CANDIDATE_OUTPUT_FORMAT,
+    MAXIMUM_CANDIDATE_OUTPUT_FILES,
     CandidateOutcome,
     CandidateOutputFile,
     CandidateOutputManifest,
@@ -94,6 +95,7 @@ __all__ = [
     "AttemptTerminalClassification",
     "CandidateOutcome",
     "CANDIDATE_OUTPUT_FORMAT",
+    "MAXIMUM_CANDIDATE_OUTPUT_FILES",
     "CandidateOutputFile",
     "CandidateOutputManifest",
     "compute_candidate_schema_digest",

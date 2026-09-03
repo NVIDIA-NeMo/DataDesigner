@@ -169,7 +169,7 @@ class SlurmStateWriter:
         client_result: ClientResult,
         candidate: CandidateOutputManifest,
     ) -> tuple[ClientResult, CandidateOutputManifest]:
-        """Validate and immutably publish one producer-owned attempt result pair."""
+        """Publish one result pair and atomically bind its candidate to the attempt."""
         return self._results.publish(client_result, candidate)
 
     @contextmanager
@@ -241,6 +241,8 @@ class SlurmStateWriter:
                 self._storage.sync_attempt_directory(attempt.shard_id, attempt.attempt_id)
                 return previous
             validate_attempt_transition(previous, attempt)
+            if previous.candidate_output is None and attempt.candidate_output is not None:
+                raise StateContractError("candidate output must be bound by result publication")
             self._reader.validate_attempt_against_plan(run, plan, shard, attempt)
             updated_attempts = tuple(
                 attempt if item.shard_id == attempt.shard_id and item.attempt_id == attempt.attempt_id else item

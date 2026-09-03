@@ -9,7 +9,7 @@ import hashlib
 import os
 import stat
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Protocol
@@ -62,57 +62,66 @@ class _DirectoryBinding:
 
 
 @dataclass(frozen=True, slots=True)
-class _ArtifactBinding:
+class _FileBinding:
     relative_path: str
-    directory_identities: tuple[tuple[int, int], ...]
+    descriptor: int
     file_facts: tuple[int, int, int, int, int]
+
+    def rebind(self, dataset_descriptor: int, dataset_path: Path) -> None:
+        parts = PurePosixPath(self.relative_path).parts
+        with _open_parent_directory(dataset_descriptor, dataset_path, parts[:-1]) as (
+            parent_descriptor,
+            parent_path,
+        ):
+            current = os.stat(parts[-1], dir_fd=parent_descriptor, follow_symlinks=False)
+            if not _is_safe_file(current) or _file_facts(current) != self.file_facts:
+                raise OSError(f"candidate file {parent_path / parts[-1]} changed during finalization")
+
+    def validate_lease(self) -> None:
+        current = os.fstat(self.descriptor)
+        if not _is_safe_file(current) or _file_facts(current) != self.file_facts:
+            raise OSError(f"candidate file {self.relative_path!r} changed during finalization")
 
 
 @dataclass(frozen=True, slots=True)
 class VerifiedCandidateArtifacts:
-    """Bounded candidate root lease plus metadata derived from artifact bytes."""
+    """Bounded live candidate leases plus metadata derived from artifact bytes."""
 
     record_counts: tuple[int, ...]
     dataset_schema_digest: str
-    _candidate: CandidateOutputManifest
     _dataset: _DirectoryBinding
-    _bindings: tuple[_ArtifactBinding, ...]
+    _files: tuple[_FileBinding, ...]
 
     def rebind(self) -> None:
-        """Reopen every artifact transiently and verify the original metadata."""
+        """Verify every leased file still occupies its original candidate path."""
         self._dataset.rebind()
-        record_counts, schema_digest, bindings = _inspect_candidate_files(
-            self._dataset.descriptor,
-            self._dataset.display_path,
-            self._candidate.files,
-        )
-        if (
-            record_counts != self.record_counts
-            or schema_digest != self.dataset_schema_digest
-            or bindings != self._bindings
-        ):
-            raise OSError("candidate paths or metadata changed during finalization")
+        for output_file in self._files:
+            output_file.rebind(self._dataset.descriptor, self._dataset.display_path)
+        for output_file in self._files:
+            output_file.validate_lease()
 
 
 class CandidateArtifactVerifier:
-    """Verify one candidate while retaining only its root directory descriptor."""
+    """Verify one manifest-bounded candidate and lease its files through publication."""
 
     @contextmanager
     def verify(self, candidate: CandidateOutputManifest) -> Iterator[VerifiedCandidateArtifacts]:
         dataset_path = Path(candidate.dataset_path)
-        with open_verified_directory(dataset_path, require_private=True) as dataset_descriptor:
+        with ExitStack() as resources:
+            dataset_descriptor = resources.enter_context(open_verified_directory(dataset_path, require_private=True))
             dataset = _DirectoryBinding(None, None, dataset_descriptor, dataset_path)
-            record_counts, schema_digest, bindings = _inspect_candidate_files(
-                dataset_descriptor,
-                dataset_path,
-                candidate.files,
+            metadata = tuple(
+                _open_output_file(resources, dataset_descriptor, dataset_path, output_file)
+                for output_file in candidate.files
             )
+            schema_digests = tuple(schema_digest for _, schema_digest, _ in metadata)
+            if not schema_digests or any(digest != schema_digests[0] for digest in schema_digests[1:]):
+                raise OSError("candidate Parquet files do not share one dataset schema")
             yield VerifiedCandidateArtifacts(
-                record_counts=record_counts,
-                dataset_schema_digest=schema_digest,
-                _candidate=candidate,
+                record_counts=tuple(record_count for record_count, _, _ in metadata),
+                dataset_schema_digest=schema_digests[0],
                 _dataset=dataset,
-                _bindings=bindings,
+                _files=tuple(binding for _, _, binding in metadata),
             )
 
 
@@ -122,52 +131,35 @@ def compute_candidate_schema_digest(schema: CandidateSchema) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
-def _inspect_candidate_files(
-    dataset_descriptor: int,
-    dataset_path: Path,
-    output_files: tuple[CandidateOutputFile, ...],
-) -> tuple[tuple[int, ...], str, tuple[_ArtifactBinding, ...]]:
-    metadata = tuple(
-        _inspect_output_file(dataset_descriptor, dataset_path, output_file) for output_file in output_files
-    )
-    schema_digests = tuple(schema_digest for _, schema_digest, _ in metadata)
-    if not schema_digests or any(digest != schema_digests[0] for digest in schema_digests[1:]):
-        raise OSError("candidate Parquet files do not share one dataset schema")
-    return (
-        tuple(record_count for record_count, _, _ in metadata),
-        schema_digests[0],
-        tuple(binding for _, _, binding in metadata),
-    )
-
-
-def _inspect_output_file(
+def _open_output_file(
+    resources: ExitStack,
     dataset_descriptor: int,
     dataset_path: Path,
     output_file: CandidateOutputFile,
-) -> tuple[int, str, _ArtifactBinding]:
+) -> tuple[int, str, _FileBinding]:
     parts = PurePosixPath(output_file.relative_path).parts
-    with _open_parent_directory(dataset_descriptor, dataset_path, parts[:-1]) as (
-        parent_descriptor,
-        parent_path,
-        directory_identities,
-    ):
-        name = parts[-1]
-        display_path = parent_path / name
-        with open_verified_regular_file(
+    parent_descriptor, parent_path = resources.enter_context(
+        _open_parent_directory(dataset_descriptor, dataset_path, parts[:-1])
+    )
+    name = parts[-1]
+    display_path = parent_path / name
+    descriptor = resources.enter_context(
+        open_verified_regular_file(
             parent_descriptor,
             name,
             display_path,
             expected_size=output_file.byte_size,
             expected_sha256=output_file.sha256,
             require_private=False,
-        ) as descriptor:
-            record_count, schema_digest = _read_parquet_metadata(descriptor, display_path)
-            binding = _ArtifactBinding(
-                relative_path=output_file.relative_path,
-                directory_identities=directory_identities,
-                file_facts=_file_facts(os.fstat(descriptor)),
-            )
-            return record_count, schema_digest, binding
+        )
+    )
+    record_count, schema_digest = _read_parquet_metadata(descriptor, display_path)
+    binding = _FileBinding(
+        relative_path=output_file.relative_path,
+        descriptor=descriptor,
+        file_facts=_file_facts(os.fstat(descriptor)),
+    )
+    return record_count, schema_digest, binding
 
 
 @contextmanager
@@ -175,10 +167,9 @@ def _open_parent_directory(
     dataset_descriptor: int,
     dataset_path: Path,
     parts: tuple[str, ...],
-) -> Iterator[tuple[int, Path, tuple[tuple[int, int], ...]]]:
+) -> Iterator[tuple[int, Path]]:
     parent_descriptor = os.dup(dataset_descriptor)
     parent_path = dataset_path
-    directory_identities: list[tuple[int, int]] = []
     try:
         for part in parts:
             child_path = parent_path / part
@@ -192,8 +183,7 @@ def _open_parent_directory(
             os.close(parent_descriptor)
             parent_descriptor = next_descriptor
             parent_path = child_path
-            directory_identities.append(_identity(os.fstat(parent_descriptor)))
-        yield parent_descriptor, parent_path, tuple(directory_identities)
+        yield parent_descriptor, parent_path
     finally:
         os.close(parent_descriptor)
 
@@ -213,6 +203,10 @@ def _identity(status: os.stat_result) -> tuple[int, int]:
 
 def _file_facts(status: os.stat_result) -> tuple[int, int, int, int, int]:
     return status.st_dev, status.st_ino, status.st_size, status.st_mtime_ns, status.st_ctime_ns
+
+
+def _is_safe_file(status: os.stat_result) -> bool:
+    return stat.S_ISREG(status.st_mode) and status.st_nlink == 1 and not status.st_mode & 0o022
 
 
 __all__ = [

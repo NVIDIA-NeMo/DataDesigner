@@ -1208,6 +1208,119 @@ def test_candidate_finalization_publishes_one_reloadable_winner_and_seals_the_sh
         )
 
 
+def test_result_publication_binds_candidate_before_success_transition(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    case = _initialized_case(tmp_path, authored_run_single, single_node_plan)
+    attempt = _submitted_attempt(case)
+    case.writer.create_attempt(attempt)
+    with case.writer.acquire_dataset_workspace(attempt.shard_id, attempt.attempt_id, "never") as dataset_path:
+        finalization = _persist_complete_result(case, attempt, dataset_path, complete_attempt=False)
+
+    bound_attempt = case.writer.load_attempt(attempt.shard_id, attempt.attempt_id)
+    assert bound_attempt.state is AttemptLifecycleState.RUNNING
+    assert bound_attempt.candidate_output == finalization.client_result.candidate_output_manifest
+    assert bound_attempt.candidate_output is not None
+
+    different_reference = bound_attempt.candidate_output.model_copy(update={"sha256": "d" * 64})
+    conflicting_success = _validated_copy(
+        bound_attempt,
+        state=AttemptLifecycleState.SUCCEEDED,
+        terminal_classification=AttemptTerminalClassification.SUCCEEDED,
+        candidate_output=different_reference,
+        updated_at=case.created_at + timedelta(minutes=5),
+    )
+    with pytest.raises(StateConflictError, match="valid monotonic transition"):
+        case.writer.update_attempt(conflicting_success)
+
+
+def test_attempt_update_cannot_bind_candidate_before_result_publication(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    case = _initialized_case(tmp_path, authored_run_single, single_node_plan)
+    attempt = _submitted_attempt(case)
+    case.writer.create_attempt(attempt)
+    running = _validated_copy(
+        attempt,
+        state=AttemptLifecycleState.RUNNING,
+        updated_at=case.created_at + timedelta(minutes=2),
+    )
+    case.writer.update_attempt(running)
+    candidate_reference = ArtifactReference(
+        path=(_attempt_root(case, attempt) / "output-manifest.json").as_posix(),
+        sha256="d" * 64,
+    )
+
+    with pytest.raises(StateConflictError, match="valid monotonic transition"):
+        case.writer.update_attempt(_validated_copy(running, candidate_output=candidate_reference))
+
+    assert case.writer.load_attempt(attempt.shard_id, attempt.attempt_id) == running
+
+
+def test_result_publication_retry_finishes_candidate_binding_after_interruption(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    case = _initialized_case(tmp_path, authored_run_single, single_node_plan)
+    attempt = _submitted_attempt(case)
+    case.writer.create_attempt(attempt)
+    running = _validated_copy(
+        attempt,
+        state=AttemptLifecycleState.RUNNING,
+        updated_at=case.created_at + timedelta(minutes=2, seconds=30),
+    )
+    case.writer.update_attempt(running)
+    original_replace = case.writer._storage.replace_attempt
+
+    def interrupt_candidate_binding(_attempt: AttemptManifest) -> None:
+        raise OSError("injected attempt binding interruption")
+
+    monkeypatch.setattr(case.writer._storage, "replace_attempt", interrupt_candidate_binding)
+    with case.writer.acquire_dataset_workspace(attempt.shard_id, attempt.attempt_id, "never") as dataset_path:
+        with pytest.raises(SlurmStateError, match="cannot publish result"):
+            _persist_complete_result(case, attempt, dataset_path, complete_attempt=False)
+
+    unbound_attempt = case.writer.load_attempt(attempt.shard_id, attempt.attempt_id)
+    assert unbound_attempt.state is AttemptLifecycleState.RUNNING
+    assert unbound_attempt.candidate_output is None
+    client_result, candidate = case.writer._storage.read_finalization_records(attempt.shard_id, attempt.attempt_id)
+
+    monkeypatch.setattr(case.writer._storage, "replace_attempt", original_replace)
+    assert case.writer.publish_attempt_result(client_result, candidate) == (client_result, candidate)
+    assert case.writer.load_attempt(attempt.shard_id, attempt.attempt_id).candidate_output == (
+        client_result.candidate_output_manifest
+    )
+
+
+def test_result_publication_rejects_a_successful_attempt_bound_to_another_candidate(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    case = _initialized_case(tmp_path, authored_run_single, single_node_plan)
+    finalization = _complete_finalization_case(case)
+    assert finalization.client_result.candidate_output_manifest is not None
+    different_candidate = finalization.candidate.model_copy(update={"dataset_schema_digest": "d" * 64})
+    different_reference = finalization.client_result.candidate_output_manifest.model_copy(
+        update={"sha256": different_candidate.compute_sha256()}
+    )
+    different_result = finalization.client_result.model_copy(update={"candidate_output_manifest": different_reference})
+
+    with pytest.raises(StateConflictError, match="persisted run intent"):
+        case.writer.publish_attempt_result(different_result, different_candidate)
+
+    assert case.writer.publish_attempt_result(finalization.client_result, finalization.candidate) == (
+        finalization.client_result,
+        finalization.candidate,
+    )
+
+
 @pytest.mark.parametrize("export_format", ("jsonl", "csv"))
 def test_finalization_keeps_candidate_parquet_separate_from_export_format(
     tmp_path: Path,
@@ -1239,7 +1352,7 @@ def test_finalization_keeps_candidate_parquet_separate_from_export_format(
     assert finalization.candidate.files[0].relative_path.endswith(".parquet")
 
 
-def test_candidate_verifier_keeps_file_descriptors_bounded_by_one_file(
+def test_candidate_verifier_leases_manifest_bounded_files_through_publication(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1307,10 +1420,12 @@ def test_candidate_verifier_keeps_file_descriptors_bounded_by_one_file(
 
     monkeypatch.setattr(state_artifacts, "open_verified_regular_file", track_open_file)
     with state_artifacts.CandidateArtifactVerifier().verify(candidate) as artifacts:
-        assert active_files == 0
+        assert active_files == len(files)
         artifacts.rebind()
+        assert active_files == len(files)
 
-    assert maximum_active_files == 1
+    assert active_files == 0
+    assert maximum_active_files == len(files)
 
 
 def test_candidate_schema_digest_ignores_arrow_metadata() -> None:
@@ -2102,6 +2217,7 @@ def _persist_complete_result(
     relative_path: str = "part-00000.parquet",
     physical_records: int | None = None,
     reported_schema_digest: str | None = None,
+    complete_attempt: bool = True,
 ) -> _FinalizationCase:
     running_attempt = _validated_copy(
         attempt,
@@ -2163,16 +2279,20 @@ def _persist_complete_result(
         candidate_output_manifest=candidate_reference,
     )
     case.writer.publish_attempt_result(client_result, candidate)
-    completed_attempt = _validated_copy(
-        running_attempt,
-        state=AttemptLifecycleState.SUCCEEDED,
-        terminal_classification=AttemptTerminalClassification.SUCCEEDED,
-        candidate_output=candidate_reference,
-        updated_at=case.created_at + timedelta(minutes=5),
-    )
-    case.writer.update_attempt(completed_attempt)
+    bound_attempt = case.writer.load_attempt(attempt.shard_id, attempt.attempt_id)
+    assert bound_attempt.candidate_output == candidate_reference
+    if complete_attempt:
+        final_attempt = _validated_copy(
+            bound_attempt,
+            state=AttemptLifecycleState.SUCCEEDED,
+            terminal_classification=AttemptTerminalClassification.SUCCEEDED,
+            updated_at=case.created_at + timedelta(minutes=5),
+        )
+        case.writer.update_attempt(final_attempt)
+    else:
+        final_attempt = bound_attempt
     return _FinalizationCase(
-        attempt=completed_attempt,
+        attempt=final_attempt,
         client_result=client_result,
         candidate=candidate,
         published_at=case.created_at + timedelta(minutes=6),

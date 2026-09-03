@@ -56,6 +56,7 @@ class FinalizationChainValidator:
         self._validate_output_contract(planned_shard, client_result, candidate)
         self._validate_dataset_paths(planned_shard, attempt, client_result, candidate)
         self._validate_result_reference(planned_shard, attempt, client_result, candidate)
+        self._validate_attempt_reference(attempt, client_result)
         self._validate_result_timestamps(attempt, client_result, candidate)
 
     @staticmethod
@@ -183,6 +184,15 @@ class FinalizationChainValidator:
         _require(reference is not None, "complete client result has no candidate manifest reference")
         _require(attempt.candidate_output == reference, "attempt candidate reference does not match client result")
         _require(winner.candidate_manifest == reference, "winner candidate reference does not match client result")
+
+    @staticmethod
+    def _validate_attempt_reference(attempt: AttemptManifest, client_result: ClientResult) -> None:
+        reference = client_result.candidate_output_manifest
+        _require(reference is not None, "complete client result has no candidate manifest reference")
+        _require(
+            attempt.candidate_output is None or attempt.candidate_output == reference,
+            "attempt candidate reference does not match client result",
+        )
 
     @staticmethod
     def _validate_result_timestamps(
