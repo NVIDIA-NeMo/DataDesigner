@@ -189,6 +189,34 @@ def test_client_removes_terminal_controls_from_command_failures(fake_slurm_runne
     assert "\x1b" not in str(error.value)
 
 
+@pytest.mark.parametrize(
+    ("diagnostic", "secret"),
+    (
+        ("HF_TOKEN=super-secret-value", "super-secret-value"),
+        ('HF_TOKEN="quoted secret value"', "quoted secret value"),
+        ("--api-key plaintext-secret", "plaintext-secret"),
+        ('{"access_token":"json-secret"}', "json-secret"),
+        ("Authorization: Bearer bearer-secret", "bearer-secret"),
+        ("https://user:url-secret@example.test/index", "url-secret"),
+        (f"token github_pat_{'a' * 24}", f"github_pat_{'a' * 24}"),
+    ),
+    ids=("environment", "quoted-environment", "option", "json", "authorization", "url", "known-token"),
+)
+def test_client_redacts_secrets_from_command_failures(
+    fake_slurm_runner: FakeSlurmRunner,
+    diagnostic: str,
+    secret: str,
+) -> None:
+    fake_slurm_runner.script_next("squeue", FakeCommandResponse(stderr=diagnostic, returncode=2))
+    client = SlurmCommandClient(fake_slurm_runner)
+
+    with pytest.raises(SlurmCommandError) as error:
+        client.query_queue((4101,))
+
+    assert secret not in str(error.value)
+    assert "<redacted>" in str(error.value)
+
+
 def test_client_bounds_command_failure_detail(fake_slurm_runner: FakeSlurmRunner) -> None:
     fake_slurm_runner.script_next("squeue", FakeCommandResponse(stderr="x" * 600, returncode=2))
     client = SlurmCommandClient(fake_slurm_runner)
