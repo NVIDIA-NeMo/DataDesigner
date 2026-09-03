@@ -15,7 +15,7 @@ from data_designer.slurm.contracts import ContractRecord
 from data_designer.slurm.integration import IntegrationContractError, PlanStateValidator
 from data_designer.slurm.runtime.errors import SlurmRuntimeError, SlurmRuntimeErrorCode
 from data_designer.slurm.runtime.models import AllocationContext
-from data_designer.slurm.state import CandidateOutputManifest
+from data_designer.slurm.state import AttemptManifest, CandidateOutputManifest
 from data_designer.slurm.state.filesystem import open_verified_directory, read_regular_text
 
 _CLIENT_RESULT_NAME = "client-result.json"
@@ -26,6 +26,7 @@ _RecordT = TypeVar("_RecordT", bound=ContractRecord)
 
 def load_complete_client_candidate(
     context: AllocationContext,
+    attempt: AttemptManifest,
 ) -> tuple[ClientResult, CandidateOutputManifest]:
     """Load a complete semantic client result and its digest-bound candidate."""
     client_result = _read_record(context.attempt_directory, _CLIENT_RESULT_NAME, ClientResult)
@@ -38,7 +39,7 @@ def load_complete_client_candidate(
     try:
         PlanStateValidator(context.plan).validate_client_candidate(
             context.shard,
-            context.attempt,
+            attempt,
             client_result,
             candidate,
         )

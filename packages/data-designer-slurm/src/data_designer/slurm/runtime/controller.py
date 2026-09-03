@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Protocol
 
+from data_designer.slurm.client import ClientResult
 from data_designer.slurm.contracts import ArtifactReference
 from data_designer.slurm.runtime.errors import SlurmRuntimeError, SlurmRuntimeErrorCode
 from data_designer.slurm.runtime.logs import bind_execution_logs, execution_log_directory
@@ -32,6 +33,7 @@ from data_designer.slurm.state import (
     AttemptManifest,
     AttemptReadiness,
     AttemptTerminalClassification,
+    CandidateOutputManifest,
     DeploymentReadiness,
     EndpointPublicationState,
     ProbeEvidence,
@@ -53,6 +55,14 @@ class RuntimeStateStore(Protocol):
 
     def update_attempt(self, attempt: AttemptManifest) -> AttemptManifest:
         """Persist a monotonic attempt update."""
+        ...
+
+    def publish_attempt_result(
+        self,
+        client_result: ClientResult,
+        candidate: CandidateOutputManifest,
+    ) -> tuple[ClientResult, CandidateOutputManifest]:
+        """Publish one complete result pair and bind it to its running attempt."""
         ...
 
     def write_readiness(self, readiness: AttemptReadiness) -> AttemptReadiness:
@@ -290,7 +300,7 @@ class OneNodeAllocationController:
         generation_started_at = self._now()
         self._supervisor.wait(self._supervisor.start(generation), required=required_processes)
         self._supervisor.require_running(required_processes)
-        client_result, candidate = load_complete_client_candidate(self._context)
+        client_result, candidate = load_complete_client_candidate(self._context, self._attempt)
         self._validate_client_timestamps(candidate.created_at, client_result.completed_at, generation_started_at)
         candidate_reference = client_result.candidate_output_manifest
         if candidate_reference is None:  # pragma: no cover - the record contract requires this for complete results
@@ -298,6 +308,8 @@ class OneNodeAllocationController:
                 SlurmRuntimeErrorCode.FINALIZATION_FAILED,
                 "complete client result has no candidate reference",
             )
+        self._state.publish_attempt_result(client_result, candidate)
+        self._attempt = _copy_attempt(self._attempt, candidate_output=candidate_reference)
         return candidate_reference, client_result.completed_at
 
     def _validate_client_timestamps(
@@ -540,7 +552,6 @@ class OneNodeAllocationController:
                 self._attempt,
                 state=AttemptLifecycleState.FAILED,
                 terminal_classification=AttemptTerminalClassification.FAILED,
-                candidate_output=None,
                 updated_at=timestamp,
             )
         return terminal

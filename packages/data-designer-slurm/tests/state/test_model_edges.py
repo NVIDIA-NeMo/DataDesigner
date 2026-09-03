@@ -11,6 +11,7 @@ import pytest
 from pydantic import ValidationError
 
 from data_designer.slurm.state import (
+    MAXIMUM_CANDIDATE_OUTPUT_FILES,
     ArtifactReference,
     AttemptManifest,
     AttemptReadiness,
@@ -118,6 +119,19 @@ def test_candidate_output_rejects_remaining_invalid_inventory_forms() -> None:
     payload = _golden_payload("candidate_output.json")
     payload["files"] = []
     with pytest.raises(ValidationError, match="require at least one file"):
+        CandidateOutputManifest.model_validate_json(json.dumps(payload))
+
+    payload = _golden_payload("candidate_output.json")
+    prototype = payload["files"][0]
+    payload["files"] = [
+        prototype
+        | {
+            "relative_path": f"part-{index:05d}.parquet",
+            "record_count": prototype["record_count"] if index == 0 else 0,
+        }
+        for index in range(MAXIMUM_CANDIDATE_OUTPUT_FILES + 1)
+    ]
+    with pytest.raises(ValidationError, match=rf"at most {MAXIMUM_CANDIDATE_OUTPUT_FILES} items"):
         CandidateOutputManifest.model_validate_json(json.dumps(payload))
 
 

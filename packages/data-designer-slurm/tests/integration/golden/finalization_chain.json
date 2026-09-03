@@ -4,7 +4,7 @@
     "attempt_ordinal": 1,
     "candidate_output": {
       "path": "/workspace/primary/runs/run-single/shards/shard-00000/attempts/attempt-0001/output-manifest.json",
-      "sha256": "f2d8428ea0c36860cb835af1a2b602058c1f4b668d081c525258f5857b400398"
+      "sha256": "e9a71197aa03233d233c9d208f8f13d076fa1e8fff9762365d61e7ad476a1e3f"
     },
     "created_at": "2026-08-19T12:00:02Z",
     "resolved_plan": {
@@ -38,7 +38,7 @@
       }
     ],
     "outcome": "complete",
-    "provenance_digest": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "provenance_digest": "cc5ce7314c57fa4e784e149d6d47aafce721118e9f249d6d91518dc20c8fb604",
     "requested_records": 8,
     "run_id": "run-single",
     "schema_version": 1,
@@ -49,7 +49,7 @@
     "attempt_id": "attempt-0001",
     "candidate_output_manifest": {
       "path": "/workspace/primary/runs/run-single/shards/shard-00000/attempts/attempt-0001/output-manifest.json",
-      "sha256": "f2d8428ea0c36860cb835af1a2b602058c1f4b668d081c525258f5857b400398"
+      "sha256": "e9a71197aa03233d233c9d208f8f13d076fa1e8fff9762365d61e7ad476a1e3f"
     },
     "completed_at": "2026-08-19T12:05:01Z",
     "dataset_path": "/workspace/primary/runs/run-single/shards/shard-00000/attempts/attempt-0001/dataset",
@@ -118,7 +118,7 @@
     "attempt_ordinal": 1,
     "candidate_manifest": {
       "path": "/workspace/primary/runs/run-single/shards/shard-00000/attempts/attempt-0001/output-manifest.json",
-      "sha256": "f2d8428ea0c36860cb835af1a2b602058c1f4b668d081c525258f5857b400398"
+      "sha256": "e9a71197aa03233d233c9d208f8f13d076fa1e8fff9762365d61e7ad476a1e3f"
     },
     "published_at": "2026-08-19T12:05:03Z",
     "run_id": "run-single",
