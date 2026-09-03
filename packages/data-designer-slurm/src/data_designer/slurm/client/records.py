@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Annotated, Literal
+from typing import TYPE_CHECKING, Annotated, Literal
 
 from pydantic import NonNegativeInt, PositiveInt, StringConstraints, field_validator, model_validator
 
@@ -13,10 +13,169 @@ from data_designer.slurm.contracts import (
     ArtifactReference,
     AttemptId,
     ContractRecord,
+    ContractValue,
     Identifier,
+    InstalledDistribution,
+    Sha256Digest,
     ShardId,
     validate_absolute_path,
+    validate_plain_text,
 )
+
+if TYPE_CHECKING:
+    from data_designer.slurm.client.environment import PreparedClientEnvironment
+
+
+class ClientErrorCode(str, Enum):
+    INVALID_INPUT = "invalid_input"
+    DEPENDENCY_ARTIFACT_MISSING = "dependency_artifact_missing"
+    DEPENDENCY_DIGEST_MISMATCH = "dependency_digest_mismatch"
+    DEPENDENCY_CONFLICT = "dependency_conflict"
+    DEPENDENCY_INSTALL_FAILED = "dependency_install_failed"
+    PLUGIN_LOAD_FAILED = "plugin_load_failed"
+    CONFIG_INVALID = "config_invalid"
+    GENERATION_FAILED = "generation_failed"
+    INTERRUPTED = "interrupted"
+    OUTPUT_INVALID = "output_invalid"
+
+
+class ClientEnvironmentOutcome(str, Enum):
+    READY = "ready"
+    FAILED = "failed"
+
+
+class ClientInstallerOutcome(str, Enum):
+    NOT_REQUIRED = "not_required"
+    INSTALLED = "installed"
+    REUSED = "reused"
+
+
+class ClientProgressPhase(str, Enum):
+    PREPARING_ENVIRONMENT = "preparing_environment"
+    VALIDATING_PLUGINS = "validating_plugins"
+    VALIDATING_CONFIG = "validating_config"
+    GENERATING = "generating"
+    FINALIZING = "finalizing"
+    COMPLETE = "complete"
+    FAILED = "failed"
+
+
+class ClientPluginEntryPoint(ContractValue):
+    entry_point: Annotated[str, StringConstraints(min_length=1, max_length=256)]
+    value: Annotated[str, StringConstraints(min_length=1, max_length=512)]
+    distribution: Annotated[str, StringConstraints(min_length=1, max_length=128)]
+    distribution_version: Annotated[str, StringConstraints(min_length=1, max_length=128)]
+    plugin_name: Identifier
+    plugin_type: Literal["column-generator", "seed-reader", "processor"]
+
+    @field_validator("entry_point", "value", "distribution", "distribution_version")
+    @classmethod
+    def validate_text(cls, value: str) -> str:
+        return validate_plain_text(value, field_name="plugin entry point")
+
+
+class ClientEnvironmentManifest(ContractRecord):
+    run_id: Identifier
+    shard_id: ShardId
+    attempt_id: AttemptId
+    created_at: datetime
+    outcome: ClientEnvironmentOutcome
+    dependency_lock: ArtifactReference
+    client_image_sha256: Sha256Digest
+    python_abi: Identifier
+    overlay_path: str
+    installer_outcome: ClientInstallerOutcome
+    installed_distributions: tuple[InstalledDistribution, ...]
+    plugins: tuple[ClientPluginEntryPoint, ...]
+    error_code: ClientErrorCode | None = None
+    redacted_message: Annotated[str, StringConstraints(max_length=512)] | None = None
+
+    _overlay_path_is_absolute = field_validator("overlay_path")(validate_absolute_path)
+
+    @classmethod
+    def from_prepared(
+        cls,
+        prepared: PreparedClientEnvironment,
+        *,
+        created_at: datetime,
+        outcome: ClientEnvironmentOutcome,
+        plugins: tuple[ClientPluginEntryPoint, ...],
+        error_code: ClientErrorCode | None = None,
+        redacted_message: str | None = None,
+    ) -> ClientEnvironmentManifest:
+        return cls(
+            schema_version=1,
+            run_id=prepared.run_id,
+            shard_id=prepared.shard_id,
+            attempt_id=prepared.attempt_id,
+            created_at=created_at,
+            outcome=outcome,
+            dependency_lock=prepared.dependency_lock,
+            client_image_sha256=prepared.client_image_sha256,
+            python_abi=prepared.python_abi,
+            overlay_path=prepared.overlay_path.as_posix(),
+            installer_outcome=prepared.installer_outcome,
+            installed_distributions=prepared.installed_distributions,
+            plugins=plugins,
+            error_code=error_code,
+            redacted_message=redacted_message,
+        )
+
+    @field_validator("created_at")
+    @classmethod
+    def validate_created_at(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() != timedelta(0):
+            raise ValueError("created_at must be timezone-aware UTC")
+        return value
+
+    @field_validator("redacted_message")
+    @classmethod
+    def validate_redacted_message(cls, value: str | None) -> str | None:
+        return None if value is None else validate_plain_text(value, field_name="redacted message")
+
+    @model_validator(mode="after")
+    def validate_environment(self) -> ClientEnvironmentManifest:
+        distribution_names = tuple(distribution.name for distribution in self.installed_distributions)
+        if distribution_names != tuple(sorted(distribution_names)) or len(distribution_names) != len(
+            set(distribution_names)
+        ):
+            raise ValueError("installed distributions must be sorted and unique")
+        plugin_keys = tuple((plugin.distribution, plugin.entry_point) for plugin in self.plugins)
+        if plugin_keys != tuple(sorted(plugin_keys)) or len(plugin_keys) != len(set(plugin_keys)):
+            raise ValueError("plugin entry points must be sorted and unique")
+        if self.outcome is ClientEnvironmentOutcome.READY:
+            if self.error_code is not None or self.redacted_message is not None:
+                raise ValueError("ready client environments cannot contain failure details")
+        elif self.error_code is None:
+            raise ValueError("failed client environments require error_code")
+        return self
+
+
+class ClientProgress(ContractRecord):
+    run_id: Identifier
+    shard_id: ShardId
+    attempt_id: AttemptId
+    revision: PositiveInt
+    updated_at: datetime
+    phase: ClientProgressPhase
+    requested_records: PositiveInt
+    completed_records: NonNegativeInt | None = None
+    error_code: ClientErrorCode | None = None
+
+    @field_validator("updated_at")
+    @classmethod
+    def validate_updated_at(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() != timedelta(0):
+            raise ValueError("updated_at must be timezone-aware UTC")
+        return value
+
+    @model_validator(mode="after")
+    def validate_progress(self) -> ClientProgress:
+        if self.completed_records is not None and self.completed_records > self.requested_records:
+            raise ValueError("completed_records must not exceed requested_records")
+        if (self.phase is ClientProgressPhase.FAILED) != (self.error_code is not None):
+            raise ValueError("only failed progress requires an error code")
+        return self
 
 
 class ClientOutcome(str, Enum):
@@ -66,11 +225,8 @@ class ClientResult(ContractRecord):
     def validate_outcome(self) -> ClientResult:
         if self.actual_records is not None and self.actual_records > self.requested_records:
             raise ValueError("actual_records must not exceed requested_records")
-        if self.requested_resume_mode != "if_possible" and self.effective_resume_mode not in {
-            None,
-            self.requested_resume_mode,
-        }:
-            raise ValueError("effective resume mode must match a fixed requested mode")
+        if self.requested_resume_mode == "never" and self.effective_resume_mode not in {None, "never"}:
+            raise ValueError("resume mode never cannot become effective resume")
         if self.outcome is not ClientOutcome.FAILED:
             if self.early_shutdown is None or self.effective_resume_mode is None:
                 raise ValueError("non-failed client results require resume and early-shutdown facts")
