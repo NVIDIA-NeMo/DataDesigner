@@ -1427,6 +1427,22 @@ def test_candidate_verifier_leases_manifest_bounded_files_through_publication(
     assert active_files == 0
     assert maximum_active_files == len(files)
 
+    maximum_active_files = 0
+    verifier = state_artifacts.CandidateArtifactVerifier()
+    snapshot = verifier.inspect(candidate)
+    verifier.rebind(candidate, snapshot)
+
+    assert active_files == 0
+    assert maximum_active_files == 1
+
+    replacement = dataset_path / "replacement.parquet"
+    replacement.write_bytes((dataset_path / files[0].relative_path).read_bytes())
+    replacement.chmod(0o644)
+    os.replace(replacement, dataset_path / files[0].relative_path)
+
+    with pytest.raises(OSError, match="changed during collection"):
+        verifier.rebind(candidate, snapshot)
+
 
 def test_candidate_schema_digest_ignores_arrow_metadata() -> None:
     schema = lazy.pa.schema([("record_id", lazy.pa.int64())])
