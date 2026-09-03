@@ -58,12 +58,23 @@ def resolve_prepared_submission(
         raise StateConflictError("multiple scheduler jobs match the prepared submission")
     if matches:
         match = matches[0]
-        if match.array_task_ids != prepared.expected_array_task_ids:
-            raise StateConflictError("scheduler job shape does not match the prepared submission")
-        return match.job_id
+        if match.array_task_ids == prepared.expected_array_task_ids:
+            return match.job_id
+        if _is_partial_array_view(match.array_task_ids, prepared.expected_array_task_ids):
+            if observed_at <= prepared.reconciliation_deadline:
+                raise StateConflictError("prepared submission is still being reconciled")
+            return None
+        raise StateConflictError("scheduler job shape does not match the prepared submission")
     if observed_at <= prepared.reconciliation_deadline:
         raise StateConflictError("prepared submission is still being reconciled")
     return None
+
+
+def _is_partial_array_view(
+    observed: tuple[int, ...] | None,
+    expected: tuple[int, ...] | None,
+) -> bool:
+    return observed is not None and expected is not None and set(observed) < set(expected)
 
 
 __all__ = [

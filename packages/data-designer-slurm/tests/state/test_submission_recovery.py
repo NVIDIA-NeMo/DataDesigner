@@ -89,7 +89,7 @@ def test_prepared_submission_recovery_returns_definitive_absence_only_after_dead
     )
 
 
-@pytest.mark.parametrize("actual_shape", [None, (0,), (0, 2)])
+@pytest.mark.parametrize("actual_shape", [None, (0, 2)])
 def test_prepared_submission_recovery_rejects_the_wrong_scheduler_shape(
     actual_shape: tuple[int, ...] | None,
 ) -> None:
@@ -111,3 +111,34 @@ def test_prepared_submission_recovery_rejects_the_wrong_scheduler_shape(
             ),
             observed_at=submitted_at + timedelta(minutes=1),
         )
+
+
+def test_prepared_submission_recovery_bounds_a_partial_array_view() -> None:
+    submitted_at = datetime(2026, 9, 2, 12, tzinfo=timezone.utc)
+    deadline = submitted_at + timedelta(minutes=5)
+    lookup = _SubmissionLookup(
+        (
+            SlurmSubmissionMatch(
+                job_id=4201,
+                job_name="dd-retry-0123456789abcdef0123456789abcdef",
+                array_task_ids=(0,),
+            ),
+        )
+    )
+    prepared = PreparedSubmission(
+        job_name="dd-retry-0123456789abcdef0123456789abcdef",
+        submitted_after=submitted_at,
+        reconciliation_deadline=deadline,
+        expected_array_task_ids=(0, 1),
+    )
+
+    with pytest.raises(StateConflictError, match="still being reconciled"):
+        resolve_prepared_submission(lookup, prepared, observed_at=deadline)
+    assert (
+        resolve_prepared_submission(
+            lookup,
+            prepared,
+            observed_at=deadline + timedelta(microseconds=1),
+        )
+        is None
+    )
