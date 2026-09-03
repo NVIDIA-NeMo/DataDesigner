@@ -644,88 +644,7 @@ def test_materialize_empty_selection_uses_schema_anchor(stub_artifact_storage, s
     assert dataset.columns.tolist() == stub_sample_dataframe.columns.tolist()
 
 
-def test_selection_media_staging_promotes_only_referenced_files(stub_artifact_storage) -> None:
-    stub_artifact_storage.begin_selection_media_batch(3)
-    staging = stub_artifact_storage.selection_media_staging_path / "batch_00003" / "images" / "picture"
-    staging.mkdir(parents=True)
-    (staging / "accepted.png").write_bytes(b"accepted")
-    (staging / "rejected.png").write_bytes(b"rejected")
-
-    promoted = stub_artifact_storage.promote_selection_media(
-        lazy.pd.DataFrame({"image": ["images/picture/accepted.png"]}),
-        3,
-    )
-
-    relative = promoted.loc[0, "image"]
-    assert relative == "images/selection_batch_00003/picture/accepted.png"
-    assert (stub_artifact_storage.base_dataset_path / relative).read_bytes() == b"accepted"
-    assert not stub_artifact_storage.selection_media_staging_path.joinpath("batch_00003").exists()
-    assert not stub_artifact_storage.base_dataset_path.joinpath(
-        "images/selection_batch_00003/picture/rejected.png"
-    ).exists()
-
-
-def test_selection_media_paths_use_configured_width_across_five_digit_boundary(
-    stub_artifact_storage: ArtifactStorage,
-) -> None:
-    stub_artifact_storage.configure_selection_batch_file_width(
-        max_candidate_records=100_001,
-        candidate_batch_size=1,
-    )
-
-    promoted_paths: list[str] = []
-    for batch_id, expected_name in ((99_999, "099999"), (100_000, "100000")):
-        stub_artifact_storage.begin_selection_media_batch(batch_id)
-        staging = stub_artifact_storage.selection_media_staging_path / f"batch_{expected_name}" / "images" / "picture"
-        staging.mkdir(parents=True)
-        (staging / "accepted.png").write_bytes(str(batch_id).encode())
-
-        promoted = stub_artifact_storage.promote_selection_media(
-            lazy.pd.DataFrame({"image": ["images/picture/accepted.png"]}),
-            batch_id,
-        )
-        promoted_paths.append(promoted.loc[0, "image"])
-
-    assert promoted_paths == [
-        "images/selection_batch_099999/picture/accepted.png",
-        "images/selection_batch_100000/picture/accepted.png",
-    ]
-
-
-def test_selection_media_promotion_rewrites_duplicate_references(stub_artifact_storage) -> None:
-    stub_artifact_storage.begin_selection_media_batch(3)
-    staging = stub_artifact_storage.selection_media_staging_path / "batch_00003" / "images" / "picture"
-    staging.mkdir(parents=True)
-    (staging / "shared.png").write_bytes(b"shared")
-
-    promoted = stub_artifact_storage.promote_selection_media(
-        lazy.pd.DataFrame(
-            {
-                "primary": ["images/picture/shared.png"],
-                "references": [["images/picture/shared.png", {"copy": "images/picture/shared.png"}]],
-            }
-        ),
-        3,
-    )
-
-    expected = "images/selection_batch_00003/picture/shared.png"
-    assert promoted.loc[0, "primary"] == expected
-    assert promoted.loc[0, "references"] == [expected, {"copy": expected}]
-    assert (stub_artifact_storage.base_dataset_path / expected).read_bytes() == b"shared"
-
-
-def test_clean_uncommitted_selection_batch_removes_promoted_media_and_side_artifacts(
-    stub_artifact_storage, stub_sample_dataframe
-) -> None:
-    stub_artifact_storage.media_storage.images_subdir = "custom-images"
-    stub_artifact_storage.begin_selection_media_batch(5)
-    staging = stub_artifact_storage.selection_media_staging_path / "batch_00005" / "custom-images" / "picture"
-    staging.mkdir(parents=True)
-    (staging / "accepted.png").write_bytes(b"accepted")
-    promoted = stub_artifact_storage.promote_selection_media(
-        lazy.pd.DataFrame({"image": ["custom-images/picture/accepted.png"]}),
-        5,
-    )
+def test_clean_uncommitted_selection_batch_removes_side_artifacts(stub_artifact_storage, stub_sample_dataframe) -> None:
     stub_artifact_storage.write_batch_to_parquet_file(
         5,
         stub_sample_dataframe,
@@ -740,21 +659,5 @@ def test_clean_uncommitted_selection_batch_removes_promoted_media_and_side_artif
 
     stub_artifact_storage.clean_uncommitted_selection_batch(5)
 
-    assert not (stub_artifact_storage.base_dataset_path / promoted.loc[0, "image"]).exists()
     assert not (stub_artifact_storage.dropped_columns_dataset_path / "batch_00005.parquet").exists()
     assert not (stub_artifact_storage.processors_outputs_path / "schema" / "batch_00005.parquet").exists()
-
-
-def test_selection_media_promotion_does_not_follow_path_traversal(stub_artifact_storage) -> None:
-    stub_artifact_storage.begin_selection_media_batch(4)
-    outside = stub_artifact_storage.selection_media_staging_path / "sensitive.png"
-    outside.parent.mkdir(parents=True, exist_ok=True)
-    outside.write_bytes(b"sensitive")
-
-    promoted = stub_artifact_storage.promote_selection_media(
-        lazy.pd.DataFrame({"image": ["images/../../sensitive.png"]}),
-        4,
-    )
-
-    assert promoted.loc[0, "image"] == "images/../../sensitive.png"
-    assert outside.read_bytes() == b"sensitive"

@@ -97,9 +97,10 @@ Selection predicates must be row-local: they can depend on columns in the curren
 current batch, previously generated candidates, or previously accepted records. Global ranking, top-N selection,
 quotas, cross-batch deduplication, and stateful plugin predicates are not supported.
 
-Data Designer tracks and stages media produced by engine-managed image generators. Custom and plugin code should be
-side-effect-free: external files or media that it creates are not tracked by record selection, so artifacts associated
-with rejected candidates may remain.
+Image-generation columns are not supported with record selection in V1. Data Designer rejects such configurations
+before generation and names every unsupported image column in the error. Custom and plugin code should be
+side-effect-free: external files that it creates are not tracked by record selection, so artifacts associated with
+rejected candidates may remain.
 
 ## Choose exhaustion behavior
 
@@ -141,9 +142,8 @@ as the original run. A larger target is not compatible because rows trimmed from
 committed. `ResumeMode.IF_POSSIBLE` clears engine-managed artifacts and starts the selection run again when those
 inputs differ.
 
-Published output is rebuilt from immutable accepted partitions after a crash. `push_to_hub()` accepts only terminal
-selection artifacts whose publication state is complete; internal candidate markers and accepted-partition staging
-are not uploaded.
+Published output is rebuilt from immutable accepted partitions after a crash. Record-selection-specific Hugging Face
+publication behavior is outside V1 and will be handled through the repository-wide publishing path separately.
 
 <Note>
   `preview()` does not execute the accepted-row retry and checkpoint contract. Preview the configuration before

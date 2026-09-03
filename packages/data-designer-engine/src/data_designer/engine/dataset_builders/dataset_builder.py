@@ -1200,6 +1200,15 @@ class DatasetBuilder:
             return
         if num_records <= 0:
             raise DatasetGenerationError("🛑 num_records must be positive when record selection is configured.")
+        image_columns = [
+            column.name for column in self.single_column_configs if column.column_type == DataDesignerColumnType.IMAGE
+        ]
+        if image_columns:
+            names = ", ".join(repr(name) for name in image_columns)
+            raise DatasetGenerationError(
+                f"🛑 Record selection does not support image-generation columns in V1: {names}. "
+                "Remove the image column or disable record selection for this run."
+            )
         if config.max_candidate_records < num_records:
             raise DatasetGenerationError(
                 "🛑 record_selection.max_candidate_records must be greater than or equal to "

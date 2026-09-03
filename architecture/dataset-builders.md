@@ -18,7 +18,7 @@ Entry point for generation. `build()` initializes shared generators and routes o
 
 ### RecordSelectionRunner
 
-Per-build collaborator for record-selection runs. It holds a reference to its `DatasetBuilder` so it can reuse scheduler construction, processors, artifact storage, resource configuration, and build-level run state without duplicating them in a context object. It owns the bounded candidate loop, selection decisions, per-batch media and marker commits, unresolved-path resume compatibility and cleanup, committed-marker reconstruction, exhaustion, and terminal publication.
+Per-build collaborator for record-selection runs. It holds a reference to its `DatasetBuilder` so it can reuse scheduler construction, processors, artifact storage, resource configuration, and build-level run state without duplicating them in a context object. It owns the bounded candidate loop, selection decisions, per-batch marker commits, unresolved-path resume compatibility and cleanup, committed-marker reconstruction, exhaustion, and terminal publication. Image-generation columns are rejected before the runner starts because media lifecycle support is deferred beyond V1.
 
 ### Async Execution (`_build_async`)
 
@@ -115,7 +115,7 @@ DatasetBuilder.build()
             → DatasetBuilder._prepare_async_run()
             → AsyncTaskScheduler.run() retains one completed candidate DataFrame
             → select and trim accepted rows
-            → promote accepted media and run strict post-batch processors
+            → run strict post-batch processors on accepted rows
             → commit accepted partition and marker
             → report the durable accepted/dropped checkpoint
        → materialize terminal publication

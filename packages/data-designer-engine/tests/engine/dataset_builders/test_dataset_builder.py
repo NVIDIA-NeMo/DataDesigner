@@ -19,6 +19,7 @@ from data_designer.config.base import SkipConfig
 from data_designer.config.column_configs import (
     CustomColumnConfig,
     ExpressionColumnConfig,
+    ImageColumnConfig,
     LLMStructuredColumnConfig,
     LLMTextColumnConfig,
     SamplerColumnConfig,
@@ -287,6 +288,18 @@ def test_record_selection_rejects_direct_llm_predicate(
         DatasetBuilder(data_designer_config=config.build(), resource_provider=stub_resource_provider)
 
 
+def test_record_selection_rejects_image_generation_columns(stub_resource_provider) -> None:
+    config = DataDesignerConfigBuilder()
+    config.add_column(SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["x"]}))
+    config.add_column(ExpressionColumnConfig(name="keep", expr="{{ true }}", dtype="bool"))
+    config.add_column(ImageColumnConfig(name="image", prompt="{{ seed }}", model_alias="unused"))
+    config.with_record_selection(RecordSelectionConfig(predicate_column="keep", max_candidate_records=1))
+    builder = DatasetBuilder(data_designer_config=config.build(), resource_provider=stub_resource_provider)
+
+    with pytest.raises(DatasetGenerationError, match="image-generation columns in V1: 'image'"):
+        builder.build(num_records=1)
+
+
 def test_record_selection_accepts_boolean_expression_derived_from_llm_structured(
     stub_resource_provider, stub_model_configs
 ) -> None:
@@ -486,7 +499,6 @@ def test_record_selection_does_not_commit_partial_schema_when_all_candidates_fai
         controller,
         batch=batch,
         dataframe=partial_empty_schema,
-        media_staged=False,
     )
     runner._commit_selection_candidate_batch(
         controller,

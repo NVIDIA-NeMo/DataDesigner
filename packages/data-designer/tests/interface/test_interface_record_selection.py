@@ -10,7 +10,12 @@ from unittest.mock import patch
 import pytest
 
 import data_designer.lazy_heavy_imports as lazy
-from data_designer.config.column_configs import CustomColumnConfig, ExpressionColumnConfig, SamplerColumnConfig
+from data_designer.config.column_configs import (
+    CustomColumnConfig,
+    ExpressionColumnConfig,
+    ImageColumnConfig,
+    SamplerColumnConfig,
+)
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.custom_column import custom_column_generator
 from data_designer.config.record_selection import RecordSelectionConfig, RecordSelectionExhaustion
@@ -99,6 +104,37 @@ def test_create_selects_exact_target_across_batches_and_trims(tmp_path: Path) ->
     markers = sorted(results.artifact_storage.selection_checkpoints_path.glob("batch_*.json"))
     assert len(markers) == 2
     assert sum(json.loads(path.read_text())["candidate_records"] for path in markers) == 4
+
+
+def test_create_uses_multiple_target_sized_batches_with_default_buffer(tmp_path: Path) -> None:
+    managed_assets = tmp_path / "managed-assets"
+    managed_assets.mkdir()
+    designer = DataDesigner(
+        artifact_path=tmp_path,
+        managed_assets_path=managed_assets,
+        auto_configure_logging=False,
+    )
+    source = DataFrameSeedSource(df=lazy.pd.DataFrame({"ordinal": list(range(9))}))
+    builder = DataDesignerConfigBuilder().with_seed_dataset(source)
+    builder.add_column(ExpressionColumnConfig(name="ordinal_copy", expr="{{ ordinal }}", dtype="int"))
+    builder.add_column(
+        ExpressionColumnConfig(
+            name="keep",
+            expr="{{ ordinal_copy % 3 == 2 }}",
+            dtype="bool",
+            drop=True,
+        )
+    )
+    builder.with_record_selection(RecordSelectionConfig(predicate_column="keep", max_candidate_records=9))
+
+    results = designer.create(builder, num_records=3)
+
+    metadata = results.artifact_storage.read_metadata()
+    assert designer.run_config.buffer_size == 1000
+    assert results.load_dataset()["ordinal_copy"].tolist() == [2, 5, 8]
+    assert metadata["record_selection"]["run_buffer_size"] == 1000
+    assert metadata["record_selection"]["candidate_batches_completed"] == 3
+    assert metadata["record_selection"]["candidate_records_generated"] == 9
 
 
 def test_generators_log_pre_generation_once_across_candidate_batches(tmp_path: Path) -> None:
@@ -367,6 +403,19 @@ def test_create_rejects_candidate_cap_below_target(tmp_path: Path) -> None:
             _builder(predicate="{{ true }}", cap=2, on_exhausted=RecordSelectionExhaustion.RAISE),
             num_records=3,
         )
+
+
+def test_create_rejects_image_columns_with_actionable_names(tmp_path: Path) -> None:
+    designer = _designer(tmp_path)
+    builder = _builder(predicate="{{ true }}", cap=2, on_exhausted=RecordSelectionExhaustion.RAISE)
+    builder.add_column(ImageColumnConfig(name="cover", prompt="cover", model_alias="unused"))
+    builder.add_column(ImageColumnConfig(name="thumbnail", prompt="thumbnail", model_alias="unused"))
+
+    with pytest.raises(
+        DataDesignerGenerationError,
+        match="image-generation columns in V1: 'cover', 'thumbnail'",
+    ):
+        designer.create(builder, num_records=1)
 
 
 def test_completed_selection_resumes_only_with_same_target(tmp_path: Path) -> None:

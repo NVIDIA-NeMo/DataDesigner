@@ -10,7 +10,7 @@ import shutil
 from datetime import datetime
 from functools import cached_property
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, PrivateAttr, field_validator, model_validator
 
@@ -33,7 +33,6 @@ FINAL_DATASET_FOLDER_NAME = "parquet-files"
 PROCESSORS_OUTPUTS_FOLDER_NAME = "processors-files"
 SELECTION_ACCEPTED_FOLDER_NAME = "selection-accepted"
 SELECTION_CHECKPOINTS_FOLDER_NAME = "selection-checkpoints"
-SELECTION_MEDIA_STAGING_FOLDER_NAME = "selection-media-staging"
 SELECTION_PUBLICATION_STAGING_FOLDER_NAME = "selection-publication-staging"
 SELECTION_SCHEMA_FILENAME = "schema.parquet"
 
@@ -102,9 +101,6 @@ class ArtifactStorage(BaseModel):
     def _candidate_batch_file_name(self, batch_number: int, *, suffix: str) -> str:
         return f"batch_{batch_number:0{self._selection_batch_number_width}d}.{suffix}"
 
-    def _candidate_batch_directory_name(self, candidate_batch_id: int, *, prefix: str = "batch") -> str:
-        return f"{prefix}_{candidate_batch_id:0{self._selection_batch_number_width}d}"
-
     @property
     def artifact_path_exists(self) -> bool:
         return self.artifact_path.exists()
@@ -161,10 +157,6 @@ class ArtifactStorage(BaseModel):
         return self.base_dataset_path / SELECTION_CHECKPOINTS_FOLDER_NAME
 
     @property
-    def selection_media_staging_path(self) -> Path:
-        return self.base_dataset_path / SELECTION_MEDIA_STAGING_FOLDER_NAME
-
-    @property
     def selection_publication_staging_path(self) -> Path:
         return self.base_dataset_path / SELECTION_PUBLICATION_STAGING_FOLDER_NAME
 
@@ -189,7 +181,6 @@ class ArtifactStorage(BaseModel):
             self.processors_outputs_folder_name,
             SELECTION_ACCEPTED_FOLDER_NAME,
             SELECTION_CHECKPOINTS_FOLDER_NAME,
-            SELECTION_MEDIA_STAGING_FOLDER_NAME,
             SELECTION_PUBLICATION_STAGING_FOLDER_NAME,
         ]
 
@@ -358,84 +349,14 @@ class ArtifactStorage(BaseModel):
     def clear_selection_transient_artifacts(self) -> None:
         """Discard in-flight selection and publication staging without touching committed work."""
         self.clear_partial_results()
-        for path in (self.selection_media_staging_path, self.selection_publication_staging_path):
-            if path.exists():
-                shutil.rmtree(path)
+        if self.selection_publication_staging_path.exists():
+            shutil.rmtree(self.selection_publication_staging_path)
 
     def clean_uncommitted_selection_batch(self, candidate_batch_id: int) -> None:
         """Remove deterministic artifacts for a candidate batch that has no committed marker."""
         self.selection_partition_path(candidate_batch_id).unlink(missing_ok=True)
         self.selection_checkpoint_path(candidate_batch_id).unlink(missing_ok=True)
         self.clean_selection_batch_side_artifacts(candidate_batch_id)
-        media_prefix = (
-            self.base_dataset_path
-            / self.media_storage.images_subdir
-            / self._candidate_batch_directory_name(candidate_batch_id, prefix="selection_batch")
-        )
-        if media_prefix.exists():
-            shutil.rmtree(media_prefix)
-        staging = self.selection_media_staging_path / self._candidate_batch_directory_name(candidate_batch_id)
-        if staging.exists():
-            shutil.rmtree(staging)
-
-    def begin_selection_media_batch(self, candidate_batch_id: int) -> None:
-        """Route engine-managed media writes into candidate-scoped staging."""
-        staging = self.selection_media_staging_path / self._candidate_batch_directory_name(candidate_batch_id)
-        self.mkdir_if_needed(staging)
-        self._media_storage.base_path = staging
-        self._media_storage.images_dir = staging / self._media_storage.images_subdir
-
-    def promote_selection_media(self, dataframe: pd.DataFrame, candidate_batch_id: int) -> pd.DataFrame:
-        """Promote media referenced by accepted rows and rewrite their relative paths."""
-        staging = self.selection_media_staging_path / self._candidate_batch_directory_name(candidate_batch_id)
-        committed_relative_prefix = Path(self.media_storage.images_subdir) / self._candidate_batch_directory_name(
-            candidate_batch_id,
-            prefix="selection_batch",
-        )
-        committed_prefix = self.base_dataset_path / committed_relative_prefix
-        promoted_paths: dict[str, str] = {}
-
-        def promote(value: Any) -> Any:
-            if isinstance(value, str) and value.startswith(f"{self._media_storage.images_subdir}/"):
-                if value in promoted_paths:
-                    return promoted_paths[value]
-                source = staging / value
-                try:
-                    source.resolve().relative_to(staging.resolve())
-                except ValueError:
-                    return value
-                if not source.is_file():
-                    return value
-                relative_tail = Path(value).relative_to(self._media_storage.images_subdir)
-                destination = committed_prefix / relative_tail
-                try:
-                    destination.resolve().relative_to(committed_prefix.resolve())
-                except ValueError:
-                    return value
-                destination.parent.mkdir(parents=True, exist_ok=True)
-                shutil.move(source, destination)
-                promoted_path = (committed_relative_prefix / relative_tail).as_posix()
-                promoted_paths[value] = promoted_path
-                return promoted_path
-            if isinstance(value, list):
-                return [promote(item) for item in value]
-            if isinstance(value, tuple):
-                return tuple(promote(item) for item in value)
-            if isinstance(value, dict):
-                return {key: promote(item) for key, item in value.items()}
-            return value
-
-        promoted = dataframe.map(promote)
-        self.finish_selection_media_batch(candidate_batch_id)
-        return promoted
-
-    def finish_selection_media_batch(self, candidate_batch_id: int) -> None:
-        """Restore normal media storage and remove disposable candidate staging."""
-        self._media_storage.base_path = self.base_dataset_path
-        self._media_storage.images_dir = self.base_dataset_path / self._media_storage.images_subdir
-        staging = self.selection_media_staging_path / self._candidate_batch_directory_name(candidate_batch_id)
-        if staging.exists():
-            shutil.rmtree(staging)
 
     def materialize_selection_dataset(self) -> Path:
         """Rebuild the published dataset from immutable accepted partitions."""
