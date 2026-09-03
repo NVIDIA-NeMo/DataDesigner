@@ -3,6 +3,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
+from data_designer.config.terminal_failure import TerminalTaskFailure
 from data_designer.errors import DataDesignerError
 
 
@@ -12,6 +15,14 @@ class DataDesignerProfilingError(DataDesignerError):
 
 class DataDesignerGenerationError(DataDesignerError):
     """Raised for errors related to a Data Designer dataset generation."""
+
+    def __init__(
+        self,
+        *args: object,
+        terminal_failures: Sequence[TerminalTaskFailure] | None = None,
+    ) -> None:
+        super().__init__(*args)
+        self.terminal_failures = list(terminal_failures or [])
 
 
 class DataDesignerWorkflowError(DataDesignerError):

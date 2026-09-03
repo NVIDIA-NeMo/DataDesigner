@@ -36,6 +36,7 @@ from data_designer.config.seed_source import (
     FileContentsSeedSource,
     HuggingFaceSeedSource,
 )
+from data_designer.config.terminal_failure import TerminalTaskFailure
 from data_designer.engine.models.clients.adapters.http_model_client import ClientConcurrencyMode
 from data_designer.engine.models.errors import (
     RETRYABLE_MODEL_ERRORS,
@@ -625,7 +626,10 @@ def test_create_forwards_on_batch_complete_callback(
 
         mock_builder = MagicMock()
         mock_builder.build.return_value = None
+        terminal_failures = [TerminalTaskFailure(seed_row_index=2, column="failed_col")]
         mock_builder.task_traces = []
+        mock_builder.terminal_failures = terminal_failures
+        mock_builder.early_shutdown = True
         mock_builder.artifact_storage.load_dataset_with_dropped_columns.return_value = lazy.pd.DataFrame({"col": [1]})
         mock_builder_method.return_value = mock_builder
 
@@ -633,11 +637,66 @@ def test_create_forwards_on_batch_complete_callback(
         mock_profiler.profile_dataset.return_value = None
         mock_profiler_method.return_value = mock_profiler
 
-        data_designer.create(stub_sampler_only_config_builder, num_records=1, on_batch_complete=on_batch_complete)
+        results = data_designer.create(
+            stub_sampler_only_config_builder,
+            num_records=1,
+            on_batch_complete=on_batch_complete,
+            capture_terminal_failures=True,
+        )
 
     _, build_kwargs = mock_builder.build.call_args
     assert build_kwargs["num_records"] == 1
     assert build_kwargs["on_batch_complete"] is on_batch_complete
+    assert build_kwargs["capture_terminal_failures"] is True
+    assert results.terminal_failures == terminal_failures
+    assert results.early_shutdown is True
+
+
+def test_preview_forwards_and_returns_terminal_failures(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_sampler_only_config_builder: DataDesignerConfigBuilder,
+    stub_managed_assets_path: Path,
+) -> None:
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+    )
+    terminal_failures = [TerminalTaskFailure(seed_row_index=2, column="failed_col")]
+
+    with (
+        patch.object(data_designer, "_create_resource_provider") as mock_resource_provider_method,
+        patch.object(data_designer, "_create_dataset_builder") as mock_builder_method,
+        patch.object(data_designer, "_create_dataset_profiler") as mock_profiler_method,
+    ):
+        mock_resource_provider = MagicMock()
+        mock_resource_provider.get_dataset_metadata.return_value = {}
+        mock_resource_provider_method.return_value = mock_resource_provider
+
+        mock_builder = MagicMock()
+        mock_builder.build_preview.return_value = lazy.pd.DataFrame({"col": [1]})
+        mock_builder.process_preview.return_value = lazy.pd.DataFrame({"col": [1]})
+        mock_builder.task_traces = []
+        mock_builder.terminal_failures = terminal_failures
+        mock_builder.early_shutdown = True
+        mock_builder.artifact_storage.list_processor_names.return_value = []
+        mock_builder_method.return_value = mock_builder
+
+        mock_profiler = MagicMock()
+        mock_profiler.profile_dataset.return_value = None
+        mock_profiler_method.return_value = mock_profiler
+
+        results = data_designer.preview(
+            stub_sampler_only_config_builder,
+            num_records=1,
+            capture_terminal_failures=True,
+        )
+
+    mock_builder.build_preview.assert_called_once_with(num_records=1, capture_terminal_failures=True)
+    assert results.terminal_failures == terminal_failures
+    assert results.early_shutdown is True
 
 
 def test_run_config_rejects_invalid_buffer_size() -> None:
@@ -876,6 +935,7 @@ def _patch_builder_state(
     early_shutdown: bool,
     actual_num_records: int = 0,
     first_non_retryable_error: Exception | None = None,
+    terminal_failures: list[TerminalTaskFailure] | None = None,
 ) -> contextlib.ExitStack:
     """Patch DatasetBuilder.early_shutdown / actual_num_records / first_non_retryable_error."""
     stack = contextlib.ExitStack()
@@ -898,6 +958,13 @@ def _patch_builder_state(
             "data_designer.engine.dataset_builders.dataset_builder.DatasetBuilder.first_non_retryable_error",
             new_callable=PropertyMock,
             return_value=first_non_retryable_error,
+        )
+    )
+    stack.enter_context(
+        patch(
+            "data_designer.engine.dataset_builders.dataset_builder.DatasetBuilder.terminal_failures",
+            new_callable=PropertyMock,
+            return_value=terminal_failures or [],
         )
     )
     return stack
@@ -1052,6 +1119,7 @@ def test_create_surfaces_first_non_retryable_error_when_zero_records(
     """
     data_designer = _make_data_designer(stub_artifact_path, stub_model_providers, stub_managed_assets_path)
     root_cause = ValueError("invalid seed source: no rows after hydration")
+    terminal_failures = [TerminalTaskFailure(seed_row_index=0, column="invalid_seed")]
 
     if load_side_effect == "raises":
         load_patch = patch(
@@ -1070,15 +1138,21 @@ def test_create_surfaces_first_non_retryable_error_when_zero_records(
             early_shutdown=False,
             actual_num_records=0,
             first_non_retryable_error=root_cause,
+            terminal_failures=terminal_failures,
         ),
     ):
         with pytest.raises(DataDesignerGenerationError, match="invalid seed source") as exc_info:
-            data_designer.create(stub_sampler_only_config_builder, num_records=10)
+            data_designer.create(
+                stub_sampler_only_config_builder,
+                num_records=10,
+                capture_terminal_failures=True,
+            )
 
     # Original cause is preserved via __cause__, not lost behind the parquet error.
     assert exc_info.value.__cause__ is root_cause
     # The typed DataDesignerEarlyShutdownError must NOT fire here — the gate didn't trip.
     assert not isinstance(exc_info.value, DataDesignerEarlyShutdownError)
+    assert exc_info.value.terminal_failures == terminal_failures
 
 
 def test_preview_raises_generation_error_when_dataset_is_empty(
@@ -1093,13 +1167,27 @@ def test_preview_raises_generation_error_when_dataset_is_empty(
         secret_resolver=PlaintextResolver(),
         managed_assets_path=stub_managed_assets_path,
     )
+    terminal_failures = [TerminalTaskFailure(seed_row_index=0, column="failed_col")]
 
-    with patch(
-        "data_designer.engine.dataset_builders.dataset_builder.DatasetBuilder.process_preview",
-        return_value=lazy.pd.DataFrame(),
+    with (
+        patch(
+            "data_designer.engine.dataset_builders.dataset_builder.DatasetBuilder.process_preview",
+            return_value=lazy.pd.DataFrame(),
+        ),
+        _patch_builder_state(
+            early_shutdown=False,
+            actual_num_records=0,
+            terminal_failures=terminal_failures,
+        ),
     ):
-        with pytest.raises(DataDesignerGenerationError, match="Dataset is empty"):
-            data_designer.preview(stub_sampler_only_config_builder, num_records=1)
+        with pytest.raises(DataDesignerGenerationError, match="Dataset is empty") as exc_info:
+            data_designer.preview(
+                stub_sampler_only_config_builder,
+                num_records=1,
+                capture_terminal_failures=True,
+            )
+
+    assert exc_info.value.terminal_failures == terminal_failures
 
 
 def test_preview_raises_early_shutdown_error_on_empty_after_shutdown(

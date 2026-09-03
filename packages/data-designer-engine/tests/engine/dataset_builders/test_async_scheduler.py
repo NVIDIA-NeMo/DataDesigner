@@ -28,6 +28,7 @@ from data_designer.config.custom_column import custom_column_generator
 from data_designer.config.models import ChatCompletionInferenceParams, ModelConfig
 from data_designer.config.sampler_params import SamplerType
 from data_designer.config.scheduling import SchedulingMetadata
+from data_designer.config.terminal_failure import TerminalTaskFailure
 from data_designer.engine.column_generators.generators.base import (
     ColumnGenerator,
     ColumnGeneratorFullColumn,
@@ -147,6 +148,11 @@ class MockFullColumnGenerator(ColumnGeneratorFullColumn[ExpressionColumnConfig])
     def generate(self, data: lazy.pd.DataFrame) -> lazy.pd.DataFrame:
         data[self.config.name] = "batch_val"
         return data
+
+
+class MockFailingFullColumnGenerator(ColumnGeneratorFullColumn[ExpressionColumnConfig]):
+    def generate(self, data: lazy.pd.DataFrame) -> lazy.pd.DataFrame:
+        raise ValueError("permanent batch failure")
 
 
 class MockStatefulSeed(FromScratchColumnGenerator[ExpressionColumnConfig]):
@@ -418,6 +424,7 @@ def _build_simple_pipeline(
     max_concurrent_row_groups: int = 3,
     adaptive_row_group_admission: bool = False,
     adaptive_row_group_initial_target: int = 1,
+    capture_terminal_failures: bool = False,
 ) -> tuple[AsyncTaskScheduler, CompletionTracker]:
     """Build a simple seed → cell pipeline for testing."""
     if configs is None:
@@ -460,6 +467,7 @@ def _build_simple_pipeline(
         scheduler_event_sink=scheduler_event_sink,
         adaptive_row_group_admission=adaptive_row_group_admission,
         adaptive_row_group_initial_target=adaptive_row_group_initial_target,
+        capture_terminal_failures=capture_terminal_failures,
     )
     return scheduler, tracker
 
@@ -771,6 +779,57 @@ async def test_scheduler_auto_computes_row_group_start_offsets_for_fresh_runs() 
 
 
 @pytest.mark.asyncio(loop_scope="session")
+async def test_scheduler_expands_batch_failure_to_global_seed_row_indices() -> None:
+    provider = _mock_provider()
+    configs = [SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]})]
+    graph = ExecutionGraph.create(configs, {"seed": GenerationStrategy.FULL_COLUMN})
+    row_groups = [(0, 2), (1, 2), (2, 1)]
+    tracker = CompletionTracker.with_graph(graph, row_groups)
+    scheduler = AsyncTaskScheduler(
+        generators={
+            "seed": MockFailingSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
+        },
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        capture_terminal_failures=True,
+    )
+
+    await scheduler.run()
+
+    assert scheduler.terminal_failures == [
+        TerminalTaskFailure(seed_row_index=index, column="seed") for index in range(5)
+    ]
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_scheduler_reports_only_current_resume_invocation() -> None:
+    provider = _mock_provider()
+    configs = [SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]})]
+    graph = ExecutionGraph.create(configs, {"seed": GenerationStrategy.FULL_COLUMN})
+    row_groups = CompactRowGroupPlan.resume(
+        original_target=5,
+        num_records=5,
+        buffer_size=2,
+        completed_ids={0, 1},
+    )
+    tracker = CompletionTracker.with_graph(graph, row_groups)
+    scheduler = AsyncTaskScheduler(
+        generators={
+            "seed": MockFailingSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
+        },
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        capture_terminal_failures=True,
+    )
+
+    await scheduler.run()
+
+    assert scheduler.terminal_failures == [TerminalTaskFailure(seed_row_index=4, column="seed")]
+
+
+@pytest.mark.asyncio(loop_scope="session")
 async def test_scheduler_non_retryable_failure_drops_row() -> None:
     """Non-retryable failure drops the row."""
     provider = _mock_provider()
@@ -796,6 +855,7 @@ async def test_scheduler_non_retryable_failure_drops_row() -> None:
         graph=graph,
         tracker=tracker,
         row_groups=row_groups,
+        capture_terminal_failures=True,
     )
     await scheduler.run()
 
@@ -805,6 +865,26 @@ async def test_scheduler_non_retryable_failure_drops_row() -> None:
     # Row group is "complete" because all non-dropped rows have all columns
     # (there are no non-dropped rows)
     assert tracker.is_row_group_complete(0, 2, ["seed", "fail_col"])
+    assert scheduler.terminal_failures == [
+        TerminalTaskFailure(seed_row_index=0, column="fail_col"),
+        TerminalTaskFailure(seed_row_index=1, column="fail_col"),
+    ]
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_scheduler_terminal_failure_capture_is_opt_in() -> None:
+    provider = _mock_provider()
+    scheduler, _ = _build_simple_pipeline(
+        num_records=1,
+        generators={
+            "seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
+            "cell_out": MockFailingGenerator(config=_expr_config("cell_out"), resource_provider=provider),
+        },
+    )
+
+    await scheduler.run()
+
+    assert scheduler.terminal_failures == []
 
 
 @pytest.mark.asyncio(loop_scope="session")
@@ -1198,7 +1278,11 @@ async def test_scheduler_retryable_failure_recovers_in_salvage() -> None:
         "fail_col": fail_gen,
     }
     scheduler, tracker = _build_simple_pipeline(
-        num_records=2, generators=generators, configs=configs, strategies=strategies
+        num_records=2,
+        generators=generators,
+        configs=configs,
+        strategies=strategies,
+        capture_terminal_failures=True,
     )
     await scheduler.run()
 
@@ -1206,6 +1290,33 @@ async def test_scheduler_retryable_failure_recovers_in_salvage() -> None:
     assert not tracker.is_dropped(0, 0)
     assert not tracker.is_dropped(0, 1)
     assert tracker.is_row_group_complete(0, 2, ["seed", "fail_col"])
+    assert scheduler.terminal_failures == []
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_scheduler_captures_retryable_failures_only_after_salvage_exhaustion() -> None:
+    provider = _mock_provider()
+    scheduler, tracker = _build_simple_pipeline(
+        num_records=2,
+        generators={
+            "seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
+            "cell_out": MockFailingGenerator(
+                config=_expr_config("cell_out"),
+                resource_provider=provider,
+                transient_failures=100,
+            ),
+        },
+        capture_terminal_failures=True,
+    )
+
+    await scheduler.run()
+
+    assert tracker.is_dropped(0, 0)
+    assert tracker.is_dropped(0, 1)
+    assert scheduler.terminal_failures == [
+        TerminalTaskFailure(seed_row_index=0, column="cell_out"),
+        TerminalTaskFailure(seed_row_index=1, column="cell_out"),
+    ]
 
 
 @pytest.mark.asyncio(loop_scope="session")
@@ -1244,6 +1355,7 @@ async def test_scheduler_eager_row_drop_skips_downstream_of_failed_column() -> N
         trace=True,
         num_records=2,
         buffer_size=2,
+        capture_terminal_failures=True,
     )
     await scheduler.run()
 
@@ -1253,6 +1365,10 @@ async def test_scheduler_eager_row_drop_skips_downstream_of_failed_column() -> N
     # downstream was never dispatched for the dropped rows
     downstream_traces = [t for t in scheduler.traces if t.column == "downstream"]
     assert len(downstream_traces) == 0
+    assert scheduler.terminal_failures == [
+        TerminalTaskFailure(seed_row_index=0, column="fail_col"),
+        TerminalTaskFailure(seed_row_index=1, column="fail_col"),
+    ]
     # Row group is still "complete" (no non-dropped rows remain)
     assert tracker.is_row_group_complete(0, 2, ["seed", "fail_col", "downstream"])
     assert scheduler._reporter is not None
@@ -1460,6 +1576,7 @@ async def test_partial_row_group_salvaged_after_early_shutdown() -> None:
         on_finalize_row_group=on_finalize,
         shutdown_error_rate=0.5,
         shutdown_error_window=4,
+        capture_terminal_failures=True,
     )
     await scheduler.run()
 
@@ -1471,6 +1588,8 @@ async def test_partial_row_group_salvaged_after_early_shutdown() -> None:
     assert 0 in finalized
     assert scheduler.partial_row_groups == (0,)
     assert 1 <= buffer_mgr.actual_num_records <= 7
+    assert scheduler.terminal_failures
+    assert {failure.seed_row_index for failure in scheduler.terminal_failures} <= {5, 6, 7}
 
 
 @pytest.mark.asyncio(loop_scope="session")
@@ -2645,6 +2764,50 @@ async def test_scheduler_pre_batch_drop_removes_pending_ready_task() -> None:
     assert {trace.row_index for trace in cell_traces} == {0, 2}
     assert tracker.is_dropped(0, 1)
     assert tracker.is_row_group_complete(0, 3, ["seed", "cell_out"])
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_batch_failure_excludes_row_dropped_by_pre_batch_processor() -> None:
+    provider = _mock_provider()
+    configs = [
+        SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        ExpressionColumnConfig(name="full_out", expr="{{ seed }}"),
+    ]
+    strategies = {
+        "seed": GenerationStrategy.FULL_COLUMN,
+        "full_out": GenerationStrategy.FULL_COLUMN,
+    }
+    graph = ExecutionGraph.create(configs, strategies)
+    tracker = CompletionTracker.with_graph(graph, [(0, 3)])
+    buffer_manager = RowGroupBufferManager(_make_storage())
+
+    def drop_middle_row(row_group: int, row_group_size: int) -> FrontierDelta:
+        del row_group_size
+        buffer_manager.drop_row(row_group, 1)
+        return tracker.drop_row(row_group, 1)
+
+    scheduler = AsyncTaskScheduler(
+        generators={
+            "seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
+            "full_out": MockFailingFullColumnGenerator(
+                config=_expr_config("full_out"),
+                resource_provider=provider,
+            ),
+        },
+        graph=graph,
+        tracker=tracker,
+        row_groups=[(0, 3)],
+        buffer_manager=buffer_manager,
+        on_seeds_complete=drop_middle_row,
+        capture_terminal_failures=True,
+    )
+
+    await scheduler.run()
+
+    assert scheduler.terminal_failures == [
+        TerminalTaskFailure(seed_row_index=0, column="full_out"),
+        TerminalTaskFailure(seed_row_index=2, column="full_out"),
+    ]
 
 
 def test_apply_frontier_delta_enqueues_ready_tasks_in_one_queue_operation(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -5116,11 +5279,13 @@ async def test_scheduler_skip_cell_by_cell_with_propagation() -> None:
         trace=True,
         num_records=num_records,
         buffer_size=num_records,
+        capture_terminal_failures=True,
     )
     await asyncio.wait_for(scheduler.run(), timeout=10.0)
 
     assert tracker.is_row_group_complete(0, num_records, ["seed", "review", "complaint"])
     assert scheduler.retryable_outcome_metrics["cumulative_counts"] == {"success": 2}
+    assert scheduler.terminal_failures == []
 
     for ri in range(num_records):
         row = buffer_mgr.get_row(0, ri)

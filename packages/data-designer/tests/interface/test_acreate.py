@@ -60,6 +60,7 @@ async def test_acreate_delegates_to_create(
         num_records=1,
         dataset_name="async-dataset",
         resume=ResumeMode.IF_POSSIBLE,
+        capture_terminal_failures=True,
     )
 
     assert result is expected
@@ -68,6 +69,7 @@ async def test_acreate_delegates_to_create(
         num_records=1,
         dataset_name="async-dataset",
         resume=ResumeMode.IF_POSSIBLE,
+        capture_terminal_failures=True,
     )
 
 
@@ -90,9 +92,10 @@ async def test_acreate_does_not_serialize_create_calls(
         num_records: int,
         dataset_name: str,
         resume: ResumeMode = ResumeMode.NEVER,
+        capture_terminal_failures: bool = False,
     ) -> DatasetCreationResults:
         nonlocal started_count
-        del num_records, dataset_name, resume
+        del num_records, dataset_name, resume, capture_terminal_failures
         with started_lock:
             started_count += 1
             if started_count == 2:
