@@ -141,7 +141,7 @@ def test_client_finds_one_exact_named_array_across_queue_and_accounting() -> Non
         "--array",
         "--allocations",
         "--parsable2",
-        "--format=JobIDRaw,JobName%128",
+        "--format=JobID,JobName%128",
     )
     assert runner.calls[1][6].startswith("--uid=")
     assert runner.calls[1][7].startswith("--starttime=")

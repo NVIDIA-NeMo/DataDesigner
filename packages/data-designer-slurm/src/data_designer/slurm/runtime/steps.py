@@ -8,7 +8,7 @@ from __future__ import annotations
 import os
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Protocol
+from typing import Literal, Protocol
 
 from data_designer.slurm.config.environment import (
     LiteralEnvironmentBinding,
@@ -55,6 +55,8 @@ class ClientStepBuilder(Protocol):
         attempt_directory: Path,
         endpoints: tuple[RuntimeEndpoint, ...],
         source_environment: Mapping[str, str],
+        *,
+        retry_resume_mode: Literal["never", "always"] | None = None,
     ) -> RuntimeStep:
         """Build the zero-GPU client preflight step."""
         ...
@@ -67,6 +69,8 @@ class ClientStepBuilder(Protocol):
         attempt_directory: Path,
         endpoints: tuple[RuntimeEndpoint, ...],
         source_environment: Mapping[str, str],
+        *,
+        retry_resume_mode: Literal["never", "always"] | None = None,
     ) -> RuntimeStep:
         """Build the zero-GPU client generation step."""
         ...
@@ -83,6 +87,8 @@ class DefaultClientStepBuilder:
         attempt_directory: Path,
         endpoints: tuple[RuntimeEndpoint, ...],
         source_environment: Mapping[str, str],
+        *,
+        retry_resume_mode: Literal["never", "always"] | None = None,
     ) -> RuntimeStep:
         """Build a deterministic client-worker preflight command."""
         return self._build_step(
@@ -95,6 +101,7 @@ class DefaultClientStepBuilder:
             attempt_directory,
             endpoints,
             source_environment,
+            retry_resume_mode,
         )
 
     def build_generation_step(
@@ -105,6 +112,8 @@ class DefaultClientStepBuilder:
         attempt_directory: Path,
         endpoints: tuple[RuntimeEndpoint, ...],
         source_environment: Mapping[str, str],
+        *,
+        retry_resume_mode: Literal["never", "always"] | None = None,
     ) -> RuntimeStep:
         """Build a deterministic client-worker generation command."""
         return self._build_step(
@@ -117,6 +126,7 @@ class DefaultClientStepBuilder:
             attempt_directory,
             endpoints,
             source_environment,
+            retry_resume_mode,
         )
 
     @staticmethod
@@ -130,8 +140,17 @@ class DefaultClientStepBuilder:
         attempt_directory: Path,
         endpoints: tuple[RuntimeEndpoint, ...],
         source_environment: Mapping[str, str],
+        retry_resume_mode: Literal["never", "always"] | None,
     ) -> RuntimeStep:
-        command = build_client_command(operation, plan, shard, attempt, attempt_directory, endpoints)
+        command = build_client_command(
+            operation,
+            plan,
+            shard,
+            attempt,
+            attempt_directory,
+            endpoints,
+            retry_resume_mode,
+        )
         secret_names, environment = _build_client_environment(plan, source_environment)
         allocation_environment = ("SLURM_JOB_GPUS",) if plan.selected_profile.profile.gpu_request_mode == "gres" else ()
         return _build_srun_step(
@@ -153,6 +172,7 @@ def build_client_command(
     attempt: AttemptManifest,
     attempt_directory: Path,
     endpoints: tuple[RuntimeEndpoint, ...],
+    retry_resume_mode: Literal["never", "always"] | None,
 ) -> tuple[str, ...]:
     endpoint_arguments = tuple(
         argument
@@ -172,6 +192,7 @@ def build_client_command(
         attempt.attempt_id,
         "--attempt-dir",
         get_container_path(plan, attempt_directory.as_posix(), require_writable=True),
+        *(() if retry_resume_mode is None else ("--resume-mode", retry_resume_mode)),
         *endpoint_arguments,
     )
 

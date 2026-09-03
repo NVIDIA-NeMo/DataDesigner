@@ -6,6 +6,9 @@ from __future__ import annotations
 import json
 import subprocess
 from datetime import datetime, timezone
+from pathlib import Path
+
+import pytest
 
 from data_designer.slurm.config import ContainerMount
 from data_designer.slurm.contracts import ArtifactReference, compute_canonical_json_sha256
@@ -14,6 +17,7 @@ from data_designer.slurm.launcher.renderer import render_generation_retry_script
 from data_designer.slurm.planning import ResolvedSlurmRunPlan
 from data_designer.slurm.state import CollectionPlan, CollectionShard, RetryPlan, RetryShard
 from data_designer.slurm.state.destinations import CollectionDestinationResolver
+from data_designer.slurm.state.errors import StateConflictError
 
 
 def test_collection_renderer_uses_authorized_mounts_and_no_gpu_directives(
@@ -67,6 +71,8 @@ def test_collection_renderer_uses_authorized_mounts_and_no_gpu_directives(
     script = render_collection_script(plan, collection, destination)
 
     assert f"#SBATCH --job-name={collection.submission_job_name}" in script
+    assert "#SBATCH --partition=cpu" in script
+    assert "#SBATCH --partition=batch" not in script
     assert f"dd-collect-{plan.run_id}" not in script
     assert 'readonly DD_STATE_MOUNT="/workspace/primary:/workspace/primary"' in script
     assert 'readonly DD_OUTPUT_MOUNT="/workspace/primary/runs/run-001:/exports"' in script
@@ -109,8 +115,61 @@ def test_retry_renderer_waits_for_persisted_attempt_before_starting_runtime(
     assert "#SBATCH --array=1%2" in script
     assert 'DD_ATTEMPT_ORDINAL="0002"' in script
     assert 'readonly DD_ATTEMPT_MANIFEST="${DD_ATTEMPT_DIR}/attempt.json"' in script
+    assert f'readonly DD_RETRY_ID="{retry.retry_id}"' in script
+    assert f'readonly DD_RETRY_PLAN_SHA256="{retry.compute_sha256()}"' in script
+    assert 'readonly DD_EFFECTIVE_RESUME_MODE="never"' in script
     assert script.index("DD_ATTEMPT_MANIFEST") < script.index("DD_RUNTIME_DIR")
     assert "data_designer.slurm.state.attempt_identity" in script
     assert '--array-job-id "${DD_ARRAY_JOB_ID}" --array-task-id "${DD_ARRAY_TASK_ID}"' in script
     assert script.index("data_designer.slurm.state.attempt_identity") < script.index("DD_RUNTIME_DIR")
+    assert '"${DD_RETRY_PLAN_SHA256}" "${DD_EFFECTIVE_RESUME_MODE}"' in script
     assert subprocess.run(("bash", "-n"), input=script, text=True, check=False).returncode == 0
+
+
+def test_destination_reauthorizes_explicit_path_through_workspace_mapping(
+    multi_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    workspace_root = multi_node_plan.selected_profile.profile.workspace_root
+    requested = (Path(workspace_root) / "explicit" / "collected").as_posix()
+    plan = multi_node_plan.model_copy(update={"container_mounts": ()})
+    resolver = CollectionDestinationResolver()
+    destination = resolver.resolve(plan, requested)
+    collection = CollectionPlan(
+        schema_version=1,
+        collection_id="collection-0001",
+        run_id=plan.run_id,
+        created_at=datetime(2026, 9, 2, tzinfo=timezone.utc),
+        resolved_plan=ArtifactReference(
+            path="/workspace/primary/runs/run-001/resolved-plan.json",
+            sha256=plan.compute_sha256(),
+        ),
+        planned_shards=(
+            CollectionShard(
+                shard_id="shard-00000",
+                winner_manifest=ArtifactReference(
+                    path="/workspace/primary/runs/run-001/shards/shard-00000/winner.json",
+                    sha256="a" * 64,
+                ),
+            ),
+        ),
+        host_destination=requested,
+        container_destination=requested,
+        num_partitions=plan.output.partitions,
+    )
+
+    assert destination.mount == ContainerMount(source=workspace_root, target=workspace_root, read_only=False)
+    assert resolver.validate_persisted(plan, collection) == destination
+
+
+def test_destination_requires_one_unique_most_specific_mapping(
+    multi_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    requested = "/host/exports/run-001"
+    mounts = (
+        ContainerMount(source="/host/exports", target="/container/a", read_only=False),
+        ContainerMount(source="/host/exports", target="/container/b", read_only=False),
+    )
+    plan = multi_node_plan.model_copy(update={"container_mounts": mounts})
+
+    with pytest.raises(StateConflictError, match="ambiguous writable mount"):
+        CollectionDestinationResolver().resolve(plan, requested)

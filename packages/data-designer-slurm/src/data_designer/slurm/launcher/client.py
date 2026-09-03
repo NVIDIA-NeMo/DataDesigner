@@ -201,7 +201,7 @@ class SlurmCommandClient:
                 "--array",
                 "--allocations",
                 "--parsable2",
-                "--format=JobIDRaw,JobName%128",
+                "--format=JobID,JobName%128",
                 f"--uid={os.getuid()}",
                 f"--starttime={accounting_start}",
                 f"--name={job_name}",

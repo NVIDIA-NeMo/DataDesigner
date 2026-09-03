@@ -38,7 +38,7 @@ def render_collection_script(
         (
             ("job-name", collection_plan.submission_job_name),
             ("account", resolved_plan.submission.account),
-            ("partition", resolved_plan.submission.partition),
+            ("partition", resolved_plan.selected_profile.profile.image_build.partition),
             ("nodes", "1"),
             ("ntasks", "1"),
             ("cpus-per-task", str(resolved_plan.client.authored.cpus)),

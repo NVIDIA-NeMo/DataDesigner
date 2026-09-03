@@ -34,19 +34,23 @@ class CollectionDestinationResolver:
         plan: ResolvedSlurmRunPlan,
         requested_destination: str | Path | None = None,
     ) -> CollectionDestination:
-        """Return the exact plan output root in host and container namespaces."""
+        """Return one authorized output path in host and container namespaces."""
         raw_destination = plan.output.root if requested_destination is None else Path(requested_destination).as_posix()
         try:
             host_path = validate_absolute_path(raw_destination)
         except ValueError as error:
             raise StateConflictError("collection destination must be a normalized absolute path") from error
-        if host_path != plan.output.root:
-            raise StateConflictError("collection destination must match the pinned resolved output root")
-
+        workspace_root = plan.selected_profile.profile.workspace_root
+        workspace_mount = ContainerMount(source=workspace_root, target=workspace_root, read_only=False)
+        authorized = {
+            (mount.source, mount.target): mount
+            for mount in (workspace_mount, *plan.container_mounts)
+            if not mount.read_only
+        }
         writable = tuple(
             mount
-            for mount in plan.container_mounts
-            if not mount.read_only and (host_path == mount.source or is_path_below(host_path, mount.source))
+            for mount in authorized.values()
+            if host_path == mount.source or is_path_below(host_path, mount.source)
         )
         if not writable:
             raise StateConflictError("collection destination is not covered by a profile-authorized writable mount")
@@ -58,7 +62,7 @@ class CollectionDestinationResolver:
         if host_path == mount.source:
             raise StateConflictError("collection destination must be below its writable mount source")
         try:
-            validate_enroot_mount_path(plan.selected_profile.profile.workspace_root)
+            validate_enroot_mount_path(workspace_root)
             validate_enroot_mount_path(mount.source)
             validate_enroot_mount_path(mount.target)
         except ValueError as error:
@@ -73,7 +77,7 @@ class CollectionDestinationResolver:
         collection_plan: CollectionPlan,
     ) -> CollectionDestination:
         """Reauthorize persisted collection intent against its pinned run plan."""
-        destination = self.resolve(resolved_plan)
+        destination = self.resolve(resolved_plan, collection_plan.host_destination)
         if collection_plan.run_id != resolved_plan.run_id:
             raise StateConflictError("collection run identity does not match the resolved plan")
         if collection_plan.host_destination != destination.host_path:

@@ -45,14 +45,18 @@ from data_designer.slurm.state import (
     SlurmStateReconciler,
     SlurmStateWriter,
     StateConflictError,
+    StateContractError,
     StateCorruptionError,
     StateNotFoundError,
     compute_candidate_schema_digest,
 )
 from data_designer.slurm.state.attempt_identity import require_attempt_scheduler_identity
 from data_designer.slurm.state.collection_filesystem import derive_collection_staging_directory
+from data_designer.slurm.state.collection_inputs import CollectionInputResolver
 from data_designer.slurm.state.collection_storage import CollectionStorage
+from data_designer.slurm.state.collection_validation import validate_collection_inputs
 from data_designer.slurm.state.collection_worker import SlurmCollectionWorker
+from data_designer.slurm.state.reader import StateReader
 from data_designer.slurm.state.retry_storage import RetryStorage
 from data_designer.slurm.state.storage import StateStorage
 
@@ -94,6 +98,9 @@ def test_retry_refreshes_failed_shard_and_publishes_exact_next_attempt(
     assert len(attempts) == 1
     assert attempts[0].attempt_id == "attempt-0002"
     assert attempts[0].scheduler == SchedulerIdentity(array_job_id=4201, array_task_id=0)
+    retry_plan = case.writer.load_retry_plan("retry-0001")
+    assert retry_plan.effective_resume_mode == "never"
+    assert retry_plan.planned_shards[0].attempt_id == attempts[0].attempt_id
     require_attempt_scheduler_identity(
         case.workspace,
         case.plan.run_id,
@@ -731,6 +738,81 @@ def test_collection_submits_cpu_job_and_publishes_ordered_winners_atomically(
     assert coordinator.submit() == persisted
     assert not stale_stage.exists()
     assert (unrelated_stage / "active").read_text() == "preserve"
+
+
+def test_collection_requires_stable_plan_provenance_across_distinct_shards(
+    tmp_path: Path,
+    authored_run: DataDesignerSlurmConfig,
+    multi_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    case = _initialize_run(tmp_path, authored_run, multi_node_plan)
+    _publish_all_winners(case)
+    runner = FakeSlurmRunner(jobs=(FakeSlurmJob(5101),))
+    submitted = SlurmCollectionCoordinator(
+        case.workspace,
+        case.plan.run_id,
+        SlurmCommandClient(runner),
+    ).submit(submitted_at=case.created_at + timedelta(minutes=10))
+    state = StateStorage(case.workspace, case.plan.run_id)
+    collection_plan = CollectionStorage(state).read_plan(submitted.collection_id)
+    _, candidates = CollectionInputResolver(state, StateReader(state, case.plan.run_id)).resolve(collection_plan)
+
+    assert len({candidate.shard_id for candidate in candidates}) == len(candidates)
+    assert len({candidate.files[0].sha256 for candidate in candidates}) == len(candidates)
+    assert {candidate.provenance_digest for candidate in candidates} == {case.plan.compute_sha256()}
+    drifted = tuple(candidate.model_copy(update={"provenance_digest": "f" * 64}) for candidate in candidates)
+    with pytest.raises(StateContractError, match="does not match the resolved plan"):
+        validate_collection_inputs(case.plan, collection_plan, drifted)
+
+
+def test_collection_refresh_observes_running_during_bulk_merge(
+    tmp_path: Path,
+    authored_run: DataDesignerSlurmConfig,
+    multi_node_plan: ResolvedSlurmRunPlan,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    case = _initialize_run(tmp_path, authored_run, multi_node_plan)
+    _publish_all_winners(case)
+    runner = FakeSlurmRunner(jobs=(FakeSlurmJob(5101),))
+    scheduler = SlurmCommandClient(runner)
+    coordinator = SlurmCollectionCoordinator(case.workspace, case.plan.run_id, scheduler)
+    submitted = coordinator.submit(submitted_at=case.created_at + timedelta(minutes=10))
+    runner.set_job_state(5101, queue_state="RUNNING", accounting_state=None)
+    merge_started = Event()
+    release_merge = Event()
+    original_merge = collection_merge.CollectionMerger.merge
+
+    def pause_merge(*args: object, **kwargs: object) -> object:
+        merge_started.set()
+        assert release_merge.wait(timeout=3)
+        return original_merge(*args, **kwargs)
+
+    monkeypatch.setattr(collection_merge.CollectionMerger, "merge", pause_merge)
+    worker = SlurmCollectionWorker(
+        case.workspace,
+        case.plan.run_id,
+        submitted.collection_id,
+        environment={"SLURM_JOB_ID": "5101"},
+    )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        worker_result = executor.submit(worker.run, completed_at=case.created_at + timedelta(minutes=11))
+        assert merge_started.wait(timeout=3)
+        try:
+            refresh_result = executor.submit(
+                coordinator.refresh,
+                observed_at=case.created_at + timedelta(minutes=12),
+            ).result(timeout=2)
+        finally:
+            release_merge.set()
+        result = worker_result.result(timeout=5)
+
+    assert refresh_result.state is CollectionState.RUNNING
+    assert result.actual_records == case.plan.invocation.authored.num_records
+    assert (
+        CollectionStorage(StateStorage(case.workspace, case.plan.run_id)).read_status(submitted.collection_id).state
+        is CollectionState.SUCCEEDED
+    )
 
 
 def test_collection_requires_every_planned_winner_before_submission(

@@ -27,9 +27,11 @@ def validate_collection_inputs(
     _require(all(candidate.winner_eligible for candidate in candidates), "collection candidate is not complete")
 
     schema_digests = {candidate.dataset_schema_digest for candidate in candidates}
-    provenance_digests = {candidate.provenance_digest for candidate in candidates}
     _require(len(schema_digests) == 1, "collection candidates have incompatible schemas")
-    _require(len(provenance_digests) == 1, "collection candidates have incompatible provenance")
+    _require(
+        all(candidate.provenance_digest == resolved_plan.compute_sha256() for candidate in candidates),
+        "collection candidate provenance does not match the resolved plan",
+    )
 
     expected_records = resolved_plan.invocation.authored.num_records
     actual_records = sum(candidate.actual_records for candidate in candidates)

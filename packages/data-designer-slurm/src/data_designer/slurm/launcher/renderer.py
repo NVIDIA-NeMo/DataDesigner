@@ -109,6 +109,8 @@ readonly DD_WORKSPACE_ROOT={quote_shell_value(plan.selected_profile.profile.work
 readonly DD_RUN_ID={quote_shell_value(plan.run_id)}
 readonly DD_CLIENT_IMAGE={quote_shell_value(plan.client.image.path)}
 readonly DD_CLIENT_IMAGE_SHA256={quote_shell_value(plan.client.image.sha256)}
+readonly DD_RETRY_ID={quote_shell_value(retry.retry_id)}
+readonly DD_RETRY_PLAN_SHA256={quote_shell_value(retry.compute_sha256())}
 readonly DD_EFFECTIVE_RESUME_MODE={quote_shell_value(retry.effective_resume_mode)}
 
 verify_sha256() {{
@@ -158,7 +160,9 @@ readonly DD_RUNTIME_DIR
 tar -xzf "${{DD_RUNTIME_ARCHIVE}}" -C "${{DD_RUNTIME_DIR}}"
 
 source "${{DD_RUNTIME_DIR}}/entrypoint.sh"
-dd_slurm_run_allocation "${{DD_PLAN}}" "${{DD_ATTEMPT_DIR}}"
+dd_slurm_run_allocation \
+    "${{DD_PLAN}}" "${{DD_ATTEMPT_DIR}}" "${{DD_RETRY_ID}}" \
+    "${{DD_RETRY_PLAN_SHA256}}" "${{DD_EFFECTIVE_RESUME_MODE}}"
 """
 
 

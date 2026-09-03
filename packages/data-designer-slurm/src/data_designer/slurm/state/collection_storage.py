@@ -30,6 +30,7 @@ from data_designer.slurm.state.storage import StateStorage
 
 _COLLECTIONS_DIRECTORY = "collections"
 _COLLECTION_LOCK = "collection.lock"
+_WORKER_LOCK = "worker.lock"
 _PLAN_FILENAME = "plan.json"
 _STATUS_FILENAME = "status.json"
 _RESULT_FILENAME = "collection-result.json"
@@ -52,6 +53,17 @@ class CollectionStorage:
                 run_descriptor,
                 _COLLECTION_LOCK,
                 self._state.run_root / _COLLECTION_LOCK,
+            ):
+                yield
+
+    @contextmanager
+    def acquire_worker_lock(self, collection_id: Identifier) -> Iterator[None]:
+        """Serialize bulk I/O owners without blocking collection metadata refresh."""
+        with self._open_collection_directory(collection_id) as descriptor:
+            with acquire_file_lock(
+                descriptor,
+                _WORKER_LOCK,
+                self.get_collection_root(collection_id) / _WORKER_LOCK,
             ):
                 yield
 

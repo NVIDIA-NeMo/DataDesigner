@@ -62,32 +62,34 @@ class SlurmCollectionWorker:
         try:
             self._wait_for_scheduler_binding()
             started_at = _utc_now() if completed_at is None else completed_at
-            return self._run_locked(started_at, completed_at)
+            with self._collections.acquire_worker_lock(self._collection_id):
+                plan, status = self._begin_collection(started_at)
+                if status.state is CollectionState.SUCCEEDED:
+                    return self._load_valid_result(plan, status)
+                resolved_plan, candidates = self._inputs.resolve(plan)
+                self._destinations.validate_persisted(resolved_plan, plan)
+                recovered = self._load_optional_result(plan)
+                if recovered is not None:
+                    return self._publish_success_status(plan, recovered, recovered.completed_at)
+                return self._execute_collection(plan, resolved_plan, candidates, completed_at)
         except (StateConflictError, SlurmStateError):
             raise
         except (OSError, ValueError, lazy.pa.ArrowException) as error:
             raise SlurmStateError(f"collection {self._collection_id!r} failed") from error
 
-    def _run_locked(self, started_at: datetime, completed_at: datetime | None) -> CollectionResult:
+    def _begin_collection(self, started_at: datetime) -> tuple[CollectionPlan, CollectionStatus]:
         with self._collections.acquire_lock():
             status = self._collections.read_status(self._collection_id)
             plan = self._load_bound_plan(status)
             self._validate_identity(plan.run_id, status.run_id)
             self._require_scheduler_job(status)
-            resolved_plan, candidates = self._inputs.resolve(plan)
-            self._destinations.validate_persisted(resolved_plan, plan)
             if status.state is CollectionState.SUCCEEDED:
-                return self._load_valid_result(plan, status)
-            recovered = self._load_optional_result(plan)
-            if recovered is not None:
-                return self._publish_success_status(plan, status, recovered, recovered.completed_at)
-            running = self._advance_status(status, CollectionState.RUNNING, started_at)
-            return self._execute_collection(plan, running, resolved_plan, candidates, completed_at)
+                return plan, status
+            return plan, self._advance_status(status, CollectionState.RUNNING, started_at)
 
     def _execute_collection(
         self,
         plan: CollectionPlan,
-        running: CollectionStatus,
         resolved_plan: ResolvedSlurmRunPlan,
         candidates: tuple[CandidateOutputManifest, ...],
         completed_at: datetime | None,
@@ -96,7 +98,7 @@ class SlurmCollectionWorker:
             destination = self._destinations.validate_persisted(resolved_plan, plan)
             with stage_collection(
                 Path(plan.container_destination),
-                running.staging_directory,
+                derive_collection_staging_directory(plan),
                 Path(destination.mount.target),
             ) as staged:
                 merger = CollectionMerger(resolved_plan.output.format, completed_at=completed_at)
@@ -106,24 +108,23 @@ class SlurmCollectionWorker:
                     staged,
                 )
         except (SlurmStateError, OSError, ValueError, lazy.pa.ArrowException) as error:
-            return self._recover_or_fail(plan, running, completed_at, error)
-        return self._publish_success_status(plan, running, result, result.completed_at)
+            return self._recover_or_fail(plan, completed_at, error)
+        return self._publish_success_status(plan, result, result.completed_at)
 
     def _recover_or_fail(
         self,
         plan: CollectionPlan,
-        running: CollectionStatus,
         completed_at: datetime | None,
         error: Exception,
     ) -> CollectionResult:
         try:
             recovered = self._load_optional_result(plan)
         except (SlurmStateError, OSError, ValueError) as recovery_error:
-            self._advance_status(running, CollectionState.FAILED, self._completion_time(completed_at))
+            self._publish_failed_status(self._completion_time(completed_at))
             raise recovery_error from error
         if recovered is not None:
-            return self._publish_success_status(plan, running, recovered, recovered.completed_at)
-        self._advance_status(running, CollectionState.FAILED, self._completion_time(completed_at))
+            return self._publish_success_status(plan, recovered, recovered.completed_at)
+        self._publish_failed_status(self._completion_time(completed_at))
         raise error
 
     def _load_optional_result(self, plan: CollectionPlan) -> CollectionResult | None:
@@ -153,26 +154,43 @@ class SlurmCollectionWorker:
     def _publish_success_status(
         self,
         plan: CollectionPlan,
-        previous: CollectionStatus,
         result: CollectionResult,
         updated_at: datetime,
     ) -> CollectionResult:
-        current = CollectionStatus(
-            schema_version=1,
-            collection_id=previous.collection_id,
-            run_id=previous.run_id,
-            collection_plan=previous.collection_plan,
-            staging_directory=previous.staging_directory,
-            revision=previous.revision + 1,
-            updated_at=updated_at,
-            state=CollectionState.SUCCEEDED,
-            scheduler=previous.scheduler,
-            scheduler_observation=previous.scheduler_observation,
-            result=self._collections.get_result_reference(plan, result),
-        )
-        validate_collection_status_transition(previous, current)
-        self._collections.replace_status(current)
+        with self._collections.acquire_lock():
+            previous = self._collections.read_status(self._collection_id)
+            bound_plan = self._load_bound_plan(previous)
+            if bound_plan != plan:
+                raise StateCorruptionError("collection plan changed during worker execution")
+            self._require_scheduler_job(previous)
+            result_reference = self._collections.get_result_reference(plan, result)
+            if previous.state is CollectionState.SUCCEEDED:
+                if previous.result != result_reference:
+                    raise StateCorruptionError("collection status does not bind its published result")
+                return result
+            current = CollectionStatus(
+                schema_version=1,
+                collection_id=previous.collection_id,
+                run_id=previous.run_id,
+                collection_plan=previous.collection_plan,
+                staging_directory=previous.staging_directory,
+                revision=previous.revision + 1,
+                updated_at=max(updated_at, previous.updated_at),
+                state=CollectionState.SUCCEEDED,
+                scheduler=previous.scheduler,
+                scheduler_observation=previous.scheduler_observation,
+                result=result_reference,
+            )
+            validate_collection_status_transition(previous, current)
+            self._collections.replace_status(current)
         return result
+
+    def _publish_failed_status(self, updated_at: datetime) -> None:
+        with self._collections.acquire_lock():
+            previous = self._collections.read_status(self._collection_id)
+            self._load_bound_plan(previous)
+            self._require_scheduler_job(previous)
+            self._advance_status(previous, CollectionState.FAILED, updated_at)
 
     def _advance_status(
         self,
@@ -183,7 +201,7 @@ class SlurmCollectionWorker:
         current = _updated_status(
             previous,
             revision=previous.revision + 1,
-            updated_at=updated_at,
+            updated_at=max(updated_at, previous.updated_at),
             state=state,
         )
         validate_collection_status_transition(previous, current)
