@@ -14,19 +14,11 @@ from data_designer.slurm.contracts import (
     ContractRecord,
     ContractValue,
     Identifier,
+    InstalledDistribution,
     Sha256Digest,
     validate_absolute_path,
     validate_plain_text,
 )
-
-DistributionName = Annotated[
-    str,
-    StringConstraints(
-        min_length=1,
-        max_length=128,
-        pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$",
-    ),
-]
 
 
 class ImageKind(str, Enum):
@@ -73,11 +65,6 @@ class ImageBuildRequest(AuthoredConfig):
         if not re.fullmatch(r"[^\s]+@sha256:[0-9a-f]{64}", value):
             raise ValueError("OCI image source must be digest-qualified")
         return value
-
-
-class InstalledDistribution(ContractValue):
-    name: DistributionName
-    version: Annotated[str, StringConstraints(min_length=1, max_length=128)]
 
 
 class ClientImageInspection(ContractValue):
