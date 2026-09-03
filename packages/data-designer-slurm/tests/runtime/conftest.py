@@ -11,6 +11,7 @@ from typing import cast
 
 import pytest
 
+from data_designer.slurm.client import ClientResult
 from data_designer.slurm.config import SlurmProfile
 from data_designer.slurm.contracts import ArtifactReference, compute_canonical_json_sha256
 from data_designer.slurm.planning import ResolvedSlurmRunPlan
@@ -19,6 +20,7 @@ from data_designer.slurm.state import (
     AttemptLifecycleState,
     AttemptManifest,
     AttemptReadiness,
+    CandidateOutputManifest,
     SchedulerIdentity,
     StateNotFoundError,
     validate_attempt_transition,
@@ -42,6 +44,20 @@ class FakeStateStore:
         validate_attempt_transition(self.attempt, attempt)
         self.attempt = attempt
         return attempt
+
+    def publish_attempt_result(
+        self,
+        client_result: ClientResult,
+        candidate: CandidateOutputManifest,
+    ) -> tuple[ClientResult, CandidateOutputManifest]:
+        reference = client_result.candidate_output_manifest
+        assert reference is not None
+        assert candidate.compute_sha256() == reference.sha256
+        assert self.attempt.state is AttemptLifecycleState.RUNNING
+        bound_attempt = self.attempt.model_copy(update={"candidate_output": reference})
+        validate_attempt_transition(self.attempt, bound_attempt)
+        self.attempt = bound_attempt
+        return client_result, candidate
 
     def write_readiness(self, readiness: AttemptReadiness) -> AttemptReadiness:
         if self.readiness:

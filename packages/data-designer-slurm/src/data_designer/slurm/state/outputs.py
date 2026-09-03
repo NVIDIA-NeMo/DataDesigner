@@ -24,6 +24,10 @@ from data_designer.slurm.state.base import (
     validate_utc_timestamp,
 )
 
+CANDIDATE_OUTPUT_FORMAT: Literal["parquet"] = "parquet"
+# Finalization retains one file and one parent-directory descriptor per entry.
+MAXIMUM_CANDIDATE_OUTPUT_FILES: int = 64
+
 
 class CandidateOutcome(str, Enum):
     COMPLETE = "complete"
@@ -54,7 +58,7 @@ class CandidateOutputManifest(StateRecord):
     requested_records: PositiveInt
     actual_records: NonNegativeInt
     outcome: CandidateOutcome
-    files: tuple[CandidateOutputFile, ...]
+    files: tuple[CandidateOutputFile, ...] = Field(max_length=MAXIMUM_CANDIDATE_OUTPUT_FILES)
     dataset_schema_digest: Sha256Digest
     provenance_digest: Sha256Digest
 
