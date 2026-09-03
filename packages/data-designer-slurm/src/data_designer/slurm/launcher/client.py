@@ -11,14 +11,12 @@ import unicodedata
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TypeAlias
 
 from data_designer.slurm.contracts import Identifier
 from data_designer.slurm.launcher.errors import SlurmCommandError, SlurmCommandOutputError
 from data_designer.slurm.launcher.models import (
     SlurmAccountingEntry,
     SlurmJobSubmissionReceipt,
-    SlurmObservedJobIdentity,
     SlurmQueueEntry,
 )
 from data_designer.slurm.launcher.parsing import (
@@ -28,9 +26,8 @@ from data_designer.slurm.launcher.parsing import (
     parse_submission,
 )
 from data_designer.slurm.launcher.runner import CommandRunner, SubprocessRunner
-from data_designer.slurm.state import SchedulerIdentity
+from data_designer.slurm.state import SchedulerIdentity, SchedulerJobIdentity
 
-_JobSelector: TypeAlias = int | SchedulerIdentity
 _IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _MAX_SLURM_INTEGER = (1 << 32) - 1
 
@@ -86,7 +83,7 @@ class SlurmCommandClient:
         )
         return parse_submission(output)
 
-    def query_queue(self, selectors: Sequence[_JobSelector]) -> tuple[SlurmQueueEntry, ...]:
+    def query_queue(self, selectors: Sequence[SchedulerJobIdentity]) -> tuple[SlurmQueueEntry, ...]:
         """Return normalized active-queue rows for explicit managed jobs."""
         requested = tuple(selectors)
         jobs = _format_selectors(requested)
@@ -107,7 +104,7 @@ class SlurmCommandClient:
         )
         return tuple(entry for entry in entries if entry.job_identity not in ignored)
 
-    def query_accounting(self, selectors: Sequence[_JobSelector]) -> tuple[SlurmAccountingEntry, ...]:
+    def query_accounting(self, selectors: Sequence[SchedulerJobIdentity]) -> tuple[SlurmAccountingEntry, ...]:
         """Return normalized accounting rows for explicit managed jobs."""
         requested = tuple(selectors)
         jobs = _format_selectors(requested)
@@ -130,7 +127,7 @@ class SlurmCommandClient:
         )
         return tuple(entry for entry in entries if entry.job_identity not in ignored)
 
-    def cancel(self, selector: _JobSelector) -> None:
+    def cancel(self, selector: SchedulerJobIdentity) -> None:
         """Cancel one managed Slurm job, array, or array task."""
         self._run((self._executables.scancel, _format_selector(selector)))
 
@@ -162,13 +159,13 @@ class SlurmCommandClient:
         return stdout
 
 
-def _format_selectors(selectors: Sequence[_JobSelector]) -> str:
+def _format_selectors(selectors: Sequence[SchedulerJobIdentity]) -> str:
     if not selectors:
         raise ValueError("at least one managed Slurm job selector is required")
     return ",".join(dict.fromkeys(_format_selector(selector) for selector in selectors))
 
 
-def _format_selector(selector: _JobSelector) -> str:
+def _format_selector(selector: SchedulerJobIdentity) -> str:
     if isinstance(selector, SchedulerIdentity):
         job_id = _format_job_id(selector.array_job_id)
         if selector.array_task_id > _MAX_SLURM_INTEGER:
@@ -184,16 +181,16 @@ def _format_job_id(value: object) -> str:
 
 
 def _validate_observed_job_identities(
-    job_identities: Sequence[SlurmObservedJobIdentity],
-    selectors: Sequence[_JobSelector],
+    job_identities: Sequence[SchedulerJobIdentity],
+    selectors: Sequence[SchedulerJobIdentity],
     *,
     command: str,
-) -> frozenset[SlurmObservedJobIdentity]:
+) -> frozenset[SchedulerJobIdentity]:
     """Validate result correlation and return unselected aggregate rows."""
     selected_job_ids = {selector for selector in selectors if type(selector) is int}
     selected_array_tasks = {selector for selector in selectors if isinstance(selector, SchedulerIdentity)}
     selected_array_job_ids = {selector.array_job_id for selector in selected_array_tasks}
-    ignored: set[SlurmObservedJobIdentity] = set()
+    ignored: set[SchedulerJobIdentity] = set()
     for job_identity in job_identities:
         if type(job_identity) is int and job_identity in selected_job_ids:
             continue
