@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from data_designer.slurm.contracts import Identifier
-from data_designer.slurm.launcher.errors import SlurmCommandError, SlurmCommandOutputError
+from data_designer.slurm.launcher.errors import SlurmCommandError, SlurmCommandOutputError, SlurmSubmissionError
 from data_designer.slurm.launcher.models import (
     SlurmAccountingEntry,
     SlurmJobSubmissionReceipt,
@@ -104,12 +104,21 @@ class SlurmCommandClient:
             raise ValueError("batch script text must be non-empty UTF-8 text without NUL")
         hold_arguments = ("--hold",) if hold else ()
         export_argument, environment = _format_export_environment(export_environment)
-        output = self._run(
-            (self._executables.sbatch, "--parsable", *hold_arguments, export_argument),
-            input_text=script,
-            environment=environment,
-        )
-        return parse_submission(output)
+        try:
+            output = self._run(
+                (self._executables.sbatch, "--parsable", *hold_arguments, export_argument),
+                input_text=script,
+                environment=environment,
+            )
+        except SlurmCommandError as error:
+            raise SlurmSubmissionError(
+                str(error),
+                may_have_succeeded=error.command_may_have_completed,
+            ) from error
+        try:
+            return parse_submission(output)
+        except SlurmCommandOutputError as error:
+            raise SlurmSubmissionError(str(error), may_have_succeeded=True) from error
 
     def query_queue(self, selectors: Sequence[SchedulerJobIdentity]) -> tuple[SlurmQueueEntry, ...]:
         """Return normalized active-queue rows for explicit managed jobs."""
@@ -194,13 +203,26 @@ class SlurmCommandClient:
                 )
             else:
                 completed = self._runner.run(command, input_text=input_text, environment=environment)
-        except (OSError, subprocess.SubprocessError) as error:
+        except subprocess.TimeoutExpired as error:
+            raise SlurmCommandError(
+                f"{command_name} could not be executed: {_format_error_detail(error)}",
+                command_may_have_completed=True,
+            ) from error
+        except OSError as error:
             raise SlurmCommandError(f"{command_name} could not be executed: {_format_error_detail(error)}") from error
+        except subprocess.SubprocessError as error:
+            raise SlurmCommandError(
+                f"{command_name} could not be executed: {_format_error_detail(error)}",
+                command_may_have_completed=True,
+            ) from error
         returncode = getattr(completed, "returncode", None)
         stdout = getattr(completed, "stdout", None)
         stderr = getattr(completed, "stderr", None)
         if type(returncode) is not int or not isinstance(stdout, str) or not isinstance(stderr, str):
-            raise SlurmCommandError(f"{command_name} returned a malformed process result")
+            raise SlurmCommandError(
+                f"{command_name} returned a malformed process result",
+                command_may_have_completed=True,
+            )
         if returncode:
             detail = _normalize_bounded_text(stderr) or "no diagnostic output"
             raise SlurmCommandError(f"{command_name} failed with exit code {returncode}: {detail}")

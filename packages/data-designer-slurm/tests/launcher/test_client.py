@@ -10,7 +10,7 @@ import pytest
 from slurm_test_fakes import FakeCommandResponse, FakeSlurmJob, FakeSlurmRunner
 
 from data_designer.slurm.launcher.client import SlurmCommandClient, SlurmExecutables
-from data_designer.slurm.launcher.errors import SlurmCommandError, SlurmCommandOutputError
+from data_designer.slurm.launcher.errors import SlurmCommandError, SlurmCommandOutputError, SlurmSubmissionError
 from data_designer.slurm.state import SchedulerIdentity, SchedulerState
 
 
@@ -70,6 +70,23 @@ def test_client_exports_only_explicit_environment_names_without_values_in_argv()
     )
     assert runner.environment == {"HF_TOKEN": "secret-value", "SLURM_EXPORT_ENV": "ALL"}
     assert "secret-value" not in " ".join(runner.command)
+
+
+def test_script_submission_classifies_scheduler_rejection_as_definite() -> None:
+    runner = FakeSlurmRunner()
+    runner.script_next("sbatch", FakeCommandResponse(stderr="rejected", returncode=2))
+
+    with pytest.raises(SlurmSubmissionError, match="rejected") as error:
+        SlurmCommandClient(runner).submit_script("#!/bin/sh\n")
+
+    assert not error.value.may_have_succeeded
+
+
+def test_script_submission_classifies_timeout_as_ambiguous() -> None:
+    with pytest.raises(SlurmSubmissionError, match="timed out") as error:
+        SlurmCommandClient(_TimeoutRunner()).submit_script("#!/bin/sh\n")
+
+    assert error.value.may_have_succeeded
 
 
 def test_client_queries_accounting_and_cancels_one_array_task(fake_slurm_runner: FakeSlurmRunner) -> None:
@@ -364,7 +381,14 @@ class _EnvironmentRunner:
 
 
 class _TimeoutRunner:
-    def run(self, command: Sequence[str]) -> subprocess.CompletedProcess[str]:
+    def run(
+        self,
+        command: Sequence[str],
+        *,
+        input_text: str | None = None,
+        environment: Mapping[str, str] | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        del input_text, environment
         raise subprocess.TimeoutExpired(command, 30.0)
 
 
