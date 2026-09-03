@@ -9,9 +9,12 @@ import posixpath
 from collections.abc import Mapping
 from types import MappingProxyType
 
+from data_designer.slurm.client import ClientResult
 from data_designer.slurm.contracts import ArtifactReference, ShardId
 from data_designer.slurm.planning import PlannedShard, ResolvedSlurmRunPlan
 from data_designer.slurm.state.execution import AttemptLifecycleState, AttemptManifest, RunManifest, ShardManifest
+from data_designer.slurm.state.finalization_validation import FinalizationChainValidator, FinalizationContractError
+from data_designer.slurm.state.outputs import CandidateOutputManifest, ShardWinner
 from data_designer.slurm.state.readiness import AttemptReadiness, ReadinessState
 from data_designer.slurm.state.validation import StateContractError, validate_shard_manifest, validate_shard_set
 
@@ -33,6 +36,7 @@ class PersistedPlanStateValidator:
         self._shards_by_id: Mapping[ShardId, PlannedShard] = MappingProxyType(
             {planned_shard.shard_id: planned_shard for planned_shard in plan.shards}
         )
+        self._finalization_validator = FinalizationChainValidator(plan)
 
     @property
     def plan(self) -> ResolvedSlurmRunPlan:
@@ -136,6 +140,60 @@ class PersistedPlanStateValidator:
             "attempt scheduler array task does not match the planned shard",
         )
         return attempt
+
+    def validate_finalization_chain(
+        self,
+        planned_shard: PlannedShard,
+        attempt: AttemptManifest,
+        client_result: ClientResult,
+        candidate: CandidateOutputManifest,
+        winner: ShardWinner,
+    ) -> ShardWinner:
+        """Validate a complete semantic result through immutable winner publication."""
+        self.validate_planned_attempt(planned_shard, attempt)
+        try:
+            return self._finalization_validator.validate(planned_shard, attempt, client_result, candidate, winner)
+        except FinalizationContractError as error:
+            raise PlanStateContractError(str(error)) from error
+
+    def validate_attempt_result(
+        self,
+        planned_shard: PlannedShard,
+        attempt: AttemptManifest,
+        client_result: ClientResult,
+        candidate: CandidateOutputManifest,
+    ) -> None:
+        """Validate producer-owned result records before immutable publication."""
+        self._validate_attempt_result_contract(planned_shard, attempt, client_result, candidate)
+
+    def validate_client_candidate(
+        self,
+        planned_shard: PlannedShard,
+        attempt: AttemptManifest,
+        client_result: ClientResult,
+        candidate: CandidateOutputManifest,
+    ) -> CandidateOutputManifest:
+        """Validate producer-owned records before terminal winner publication."""
+        self._validate_attempt_result_contract(planned_shard, attempt, client_result, candidate)
+        return candidate
+
+    def _validate_attempt_result_contract(
+        self,
+        planned_shard: PlannedShard,
+        attempt: AttemptManifest,
+        client_result: ClientResult,
+        candidate: CandidateOutputManifest,
+    ) -> None:
+        self.validate_planned_attempt(planned_shard, attempt)
+        try:
+            self._finalization_validator.validate_attempt_result(
+                planned_shard,
+                attempt,
+                client_result,
+                candidate,
+            )
+        except FinalizationContractError as error:
+            raise PlanStateContractError(str(error)) from error
 
     def _get_planned_shard(self, shard_id: ShardId) -> PlannedShard:
         planned_shard = self._shards_by_id.get(shard_id)
