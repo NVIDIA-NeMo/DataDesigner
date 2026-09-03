@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TypeVar
 
@@ -304,6 +304,33 @@ def test_readiness_cannot_move_backward_or_change_backend_count() -> None:
     )
     with pytest.raises(StateContractError, match="backend count"):
         validate_readiness_transition(ready, changed_count)
+
+
+def test_readiness_can_reset_only_through_an_explicit_restart_transition() -> None:
+    ready = _load(AttemptReadiness, "single_node_readiness.json")
+    restarting_deployment = _validated_copy(
+        ready.deployments[0],
+        state=ReadinessState.RESTARTING,
+        ready_backends=0,
+        endpoint_publication=EndpointPublicationState.PENDING,
+        last_probe=None,
+    )
+    restarting = _validated_copy(
+        ready,
+        revision=ready.revision + 1,
+        updated_at=ready.updated_at + timedelta(seconds=1),
+        state=ReadinessState.RESTARTING,
+        deployments=(restarting_deployment,),
+    )
+
+    assert validate_readiness_transition(ready, restarting) is restarting
+
+    starting = _validated_copy(restarting_deployment, state=ReadinessState.STARTING)
+    with pytest.raises(StateContractError, match="cannot move"):
+        validate_readiness_transition(
+            ready,
+            _validated_copy(restarting, state=ReadinessState.STARTING, deployments=(starting,)),
+        )
 
     stopped_deployment = _validated_copy(
         ready.deployments[0],
