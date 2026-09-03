@@ -131,7 +131,7 @@ def test_failed_replacement_keeps_previous_alias(tmp_path: Path) -> None:
 
     with (
         patch(
-            "data_designer.slurm.images.filesystem.secrets.token_hex",
+            "data_designer.slurm.filesystem.secrets.token_hex",
             side_effect=mutate_replacement_before_registry_write,
         ),
         pytest.raises(ImageVerificationError, match="no longer matches"),
@@ -162,7 +162,7 @@ def test_registration_does_not_publish_alias_when_sqsh_changes_before_atomic_pub
 
     with (
         patch(
-            "data_designer.slurm.images.filesystem.secrets.token_hex",
+            "data_designer.slurm.filesystem.secrets.token_hex",
             side_effect=mutate_image_before_registry_write,
         ),
         pytest.raises(ImageVerificationError, match="no longer matches"),
