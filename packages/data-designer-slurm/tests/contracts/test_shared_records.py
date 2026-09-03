@@ -156,6 +156,13 @@ def test_if_possible_uses_effective_resume_dataset_location(
     assert ClientResult.model_validate_json(json.dumps(payload)).dataset_path == dataset_path
 
 
+def test_always_allows_engine_resume_downgrade(client_result_payload: dict[str, object]) -> None:
+    payload = deepcopy(client_result_payload)
+    payload["requested_resume_mode"] = "always"
+
+    assert ClientResult.model_validate_json(json.dumps(payload)).effective_resume_mode == "never"
+
+
 def test_benchmark_manifest_rejects_duplicate_child_identity() -> None:
     payload = {
         "schema_version": 1,
