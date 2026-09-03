@@ -115,6 +115,40 @@ class CollectionShard(StateValue):
     winner_manifest: ArtifactReference
 
 
+class RetryShard(StateValue):
+    """One failed planned shard selected for a new attempt."""
+
+    shard_id: ShardId
+    attempt_id: AttemptId
+    attempt_ordinal: PositiveInt
+    array_task_index: NonNegativeInt
+
+
+class RetryPlan(StateRecord):
+    """Immutable failed-shard selection used for one retry submission."""
+
+    retry_id: Identifier
+    run_id: Identifier
+    created_at: datetime
+    resolved_plan: ArtifactReference
+    planned_shards: tuple[RetryShard, ...] = Field(min_length=1)
+    effective_resume_mode: Literal["never", "always"]
+
+    _created_at_is_utc = field_validator("created_at")(validate_utc_timestamp)
+
+    @model_validator(mode="after")
+    def validate_shards(self) -> RetryPlan:
+        shard_ids = tuple(shard.shard_id for shard in self.planned_shards)
+        task_indices = tuple(shard.array_task_index for shard in self.planned_shards)
+        if len(shard_ids) != len(set(shard_ids)):
+            raise ValueError("retry shard IDs must be unique")
+        if len(task_indices) != len(set(task_indices)):
+            raise ValueError("retry array-task indices must be unique")
+        if task_indices != tuple(sorted(task_indices)):
+            raise ValueError("retry shards must be ordered by array-task index")
+        return self
+
+
 class CollectionPlan(StateRecord):
     """Immutable inputs and destinations for deterministic collection."""
 

@@ -10,7 +10,7 @@ import pytest
 from slurm_test_fakes import FakeCommandResponse, FakeSlurmJob, FakeSlurmRunner
 
 from data_designer.slurm.launcher.client import SlurmCommandClient, SlurmExecutables
-from data_designer.slurm.launcher.errors import SlurmCommandError, SlurmCommandOutputError
+from data_designer.slurm.launcher.errors import SlurmCommandError, SlurmCommandOutputError, SlurmSubmissionError
 from data_designer.slurm.state import SchedulerIdentity, SchedulerState
 
 
@@ -38,6 +38,23 @@ def test_client_submits_verified_script_text_through_standard_input() -> None:
     assert submission.job_id == 5101
     assert runner.calls == [("sbatch", "--parsable", "--export=NIL")]
     assert runner.inputs == [script]
+
+
+def test_script_submission_classifies_scheduler_rejection_as_definite() -> None:
+    runner = FakeSlurmRunner()
+    runner.script_next("sbatch", FakeCommandResponse(stderr="rejected", returncode=2))
+
+    with pytest.raises(SlurmSubmissionError, match="rejected") as error:
+        SlurmCommandClient(runner).submit_script("#!/bin/sh\n")
+
+    assert not error.value.may_have_succeeded
+
+
+def test_script_submission_classifies_timeout_as_ambiguous() -> None:
+    with pytest.raises(SlurmSubmissionError, match="timed out") as error:
+        SlurmCommandClient(_TimeoutRunner()).submit_script("#!/bin/sh\n")
+
+    assert error.value.may_have_succeeded
 
 
 def test_client_queries_accounting_and_cancels_one_array_task(fake_slurm_runner: FakeSlurmRunner) -> None:
@@ -282,7 +299,14 @@ class _FailingRunner:
 
 
 class _TimeoutRunner:
-    def run(self, command: Sequence[str]) -> subprocess.CompletedProcess[str]:
+    def run(
+        self,
+        command: Sequence[str],
+        *,
+        check: bool = False,
+        input_text: str | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        del check, input_text
         raise subprocess.TimeoutExpired(command, 30.0)
 
 

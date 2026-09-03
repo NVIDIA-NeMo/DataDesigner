@@ -137,14 +137,22 @@ from data_designer.slurm.state import ArtifactReference as StateArtifactReferenc
 from data_designer.slurm.state import RecordRange as StateRecordRange
 from data_designer.slurm.state import ResumeWorkspace as StateResumeWorkspace
 from data_designer.slurm.state import (
+    CollectionResult,
+    RetryPlan,
     RunManifest,
     RunStatus,
     SchedulerObservationCollector,
+    SlurmCollectionCoordinator,
+    SlurmRetryCoordinator,
     SlurmStateReconciler,
 )
+assert CollectionResult.__name__ == "CollectionResult"
+assert RetryPlan.__name__ == "RetryPlan"
 assert RunManifest.__name__ == "RunManifest"
 assert RunStatus.__name__ == "RunStatus"
 assert SchedulerObservationCollector.__name__ == "SchedulerObservationCollector"
+assert SlurmCollectionCoordinator.__name__ == "SlurmCollectionCoordinator"
+assert SlurmRetryCoordinator.__name__ == "SlurmRetryCoordinator"
 assert SlurmStateReconciler.__name__ == "SlurmStateReconciler"
 assert ImageRegistryStore.__name__ == "ImageRegistryStore"
 assert PlanningArtifactReference is ContractArtifactReference

@@ -12,7 +12,7 @@ from collections.abc import Iterator
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Protocol
+from typing import BinaryIO, Protocol
 
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.slurm.state.filesystem import (
@@ -101,6 +101,16 @@ class VerifiedCandidateArtifacts:
             output_file.validate_lease()
 
 
+@dataclass(frozen=True, slots=True)
+class CandidateArtifactSnapshot:
+    """Descriptor-free identity snapshot retained during bounded collection."""
+
+    record_counts: tuple[int, ...]
+    dataset_schema_digest: str
+    _dataset_identity: tuple[int, int]
+    _bindings: tuple[_ArtifactBinding, ...]
+
+
 class CandidateArtifactVerifier:
     """Verify one manifest-bounded candidate and lease its files through publication."""
 
@@ -123,6 +133,57 @@ class CandidateArtifactVerifier:
                 _dataset=dataset,
                 _files=tuple(binding for _, _, binding in metadata),
             )
+
+    def inspect(self, candidate: CandidateOutputManifest) -> CandidateArtifactSnapshot:
+        """Inspect one candidate and return identities without retaining descriptors."""
+        with self.verify(candidate) as verified:
+            return CandidateArtifactSnapshot(
+                record_counts=verified.record_counts,
+                dataset_schema_digest=verified.dataset_schema_digest,
+                _dataset_identity=_identity(os.fstat(verified._dataset.descriptor)),
+                _bindings=verified._bindings,
+            )
+
+    def rebind(self, candidate: CandidateOutputManifest, expected: CandidateArtifactSnapshot) -> None:
+        """Reopen a candidate and require the identities captured before collection."""
+        with self.verify(candidate) as current:
+            actual = CandidateArtifactSnapshot(
+                record_counts=current.record_counts,
+                dataset_schema_digest=current.dataset_schema_digest,
+                _dataset_identity=_identity(os.fstat(current._dataset.descriptor)),
+                _bindings=current._bindings,
+            )
+        if actual != expected:
+            raise OSError("candidate paths or metadata changed during collection")
+
+    @contextmanager
+    def open_output(
+        self,
+        candidate: CandidateOutputManifest,
+        output_file: CandidateOutputFile,
+    ) -> Iterator[BinaryIO]:
+        """Yield one digest-verified candidate file through a bounded descriptor."""
+        if output_file not in candidate.files:
+            raise ValueError("candidate output file is not declared by the manifest")
+        dataset_path = Path(candidate.dataset_path)
+        parts = PurePosixPath(output_file.relative_path).parts
+        with open_verified_directory(dataset_path, require_private=True) as dataset_descriptor:
+            with _open_parent_directory(dataset_descriptor, dataset_path, parts[:-1]) as (
+                parent_descriptor,
+                parent_path,
+                _,
+            ):
+                display_path = parent_path / parts[-1]
+                with open_verified_regular_file(
+                    parent_descriptor,
+                    parts[-1],
+                    display_path,
+                    expected_size=output_file.byte_size,
+                    expected_sha256=output_file.sha256,
+                    require_private=False,
+                ) as descriptor:
+                    with os.fdopen(os.dup(descriptor), "rb") as source:
+                        yield source
 
 
 def compute_candidate_schema_digest(schema: CandidateSchema) -> str:
@@ -210,6 +271,7 @@ def _is_safe_file(status: os.stat_result) -> bool:
 
 
 __all__ = [
+    "CandidateArtifactSnapshot",
     "CandidateArtifactVerifier",
     "CandidateSchema",
     "SerializedCandidateSchema",
