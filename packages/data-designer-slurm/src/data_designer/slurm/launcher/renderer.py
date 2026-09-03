@@ -83,7 +83,9 @@ def render_generation_retry_script(plan: ResolvedSlurmRunPlan, retry: RetryPlan)
     array_tasks = ",".join(str(shard.array_task_index) for shard in retry.planned_shards)
     if plan.array_tasks.max_concurrent is not None:
         array_tasks = f"{array_tasks}%{plan.array_tasks.max_concurrent}"
-    directives = render_batch_directives(_build_generation_directives(plan, array=array_tasks))
+    directives = render_batch_directives(
+        _build_generation_directives(plan, array=array_tasks, job_name=retry.submission_job_name)
+    )
     attempt_cases = "\n".join(
         f"    {shard.array_task_index}) DD_ATTEMPT_ORDINAL={quote_shell_value(f'{shard.attempt_ordinal:04d}')} ;;"
         for shard in retry.planned_shards
@@ -159,6 +161,7 @@ def _build_generation_directives(
     plan: ResolvedSlurmRunPlan,
     *,
     array: str | None = None,
+    job_name: str | None = None,
 ) -> tuple[tuple[str, str | None], ...]:
     node_indices = (
         plan.client.host_node_index,
@@ -172,7 +175,7 @@ def _build_generation_directives(
             resolved_array = f"{resolved_array}%{plan.array_tasks.max_concurrent}"
 
     values: list[tuple[str, str | None]] = [
-        ("job-name", plan.submission.job_name),
+        ("job-name", plan.submission.job_name if job_name is None else job_name),
         ("account", plan.submission.account),
         ("partition", plan.submission.partition),
         ("nodes", str(node_count)),

@@ -12,7 +12,13 @@ from typing import Annotated
 from pydantic import Field, NonNegativeInt, PositiveInt, StringConstraints, field_validator, model_validator
 
 from data_designer.slurm.contracts import ArtifactReference, Identifier, Sha256Digest, validate_relative_path
-from data_designer.slurm.state.base import SchedulerJobIdentity, StateRecord, StateValue, validate_utc_timestamp
+from data_designer.slurm.state.base import (
+    SchedulerJobIdentity,
+    StateRecord,
+    StateValue,
+    validate_optional_utc_timestamp,
+    validate_utc_timestamp,
+)
 from data_designer.slurm.state.scheduler import SchedulerObservation
 
 
@@ -80,15 +86,21 @@ class CollectionStatus(StateRecord):
     scheduler: SchedulerJobIdentity | None = None
     scheduler_observation: SchedulerObservation | None = None
     result: ArtifactReference | None = None
+    reconciliation_deadline: datetime | None = None
 
     _updated_at_is_utc = field_validator("updated_at")(validate_utc_timestamp)
+    _reconciliation_deadline_is_utc = field_validator("reconciliation_deadline")(validate_optional_utc_timestamp)
 
     @model_validator(mode="after")
     def validate_evidence(self) -> CollectionStatus:
         if self.state is CollectionState.PREPARED:
             if self.scheduler is not None or self.scheduler_observation is not None or self.result is not None:
                 raise ValueError("prepared collection cannot contain scheduler or result evidence")
+            if self.reconciliation_deadline is None or self.reconciliation_deadline <= self.updated_at:
+                raise ValueError("prepared collection requires a future reconciliation deadline")
             return self
+        if self.reconciliation_deadline is not None:
+            raise ValueError("settled collection cannot contain a reconciliation deadline")
         if self.state is not CollectionState.FAILED and self.scheduler is None:
             raise ValueError("submitted collection states require a scheduler identity")
         if self.scheduler is None and self.scheduler_observation is not None:

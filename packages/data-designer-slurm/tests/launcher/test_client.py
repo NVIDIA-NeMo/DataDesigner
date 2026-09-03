@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import subprocess
 from collections.abc import Sequence
+from datetime import datetime, timezone
 
 import pytest
 from slurm_test_fakes import FakeCommandResponse, FakeSlurmJob, FakeSlurmRunner
@@ -80,6 +81,51 @@ def test_client_queries_accounting_and_cancels_one_array_task(fake_slurm_runner:
             "--jobs=4101_1",
         ),
     ]
+
+
+def test_client_finds_one_exact_named_array_across_queue_and_accounting() -> None:
+    runner = FakeSlurmRunner()
+    job_name = f"dd-retry-{'a' * 32}"
+    runner.script_next("squeue", FakeCommandResponse(stdout=f"4201_0|{job_name}\n"))
+    runner.script_next("sacct", FakeCommandResponse(stdout=f"4201_0|{job_name}\n4201_1|{job_name}\n"))
+    submitted_after = datetime(2026, 9, 2, 18, tzinfo=timezone.utc)
+
+    matches = SlurmCommandClient(runner).query_submissions_by_name(job_name, submitted_after=submitted_after)
+
+    assert len(matches) == 1
+    assert matches[0].job_id == 4201
+    assert matches[0].array_task_ids == (0, 1)
+    assert runner.calls[0] == (
+        "squeue",
+        "--noheader",
+        "--array",
+        "--format=%i|%.128j",
+        "--me",
+        f"--name={job_name}",
+    )
+    assert runner.calls[1][0:6] == (
+        "sacct",
+        "--noheader",
+        "--array",
+        "--allocations",
+        "--parsable2",
+        "--format=JobIDRaw,JobName%128",
+    )
+    assert runner.calls[1][6].startswith("--uid=")
+    assert runner.calls[1][7].startswith("--starttime=")
+    assert runner.calls[1][8] == f"--name={job_name}"
+
+
+def test_client_rejects_a_named_lookup_result_with_a_different_name() -> None:
+    runner = FakeSlurmRunner()
+    runner.script_next("squeue", FakeCommandResponse(stdout="4201|unrelated\n"))
+    runner.script_next("sacct", FakeCommandResponse())
+
+    with pytest.raises(SlurmCommandOutputError, match="outside the requested exact name"):
+        SlurmCommandClient(runner).query_submissions_by_name(
+            f"dd-retry-{'a' * 32}",
+            submitted_after=datetime(2026, 9, 2, 18, tzinfo=timezone.utc),
+        )
 
 
 def test_client_deduplicates_explicit_job_selectors(fake_slurm_runner: FakeSlurmRunner) -> None:

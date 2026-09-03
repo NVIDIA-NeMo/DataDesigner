@@ -136,6 +136,11 @@ class RetryPlan(StateRecord):
 
     _created_at_is_utc = field_validator("created_at")(validate_utc_timestamp)
 
+    @property
+    def submission_job_name(self) -> Identifier:
+        """Return the immutable scheduler lookup key for this retry."""
+        return f"dd-retry-{self.compute_sha256()[:32]}"
+
     @model_validator(mode="after")
     def validate_shards(self) -> RetryPlan:
         shard_ids = tuple(shard.shard_id for shard in self.planned_shards)
@@ -164,6 +169,11 @@ class CollectionPlan(StateRecord):
 
     _created_at_is_utc = field_validator("created_at")(validate_utc_timestamp)
     _destinations_are_safe = field_validator("host_destination", "container_destination")(validate_absolute_path)
+
+    @property
+    def submission_job_name(self) -> Identifier:
+        """Return the immutable scheduler lookup key for this collection."""
+        return f"dd-collect-{self.compute_sha256()[:32]}"
 
     @model_validator(mode="after")
     def validate_shards(self) -> CollectionPlan:

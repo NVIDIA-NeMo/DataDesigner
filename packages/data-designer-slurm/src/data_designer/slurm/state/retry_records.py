@@ -11,7 +11,7 @@ from enum import Enum
 from pydantic import PositiveInt, field_validator, model_validator
 
 from data_designer.slurm.contracts import ArtifactReference, Identifier
-from data_designer.slurm.state.base import StateRecord, validate_utc_timestamp
+from data_designer.slurm.state.base import StateRecord, validate_optional_utc_timestamp, validate_utc_timestamp
 
 
 class RetryState(str, Enum):
@@ -33,15 +33,22 @@ class RetryStatus(StateRecord):
     updated_at: datetime
     state: RetryState
     array_job_id: PositiveInt | None = None
+    reconciliation_deadline: datetime | None = None
 
     _updated_at_is_utc = field_validator("updated_at")(validate_utc_timestamp)
+    _reconciliation_deadline_is_utc = field_validator("reconciliation_deadline")(validate_optional_utc_timestamp)
 
     @model_validator(mode="after")
     def validate_scheduler_identity(self) -> RetryStatus:
         if self.state in {RetryState.SUBMITTED, RetryState.COMPLETED} and self.array_job_id is None:
             raise ValueError("submitted retry state requires an array job identity")
-        if self.state is RetryState.PREPARED and self.array_job_id is not None:
-            raise ValueError("prepared retry state cannot contain an array job identity")
+        if self.state is RetryState.PREPARED:
+            if self.array_job_id is not None:
+                raise ValueError("prepared retry state cannot contain an array job identity")
+            if self.reconciliation_deadline is None or self.reconciliation_deadline <= self.updated_at:
+                raise ValueError("prepared retry state requires a future reconciliation deadline")
+        elif self.reconciliation_deadline is not None:
+            raise ValueError("settled retry state cannot contain a reconciliation deadline")
         return self
 
 

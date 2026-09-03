@@ -15,7 +15,7 @@ from data_designer.slurm.contracts import Identifier, validate_absolute_path
 from data_designer.slurm.launcher.client import SlurmCommandClient
 from data_designer.slurm.launcher.collection import render_collection_script
 from data_designer.slurm.launcher.errors import SlurmLauncherError, SlurmSubmissionError
-from data_designer.slurm.launcher.models import SlurmJobSubmissionReceipt
+from data_designer.slurm.launcher.models import SlurmJobSubmissionReceipt, SlurmSubmissionMatch
 from data_designer.slurm.state.collection_filesystem import (
     derive_collection_staging_directory,
     prepare_collection_destination,
@@ -36,6 +36,11 @@ from data_designer.slurm.state.outputs import CollectionPlan
 from data_designer.slurm.state.reader import StateReader
 from data_designer.slurm.state.scheduler import SchedulerState
 from data_designer.slurm.state.storage import StateStorage
+from data_designer.slurm.state.submission_recovery import (
+    SUBMISSION_VISIBILITY_WINDOW,
+    PreparedSubmission,
+    resolve_prepared_submission,
+)
 
 _IDENTIFIER_ADAPTER = TypeAdapter(Identifier)
 
@@ -45,6 +50,15 @@ class CollectionScheduler(SchedulerObservationClient, Protocol):
 
     def submit_script(self, script: str) -> SlurmJobSubmissionReceipt:
         """Submit one rendered CPU collection job."""
+        ...
+
+    def query_submissions_by_name(
+        self,
+        job_name: Identifier,
+        *,
+        submitted_after: datetime,
+    ) -> tuple[SlurmSubmissionMatch, ...]:
+        """Return allocations matching one exact collection submission name."""
         ...
 
 
@@ -82,7 +96,7 @@ class SlurmCollectionCoordinator:
                 if current is not None:
                     current_plan = self._load_bound_plan(current)
                     if current.state is CollectionState.PREPARED:
-                        raise StateConflictError("previous collection submission has an ambiguous scheduler outcome")
+                        current = self._reconcile_prepared_collection(current_plan, current, timestamp)
                     if current.state is not CollectionState.FAILED:
                         self._validate_existing_destination(current, destination)
                         return current
@@ -124,6 +138,7 @@ class SlurmCollectionCoordinator:
                     revision=1,
                     updated_at=timestamp,
                     state=CollectionState.PREPARED,
+                    reconciliation_deadline=timestamp + SUBMISSION_VISIBILITY_WINDOW,
                 )
                 self._collections.publish_status(prepared)
                 script = render_collection_script(resolved_plan, collection_plan, resolved_destination)
@@ -161,8 +176,16 @@ class SlurmCollectionCoordinator:
                         Path(destination.mount.source),
                     )
                     return previous
-                if previous.scheduler is None:
-                    raise StateConflictError("collection submission has an ambiguous scheduler outcome")
+                if previous.state is CollectionState.PREPARED:
+                    previous = self._reconcile_prepared_collection(plan, previous, timestamp)
+                    if previous.state is CollectionState.FAILED:
+                        remove_collection_stage(
+                            Path(plan.host_destination),
+                            previous.staging_directory,
+                            Path(destination.mount.source),
+                        )
+                        return previous
+                assert previous.scheduler is not None
                 observations = self._collector.collect(
                     (previous.scheduler,),
                     observed_at=timestamp,
@@ -209,6 +232,7 @@ class SlurmCollectionCoordinator:
                     revision=2,
                     updated_at=submitted_at,
                     state=CollectionState.FAILED,
+                    reconciliation_deadline=None,
                 )
                 validate_collection_status_transition(prepared, failed)
                 self._collections.replace_status(failed)
@@ -221,10 +245,41 @@ class SlurmCollectionCoordinator:
             updated_at=submitted_at,
             state=CollectionState.SUBMITTED,
             scheduler=receipt.job_id,
+            reconciliation_deadline=None,
         )
         validate_collection_status_transition(prepared, submitted)
         self._collections.replace_status(submitted)
         return submitted
+
+    def _reconcile_prepared_collection(
+        self,
+        plan: CollectionPlan,
+        prepared: CollectionStatus,
+        observed_at: datetime,
+    ) -> CollectionStatus:
+        assert prepared.reconciliation_deadline is not None
+        job_id = resolve_prepared_submission(
+            self._scheduler,
+            PreparedSubmission(
+                job_name=plan.submission_job_name,
+                submitted_after=plan.created_at,
+                reconciliation_deadline=prepared.reconciliation_deadline,
+                expected_array_task_ids=None,
+            ),
+            observed_at=observed_at,
+        )
+        state = CollectionState.SUBMITTED if job_id is not None else CollectionState.FAILED
+        current = _updated_status(
+            prepared,
+            revision=prepared.revision + 1,
+            updated_at=observed_at,
+            state=state,
+            scheduler=job_id,
+            reconciliation_deadline=None,
+        )
+        validate_collection_status_transition(prepared, current)
+        self._collections.replace_status(current)
+        return current
 
     def _get_current_status(self) -> CollectionStatus | None:
         collection_ids = self._collections.list_collection_ids()
