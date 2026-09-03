@@ -193,8 +193,6 @@ def test_client_removes_terminal_controls_from_command_failures(fake_slurm_runne
     ("diagnostic", "secret"),
     (
         ("HF_TOKEN=super-secret-value", "super-secret-value"),
-        ("HF_TOKEN=secret;suffix status=failed", "secret;suffix"),
-        ("HF_TOKEN=secret,suffix status=failed", "secret,suffix"),
         ('HF_TOKEN="quoted secret value"', "quoted secret value"),
         ("--api-key plaintext-secret", "plaintext-secret"),
         ('{"access_token":"json-secret"}', "json-secret"),
@@ -204,8 +202,6 @@ def test_client_removes_terminal_controls_from_command_failures(fake_slurm_runne
     ),
     ids=(
         "environment",
-        "semicolon-environment",
-        "comma-environment",
         "quoted-environment",
         "option",
         "json",
@@ -229,20 +225,52 @@ def test_client_redacts_secrets_from_command_failures(
     assert "<redacted>" in str(error.value)
 
 
-@pytest.mark.parametrize("separator", (";", ","), ids=("semicolon", "comma"))
-def test_client_preserves_diagnostic_fields_after_redacted_assignment(
+@pytest.mark.parametrize(
+    ("diagnostic", "expected"),
+    (
+        ("HF_TOKEN=secret;status=failed", "HF_TOKEN=<redacted>;status=failed"),
+        ("HF_TOKEN=secret,status=failed", "HF_TOKEN=<redacted>,status=failed"),
+        ("HF_TOKEN=secret status=failed", "HF_TOKEN=<redacted> status=failed"),
+        ("status=failed;HF_TOKEN=secret;job=4", "status=failed;HF_TOKEN=<redacted>;job=4"),
+        ("status=failed,HF_TOKEN=secret,job=4", "status=failed,HF_TOKEN=<redacted>,job=4"),
+        ("status=failed HF_TOKEN=secret job=4", "status=failed HF_TOKEN=<redacted> job=4"),
+        ("status=failed; HF_TOKEN=secret, job=4", "status=failed; HF_TOKEN=<redacted>, job=4"),
+        ("status=failed;HF_TOKEN=secret", "status=failed;HF_TOKEN=<redacted>"),
+        ("status=failed,HF_TOKEN=secret", "status=failed,HF_TOKEN=<redacted>"),
+        ("status=failed HF_TOKEN=secret", "status=failed HF_TOKEN=<redacted>"),
+        ("HF_TOKEN=secret;suffix status=failed", "HF_TOKEN=<redacted> status=failed"),
+        ("HF_TOKEN=secret,suffix status=failed", "HF_TOKEN=<redacted> status=failed"),
+    ),
+    ids=(
+        "first-semicolon",
+        "first-comma",
+        "first-whitespace",
+        "middle-semicolon",
+        "middle-comma",
+        "middle-whitespace",
+        "middle-spaced-punctuation",
+        "last-semicolon",
+        "last-comma",
+        "last-whitespace",
+        "semicolon-inside-value",
+        "comma-inside-value",
+    ),
+)
+def test_client_redacts_adjacent_assignments_without_swallowing_diagnostics(
     fake_slurm_runner: FakeSlurmRunner,
-    separator: str,
+    diagnostic: str,
+    expected: str,
 ) -> None:
     fake_slurm_runner.script_next(
         "squeue",
-        FakeCommandResponse(stderr=f"HF_TOKEN=secret{separator}suffix status=failed", returncode=2),
+        FakeCommandResponse(stderr=diagnostic, returncode=2),
     )
 
     with pytest.raises(SlurmCommandError) as error:
         SlurmCommandClient(fake_slurm_runner).query_queue((4101,))
 
-    assert "HF_TOKEN=<redacted> status=failed" in str(error.value)
+    assert expected in str(error.value)
+    assert "HF_TOKEN=secret" not in str(error.value)
 
 
 def test_client_bounds_command_failure_detail(fake_slurm_runner: FakeSlurmRunner) -> None:
