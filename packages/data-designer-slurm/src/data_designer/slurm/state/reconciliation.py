@@ -20,12 +20,29 @@ from data_designer.slurm.state.validation import StateContractError
 
 _ALLOWED_READINESS_TRANSITIONS: dict[ReadinessState, frozenset[ReadinessState]] = {
     ReadinessState.PENDING: frozenset(
-        {ReadinessState.PENDING, ReadinessState.STARTING, ReadinessState.FAILED, ReadinessState.STOPPED}
+        {
+            ReadinessState.PENDING,
+            ReadinessState.RESTARTING,
+            ReadinessState.STARTING,
+            ReadinessState.FAILED,
+            ReadinessState.STOPPED,
+        }
     ),
     ReadinessState.STARTING: frozenset(
-        {ReadinessState.STARTING, ReadinessState.READY, ReadinessState.FAILED, ReadinessState.STOPPED}
+        {
+            ReadinessState.RESTARTING,
+            ReadinessState.STARTING,
+            ReadinessState.READY,
+            ReadinessState.FAILED,
+            ReadinessState.STOPPED,
+        }
     ),
-    ReadinessState.READY: frozenset({ReadinessState.READY, ReadinessState.FAILED, ReadinessState.STOPPED}),
+    ReadinessState.RESTARTING: frozenset(
+        {ReadinessState.RESTARTING, ReadinessState.STARTING, ReadinessState.FAILED, ReadinessState.STOPPED}
+    ),
+    ReadinessState.READY: frozenset(
+        {ReadinessState.RESTARTING, ReadinessState.READY, ReadinessState.FAILED, ReadinessState.STOPPED}
+    ),
     ReadinessState.FAILED: frozenset({ReadinessState.FAILED, ReadinessState.STOPPED}),
     ReadinessState.STOPPED: frozenset({ReadinessState.STOPPED}),
 }
@@ -74,6 +91,7 @@ def validate_readiness_transition(
         "readiness deployment count cannot change",
     )
 
+    restarting = current.state is ReadinessState.RESTARTING
     for old_deployment, new_deployment in zip(previous.deployments, current.deployments, strict=True):
         _require(
             old_deployment.deployment_id == new_deployment.deployment_id,
@@ -87,20 +105,33 @@ def validate_readiness_transition(
             old_deployment.expected_backends == new_deployment.expected_backends,
             "readiness expected backend count cannot change",
         )
-        _require(
-            new_deployment.state in _ALLOWED_READINESS_TRANSITIONS[old_deployment.state],
-            (
-                f"deployment {old_deployment.deployment_id!r} cannot move from "
-                f"{old_deployment.state.value} to {new_deployment.state.value}"
-            ),
-        )
-        _require(
-            new_deployment.endpoint_publication in _ALLOWED_ENDPOINT_TRANSITIONS[old_deployment.endpoint_publication],
-            f"deployment {old_deployment.deployment_id!r} endpoint publication cannot move backward",
-        )
+        if restarting:
+            _require(
+                old_deployment.state not in {ReadinessState.FAILED, ReadinessState.STOPPED},
+                f"deployment {old_deployment.deployment_id!r} cannot restart from terminal readiness",
+            )
+            _require(
+                new_deployment.state is ReadinessState.RESTARTING
+                and new_deployment.ready_backends == 0
+                and new_deployment.endpoint_publication is EndpointPublicationState.PENDING,
+                f"deployment {old_deployment.deployment_id!r} restart state is not reset",
+            )
+        else:
+            _require(
+                new_deployment.state in _ALLOWED_READINESS_TRANSITIONS[old_deployment.state],
+                (
+                    f"deployment {old_deployment.deployment_id!r} cannot move from "
+                    f"{old_deployment.state.value} to {new_deployment.state.value}"
+                ),
+            )
+            _require(
+                new_deployment.endpoint_publication
+                in _ALLOWED_ENDPOINT_TRANSITIONS[old_deployment.endpoint_publication],
+                f"deployment {old_deployment.deployment_id!r} endpoint publication cannot move backward",
+            )
         old_probe = old_deployment.last_probe
         new_probe = new_deployment.last_probe
-        if old_probe is not None:
+        if old_probe is not None and not restarting:
             if new_probe is None:
                 raise StateContractError(
                     f"deployment {old_deployment.deployment_id!r} probe evidence cannot be removed"

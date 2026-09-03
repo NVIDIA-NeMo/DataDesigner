@@ -24,6 +24,7 @@ ReasonCode = Annotated[
 
 class ReadinessState(str, Enum):
     PENDING = "pending"
+    RESTARTING = "restarting"
     STARTING = "starting"
     READY = "ready"
     FAILED = "failed"
@@ -72,32 +73,8 @@ class DeploymentReadiness(StateValue):
 
     @model_validator(mode="after")
     def validate_counts_and_state(self) -> DeploymentReadiness:
-        if self.ready_backends > self.expected_backends:
-            raise ValueError("ready_backends must not exceed expected_backends")
-        if self.endpoint_publication is EndpointPublicationState.FAILED and self.state not in {
-            ReadinessState.FAILED,
-            ReadinessState.STOPPED,
-        }:
-            raise ValueError("failed endpoint publication requires a failed or stopped deployment")
-
-        if self.state is ReadinessState.PENDING:
-            if self.ready_backends != 0:
-                raise ValueError("pending deployments cannot have ready backends")
-            if self.endpoint_publication is not EndpointPublicationState.PENDING:
-                raise ValueError("pending deployments require pending endpoint publication")
-        elif self.state is ReadinessState.STARTING:
-            if (
-                self.ready_backends == self.expected_backends
-                and self.endpoint_publication is EndpointPublicationState.PUBLISHED
-            ):
-                raise ValueError("fully ready published deployments must use the ready state")
-        elif self.state is ReadinessState.READY:
-            if self.ready_backends != self.expected_backends:
-                raise ValueError("ready deployments require every expected backend")
-            if self.endpoint_publication is not EndpointPublicationState.PUBLISHED:
-                raise ValueError("ready deployments require a published endpoint")
-        elif self.state is ReadinessState.STOPPED and self.ready_backends != 0:
-            raise ValueError("stopped deployments cannot have ready backends")
+        _validate_deployment_common(self)
+        _validate_deployment_state(self)
         return self
 
 
@@ -116,33 +93,85 @@ class AttemptReadiness(StateRecord):
 
     @model_validator(mode="after")
     def validate_deployments(self) -> AttemptReadiness:
-        deployment_ids = [deployment.deployment_id for deployment in self.deployments]
-        model_aliases = [deployment.model_alias for deployment in self.deployments]
-        if len(deployment_ids) != len(set(deployment_ids)):
-            raise ValueError("deployment IDs must be unique")
-        if len(model_aliases) != len(set(model_aliases)):
-            raise ValueError("model aliases must be unique")
-        if any(
-            deployment.last_probe is not None and deployment.last_probe.observed_at > self.updated_at
-            for deployment in self.deployments
-        ):
-            raise ValueError("probe observations must not be later than the readiness snapshot")
-
-        deployment_states = tuple(deployment.state for deployment in self.deployments)
-        if self.state is ReadinessState.PENDING:
-            if any(state is not ReadinessState.PENDING for state in deployment_states):
-                raise ValueError("pending attempts require every deployment to be pending")
-        elif self.state is ReadinessState.STARTING:
-            if any(state in {ReadinessState.FAILED, ReadinessState.STOPPED} for state in deployment_states):
-                raise ValueError("starting attempts cannot contain failed or stopped deployments")
-            if all(state is ReadinessState.READY for state in deployment_states):
-                raise ValueError("attempts with every deployment ready must use the ready state")
-        elif self.state is ReadinessState.READY:
-            if any(state is not ReadinessState.READY for state in deployment_states):
-                raise ValueError("ready attempts require every deployment to be ready")
-        elif self.state is ReadinessState.FAILED:
-            if not any(state is ReadinessState.FAILED for state in deployment_states):
-                raise ValueError("failed attempts require at least one failed deployment")
-        elif any(state is not ReadinessState.STOPPED for state in deployment_states):
-            raise ValueError("stopped attempts require every deployment to be stopped")
+        _validate_deployment_uniqueness(self.deployments)
+        _validate_probe_chronology(self.deployments, self.updated_at)
+        _validate_attempt_state(self.state, self.deployments)
         return self
+
+
+def _validate_deployment_common(deployment: DeploymentReadiness) -> None:
+    if deployment.ready_backends > deployment.expected_backends:
+        raise ValueError("ready_backends must not exceed expected_backends")
+    if deployment.endpoint_publication is EndpointPublicationState.FAILED and deployment.state not in {
+        ReadinessState.FAILED,
+        ReadinessState.STOPPED,
+    }:
+        raise ValueError("failed endpoint publication requires a failed or stopped deployment")
+
+
+def _validate_deployment_state(deployment: DeploymentReadiness) -> None:
+    if deployment.state in {ReadinessState.PENDING, ReadinessState.RESTARTING}:
+        _validate_inactive_deployment(deployment)
+    elif deployment.state is ReadinessState.STARTING:
+        _validate_starting_deployment(deployment)
+    elif deployment.state is ReadinessState.READY:
+        _validate_ready_deployment(deployment)
+    elif deployment.state is ReadinessState.STOPPED and deployment.ready_backends != 0:
+        raise ValueError("stopped deployments cannot have ready backends")
+
+
+def _validate_inactive_deployment(deployment: DeploymentReadiness) -> None:
+    if deployment.ready_backends != 0:
+        raise ValueError("pending or restarting deployments cannot have ready backends")
+    if deployment.endpoint_publication is not EndpointPublicationState.PENDING:
+        raise ValueError("pending or restarting deployments require pending endpoint publication")
+
+
+def _validate_starting_deployment(deployment: DeploymentReadiness) -> None:
+    if (
+        deployment.ready_backends == deployment.expected_backends
+        and deployment.endpoint_publication is EndpointPublicationState.PUBLISHED
+    ):
+        raise ValueError("fully ready published deployments must use the ready state")
+
+
+def _validate_ready_deployment(deployment: DeploymentReadiness) -> None:
+    if deployment.ready_backends != deployment.expected_backends:
+        raise ValueError("ready deployments require every expected backend")
+    if deployment.endpoint_publication is not EndpointPublicationState.PUBLISHED:
+        raise ValueError("ready deployments require a published endpoint")
+
+
+def _validate_deployment_uniqueness(deployments: tuple[DeploymentReadiness, ...]) -> None:
+    deployment_ids = [deployment.deployment_id for deployment in deployments]
+    model_aliases = [deployment.model_alias for deployment in deployments]
+    if len(deployment_ids) != len(set(deployment_ids)):
+        raise ValueError("deployment IDs must be unique")
+    if len(model_aliases) != len(set(model_aliases)):
+        raise ValueError("model aliases must be unique")
+
+
+def _validate_probe_chronology(deployments: tuple[DeploymentReadiness, ...], updated_at: datetime) -> None:
+    if any(
+        deployment.last_probe is not None and deployment.last_probe.observed_at > updated_at
+        for deployment in deployments
+    ):
+        raise ValueError("probe observations must not be later than the readiness snapshot")
+
+
+def _validate_attempt_state(state: ReadinessState, deployments: tuple[DeploymentReadiness, ...]) -> None:
+    deployment_states = tuple(deployment.state for deployment in deployments)
+    if state in {ReadinessState.PENDING, ReadinessState.RESTARTING}:
+        if any(deployment_state is not state for deployment_state in deployment_states):
+            raise ValueError(f"{state.value} attempts require every deployment to be {state.value}")
+    elif state is ReadinessState.STARTING:
+        if any(item in {ReadinessState.FAILED, ReadinessState.STOPPED} for item in deployment_states):
+            raise ValueError("starting attempts cannot contain failed or stopped deployments")
+        if all(item is ReadinessState.READY for item in deployment_states):
+            raise ValueError("attempts with every deployment ready must use the ready state")
+    elif state is ReadinessState.READY and any(item is not ReadinessState.READY for item in deployment_states):
+        raise ValueError("ready attempts require every deployment to be ready")
+    elif state is ReadinessState.FAILED and not any(item is ReadinessState.FAILED for item in deployment_states):
+        raise ValueError("failed attempts require at least one failed deployment")
+    elif state is ReadinessState.STOPPED and any(item is not ReadinessState.STOPPED for item in deployment_states):
+        raise ValueError("stopped attempts require every deployment to be stopped")
