@@ -40,6 +40,7 @@ from data_designer.interface.results import (
     _export_jsonl,
     _export_parquet,
 )
+from data_designer.interface.workflow_metadata import WorkflowMetadata, WorkflowStageMetadata
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -219,8 +220,19 @@ class CompositeWorkflow:
         _validate_dir_name(name, "stage name")
         if any(stage.name == name for stage in self._stages):
             raise DataDesignerWorkflowError(f"Stage name {name!r} is already used in workflow {self.name!r}.")
-        if num_records is not None and num_records < 1:
-            raise DataDesignerWorkflowError("Stage num_records must be at least 1.")
+        if num_records is not None:
+            if not isinstance(num_records, int) or isinstance(num_records, bool):
+                raise DataDesignerWorkflowError("Stage num_records must be an integer.")
+            if num_records < 1:
+                raise DataDesignerWorkflowError("Stage num_records must be at least 1.")
+        if on_success_version is not None and not isinstance(on_success_version, str):
+            raise DataDesignerWorkflowError("Stage on_success_version must be a string.")
+        if not isinstance(allow_empty, bool):
+            raise DataDesignerWorkflowError("Stage allow_empty must be a boolean.")
+        if not isinstance(sampling_strategy, SamplingStrategy):
+            raise DataDesignerWorkflowError("Stage sampling_strategy must be a SamplingStrategy.")
+        if selection_strategy is not None and not isinstance(selection_strategy, (IndexRange, PartitionBlock)):
+            raise DataDesignerWorkflowError("Stage selection_strategy must be an IndexRange or PartitionBlock.")
         _validate_stage_output(output)
         output_processors = output_processors or []
         _validate_distinct_output_processors(config_builder, output_processors)
@@ -276,6 +288,7 @@ class CompositeWorkflow:
         workflow_path.mkdir(parents=True, exist_ok=True)
         prior_metadata = _read_prior_workflow_metadata(workflow_path, self.name, resume)
         metadata: dict[str, Any] = {
+            **(prior_metadata or {}),
             "name": self.name,
             "library_version": get_library_version(),
             "stages": [],
@@ -387,6 +400,10 @@ class CompositeWorkflow:
                 raise DataDesignerWorkflowError(
                     f"Cannot resume workflow {self.name!r}: stage {stage.name!r} is not reusable."
                 )
+
+            if stage_resume == ResumeMode.ALWAYS and prior_stage_metadata is not None:
+                prior_stage = WorkflowStageMetadata.model_validate(prior_stage_metadata).root
+                stage_metadata.update(prior_stage.model_extra or {})
 
             if stage_resume == ResumeMode.NEVER and stage_path.exists():
                 shutil.rmtree(stage_path)
@@ -598,6 +615,22 @@ def _read_prior_workflow_metadata(
         raise DataDesignerWorkflowError(
             f"Cannot resume workflow {workflow_name!r}: workflow metadata has invalid shape."
         )
+    try:
+        validated_metadata = WorkflowMetadata.model_validate(metadata)
+    except ValidationError as exc:
+        if resume != ResumeMode.ALWAYS:
+            error = exc.errors(include_url=False, include_input=False)[0]
+            location = ".".join(str(part) for part in error["loc"])
+            logger.warning(
+                "Workflow metadata for %r has invalid field %s (%s); starting fresh.",
+                workflow_name,
+                location,
+                error["msg"],
+            )
+            return None
+        raise DataDesignerWorkflowError(
+            f"Cannot resume workflow {workflow_name!r}: workflow metadata has invalid shape."
+        ) from exc
     if metadata.get("name") != workflow_name:
         if resume != ResumeMode.ALWAYS:
             logger.warning("Workflow metadata for %r has a different name; starting fresh.", workflow_name)
@@ -605,7 +638,7 @@ def _read_prior_workflow_metadata(
         raise DataDesignerWorkflowError(
             f"Cannot resume workflow {workflow_name!r}: workflow metadata name does not match."
         )
-    return metadata
+    return validated_metadata.model_dump(mode="json", exclude_unset=True)
 
 
 def _get_prior_stage_metadata(
@@ -871,8 +904,12 @@ def _write_workflow_metadata(workflow_path: Path, metadata: dict[str, Any]) -> N
     path = workflow_path / WORKFLOW_METADATA_FILENAME
     tmp_path = path.with_name(f"{path.name}.tmp.{os.getpid()}.{uuid.uuid4().hex}")
     try:
+        validated_metadata = WorkflowMetadata.model_validate(metadata)
+    except ValidationError as exc:
+        raise DataDesignerWorkflowError("Workflow metadata has invalid shape.") from exc
+    try:
         with tmp_path.open("w", encoding="utf-8") as f:
-            json.dump(metadata, f, indent=2, sort_keys=True)
+            json.dump(validated_metadata.model_dump(mode="json", exclude_unset=True), f, indent=2, sort_keys=True)
             f.flush()
             os.fsync(f.fileno())
         os.replace(tmp_path, path)
