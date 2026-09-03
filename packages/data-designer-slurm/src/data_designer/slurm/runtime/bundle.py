@@ -29,6 +29,9 @@ _ENTRYPOINT_NAME = "entrypoint.sh"
 _SLURM_PACKAGE_ROOT = "data_designer/slurm"
 _SOURCE_MANIFEST_NAME = f"{_SLURM_PACKAGE_ROOT}/runtime/slurm-sources.txt"
 _ENTRYPOINT = b"""#!/usr/bin/env bash
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 set -Eeuo pipefail
 
 dd_slurm_run_allocation() {

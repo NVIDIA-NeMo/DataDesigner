@@ -5,6 +5,7 @@ description = "Slurm execution for Data Designer"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "Apache-2.0"
+license-files = ["LICENSE"]
 
 classifiers = [
     "Development Status :: 4 - Beta",

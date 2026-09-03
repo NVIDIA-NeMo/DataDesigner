@@ -46,6 +46,16 @@ def wheel_metadata(path: Path) -> Message:
         return BytesParser().parsebytes(wheel.read(metadata_path))
 
 
+def audit_public_artifacts(*paths: Path) -> None:
+    result = run(
+        [sys.executable, str(REPOSITORY_ROOT / "scripts" / "audit_slurm_public_artifacts.py"), *map(str, paths)],
+        cwd=REPOSITORY_ROOT,
+        check=False,
+    )
+    if result.returncode:
+        raise RuntimeError(result.stdout + result.stderr)
+
+
 def build_wheels(uv: str, wheel_directory: Path) -> dict[str, Path]:
     for package_path in PACKAGE_PATHS:
         run(
@@ -183,6 +193,7 @@ def main() -> None:
 
         base_wheel = wheels["data-designer"]
         leaf_wheel = wheels["data-designer-slurm"]
+        audit_public_artifacts(leaf_wheel)
         base_metadata = wheel_metadata(base_wheel)
         leaf_metadata = wheel_metadata(leaf_wheel)
         version = base_metadata["Version"]
