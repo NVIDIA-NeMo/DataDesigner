@@ -286,25 +286,51 @@ def test_client_redacts_adjacent_assignments_fail_closed(
 
 
 @pytest.mark.parametrize(
-    ("diagnostic", "expected"),
+    ("diagnostic", "expected", "secret"),
     (
-        ("--format compact|--api-key secret", "--format compact|--api-key <redacted>"),
-        ("--api-key secret;part=value status=failed", "--api-key <redacted> status=failed"),
+        ("--format compact|--api-key secret", "--format compact|--api-key <redacted>", "secret"),
+        ("--format compact|--api_key secret", "--format compact|--api_key <redacted>", "secret"),
+        ("--api-key plaintext-secret", "--api-key <redacted>", "plaintext-secret"),
+        ("--api_key plaintext-secret", "--api_key <redacted>", "plaintext-secret"),
+        ('--api_Key "quoted secret value" status=failed', "--api_Key <redacted> status=failed", "quoted secret value"),
+        (
+            "status=failed/--access_token.key 'single quoted secret' next=ready",
+            "status=failed/--access_token.key <redacted> next=ready",
+            "single quoted secret",
+        ),
+        ("--api-key secret;part=value status=failed", "--api-key <redacted> status=failed", "secret;part=value"),
+        ("--api_key secret,part=value status=failed", "--api_key <redacted> status=failed", "secret,part=value"),
+        ("--access-token_key mixed-secret", "--access-token_key <redacted>", "mixed-secret"),
+        ("--output_format compact status=failed", "--output_format compact status=failed", None),
     ),
-    ids=("unknown-separator", "assignment-looking-suffix"),
+    ids=(
+        "hyphen-after-unknown-separator",
+        "underscore-after-unknown-separator",
+        "hyphen-unquoted",
+        "underscore-unquoted",
+        "mixed-case-double-quoted",
+        "mixed-dot-underscore-single-quoted",
+        "hyphen-punctuation-suffix",
+        "underscore-punctuation-suffix",
+        "mixed-hyphen-underscore",
+        "nonsecret-underscore-preserved",
+    ),
 )
 def test_client_redacts_option_values_without_overlap(
     fake_slurm_runner: FakeSlurmRunner,
     diagnostic: str,
     expected: str,
+    secret: str | None,
 ) -> None:
     fake_slurm_runner.script_next("squeue", FakeCommandResponse(stderr=diagnostic, returncode=2))
 
     with pytest.raises(SlurmCommandError) as error:
         SlurmCommandClient(fake_slurm_runner).query_queue((4101,))
 
-    assert expected in str(error.value)
-    assert "api-key secret" not in str(error.value)
+    detail = str(error.value).partition(": ")[2]
+    assert detail == expected
+    if secret is not None:
+        assert secret not in detail
 
 
 def test_client_bounds_command_failure_detail(fake_slurm_runner: FakeSlurmRunner) -> None:
