@@ -27,6 +27,7 @@ MAXIMUM_MEMBER_SIZE = 16 * 1024 * 1024
 MAXIMUM_ARCHIVE_CONTENT_SIZE = 128 * 1024 * 1024
 MAXIMUM_ARCHIVE_MEMBERS = 10_000
 REPOSITORY_ROOT = Path(__file__).parents[1]
+CANONICAL_PACKAGE_LICENSE = REPOSITORY_ROOT / "packages" / "data-designer-slurm" / "LICENSE"
 DEFAULT_ARTIFACTS = (
     "packages/data-designer-slurm/src",
     "packages/data-designer-slurm/README.md",
@@ -154,6 +155,10 @@ def _audit_zip(path: Path) -> list[AuditFinding]:
     license_present = False
     license_declared = False
     try:
+        canonical_license = CANONICAL_PACKAGE_LICENSE.read_bytes()
+    except OSError:
+        return [AuditFinding(_display_path(path), "canonical package license cannot be read")]
+    try:
         with zipfile.ZipFile(path) as archive:
             members = archive.infolist()
             limit_finding = _get_archive_limit_finding(
@@ -165,7 +170,12 @@ def _audit_zip(path: Path) -> list[AuditFinding]:
                 return [limit_finding]
             for index, member in enumerate(sorted(members, key=lambda item: item.filename), start=1):
                 location = f"{_display_path(path)}!member-{index}"
-                member_findings, contains_license, declares_license = _audit_zip_member(archive, member, location)
+                member_findings, contains_license, declares_license = _audit_zip_member(
+                    archive,
+                    member,
+                    location,
+                    canonical_license,
+                )
                 findings.extend(member_findings)
                 license_present = license_present or contains_license
                 license_declared = license_declared or declares_license
@@ -203,6 +213,7 @@ def _audit_zip_member(
     archive: zipfile.ZipFile,
     member: zipfile.ZipInfo,
     location: str,
+    canonical_license: bytes,
 ) -> tuple[list[AuditFinding], bool, bool]:
     if _is_unsafe_archive_name(member.filename):
         return [AuditFinding(location, "archive member path is unsafe")], False, False
@@ -219,7 +230,7 @@ def _audit_zip_member(
             content = _read_bounded(stream, expected_size=member.file_size)
     except (OSError, ValueError) as error:
         return [AuditFinding(location, str(error))], False, False
-    contains_license = is_license and b"Apache License" in content and b"Version 2.0" in content
+    contains_license = is_license and content == canonical_license
     declares_license = is_metadata and b"\nLicense-Expression: Apache-2.0\n" in b"\n" + content
     return _audit_content(location, member.filename, content), contains_license, declares_license
 
