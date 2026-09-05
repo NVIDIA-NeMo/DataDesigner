@@ -18,6 +18,7 @@ from data_designer.config.utils.visualization import (
     WithRecordSamplerMixin,
     apply_html_post_processing,
     convert_to_row_element,
+    create_rich_histogram_table,
     display_sample_record,
     get_truncated_list_as_string,
     mask_api_key,
@@ -336,3 +337,17 @@ def test_mixin_out_of_bounds_raises_display_error(
 
     with pytest.raises(DatasetSampleDisplayError, match="out of bounds"):
         results.display_sample_record(index=999)
+
+
+@pytest.mark.parametrize(
+    ("data", "expected_rows", "expected_bars"),
+    [({}, 1, [""]), ({"a": 0, "b": 0}, 2, ["", ""]), ({"a": 1, "b": 3}, 2, ["\u2588" * 6, "\u2588" * 20])],
+    ids=["empty", "all-zero", "populated"],
+)
+def test_create_rich_histogram_table_handles_empty_and_zero_counts(
+    data: dict[str, int], expected_rows: int, expected_bars: list[str]
+) -> None:
+    """Test that histogram rendering survives an empty mapping and all-zero counts."""
+    table = create_rich_histogram_table(data, ("score", "count"))
+    assert table.row_count == expected_rows
+    assert [str(cell).split(" ")[0] for cell in table.columns[1].cells] == expected_bars

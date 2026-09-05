@@ -262,10 +262,13 @@ def create_rich_histogram_table(
     table.add_column(column_names[0], justify="right", style=name_style)
     table.add_column(column_names[1], justify="left", style=value_style)
 
-    max_count = max(data.values())
+    max_count = max(data.values(), default=0)
     for name, value in data.items():
         bar = "" if max_count <= 0 else "█" * int((value / max_count) * 20)
         table.add_row(str(name), f"{bar} {value:.1f}")
+
+    if not data:
+        table.add_row("[dim]no data[/dim]", "")
 
     return table
 
