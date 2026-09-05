@@ -149,7 +149,11 @@ class _AsyncBridgedModelFacade:
                 raise asyncio.CancelledError from exc
             except concurrent.futures.TimeoutError as exc:
                 if future.done():
-                    raise  # The coroutine itself raised TimeoutError; this is not a polling timeout.
+                    # Completion can race with a polling timeout; retrieve the actual result or error.
+                    try:
+                        return future.result()
+                    except concurrent.futures.CancelledError as cancelled:
+                        raise asyncio.CancelledError from cancelled
                 if is_run_cancellation_requested():
                     future.cancel()
                     raise asyncio.CancelledError from exc

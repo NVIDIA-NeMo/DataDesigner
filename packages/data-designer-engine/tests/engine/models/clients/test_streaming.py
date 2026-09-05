@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import json
 from collections.abc import AsyncIterator, Iterator
 from typing import Any
@@ -497,8 +498,28 @@ def generate_streamed_custom_row(row: dict, generator_params: Any, models: dict[
 
 
 @pytest.mark.asyncio
-async def test_sync_custom_column_waits_for_active_stream(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A public synchronous custom column consumes its async model stream past the bridge deadline."""
+@pytest.mark.parametrize("completion_races_with_timeout", [False, True])
+async def test_sync_custom_column_waits_for_active_stream(
+    monkeypatch: pytest.MonkeyPatch, completion_races_with_timeout: bool
+) -> None:
+    """A synchronous custom column returns a complete async response despite bridge polling deadlines.
+
+    Args:
+        monkeypatch: Shortens the bridge deadline and optionally injects a polling race.
+        completion_races_with_timeout: Completes generation just before reporting a polling timeout.
+    """
+    if completion_races_with_timeout:
+        future_result = concurrent.futures.Future.result
+
+        def finish_before_timeout_check(future: concurrent.futures.Future, timeout: float | None = None) -> Any:
+            """Read future using timeout, then simulate a polling timeout racing with its completed result."""
+            result = future_result(future, timeout)
+            if timeout is not None:
+                raise concurrent.futures.TimeoutError
+            return result
+
+        monkeypatch.setattr(concurrent.futures.Future, "result", finish_before_timeout_check)
+
     stream = DelayedStream(encode_events([make_chunk({"content": "ok"}, "stop"), "[DONE]"]))
     client = make_client(
         httpx.MockTransport(
