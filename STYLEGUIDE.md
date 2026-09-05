@@ -138,17 +138,24 @@ This project uses lazy loading for heavy third-party dependencies to optimize im
 **Heavy third-party libraries** (>100ms import cost) should be lazy-loaded via `lazy_heavy_imports.py`:
 
 ```python
-# Don't import directly
-import pandas as pd
-import numpy as np
+from __future__ import annotations
 
-# Use lazy loading with IDE support
+# Don't import directly:
+#   import pandas as pd
+#   import numpy as np
+
+# Use lazy loading with IDE support:
 from typing import TYPE_CHECKING
-from data_designer.lazy_heavy_imports import pd, np
+
+import data_designer.lazy_heavy_imports as lazy
 
 if TYPE_CHECKING:
-    import pandas as pd
     import numpy as np
+    import pandas as pd
+
+
+def to_frame(values: np.ndarray) -> pd.DataFrame:
+    return lazy.pd.DataFrame({"x": values})
 ```
 
 This pattern provides:
@@ -172,11 +179,18 @@ If you add a new dependency with significant import cost (>100ms):
 
 2. **Update imports across codebase:**
    ```python
+   from __future__ import annotations
+
    from typing import TYPE_CHECKING
-   from data_designer.lazy_heavy_imports import your_lib
+
+   import data_designer.lazy_heavy_imports as lazy
 
    if TYPE_CHECKING:
        import your_library_name as your_lib
+
+
+   def summarize(model: your_lib.Model) -> str:
+       return lazy.your_lib.summarize(model)
    ```
 
 3. **Verify with performance test:**
@@ -191,7 +205,7 @@ If you add a new dependency with significant import cost (>100ms):
 **DO put in TYPE_CHECKING:**
 - Internal `data_designer` imports used **only** in type hints
 - Imports that would cause circular dependencies
-- Full imports of lazy-loaded libraries for IDE support (e.g., `import pandas as pd` in addition to runtime `from data_designer.lazy_heavy_imports import pd`)
+- Full imports of lazy-loaded libraries for IDE support (e.g., `import pandas as pd` in addition to runtime `import data_designer.lazy_heavy_imports as lazy`)
 
 **DON'T put in TYPE_CHECKING:**
 - Standard library imports (`Path`, `Any`, `Callable`, `Literal`, `TypeAlias`, etc.)
@@ -202,15 +216,18 @@ If you add a new dependency with significant import cost (>100ms):
 **Examples:**
 
 ```python
+from __future__ import annotations
+
 # CORRECT - Lazy-loaded library with IDE support
 from typing import TYPE_CHECKING
-from data_designer.lazy_heavy_imports import pd
+
+import data_designer.lazy_heavy_imports as lazy
 
 if TYPE_CHECKING:
     import pandas as pd
 
 def load_data(path: str) -> pd.DataFrame:
-    return pd.read_csv(path)
+    return lazy.pd.read_csv(path)
 
 # CORRECT - Standard library NOT in TYPE_CHECKING
 from pathlib import Path

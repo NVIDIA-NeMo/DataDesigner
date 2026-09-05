@@ -78,3 +78,15 @@ def test_runtime_src_avoids_from_lazy_heavy_imports_pattern() -> None:
             offenders.append(str(path.relative_to(repo_root)))
 
     assert not offenders, f"Runtime source files should avoid from-import lazy pattern: {offenders}"
+
+
+def test_scripts_avoid_from_lazy_heavy_imports_pattern() -> None:
+    repo_root = Path(__file__).resolve().parents[3]
+    pattern = re.compile(r"^\s*from\s+data_designer\.lazy_heavy_imports\s+import\b", re.MULTILINE)
+    offenders: list[str] = []
+
+    for path in sorted((repo_root / "scripts").glob("**/*.py")):
+        if pattern.search(path.read_text()):
+            offenders.append(str(path.relative_to(repo_root)))
+
+    assert not offenders, f"Scripts should avoid from-import lazy pattern: {offenders}"
