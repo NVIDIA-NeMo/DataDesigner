@@ -820,7 +820,8 @@ def test_get_formatted_params():
     result = params.get_formatted_params()
 
     assert isinstance(result, list)
-    assert len(result) == 5  # generation_type, max_parallel_requests, temperature, top_p, max_tokens
+    assert len(result) == 6  # generation_type, max_parallel_requests, temperature, top_p, max_tokens, stream
+    assert "stream=False" in result
 
     assert any("generation_type=chat-completion" in part for part in result)
     assert any("temperature=0.70" in part for part in result)

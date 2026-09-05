@@ -20,8 +20,9 @@ The `ChatCompletionInferenceParams` class controls how models generate text comp
 | `temperature` | `float` or `Distribution` | No | Controls randomness in generation (0.0 to 2.0). Higher values = more creative/random |
 | `top_p` | `float` or `Distribution` | No | Nucleus sampling parameter (0.0 to 1.0). Controls diversity by filtering low-probability tokens |
 | `max_tokens` | `int` | No | Maximum number of tokens to generate in the response (≥ 1) |
+| `stream` | `bool` | No | Enable [streaming responses](#streaming-responses), assembled internally into a complete result (default: `False`). |
 | `max_parallel_requests` | `int` | No | Maximum concurrent API requests to this model (default: 4, ≥ 1). See [Concurrency Control](#concurrency-control) below. |
-| `timeout` | `int` | No | API request timeout in seconds (≥ 1) |
+| `timeout` | `int` | No | API operation timeout in seconds (≥ 1). During streaming reads, limits inactivity between reads. |
 | `extra_body` | `dict[str, Any]` | No | Additional parameters to include in the API request body |
 
 <Note>
@@ -52,6 +53,47 @@ inference_parameters = dd.ChatCompletionInferenceParams(
 )
 ```
 </Tip>
+
+### Streaming Responses
+
+Set `stream=True` in `ChatCompletionInferenceParams` to receive the model response
+incrementally over server-sent events (SSE). Streaming is disabled by default.
+Use your existing model ID and configured provider name:
+
+```python
+import data_designer.config as dd
+
+model_config = dd.ModelConfig(
+    alias="streaming-model",
+    model="your-model-id",
+    provider="your-provider",
+    inference_parameters=dd.ChatCompletionInferenceParams(
+        stream=True,
+        timeout=120,  # Maximum inactivity between network reads, in seconds.
+    ),
+)
+```
+
+Pass this configuration to your builder's `model_configs` and reference
+`model_alias="streaming-model"` in text, code, structured-output, or judge columns.
+See [Model Providers](/concepts/models/model-providers) for provider setup.
+
+- **Supported providers:** OpenAI-compatible (`provider_type="openai"`) and Anthropic
+  Messages (`provider_type="anthropic"`) endpoints that support SSE, with both synchronous
+  and asynchronous generation.
+- **Returned results:** Data Designer assembles the complete response before parsing
+  structured output, executing tool calls, or writing the row. Your code receives the
+  same complete results and dataset format, rather than a token iterator.
+- **Timeouts:** With `timeout=120`, a streaming read can wait up to 120 seconds for more
+  data. The full response can take longer while data continues to arrive. If a stream
+  ends prematurely, its partial result is discarded and the existing retry policy
+  applies to a fresh request.
+
+<Note>
+OpenAI-compatible streaming requests ask for token usage with
+`stream_options={"include_usage": True}`. If your endpoint rejects this option, add
+`extra_body={"stream_options": None}` to `ChatCompletionInferenceParams` to omit it.
+</Note>
 
 ### Temperature and Top P Guidelines
 

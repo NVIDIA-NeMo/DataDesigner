@@ -74,6 +74,9 @@ class ChatCompletionRequest:
     extra_body: dict[str, Any] | None = None
     extra_headers: dict[str, str] | None = None
 
+    # None preserves the provider's default and the existing non-streaming wire format.
+    stream: bool | None = None
+
 
 @dataclass
 class ChatCompletionChoice:

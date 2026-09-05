@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import threading
 from abc import ABC, abstractmethod
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
 
 import data_designer.lazy_heavy_imports as lazy
@@ -14,11 +16,18 @@ from data_designer.engine.models.clients.adapters.http_helpers import (
     resolve_timeout,
     wrap_transport_error,
 )
-from data_designer.engine.models.clients.errors import SyncClientUnavailableError, map_http_error_to_provider_error
+from data_designer.engine.models.clients.errors import (
+    ProviderError,
+    ProviderErrorKind,
+    SyncClientUnavailableError,
+    map_http_error_to_provider_error,
+)
 from data_designer.engine.models.clients.retry import RetryConfig, RetryTransport, create_retry_transport
 
 if TYPE_CHECKING:
     import httpx
+
+    from data_designer.engine.models.clients.streaming import ChatStream
 
 
 class ClientConcurrencyMode(StrEnum):
@@ -171,24 +180,48 @@ class HttpModelClient(ABC):
         extra_headers: dict[str, str],
         model_name: str,
         timeout: float | None = None,
+        *,
+        stream: ChatStream | None = None,
     ) -> dict[str, Any]:
-        url = f"{self._endpoint}{route}"
-        headers = self._build_headers(extra_headers)
+        """POST JSON or SSE and return the complete response, closing the connection.
+
+        Args:
+            route: Provider route appended to the configured endpoint.
+            payload: Provider-specific JSON request body.
+            extra_headers: Per-request headers merged with provider authentication.
+            model_name: Model identifier for errors.
+            timeout: Optional per-operation timeout in seconds, including read inactivity.
+            stream: Fresh accumulator for SSE; None selects an ordinary JSON response.
+
+        Returns:
+            Decoded JSON or the assembled streaming response.
+
+        Raises:
+            ProviderError: For HTTP errors, malformed events, timeouts, or interrupted streams.
+        """
         client = self._get_sync_client()
-        try:
-            response = client.post(
-                url,
-                json=payload,
-                headers=headers,
-                timeout=resolve_timeout(self._timeout_s, timeout),
-            )
-        except Exception as exc:
-            raise wrap_transport_error(exc, self.provider_name, model_name) from exc
-        if response.status_code >= 400:
-            raise map_http_error_to_provider_error(
-                response=response, provider_name=self.provider_name, model_name=model_name
-            )
-        return parse_json_body(response, self.provider_name, model_name)
+        headers = self._build_headers(extra_headers)
+        if stream is not None:
+            headers = {"Accept": "text/event-stream", **headers}
+        url = f"{self._endpoint}{route}"
+        with self._request_errors(model_name, stream):
+            request_kwargs: dict[str, Any] = {
+                "json": payload,
+                "headers": headers,
+                "timeout": resolve_timeout(self._timeout_s, timeout),
+            }
+            if stream is None:
+                response = client.post(url, **request_kwargs)
+                self._validate_response(response, model_name, stream)
+                return parse_json_body(response, self.provider_name, model_name)
+            with client.stream("POST", url, **request_kwargs) as response:
+                if response.status_code >= 400:
+                    response.read()
+                self._validate_response(response, model_name, stream)
+                for line in response.iter_lines():
+                    if stream.feed_line(line):
+                        break
+                return stream.finish()
 
     async def _apost(
         self,
@@ -197,21 +230,95 @@ class HttpModelClient(ABC):
         extra_headers: dict[str, str],
         model_name: str,
         timeout: float | None = None,
+        *,
+        stream: ChatStream | None = None,
     ) -> dict[str, Any]:
-        url = f"{self._endpoint}{route}"
+        """Asynchronously POST JSON or SSE and return the complete provider response.
+
+        Args:
+            route: Provider route appended to the configured endpoint.
+            payload: Provider-specific JSON request body.
+            extra_headers: Per-request headers merged with provider authentication.
+            model_name: Model identifier for errors.
+            timeout: Optional per-operation timeout in seconds, including read inactivity.
+            stream: Fresh accumulator for SSE; None selects an ordinary JSON response.
+
+        Returns:
+            Decoded JSON or the assembled streaming response, with the connection closed.
+
+        Raises:
+            ProviderError: For HTTP, protocol, timeout, or connection failures.
+            asyncio.CancelledError: Cancellation propagates after closing the response.
+        """
+        client = self._get_async_client()
         headers = self._build_headers(extra_headers)
-        async_client = self._get_async_client()
-        try:
-            response = await async_client.post(
-                url,
-                json=payload,
-                headers=headers,
-                timeout=resolve_timeout(self._timeout_s, timeout),
-            )
-        except Exception as exc:
-            raise wrap_transport_error(exc, self.provider_name, model_name) from exc
+        if stream is not None:
+            headers = {"Accept": "text/event-stream", **headers}
+        url = f"{self._endpoint}{route}"
+        with self._request_errors(model_name, stream):
+            request_kwargs: dict[str, Any] = {
+                "json": payload,
+                "headers": headers,
+                "timeout": resolve_timeout(self._timeout_s, timeout),
+            }
+            if stream is None:
+                response = await client.post(url, **request_kwargs)
+                self._validate_response(response, model_name, stream)
+                return parse_json_body(response, self.provider_name, model_name)
+            async with client.stream("POST", url, **request_kwargs) as response:
+                if response.status_code >= 400:
+                    await response.aread()
+                self._validate_response(response, model_name, stream)
+                async for line in response.aiter_lines():
+                    if stream.feed_line(line):
+                        break
+                return stream.finish()
+
+    def _validate_response(
+        self,
+        response: httpx.Response,
+        model_name: str,
+        stream: ChatStream | None,
+    ) -> None:
+        """Check HTTP status and set UTF-8 decoding for a successful SSE response.
+
+        Args:
+            response: HTTP response, with its body already read when the status is an error.
+            model_name: Model identifier attached to HTTP errors.
+            stream: SSE accumulator, or None to skip SSE checks for a JSON response.
+
+        Raises:
+            ProviderError: For HTTP failures or an unexpected SSE content type.
+        """
         if response.status_code >= 400:
             raise map_http_error_to_provider_error(
                 response=response, provider_name=self.provider_name, model_name=model_name
             )
-        return parse_json_body(response, self.provider_name, model_name)
+        if stream is not None:
+            if response.headers.get("content-type", "").split(";")[0].strip().lower() != "text/event-stream":
+                stream.fail("Expected text/event-stream for a streaming chat request")
+            response.encoding = "utf-8"
+
+    @contextmanager
+    def _request_errors(self, model_name: str, stream: ChatStream | None) -> Iterator[None]:
+        """Normalize request failures for both execution modes, leaving cancellation untouched.
+
+        Args:
+            model_name: Model identifier attached to normalized transport errors.
+            stream: SSE accumulator; its transport failures must retry the complete request.
+
+        Yields:
+            Control to HTTP I/O and parsing; failures leave the context as ProviderError.
+        """
+        try:
+            yield
+        except ProviderError:
+            raise
+        except Exception as exc:
+            if (
+                stream is not None
+                and isinstance(exc, lazy.httpx.TransportError)
+                and not isinstance(exc, lazy.httpx.TimeoutException)
+            ):
+                stream.fail("Chat stream connection interrupted", kind=ProviderErrorKind.API_CONNECTION, cause=exc)
+            raise wrap_transport_error(exc, self.provider_name, model_name) from exc
