@@ -1,12 +1,56 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from copy import deepcopy
 from pathlib import Path
 from unittest.mock import patch
+
+import pytest
 
 from data_designer.config.analysis.column_statistics import GeneralColumnStatistics, MissingValue
 from data_designer.config.analysis.dataset_profiler import DatasetProfilerResults
 from data_designer.config.utils.constants import EPSILON
+
+_ISSUE_DOCUMENT = {
+    "num_records": 1,
+    "target_num_records": 1,
+    "column_statistics": [
+        {
+            "column_type": "general",
+            "column_name": "text",
+            "num_records": 1,
+            "num_null": 0,
+            "num_unique": 1,
+            "pyarrow_dtype": "string",
+            "simple_dtype": "str",
+        }
+    ],
+    "column_profiles": [
+        {
+            "column_name": "quality",
+            "summaries": {"helpfulness": {"score_name": "helpfulness", "summary": "ok", "score_samples": []}},
+            "score_distributions": {
+                "scores": {"helpfulness": [5]},
+                "reasoning": {"helpfulness": ["ok"]},
+                "distribution_types": {"helpfulness": "categorical"},
+                "distributions": {"helpfulness": "--"},
+                "histograms": {"helpfulness": {"categories": [5], "counts": [1]}},
+            },
+        }
+    ],
+}
+
+_DISTS = _ISSUE_DOCUMENT["column_profiles"][0]["score_distributions"]
+
+
+def _dists(histograms: dict) -> dict:
+    return {**_DISTS, "histograms": histograms}
+
+
+def _judge_profile_document(score_distributions: object) -> dict:
+    document = deepcopy(_ISSUE_DOCUMENT)
+    document["column_profiles"][0]["score_distributions"] = score_distributions
+    return document
 
 
 def test_dataset_profiler_results_creation(sample_dataset_profiler_results):
@@ -158,3 +202,24 @@ def test_dataset_profiler_results_from_dict():
     assert result.target_num_records == 200
     assert len(result.column_statistics) == 1
     assert result.column_statistics[0].column_name == "test_col"
+
+
+@pytest.mark.parametrize(
+    "score_distributions",
+    [
+        _dists({"helpfulness": {"categories": [], "counts": []}}),
+        _dists({"helpfulness": "--"}),
+        "--",
+        _dists({}),
+        _DISTS,
+    ],
+    ids=["empty", "missing-value", "no-distributions", "no-histogram", "populated"],
+)
+def test_to_report_renders_degenerate_judge_histograms(score_distributions: object, tmp_path: Path) -> None:
+    """Test that to_report renders judge profiles whose histogram data is empty or missing."""
+    results = DatasetProfilerResults.model_validate(_judge_profile_document(score_distributions))
+    report = tmp_path / "report.html"
+
+    results.to_report(report)
+
+    assert report.stat().st_size > 0
