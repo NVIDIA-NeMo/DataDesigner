@@ -545,8 +545,11 @@ def test_async_bridge_obeys_run_cancellation_before_scheduling() -> None:
     facade.agenerate.assert_not_called()
 
 
-def test_async_bridge_cancels_in_flight_request() -> None:
+@pytest.mark.parametrize("streaming", [False, True])
+def test_async_bridge_cancels_in_flight_request(streaming: bool) -> None:
+    """Run cancellation stops an in-flight model call with or without a streaming deadline."""
     facade = Mock()
+    facade.is_streaming_enabled.return_value = streaming
     facade.generate.side_effect = SyncClientUnavailableError(
         "Sync methods are not available on an async-mode HttpModelClient."
     )

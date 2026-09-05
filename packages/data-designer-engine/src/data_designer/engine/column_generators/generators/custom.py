@@ -68,6 +68,21 @@ class _AsyncBridgedModelFacade:
         object.__setattr__(self, "_facade", facade)
 
     def generate(self, *args: Any, **kwargs: Any) -> tuple[Any, list]:
+        """Generate through the wrapped model, bridging async clients from a worker thread.
+
+        Args:
+            *args: Positional arguments forwarded to ModelFacade.generate/agenerate.
+            **kwargs: Generation parameters and per-call inference overrides.
+
+        Returns:
+            Parsed model output and conversation trace. Streaming calls rely on HTTP
+            inactivity timeouts while the bridge continues polling for run cancellation.
+
+        Raises:
+            ModelTimeoutError: If a non-streaming bridge exceeds its derived deadline.
+            asyncio.CancelledError: If the run is cancelled, also cancelling the model call.
+            RuntimeError: If a synchronous bridge is attempted from the event loop.
+        """
         from data_designer.engine.models.clients.errors import SyncClientUnavailableError
 
         facade = object.__getattribute__(self, "_facade")
@@ -101,11 +116,15 @@ class _AsyncBridgedModelFacade:
         correction_steps = int(kwargs.get("max_correction_steps", 0) or 0)
         conversation_restarts = int(kwargs.get("max_conversation_restarts", 0) or 0)
         bridge_timeout = _compute_bridge_timeout(per_request_timeout, correction_steps, conversation_restarts)
+        if facade.is_streaming_enabled(**kwargs) is True:
+            # A read timeout bounds silence between chunks, not the response's total duration.
+            bridge_timeout = float("inf")
 
         if is_run_cancellation_requested():
             raise asyncio.CancelledError
 
         async def agenerate_with_cancellation_check() -> tuple[Any, list]:
+            """Return the forwarded async generation, or propagate cancellation before starting I/O."""
             if is_run_cancellation_requested():
                 raise asyncio.CancelledError
             return await facade.agenerate(*args, **kwargs)
@@ -129,6 +148,12 @@ class _AsyncBridgedModelFacade:
             except concurrent.futures.CancelledError as exc:
                 raise asyncio.CancelledError from exc
             except concurrent.futures.TimeoutError as exc:
+                if future.done():
+                    # Completion can race with a polling timeout; retrieve the actual result or error.
+                    try:
+                        return future.result()
+                    except concurrent.futures.CancelledError as cancelled:
+                        raise asyncio.CancelledError from cancelled
                 if is_run_cancellation_requested():
                     future.cancel()
                     raise asyncio.CancelledError from exc

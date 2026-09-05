@@ -3,8 +3,6 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from data_designer.engine.models.clients.adapters.anthropic_translation import (
     UnsupportedAnthropicMediaBlockError,
     build_anthropic_payload,
@@ -17,6 +15,7 @@ from data_designer.engine.models.clients.errors import (
     ProviderError,
     ProviderErrorKind,
 )
+from data_designer.engine.models.clients.streaming import AnthropicMessageStream
 from data_designer.engine.models.clients.types import (
     ChatCompletionRequest,
     ChatCompletionResponse,
@@ -71,20 +70,43 @@ class AnthropicClient(HttpModelClient):
     # -------------------------------------------------------------------
 
     def completion(self, request: ChatCompletionRequest) -> ChatCompletionResponse:
-        payload = self._build_payload_or_raise(request)
-        transport = TransportKwargs.from_request(request, exclude=self._TRANSPORT_EXCLUDE)
-        payload.update(transport.body)
+        """Send request and return a complete Messages response, aggregating SSE if enabled.
+
+        Args:
+            request: Canonical chat parameters including messages and optional streaming.
+
+        Raises:
+            ProviderError: If translation, HTTP transport, or stream assembly fails.
+        """
+        transport, stream = self._prepare_completion(request)
         response_json = self._post_sync(
-            self._get_messages_route(), payload, transport.headers, request.model, transport.timeout
+            self._get_messages_route(),
+            transport.body,
+            transport.headers,
+            request.model,
+            transport.timeout,
+            stream=stream,
         )
         return parse_anthropic_response(response_json)
 
     async def acompletion(self, request: ChatCompletionRequest) -> ChatCompletionResponse:
-        payload = self._build_payload_or_raise(request)
-        transport = TransportKwargs.from_request(request, exclude=self._TRANSPORT_EXCLUDE)
-        payload.update(transport.body)
+        """Asynchronously send request and return an assembled Messages response.
+
+        Args:
+            request: Canonical chat parameters including messages and optional streaming.
+
+        Raises:
+            ProviderError: If translation, HTTP transport, or stream assembly fails.
+            asyncio.CancelledError: If cancelled; the stream connection is released.
+        """
+        transport, stream = self._prepare_completion(request)
         response_json = await self._apost(
-            self._get_messages_route(), payload, transport.headers, request.model, transport.timeout
+            self._get_messages_route(),
+            transport.body,
+            transport.headers,
+            request.model,
+            transport.timeout,
+            stream=stream,
         )
         return parse_anthropic_response(response_json)
 
@@ -104,9 +126,22 @@ class AnthropicClient(HttpModelClient):
     async def agenerate_image(self, request: ImageGenerationRequest) -> ImageGenerationResponse:
         raise ProviderError.unsupported_capability(provider_name=self.provider_name, operation="image-generation")
 
-    def _build_payload_or_raise(self, request: ChatCompletionRequest) -> dict[str, Any]:
+    def _prepare_completion(
+        self, request: ChatCompletionRequest
+    ) -> tuple[TransportKwargs, AnthropicMessageStream | None]:
+        """Translate request into Messages HTTP arguments and an optional fresh SSE accumulator.
+
+        Args:
+            request: Canonical chat parameters; extra_body overrides translated fields.
+
+        Returns:
+            Complete transport arguments and a stream when the final body enables it.
+
+        Raises:
+            ProviderError: If messages or media cannot be represented by the Messages API.
+        """
         try:
-            return build_anthropic_payload(request)
+            payload = build_anthropic_payload(request)
         except UnsupportedAnthropicMediaBlockError as exc:
             raise ProviderError.unsupported_capability(
                 provider_name=self.provider_name,
@@ -125,6 +160,11 @@ class AnthropicClient(HttpModelClient):
                 model_name=request.model,
                 cause=exc,
             ) from exc
+
+        transport = TransportKwargs.from_request(request, exclude=self._TRANSPORT_EXCLUDE)
+        transport.body = {**payload, **transport.body}
+        stream = AnthropicMessageStream(self.provider_name, request.model) if transport.body.get("stream") else None
+        return transport, stream
 
     def _build_headers(self, extra_headers: dict[str, str]) -> dict[str, str]:
         headers: dict[str, str] = {

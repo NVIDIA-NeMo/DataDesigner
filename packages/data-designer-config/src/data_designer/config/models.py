@@ -497,16 +497,23 @@ class ChatCompletionInferenceParams(BaseInferenceParams):
         temperature: Sampling temperature (0.0-2.0). Can be a fixed value or a distribution for dynamic sampling.
         top_p: Nucleus sampling probability (0.0-1.0). Can be a fixed value or a distribution for dynamic sampling.
         max_tokens: Maximum number of tokens to generate in the response.
+        stream: Receive chat responses incrementally over SSE, then return the complete
+            result to the generation pipeline. The timeout limits network inactivity,
+            not the total duration of an actively streaming response.
     """
 
     generation_type: Literal[GenerationType.CHAT_COMPLETION] = GenerationType.CHAT_COMPLETION
     temperature: float | DistributionT | None = None
     top_p: float | DistributionT | None = None
     max_tokens: int | None = Field(default=None, ge=1)
+    stream: bool = False
 
     @property
     def generate_kwargs(self) -> dict[str, Any]:
+        """Return sampled chat parameters, enabling streaming only when requested."""
         result = super().generate_kwargs
+        if self.stream:
+            result["stream"] = True
         if self.temperature is not None:
             result["temperature"] = (
                 self.temperature.sample() if hasattr(self.temperature, "sample") else self.temperature

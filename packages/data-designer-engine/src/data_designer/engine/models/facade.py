@@ -106,6 +106,7 @@ _COMPLETION_REQUEST_FIELDS = frozenset(
         "response_format",
         "frequency_penalty",
         "presence_penalty",
+        "stream",
         "timeout",
         "tools",
         "extra_body",
@@ -185,6 +186,22 @@ class ModelFacade:
     @property
     def usage_stats(self) -> ModelUsageStats:
         return self._usage_stats
+
+    def is_streaming_enabled(self, **kwargs: Any) -> bool:
+        """Resolve the effective chat streaming flag without sampling inference parameters.
+
+        Args:
+            **kwargs: Per-call model parameters. The stream field overrides model config;
+                extra_body overrides that field, and provider extra_body takes precedence.
+
+        Returns:
+            Whether the final chat request body requests streaming.
+        """
+        params = self._model_config.inference_parameters
+        stream = kwargs.get("stream", getattr(params, "stream", False))
+        extra_body = kwargs.get("extra_body", params.extra_body) or {}
+        provider_body = self.model_provider.extra_body or {}
+        return bool(provider_body.get("stream", extra_body.get("stream", stream)))
 
     def consolidate_kwargs(self, **kwargs: Any) -> dict[str, Any]:
         # Remove purpose from kwargs to avoid passing it to the model

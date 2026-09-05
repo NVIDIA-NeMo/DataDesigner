@@ -20,6 +20,7 @@ from data_designer.engine.models.clients.parsing import (
     extract_usage,
     parse_chat_completion_response,
 )
+from data_designer.engine.models.clients.streaming import OpenAIChatStream
 from data_designer.engine.models.clients.types import (
     ChatCompletionRequest,
     ChatCompletionResponse,
@@ -62,28 +63,64 @@ class OpenAICompatibleClient(HttpModelClient):
     # -------------------------------------------------------------------
 
     def completion(self, request: ChatCompletionRequest) -> ChatCompletionResponse:
-        transport = TransportKwargs.from_request(request)
-        messages = translate_openai_compatible_messages(
-            request.messages,
-            provider_name=self.provider_name,
-            model_name=request.model,
+        """Send a chat request, returning a complete response after any SSE aggregation.
+
+        Args:
+            request: Canonical chat parameters, messages, and optional streaming flag.
+
+        Returns:
+            Parsed assistant choices and usage; partial stream results are never returned.
+
+        Raises:
+            ProviderError: If the provider or stream fails.
+        """
+        transport, stream = self._prepare_completion(request)
+        response_json = self._post_sync(
+            self._ROUTE_CHAT, transport.body, transport.headers, request.model, transport.timeout, stream=stream
         )
-        payload = {"model": request.model, "messages": messages, **transport.body}
-        response_json = self._post_sync(self._ROUTE_CHAT, payload, transport.headers, request.model, transport.timeout)
         return parse_chat_completion_response(response_json)
 
     async def acompletion(self, request: ChatCompletionRequest) -> ChatCompletionResponse:
-        transport = TransportKwargs.from_request(request)
-        messages = translate_openai_compatible_messages(
-            request.messages,
-            provider_name=self.provider_name,
-            model_name=request.model,
-        )
-        payload = {"model": request.model, "messages": messages, **transport.body}
+        """Send a chat request asynchronously and return assembled choices and usage.
+
+        Args:
+            request: Canonical chat parameters, messages, and optional streaming flag.
+
+        Raises:
+            ProviderError: If the provider or stream fails.
+            asyncio.CancelledError: If cancelled; the stream connection is released.
+        """
+        transport, stream = self._prepare_completion(request)
         response_json = await self._apost(
-            self._ROUTE_CHAT, payload, transport.headers, request.model, transport.timeout
+            self._ROUTE_CHAT, transport.body, transport.headers, request.model, transport.timeout, stream=stream
         )
         return await aparse_chat_completion_response(response_json)
+
+    def _prepare_completion(self, request: ChatCompletionRequest) -> tuple[TransportKwargs, OpenAIChatStream | None]:
+        """Translate request into HTTP arguments and an optional fresh SSE accumulator.
+
+        Args:
+            request: Canonical chat parameters; extra_body overrides typed fields.
+
+        Returns:
+            Complete transport arguments and a stream when the final body enables it.
+            Usage is requested by default; explicit stream_options overrides are preserved.
+
+        Raises:
+            ProviderError: If the request contains unsupported media.
+        """
+        transport = TransportKwargs.from_request(request)
+        messages = translate_openai_compatible_messages(
+            request.messages, provider_name=self.provider_name, model_name=request.model
+        )
+        transport.body = {"model": request.model, "messages": messages, **transport.body}
+        stream = None
+        if transport.body.get("stream"):
+            options = transport.body.pop("stream_options", {})
+            if options is not None:
+                transport.body["stream_options"] = {"include_usage": True, **options}
+            stream = OpenAIChatStream(self.provider_name, request.model, transport.body.get("n") or 1)
+        return transport, stream
 
     # -------------------------------------------------------------------
     # Embeddings
