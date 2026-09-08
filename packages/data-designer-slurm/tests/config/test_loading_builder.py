@@ -19,6 +19,7 @@ from data_designer.slurm.config import (
     SlurmConfigBuilderError,
     SlurmConfigLoadError,
     SlurmProfileCatalog,
+    load_builder_payload,
     load_profile_catalog,
     load_run_config,
     resolve_profile,
@@ -261,6 +262,23 @@ def test_loader_preserves_literal_interpolation_inside_builder_payload(tmp_path:
     builder.write_config(path)
 
     assert load_run_config(path) == builder.build()
+
+
+def test_builder_payload_loader_validates_complete_config(tmp_path: Path) -> None:
+    payload = _config_builder(prompt="Use the literal ${HOME} value").build().builder.inline
+    assert payload is not None
+    path = tmp_path / "builder.json"
+    path.write_text(json.dumps(payload))
+
+    assert load_builder_payload(path) == payload
+
+
+def test_builder_payload_loader_rejects_partial_config(tmp_path: Path) -> None:
+    path = tmp_path / "builder.json"
+    path.write_text('{"library_version":"1.0"}')
+
+    with pytest.raises(SlurmConfigLoadError, match="failed validation"):
+        load_builder_payload(path)
 
 
 def test_profile_source_and_selection_precedence(

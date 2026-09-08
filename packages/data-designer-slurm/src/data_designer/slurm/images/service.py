@@ -308,7 +308,10 @@ def _open_verified_sqsh(
             dir_fd=directory_descriptor,
         )
         after_open = os.fstat(descriptor)
-        if (before_open.st_dev, before_open.st_ino) != (after_open.st_dev, after_open.st_ino):
+        if not stat.S_ISREG(after_open.st_mode) or (before_open.st_dev, before_open.st_ino) != (
+            after_open.st_dev,
+            after_open.st_ino,
+        ):
             raise ImageVerificationError(f"image path {path} changed while it was being opened")
         facts = _get_file_facts(after_open)
         sha256 = _hash_descriptor(descriptor)
