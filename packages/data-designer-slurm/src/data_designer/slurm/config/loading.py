@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import TypeVar, cast
 
 import yaml
-from pydantic import ValidationError
+from pydantic import JsonValue, ValidationError
 from yaml.nodes import MappingNode
 
 from data_designer.slurm._errors import format_parse_error, format_validation_error
@@ -25,7 +25,7 @@ from data_designer.slurm.config.profiles import (
     injected_profile,
     select_profile,
 )
-from data_designer.slurm.config.run import DataDesignerSlurmConfig
+from data_designer.slurm.config.run import BuilderInput, DataDesignerSlurmConfig
 
 PROFILE_FILE_ENVIRONMENT = "DATA_DESIGNER_SLURM_PROFILE_FILE"
 DEFAULT_PROFILE_FILE_NAME = ".data-designer-slurm-profile.yml"
@@ -72,6 +72,31 @@ def load_run_config(path: str | Path) -> DataDesignerSlurmConfig:
 def load_profile_catalog(path: str | Path) -> SlurmProfileCatalog:
     """Load one strict local YAML or JSON cluster-profile catalog."""
     return _load_config(path, SlurmProfileCatalog)
+
+
+def load_builder_payload(path: str | Path) -> dict[str, JsonValue]:
+    """Load one complete serialized Data Designer builder config."""
+    resolved_path = _normalize_file_path(path)
+    try:
+        contents = resolved_path.read_text(encoding="utf-8")
+    except OSError:
+        raise SlurmConfigLoadError(f"cannot read configuration file {resolved_path}") from None
+    try:
+        payload = _parse_mapping(contents, suffix=resolved_path.suffix)
+        validated = BuilderInput(inline=payload).inline
+        assert validated is not None
+        return validated
+    except SlurmConfigLoadError:
+        raise
+    except ValidationError as error:
+        message = format_validation_error(
+            error,
+            subject=f"builder configuration file {resolved_path}",
+            models=BuilderInput,
+        )
+        raise SlurmConfigLoadError(message) from None
+    except (json.JSONDecodeError, yaml.YAMLError) as error:
+        raise SlurmConfigLoadError(f"invalid configuration file {resolved_path}: {format_parse_error(error)}") from None
 
 
 def resolve_profile(
