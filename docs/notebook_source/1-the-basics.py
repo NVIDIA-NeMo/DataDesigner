@@ -60,10 +60,10 @@ data_designer = DataDesigner()
 MODEL_PROVIDER = "nvidia"
 
 # The model ID is from build.nvidia.com.
-MODEL_ID = "nvidia/nemotron-3-nano-30b-a3b"
+MODEL_ID = "nvidia/nemotron-3.5-lightning-30b-a3b"
 
 # We choose this alias to be descriptive for our use case.
-MODEL_ALIAS = "nemotron-nano-v3"
+MODEL_ALIAS = "nemotron-lightning"
 
 model_configs = [
     dd.ModelConfig(
@@ -72,7 +72,7 @@ model_configs = [
         provider=MODEL_PROVIDER,
         inference_parameters=dd.ChatCompletionInferenceParams(
             temperature=1.0,
-            top_p=1.0,
+            top_p=0.95,
             max_tokens=2048,
             extra_body={"chat_template_kwargs": {"enable_thinking": False}},
         ),
