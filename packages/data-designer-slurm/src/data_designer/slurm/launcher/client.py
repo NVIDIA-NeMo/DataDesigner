@@ -31,6 +31,12 @@ from data_designer.slurm.state import SchedulerIdentity, SchedulerJobIdentity
 _IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _ENVIRONMENT_NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _MAX_SLURM_INTEGER = (1 << 32) - 1
+_UNKNOWN_QUEUE_JOB_DETAILS = frozenset(
+    {
+        "Invalid job id specified",
+        "slurm_load_jobs error: Invalid job id specified",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -109,15 +115,20 @@ class SlurmCommandClient:
         """Return normalized active-queue rows for explicit managed jobs."""
         requested = tuple(selectors)
         jobs = _format_selectors(requested)
-        output = self._run(
-            (
-                self._executables.squeue,
-                "--noheader",
-                "--array",
-                "--format=%i|%T",
-                f"--jobs={jobs}",
+        try:
+            output = self._run(
+                (
+                    self._executables.squeue,
+                    "--noheader",
+                    "--array",
+                    "--format=%i|%T",
+                    f"--jobs={jobs}",
+                )
             )
-        )
+        except SlurmCommandError as error:
+            if _is_unknown_queue_job_error(error):
+                return ()
+            raise
         entries = parse_queue(output)
         ignored = _validate_observed_job_identities(
             tuple(entry.job_identity for entry in entries),
@@ -272,3 +283,8 @@ def _format_error_detail(error: BaseException) -> str:
     if isinstance(error, subprocess.TimeoutExpired):
         return "command timed out"
     return _normalize_bounded_text(str(error)) or error.__class__.__name__
+
+
+def _is_unknown_queue_job_error(error: SlurmCommandError) -> bool:
+    message = str(error)
+    return any(message.endswith(f": {detail}") for detail in _UNKNOWN_QUEUE_JOB_DETAILS)

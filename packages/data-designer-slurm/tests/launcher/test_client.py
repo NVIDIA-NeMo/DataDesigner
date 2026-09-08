@@ -208,6 +208,39 @@ def test_client_normalizes_command_failures(fake_slurm_runner: FakeSlurmRunner) 
         client.query_accounting((4101,))
 
 
+@pytest.mark.parametrize(
+    "detail",
+    (
+        "Invalid job id specified",
+        "slurm_load_jobs error: Invalid job id specified",
+    ),
+)
+def test_client_treats_unknown_queue_job_as_an_absent_row(
+    fake_slurm_runner: FakeSlurmRunner,
+    detail: str,
+) -> None:
+    fake_slurm_runner.script_next("squeue", FakeCommandResponse(stderr=f"{detail}\n", returncode=1))
+
+    assert SlurmCommandClient(fake_slurm_runner).query_queue((4101,)) == ()
+
+
+@pytest.mark.parametrize(
+    "detail",
+    (
+        "Invalid job id specified for partition",
+        "queue unavailable",
+    ),
+)
+def test_client_preserves_non_missing_queue_failures(
+    fake_slurm_runner: FakeSlurmRunner,
+    detail: str,
+) -> None:
+    fake_slurm_runner.script_next("squeue", FakeCommandResponse(stderr=f"{detail}\n", returncode=1))
+
+    with pytest.raises(SlurmCommandError, match=detail):
+        SlurmCommandClient(fake_slurm_runner).query_queue((4101,))
+
+
 def test_client_removes_terminal_controls_from_command_failures(fake_slurm_runner: FakeSlurmRunner) -> None:
     fake_slurm_runner.script_next(
         "squeue",

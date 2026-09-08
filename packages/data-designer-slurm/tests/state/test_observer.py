@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import cast
 
 import pytest
-from slurm_test_fakes import FakeSlurmRunner
+from slurm_test_fakes import FakeCommandResponse, FakeSlurmRunner
 
 from data_designer.slurm.client import ClientOutcome, ClientResult
 from data_designer.slurm.config import DataDesignerSlurmConfig, SlurmProfile
@@ -93,6 +93,48 @@ def test_collector_prefers_terminal_accounting_for_array_and_collection_jobs() -
         SchedulerState.COMPLETED,
     )
     assert tuple(observation.scheduler for observation in observations) == (task, 5101)
+
+
+@pytest.mark.parametrize("transient_state", (SchedulerState.PREEMPTED, SchedulerState.REQUEUED))
+def test_collector_allows_transient_scheduler_states_to_advance(
+    transient_state: SchedulerState,
+) -> None:
+    task = SchedulerIdentity(array_job_id=4101, array_task_id=0)
+    first_time = datetime(2026, 9, 2, 12, tzinfo=timezone.utc)
+    previous = SchedulerObservation(
+        schema_version=1,
+        scheduler=task,
+        observed_at=first_time,
+        state=transient_state,
+    )
+
+    pending = SchedulerObservationCollector(
+        _StaticSchedulerClient((SlurmQueueEntry(job_identity=task, state=SchedulerState.PENDING),), ())
+    ).collect((task,), observed_at=first_time + timedelta(minutes=1), previous={task: previous})[0]
+    completed = SchedulerObservationCollector(
+        _StaticSchedulerClient((), (_accounting(task, SchedulerState.COMPLETED),))
+    ).collect((task,), observed_at=first_time + timedelta(minutes=2), previous={task: pending})[0]
+
+    assert pending.state is SchedulerState.PENDING
+    assert completed.state is SchedulerState.COMPLETED
+
+
+def test_collector_reads_accounting_when_queue_no_longer_knows_job() -> None:
+    task = SchedulerIdentity(array_job_id=4101, array_task_id=0)
+    runner = FakeSlurmRunner()
+    runner.script_next(
+        "squeue",
+        FakeCommandResponse(stderr="slurm_load_jobs error: Invalid job id specified\n", returncode=1),
+    )
+    runner.script_next("sacct", FakeCommandResponse(stdout="4101_0|COMPLETED|0:0\n"))
+
+    observation = SchedulerObservationCollector(SlurmCommandClient(runner)).collect(
+        (task,),
+        observed_at=datetime(2026, 9, 2, 12, tzinfo=timezone.utc),
+    )[0]
+
+    assert observation.state is SchedulerState.COMPLETED
+    assert tuple(call[0] for call in runner.calls) == ("squeue", "sacct")
 
 
 def test_fresh_process_refresh_persists_one_fixed_accounting_lag_deadline(
@@ -214,6 +256,38 @@ def test_refresh_reports_a_validated_winner_as_succeeded(
     assert status.effective_state is EffectiveRunState.SUCCEEDED
 
 
+def test_refresh_does_not_succeed_a_winnerless_persisted_candidate(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+    fake_slurm_runner: FakeSlurmRunner,
+) -> None:
+    case = _initialized_case(tmp_path, authored_run_single, single_node_plan)
+    SlurmCommandClient(fake_slurm_runner).submit("run.sbatch")
+    completed, winner = _publish_winner_state(case)
+    (case.writer.run_root / "shards/shard-00000/winner.json").unlink()
+    scheduler = cast(SchedulerIdentity, completed.scheduler)
+    fake_slurm_runner.set_task_state(
+        scheduler,
+        queue_state=None,
+        accounting_state="COMPLETED",
+        exit_code="0:0",
+    )
+
+    status = SlurmStateReconciler(
+        case.workspace,
+        case.plan.run_id,
+        SlurmCommandClient(fake_slurm_runner),
+    ).refresh(observed_at=winner.published_at + timedelta(minutes=1))
+
+    attempt = status.shards[0].attempts[0]
+    assert attempt.effective_state is EffectiveAttemptState.SUCCEEDED
+    assert attempt.generation_state is GenerationState.CANDIDATE_READY
+    assert status.shards[0].winner is None
+    assert status.shards[0].effective_state is EffectiveAttemptState.UNKNOWN
+    assert status.effective_state is EffectiveRunState.UNKNOWN
+
+
 def test_refresh_rejects_a_concurrent_attempt_change_instead_of_guessing_status(
     tmp_path: Path,
     authored_run_single: DataDesignerSlurmConfig,
@@ -271,20 +345,25 @@ def test_refresh_normalizes_scheduler_query_failures(
     single_node_plan: ResolvedSlurmRunPlan,
 ) -> None:
     case = _initialized_case(tmp_path, authored_run_single, single_node_plan)
+    calls: list[str] = []
 
     class FailingClient:
         def query_queue(self, selectors: Sequence[SchedulerJobIdentity]) -> tuple[SlurmQueueEntry, ...]:
             del selectors
+            calls.append("queue")
             raise RuntimeError("scheduler unavailable")
 
         def query_accounting(self, selectors: Sequence[SchedulerJobIdentity]) -> tuple[SlurmAccountingEntry, ...]:
             del selectors
+            calls.append("accounting")
             return ()
 
     with pytest.raises(SlurmStateError, match="cannot query normalized scheduler observations"):
         SlurmStateReconciler(case.workspace, case.plan.run_id, FailingClient()).refresh(
             observed_at=case.created_at + timedelta(minutes=3)
         )
+
+    assert calls == ["queue", "accounting"]
 
 
 def test_refresh_keeps_an_unsubmitted_attempt_pending_without_querying_slurm(

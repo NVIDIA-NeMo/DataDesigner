@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta
-from typing import Protocol
+from typing import Callable, Protocol, TypeVar
 
 from data_designer.slurm.state.base import SchedulerJobIdentity, validate_utc_timestamp
 from data_designer.slurm.state.errors import SlurmStateError
@@ -19,6 +19,8 @@ from data_designer.slurm.state.scheduler import (
 from data_designer.slurm.state.validation import StateContractError, validate_scheduler_observation_transition
 
 _ACCOUNTING_LAG_WINDOW = timedelta(minutes=5)
+_SchedulerRecordT = TypeVar("_SchedulerRecordT", bound=object)
+_SchedulerQueryError = OSError | RuntimeError | ValueError
 
 
 class SchedulerQueueRecord(Protocol):
@@ -84,10 +86,12 @@ class SchedulerObservationCollector:
         self,
         selectors: tuple[SchedulerJobIdentity, ...],
     ) -> tuple[tuple[SchedulerQueueRecord, ...], tuple[SchedulerAccountingRecord, ...]]:
-        try:
-            return self._client.query_queue(selectors), self._client.query_accounting(selectors)
-        except (OSError, RuntimeError, ValueError) as error:
+        queue, queue_error = _capture_scheduler_query(self._client.query_queue, selectors)
+        accounting, accounting_error = _capture_scheduler_query(self._client.query_accounting, selectors)
+        error = queue_error if queue_error is not None else accounting_error
+        if error is not None:
             raise SlurmStateError("cannot query normalized scheduler observations") from error
+        return queue, accounting
 
     @staticmethod
     def _index_records(
@@ -192,6 +196,16 @@ def _resolve_missing_observation(
         state=SchedulerState.ACCOUNTING_LAG,
         reconciliation_deadline=observed_at + _ACCOUNTING_LAG_WINDOW,
     )
+
+
+def _capture_scheduler_query(
+    query: Callable[[Sequence[SchedulerJobIdentity]], tuple[_SchedulerRecordT, ...]],
+    selectors: tuple[SchedulerJobIdentity, ...],
+) -> tuple[tuple[_SchedulerRecordT, ...], _SchedulerQueryError | None]:
+    try:
+        return query(selectors), None
+    except (OSError, RuntimeError, ValueError) as error:
+        return (), error
 
 
 __all__ = [

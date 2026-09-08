@@ -173,7 +173,7 @@ def reconcile_attempt_observation(
         return EffectiveAttemptState.UNKNOWN
     if readiness is not None and readiness.state is ReadinessState.FAILED:
         return EffectiveAttemptState.FAILED
-    if scheduler.state is SchedulerState.PENDING:
+    if scheduler.state in {SchedulerState.PENDING, SchedulerState.PREEMPTED, SchedulerState.REQUEUED}:
         return EffectiveAttemptState.PENDING
     if scheduler.state is SchedulerState.RUNNING:
         return EffectiveAttemptState.RUNNING

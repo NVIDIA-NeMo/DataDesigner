@@ -70,8 +70,6 @@ def is_scheduler_failure_state(state: SchedulerState) -> bool:
         SchedulerState.CANCELLED,
         SchedulerState.TIMED_OUT,
         SchedulerState.NODE_FAILED,
-        SchedulerState.PREEMPTED,
-        SchedulerState.REQUEUED,
         SchedulerState.OUT_OF_MEMORY,
     }
 

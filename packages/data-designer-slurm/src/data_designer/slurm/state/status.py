@@ -177,7 +177,8 @@ def derive_shard_state(
             return EffectiveAttemptState.SUCCEEDED
     if not attempts:
         return EffectiveAttemptState.PENDING
-    return attempts[-1].effective_state
+    latest = attempts[-1].effective_state
+    return EffectiveAttemptState.UNKNOWN if latest is EffectiveAttemptState.SUCCEEDED else latest
 
 
 def derive_run_state(shards: tuple[ShardStatus, ...]) -> EffectiveRunState:
