@@ -318,6 +318,36 @@ def test_client_removes_terminal_controls_from_command_failures(fake_slurm_runne
 
 
 @pytest.mark.parametrize(
+    ("diagnostic", "expected", "secret"),
+    (
+        ("--api-key\x00plaintext-secret", "--api-key <redacted>", "plaintext-secret"),
+        ("--api_key\x1funderscore-secret", "--api_key <redacted>", "underscore-secret"),
+        ("--access-token\u200bformat-secret", "--access-token <redacted>", "format-secret"),
+        (
+            "Authorization: Custom control-secret\x00value\nstatus=failed",
+            "Authorization: <redacted> status=failed",
+            "control-secret",
+        ),
+    ),
+    ids=("nul", "unit-separator", "format-control", "authorization-line-boundary"),
+)
+def test_client_redacts_secrets_obscured_by_control_characters(
+    fake_slurm_runner: FakeSlurmRunner,
+    diagnostic: str,
+    expected: str,
+    secret: str,
+) -> None:
+    fake_slurm_runner.script_next("squeue", FakeCommandResponse(stderr=diagnostic, returncode=2))
+
+    with pytest.raises(SlurmCommandError) as error:
+        SlurmCommandClient(fake_slurm_runner).query_queue((4101,))
+
+    detail = str(error.value).partition(": ")[2]
+    assert detail == expected
+    assert secret not in detail
+
+
+@pytest.mark.parametrize(
     ("diagnostic", "secret"),
     (
         ("HF_TOKEN=super-secret-value", "super-secret-value"),
