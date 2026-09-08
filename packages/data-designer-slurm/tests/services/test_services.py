@@ -29,8 +29,12 @@ from data_designer.slurm.services import (
     SlurmBatchScriptRenderer,
     SlurmBenchmarkBackend,
     SlurmBenchmarkService,
+    SlurmImageManager,
     SlurmImageResolver,
     SlurmImageService,
+    SlurmRunArtifactPublisher,
+    SlurmRunBackend,
+    SlurmRunExecution,
     SlurmRunPlanner,
     SlurmRunService,
     SlurmServiceError,
@@ -178,6 +182,46 @@ def test_run_service_rejects_untyped_config() -> None:
 
     assert caught.value.code is SlurmServiceErrorCode.INVALID_REQUEST
     assert caught.value.operation is SlurmServiceOperation.PLAN_RUN
+
+
+def test_run_service_delegates_execute_actions(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+) -> None:
+    class RunBackend:
+        def __init__(self) -> None:
+            self.calls: list[tuple[DataDesignerSlurmConfig, Path, bool, bool]] = []
+
+        def execute(
+            self,
+            config: DataDesignerSlurmConfig,
+            *,
+            source_root: Path,
+            dry_run: bool,
+            force: bool,
+        ) -> SlurmRunExecution:
+            self.calls.append((config, source_root, dry_run, force))
+            return SlurmRunExecution(
+                run_id="run-0001",
+                state="dry_run",
+                plan_sha256="1" * 64,
+                shard_count=1,
+                batch_script="script",
+            )
+
+        def status(self, run_id):
+            raise AssertionError(run_id)
+
+        def cancel(self, run_id):
+            raise AssertionError(run_id)
+
+    backend = RunBackend()
+    service = SlurmRunService(FakeRunPlanningBackend(()), FakeBatchScriptRenderer(()), backend)
+
+    result = service.execute(authored_run_single, source_root=tmp_path, dry_run=True, force=True)
+
+    assert result.run_id == "run-0001"
+    assert backend.calls == [(authored_run_single, tmp_path.resolve(), True, True)]
 
 
 def test_run_service_normalizes_and_redacts_unexpected_backend_errors(
@@ -359,6 +403,16 @@ def test_image_service_rejects_untyped_reference() -> None:
     assert caught.value.operation is SlurmServiceOperation.RESOLVE_IMAGE
 
 
+def test_image_service_requires_package_owned_manager() -> None:
+    service = SlurmImageService(FakeImageResolver(()))
+
+    with pytest.raises(SlurmServiceError) as caught:
+        service.list()
+
+    assert caught.value.code is SlurmServiceErrorCode.UNAVAILABLE
+    assert caught.value.operation is SlurmServiceOperation.LIST_IMAGES
+
+
 @pytest.mark.parametrize("mismatch", ["reference", "kind"])
 def test_image_service_rejects_uncorrelated_results(
     single_node_plan: ResolvedSlurmRunPlan,
@@ -511,7 +565,10 @@ def test_service_errors_use_the_data_designer_error_hierarchy() -> None:
     [
         ("SlurmBatchScriptRenderer", SlurmBatchScriptRenderer),
         ("SlurmBenchmarkBackend", SlurmBenchmarkBackend),
+        ("SlurmImageManager", SlurmImageManager),
         ("SlurmImageResolver", SlurmImageResolver),
+        ("SlurmRunArtifactPublisher", SlurmRunArtifactPublisher),
+        ("SlurmRunBackend", SlurmRunBackend),
         ("SlurmRunPlanner", SlurmRunPlanner),
     ],
 )

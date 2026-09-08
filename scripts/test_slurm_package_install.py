@@ -191,11 +191,13 @@ def main() -> None:
         base_leaf_requirement = requirement(base_metadata, "data-designer-slurm")
         leaf_base_requirement = requirement(leaf_metadata, "data-designer")
         leaf_packaging_requirement = requirement(leaf_metadata, "packaging")
+        leaf_pip_requirement = requirement(leaf_metadata, "pip")
         leaf_pydantic_requirement = requirement(leaf_metadata, "pydantic")
         leaf_pyyaml_requirement = requirement(leaf_metadata, "pyyaml")
         assert str(base_leaf_requirement.specifier) == f"=={version}"
         assert str(leaf_base_requirement.specifier) == f"=={version}"
         assert leaf_packaging_requirement.specifier == Requirement("packaging>=25,<27").specifier
+        assert leaf_pip_requirement.specifier == Requirement("pip>=25,<27").specifier
         assert leaf_pydantic_requirement.specifier == Requirement("pydantic>=2.9.2,<3").specifier
         assert leaf_pyyaml_requirement.specifier == Requirement("pyyaml>=6.0.1,<7").specifier
         assert base_leaf_requirement.marker is not None
