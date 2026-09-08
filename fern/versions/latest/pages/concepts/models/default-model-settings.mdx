@@ -46,7 +46,7 @@ The following model configurations are automatically available when `NVIDIA_API_
 
 | Alias | Model | Use Case | Inference Parameters |
 |-------|-------|----------|---------------------|
-| `nvidia-text` | `nvidia/nemotron-3-nano-30b-a3b` | General text generation | `temperature=1.0, top_p=1.0` |
+| `nvidia-text` | `nvidia/nemotron-3.5-lightning-30b-a3b` | General text generation | `temperature=1.0, top_p=0.95, enable_thinking=False` |
 | `nvidia-reasoning` | `nvidia/nemotron-3-super-120b-a12b` | Reasoning and analysis tasks | `temperature=1.0, top_p=0.95, extra_body={"reasoning_effort": "medium"}` |
 | `nvidia-vision` | `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning` | Omni multimodal understanding for image, audio, and video inputs | `temperature=0.60, top_p=0.95` |
 | `nvidia-embedding` | `nvidia/nemotron-3-embed-1b` | Text embeddings | `encoding_format="float", extra_body={"input_type": "query"}` |
