@@ -74,7 +74,7 @@ model_configs = [
         provider=MODEL_PROVIDER,
         inference_parameters=dd.ChatCompletionInferenceParams(
             temperature=1.0,
-            top_p=1.0,
+            top_p=0.95,
             max_tokens=2048,
             extra_body={"chat_template_kwargs": {"enable_thinking": False}},
         ),

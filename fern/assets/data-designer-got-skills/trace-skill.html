@@ -161,16 +161,16 @@ RemoteValidatorParams         Configuration for remote validation. Sends data to
 
 default_provider: nvidia
 
-model_alias       model                                  generation_type  provider
-----------------  -------------------------------------  ---------------  --------
-nvidia-embedding  nvidia/llama-3.2-nv-embedqa-1b-v2      embedding        nvidia
-nvidia-reasoning  openai/gpt-oss-20b                     chat-completion  nvidia
-nvidia-text       nvidia/nemotron-3.5-lightning-30b-a3b  chat-completion  nvidia
-nvidia-vision     nvidia/nemotron-nano-12b-v2-vl         chat-completion  nvidia
-openai-embedding  text-embedding-3-large                 embedding        openai
-openai-reasoning  openai/openai/gpt-5.2                  chat-completion  openai
-openai-text       us/azure/openai/gpt-4.1                chat-completion  openai
-openai-vision     openai/openai/gpt-5.2                  chat-completion  openai
+model_alias       model                              generation_type  provider
+----------------  ---------------------------------  ---------------  --------
+nvidia-embedding  nvidia/llama-3.2-nv-embedqa-1b-v2  embedding        nvidia
+nvidia-reasoning  openai/gpt-oss-20b                 chat-completion  nvidia
+nvidia-text       nvidia/nemotron-3-nano-30b-a3b     chat-completion  nvidia
+nvidia-vision     nvidia/nemotron-nano-12b-v2-vl     chat-completion  nvidia
+openai-embedding  text-embedding-3-large             embedding        openai
+openai-reasoning  openai/openai/gpt-5.2              chat-completion  openai
+openai-text       us/azure/openai/gpt-4.1            chat-completion  openai
+openai-vision     openai/openai/gpt-5.2              chat-completion  openai
 
 ## Persona Datasets
 
