@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 
 from data_designer.slurm.config.environment import is_secret_bearing_name
 
@@ -27,16 +28,54 @@ _REDACTION = "<redacted>"
 
 def redact_sensitive_text(value: str) -> str:
     """Redact recognizable credentials without echoing their values."""
-    redacted = _AUTHORIZATION_PATTERN.sub(lambda match: f"{match.group('prefix')}{_REDACTION}", value)
-    redacted = _URL_USERINFO_PATTERN.sub(lambda match: f"{match.group('scheme')}{_REDACTION}@", redacted)
-    redacted = _redact_named_values(redacted, _ASSIGNMENT_START_PATTERN)
-    redacted = _redact_named_values(redacted, _OPTION_START_PATTERN)
+    return _redact_sensitive_text(value, replacement=_REDACTION)
+
+
+def redact_sensitive_diagnostic(value: str) -> str:
+    """Redact secrets both inside and separated by control characters."""
+    placeholder = _select_redaction_placeholder(value)
+    redacted = _redact_sensitive_text(value, replacement=placeholder)
+    normalized_boundaries = _normalize_control_boundaries(redacted)
+    protected = _redact_sensitive_text(
+        normalized_boundaries,
+        replacement=placeholder,
+        protected_replacement=placeholder,
+    )
+    return protected.replace(placeholder, _REDACTION)
+
+
+def _redact_sensitive_text(
+    value: str,
+    *,
+    replacement: str,
+    protected_replacement: str | None = None,
+) -> str:
+    redacted = _AUTHORIZATION_PATTERN.sub(lambda match: f"{match.group('prefix')}{replacement}", value)
+    redacted = _URL_USERINFO_PATTERN.sub(lambda match: f"{match.group('scheme')}{replacement}@", redacted)
+    redacted = _redact_named_values(
+        redacted,
+        _ASSIGNMENT_START_PATTERN,
+        replacement=replacement,
+        protected_replacement=protected_replacement,
+    )
+    redacted = _redact_named_values(
+        redacted,
+        _OPTION_START_PATTERN,
+        replacement=replacement,
+        protected_replacement=protected_replacement,
+    )
     for pattern in _TOKEN_PATTERNS:
-        redacted = pattern.sub(_REDACTION, redacted)
+        redacted = pattern.sub(replacement, redacted)
     return redacted
 
 
-def _redact_named_values(value: str, start_pattern: re.Pattern[str]) -> str:
+def _redact_named_values(
+    value: str,
+    start_pattern: re.Pattern[str],
+    *,
+    replacement: str,
+    protected_replacement: str | None,
+) -> str:
     """Redact secret-bearing named values without letting earlier matches overlap them."""
     parts: list[str] = []
     output_cursor = 0
@@ -45,9 +84,12 @@ def _redact_named_values(value: str, start_pattern: re.Pattern[str]) -> str:
         if not is_secret_bearing_name(match.group("name").lstrip("-")):
             search_cursor = match.end()
             continue
+        if protected_replacement is not None and value.startswith(protected_replacement, match.end()):
+            search_cursor = match.end() + len(protected_replacement)
+            continue
         value_end = _find_named_value_end(value, match.end())
         parts.append(value[output_cursor : match.start()])
-        parts.append(f"{match.group('prefix')}{_REDACTION}")
+        parts.append(f"{match.group('prefix')}{replacement}")
         output_cursor = value_end
         search_cursor = value_end
     parts.append(value[output_cursor:])
@@ -77,4 +119,20 @@ def _find_quoted_value_end(value: str, start: int) -> int:
     return len(value)
 
 
-__all__ = ["redact_sensitive_text"]
+def _normalize_control_boundaries(value: str) -> str:
+    """Expose control-obscured token boundaries while retaining line boundaries."""
+    return "".join(
+        character if character in "\r\n" or not unicodedata.category(character).startswith("C") else " "
+        for character in value
+    )
+
+
+def _select_redaction_placeholder(value: str) -> str:
+    """Return a printable redaction marker guaranteed absent from the input."""
+    placeholder = "<data-designer-redaction>"
+    while placeholder in value:
+        placeholder = f"<{placeholder}>"
+    return placeholder
+
+
+__all__ = ["redact_sensitive_diagnostic", "redact_sensitive_text"]

@@ -328,8 +328,35 @@ def test_client_removes_terminal_controls_from_command_failures(fake_slurm_runne
             "Authorization: <redacted> status=failed",
             "control-secret",
         ),
+        ("HF_TOKEN=secret\x00suffix status=failed", "HF_TOKEN=<redacted> status=failed", "suffix"),
+        (
+            "https://user:secret\x00suffix@example.test/path status=failed",
+            "https://<redacted>@example.test/path status=failed",
+            "suffix",
+        ),
+        ("HF_TOKEN\x00=boundary-secret", "HF_TOKEN =<redacted>", "boundary-secret"),
+        (
+            'HF_TOKEN="first-secret";status=failed --api-key\x00second-secret next=ready',
+            "HF_TOKEN=<redacted>;status=failed --api-key <redacted> next=ready",
+            "second-secret",
+        ),
+        (
+            "HF_TOKEN=<data-designer-redaction>\x00suffix status=failed",
+            "HF_TOKEN=<redacted> status=failed",
+            "suffix",
+        ),
     ),
-    ids=("nul", "unit-separator", "format-control", "authorization-line-boundary"),
+    ids=(
+        "nul",
+        "unit-separator",
+        "format-control",
+        "authorization-line-boundary",
+        "assignment-secret-suffix",
+        "uri-userinfo-secret-suffix",
+        "assignment-hidden-boundary",
+        "raw-and-normalized-pass",
+        "placeholder-collision",
+    ),
 )
 def test_client_redacts_secrets_obscured_by_control_characters(
     fake_slurm_runner: FakeSlurmRunner,

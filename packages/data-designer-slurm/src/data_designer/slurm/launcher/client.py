@@ -8,7 +8,6 @@ from __future__ import annotations
 import os
 import re
 import subprocess
-import unicodedata
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -31,7 +30,7 @@ from data_designer.slurm.launcher.parsing import (
     parse_submission,
 )
 from data_designer.slurm.launcher.runner import CommandRunner, SubprocessRunner
-from data_designer.slurm.security import redact_sensitive_text
+from data_designer.slurm.security import redact_sensitive_diagnostic
 from data_designer.slurm.state import SchedulerIdentity, SchedulerJobIdentity
 
 _IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
@@ -342,17 +341,8 @@ def _validate_argument(value: str, *, field_name: str) -> None:
         raise ValueError(f"{field_name} must not contain control characters")
 
 
-def _normalize_control_boundaries(value: str) -> str:
-    """Expose control-obscured token boundaries while retaining line boundaries."""
-    return "".join(
-        character if character in "\r\n" or not unicodedata.category(character).startswith("C") else " "
-        for character in value
-    )
-
-
 def _normalize_bounded_text(value: str, *, limit: int = 512) -> str:
-    sanitized = _normalize_control_boundaries(value)
-    redacted = redact_sensitive_text(sanitized)
+    redacted = redact_sensitive_diagnostic(value)
     normalized = " ".join(redacted.split())
     return normalized if len(normalized) <= limit else f"{normalized[: limit - 3]}..."
 
