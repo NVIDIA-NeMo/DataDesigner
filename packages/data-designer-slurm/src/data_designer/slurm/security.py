@@ -33,15 +33,17 @@ def redact_sensitive_text(value: str) -> str:
 
 def redact_sensitive_diagnostic(value: str) -> str:
     """Redact secrets both inside and separated by control characters."""
-    placeholder = _select_redaction_placeholder(value)
-    redacted = _redact_sensitive_text(value, replacement=placeholder)
-    normalized_boundaries = _normalize_control_boundaries(redacted)
+    control_placeholder = _select_placeholder(value, name="control")
+    redaction_placeholder = _select_placeholder(value, name="redaction")
+    scan_view = _replace_control_characters(value, replacement=control_placeholder)
+    redacted = _redact_sensitive_text(scan_view, replacement=redaction_placeholder)
+    normalized_boundaries = redacted.replace(control_placeholder, " ")
     protected = _redact_sensitive_text(
         normalized_boundaries,
-        replacement=placeholder,
-        protected_replacement=placeholder,
+        replacement=redaction_placeholder,
+        protected_replacement=redaction_placeholder,
     )
-    return protected.replace(placeholder, _REDACTION)
+    return protected.replace(redaction_placeholder, _REDACTION)
 
 
 def _redact_sensitive_text(
@@ -119,17 +121,17 @@ def _find_quoted_value_end(value: str, start: int) -> int:
     return len(value)
 
 
-def _normalize_control_boundaries(value: str) -> str:
-    """Expose control-obscured token boundaries while retaining line boundaries."""
+def _replace_control_characters(value: str, *, replacement: str) -> str:
+    """Replace non-line controls while retaining diagnostic line boundaries."""
     return "".join(
-        character if character in "\r\n" or not unicodedata.category(character).startswith("C") else " "
+        character if character in "\r\n" or not unicodedata.category(character).startswith("C") else replacement
         for character in value
     )
 
 
-def _select_redaction_placeholder(value: str) -> str:
-    """Return a printable redaction marker guaranteed absent from the input."""
-    placeholder = "<data-designer-redaction>"
+def _select_placeholder(value: str, *, name: str) -> str:
+    """Return a named printable marker guaranteed absent from the input."""
+    placeholder = f"<data-designer-{name}>"
     while placeholder in value:
         placeholder = f"<{placeholder}>"
     return placeholder

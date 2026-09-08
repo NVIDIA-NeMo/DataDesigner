@@ -375,6 +375,54 @@ def test_client_redacts_secrets_obscured_by_control_characters(
 
 
 @pytest.mark.parametrize(
+    "control",
+    (
+        pytest.param("\t", id="tab"),
+        pytest.param("\v", id="vertical-tab"),
+        pytest.param("\f", id="form-feed"),
+        pytest.param("\x1c", id="file-separator"),
+        pytest.param("\x1d", id="group-separator"),
+        pytest.param("\x1e", id="record-separator"),
+        pytest.param("\x1f", id="unit-separator"),
+        pytest.param("\x85", id="next-line"),
+    ),
+)
+def test_client_redacts_whitespace_control_credential_suffixes(
+    fake_slurm_runner: FakeSlurmRunner,
+    control: str,
+) -> None:
+    diagnostic = (
+        f"HF_TOKEN=assignment-secret{control}suffix status=failed "
+        f"https://user:uri-secret{control}suffix@example.test/path"
+    )
+    fake_slurm_runner.script_next("squeue", FakeCommandResponse(stderr=diagnostic, returncode=2))
+
+    with pytest.raises(SlurmCommandError) as error:
+        SlurmCommandClient(fake_slurm_runner).query_queue((4101,))
+
+    detail = str(error.value).partition(": ")[2]
+    assert detail == "HF_TOKEN=<redacted> status=failed https://<redacted>@example.test/path"
+    assert "secret" not in detail
+    assert "suffix" not in detail
+
+
+@pytest.mark.parametrize("line_break", ("\n", "\r", "\r\n"), ids=("line-feed", "carriage-return", "crlf"))
+def test_client_retains_unambiguous_diagnostic_line_boundaries(
+    fake_slurm_runner: FakeSlurmRunner,
+    line_break: str,
+) -> None:
+    fake_slurm_runner.script_next(
+        "squeue",
+        FakeCommandResponse(stderr=f"HF_TOKEN=secret{line_break}status=failed", returncode=2),
+    )
+
+    with pytest.raises(SlurmCommandError) as error:
+        SlurmCommandClient(fake_slurm_runner).query_queue((4101,))
+
+    assert str(error.value).endswith("HF_TOKEN=<redacted> status=failed")
+
+
+@pytest.mark.parametrize(
     ("diagnostic", "secret"),
     (
         ("HF_TOKEN=super-secret-value", "super-secret-value"),
