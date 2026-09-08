@@ -275,7 +275,7 @@ class _SystemRunBackend:
                 raise SlurmServiceError(
                     SlurmServiceErrorCode.UNAVAILABLE,
                     SlurmServiceOperation.EXECUTE_RUN,
-                    "STATE run-artifact persistence is not available",
+                    "run submission is not available; use --dry-run",
                 )
             publisher = self._publisher
             self._initialize_run(
@@ -463,7 +463,7 @@ class _RegistryImageBackend:
         raise SlurmServiceError(
             SlurmServiceErrorCode.UNAVAILABLE,
             SlurmServiceOperation.ADD_IMAGE,
-            "IMG lifecycle completion cannot be reopened safely",
+            "image registration is not available; use a pre-registered image",
         )
 
     def list(self) -> tuple[RegisteredImage, ...]:

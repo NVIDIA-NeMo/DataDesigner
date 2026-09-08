@@ -122,6 +122,23 @@ def test_execute_bounds_large_config_diagnostic(tmp_path: Path) -> None:
     assert message.endswith("...")
 
 
+@pytest.mark.parametrize(
+    "source",
+    ["nvcr.io/nvidia/pytorch:24.01-py3", "docker://ubuntu:22.04"],
+)
+def test_image_add_rejects_mutable_oci_source(source: str) -> None:
+    result = CliRunner().invoke(cli_module.create_cli(), ["image", "add", source, "--kind", "client"])
+
+    assert result.exit_code == 2
+    assert json.loads(result.stderr) == {
+        "error": {
+            "code": "invalid_request",
+            "message": "OCI image source must be digest-qualified as name@sha256:<digest>",
+            "operation": "add_image",
+        }
+    }
+
+
 def test_cli_exposes_only_m2_run_commands() -> None:
     result = CliRunner().invoke(cli_module.create_cli(), ["--help"])
 

@@ -220,6 +220,7 @@ def test_production_wiring_stops_before_submission_without_state_publisher(
         service.execute(authored_run_single, source_root=tmp_path)
 
     assert caught.value.code is SlurmServiceErrorCode.UNAVAILABLE
+    assert str(caught.value) == "run submission is not available; use --dry-run"
     assert launcher.submissions == []
 
 
@@ -451,3 +452,4 @@ def test_production_image_registry_operations_and_lifecycle_gap(
             )
         )
     assert caught.value.code is SlurmServiceErrorCode.UNAVAILABLE
+    assert str(caught.value) == "image registration is not available; use a pre-registered image"

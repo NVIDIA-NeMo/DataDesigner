@@ -107,6 +107,12 @@ def image_add_command(
     operation = SlurmServiceOperation.ADD_IMAGE
 
     def add() -> BaseModel:
+        if not source.endswith(".sqsh") and re.fullmatch(r"[^\s]+@sha256:[0-9a-f]{64}", source) is None:
+            raise SlurmServiceError(
+                SlurmServiceErrorCode.INVALID_REQUEST,
+                operation,
+                "OCI image source must be digest-qualified as name@sha256:<digest>",
+            )
         request = ImageBuildRequest(name=name or _derive_image_name(source), kind=kind, source=source)
         return create_slurm_image_service(profile_file=profile_file, cluster=cluster).add(request, replace=replace)
 
