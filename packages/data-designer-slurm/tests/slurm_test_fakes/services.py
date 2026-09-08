@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from collections import deque
 from collections.abc import Iterable
+from pathlib import Path
 from typing import Generic, TypeVar
 
 from data_designer.slurm.benchmark import BenchmarkManifest, BenchmarkReport
@@ -64,8 +65,9 @@ class FakeRunPlanningBackend(SlurmRunPlanner):
         self._script = _ScriptedResponses(responses)
         self.calls = self._script.calls
 
-    def plan(self, config: DataDesignerSlurmConfig) -> ResolvedSlurmRunPlan:
+    def plan(self, config: DataDesignerSlurmConfig, *, source_root: Path) -> ResolvedSlurmRunPlan:
         """Return the plan scripted for one exact authored config."""
+        del source_root
         return self._script.next(config, operation="run plan")
 
     def assert_complete(self) -> None:
