@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal, TypeAlias
 
-from pydantic import BaseModel, ConfigDict, Field, RootModel
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
 
 class _WorkflowStageMetadataBase(BaseModel):
@@ -67,7 +67,7 @@ class SkippedWorkflowStageMetadata(_WorkflowStageMetadataBase):
     upstream_stage: str
 
 
-WorkflowStageMetadataVariant: TypeAlias = Annotated[
+WorkflowStageMetadata: TypeAlias = Annotated[
     RunningWorkflowStageMetadata
     | FailedWorkflowStageMetadata
     | CompletedWorkflowStageMetadata
@@ -75,9 +75,16 @@ WorkflowStageMetadataVariant: TypeAlias = Annotated[
     Field(discriminator="status"),
 ]
 
+_WORKFLOW_STAGE_METADATA_ADAPTER = TypeAdapter(WorkflowStageMetadata)
 
-class WorkflowStageMetadata(RootModel[WorkflowStageMetadataVariant]):
-    """Status-specific stage metadata, with the concrete model available through ``root``."""
+
+def validate_workflow_stage_metadata(value: object) -> WorkflowStageMetadata:
+    """Validate the stage union and return its concrete status model.
+
+    Use the concrete status models for runtime type checks.
+    """
+
+    return _WORKFLOW_STAGE_METADATA_ADAPTER.validate_python(value)
 
 
 class WorkflowMetadata(BaseModel):
@@ -87,4 +94,4 @@ class WorkflowMetadata(BaseModel):
 
     name: str
     library_version: str
-    stages: list[WorkflowStageMetadataVariant]
+    stages: list[WorkflowStageMetadata]

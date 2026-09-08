@@ -40,7 +40,7 @@ from data_designer.interface.results import (
     _export_jsonl,
     _export_parquet,
 )
-from data_designer.interface.workflow_metadata import WorkflowMetadata, WorkflowStageMetadata
+from data_designer.interface.workflow_metadata import WorkflowMetadata, validate_workflow_stage_metadata
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -402,7 +402,7 @@ class CompositeWorkflow:
                 )
 
             if stage_resume == ResumeMode.ALWAYS and prior_stage_metadata is not None:
-                prior_stage = WorkflowStageMetadata.model_validate(prior_stage_metadata).root
+                prior_stage = validate_workflow_stage_metadata(prior_stage_metadata)
                 stage_metadata.update(prior_stage.model_extra or {})
 
             if stage_resume == ResumeMode.NEVER and stage_path.exists():

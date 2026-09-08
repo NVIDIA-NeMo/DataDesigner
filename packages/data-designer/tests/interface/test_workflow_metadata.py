@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import pytest
@@ -16,7 +17,7 @@ from data_designer.interface import (
     SkippedWorkflowStageMetadata,
     WorkflowMetadata,
     WorkflowStageMetadata,
-    WorkflowStageMetadataVariant,
+    validate_workflow_stage_metadata,
 )
 
 
@@ -50,7 +51,7 @@ def started_stage_metadata() -> dict[str, Any]:
 def test_workflow_metadata_models_are_public() -> None:
     assert interface.WorkflowMetadata is WorkflowMetadata
     assert interface.WorkflowStageMetadata is WorkflowStageMetadata
-    assert interface.WorkflowStageMetadataVariant is WorkflowStageMetadataVariant
+    assert interface.validate_workflow_stage_metadata is validate_workflow_stage_metadata
     assert interface.RunningWorkflowStageMetadata is RunningWorkflowStageMetadata
     assert interface.FailedWorkflowStageMetadata is FailedWorkflowStageMetadata
     assert interface.CompletedWorkflowStageMetadata is CompletedWorkflowStageMetadata
@@ -105,12 +106,13 @@ def test_workflow_metadata_supports_stage_statuses(
         stage |= started_stage_metadata
     stage["stage_extension"] = {"value": status_fields["status"]}
 
-    standalone_metadata = WorkflowStageMetadata.model_validate(stage)
+    standalone_metadata = validate_workflow_stage_metadata(stage)
     metadata = WorkflowMetadata.model_validate({"name": "example", "library_version": "0.9.2", "stages": [stage]})
 
-    assert isinstance(standalone_metadata.root, expected_type)
+    assert isinstance(standalone_metadata, expected_type)
+    assert standalone_metadata == metadata.stages[0]
     assert standalone_metadata.model_dump(mode="json", exclude_unset=True) == stage
-    assert WorkflowStageMetadata.model_validate_json(standalone_metadata.model_dump_json()) == standalone_metadata
+    assert validate_workflow_stage_metadata(json.loads(standalone_metadata.model_dump_json())) == standalone_metadata
     assert isinstance(metadata.stages[0], expected_type)
     restored = WorkflowMetadata.model_validate_json(metadata.model_dump_json())
     assert restored == metadata
@@ -177,7 +179,7 @@ def test_workflow_metadata_rejects_invalid_stage_metadata(
     stage = base_stage_metadata | stage_fields
 
     with pytest.raises(ValidationError):
-        WorkflowStageMetadata.model_validate(stage)
+        validate_workflow_stage_metadata(stage)
 
     with pytest.raises(ValidationError):
         WorkflowMetadata.model_validate(
