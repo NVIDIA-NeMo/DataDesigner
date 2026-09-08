@@ -68,6 +68,7 @@ from data_designer.slurm.state import (
 RunIdFactory = Callable[[], str]
 Clock = Callable[[], datetime]
 _ResultT = TypeVar("_ResultT")
+_MAX_VISIBLE_JOB_IDS = 16
 
 
 class SlurmRunArtifactPublisher(Protocol):
@@ -196,11 +197,7 @@ class _RunPreparer:
             ) from None
         except SlurmLauncherError:
             raise SlurmServiceError(SlurmServiceErrorCode.UNAVAILABLE, operation, "Slurm is unavailable") from None
-        except SlurmRuntimeError:
-            raise SlurmServiceError(
-                SlurmServiceErrorCode.UNAVAILABLE, operation, "run artifacts cannot be staged"
-            ) from None
-        except OSError:
+        except (SlurmRuntimeError, OSError):
             raise SlurmServiceError(
                 SlurmServiceErrorCode.UNAVAILABLE, operation, "run artifacts cannot be staged"
             ) from None
@@ -390,7 +387,11 @@ class _SystemRunBackend:
                 attempts = tuple(
                     SlurmPersistedAttemptStatus(
                         attempt=attempt,
-                        readiness=_load_optional(lambda: writer.load_readiness(shard.shard_id, attempt.attempt_id)),
+                        readiness=_load_optional(
+                            lambda shard_id=shard.shard_id, attempt_id=attempt.attempt_id: writer.load_readiness(
+                                shard_id, attempt_id
+                            )
+                        ),
                     )
                     for attempt in writer.load_attempts(shard.shard_id)
                 )
@@ -398,7 +399,7 @@ class _SystemRunBackend:
                     SlurmPersistedShardStatus(
                         shard=shard,
                         attempts=attempts,
-                        winner=_load_optional(lambda: writer.load_winner(shard.shard_id)),
+                        winner=_load_optional(lambda shard_id=shard.shard_id: writer.load_winner(shard_id)),
                     )
                 )
             return SlurmPersistedRunStatus(run=run, shards=tuple(shards))
@@ -561,8 +562,8 @@ def _utc_now() -> datetime:
 
 
 def _format_job_ids(job_ids: list[int]) -> str:
-    visible = ", ".join(str(job_id) for job_id in job_ids[:16])
-    remaining = len(job_ids) - 16
+    visible = ", ".join(str(job_id) for job_id in job_ids[:_MAX_VISIBLE_JOB_IDS])
+    remaining = len(job_ids) - _MAX_VISIBLE_JOB_IDS
     return visible if remaining <= 0 else f"{visible}, and {remaining} more"
 
 

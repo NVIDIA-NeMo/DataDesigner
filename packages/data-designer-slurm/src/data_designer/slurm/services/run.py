@@ -66,7 +66,7 @@ class SlurmRunBackend(Protocol):
         """Return the durable M2 status for one run."""
 
     def cancel(self, run_id: Identifier) -> SlurmRunCancellation:
-        """Cancel active managed jobs recorded for one run."""
+        """Request cancellation of active jobs without changing persisted state."""
 
 
 class SlurmRunService:
@@ -193,7 +193,7 @@ class SlurmRunService:
         return _invoke_service_backend(operation, load_status)
 
     def cancel(self, run_id: Identifier) -> SlurmRunCancellation:
-        """Cancel active managed jobs identified by persisted M2 records."""
+        """Request cancellation of active jobs; reconciliation updates persisted state."""
         operation = SlurmServiceOperation.CANCEL_RUN
         normalized_run_id = _validate_run_id(run_id, operation)
         backend = self._require_backend(operation)

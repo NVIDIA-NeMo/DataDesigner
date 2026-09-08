@@ -85,7 +85,7 @@ def cancel_command(
     profile_file: Path | None = typer.Option(None, "--profile-file", dir_okay=False),
     cluster: str | None = typer.Option(None, "--cluster"),
 ) -> None:
-    """Cancel active jobs recorded for one managed run."""
+    """Request job cancellation; status changes after reconciliation."""
     operation = SlurmServiceOperation.CANCEL_RUN
     result = _invoke(
         operation,

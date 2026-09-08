@@ -405,10 +405,12 @@ def test_production_status_and_cancel_use_only_persisted_m2_records(
 
     status = service.status(plan.run_id)
     cancellation = service.cancel(plan.run_id)
+    persisted_after_cancel = service.status(plan.run_id)
 
     assert status.run == run
     assert status.shards[0].attempts[0].attempt.state is AttemptLifecycleState.SUBMITTED
     assert cancellation.job_ids == (42,)
+    assert persisted_after_cancel.shards[0].attempts[0].attempt.state is AttemptLifecycleState.SUBMITTED
     assert launcher.cancellations == [42]
 
 

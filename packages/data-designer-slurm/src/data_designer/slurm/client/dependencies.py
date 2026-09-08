@@ -25,6 +25,7 @@ from data_designer.slurm.contracts import ArtifactReference, InstalledDistributi
 from data_designer.slurm.planning import LockedPackage, ResolvedDependencyLock, ResolvedImage
 
 _RESOLVER_VERSION = "pip-pure-wheel-1"
+_DEFAULT_INDEX_URL = "https://pypi.org/simple"
 _LOCK_SOURCE_DIRECTORY = "inputs"
 _DEPENDENCY_DIRECTORY = "dependencies"
 
@@ -110,9 +111,11 @@ class ClientDependencyResolver:
         temporary_root: Path,
     ) -> ResolvedClientDependencies:
         requirements = dependencies.requirements
-        assert requirements is not None
+        if requirements is None:
+            raise ClientDependencyResolutionError("client dependency requirements are unavailable")
         inspection = client_image.inspection_facts
-        assert isinstance(inspection, ClientImageInspection)
+        if not isinstance(inspection, ClientImageInspection):
+            raise ClientDependencyResolutionError("client image lacks dependency inspection facts")
         image_distributions = tuple(sorted(inspection.distributions, key=lambda item: item.name))
         if not requirements:
             return ResolvedClientDependencies(
@@ -136,6 +139,7 @@ class ClientDependencyResolver:
             "download",
             "--disable-pip-version-check",
             "--no-input",
+            f"--index-url={_DEFAULT_INDEX_URL}",
             "--only-binary=:all:",
             "--platform=any",
             "--implementation=py",
@@ -173,7 +177,8 @@ class ClientDependencyResolver:
         source_root: Path,
     ) -> ResolvedClientDependencies:
         lock_file = dependencies.lock_file
-        assert lock_file is not None
+        if lock_file is None:
+            raise ClientDependencyResolutionError("client dependency lock is unavailable")
         source = source_root / lock_file
         try:
             content = read_regular_bytes(source, missing_code=ClientErrorCode.DEPENDENCY_ARTIFACT_MISSING)
@@ -181,7 +186,8 @@ class ClientDependencyResolver:
         except Exception as error:
             raise ClientDependencyResolutionError("client dependency lock is invalid") from error
         inspection = client_image.inspection_facts
-        assert isinstance(inspection, ClientImageInspection)
+        if not isinstance(inspection, ClientImageInspection):
+            raise ClientDependencyResolutionError("client image lacks dependency inspection facts")
         if (
             supplied.client_image_sha256 != client_image.sha256
             or supplied.python_abi != inspection.python_abi
@@ -226,11 +232,18 @@ class ClientDependencyResolver:
         return ResolvedClientDependencies(lock=lock, wheel_sources=tuple(sources), lock_source=source)
 
     def _resolution_environment(self, dependencies: ClientDependencies) -> dict[str, str]:
-        environment = dict(self._environ)
+        credential_names = {reference.environment for reference in dependencies.index_credentials.values()}
         for reference in dependencies.index_credentials.values():
-            value = environment.get(reference.environment)
+            value = self._environ.get(reference.environment)
             if value is None or not value:
                 raise ClientDependencyResolutionError("client dependency index credential is unavailable")
+        # These credentials belong to the allocation runtime, not submit-side pip.
+        environment = {
+            name: value
+            for name, value in self._environ.items()
+            if not name.startswith("PIP_") and name not in credential_names
+        }
+        environment["PIP_CONFIG_FILE"] = os.devnull
         return environment
 
 
@@ -242,7 +255,8 @@ def _build_lock(
     overlay_packages: tuple[LockedPackage, ...] = (),
 ) -> ResolvedDependencyLock:
     inspection = client_image.inspection_facts
-    assert isinstance(inspection, ClientImageInspection)
+    if not isinstance(inspection, ClientImageInspection):
+        raise ClientDependencyResolutionError("client image lacks dependency inspection facts")
     return ResolvedDependencyLock(
         schema_version=1,
         resolver_version=_RESOLVER_VERSION,

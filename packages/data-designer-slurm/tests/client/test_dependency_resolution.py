@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 from pathlib import Path
 
 import pytest
@@ -61,7 +62,13 @@ def test_inline_requirements_resolve_pure_wheels_and_omit_image_packages(
     )
     resolver = ClientDependencyResolver(
         command_runner=download,
-        environ={"PACKAGE_INDEX_TOKEN": token},
+        environ={
+            "PACKAGE_INDEX_TOKEN": token,
+            "PIP_CONFIG_FILE": "/ambient/pip.conf",
+            "PIP_EXTRA_INDEX_URL": "https://ambient.example/simple",
+            "PIP_INDEX_URL": "https://ambient.example/simple",
+            "SAFE_VALUE": "preserved",
+        },
         python_executable="/python",
     )
     run_root = tmp_path / "workspace/runs/run-001"
@@ -74,7 +81,8 @@ def test_inline_requirements_resolve_pure_wheels_and_omit_image_packages(
     ) as resolved:
         assert calls[0][0][0:4] == ("/python", "-m", "pip", "download")
         assert token not in calls[0][0]
-        assert calls[0][1]["PACKAGE_INDEX_TOKEN"] == token
+        assert "--index-url=https://pypi.org/simple" in calls[0][0]
+        assert calls[0][1] == {"PIP_CONFIG_FILE": os.devnull, "SAFE_VALUE": "preserved"}
         assert tuple(package.name for package in resolved.lock.overlay_packages) == ("example-plugin",)
         package = resolved.lock.overlay_packages[0]
         assert package.artifact.path == (run_root / "dependencies/example_plugin-1.2.0-py3-none-any.whl").as_posix()
