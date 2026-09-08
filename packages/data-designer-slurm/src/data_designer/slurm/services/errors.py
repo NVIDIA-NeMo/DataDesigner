@@ -29,7 +29,14 @@ class SlurmServiceOperation(str, Enum):
 
     PLAN_RUN = "plan_run"
     RENDER_ATTEMPT = "render_attempt"
+    EXECUTE_RUN = "execute_run"
+    STATUS_RUN = "status_run"
+    CANCEL_RUN = "cancel_run"
     RESOLVE_IMAGE = "resolve_image"
+    ADD_IMAGE = "add_image"
+    LIST_IMAGES = "list_images"
+    GET_IMAGE = "get_image"
+    REMOVE_IMAGE = "remove_image"
     RUN_BENCHMARK = "run_benchmark"
     ANALYZE_BENCHMARK = "analyze_benchmark"
 
