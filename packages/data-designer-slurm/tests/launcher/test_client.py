@@ -356,6 +356,62 @@ def test_client_redacts_secrets_from_command_failures(
 
 
 @pytest.mark.parametrize(
+    ("diagnostic", "expected", "secret"),
+    (
+        ("Authorization: Token token-secret status=failed", "Authorization: <redacted>", "token-secret"),
+        ("Authorization=ApiKey key-secret", "Authorization=<redacted>", "key-secret"),
+        ("authorization: opaque secret value", "authorization: <redacted>", "opaque secret value"),
+        (
+            "Authorization: Custom custom-secret\nstatus=failed",
+            "Authorization: <redacted> status=failed",
+            "custom-secret",
+        ),
+    ),
+    ids=("token", "api-key", "bare", "newline-boundary"),
+)
+def test_client_redacts_complete_authorization_values(
+    fake_slurm_runner: FakeSlurmRunner,
+    diagnostic: str,
+    expected: str,
+    secret: str,
+) -> None:
+    fake_slurm_runner.script_next("squeue", FakeCommandResponse(stderr=diagnostic, returncode=2))
+
+    with pytest.raises(SlurmCommandError) as error:
+        SlurmCommandClient(fake_slurm_runner).query_queue((4101,))
+
+    detail = str(error.value).partition(": ")[2]
+    assert detail == expected
+    assert secret not in detail
+
+
+@pytest.mark.parametrize(
+    ("diagnostic", "expected"),
+    (
+        (
+            "https://user:first@second@example.test/index",
+            "https://<redacted>@example.test/index",
+        ),
+        ("ssh://user:secret@example.test/repository", "ssh://<redacted>@example.test/repository"),
+        ("git+ssh://user:p@ss@example.test/repository", "git+ssh://<redacted>@example.test/repository"),
+        ("https://example.test/path@owner", "https://example.test/path@owner"),
+    ),
+    ids=("last-at", "ssh", "compound-scheme", "at-after-path"),
+)
+def test_client_redacts_general_uri_userinfo(
+    fake_slurm_runner: FakeSlurmRunner,
+    diagnostic: str,
+    expected: str,
+) -> None:
+    fake_slurm_runner.script_next("squeue", FakeCommandResponse(stderr=diagnostic, returncode=2))
+
+    with pytest.raises(SlurmCommandError) as error:
+        SlurmCommandClient(fake_slurm_runner).query_queue((4101,))
+
+    assert str(error.value).partition(": ")[2] == expected
+
+
+@pytest.mark.parametrize(
     ("diagnostic", "expected"),
     (
         ("HF_TOKEN=secret;status=failed job=4", "HF_TOKEN=<redacted> job=4"),

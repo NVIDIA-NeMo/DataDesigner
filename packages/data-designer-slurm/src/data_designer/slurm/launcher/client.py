@@ -343,10 +343,10 @@ def _validate_argument(value: str, *, field_name: str) -> None:
 
 
 def _normalize_bounded_text(value: str, *, limit: int = 512) -> str:
-    sanitized = "".join(" " if unicodedata.category(character).startswith("C") else character for character in value)
+    redacted = redact_sensitive_text(value)
+    sanitized = "".join(" " if unicodedata.category(character).startswith("C") else character for character in redacted)
     normalized = " ".join(sanitized.split())
-    redacted = redact_sensitive_text(normalized)
-    return redacted if len(redacted) <= limit else f"{redacted[: limit - 3]}..."
+    return normalized if len(normalized) <= limit else f"{normalized[: limit - 3]}..."
 
 
 def _format_error_detail(error: BaseException) -> str:

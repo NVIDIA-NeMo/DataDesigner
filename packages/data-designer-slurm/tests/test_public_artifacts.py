@@ -85,7 +85,57 @@ def test_public_audit_rejects_wheel_with_truncated_license(tmp_path: Path) -> No
     result = _run_audit(wheel)
 
     assert result.returncode == 1
-    assert "wheel does not contain its declared license text" in result.stderr
+    assert "wheel does not contain exactly one canonical license text" in result.stderr
+
+
+def test_public_audit_rejects_multiple_wheel_distribution_roots(tmp_path: Path) -> None:
+    wheel = tmp_path / "data_designer_slurm-1.0.0-py3-none-any.whl"
+    with zipfile.ZipFile(wheel, mode="w") as archive:
+        archive.writestr(
+            "data_designer_slurm-1.0.0.dist-info/licenses/LICENSE",
+            PACKAGE_LICENSE.read_bytes(),
+        )
+        archive.writestr(
+            "decoy-1.0.0.dist-info/METADATA",
+            "Metadata-Version: 2.5\nLicense-Expression: Apache-2.0\n",
+        )
+
+    result = _run_audit(wheel)
+
+    assert result.returncode == 1
+    assert "wheel must contain exactly one .dist-info root" in result.stderr
+
+
+@pytest.mark.parametrize(
+    ("extra_member", "expected"),
+    (
+        (
+            "data_designer_slurm-1.0.0.dist-info/licenses/LICENSE.txt",
+            "wheel does not contain exactly one canonical license text",
+        ),
+        (
+            "data_designer_slurm-1.0.0.dist-info/metadata",
+            "wheel does not contain exactly one Apache-2.0 metadata record",
+        ),
+    ),
+    ids=("license", "metadata"),
+)
+def test_public_audit_rejects_duplicate_wheel_distribution_records(
+    tmp_path: Path,
+    extra_member: str,
+    expected: str,
+) -> None:
+    wheel = tmp_path / "data_designer_slurm-1.0.0-py3-none-any.whl"
+    metadata = "Metadata-Version: 2.5\nLicense-Expression: Apache-2.0\n"
+    with zipfile.ZipFile(wheel, mode="w") as archive:
+        archive.writestr("data_designer_slurm-1.0.0.dist-info/licenses/LICENSE", PACKAGE_LICENSE.read_bytes())
+        archive.writestr("data_designer_slurm-1.0.0.dist-info/METADATA", metadata)
+        archive.writestr(extra_member, metadata if extra_member.endswith("metadata") else PACKAGE_LICENSE.read_bytes())
+
+    result = _run_audit(wheel)
+
+    assert result.returncode == 1
+    assert expected in result.stderr
 
 
 def test_public_audit_rejects_unsafe_or_unlicensed_wheel_members(tmp_path: Path) -> None:
@@ -99,8 +149,7 @@ def test_public_audit_rejects_unsafe_or_unlicensed_wheel_members(tmp_path: Path)
     assert result.returncode == 1
     assert "archive member path is unsafe" in result.stderr
     assert "missing the NVIDIA Apache-2.0 SPDX header" in result.stderr
-    assert "wheel does not contain its declared license text" in result.stderr
-    assert "wheel metadata does not declare Apache-2.0" in result.stderr
+    assert "wheel must contain exactly one .dist-info root" in result.stderr
 
 
 def test_public_audit_scans_archive_member_names_without_echoing_them(tmp_path: Path) -> None:
@@ -122,6 +171,17 @@ def test_public_audit_scans_archive_member_names_without_echoing_them(tmp_path: 
     assert result.returncode == 1
     assert "private infrastructure address" in result.stderr
     assert sensitive_member not in result.stderr
+
+
+def test_public_audit_scans_unknown_suffix_archive_members(tmp_path: Path) -> None:
+    archive_path = tmp_path / "artifacts.zip"
+    with zipfile.ZipFile(archive_path, mode="w") as archive:
+        archive.writestr("credentials.env", f"token=github_pat_{'a' * 24}\n")
+
+    result = _run_audit(archive_path)
+
+    assert result.returncode == 1
+    assert "GitHub token" in result.stderr
 
 
 def test_public_audit_checks_runtime_tar_content_and_entrypoint_license(tmp_path: Path) -> None:
@@ -152,6 +212,40 @@ def test_public_audit_rejects_explicit_symbolic_link_without_disclosing_its_pare
     assert result.returncode == 1
     assert "symbolic-link artifact requires explicit review" in result.stderr
     assert str(tmp_path) not in result.stderr
+
+
+def test_public_audit_rejects_symbolic_link_named_as_generated_cache(tmp_path: Path) -> None:
+    artifacts = tmp_path / "artifacts"
+    artifacts.mkdir()
+    target = tmp_path / "target"
+    target.mkdir()
+    (artifacts / "__pycache__").symlink_to(target, target_is_directory=True)
+
+    result = _run_audit(artifacts)
+
+    assert result.returncode == 1
+    assert "symbolic-link artifact requires explicit review" in result.stderr
+
+
+@pytest.mark.parametrize("filename", ("credentials.env", "records.csv", "METADATA", "LICENSE"))
+def test_public_audit_scans_content_with_unknown_or_empty_suffixes(tmp_path: Path, filename: str) -> None:
+    artifact = tmp_path / filename
+    artifact.write_text(f"token=github_pat_{'a' * 24}\n")
+
+    result = _run_audit(artifact)
+
+    assert result.returncode == 1
+    assert "GitHub token" in result.stderr
+
+
+def test_public_audit_does_not_allow_test_sentinels_outside_exact_sources(tmp_path: Path) -> None:
+    artifact = tmp_path / "test_credentials.py"
+    artifact.write_text('secret = "super-secret-token"\n')
+
+    result = _run_audit(artifact)
+
+    assert result.returncode == 1
+    assert "plaintext secret assignment" in result.stderr
 
 
 def _run_audit(*paths: Path) -> subprocess.CompletedProcess[str]:

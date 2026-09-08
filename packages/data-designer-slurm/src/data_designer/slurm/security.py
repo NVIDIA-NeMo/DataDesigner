@@ -13,8 +13,8 @@ _ASSIGNMENT_START_PATTERN = re.compile(
     r"(?P<prefix>(?P<quote>[\"']?)(?P<name>-{0,2}[A-Za-z][A-Za-z0-9_.-]*)(?P=quote)\s*[:=]\s*)"
 )
 _OPTION_START_PATTERN = re.compile(r"(?P<prefix>(?P<name>--[A-Za-z][A-Za-z0-9_.-]*)\s+)")
-_AUTHORIZATION_PATTERN = re.compile(r"(?i)(?P<prefix>\bauthorization\s*[:=]\s*(?:basic|bearer)\s+)(?P<value>[^\s]+)")
-_URL_USERINFO_PATTERN = re.compile(r"(?i)(?P<scheme>\bhttps?://)[^/@\s]+@")
+_AUTHORIZATION_PATTERN = re.compile(r"(?i)(?P<prefix>\bauthorization\s*[:=]\s*)[^\r\n]*")
+_URL_USERINFO_PATTERN = re.compile(r"(?i)(?P<scheme>\b[A-Za-z][A-Za-z0-9+.-]*://)[^/\s?#]*@")
 _TOKEN_PATTERNS = (
     re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
     re.compile(r"\bgithub_pat_[A-Za-z0-9_]{20,}\b"),

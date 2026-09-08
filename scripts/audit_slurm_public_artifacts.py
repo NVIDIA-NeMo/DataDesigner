@@ -3,11 +3,10 @@
 
 """Scan public Slurm artifacts without rendering matched sensitive content.
 
-The default scope covers deployable source, package metadata, maintained public
-fixtures, and release scripts. Python test modules are intentionally outside that
-scope because they contain synthetic credential sentinels; their golden and fixture
-artifacts remain in scope. Generic ``example.test`` hosts, loopback addresses, and
-``/workspace`` paths are the only implicit test-data allowances.
+The default scope covers deployable source, test source and fixtures, package
+metadata, and release scripts. A small path-scoped allowlist masks only exact
+synthetic test sentinels. Generic example.test hosts, loopback addresses, and
+/workspace paths are the only implicit test-data allowances.
 """
 
 from __future__ import annotations
@@ -33,39 +32,35 @@ DEFAULT_ARTIFACTS = (
     "packages/data-designer-slurm/README.md",
     "packages/data-designer-slurm/pyproject.toml",
     "packages/data-designer-slurm/LICENSE",
-    "packages/data-designer-slurm/tests/contracts/golden",
-    "packages/data-designer-slurm/tests/fixtures",
-    "packages/data-designer-slurm/tests/integration/golden",
-    "packages/data-designer-slurm/tests/serving/golden",
-    "packages/data-designer-slurm/tests/slurm_test_fakes/golden",
-    "packages/data-designer-slurm/tests/state/golden",
+    "packages/data-designer-slurm/tests",
     "plans/850/data-designer-contract.md",
     "plans/870/slurm-early-security-review.md",
+    "scripts/publish.sh",
     "scripts/test_slurm_package_install.py",
-)
-_TEXT_SUFFIXES = frozenset(
-    {
-        ".cfg",
-        ".err",
-        ".ini",
-        ".json",
-        ".log",
-        ".md",
-        ".out",
-        ".py",
-        ".rc",
-        ".sbatch",
-        ".sh",
-        ".toml",
-        ".txt",
-        ".yaml",
-        ".yml",
-    }
 )
 _LICENSED_SOURCE_SUFFIXES = frozenset({".py", ".rc", ".sh"})
 _SPDX_COPYRIGHT = "SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved."
 _SPDX_LICENSE = "SPDX-License-Identifier: Apache-2.0"
-_SLURM_DIST_INFO_PATTERN = re.compile(r"^data_designer_slurm-[^/]+\.dist-info/")
+_SLURM_DIST_INFO_PATTERN = re.compile(r"^data_designer_slurm-[^/]+\.dist-info$")
+_TEST_SOURCE_SENTINELS = {
+    "packages/data-designer-slurm/tests/config/test_loading_builder.py": (
+        '"clusters": {secret: profile_catalog.clusters["primary"]}',
+        "super-secret-token",
+        "sk_live_ABC123XYZ",
+    ),
+    "packages/data-designer-slurm/tests/contracts/test_config_records.py": ("plaintext-secret",),
+    "packages/data-designer-slurm/tests/launcher/test_client.py": (
+        "Authorization: Bearer bearer-secret;suffix status=failed",
+        "Authorization: Bearer bearer-secret",
+    ),
+    "packages/data-designer-slurm/tests/planning/test_compiler.py": ("super-secret-token",),
+    "packages/data-designer-slurm/tests/test_public_artifacts.py": (
+        "/home/specific-user/run",
+        "10.23.45.67",
+        "service.internal.nvidia.com",
+        "super-secret-token",
+    ),
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,6 +77,16 @@ class AuditFinding:
 
     location: str
     rule: str
+
+
+@dataclass(frozen=True, slots=True)
+class _ZipMemberAudit:
+    findings: tuple[AuditFinding, ...]
+    dist_info_root: str | None = None
+    is_license: bool = False
+    license_matches: bool = False
+    is_metadata: bool = False
+    metadata_declares_license: bool = False
 
 
 _CONTENT_RULES = (
@@ -125,6 +130,8 @@ def audit_public_artifacts(paths: Iterable[Path]) -> tuple[AuditFinding, ...]:
                     findings.append(
                         AuditFinding(_display_path(child), "symbolic-link artifact requires explicit review")
                     )
+                elif "__pycache__" in child.parts:
+                    continue
                 elif child.is_file():
                     findings.extend(_audit_file(child))
         else:
@@ -137,8 +144,6 @@ def _audit_file(path: Path) -> list[AuditFinding]:
         return _audit_zip(path)
     if _is_tar_archive(path):
         return _audit_tar(path)
-    if path.suffix.casefold() not in _TEXT_SUFFIXES:
-        return []
     try:
         with path.open("rb") as stream:
             content = _read_bounded(stream, expected_size=path.stat().st_size)
@@ -147,13 +152,17 @@ def _audit_file(path: Path) -> list[AuditFinding]:
     except ValueError as error:
         return [AuditFinding(_display_path(path), str(error))]
     location = _display_path(path)
-    return _audit_content(location, location, content)
+    return _audit_content(
+        location,
+        location,
+        content,
+        allowed_sentinels=_TEST_SOURCE_SENTINELS.get(location, ()),
+    )
 
 
 def _audit_zip(path: Path) -> list[AuditFinding]:
     findings: list[AuditFinding] = []
-    license_present = False
-    license_declared = False
+    member_audits: list[_ZipMemberAudit] = []
     try:
         canonical_license = CANONICAL_PACKAGE_LICENSE.read_bytes()
     except OSError:
@@ -170,21 +179,18 @@ def _audit_zip(path: Path) -> list[AuditFinding]:
                 return [limit_finding]
             for index, member in enumerate(sorted(members, key=lambda item: item.filename), start=1):
                 location = f"{_display_path(path)}!member-{index}"
-                member_findings, contains_license, declares_license = _audit_zip_member(
+                member_audit = _audit_zip_member(
                     archive,
                     member,
                     location,
                     canonical_license,
                 )
-                findings.extend(member_findings)
-                license_present = license_present or contains_license
-                license_declared = license_declared or declares_license
+                findings.extend(member_audit.findings)
+                member_audits.append(member_audit)
     except (OSError, zipfile.BadZipFile):
         return [AuditFinding(_display_path(path), "artifact is not a readable ZIP archive")]
-    if path.suffix.casefold() == ".whl" and not license_present:
-        findings.append(AuditFinding(_display_path(path), "wheel does not contain its declared license text"))
-    if path.suffix.casefold() == ".whl" and not license_declared:
-        findings.append(AuditFinding(_display_path(path), "wheel metadata does not declare Apache-2.0"))
+    if path.suffix.casefold() == ".whl":
+        findings.extend(_audit_wheel_distribution(path, member_audits))
     return findings
 
 
@@ -214,25 +220,48 @@ def _audit_zip_member(
     member: zipfile.ZipInfo,
     location: str,
     canonical_license: bytes,
-) -> tuple[list[AuditFinding], bool, bool]:
+) -> _ZipMemberAudit:
+    dist_info_root = _get_dist_info_root(member.filename)
     if _is_unsafe_archive_name(member.filename):
-        return [AuditFinding(location, "archive member path is unsafe")], False, False
+        return _ZipMemberAudit((AuditFinding(location, "archive member path is unsafe"),))
     if stat.S_ISLNK(member.external_attr >> 16):
-        return [AuditFinding(location, "archive member is a symbolic link")], False, False
+        return _ZipMemberAudit((AuditFinding(location, "archive member is a symbolic link"),))
     if member.is_dir():
-        return [], False, False
-    is_license = _is_distribution_license(member.filename)
-    is_metadata = _is_distribution_metadata(member.filename)
-    if not (is_license or is_metadata) and PurePosixPath(member.filename).suffix.casefold() not in _TEXT_SUFFIXES:
-        return [], False, False
+        return _ZipMemberAudit((), dist_info_root=dist_info_root)
+    is_license = _is_distribution_license(member.filename, dist_info_root)
+    is_metadata = _is_distribution_metadata(member.filename, dist_info_root)
     try:
         with archive.open(member) as stream:
             content = _read_bounded(stream, expected_size=member.file_size)
     except (OSError, ValueError) as error:
-        return [AuditFinding(location, str(error))], False, False
-    contains_license = is_license and content == canonical_license
-    declares_license = is_metadata and b"\nLicense-Expression: Apache-2.0\n" in b"\n" + content
-    return _audit_content(location, member.filename, content), contains_license, declares_license
+        return _ZipMemberAudit((AuditFinding(location, str(error)),), dist_info_root=dist_info_root)
+    return _ZipMemberAudit(
+        findings=tuple(_audit_content(location, member.filename, content)),
+        dist_info_root=dist_info_root,
+        is_license=is_license,
+        license_matches=is_license and content == canonical_license,
+        is_metadata=is_metadata,
+        metadata_declares_license=is_metadata and b"\nLicense-Expression: Apache-2.0\n" in b"\n" + content,
+    )
+
+
+def _audit_wheel_distribution(path: Path, members: Iterable[_ZipMemberAudit]) -> list[AuditFinding]:
+    member_audits = tuple(members)
+    roots = frozenset(member.dist_info_root for member in member_audits if member.dist_info_root is not None)
+    location = _display_path(path)
+    if len(roots) != 1:
+        return [AuditFinding(location, "wheel must contain exactly one .dist-info root")]
+    root = next(iter(roots))
+    if _SLURM_DIST_INFO_PATTERN.fullmatch(root.casefold()) is None:
+        return [AuditFinding(location, "wheel .dist-info root does not identify data-designer-slurm")]
+    licenses = tuple(member for member in member_audits if member.dist_info_root == root and member.is_license)
+    metadata = tuple(member for member in member_audits if member.dist_info_root == root and member.is_metadata)
+    findings: list[AuditFinding] = []
+    if len(licenses) != 1 or not licenses[0].license_matches:
+        findings.append(AuditFinding(location, "wheel does not contain exactly one canonical license text"))
+    if len(metadata) != 1 or not metadata[0].metadata_declares_license:
+        findings.append(AuditFinding(location, "wheel does not contain exactly one Apache-2.0 metadata record"))
+    return findings
 
 
 def _audit_tar_member(
@@ -244,7 +273,7 @@ def _audit_tar_member(
         return [AuditFinding(location, "archive member path is unsafe")]
     if member.issym() or member.islnk():
         return [AuditFinding(location, "archive member is a link")]
-    if not member.isfile() or PurePosixPath(member.name).suffix.casefold() not in _TEXT_SUFFIXES:
+    if not member.isfile():
         return []
     stream = archive.extractfile(member)
     if stream is None:
@@ -265,8 +294,16 @@ def _get_archive_limit_finding(path: Path, *, member_count: int, content_size: i
     return None
 
 
-def _audit_content(location: str, logical_name: str, content: bytes) -> list[AuditFinding]:
+def _audit_content(
+    location: str,
+    logical_name: str,
+    content: bytes,
+    *,
+    allowed_sentinels: Iterable[str] = (),
+) -> list[AuditFinding]:
     text = content.decode("utf-8", errors="replace")
+    for sentinel in sorted(allowed_sentinels, key=len, reverse=True):
+        text = text.replace(sentinel, "<allowed-test-sentinel>")
     findings = [
         AuditFinding(location, rule.name)
         for rule in _CONTENT_RULES
@@ -301,19 +338,25 @@ def _has_spdx_header(text: str) -> bool:
     return _SPDX_COPYRIGHT in header and _SPDX_LICENSE in header
 
 
-def _is_distribution_license(name: str) -> bool:
-    normalized = name.casefold()
-    basename = PurePosixPath(normalized).name
-    return (
-        _SLURM_DIST_INFO_PATTERN.match(normalized) is not None
-        and basename in {"license", "license.md", "license.txt"}
-        and (".dist-info/licenses/" in normalized or ".dist-info/" in normalized)
+def _get_dist_info_root(name: str) -> str | None:
+    parts = PurePosixPath(name).parts
+    if not parts or not parts[0].casefold().endswith(".dist-info"):
+        return None
+    return parts[0]
+
+
+def _is_distribution_license(name: str, root: str | None) -> bool:
+    if root is None:
+        return False
+    parts = tuple(part.casefold() for part in PurePosixPath(name).parts)
+    license_names = {"license", "license.md", "license.txt"}
+    return (len(parts) == 2 and parts[1] in license_names) or (
+        len(parts) == 3 and parts[1] == "licenses" and parts[2] in license_names
     )
 
 
-def _is_distribution_metadata(name: str) -> bool:
-    normalized = name.casefold()
-    return _SLURM_DIST_INFO_PATTERN.match(normalized) is not None and normalized.endswith(".dist-info/metadata")
+def _is_distribution_metadata(name: str, root: str | None) -> bool:
+    return root is not None and name.casefold() == f"{root.casefold()}/metadata"
 
 
 def _is_unsafe_archive_name(name: str) -> bool:
