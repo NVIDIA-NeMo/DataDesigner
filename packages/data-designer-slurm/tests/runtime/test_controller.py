@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass, replace
 from datetime import timedelta
 from pathlib import Path
@@ -12,6 +13,7 @@ import pytest
 from conftest import FakeClientStepBuilder, FakePreflight, FakeStateStore, RuntimeCase
 from slurm_test_fakes import FakeClock
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.slurm.client import ClientOutcome, ClientResult
 from data_designer.slurm.config import DataDesignerSlurmConfig
 from data_designer.slurm.contracts import ArtifactReference
@@ -34,6 +36,7 @@ from data_designer.slurm.state import (
     ShardManifest,
     SlurmStateWriter,
 )
+from data_designer.slurm.state.artifacts import compute_candidate_schema_digest
 
 
 @dataclass(slots=True)
@@ -149,7 +152,12 @@ def _supervisor(
 def test_controller_runs_preflight_servers_endpoint_client_and_cleanup(runtime_case: RuntimeCase) -> None:
     clock = FakeClock(runtime_case.created_at.replace(second=10), monotonic_time=100)
     state = FakeStateStore(runtime_case.context.attempt)
-    runner = _FakeRunner(generation_hook=lambda: _write_complete_result(runtime_case, clock))
+
+    def write_result_under_dataset_lease() -> None:
+        assert state.dataset_workspace_lease_active
+        _write_complete_result(runtime_case, clock)
+
+    runner = _FakeRunner(generation_hook=write_result_under_dataset_lease)
     supervisor = _supervisor(runner, clock, poll_interval_seconds=0.1)
     controller = OneNodeAllocationController(
         runtime_case.context,
@@ -168,6 +176,9 @@ def test_controller_runs_preflight_servers_endpoint_client_and_cleanup(runtime_c
     assert result.state is AttemptLifecycleState.SUCCEEDED
     assert result.terminal_classification is AttemptTerminalClassification.SUCCEEDED
     assert result.candidate_output is not None
+    assert state.dataset_workspace_modes == ["never"]
+    assert not state.dataset_workspace_lease_active
+    assert state.winners[0].attempt_id == result.attempt_id
     assert [step.role for step in runner.steps] == [
         RuntimeStepRole.CLIENT_PREFLIGHT,
         RuntimeStepRole.SERVER,
@@ -207,6 +218,7 @@ def test_controller_publishes_result_before_success_with_real_state_writer(
     assert persisted == result
     assert persisted.state is AttemptLifecycleState.SUCCEEDED
     assert persisted.candidate_output is not None
+    assert state.load_winner(result.shard_id).attempt_id == result.attempt_id
 
 
 def test_preflight_failure_starts_no_process_and_fails_attempt(runtime_case: RuntimeCase) -> None:
@@ -598,6 +610,11 @@ def _write_complete_result(runtime_case: RuntimeCase, clock: FakeClock) -> None:
     context = runtime_case.context
     requested = context.shard.requested_records
     dataset_path = (context.attempt_directory / "dataset").as_posix()
+    output_path = Path(dataset_path) / "part-00000.parquet"
+    output_path.parent.mkdir(exist_ok=True)
+    table = lazy.pa.table({"record_id": range(requested)})
+    lazy.pq.write_table(table, output_path)
+    output_bytes = output_path.read_bytes()
     candidate = CandidateOutputManifest(
         schema_version=1,
         run_id=context.plan.run_id,
@@ -612,12 +629,12 @@ def _write_complete_result(runtime_case: RuntimeCase, clock: FakeClock) -> None:
         files=(
             CandidateOutputFile(
                 relative_path="part-00000.parquet",
-                sha256="a" * 64,
-                byte_size=128,
+                sha256=hashlib.sha256(output_bytes).hexdigest(),
+                byte_size=len(output_bytes),
                 record_count=requested,
             ),
         ),
-        dataset_schema_digest="b" * 64,
+        dataset_schema_digest=compute_candidate_schema_digest(table.schema),
         provenance_digest=context.plan.compute_sha256(),
     )
     candidate_path = context.attempt_directory / "output-manifest.json"

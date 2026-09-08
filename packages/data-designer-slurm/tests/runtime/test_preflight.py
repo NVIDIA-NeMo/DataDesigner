@@ -127,7 +127,7 @@ def test_port_preflight_detects_collision_before_launch(
     monkeypatch.setattr("data_designer.slurm.runtime.preflight.socket.socket", _UnavailableSocket)
 
     with pytest.raises(SlurmRuntimeError, match="ports are unavailable"):
-        SystemAllocationPreflight._verify_ports(runtime_case.context)
+        SystemAllocationPreflight.verify_ports(runtime_case.context)
     assert _UnavailableSocket.closed
 
 
@@ -135,4 +135,4 @@ def test_attempt_directory_must_be_restrictive(runtime_case: RuntimeCase) -> Non
     runtime_case.context.attempt_directory.chmod(0o755)
 
     with pytest.raises(SlurmRuntimeError, match="restrictive directory"):
-        SystemAllocationPreflight._verify_attempt_directory(runtime_case.context.attempt_directory)
+        SystemAllocationPreflight.verify_attempt_directory(runtime_case.context.attempt_directory)

@@ -10,10 +10,16 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Protocol
 
-from pydantic import BaseModel
-
-from data_designer.slurm.config.environment import LiteralEnvironmentBinding, SecretRef
+from data_designer.slurm.config.environment import (
+    LiteralEnvironmentBinding,
+    SecretRef,
+    collect_secret_environment_names,
+)
 from data_designer.slurm.planning import PlannedShard, ResolvedSlurmRunPlan
+from data_designer.slurm.runtime.backpressure import (
+    MAX_WAITING_REQUESTS_ENVIRONMENT,
+    RETRY_AFTER_SECONDS_ENVIRONMENT,
+)
 from data_designer.slurm.runtime.errors import SlurmRuntimeError, SlurmRuntimeErrorCode
 from data_designer.slurm.runtime.models import RuntimeEndpoint, RuntimeStep, RuntimeStepRole
 from data_designer.slurm.runtime.paths import get_container_path
@@ -125,7 +131,7 @@ class DefaultClientStepBuilder:
         endpoints: tuple[RuntimeEndpoint, ...],
         source_environment: Mapping[str, str],
     ) -> RuntimeStep:
-        command = _build_client_command(operation, plan, shard, attempt, attempt_directory, endpoints)
+        command = build_client_command(operation, plan, shard, attempt, attempt_directory, endpoints)
         secret_names, environment = _build_client_environment(plan, source_environment)
         return _build_srun_step(
             step_id=step_id,
@@ -139,7 +145,7 @@ class DefaultClientStepBuilder:
         )
 
 
-def _build_client_command(
+def build_client_command(
     operation: str,
     plan: ResolvedSlurmRunPlan,
     shard: PlannedShard,
@@ -191,10 +197,11 @@ def build_vllm_steps(
     plan: ResolvedSlurmRunPlan,
     attempt_directory: Path,
     source_environment: Mapping[str, str],
+    runtime_root: Path,
 ) -> tuple[RuntimeStep, ...]:
     """Build one structured server step per resolved vLLM process."""
     return tuple(
-        _build_vllm_step(deployment, process, plan, attempt_directory, source_environment)
+        _build_vllm_step(deployment, process, plan, attempt_directory, source_environment, runtime_root)
         for process in deployment.processes
     )
 
@@ -226,7 +233,7 @@ def _build_endpoint_step(
         host="127.0.0.1",
         port=deployment.logical_endpoint.port,
     )
-    command = _build_endpoint_command(deployment, plan, runtime_proxy_path, endpoint.port)
+    command = build_endpoint_command(deployment, plan, runtime_proxy_path, endpoint.port)
     step = _build_srun_step(
         step_id=f"{deployment.deployment_id}-endpoint",
         role=RuntimeStepRole.ENDPOINT,
@@ -240,7 +247,7 @@ def _build_endpoint_step(
     return step, endpoint
 
 
-def _build_endpoint_command(
+def build_endpoint_command(
     deployment: ResolvedVllmServerDeployment,
     plan: ResolvedSlurmRunPlan,
     runtime_proxy_path: Path,
@@ -270,10 +277,16 @@ def _build_vllm_step(
     plan: ResolvedSlurmRunPlan,
     attempt_directory: Path,
     source_environment: Mapping[str, str],
+    runtime_root: Path,
 ) -> RuntimeStep:
     _validate_local_vllm_process(process)
-    command = _build_vllm_command(deployment, process)
-    environment, container_environment = _build_vllm_environment(deployment, source_environment)
+    command = build_vllm_command(deployment, process)
+    environment, container_environment = _build_vllm_environment(
+        deployment,
+        source_environment,
+        plan,
+        runtime_root,
+    )
     return _build_srun_step(
         step_id=process.process_id,
         role=RuntimeStepRole.SERVER,
@@ -295,7 +308,7 @@ def _validate_local_vllm_process(process: ResolvedVllmProcess) -> None:
         )
 
 
-def _build_vllm_command(
+def build_vllm_command(
     deployment: ResolvedVllmServerDeployment,
     process: ResolvedVllmProcess,
 ) -> tuple[str, ...]:
@@ -313,6 +326,8 @@ def _build_vllm_command(
         str(process.http_port),
         "--tensor-parallel-size",
         str(process.tensor_parallel),
+        "--middleware",
+        "data_designer.slurm.runtime.backpressure.QueueDepthBackpressureMiddleware",
     )
     if deployment.launch_policy.enable_expert_parallel:
         command += ("--enable-expert-parallel",)
@@ -322,6 +337,8 @@ def _build_vllm_command(
 def _build_vllm_environment(
     deployment: ResolvedVllmServerDeployment,
     source_environment: Mapping[str, str],
+    plan: ResolvedSlurmRunPlan,
+    runtime_root: Path,
 ) -> tuple[dict[str, str], tuple[str, ...]]:
     environment = _base_environment(source_environment)
     container_environment: list[str] = []
@@ -339,6 +356,17 @@ def _build_vllm_environment(
         else:  # pragma: no cover - persisted contracts reject unknown bindings
             raise AssertionError(f"unhandled environment binding: {type(binding)!r}")
         container_environment.append(name)
+    runtime_pythonpath = get_container_path(plan, runtime_root.as_posix())
+    configured_pythonpath = environment.get("PYTHONPATH")
+    environment["PYTHONPATH"] = (
+        os.pathsep.join((runtime_pythonpath, configured_pythonpath)) if configured_pythonpath else runtime_pythonpath
+    )
+    queue_policy = deployment.launch_policy.queue_backpressure
+    environment[MAX_WAITING_REQUESTS_ENVIRONMENT] = str(queue_policy.max_waiting_requests)
+    environment[RETRY_AFTER_SECONDS_ENVIRONMENT] = (
+        "" if queue_policy.retry_after_seconds is None else str(queue_policy.retry_after_seconds)
+    )
+    container_environment.extend(("PYTHONPATH", MAX_WAITING_REQUESTS_ENVIRONMENT, RETRY_AFTER_SECONDS_ENVIRONMENT))
     return environment, tuple(container_environment)
 
 
@@ -438,21 +466,18 @@ def _base_environment(source_environment: Mapping[str, str]) -> dict[str, str]:
 
 
 def _collect_client_secret_environment_names(plan: ResolvedSlurmRunPlan) -> tuple[str, ...]:
-    names: set[str] = set()
-    _collect_secret_environment_names(plan.client.authored.dependencies.index_credentials, names)
-    _collect_secret_environment_names(plan.invocation.authored.mcp_providers, names)
-    return tuple(sorted(names))
+    return collect_secret_environment_names(
+        (plan.client.authored.dependencies.index_credentials, plan.invocation.authored.mcp_providers)
+    )
 
 
-def _collect_secret_environment_names(value: object, names: set[str]) -> None:
-    if isinstance(value, SecretRef):
-        names.add(value.environment)
-    elif isinstance(value, BaseModel):
-        for field_name in type(value).model_fields:
-            _collect_secret_environment_names(getattr(value, field_name), names)
-    elif isinstance(value, Mapping):
-        for child in value.values():
-            _collect_secret_environment_names(child, names)
-    elif isinstance(value, (tuple, list)):
-        for child in value:
-            _collect_secret_environment_names(child, names)
+__all__ = [
+    "ClientStepBuilder",
+    "DefaultClientStepBuilder",
+    "build_client_command",
+    "build_endpoint_command",
+    "build_endpoint_steps",
+    "build_vllm_command",
+    "build_vllm_steps",
+    "plan_path",
+]

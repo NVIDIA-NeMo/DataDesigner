@@ -61,13 +61,18 @@ def test_subprocess_runner_uses_argv_and_only_explicit_environment(monkeypatch: 
     }
 
 
-def test_subprocess_runner_default_environment_forwards_only_search_path(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_subprocess_runner_default_environment_forwards_only_slurm_bootstrap(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PATH", "/workspace/slurm/bin:/usr/bin")
+    monkeypatch.setenv("SLURM_CONF", "/etc/slurm/slurm.conf")
     monkeypatch.setenv("SECRET", "must-not-leak")
 
     runner = SubprocessRunner()
 
-    assert runner.environment == {"LC_ALL": "C", "PATH": "/workspace/slurm/bin:/usr/bin"}
+    assert runner.environment == {
+        "LC_ALL": "C",
+        "PATH": "/workspace/slurm/bin:/usr/bin",
+        "SLURM_CONF": "/etc/slurm/slurm.conf",
+    }
 
 
 def test_subprocess_runner_forwards_explicit_standard_input(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -110,6 +115,7 @@ def test_subprocess_runner_forwards_explicit_standard_input(monkeypatch: pytest.
 
 def test_subprocess_runner_default_environment_replaces_empty_search_path(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PATH", "")
+    monkeypatch.delenv("SLURM_CONF", raising=False)
 
     runner = SubprocessRunner()
 

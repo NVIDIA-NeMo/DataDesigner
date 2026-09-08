@@ -187,6 +187,9 @@ def test_context_loading_reads_each_immutable_record_once(
 
     attempt = _submitted_attempt(case)
     case.writer.create_attempt(attempt)
+    runtime_directory = case.writer.run_root / "shards/shard-00000/attempts/attempt-0001/runtime"
+    assert runtime_directory.is_dir()
+    assert runtime_directory.stat().st_mode & 0o777 == 0o700
     readiness = _readiness(case, attempt)
     case.writer.write_readiness(readiness)
     record_names.clear()
@@ -1961,6 +1964,25 @@ def test_resumable_workspace_is_shard_owned_and_exclusively_locked(
     with pytest.raises(StateConflictError, match="requested dataset workspace"):
         with case.writer.acquire_dataset_workspace(attempt.shard_id, attempt.attempt_id, "never"):
             pass
+
+
+def test_if_possible_lease_does_not_create_resume_workspace(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    plan_payload = single_node_plan.model_dump(mode="python")
+    plan_payload["invocation"]["authored"]["resume"] = "if_possible"
+    case = _initialized_case(tmp_path, authored_run_single, ResolvedSlurmRunPlan.model_validate(plan_payload))
+    attempt = _submitted_attempt(case)
+    case.writer.create_attempt(attempt)
+    resume_path = Path(case.shards[0].resume_workspace.path)
+
+    with case.writer.acquire_dataset_workspace(attempt.shard_id, attempt.attempt_id, "if_possible") as path:
+        assert path == resume_path
+        assert not path.exists()
+
+    assert not resume_path.exists()
 
 
 def test_dataset_lock_rejects_unsafe_files_without_reclassifying_body_errors(

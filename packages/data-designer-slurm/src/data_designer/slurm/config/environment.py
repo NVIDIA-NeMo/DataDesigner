@@ -9,7 +9,7 @@ import re
 from collections.abc import Mapping
 from typing import Annotated, Literal
 
-from pydantic import Field, JsonValue, StringConstraints, field_validator
+from pydantic import BaseModel, Field, JsonValue, StringConstraints, field_validator
 
 from data_designer.slurm.contracts import AuthoredConfig, validate_plain_text
 from data_designer.slurm.types import EnvironmentName
@@ -18,6 +18,7 @@ __all__ = [
     "EnvironmentBinding",
     "LiteralEnvironmentBinding",
     "SecretRef",
+    "collect_secret_environment_names",
 ]
 
 
@@ -57,6 +58,13 @@ EnvironmentBinding = Annotated[
     LiteralEnvironmentBinding | SecretRef,
     Field(discriminator="type"),
 ]
+
+
+def collect_secret_environment_names(value: object) -> tuple[str, ...]:
+    """Return every external environment variable referenced below a config value."""
+    names: set[str] = set()
+    _collect_secret_environment_names(value, names)
+    return tuple(sorted(names))
 
 
 def is_secret_bearing_name(value: str) -> bool:
@@ -112,3 +120,17 @@ def _secret_name_segments(value: str) -> list[str]:
     snake_case = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", value)
     normalized = re.sub(r"[^a-z0-9]+", "_", snake_case.casefold()).strip("_")
     return normalized.split("_")
+
+
+def _collect_secret_environment_names(value: object, names: set[str]) -> None:
+    if isinstance(value, SecretRef):
+        names.add(value.environment)
+    elif isinstance(value, BaseModel):
+        for field_name in type(value).model_fields:
+            _collect_secret_environment_names(getattr(value, field_name), names)
+    elif isinstance(value, Mapping):
+        for child in value.values():
+            _collect_secret_environment_names(child, names)
+    elif isinstance(value, (tuple, list)):
+        for child in value:
+            _collect_secret_environment_names(child, names)

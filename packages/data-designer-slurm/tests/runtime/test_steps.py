@@ -12,6 +12,10 @@ from conftest import RuntimeCase, relocate_plan
 from data_designer.slurm.config import QueueBackpressureConfig
 from data_designer.slurm.contracts import ArtifactReference
 from data_designer.slurm.planning import ResolvedSlurmRunPlan
+from data_designer.slurm.runtime.backpressure import (
+    MAX_WAITING_REQUESTS_ENVIRONMENT,
+    RETRY_AFTER_SECONDS_ENVIRONMENT,
+)
 from data_designer.slurm.runtime.errors import SlurmRuntimeError
 from data_designer.slurm.runtime.models import RuntimeEndpoint, RuntimeStepRole
 from data_designer.slurm.runtime.steps import (
@@ -37,6 +41,7 @@ def test_all_processes_use_structured_srun_steps_and_sanitized_environment(runti
         context.plan,
         context.attempt_directory,
         source_environment,
+        context.attempt_directory / "runtime",
     )
     endpoint_steps = build_endpoint_steps(
         (deployment,),
@@ -82,6 +87,19 @@ def test_all_processes_use_structured_srun_steps_and_sanitized_environment(runti
     assert f"--gpu-bind=mask_gpu:{expected_mask:#x}" in server.command
     assert "CUDA_VISIBLE_DEVICES" not in server.environment
     assert all("CUDA_VISIBLE_DEVICES" not in argument for argument in server.command)
+    assert "--middleware" in server.command
+    assert "data_designer.slurm.runtime.backpressure.QueueDepthBackpressureMiddleware" in server.command
+    assert server.environment[MAX_WAITING_REQUESTS_ENVIRONMENT] == "128"
+    assert server.environment[RETRY_AFTER_SECONDS_ENVIRONMENT] == "1"
+    assert server.environment["PYTHONPATH"].endswith("/runtime")
+    assert any(
+        argument.startswith("--container-env=")
+        and all(
+            name in argument
+            for name in ("PYTHONPATH", MAX_WAITING_REQUESTS_ENVIRONMENT, RETRY_AFTER_SECONDS_ENVIRONMENT)
+        )
+        for argument in server.command
+    )
     assert all("--gpus-per-task=" not in argument for step in client_steps for argument in step.command)
     assert all("--gres=none" in step.command for step in client_steps)
     assert all("CUDA_VISIBLE_DEVICES" not in step.environment for step in client_steps)

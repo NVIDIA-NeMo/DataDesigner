@@ -53,10 +53,10 @@ class WinnerFinalizer:
         self,
         shard_id: ShardId,
         attempt_id: AttemptId,
-        effective_resume_mode: Literal["never", "always"],
+        resume_mode: Literal["never", "always", "if_possible"],
     ) -> Iterator[Path]:
         with self._storage.acquire_resume_lock(shard_id):
-            dataset_path = self._prepare_workspace_or_normalize(shard_id, attempt_id, effective_resume_mode)
+            dataset_path = self._prepare_workspace_or_normalize(shard_id, attempt_id, resume_mode)
             yield dataset_path
 
     def finalize_winner(self, shard_id: ShardId, attempt_id: AttemptId, published_at: datetime) -> ShardWinner:
@@ -196,18 +196,20 @@ class WinnerFinalizer:
         self,
         shard_id: ShardId,
         attempt_id: AttemptId,
-        effective_resume_mode: Literal["never", "always"],
+        resume_mode: Literal["never", "always", "if_possible"],
     ) -> Path:
         with self._storage.acquire_shard_lock(shard_id):
             run, plan, shard = self._reader.load_shard_context(shard_id)
             attempts = self._reader.load_validated_shard_attempts(run, plan, shard)
             attempt = self._reader.get_attempt(attempts, attempt_id)
             self.require_no_winner(run, plan, shard, attempts)
-            self._validate_workspace_mode(plan, attempt, effective_resume_mode)
-            dataset_path = self._storage.ensure_dataset_directory(shard_id, attempt_id, effective_resume_mode)
+            self._validate_workspace_mode(plan, attempt, resume_mode)
+            if resume_mode == "if_possible":
+                return Path(shard.resume_workspace.path)
+            dataset_path = self._storage.ensure_dataset_directory(shard_id, attempt_id, resume_mode)
             expected_path = (
                 Path(shard.resume_workspace.path)
-                if effective_resume_mode == "always"
+                if resume_mode == "always"
                 else self._storage.get_attempt_path(shard_id, attempt_id) / "dataset"
             )
             if dataset_path != expected_path:
@@ -218,10 +220,10 @@ class WinnerFinalizer:
         self,
         shard_id: ShardId,
         attempt_id: AttemptId,
-        effective_resume_mode: Literal["never", "always"],
+        resume_mode: Literal["never", "always", "if_possible"],
     ) -> Path:
         try:
-            return self._prepare_dataset_workspace(shard_id, attempt_id, effective_resume_mode)
+            return self._prepare_dataset_workspace(shard_id, attempt_id, resume_mode)
         except (StateConflictError, StateCorruptionError, StateNotFoundError, SlurmStateError):
             raise
         except (PlanStateContractError, StateContractError) as error:
@@ -309,7 +311,7 @@ class WinnerFinalizer:
     def _validate_workspace_mode(
         plan: ResolvedSlurmRunPlan,
         attempt: AttemptManifest,
-        effective_resume_mode: Literal["never", "always"],
+        resume_mode: Literal["never", "always", "if_possible"],
     ) -> None:
         if attempt.state not in {
             AttemptLifecycleState.SUBMITTED,
@@ -318,8 +320,8 @@ class WinnerFinalizer:
         }:
             raise StateContractError("dataset workspace requires an active submitted attempt")
         requested = plan.invocation.authored.resume
-        if requested != "if_possible" and effective_resume_mode != requested:
-            raise StateContractError("effective resume mode does not match the resolved plan")
+        if requested != "if_possible" and resume_mode != requested:
+            raise StateContractError("resume mode does not match the resolved plan")
 
     def _get_winner_attempt(
         self,

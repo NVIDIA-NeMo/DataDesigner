@@ -192,6 +192,7 @@ def test_rendered_script_verifies_exact_persisted_plan_bytes_before_sourcing_run
 ) -> None:
     run_root = tmp_path / "run"
     run_root.mkdir()
+    (run_root / "shards/shard-00000/attempts/attempt-0001/runtime").mkdir(parents=True)
     captured_plan_path = tmp_path / "captured-plan.json"
     entrypoint_path = tmp_path / "entrypoint.sh"
     entrypoint_path.write_text(

@@ -36,8 +36,9 @@ def test_runtime_bundle_is_deterministic_content_addressed_and_restrictive(tmp_p
     with tarfile.open(fileobj=io.BytesIO(content), mode="r:gz") as archive:
         names = archive.getnames()
         assert names[0] == "entrypoint.sh"
-        assert names[1] == "data_designer/slurm/runtime/slurm-sources.txt"
-        assert names[2] == "data_designer/slurm/__init__.py"
+        assert names[1:4] == ["plan_reader.sh", "step_runner.sh", "cleanup.sh"]
+        assert names[4] == "data_designer/slurm/runtime/slurm-sources.txt"
+        assert names[5] == "data_designer/slurm/__init__.py"
         assert "data_designer/slurm/runtime/controller.py" in names
         assert "data_designer/slurm/runtime/entrypoint.py" in names
         assert "data_designer/slurm/state/store.py" in names
@@ -46,7 +47,7 @@ def test_runtime_bundle_is_deterministic_content_addressed_and_restrictive(tmp_p
         assert all(archive.getmember(name).uid == 0 for name in names)
         entrypoint = archive.extractfile("entrypoint.sh")
         assert entrypoint is not None
-        assert b'PYTHONPATH="${runtime_root}"' in entrypoint.read()
+        assert b"python3 -m data_designer.slurm.runtime.entrypoint" not in entrypoint.read()
 
 
 def test_runtime_bundle_recursively_collects_and_imports_nested_packages(
@@ -62,6 +63,8 @@ def test_runtime_bundle_recursively_collects_and_imports_nested_packages(
     (source_root / "__init__.py").write_text("")
     (runtime_root / "__init__.py").write_text("")
     (runtime_root / "bundle.py").write_text("")
+    for name in ("entrypoint.sh", "plan_reader.sh", "step_runner.sh", "cleanup.sh"):
+        (runtime_root / name).write_text("")
     (nested_root / "__init__.py").write_text("")
     (nested_root / "worker.py").write_text("VALUE = 42\n")
     monkeypatch.setattr(runtime_bundle, "__file__", (runtime_root / "bundle.py").as_posix())
@@ -231,6 +234,31 @@ def test_extracted_bundle_runtime_takes_precedence_over_installed_sources(tmp_pa
 
     assert completed.returncode == 0, completed.stderr
     assert completed.stdout == (extracted / "data_designer/slurm/runtime/__init__.py").as_posix()
+
+
+def test_backpressure_module_imports_from_the_bundle_without_site_packages(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    extracted = tmp_path / "extracted"
+    workspace.mkdir(mode=0o700)
+    reference = stage_runtime_bundle(workspace)
+    with tarfile.open(reference.path, mode="r:gz") as archive:
+        archive.extractall(extracted, filter="data")
+
+    completed = subprocess.run(
+        (
+            sys.executable,
+            "-S",
+            "-c",
+            "import sys; "
+            f"sys.path.insert(0, {extracted.as_posix()!r}); "
+            "from data_designer.slurm.runtime.backpressure import QueueDepthBackpressureMiddleware",
+        ),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
 
 
 def _get_module_name(source_name: str) -> str:

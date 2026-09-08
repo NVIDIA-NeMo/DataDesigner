@@ -6,7 +6,8 @@
 from __future__ import annotations
 
 import importlib.metadata
-from collections.abc import Callable, Iterator
+import os
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -30,6 +31,7 @@ from data_designer.slurm.config import (
     SlurmConfigLoadError,
     SlurmProfile,
     SlurmProfileCatalog,
+    collect_secret_environment_names,
     load_builder_payload,
     resolve_profile,
 )
@@ -46,6 +48,7 @@ from data_designer.slurm.planning.compiler import SlurmRunCompiler
 from data_designer.slurm.planning.resolution import resolve_slurm_config
 from data_designer.slurm.runtime.bundle import stage_runtime_bundle
 from data_designer.slurm.runtime.errors import SlurmRuntimeError
+from data_designer.slurm.services.artifacts import StateRunArtifactPublisher
 from data_designer.slurm.services.errors import SlurmServiceError, SlurmServiceErrorCode, SlurmServiceOperation
 from data_designer.slurm.services.images import SlurmImageService
 from data_designer.slurm.services.results import (
@@ -87,6 +90,9 @@ class SlurmRunArtifactPublisher(Protocol):
 
     def record_submission(self, plan: ResolvedSlurmRunPlan, job_id: int, *, submitted_at: datetime) -> None:
         """Persist the submitted scheduler identity for every initial attempt."""
+
+    def record_submission_failure(self, plan: ResolvedSlurmRunPlan, *, failed_at: datetime) -> None:
+        """Mark initial attempts failed after a held submission is cancelled."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -237,14 +243,16 @@ class _SystemRunBackend:
         preparer: _RunPreparer,
         selected_profile: SelectedSlurmProfile,
         launcher: SlurmCommandClient,
-        publisher: SlurmRunArtifactPublisher | None,
+        publisher: SlurmRunArtifactPublisher,
         clock: Clock,
+        source_environment: Mapping[str, str],
     ) -> None:
         self._preparer = preparer
         self._profile = selected_profile
         self._launcher = launcher
         self._publisher = publisher
         self._clock = clock
+        self._source_environment = source_environment
 
     def execute(
         self,
@@ -268,12 +276,7 @@ class _SystemRunBackend:
                     shard_count=len(plan.shards),
                     batch_script=prepared.batch_script,
                 )
-            if self._publisher is None:
-                raise SlurmServiceError(
-                    SlurmServiceErrorCode.UNAVAILABLE,
-                    SlurmServiceOperation.EXECUTE_RUN,
-                    "run submission is not available; use --dry-run",
-                )
+            export_environment = self._build_export_environment(config)
             publisher = self._publisher
             self._initialize_run(
                 publisher,
@@ -282,7 +285,11 @@ class _SystemRunBackend:
                 force=force,
             )
             try:
-                receipt = self._launcher.submit_script(prepared.batch_script)
+                receipt = self._launcher.submit_script(
+                    prepared.batch_script,
+                    hold=True,
+                    export_environment=export_environment,
+                )
             except SlurmLauncherError:
                 raise SlurmServiceError(
                     SlurmServiceErrorCode.UNAVAILABLE,
@@ -307,6 +314,30 @@ class _SystemRunBackend:
                 except Exception:
                     pass
                 raise
+            try:
+                self._launcher.release(receipt.job_id)
+            except SlurmLauncherError as error:
+                try:
+                    self._launcher.cancel(receipt.job_id)
+                except Exception:
+                    raise SlurmServiceError(
+                        SlurmServiceErrorCode.UNAVAILABLE,
+                        SlurmServiceOperation.EXECUTE_RUN,
+                        f"held Slurm job {receipt.job_id} could not be released or cancelled",
+                    ) from error
+                try:
+                    self._record_submission_failure(publisher, plan)
+                except SlurmServiceError as state_error:
+                    raise SlurmServiceError(
+                        SlurmServiceErrorCode.INTERNAL,
+                        SlurmServiceOperation.EXECUTE_RUN,
+                        f"held Slurm job {receipt.job_id} was cancelled but run {plan.run_id!r} could not be updated",
+                    ) from state_error
+                raise SlurmServiceError(
+                    SlurmServiceErrorCode.UNAVAILABLE,
+                    SlurmServiceOperation.EXECUTE_RUN,
+                    f"held Slurm job {receipt.job_id} could not be released and was cancelled",
+                ) from None
             return SlurmRunExecution(
                 run_id=plan.run_id,
                 state="submitted",
@@ -314,6 +345,35 @@ class _SystemRunBackend:
                 shard_count=len(plan.shards),
                 job_id=receipt.job_id,
             )
+
+    def _build_export_environment(self, config: DataDesignerSlurmConfig) -> dict[str, str]:
+        environment = {"SLURM_EXPORT_ENV": "ALL"}
+        if "SLURM_CONF" in self._source_environment:
+            slurm_conf = self._source_environment["SLURM_CONF"]
+            if type(slurm_conf) is not str or "\0" in slurm_conf:
+                raise SlurmServiceError(
+                    SlurmServiceErrorCode.INVALID_REQUEST,
+                    SlurmServiceOperation.EXECUTE_RUN,
+                    "SLURM_CONF is invalid",
+                )
+            environment["SLURM_CONF"] = slurm_conf
+        for name in collect_secret_environment_names(config):
+            try:
+                value = self._source_environment[name]
+            except KeyError:
+                raise SlurmServiceError(
+                    SlurmServiceErrorCode.INVALID_REQUEST,
+                    SlurmServiceOperation.EXECUTE_RUN,
+                    f"required secret environment {name!r} is unavailable",
+                ) from None
+            if type(value) is not str or "\0" in value:
+                raise SlurmServiceError(
+                    SlurmServiceErrorCode.INVALID_REQUEST,
+                    SlurmServiceOperation.EXECUTE_RUN,
+                    f"required secret environment {name!r} is invalid",
+                )
+            environment[name] = value
+        return environment
 
     def _initialize_run(
         self,
@@ -375,6 +435,16 @@ class _SystemRunBackend:
                 SlurmServiceErrorCode.INTERNAL,
                 SlurmServiceOperation.EXECUTE_RUN,
                 "submission state cannot be recorded",
+            ) from None
+
+    def _record_submission_failure(self, publisher: SlurmRunArtifactPublisher, plan: ResolvedSlurmRunPlan) -> None:
+        try:
+            publisher.record_submission_failure(plan, failed_at=self._clock())
+        except (StateNotFoundError, StateConflictError, SlurmStateError):
+            raise SlurmServiceError(
+                SlurmServiceErrorCode.INTERNAL,
+                SlurmServiceOperation.EXECUTE_RUN,
+                "cancelled submission state cannot be recorded",
             ) from None
 
     def status(self, run_id: Identifier) -> SlurmPersistedRunStatus:
@@ -502,10 +572,12 @@ def create_slurm_run_service(
     run_id_factory: RunIdFactory | None = None,
     clock: Clock | None = None,
     package_version: str | None = None,
+    source_environment: Mapping[str, str] | None = None,
 ) -> SlurmRunService:
     """Create the production run service for one selected cluster profile."""
     selected = resolve_profile(profile=profile, catalog=catalog, profile_file=profile_file, cluster=cluster)
     command_client = launcher or SlurmCommandClient()
+    selected_clock = clock or _utc_now
     preparer = _RunPreparer(
         selected,
         VerifiedImageRegistry(selected.profile.workspace_root),
@@ -518,8 +590,9 @@ def create_slurm_run_service(
         preparer,
         selected,
         command_client,
-        artifact_publisher,
-        clock or _utc_now,
+        artifact_publisher or StateRunArtifactPublisher(selected.profile.workspace_root, selected_clock),
+        selected_clock,
+        dict(os.environ if source_environment is None else source_environment),
     )
     return SlurmRunService(_SystemRunPlanner(preparer), render_generation_attempt_script, backend)
 

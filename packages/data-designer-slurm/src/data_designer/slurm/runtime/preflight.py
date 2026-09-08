@@ -38,10 +38,10 @@ class SystemAllocationPreflight:
         """Verify every launch-critical fact before model services start."""
         try:
             self._verify_scheduler(context, environment)
-            self._verify_attempt_directory(context.attempt_directory)
+            self.verify_attempt_directory(context.attempt_directory)
             get_container_path(context.plan, context.attempt_directory.as_posix(), require_writable=True)
             self._verify_artifacts(context)
-            self._verify_ports(context)
+            self.verify_ports(context)
         except SlurmRuntimeError:
             raise
         except (OSError, ValueError) as error:
@@ -81,7 +81,8 @@ class SystemAllocationPreflight:
             )
 
     @staticmethod
-    def _verify_attempt_directory(attempt_directory: Path) -> None:
+    def verify_attempt_directory(attempt_directory: Path) -> None:
+        """Require an attempt workspace accessible only to its owner."""
         status = attempt_directory.lstat()
         if not stat.S_ISDIR(status.st_mode) or status.st_mode & 0o077:
             raise SlurmRuntimeError(
@@ -115,7 +116,8 @@ class SystemAllocationPreflight:
             _verify_artifact(reference)
 
     @staticmethod
-    def _verify_ports(context: AllocationContext) -> None:
+    def verify_ports(context: AllocationContext) -> None:
+        """Verify that every planned one-node port is currently bindable."""
         ports = tuple(port.port for port in context.plan.client.ports) + tuple(
             port.port for deployment in context.plan.deployments for port in deployment.ports
         )

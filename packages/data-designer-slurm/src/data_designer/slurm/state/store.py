@@ -177,17 +177,17 @@ class SlurmStateWriter:
         self,
         shard_id: ShardId,
         attempt_id: AttemptId,
-        effective_resume_mode: Literal["never", "always"],
+        resume_mode: Literal["never", "always", "if_possible"],
     ) -> Iterator[Path]:
         """Yield one validated dataset path while holding its shard lease."""
         normalized_shard_id = self._validate_shard_id(shard_id)
         normalized_attempt_id = self._validate_attempt_id(attempt_id)
-        if type(effective_resume_mode) is not str or effective_resume_mode not in {"never", "always"}:
-            raise StateConflictError("effective resume mode must be 'never' or 'always'")
+        if type(resume_mode) is not str or resume_mode not in {"never", "always", "if_possible"}:
+            raise StateConflictError("resume mode must be 'never', 'always', or 'if_possible'")
         with self._finalizer.acquire_dataset_workspace(
             normalized_shard_id,
             normalized_attempt_id,
-            effective_resume_mode,
+            resume_mode,
         ) as dataset_path:
             yield dataset_path
 
@@ -221,6 +221,7 @@ class SlurmStateWriter:
             if existing is not None:
                 if existing != attempt:
                     raise StateConflictError(f"attempt {attempt.attempt_id!r} already contains different state")
+                self._storage.ensure_runtime_directory(attempt.shard_id, attempt.attempt_id)
                 self._storage.sync_attempt_directory(attempt.shard_id, attempt.attempt_id)
                 return existing
             self._finalizer.require_no_winner(run, plan, shard, shard_attempts)
@@ -230,6 +231,7 @@ class SlurmStateWriter:
             self._reader.validate_attempt_against_plan(run, plan, shard, attempt)
             validate_shard_attempt_set(run, shard, shard_attempts + (attempt,))
             self._storage.publish_attempt(attempt)
+            self._storage.ensure_runtime_directory(attempt.shard_id, attempt.attempt_id)
             return attempt
 
     def _update_attempt_with_locks(self, attempt: AttemptManifest) -> AttemptManifest:

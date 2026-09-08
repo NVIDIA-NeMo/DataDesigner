@@ -49,7 +49,7 @@ from data_designer.slurm.client.records import (
 from data_designer.slurm.config.environment import LiteralEnvironmentBinding, SecretRef
 from data_designer.slurm.config.images import InstalledDistribution
 from data_designer.slurm.config.run import LocalStdioMCPProviderConfig, RemoteMCPProviderConfig
-from data_designer.slurm.contracts import ArtifactReference, compute_canonical_json_sha256
+from data_designer.slurm.contracts import ArtifactReference
 from data_designer.slurm.planning import PlannedShard, ResolvedDependencyLock, ResolvedSlurmRunPlan
 from data_designer.slurm.state import CandidateOutcome, CandidateOutputFile, CandidateOutputManifest
 
@@ -599,18 +599,6 @@ class ClientWorker:
                 ),
             )
         created_at = self._clock()
-        provenance_digest = compute_canonical_json_sha256(
-            {
-                "builder_sha256": context.plan.builder.content_sha256,
-                "client_image_sha256": prepared.client_image_sha256,
-                "dependency_lock_sha256": prepared.dependency_lock.sha256,
-                "files": [file.model_dump(mode="json") for file in files],
-                "attempt_id": prepared.attempt_id,
-                "resolved_plan_sha256": context.plan.compute_sha256(),
-                "run_id": context.plan.run_id,
-                "shard_id": context.shard.shard_id,
-            }
-        )
         return CandidateOutputManifest(
             schema_version=1,
             run_id=context.plan.run_id,
@@ -630,7 +618,7 @@ class ClientWorker:
             ),
             files=files,
             dataset_schema_digest=schema_digest,
-            provenance_digest=provenance_digest,
+            provenance_digest=context.plan.compute_sha256(),
         )
 
     def _publish_success(

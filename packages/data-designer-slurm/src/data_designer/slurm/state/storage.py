@@ -48,6 +48,7 @@ _CLIENT_RESULT_FILENAME = "client-result.json"
 _CANDIDATE_OUTPUT_FILENAME = "output-manifest.json"
 _WINNER_FILENAME = "winner.json"
 _DATASET_DIRECTORY_NAME = "dataset"
+_RUNTIME_DIRECTORY_NAME = "runtime"
 _RESUME_LOCK_FILENAME = "resume.lock"
 _LOCK_DIRECTORY_NAME = ".locks"
 _MAXIMUM_RECORD_SIZE = 16 * 1024 * 1024
@@ -248,6 +249,13 @@ class StateStorage:
                     attempt_root,
                 ) as attempt_descriptor:
                     self._publish_immutable_record(attempt_descriptor, _ATTEMPT_FILENAME, attempt)
+
+    def ensure_runtime_directory(self, shard_id: ShardId, attempt_id: AttemptId) -> None:
+        attempt_root = self.get_attempt_path(shard_id, attempt_id)
+        runtime_root = attempt_root / _RUNTIME_DIRECTORY_NAME
+        with self.open_attempt_directory(shard_id, attempt_id) as attempt_descriptor:
+            ensure_private_child_directory(attempt_descriptor, _RUNTIME_DIRECTORY_NAME, runtime_root)
+            sync_directory(attempt_descriptor)
 
     def replace_attempt(self, attempt: AttemptManifest) -> None:
         with self.open_attempt_directory(attempt.shard_id, attempt.attempt_id) as attempt_descriptor:
