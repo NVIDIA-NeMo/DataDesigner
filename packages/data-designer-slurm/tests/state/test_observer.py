@@ -101,12 +101,12 @@ def test_collector_allows_transient_scheduler_states_to_advance(
 ) -> None:
     task = SchedulerIdentity(array_job_id=4101, array_task_id=0)
     first_time = datetime(2026, 9, 2, 12, tzinfo=timezone.utc)
-    previous = SchedulerObservation(
-        schema_version=1,
-        scheduler=task,
-        observed_at=first_time,
-        state=transient_state,
-    )
+    previous = SchedulerObservationCollector(
+        _StaticSchedulerClient(
+            (SlurmQueueEntry(job_identity=task, state=transient_state),),
+            (_accounting(task, transient_state),),
+        )
+    ).collect((task,), observed_at=first_time)[0]
 
     pending = SchedulerObservationCollector(
         _StaticSchedulerClient((SlurmQueueEntry(job_identity=task, state=SchedulerState.PENDING),), ())
@@ -115,8 +115,31 @@ def test_collector_allows_transient_scheduler_states_to_advance(
         _StaticSchedulerClient((), (_accounting(task, SchedulerState.COMPLETED),))
     ).collect((task,), observed_at=first_time + timedelta(minutes=2), previous={task: pending})[0]
 
+    assert previous.state is transient_state
     assert pending.state is SchedulerState.PENDING
     assert completed.state is SchedulerState.COMPLETED
+
+
+def test_collector_keeps_active_queue_preemption_nonterminal() -> None:
+    task = SchedulerIdentity(array_job_id=4101, array_task_id=0)
+    first_time = datetime(2026, 9, 2, 12, tzinfo=timezone.utc)
+    client = _StaticSchedulerClient(
+        (SlurmQueueEntry(job_identity=task, state=SchedulerState.PREEMPTED),),
+        (),
+    )
+
+    first = SchedulerObservationCollector(client).collect((task,), observed_at=first_time)[0]
+    second = SchedulerObservationCollector(client).collect(
+        (task,), observed_at=first_time + timedelta(minutes=1), previous={task: first}
+    )[0]
+    later = SchedulerObservationCollector(client).collect(
+        (task,), observed_at=first_time + timedelta(minutes=6), previous={task: second}
+    )[0]
+
+    assert first.reconciliation_deadline is None
+    assert second.reconciliation_deadline is None
+    assert later.state is SchedulerState.PREEMPTED
+    assert later.reconciliation_deadline is None
 
 
 def test_collector_reads_accounting_when_queue_no_longer_knows_job() -> None:
@@ -197,6 +220,112 @@ def test_refresh_uses_terminal_accounting_over_stale_active_queue_state(
     assert attempt.effective_state is EffectiveAttemptState.FAILED
     assert attempt.generation_state is GenerationState.FAILED
     assert status.effective_state is EffectiveRunState.FAILED
+
+
+def test_refresh_marks_unrequeued_preemption_as_failure_after_fixed_deadline(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+    fake_slurm_runner: FakeSlurmRunner,
+) -> None:
+    case = _initialized_case(tmp_path, authored_run_single, single_node_plan)
+    SlurmCommandClient(fake_slurm_runner).submit("run.sbatch")
+    scheduler = cast(SchedulerIdentity, case.attempt.scheduler)
+    fake_slurm_runner.set_task_state(
+        scheduler,
+        queue_state=None,
+        accounting_state="PREEMPTED",
+        exit_code="0:15",
+    )
+    first_time = case.created_at + timedelta(minutes=3)
+
+    first = SlurmStateReconciler(
+        case.workspace,
+        case.plan.run_id,
+        SlurmCommandClient(fake_slurm_runner),
+    ).refresh(observed_at=first_time)
+    fake_slurm_runner.set_task_state(scheduler, queue_state=None, accounting_state=None)
+    second = SlurmStateReconciler(
+        case.workspace,
+        case.plan.run_id,
+        SlurmCommandClient(fake_slurm_runner),
+    ).refresh(observed_at=first_time + timedelta(minutes=1))
+    expired = SlurmStateReconciler(
+        case.workspace,
+        case.plan.run_id,
+        SlurmCommandClient(fake_slurm_runner),
+    ).refresh(observed_at=first_time + timedelta(minutes=6))
+
+    first_attempt = first.shards[0].attempts[0]
+    second_attempt = second.shards[0].attempts[0]
+    attempt = expired.shards[0].attempts[0]
+    assert first_attempt.effective_state is EffectiveAttemptState.PENDING
+    assert second_attempt.effective_state is EffectiveAttemptState.PENDING
+    assert first_attempt.scheduler is not None and second_attempt.scheduler is not None
+    assert first_attempt.scheduler.reconciliation_deadline == second_attempt.scheduler.reconciliation_deadline
+    assert attempt.scheduler is not None and attempt.scheduler.state is SchedulerState.FAILED
+    assert attempt.effective_state is EffectiveAttemptState.FAILED
+    assert attempt.generation_state is GenerationState.FAILED
+    assert expired.effective_state is EffectiveRunState.FAILED
+
+
+def test_refresh_allows_accounting_preemption_to_reappear_in_queue(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+    fake_slurm_runner: FakeSlurmRunner,
+) -> None:
+    case = _initialized_case(tmp_path, authored_run_single, single_node_plan)
+    SlurmCommandClient(fake_slurm_runner).submit("run.sbatch")
+    scheduler = cast(SchedulerIdentity, case.attempt.scheduler)
+    fake_slurm_runner.set_task_state(
+        scheduler,
+        queue_state=None,
+        accounting_state="PREEMPTED",
+        exit_code="0:15",
+    )
+    first_time = case.created_at + timedelta(minutes=3)
+    first = SlurmStateReconciler(
+        case.workspace,
+        case.plan.run_id,
+        SlurmCommandClient(fake_slurm_runner),
+    ).refresh(observed_at=first_time)
+
+    fake_slurm_runner.set_task_state(
+        scheduler,
+        queue_state="PREEMPTED",
+        accounting_state="PREEMPTED",
+        exit_code="0:15",
+    )
+    still_preempted = SlurmStateReconciler(
+        case.workspace,
+        case.plan.run_id,
+        SlurmCommandClient(fake_slurm_runner),
+    ).refresh(observed_at=first_time + timedelta(seconds=30))
+
+    fake_slurm_runner.set_task_state(
+        scheduler,
+        queue_state="PENDING",
+        accounting_state="PREEMPTED",
+        exit_code="0:15",
+    )
+    requeued = SlurmStateReconciler(
+        case.workspace,
+        case.plan.run_id,
+        SlurmCommandClient(fake_slurm_runner),
+    ).refresh(observed_at=first_time + timedelta(minutes=1))
+
+    first_attempt = first.shards[0].attempts[0]
+    still_preempted_attempt = still_preempted.shards[0].attempts[0]
+    requeued_attempt = requeued.shards[0].attempts[0]
+    assert first_attempt.scheduler is not None and still_preempted_attempt.scheduler is not None
+    assert first_attempt.scheduler.state is SchedulerState.PREEMPTED
+    assert first_attempt.effective_state is EffectiveAttemptState.PENDING
+    assert still_preempted_attempt.scheduler.reconciliation_deadline is None
+    assert requeued_attempt.scheduler is not None
+    assert requeued_attempt.scheduler.state is SchedulerState.PENDING
+    assert requeued_attempt.effective_state is EffectiveAttemptState.PENDING
+    assert requeued.effective_state is EffectiveRunState.PENDING
 
 
 def test_refresh_rejects_winner_that_conflicts_with_terminal_scheduler_evidence(

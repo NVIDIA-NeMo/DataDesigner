@@ -203,6 +203,12 @@ def validate_scheduler_observation_transition(
                 current.observed_at > deadline,
                 "accounting lag cannot become unknown before its reconciliation deadline expires",
             )
+    if previous.state is SchedulerState.PREEMPTED and previous.reconciliation_deadline is not None:
+        if current.state is SchedulerState.PREEMPTED and current.reconciliation_deadline is not None:
+            _require(
+                current.reconciliation_deadline == previous.reconciliation_deadline,
+                "preemption reconciliation deadline cannot change",
+            )
     return current
 
 

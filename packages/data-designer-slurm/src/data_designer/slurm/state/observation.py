@@ -19,6 +19,7 @@ from data_designer.slurm.state.scheduler import (
 from data_designer.slurm.state.validation import StateContractError, validate_scheduler_observation_transition
 
 _ACCOUNTING_LAG_WINDOW = timedelta(minutes=5)
+_PREEMPTION_REQUEUE_WINDOW = timedelta(minutes=5)
 _SchedulerRecordT = TypeVar("_SchedulerRecordT", bound=object)
 _SchedulerQueryError = OSError | RuntimeError | ValueError
 
@@ -128,16 +129,17 @@ class SchedulerObservationCollector:
             and (accounting_state is None or not is_scheduler_terminal_state(accounting_state))
         ):
             state = previous.state
-        observation = (
-            _resolve_missing_observation(identity, observed_at, previous)
-            if state is None
-            else SchedulerObservation(
+        if state is None:
+            observation = _resolve_missing_observation(identity, observed_at, previous)
+        elif state is SchedulerState.PREEMPTED and queue_state is None:
+            observation = _resolve_preemption_observation(identity, observed_at, previous)
+        else:
+            observation = SchedulerObservation(
                 schema_version=1,
                 scheduler=identity,
                 observed_at=observed_at,
                 state=state,
             )
-        )
         if previous is not None:
             try:
                 validate_scheduler_observation_transition(previous, observation)
@@ -157,11 +159,38 @@ def _select_observed_state(
     return accounting_state
 
 
+def _resolve_preemption_observation(
+    identity: SchedulerJobIdentity,
+    observed_at: datetime,
+    previous: SchedulerObservation | None,
+) -> SchedulerObservation:
+    deadline = (
+        previous.reconciliation_deadline
+        if previous is not None
+        and previous.state is SchedulerState.PREEMPTED
+        and previous.reconciliation_deadline is not None
+        else observed_at + _PREEMPTION_REQUEUE_WINDOW
+    )
+    return SchedulerObservation(
+        schema_version=1,
+        scheduler=identity,
+        observed_at=observed_at,
+        state=SchedulerState.FAILED if observed_at > deadline else SchedulerState.PREEMPTED,
+        reconciliation_deadline=None if observed_at > deadline else deadline,
+    )
+
+
 def _resolve_missing_observation(
     identity: SchedulerJobIdentity,
     observed_at: datetime,
     previous: SchedulerObservation | None,
 ) -> SchedulerObservation:
+    if (
+        previous is not None
+        and previous.state is SchedulerState.PREEMPTED
+        and previous.reconciliation_deadline is not None
+    ):
+        return _resolve_preemption_observation(identity, observed_at, previous)
     if previous is not None and previous.state is SchedulerState.ACCOUNTING_LAG:
         deadline = previous.reconciliation_deadline
         if deadline is None:

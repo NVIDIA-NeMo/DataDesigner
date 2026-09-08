@@ -47,10 +47,10 @@ class SchedulerObservation(StateRecord):
         if self.state is SchedulerState.ACCOUNTING_LAG:
             if self.reconciliation_deadline is None:
                 raise ValueError("accounting lag requires a reconciliation deadline")
-            if self.reconciliation_deadline < self.observed_at:
-                raise ValueError("reconciliation deadline must not precede the observation")
-        elif self.reconciliation_deadline is not None:
-            raise ValueError("only accounting lag may have a reconciliation deadline")
+        elif self.state is not SchedulerState.PREEMPTED and self.reconciliation_deadline is not None:
+            raise ValueError("only accounting lag or preemption may have a reconciliation deadline")
+        if self.reconciliation_deadline is not None and self.reconciliation_deadline < self.observed_at:
+            raise ValueError("reconciliation deadline must not precede the observation")
         return self
 
 
