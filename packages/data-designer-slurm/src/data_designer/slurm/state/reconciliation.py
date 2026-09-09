@@ -145,7 +145,7 @@ def validate_readiness_transition(
 
 def reconcile_attempt_observation(
     attempt: AttemptManifest,
-    readiness: AttemptReadiness,
+    readiness: AttemptReadiness | None,
     scheduler: SchedulerObservation,
     *,
     current_time: datetime,
@@ -154,14 +154,16 @@ def reconcile_attempt_observation(
     _require_utc(current_time, "current_time")
     _require(current_time >= scheduler.observed_at, "current_time cannot precede scheduler observation")
     _require(current_time >= attempt.updated_at, "current_time cannot precede attempt update")
-    _require(current_time >= readiness.updated_at, "current_time cannot precede readiness update")
-    _require(readiness.run_id == attempt.run_id, "readiness run_id does not match attempt")
-    _require(readiness.shard_id == attempt.shard_id, "readiness shard_id does not match attempt")
-    _require(readiness.attempt_id == attempt.attempt_id, "readiness attempt_id does not match attempt")
+    if readiness is not None:
+        _require(current_time >= readiness.updated_at, "current_time cannot precede readiness update")
+        _require(readiness.run_id == attempt.run_id, "readiness run_id does not match attempt")
+        _require(readiness.shard_id == attempt.shard_id, "readiness shard_id does not match attempt")
+        _require(readiness.attempt_id == attempt.attempt_id, "readiness attempt_id does not match attempt")
     _require(attempt.scheduler is not None, "attempt has no scheduler identity")
     _require(scheduler.scheduler == attempt.scheduler, "scheduler identity does not match attempt")
     _require(scheduler.observed_at >= attempt.created_at, "scheduler observation cannot precede attempt creation")
-    _require(readiness.updated_at >= attempt.created_at, "readiness update cannot precede attempt creation")
+    if readiness is not None:
+        _require(readiness.updated_at >= attempt.created_at, "readiness update cannot precede attempt creation")
 
     if scheduler.state in _SCHEDULER_FAILURE_STATES:
         return EffectiveAttemptState.FAILED
@@ -180,7 +182,7 @@ def reconcile_attempt_observation(
         return EffectiveAttemptState.UNKNOWN
     if scheduler.state is SchedulerState.UNKNOWN:
         return EffectiveAttemptState.UNKNOWN
-    if readiness.state is ReadinessState.FAILED:
+    if readiness is not None and readiness.state is ReadinessState.FAILED:
         return EffectiveAttemptState.FAILED
     if scheduler.state is SchedulerState.PENDING:
         return EffectiveAttemptState.PENDING

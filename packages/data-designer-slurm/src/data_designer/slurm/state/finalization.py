@@ -58,7 +58,7 @@ class WinnerFinalizer:
     def __init__(self, storage: StateStorage, reader: StateReader) -> None:
         self._storage = storage
         self._reader = reader
-        self._artifacts = CandidateArtifactVerifier()
+        self._artifacts = CandidateArtifactVerifier(storage.get_local_path)
 
     @contextmanager
     def acquire_dataset_workspace(
@@ -294,10 +294,10 @@ class WinnerFinalizer:
             self.require_no_winner(run, plan, shard, attempts)
             self._validate_workspace_mode(plan, attempt, resume_mode)
             if resume_mode == "if_possible":
-                return Path(shard.resume_workspace.path)
+                return self._storage.get_local_path(shard.resume_workspace.path)
             dataset_path = self._storage.ensure_dataset_directory(shard_id, attempt_id, resume_mode)
             expected_path = (
-                Path(shard.resume_workspace.path)
+                self._storage.get_local_path(shard.resume_workspace.path)
                 if resume_mode == "always"
                 else self._storage.get_attempt_path(shard_id, attempt_id) / "dataset"
             )

@@ -212,7 +212,8 @@ def _build_client_step(
             "-m",
             "data_designer.slurm.runtime.entrypoint",
             "client",
-            *command[4:],
+            *command[4:6],
+            *command[10:],
         )
     secret_names = collect_secret_environment_names(
         (plan.client.authored.dependencies.index_credentials, plan.invocation.authored.mcp_providers)

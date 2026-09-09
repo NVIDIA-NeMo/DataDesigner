@@ -10,7 +10,7 @@ import os
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Protocol, TypeVar
 from uuid import uuid4
@@ -22,6 +22,8 @@ from data_designer.slurm.client.dependencies import (
     ClientDependencyResolver,
     ResolvedClientDependencies,
 )
+from data_designer.slurm.client.errors import ClientWorkerError
+from data_designer.slurm.client.filesystem import ensure_private_directory
 from data_designer.slurm.config import (
     DataDesignerSlurmConfig,
     ImageBuildRequest,
@@ -62,16 +64,34 @@ from data_designer.slurm.services.run import SlurmRunService
 from data_designer.slurm.serving.resolver import resolve_vllm_server
 from data_designer.slurm.state import (
     AttemptLifecycleState,
+    AttemptManifest,
+    AttemptTerminalClassification,
+    EffectiveAttemptState,
+    SchedulerObservation,
+    SchedulerState,
     SlurmStateError,
     SlurmStateWriter,
     StateConflictError,
     StateNotFoundError,
+    reconcile_attempt_observation,
 )
 
 RunIdFactory = Callable[[], str]
 Clock = Callable[[], datetime]
 _ResultT = TypeVar("_ResultT")
 _MAX_VISIBLE_JOB_IDS = 16
+_ACTIVE_ATTEMPT_STATES = frozenset(
+    {AttemptLifecycleState.SUBMITTED, AttemptLifecycleState.PENDING, AttemptLifecycleState.RUNNING}
+)
+_FAILURE_CLASSIFICATIONS = {
+    SchedulerState.FAILED: AttemptTerminalClassification.FAILED,
+    SchedulerState.CANCELLED: AttemptTerminalClassification.CANCELLED,
+    SchedulerState.TIMED_OUT: AttemptTerminalClassification.TIMED_OUT,
+    SchedulerState.NODE_FAILED: AttemptTerminalClassification.NODE_FAILED,
+    SchedulerState.PREEMPTED: AttemptTerminalClassification.PREEMPTED,
+    SchedulerState.REQUEUED: AttemptTerminalClassification.REQUEUED,
+    SchedulerState.OUT_OF_MEMORY: AttemptTerminalClassification.OUT_OF_MEMORY,
+}
 
 
 class SlurmRunArtifactPublisher(Protocol):
@@ -276,6 +296,7 @@ class _SystemRunBackend:
                     shard_count=len(plan.shards),
                     batch_script=prepared.batch_script,
                 )
+            self._materialize_default_managed_assets(config, plan)
             export_environment = self._build_export_environment(config)
             publisher = self._publisher
             self._initialize_run(
@@ -358,6 +379,24 @@ class _SystemRunBackend:
                 shard_count=len(plan.shards),
                 job_id=receipt.job_id,
             )
+
+    @staticmethod
+    def _materialize_default_managed_assets(
+        config: DataDesignerSlurmConfig,
+        plan: ResolvedSlurmRunPlan,
+    ) -> None:
+        if config.invocation.input_bindings.managed_assets_path is not None:
+            return
+        path = plan.invocation.effective_input_bindings.managed_assets_path
+        assert path is not None
+        try:
+            ensure_private_directory(Path(path))
+        except (ClientWorkerError, OSError):
+            raise SlurmServiceError(
+                SlurmServiceErrorCode.UNAVAILABLE,
+                SlurmServiceOperation.EXECUTE_RUN,
+                "managed assets workspace cannot be prepared",
+            ) from None
 
     def _build_export_environment(self, config: DataDesignerSlurmConfig) -> dict[str, str]:
         environment = {"SLURM_EXPORT_ENV": "ALL"}
@@ -465,8 +504,14 @@ class _SystemRunBackend:
         try:
             writer = SlurmStateWriter(self._profile.profile.workspace_root, run_id)
             run = writer.load_run()
+            persisted_shards = writer.load_shards()
+            self._reconcile_attempts(
+                writer,
+                tuple(attempt for shard in persisted_shards for attempt in writer.load_attempts(shard.shard_id)),
+            )
             shards = []
-            for shard in writer.load_shards():
+            for shard in persisted_shards:
+                writer.resume_incomplete_finalization(shard.shard_id, published_at=self._clock())
                 attempts = tuple(
                     SlurmPersistedAttemptStatus(
                         attempt=attempt,
@@ -493,16 +538,83 @@ class _SystemRunBackend:
         except SlurmStateError:
             raise SlurmServiceError(SlurmServiceErrorCode.INTERNAL, operation, "run state cannot be read") from None
 
+    def _reconcile_attempts(
+        self,
+        writer: SlurmStateWriter,
+        attempts: tuple[AttemptManifest, ...],
+    ) -> None:
+        active = tuple(
+            attempt for attempt in attempts if attempt.state in _ACTIVE_ATTEMPT_STATES and attempt.scheduler is not None
+        )
+        if not active:
+            return
+        identities = tuple(attempt.scheduler for attempt in active if attempt.scheduler is not None)
+        try:
+            queue = {entry.job_identity: entry.state for entry in self._launcher.query_queue(identities)}
+            missing = tuple(identity for identity in identities if identity not in queue)
+            accounting = (
+                {entry.job_identity: entry.state for entry in self._launcher.query_accounting(missing)}
+                if missing
+                else {}
+            )
+        except SlurmLauncherError:
+            return
+        for attempt in active:
+            scheduler = attempt.scheduler
+            assert scheduler is not None
+            scheduler_state = queue.get(scheduler, accounting.get(scheduler))
+            if scheduler_state is None:
+                continue
+            readiness = _load_optional(lambda: writer.load_readiness(attempt.shard_id, attempt.attempt_id))
+            observed_at = max(
+                self._clock(),
+                attempt.updated_at,
+                readiness.updated_at if readiness is not None else attempt.updated_at,
+            )
+            observation = SchedulerObservation(
+                schema_version=1,
+                scheduler=scheduler,
+                observed_at=observed_at,
+                state=scheduler_state,
+            )
+            effective = reconcile_attempt_observation(
+                attempt,
+                readiness,
+                observation,
+                current_time=observed_at,
+            )
+            update: dict[str, object] = {"updated_at": observed_at}
+            if effective is EffectiveAttemptState.PENDING and attempt.state is AttemptLifecycleState.SUBMITTED:
+                update["state"] = AttemptLifecycleState.PENDING
+            elif effective is EffectiveAttemptState.RUNNING and attempt.state in {
+                AttemptLifecycleState.SUBMITTED,
+                AttemptLifecycleState.PENDING,
+            }:
+                update["state"] = AttemptLifecycleState.RUNNING
+            elif effective is EffectiveAttemptState.FAILED:
+                update.update(
+                    state=AttemptLifecycleState.FAILED,
+                    terminal_classification=_FAILURE_CLASSIFICATIONS.get(
+                        scheduler_state,
+                        AttemptTerminalClassification.UNKNOWN,
+                    ),
+                )
+            else:
+                continue
+            try:
+                writer.update_attempt(attempt.model_copy(update=update))
+            except StateConflictError:
+                continue
+
     def cancel(self, run_id: Identifier) -> SlurmRunCancellation:
         status = self.status(run_id)
-        active = {AttemptLifecycleState.SUBMITTED, AttemptLifecycleState.PENDING, AttemptLifecycleState.RUNNING}
         job_ids = tuple(
             sorted(
                 {
                     attempt.attempt.scheduler.array_job_id
                     for shard in status.shards
                     for attempt in shard.attempts
-                    if attempt.attempt.state in active and attempt.attempt.scheduler is not None
+                    if attempt.attempt.state in _ACTIVE_ATTEMPT_STATES and attempt.attempt.scheduler is not None
                 }
             )
         )
@@ -644,7 +756,7 @@ def _new_run_id() -> str:
 
 
 def _utc_now() -> datetime:
-    return datetime.now(UTC)
+    return datetime.now(timezone.utc)
 
 
 def _format_job_ids(job_ids: list[int]) -> str:

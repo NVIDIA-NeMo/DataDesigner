@@ -8,11 +8,16 @@ from __future__ import annotations
 from collections.abc import Mapping
 from pathlib import Path
 
-from data_designer.slurm.planning import PlannedShard
+from pydantic import ValidationError
+
+from data_designer.slurm.planning import PlannedShard, ResolvedSlurmRunPlan
 from data_designer.slurm.runtime.errors import SlurmRuntimeError, SlurmRuntimeErrorCode
 from data_designer.slurm.runtime.models import AllocationContext
 from data_designer.slurm.runtime.paths import get_container_path
 from data_designer.slurm.state import SlurmStateWriter
+from data_designer.slurm.state.filesystem import open_verified_directory, read_regular_text
+
+_MAXIMUM_RECORD_SIZE = 16 * 1024 * 1024
 
 
 def load_allocation_context(
@@ -55,7 +60,28 @@ def _load_state_writer(plan_path: Path, attempt_directory: Path) -> SlurmStateWr
         raise SlurmRuntimeError(SlurmRuntimeErrorCode.INVALID_CONTEXT, "resolved plan path is invalid")
     workspace_root = plan_path.parent.parent.parent
     run_id = plan_path.parent.name
-    return SlurmStateWriter(workspace_root, run_id)
+    try:
+        with open_verified_directory(plan_path.parent, require_private=True) as descriptor:
+            content = read_regular_text(
+                descriptor,
+                plan_path.name,
+                plan_path,
+                maximum_size=_MAXIMUM_RECORD_SIZE,
+            )
+        plan = ResolvedSlurmRunPlan.model_validate_json(content)
+    except (OSError, UnicodeError, ValueError, ValidationError) as error:
+        raise SlurmRuntimeError(
+            SlurmRuntimeErrorCode.INVALID_CONTEXT, "resolved plan is unavailable or invalid"
+        ) from error
+    logical_workspace_root = plan.selected_profile.profile.workspace_root
+    logical_plan_path = Path(logical_workspace_root) / "runs" / run_id / plan_path.name
+    if plan.run_id != run_id or get_container_path(plan, logical_plan_path.as_posix()) != plan_path.as_posix():
+        raise SlurmRuntimeError(SlurmRuntimeErrorCode.INVALID_CONTEXT, "resolved plan path is invalid")
+    return SlurmStateWriter(
+        workspace_root,
+        run_id,
+        logical_workspace_root=logical_workspace_root,
+    )
 
 
 def _select_shard(shards: tuple[PlannedShard, ...], task_id: int) -> PlannedShard:

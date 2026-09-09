@@ -12,8 +12,10 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
-from conftest import ClientWorkerCase, FakeDataDesigner
+from conftest import ClientWorkerCase, FakeCreationResults, FakeDataDesigner
 
 import data_designer.slurm.client.worker as worker_module
 from data_designer.config import ResumeMode
@@ -30,7 +32,7 @@ from data_designer.slurm.client.records import (
 )
 from data_designer.slurm.contracts import compute_serialized_json_sha256
 from data_designer.slurm.planning import ResolvedDependencyLock, ResolvedSlurmRunPlan
-from data_designer.slurm.state import CandidateOutputManifest
+from data_designer.slurm.state import CandidateOutputManifest, compute_candidate_schema_digest
 
 
 def test_preflight_materializes_endpoint_and_ready_environment(client_worker_case: ClientWorkerCase) -> None:
@@ -165,6 +167,46 @@ def test_run_persists_semantic_result_and_candidate(
     assert candidate.actual_records == actual_records
     assert result.candidate_output_manifest.sha256 == candidate.compute_sha256()
     assert progress.phase is ClientProgressPhase.COMPLETE
+
+
+def test_run_normalizes_parquet_schema_metadata(
+    client_worker_case: ClientWorkerCase,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def export_with_metadata(results: FakeCreationResults, path: Path, *, format: str) -> Path:
+        assert format == "parquet"
+        schema = pa.schema(
+            [("value", pa.int64())],
+            metadata={b"producer": b"data-designer"},
+        )
+        table = pa.Table.from_arrays(
+            [pa.array(range(results.actual_num_records))],
+            schema=schema,
+        )
+        pq.write_table(table, path)
+        return path
+
+    monkeypatch.setattr(FakeCreationResults, "export", export_with_metadata)
+    worker = ClientWorker(data_designer_factory=FakeDataDesigner)
+    worker.preflight(
+        client_worker_case.plan_path,
+        prepared=client_worker_case.prepared,
+        endpoints=client_worker_case.endpoints,
+        plugins=(),
+    )
+
+    worker.run(
+        client_worker_case.plan_path,
+        prepared=client_worker_case.prepared,
+        endpoints=client_worker_case.endpoints,
+        plugins=(),
+    )
+
+    candidate = CandidateOutputManifest.model_validate_json(
+        (client_worker_case.attempt_dir / "output-manifest.json").read_text()
+    )
+    schema = pq.read_schema(client_worker_case.attempt_dir / "dataset/part-00000.parquet")
+    assert candidate.dataset_schema_digest == compute_candidate_schema_digest(schema)
 
 
 @pytest.mark.parametrize(

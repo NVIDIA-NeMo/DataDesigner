@@ -8,7 +8,7 @@ from conftest import RuntimeCase
 
 from data_designer.slurm.config import ContainerMount
 from data_designer.slurm.runtime.errors import SlurmRuntimeError
-from data_designer.slurm.runtime.paths import get_container_path
+from data_designer.slurm.runtime.paths import get_container_path, get_host_path
 
 
 def test_container_path_uses_most_specific_mount_and_preserves_relative_path(runtime_case: RuntimeCase) -> None:
@@ -26,6 +26,7 @@ def test_container_path_uses_most_specific_mount_and_preserves_relative_path(run
     mapped = get_container_path(plan, f"{nested}/run-single/resolved-plan.json")
 
     assert mapped == "/container/runs/run-single/resolved-plan.json"
+    assert get_host_path(plan, mapped) == f"{nested}/run-single/resolved-plan.json"
 
 
 def test_container_path_rejects_unmounted_and_read_only_writes(runtime_case: RuntimeCase) -> None:

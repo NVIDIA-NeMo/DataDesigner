@@ -1280,6 +1280,48 @@ def test_winner_publication_failure_restores_running_attempt_for_retry(
     assert case.writer.load_winner(attempt.shard_id) == winner
 
 
+def test_fresh_writer_resumes_finalization_interrupted_after_success_commit(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    case = _initialized_case(tmp_path, authored_run_single, single_node_plan)
+    attempt = _submitted_attempt(case)
+    case.writer.create_attempt(attempt)
+    with case.writer.acquire_dataset_workspace(attempt.shard_id, attempt.attempt_id, "never") as dataset_path:
+        finalization = _persist_complete_result(case, attempt, dataset_path, complete_attempt=False)
+    original_replace = case.writer._storage.replace_attempt
+
+    def interrupt_after_success_commit(updated: AttemptManifest) -> None:
+        original_replace(updated)
+        if updated.state is AttemptLifecycleState.SUCCEEDED:
+            raise KeyboardInterrupt("injected process interruption")
+
+    monkeypatch.setattr(case.writer._storage, "replace_attempt", interrupt_after_success_commit)
+    with pytest.raises(KeyboardInterrupt, match="process interruption"):
+        case.writer.finalize_winner(
+            attempt.shard_id,
+            attempt.attempt_id,
+            completed_at=case.created_at + timedelta(minutes=5),
+            published_at=finalization.published_at,
+        )
+
+    resumed = SlurmStateWriter(case.workspace, case.plan.run_id)
+    persisted = resumed.load_attempt(attempt.shard_id, attempt.attempt_id)
+    assert persisted.state is AttemptLifecycleState.SUCCEEDED
+    with pytest.raises(StateNotFoundError):
+        resumed.load_winner(attempt.shard_id)
+
+    winner = resumed.resume_incomplete_finalization(
+        attempt.shard_id,
+        published_at=finalization.published_at,
+    )
+
+    assert winner is not None
+    assert resumed.load_winner(attempt.shard_id) == winner
+
+
 def test_runtime_finalization_converges_after_committed_winner_sync_failure(
     tmp_path: Path,
     authored_run_single: DataDesignerSlurmConfig,

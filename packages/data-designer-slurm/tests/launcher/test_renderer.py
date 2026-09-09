@@ -85,6 +85,17 @@ def test_renderer_emits_mem_per_gpu_for_gres_mode(single_node_plan: ResolvedSlur
     assert "#SBATCH --mem-per-gpu=80G\n" in render_generation_attempt_script(plan, attempt_ordinal=1)
 
 
+def test_renderer_uses_profile_slurm_bin_path(single_node_plan: ResolvedSlurmRunPlan) -> None:
+    scheduler = single_node_plan.selected_profile.profile.scheduler.model_copy(update={"bin_path": "/opt/slurm/bin"})
+    profile = single_node_plan.selected_profile.profile.model_copy(update={"scheduler": scheduler})
+    plan = single_node_plan.model_copy(update={"selected_profile": injected_profile(profile)})
+
+    script = render_generation_attempt_script(plan, attempt_ordinal=1)
+
+    assert 'export PATH="/opt/slurm/bin:/usr/local/sbin:' in script
+    assert "#SBATCH --exclusive\n" in script
+
+
 @pytest.mark.parametrize("gpu_request_mode", ("gres", "visible"))
 def test_renderer_reserves_client_cpus_for_each_gpu_request_mode(
     single_node_plan: ResolvedSlurmRunPlan,

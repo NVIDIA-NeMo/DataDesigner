@@ -118,6 +118,9 @@ def client_worker_case(tmp_path: Path) -> ClientWorkerCase:
     lock_payload["python_abi"] = python_abi
     lock = ResolvedDependencyLock.model_validate_json(json.dumps(lock_payload))
     payload["client"]["dependency_lock"]["sha256"] = lock.compute_sha256()
+    mount = {"source": workspace.as_posix(), "target": workspace.as_posix(), "read_only": False}
+    payload["selected_profile"]["profile"]["container_mounts"] = [mount]
+    payload["container_mounts"] = [mount]
     payload["selected_profile"]["profile_sha256"] = compute_canonical_json_sha256(
         payload["selected_profile"]["profile"]
     )

@@ -36,3 +36,7 @@ def test_bootstrap_manifest_builds_typed_one_node_steps_without_secret_values(ru
         "data_designer.slurm.runtime.entrypoint",
         "client",
     )
+    assert "--shard-id" not in manifest.steps[-1].command
+    assert "--attempt-id" not in manifest.steps[-1].command
+    assert "--plan" in manifest.steps[-1].command
+    assert "--attempt-dir" in manifest.steps[-1].command

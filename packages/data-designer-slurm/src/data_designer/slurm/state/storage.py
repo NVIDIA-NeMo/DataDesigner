@@ -59,12 +59,20 @@ _RecordT = TypeVar("_RecordT", bound=ContractRecord)
 class StateStorage:
     """Own descriptor-bound paths, locking, and record serialization."""
 
-    def __init__(self, workspace_root: Path, run_id: Identifier) -> None:
+    def __init__(
+        self,
+        workspace_root: Path,
+        run_id: Identifier,
+        *,
+        logical_workspace_root: Path | None = None,
+    ) -> None:
         self.workspace_root = workspace_root
+        self.logical_workspace_root = logical_workspace_root or workspace_root
         self.run_id = run_id
         self.runs_root = workspace_root / "runs"
         self.locks_root = self.runs_root / _LOCK_DIRECTORY_NAME
         self.run_root = self.runs_root / run_id
+        self.logical_run_root = self.logical_workspace_root / "runs" / run_id
 
     @property
     def authored_config_path(self) -> Path:
@@ -73,6 +81,21 @@ class StateStorage:
     @property
     def resolved_plan_path(self) -> Path:
         return self.run_root / _RESOLVED_PLAN_FILENAME
+
+    @property
+    def logical_authored_config_path(self) -> Path:
+        return self.logical_run_root / _AUTHORED_CONFIG_FILENAME
+
+    @property
+    def logical_resolved_plan_path(self) -> Path:
+        return self.logical_run_root / _RESOLVED_PLAN_FILENAME
+
+    def get_local_path(self, logical_path: str | Path) -> Path:
+        try:
+            relative_path = Path(logical_path).relative_to(self.logical_workspace_root)
+        except ValueError as error:
+            raise StateCorruptionError("persisted path is outside the selected workspace") from error
+        return self.workspace_root / relative_path
 
     def get_shard_path(self, shard_id: str) -> Path:
         return self.run_root / _SHARDS_DIRECTORY_NAME / shard_id

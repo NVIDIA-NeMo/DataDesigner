@@ -11,6 +11,8 @@ from data_designer.slurm.launcher.batch import quote_shell_value, render_batch_d
 from data_designer.slurm.launcher.errors import SlurmBatchRenderError
 from data_designer.slurm.planning import ResolvedSlurmRunPlan
 
+_SYSTEM_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
 
 def render_generation_attempt_script(plan: ResolvedSlurmRunPlan, *, attempt_ordinal: int) -> str:
     """Render a resolved generation plan as one thin deterministic entrypoint."""
@@ -19,13 +21,15 @@ def render_generation_attempt_script(plan: ResolvedSlurmRunPlan, *, attempt_ordi
 
     run_root = posixpath.dirname(plan.authored_config.path)
     plan_path = posixpath.join(run_root, "resolved-plan.json")
-    directive_text = render_batch_directives(_build_generation_directives(plan))
+    directive_text = f"{render_batch_directives(_build_generation_directives(plan))}\n#SBATCH --exclusive"
     attempt = f"{attempt_ordinal:04d}"
+    scheduler_bin_path = plan.selected_profile.profile.scheduler.bin_path
+    command_path = _SYSTEM_PATH if scheduler_bin_path is None else f"{scheduler_bin_path}:{_SYSTEM_PATH}"
 
     return f"""#!/usr/bin/env bash
 {directive_text}
 set -Eeuo pipefail
-export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+export PATH={quote_shell_value(command_path)}
 
 readonly DD_RUNTIME_ARCHIVE={quote_shell_value(plan.runtime_bundle.path)}
 readonly DD_RUNTIME_SHA256={quote_shell_value(plan.runtime_bundle.sha256)}

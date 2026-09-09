@@ -38,8 +38,10 @@ class SystemAllocationPreflight:
         """Verify every launch-critical fact before model services start."""
         try:
             self._verify_scheduler(context, environment)
-            self.verify_attempt_directory(context.attempt_directory)
-            get_container_path(context.plan, context.attempt_directory.as_posix(), require_writable=True)
+            attempt_directory = Path(
+                get_container_path(context.plan, context.attempt_directory.as_posix(), require_writable=True)
+            )
+            self.verify_attempt_directory(attempt_directory)
             self._verify_artifacts(context)
             self.verify_ports(context)
         except SlurmRuntimeError:
@@ -113,6 +115,11 @@ class SystemAllocationPreflight:
         references.extend(reference for reference in optional_references if reference is not None)
         unique_references = {(reference.path, reference.sha256): reference for reference in references}
         for reference in unique_references.values():
+            if any(
+                reference.path == mount.source or reference.path.startswith(f"{mount.source}/")
+                for mount in plan.container_mounts
+            ):
+                reference = reference.model_copy(update={"path": get_container_path(plan, reference.path)})
             _verify_artifact(reference)
 
     @staticmethod

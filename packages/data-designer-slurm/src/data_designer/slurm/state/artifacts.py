@@ -12,7 +12,7 @@ from collections.abc import Iterator
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Protocol
+from typing import Callable, Protocol
 
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.slurm.state.filesystem import (
@@ -104,9 +104,12 @@ class VerifiedCandidateArtifacts:
 class CandidateArtifactVerifier:
     """Verify one manifest-bounded candidate and lease its files through publication."""
 
+    def __init__(self, path_resolver: Callable[[str], Path] = Path) -> None:
+        self._path_resolver = path_resolver
+
     @contextmanager
     def verify(self, candidate: CandidateOutputManifest) -> Iterator[VerifiedCandidateArtifacts]:
-        dataset_path = Path(candidate.dataset_path)
+        dataset_path = self._path_resolver(candidate.dataset_path)
         with ExitStack() as resources:
             dataset_descriptor = resources.enter_context(open_verified_directory(dataset_path, require_private=True))
             dataset = _DirectoryBinding(None, None, dataset_descriptor, dataset_path)

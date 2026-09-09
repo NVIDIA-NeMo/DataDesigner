@@ -51,6 +51,7 @@ from data_designer.slurm.config.images import InstalledDistribution
 from data_designer.slurm.config.run import LocalStdioMCPProviderConfig, RemoteMCPProviderConfig
 from data_designer.slurm.contracts import ArtifactReference
 from data_designer.slurm.planning import PlannedShard, ResolvedDependencyLock, ResolvedSlurmRunPlan
+from data_designer.slurm.runtime.paths import get_container_path, get_host_path
 from data_designer.slurm.state import CandidateOutcome, CandidateOutputFile, CandidateOutputManifest
 
 Clock = Callable[[], datetime]
@@ -250,7 +251,8 @@ class ClientWorker:
             self._validate_prepared(plan, shard, prepared)
             lock = ResolvedDependencyLock.model_validate_json(
                 read_regular_bytes(
-                    Path(plan.client.dependency_lock.path), missing_code=ClientErrorCode.DEPENDENCY_ARTIFACT_MISSING
+                    Path(get_container_path(plan, plan.client.dependency_lock.path)),
+                    missing_code=ClientErrorCode.DEPENDENCY_ARTIFACT_MISSING,
                 )
             )
             if lock.compute_sha256() != plan.client.dependency_lock.sha256:
@@ -275,13 +277,13 @@ class ClientWorker:
             self._validate_model_references(builder)
             self._materialize_seed(plan, shard, builder)
             mcp_providers = self._materialize_mcp_providers(plan)
-            self._validate_assets(plan)
+            managed_assets_path = self._validate_assets(plan)
             requested_resume = ResumeMode(plan.invocation.authored.resume)
-            dataset_path = self._dataset_path(shard, prepared, requested_resume)
+            dataset_path = self._dataset_path(plan, shard, prepared, requested_resume)
             designer = self._data_designer_factory(
                 artifact_path=dataset_path.parent,
                 model_providers=providers,
-                managed_assets_path=plan.invocation.effective_input_bindings.managed_assets_path,
+                managed_assets_path=managed_assets_path.as_posix(),
                 mcp_providers=mcp_providers,
                 auto_configure_logging=False,
             )
@@ -298,7 +300,8 @@ class ClientWorker:
         shard: PlannedShard,
         prepared: PreparedClientEnvironment,
     ) -> None:
-        expected_attempt = Path(shard.resume_workspace.path).parent / "attempts" / prepared.attempt_id
+        logical_attempt = Path(shard.resume_workspace.path).parent / "attempts" / prepared.attempt_id
+        expected_attempt = Path(get_container_path(plan, logical_attempt.as_posix(), require_writable=True))
         inspection = plan.client.image.inspection_facts
         if (
             plan.run_id != prepared.run_id
@@ -314,7 +317,10 @@ class ClientWorker:
         if plan.builder.inline is not None:
             return cast(dict[str, object], plan.builder.inline)
         assert plan.builder.source is not None
-        payload = read_regular_bytes(Path(plan.builder.source.path), missing_code=ClientErrorCode.INVALID_INPUT)
+        payload = read_regular_bytes(
+            Path(get_container_path(plan, plan.builder.source.path)),
+            missing_code=ClientErrorCode.INVALID_INPUT,
+        )
         if hashlib.sha256(payload).hexdigest() != plan.builder.source.sha256:
             raise ClientWorkerError(ClientErrorCode.INVALID_INPUT, "builder artifact digest differs")
         try:
@@ -390,15 +396,18 @@ class ClientWorker:
         seed = builder.get_seed_config()
         if seed is None or "path" not in type(seed.source).model_fields:
             raise ClientWorkerError(ClientErrorCode.CONFIG_INVALID, "seed binding does not match the builder")
-        path = Path(seed_path)
+        path = Path(get_container_path(plan, seed_path))
         if not path.exists() or not os.access(path, os.R_OK):
             raise ClientWorkerError(ClientErrorCode.CONFIG_INVALID, "seed input is unavailable")
         if shard.input_partition is None:
             raise ClientWorkerError(ClientErrorCode.CONFIG_INVALID, "seed partition artifact is missing")
-        payload = read_regular_bytes(Path(shard.input_partition.path), missing_code=ClientErrorCode.INVALID_INPUT)
+        payload = read_regular_bytes(
+            Path(get_container_path(plan, shard.input_partition.path)),
+            missing_code=ClientErrorCode.INVALID_INPUT,
+        )
         if hashlib.sha256(payload).hexdigest() != shard.input_partition.sha256:
             raise ClientWorkerError(ClientErrorCode.INVALID_INPUT, "seed partition artifact digest differs")
-        source = seed.source.model_copy(update={"path": seed_path})
+        source = seed.source.model_copy(update={"path": path.as_posix()})
         builder.with_seed_dataset(
             source,
             sampling_strategy=seed.sampling_strategy,
@@ -437,20 +446,22 @@ class ClientWorker:
         return providers
 
     @staticmethod
-    def _validate_assets(plan: ResolvedSlurmRunPlan) -> None:
+    def _validate_assets(plan: ResolvedSlurmRunPlan) -> Path:
         value = plan.invocation.effective_input_bindings.managed_assets_path
         assert value is not None
-        path = Path(value)
+        path = Path(get_container_path(plan, value))
         if not path.is_dir() or not os.access(path, os.R_OK | os.X_OK):
             raise ClientWorkerError(ClientErrorCode.CONFIG_INVALID, "managed assets are unavailable")
+        return path
 
     @staticmethod
     def _dataset_path(
+        plan: ResolvedSlurmRunPlan,
         shard: PlannedShard,
         prepared: PreparedClientEnvironment,
         resume: ResumeMode,
     ) -> Path:
-        resume_path = Path(shard.resume_workspace.path)
+        resume_path = Path(get_container_path(plan, shard.resume_workspace.path, require_writable=True))
         if resume_path.is_symlink():
             raise ClientWorkerError(ClientErrorCode.CONFIG_INVALID, "resume workspace is invalid")
         if resume is ResumeMode.ALWAYS and (not resume_path.is_dir() or not any(resume_path.iterdir())):
@@ -528,7 +539,7 @@ class ClientWorker:
 
         dataset_path = Path(results.dataset_path)
         effective_resume = results.effective_resume_mode
-        shared_path = Path(context.shard.resume_workspace.path)
+        shared_path = Path(get_container_path(context.plan, context.shard.resume_workspace.path, require_writable=True))
         expected_path = shared_path if effective_resume is ResumeMode.ALWAYS else prepared.attempt_dir / "dataset"
         if (
             not dataset_path.is_absolute()
@@ -589,7 +600,9 @@ class ClientWorker:
             metadata = lazy.pq.read_metadata(exported_path)
             if metadata.num_rows != creation.actual_records:
                 raise ClientWorkerError(ClientErrorCode.OUTPUT_INVALID, "exported record count differs")
-            schema_digest = hashlib.sha256(lazy.pq.read_schema(exported_path).serialize().to_pybytes()).hexdigest()
+            schema_digest = hashlib.sha256(
+                lazy.pq.read_schema(exported_path).remove_metadata().serialize().to_pybytes()
+            ).hexdigest()
             files = (
                 CandidateOutputFile(
                     relative_path=exported_path.relative_to(dataset_path).as_posix(),
@@ -606,7 +619,7 @@ class ClientWorker:
             attempt_id=prepared.attempt_id,
             attempt_ordinal=int(prepared.attempt_id.removeprefix("attempt-")),
             created_at=created_at,
-            dataset_path=dataset_path.as_posix(),
+            dataset_path=get_host_path(context.plan, dataset_path.as_posix(), require_writable=True),
             requested_records=creation.requested_records,
             actual_records=creation.actual_records,
             outcome=(
@@ -648,7 +661,8 @@ class ClientWorker:
             requested_resume_mode=context.requested_resume.value,
             effective_resume_mode=creation.effective_resume.value,
             candidate_output_manifest=ArtifactReference(
-                path=candidate_path.as_posix(), sha256=candidate.compute_sha256()
+                path=get_host_path(context.plan, candidate_path.as_posix(), require_writable=True),
+                sha256=candidate.compute_sha256(),
             ),
         )
         publish_private_text(prepared.attempt_dir / "client-result.json", result.serialize_json())
