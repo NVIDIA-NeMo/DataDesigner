@@ -23,9 +23,10 @@ import pytest
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.slurm import filesystem as slurm_filesystem
 from data_designer.slurm.client import ClientOutcome, ClientResult
-from data_designer.slurm.config import DataDesignerSlurmConfig, SlurmProfile
+from data_designer.slurm.config import ContainerMount, DataDesignerSlurmConfig, SlurmProfile
 from data_designer.slurm.contracts import ArtifactReference, ContractValue, compute_canonical_json_sha256, pretty_json
 from data_designer.slurm.planning import ResolvedSlurmRunPlan
+from data_designer.slurm.runtime.paths import get_container_path
 from data_designer.slurm.state import (
     AttemptId,
     AttemptLifecycleState,
@@ -1322,6 +1323,91 @@ def test_fresh_writer_resumes_finalization_interrupted_after_success_commit(
     assert resumed.load_winner(attempt.shard_id) == winner
 
 
+def test_interrupted_finalization_resumes_through_nested_attempt_mount(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    base_case = _build_case(tmp_path, authored_run_single, single_node_plan)
+    logical_attempts = base_case.workspace / "runs" / base_case.plan.run_id / "shards" / "shard-00000" / "attempts"
+    fast_attempts = tmp_path / "fast-attempts"
+    mounts = (
+        *base_case.plan.container_mounts,
+        ContainerMount(source=logical_attempts.as_posix(), target=fast_attempts.as_posix()),
+    )
+    profile = SlurmProfile.model_validate(
+        base_case.plan.selected_profile.profile.model_dump(mode="python") | {"container_mounts": list(mounts)}
+    )
+    selected_profile = base_case.plan.selected_profile.model_copy(
+        update={
+            "profile": profile,
+            "profile_sha256": compute_canonical_json_sha256(profile.model_dump(mode="json")),
+        }
+    )
+    plan = ResolvedSlurmRunPlan.model_validate(
+        base_case.plan.model_dump(mode="python") | {"selected_profile": selected_profile, "container_mounts": mounts}
+    )
+    plan_reference = base_case.run.resolved_plan.model_copy(update={"sha256": plan.compute_sha256()})
+    run = base_case.run.model_copy(update={"resolved_plan": plan_reference})
+    writer = SlurmStateWriter(
+        base_case.workspace,
+        plan.run_id,
+        local_path_resolver=lambda path: get_container_path(plan, path, require_writable=True),
+    )
+    case = _StateCase(
+        workspace=base_case.workspace,
+        authored_config=base_case.authored_config,
+        plan=plan,
+        run=run,
+        shards=base_case.shards,
+        writer=writer,
+        created_at=base_case.created_at,
+    )
+    writer.initialize_run(case.authored_config, case.plan, case.run, case.shards)
+    attempt = _submitted_attempt(case).model_copy(update={"resolved_plan": plan_reference})
+    writer.create_attempt(attempt)
+    logical_dataset = logical_attempts / attempt.attempt_id / "dataset"
+    with writer.acquire_dataset_workspace(attempt.shard_id, attempt.attempt_id, "never") as dataset_path:
+        assert dataset_path == fast_attempts / attempt.attempt_id / "dataset"
+        dataset_path.mkdir(parents=True, mode=0o700)
+        finalization = _persist_complete_result(
+            case,
+            attempt,
+            dataset_path,
+            manifest_dataset_path=logical_dataset,
+            complete_attempt=False,
+        )
+    original_replace = writer._storage.replace_attempt
+
+    def interrupt_after_success_commit(updated: AttemptManifest) -> None:
+        original_replace(updated)
+        if updated.state is AttemptLifecycleState.SUCCEEDED:
+            raise KeyboardInterrupt("injected process interruption")
+
+    monkeypatch.setattr(writer._storage, "replace_attempt", interrupt_after_success_commit)
+    with pytest.raises(KeyboardInterrupt, match="process interruption"):
+        writer.finalize_winner(
+            attempt.shard_id,
+            attempt.attempt_id,
+            completed_at=case.created_at + timedelta(minutes=5),
+            published_at=finalization.published_at,
+        )
+
+    resumed = SlurmStateWriter(
+        case.workspace,
+        plan.run_id,
+        local_path_resolver=lambda path: get_container_path(plan, path, require_writable=True),
+    )
+    winner = resumed.resume_incomplete_finalization(
+        attempt.shard_id,
+        published_at=finalization.published_at,
+    )
+
+    assert winner is not None
+    assert resumed.load_winner(attempt.shard_id) == winner
+
+
 def test_runtime_finalization_converges_after_committed_winner_sync_failure(
     tmp_path: Path,
     authored_run_single: DataDesignerSlurmConfig,
@@ -2356,6 +2442,7 @@ def _persist_complete_result(
     relative_path: str = "part-00000.parquet",
     physical_records: int | None = None,
     reported_schema_digest: str | None = None,
+    manifest_dataset_path: Path | None = None,
     complete_attempt: bool = True,
 ) -> _FinalizationCase:
     running_attempt = _validated_copy(
@@ -2375,6 +2462,7 @@ def _persist_complete_result(
     lazy.pq.write_table(table, output_path)
     output_path.chmod(0o644)
     content = output_path.read_bytes()
+    persisted_dataset_path = manifest_dataset_path or dataset_path
     candidate = CandidateOutputManifest(
         schema_version=1,
         run_id=case.plan.run_id,
@@ -2382,7 +2470,7 @@ def _persist_complete_result(
         attempt_id=attempt.attempt_id,
         attempt_ordinal=attempt.attempt_ordinal,
         created_at=case.created_at + timedelta(minutes=3),
-        dataset_path=dataset_path.as_posix(),
+        dataset_path=persisted_dataset_path.as_posix(),
         requested_records=requested_records,
         actual_records=requested_records,
         outcome=CandidateOutcome.COMPLETE,
@@ -2411,7 +2499,7 @@ def _persist_complete_result(
         requested_records=requested_records,
         actual_records=requested_records,
         outcome=ClientOutcome.COMPLETE,
-        dataset_path=dataset_path.as_posix(),
+        dataset_path=persisted_dataset_path.as_posix(),
         early_shutdown=False,
         requested_resume_mode=case.plan.invocation.authored.resume,
         effective_resume_mode="never",

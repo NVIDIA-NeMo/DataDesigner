@@ -11,13 +11,13 @@ import re
 from collections.abc import Iterator
 from contextlib import ExitStack, contextmanager
 from pathlib import Path
-from typing import Literal, TypeVar
+from typing import Callable, Literal, TypeVar
 
 from pydantic import ValidationError
 
 from data_designer.slurm.client import ClientResult
 from data_designer.slurm.config import DataDesignerSlurmConfig
-from data_designer.slurm.contracts import AttemptId, ContractRecord, Identifier, ShardId
+from data_designer.slurm.contracts import AttemptId, ContractRecord, Identifier, ShardId, validate_absolute_path
 from data_designer.slurm.planning import ResolvedSlurmRunPlan
 from data_designer.slurm.state.errors import SlurmStateError, StateCorruptionError, StateNotFoundError
 from data_designer.slurm.state.execution import AttemptManifest, RunManifest, ShardManifest
@@ -54,6 +54,7 @@ _LOCK_DIRECTORY_NAME = ".locks"
 _MAXIMUM_RECORD_SIZE = 16 * 1024 * 1024
 _ATTEMPT_NAME_PATTERN = re.compile(r"^attempt-[0-9]{4,}$")
 _RecordT = TypeVar("_RecordT", bound=ContractRecord)
+_LocalPathResolver = Callable[[str], str | Path]
 
 
 class StateStorage:
@@ -65,6 +66,7 @@ class StateStorage:
         run_id: Identifier,
         *,
         logical_workspace_root: Path | None = None,
+        local_path_resolver: _LocalPathResolver | None = None,
     ) -> None:
         self.workspace_root = workspace_root
         self.logical_workspace_root = logical_workspace_root or workspace_root
@@ -73,6 +75,7 @@ class StateStorage:
         self.locks_root = self.runs_root / _LOCK_DIRECTORY_NAME
         self.run_root = self.runs_root / run_id
         self.logical_run_root = self.logical_workspace_root / "runs" / run_id
+        self._local_path_resolver = local_path_resolver
 
     @property
     def authored_config_path(self) -> Path:
@@ -91,10 +94,16 @@ class StateStorage:
         return self.logical_run_root / _RESOLVED_PLAN_FILENAME
 
     def get_local_path(self, logical_path: str | Path) -> Path:
+        logical_path = Path(logical_path)
         try:
-            relative_path = Path(logical_path).relative_to(self.logical_workspace_root)
+            relative_path = logical_path.relative_to(self.logical_workspace_root)
         except ValueError as error:
             raise StateCorruptionError("persisted path is outside the selected workspace") from error
+        if self._local_path_resolver is not None:
+            try:
+                return Path(validate_absolute_path(Path(self._local_path_resolver(logical_path.as_posix())).as_posix()))
+            except Exception as error:
+                raise StateCorruptionError("persisted path has no valid local mapping") from error
         return self.workspace_root / relative_path
 
     def get_shard_path(self, shard_id: str) -> Path:
@@ -315,11 +324,20 @@ class StateStorage:
             dataset_path = self.get_shard_path(shard_id) / _DATASET_DIRECTORY_NAME
             with self.open_shard_directory(shard_id) as descriptor:
                 ensure_private_child_directory(descriptor, _DATASET_DIRECTORY_NAME, dataset_path)
-            return dataset_path
+            logical_path = self.logical_run_root / _SHARDS_DIRECTORY_NAME / shard_id / _DATASET_DIRECTORY_NAME
+            return self.get_local_path(logical_path)
         dataset_path = self.get_attempt_path(shard_id, attempt_id) / _DATASET_DIRECTORY_NAME
         with self.open_attempt_directory(shard_id, attempt_id) as descriptor:
             ensure_private_child_directory(descriptor, _DATASET_DIRECTORY_NAME, dataset_path)
-        return dataset_path
+        logical_path = (
+            self.logical_run_root
+            / _SHARDS_DIRECTORY_NAME
+            / shard_id
+            / _ATTEMPTS_DIRECTORY_NAME
+            / attempt_id
+            / _DATASET_DIRECTORY_NAME
+        )
+        return self.get_local_path(logical_path)
 
     def read_finalization_records(
         self,

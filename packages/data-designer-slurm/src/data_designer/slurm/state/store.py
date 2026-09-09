@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -56,6 +56,7 @@ class SlurmStateWriter:
         workspace_root: Workspace root visible to this process.
         run_id: Stable application-owned run identity.
         logical_workspace_root: Optional host-side root persisted in plan records.
+        local_path_resolver: Optional mapping for persisted paths with nested mounts.
     """
 
     def __init__(
@@ -64,6 +65,7 @@ class SlurmStateWriter:
         run_id: Identifier,
         *,
         logical_workspace_root: str | Path | None = None,
+        local_path_resolver: Callable[[str], str | Path] | None = None,
     ) -> None:
         try:
             normalized_root = validate_absolute_path(Path(workspace_root).as_posix())
@@ -77,6 +79,7 @@ class SlurmStateWriter:
             Path(normalized_root),
             normalized_run_id,
             logical_workspace_root=Path(normalized_logical_root),
+            local_path_resolver=local_path_resolver,
         )
         self._reader = StateReader(self._storage, normalized_run_id)
         self._results = AttemptResultPublisher(self._storage, self._reader)

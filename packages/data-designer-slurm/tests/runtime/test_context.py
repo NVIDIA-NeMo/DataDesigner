@@ -30,12 +30,24 @@ def test_allocation_context_reads_and_updates_state_through_remapped_workspace(
     physical_workspace = tmp_path / "workspace"
     physical_workspace.mkdir()
     logical_workspace = single_node_plan.selected_profile.profile.workspace_root
+    logical_attempts = (
+        Path(logical_workspace)
+        / "runs"
+        / single_node_plan.run_id
+        / "shards"
+        / single_node_plan.shards[0].shard_id
+        / "attempts"
+    )
+    fast_attempts = tmp_path / "fast-attempts"
     payload = cast(dict[str, object], json.loads(single_node_plan.serialize_json()))
     selected = cast(dict[str, object], payload["selected_profile"])
     profile_payload = cast(dict[str, object], selected["profile"])
-    mount = {"source": logical_workspace, "target": physical_workspace.as_posix(), "read_only": False}
-    profile_payload["container_mounts"] = [mount]
-    payload["container_mounts"] = [mount]
+    mounts = [
+        {"source": logical_workspace, "target": physical_workspace.as_posix(), "read_only": False},
+        {"source": logical_attempts.as_posix(), "target": fast_attempts.as_posix(), "read_only": False},
+    ]
+    profile_payload["container_mounts"] = mounts
+    payload["container_mounts"] = mounts
     profile = SlurmProfile.model_validate(profile_payload)
     selected["profile_sha256"] = compute_canonical_json_sha256(profile.model_dump(mode="json"))
     plan = ResolvedSlurmRunPlan.model_validate_json(json.dumps(payload))
@@ -83,7 +95,8 @@ def test_allocation_context_reads_and_updates_state_through_remapped_workspace(
     host_writer.initialize_run(authored_run_single, plan, run, (shard,))
     host_writer.create_attempt(attempt)
     plan_path = physical_workspace / "runs" / plan.run_id / "resolved-plan.json"
-    attempt_directory = plan_path.parent / "shards" / shard.shard_id / "attempts" / attempt.attempt_id
+    attempt_directory = fast_attempts / attempt.attempt_id
+    attempt_directory.mkdir(parents=True, mode=0o700)
 
     context, runtime_writer = load_allocation_context(
         plan_path,
@@ -91,6 +104,8 @@ def test_allocation_context_reads_and_updates_state_through_remapped_workspace(
         {"SLURM_ARRAY_TASK_ID": "0", "SLURM_ARRAY_JOB_ID": "4101"},
     )
     runtime_writer.update_attempt(context.attempt.model_copy(update={"state": AttemptLifecycleState.RUNNING}))
+    with runtime_writer.acquire_dataset_workspace(shard.shard_id, attempt.attempt_id, "never") as dataset_path:
+        assert dataset_path == attempt_directory / "dataset"
 
     assert context.attempt_directory.as_posix().startswith(logical_workspace)
     assert host_writer.load_attempt(shard.shard_id, attempt.attempt_id).state is AttemptLifecycleState.RUNNING

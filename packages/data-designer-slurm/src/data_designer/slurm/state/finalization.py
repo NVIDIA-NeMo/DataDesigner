@@ -299,7 +299,9 @@ class WinnerFinalizer:
             expected_path = (
                 self._storage.get_local_path(shard.resume_workspace.path)
                 if resume_mode == "always"
-                else self._storage.get_attempt_path(shard_id, attempt_id) / "dataset"
+                else self._storage.get_local_path(
+                    self._storage.logical_run_root / "shards" / shard_id / "attempts" / attempt_id / "dataset"
+                )
             )
             if dataset_path != expected_path:
                 raise StateContractError("dataset workspace path does not match the resolved plan")

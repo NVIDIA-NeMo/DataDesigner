@@ -81,6 +81,7 @@ def _load_state_writer(plan_path: Path, attempt_directory: Path) -> SlurmStateWr
         workspace_root,
         run_id,
         logical_workspace_root=logical_workspace_root,
+        local_path_resolver=lambda path: get_container_path(plan, path, require_writable=True),
     )
 
 
