@@ -84,6 +84,33 @@ def test_staged_shell_modules_parse_as_bash(tmp_path: Path) -> None:
     assert completed.returncode == 0, completed.stderr
 
 
+@pytest.mark.parametrize(
+    ("visible_gpus", "expected_gpus", "expected_status"),
+    (("0,1,2,3,4,5,6,7", 1, 0), ("0", 2, 65)),
+)
+def test_bash_gpu_count_requires_planned_minimum(
+    visible_gpus: str,
+    expected_gpus: int,
+    expected_status: int,
+) -> None:
+    runtime_root = Path(__file__).parents[2] / "src/data_designer/slurm/runtime"
+    command = f"""
+set -Eeuo pipefail
+source {shlex.quote((runtime_root / "entrypoint.sh").as_posix())}
+DD_EXPECTED_GPUS={expected_gpus}
+dd_verify_gpu_count
+"""
+
+    completed = subprocess.run(
+        ("bash", "-c", command),
+        capture_output=True,
+        text=True,
+        env={**os.environ, "CUDA_VISIBLE_DEVICES": visible_gpus},
+    )
+
+    assert completed.returncode == expected_status
+
+
 def test_shell_helpers_handle_empty_and_sparse_arrays() -> None:
     runtime_root = Path(__file__).parents[2] / "src/data_designer/slurm/runtime"
     command = f"""

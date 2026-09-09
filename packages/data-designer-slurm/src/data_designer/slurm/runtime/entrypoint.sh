@@ -115,7 +115,7 @@ dd_verify_gpu_count() {
             ((count += 1))
         done
     fi
-    [[ ${count} == "${DD_EXPECTED_GPUS}" ]] || {
+    [[ ${DD_EXPECTED_GPUS} =~ ^[1-9][0-9]*$ && ${count} -ge ${DD_EXPECTED_GPUS} ]] || {
         printf '%s\n' 'allocation GPU visibility does not match the resolved plan' >&2
         return 65
     }
