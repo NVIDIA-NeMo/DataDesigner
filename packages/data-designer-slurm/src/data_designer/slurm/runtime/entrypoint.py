@@ -20,10 +20,10 @@ from data_designer.slurm.runtime.errors import SlurmRuntimeError, SlurmRuntimeEr
 from data_designer.slurm.runtime.logs import execution_log_directory
 from data_designer.slurm.runtime.models import AllocationContext
 from data_designer.slurm.runtime.paths import get_container_path
+from data_designer.slurm.runtime.ports import resolve_allocation_deployments
 from data_designer.slurm.runtime.preflight import SystemAllocationPreflight
 from data_designer.slurm.runtime.records import load_complete_client_candidate
 from data_designer.slurm.serving.deployment import ResolvedVllmServerDeployment
-from data_designer.slurm.serving.resolver import resolve_vllm_server
 from data_designer.slurm.state import (
     AttemptLifecycleState,
     AttemptManifest,
@@ -348,7 +348,7 @@ def _load_optional_readiness(context: AllocationContext, writer: SlurmStateWrite
 
 
 def _resolve_deployments(context: AllocationContext) -> tuple[ResolvedVllmServerDeployment, ...]:
-    return tuple(resolve_vllm_server(context.plan, item.deployment_id) for item in context.plan.deployments)
+    return resolve_allocation_deployments(context)
 
 
 def _validate_attempt_is_executable(attempt: AttemptManifest) -> None:

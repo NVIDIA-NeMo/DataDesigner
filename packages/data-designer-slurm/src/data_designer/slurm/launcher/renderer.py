@@ -21,7 +21,7 @@ def render_generation_attempt_script(plan: ResolvedSlurmRunPlan, *, attempt_ordi
 
     run_root = posixpath.dirname(plan.authored_config.path)
     plan_path = posixpath.join(run_root, "resolved-plan.json")
-    directive_text = f"{render_batch_directives(_build_generation_directives(plan))}\n#SBATCH --exclusive"
+    directive_text = render_batch_directives(_build_generation_directives(plan))
     attempt = f"{attempt_ordinal:04d}"
     scheduler_bin_path = plan.selected_profile.profile.scheduler.bin_path
     command_path = _SYSTEM_PATH if scheduler_bin_path is None else f"{scheduler_bin_path}:{_SYSTEM_PATH}"

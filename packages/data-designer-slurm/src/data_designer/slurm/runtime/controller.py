@@ -18,6 +18,7 @@ from data_designer.slurm.contracts import ArtifactReference
 from data_designer.slurm.runtime.errors import SlurmRuntimeError, SlurmRuntimeErrorCode
 from data_designer.slurm.runtime.logs import bind_execution_logs, execution_log_directory
 from data_designer.slurm.runtime.models import AllocationContext, RuntimeEndpoint, RuntimeStep
+from data_designer.slurm.runtime.ports import resolve_allocation_deployments
 from data_designer.slurm.runtime.preflight import AllocationPreflight
 from data_designer.slurm.runtime.probes import ReadinessProber
 from data_designer.slurm.runtime.records import load_complete_client_candidate
@@ -28,7 +29,6 @@ from data_designer.slurm.runtime.steps import (
 )
 from data_designer.slurm.runtime.supervisor import ManagedStep, RuntimeClock, StepSupervisor
 from data_designer.slurm.serving.deployment import ResolvedVllmServerDeployment
-from data_designer.slurm.serving.resolver import resolve_vllm_server
 from data_designer.slurm.state import (
     AttemptLifecycleState,
     AttemptManifest,
@@ -268,10 +268,7 @@ class OneNodeAllocationController:
 
     def _prepare_runtime(self) -> _RuntimeTopology:
         self._validate_attempt_state()
-        deployments = tuple(
-            resolve_vllm_server(self._context.plan, deployment.deployment_id)
-            for deployment in self._context.plan.deployments
-        )
+        deployments = resolve_allocation_deployments(self._context)
         restarting = self._readiness is not None
         if restarting:
             self._begin_execution(deployments, ReadinessState.RESTARTING)

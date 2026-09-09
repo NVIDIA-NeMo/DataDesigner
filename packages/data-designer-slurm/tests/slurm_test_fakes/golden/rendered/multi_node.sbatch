@@ -7,7 +7,6 @@
 #SBATCH --time=03:55:00
 #SBATCH --array=0-1%2
 #SBATCH --gres=gpu:8
-#SBATCH --exclusive
 set -Eeuo pipefail
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 

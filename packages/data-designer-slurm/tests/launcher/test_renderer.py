@@ -93,7 +93,7 @@ def test_renderer_uses_profile_slurm_bin_path(single_node_plan: ResolvedSlurmRun
     script = render_generation_attempt_script(plan, attempt_ordinal=1)
 
     assert 'export PATH="/opt/slurm/bin:/usr/local/sbin:' in script
-    assert "#SBATCH --exclusive\n" in script
+    assert "#SBATCH --exclusive" not in script
 
 
 @pytest.mark.parametrize("gpu_request_mode", ("gres", "visible"))

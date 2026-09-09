@@ -18,6 +18,7 @@ from data_designer.slurm.contracts import ArtifactReference
 from data_designer.slurm.runtime.errors import SlurmRuntimeError, SlurmRuntimeErrorCode
 from data_designer.slurm.runtime.models import AllocationContext
 from data_designer.slurm.runtime.paths import get_container_path
+from data_designer.slurm.runtime.ports import allocation_ports
 
 _DIGEST_CHUNK_SIZE = 1024 * 1024
 _GPU_COUNT_PATTERN = re.compile(r"^(?:gpu(?::[^:]+)?):([0-9]+)$")
@@ -125,9 +126,7 @@ class SystemAllocationPreflight:
     @staticmethod
     def verify_ports(context: AllocationContext) -> None:
         """Verify that every planned one-node port is currently bindable."""
-        ports = tuple(port.port for port in context.plan.client.ports) + tuple(
-            port.port for deployment in context.plan.deployments for port in deployment.ports
-        )
+        ports = allocation_ports(context)
         reservations: list[socket.socket] = []
         try:
             for port in ports:

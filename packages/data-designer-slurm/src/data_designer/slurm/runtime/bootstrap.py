@@ -24,13 +24,13 @@ from data_designer.slurm.runtime.backpressure import (
 from data_designer.slurm.runtime.errors import SlurmRuntimeError, SlurmRuntimeErrorCode
 from data_designer.slurm.runtime.models import AllocationContext, RuntimeEndpoint, RuntimeStepRole
 from data_designer.slurm.runtime.paths import get_container_path
+from data_designer.slurm.runtime.ports import resolve_allocation_deployments
 from data_designer.slurm.runtime.steps import (
     build_client_command,
     build_endpoint_command,
     build_vllm_command,
 )
 from data_designer.slurm.serving.deployment import ResolvedVllmServerDeployment
-from data_designer.slurm.serving.resolver import resolve_vllm_server
 from data_designer.slurm.serving.vllm import ResolvedVllmProcess
 from data_designer.slurm.types import EnvironmentName, Identifier, NetworkPort, Sha256Digest
 
@@ -125,7 +125,7 @@ def build_runtime_manifest(
     """Build the secret-free one-node command handoff for the Bash controller."""
     plan = context.plan
     runtime_container_root = get_container_path(plan, runtime_root.as_posix(), require_writable=True)
-    deployments = tuple(resolve_vllm_server(plan, item.deployment_id) for item in plan.deployments)
+    deployments = resolve_allocation_deployments(context)
     endpoints = tuple(
         RuntimeEndpoint(
             model_alias=deployment.model_alias,
