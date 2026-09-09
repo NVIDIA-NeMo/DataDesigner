@@ -14,6 +14,10 @@ from data_designer.slurm.contracts import ArtifactReference
 from data_designer.slurm.state import AttemptLifecycleState, ReadinessState
 
 
+class _InjectedFailure(Exception):
+    pass
+
+
 def test_entrypoint_rejects_relative_paths_without_traceback(capsys: pytest.CaptureFixture[str]) -> None:
     assert (
         entrypoint.main(
@@ -34,6 +38,45 @@ def test_entrypoint_rejects_relative_paths_without_traceback(capsys: pytest.Capt
     captured = capsys.readouterr()
     assert "runtime paths must be absolute" in captured.err
     assert "Traceback" not in captured.err
+
+
+def test_container_phases_use_the_container_attempt_directory(
+    monkeypatch: pytest.MonkeyPatch,
+    runtime_case: RuntimeCase,
+) -> None:
+    state = FakeStateStore(runtime_case.context.attempt)
+    container_attempt_directory = Path("/container/workspace/runs/run-single/shards/shard-00000/attempts/attempt-0001")
+    _patch_runtime_context(monkeypatch, runtime_case, state)
+
+    def verify_attempt_directory(path: Path) -> None:
+        assert path == container_attempt_directory
+        raise _InjectedFailure
+
+    monkeypatch.setattr(entrypoint.SystemAllocationPreflight, "verify_attempt_directory", verify_attempt_directory)
+    prepare = entrypoint._parse_arguments(
+        _phase_arguments(
+            "prepare",
+            runtime_case,
+            runtime_case.context.attempt_directory / "runtime",
+            container_attempt_directory / "runtime-manifest.json",
+            attempt_directory=container_attempt_directory,
+        )
+    )
+    with pytest.raises(_InjectedFailure):
+        entrypoint._prepare(prepare, {})
+
+    monkeypatch.setattr(entrypoint, "client_worker_main", lambda arguments: 0)
+
+    def load_candidate(*args: object, attempt_directory: Path | None = None) -> None:
+        assert attempt_directory == container_attempt_directory
+        raise _InjectedFailure
+
+    monkeypatch.setattr(entrypoint, "load_complete_client_candidate", load_candidate)
+    client = entrypoint._parse_arguments(
+        _phase_arguments("client", runtime_case, attempt_directory=container_attempt_directory)
+    )
+    with pytest.raises(_InjectedFailure):
+        entrypoint._client(client, {})
 
 
 def test_control_phases_record_running_ready_and_failed(
@@ -98,6 +141,39 @@ def test_succeed_phase_stops_runtime_and_finalizes_winner(
     assert state.winners[0].attempt_id == state.attempt.attempt_id
 
 
+def test_succeed_phase_does_not_strand_success_when_winner_finalization_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    runtime_case: RuntimeCase,
+) -> None:
+    class FailingState(FakeStateStore):
+        def finalize_winner(self, *args: object, **kwargs: object) -> None:
+            raise RuntimeError("injected finalization failure")
+
+    state = FailingState(runtime_case.context.attempt)
+    runtime_root = runtime_case.context.attempt_directory / "runtime"
+    manifest_path = runtime_case.context.attempt_directory / "runtime-manifest.json"
+    _patch_runtime_context(monkeypatch, runtime_case, state)
+    monkeypatch.setattr(entrypoint.SystemAllocationPreflight, "verify_attempt_directory", lambda path: None)
+    monkeypatch.setattr(entrypoint.SystemAllocationPreflight, "verify_ports", lambda context: None)
+    monkeypatch.setattr(
+        entrypoint,
+        "build_runtime_manifest",
+        lambda *args, **kwargs: SimpleNamespace(serialize_json=lambda: "{}"),
+    )
+    assert entrypoint.main(_phase_arguments("prepare", runtime_case, runtime_root, manifest_path)) == 0
+    assert entrypoint.main(_phase_arguments("ready", runtime_case)) == 0
+    state.attempt = state.attempt.model_copy(
+        update={
+            "candidate_output": ArtifactReference(
+                path=(runtime_case.context.attempt_directory / "output-manifest.json").as_posix(),
+                sha256="a" * 64,
+            ),
+        }
+    )
+    assert entrypoint.main(_phase_arguments("succeed", runtime_case)) == 70
+    assert state.attempt.state is AttemptLifecycleState.RUNNING
+
+
 def _patch_runtime_context(
     monkeypatch: pytest.MonkeyPatch,
     runtime_case: RuntimeCase,
@@ -112,13 +188,15 @@ def _phase_arguments(
     runtime_case: RuntimeCase,
     runtime_root: Path | None = None,
     manifest_path: Path | None = None,
+    *,
+    attempt_directory: Path | None = None,
 ) -> tuple[str, ...]:
     arguments = (
         operation,
         "--plan",
         (runtime_case.workspace / "runs/run-single/resolved-plan.json").as_posix(),
         "--attempt-dir",
-        runtime_case.context.attempt_directory.as_posix(),
+        (attempt_directory or runtime_case.context.attempt_directory).as_posix(),
     )
     if operation == "prepare":
         assert runtime_root is not None and manifest_path is not None

@@ -1239,6 +1239,81 @@ def test_result_publication_binds_candidate_before_success_transition(
         case.writer.update_attempt(conflicting_success)
 
 
+def test_winner_publication_failure_restores_running_attempt_for_retry(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    case = _initialized_case(tmp_path, authored_run_single, single_node_plan)
+    attempt = _submitted_attempt(case)
+    case.writer.create_attempt(attempt)
+    with case.writer.acquire_dataset_workspace(attempt.shard_id, attempt.attempt_id, "never") as dataset_path:
+        finalization = _persist_complete_result(case, attempt, dataset_path, complete_attempt=False)
+    original_publish = case.writer._storage.publish_winner
+
+    def fail_winner_publication(winner: ShardWinner) -> None:
+        raise OSError("injected winner publication failure")
+
+    monkeypatch.setattr(case.writer._storage, "publish_winner", fail_winner_publication)
+    completed_at = case.created_at + timedelta(minutes=5)
+    with pytest.raises(SlurmStateError, match="cannot finalize"):
+        case.writer.finalize_winner(
+            attempt.shard_id,
+            attempt.attempt_id,
+            completed_at=completed_at,
+            published_at=finalization.published_at,
+        )
+
+    persisted = case.writer.load_attempt(attempt.shard_id, attempt.attempt_id)
+    assert persisted.state is AttemptLifecycleState.RUNNING
+    assert persisted.candidate_output == finalization.client_result.candidate_output_manifest
+
+    monkeypatch.setattr(case.writer._storage, "publish_winner", original_publish)
+    winner = case.writer.finalize_winner(
+        attempt.shard_id,
+        attempt.attempt_id,
+        completed_at=completed_at,
+        published_at=finalization.published_at,
+    )
+    assert case.writer.load_attempt(attempt.shard_id, attempt.attempt_id).state is AttemptLifecycleState.SUCCEEDED
+    assert case.writer.load_winner(attempt.shard_id) == winner
+
+
+def test_runtime_finalization_converges_after_committed_winner_sync_failure(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    case = _initialized_case(tmp_path, authored_run_single, single_node_plan)
+    attempt = _submitted_attempt(case)
+    case.writer.create_attempt(attempt)
+    with case.writer.acquire_dataset_workspace(attempt.shard_id, attempt.attempt_id, "never") as dataset_path:
+        finalization = _persist_complete_result(case, attempt, dataset_path, complete_attempt=False)
+    winner_path = case.writer.run_root / "shards/shard-00000/winner.json"
+    original_fsync = state_filesystem.os.fsync
+    failed = False
+
+    def fail_after_winner_link(descriptor: int) -> None:
+        nonlocal failed
+        if winner_path.exists() and not failed:
+            failed = True
+            raise OSError("injected winner directory fsync failure")
+        original_fsync(descriptor)
+
+    monkeypatch.setattr(state_filesystem.os, "fsync", fail_after_winner_link)
+    winner = case.writer.finalize_winner(
+        attempt.shard_id,
+        attempt.attempt_id,
+        completed_at=case.created_at + timedelta(minutes=5),
+        published_at=finalization.published_at,
+    )
+
+    assert case.writer.load_attempt(attempt.shard_id, attempt.attempt_id).state is AttemptLifecycleState.SUCCEEDED
+    assert case.writer.load_winner(attempt.shard_id) == winner
+
+
 def test_attempt_update_cannot_bind_candidate_before_result_publication(
     tmp_path: Path,
     authored_run_single: DataDesignerSlurmConfig,

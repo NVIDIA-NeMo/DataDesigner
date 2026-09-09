@@ -307,12 +307,25 @@ class _SystemRunBackend:
                         SlurmServiceOperation.EXECUTE_RUN,
                         f"Slurm job {receipt.job_id} was submitted but could not be recorded or cancelled",
                     ) from error
+                try:
+                    self._record_submission_failure(publisher, plan)
+                except SlurmServiceError as state_error:
+                    raise SlurmServiceError(
+                        SlurmServiceErrorCode.INTERNAL,
+                        SlurmServiceOperation.EXECUTE_RUN,
+                        f"Slurm job {receipt.job_id} was cancelled but its partial submission state could not be updated",
+                    ) from state_error
                 raise
             except BaseException:
                 try:
                     self._launcher.cancel(receipt.job_id)
                 except Exception:
                     pass
+                else:
+                    try:
+                        self._record_submission_failure(publisher, plan)
+                    except BaseException:
+                        pass
                 raise
             try:
                 self._launcher.release(receipt.job_id)

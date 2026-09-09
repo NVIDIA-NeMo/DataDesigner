@@ -40,6 +40,7 @@ from data_designer.slurm.state import (
     ShardManifest,
     SlurmStateWriter,
     StateConflictError,
+    StateNotFoundError,
 )
 
 
@@ -415,6 +416,52 @@ def test_recording_conflict_cancels_the_accepted_job(
 
     assert caught.value.code is SlurmServiceErrorCode.CONFLICT
     assert launcher.cancellations == [42]
+    assert len(publisher.submission_failures) == 1
+
+
+def test_partial_submission_recording_failure_cancels_job_and_fails_created_attempts(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    profile_catalog: SlurmProfileCatalog,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    authored = authored_run_single.model_copy(
+        update={"array_tasks": authored_run_single.array_tasks.model_copy(update={"count": 2})}
+    )
+    _register_images(tmp_path, authored, single_node_plan)
+    original_create = SlurmStateWriter.create_attempt
+    created = 0
+
+    def fail_second_attempt(writer: SlurmStateWriter, attempt: AttemptManifest) -> AttemptManifest:
+        nonlocal created
+        created += 1
+        if created == 2:
+            raise StateConflictError("injected partial submission failure")
+        return original_create(writer, attempt)
+
+    monkeypatch.setattr(SlurmStateWriter, "create_attempt", fail_second_attempt)
+    launcher = _Launcher()
+    failed_at = datetime(2026, 9, 8, tzinfo=UTC)
+    service = create_slurm_run_service(
+        profile=_profile(tmp_path, profile_catalog),
+        launcher=launcher,  # type: ignore[arg-type]
+        run_id_factory=lambda: "run-wired",
+        clock=lambda: failed_at,
+        package_version="0.9.2",
+    )
+
+    with pytest.raises(SlurmServiceError) as caught:
+        service.execute(authored, source_root=tmp_path)
+
+    assert caught.value.code is SlurmServiceErrorCode.CONFLICT
+    assert launcher.cancellations == [42]
+    writer = SlurmStateWriter(tmp_path, "run-wired")
+    attempt = writer.load_attempt("shard-00000", "attempt-0001")
+    assert attempt.state is AttemptLifecycleState.FAILED
+    assert attempt.terminal_classification is AttemptTerminalClassification.CANCELLED
+    with pytest.raises(StateNotFoundError):
+        writer.load_attempt("shard-00001", "attempt-0001")
 
 
 def test_release_failure_cancels_the_held_job(

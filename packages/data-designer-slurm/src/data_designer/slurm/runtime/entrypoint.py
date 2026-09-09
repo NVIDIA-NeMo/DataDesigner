@@ -90,7 +90,7 @@ def _add_context_arguments(parser: argparse.ArgumentParser) -> None:
 def _prepare(arguments: argparse.Namespace, environment: Mapping[str, str]) -> None:
     context, writer = load_allocation_context(arguments.plan, arguments.attempt_dir, environment)
     _validate_attempt_is_executable(context.attempt)
-    SystemAllocationPreflight.verify_attempt_directory(context.attempt_directory)
+    SystemAllocationPreflight.verify_attempt_directory(arguments.attempt_dir)
     SystemAllocationPreflight.verify_ports(context)
     readiness = _begin_attempt(context, writer)
     log_directory = execution_log_directory(context.attempt_directory, readiness.revision)
@@ -165,7 +165,11 @@ def _client(arguments: argparse.Namespace, environment: Mapping[str, str]) -> No
         )
         if return_code != 0:
             raise SlurmRuntimeError(SlurmRuntimeErrorCode.CLIENT_FAILED, "client generation failed")
-        client_result, candidate = load_complete_client_candidate(context, context.attempt)
+        client_result, candidate = load_complete_client_candidate(
+            context,
+            context.attempt,
+            attempt_directory=arguments.attempt_dir,
+        )
         completed_at = client_result.completed_at
         if candidate.created_at < generation_started_at or completed_at < generation_started_at:
             raise SlurmRuntimeError(
@@ -189,19 +193,12 @@ def _succeed(arguments: argparse.Namespace, environment: Mapping[str, str]) -> N
             SlurmRuntimeErrorCode.FINALIZATION_FAILED,
             "successful allocation has no candidate reference",
         )
-    terminal = writer.update_attempt(
-        attempt.model_copy(
-            update={
-                "state": AttemptLifecycleState.SUCCEEDED,
-                "terminal_classification": AttemptTerminalClassification.SUCCEEDED,
-                "updated_at": max(stopped_at, attempt.updated_at),
-            }
-        )
-    )
+    completed_at = max(stopped_at, attempt.updated_at)
     writer.finalize_winner(
-        terminal.shard_id,
-        terminal.attempt_id,
-        published_at=max(datetime.now(timezone.utc), terminal.updated_at),
+        attempt.shard_id,
+        attempt.attempt_id,
+        completed_at=completed_at,
+        published_at=max(datetime.now(timezone.utc), completed_at),
     )
 
 

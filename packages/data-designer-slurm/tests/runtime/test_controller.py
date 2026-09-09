@@ -221,6 +221,35 @@ def test_controller_publishes_result_before_success_with_real_state_writer(
     assert state.load_winner(result.shard_id).attempt_id == result.attempt_id
 
 
+def test_winner_finalization_failure_leaves_controller_attempt_retryable(runtime_case: RuntimeCase) -> None:
+    clock = FakeClock(runtime_case.created_at.replace(second=10), monotonic_time=100)
+
+    class FailingState(FakeStateStore):
+        def finalize_winner(self, *args: object, **kwargs: object) -> None:
+            raise RuntimeError("injected finalization failure")
+
+    state = FailingState(runtime_case.context.attempt)
+    runner = _FakeRunner(generation_hook=lambda: _write_complete_result(runtime_case, clock))
+    controller = OneNodeAllocationController(
+        runtime_case.context,
+        runtime_proxy_path=runtime_case.context.attempt_directory / "runtime/proxy.py",
+        state=state,
+        supervisor=_supervisor(runner, clock),
+        preflight=FakePreflight(),
+        client_steps=FakeClientStepBuilder(),
+        prober=_FakeProber(ready=True, clock=clock),
+        clock=clock,
+        environment={},
+    )
+
+    with pytest.raises(SlurmRuntimeError, match="allocation runtime failed"):
+        controller.run()
+
+    assert state.attempt.state is AttemptLifecycleState.FAILED
+    assert state.attempt.candidate_output is not None
+    assert state.winners == []
+
+
 def test_preflight_failure_starts_no_process_and_fails_attempt(runtime_case: RuntimeCase) -> None:
     clock = FakeClock(runtime_case.created_at.replace(second=10), monotonic_time=100)
     state = FakeStateStore(runtime_case.context.attempt)

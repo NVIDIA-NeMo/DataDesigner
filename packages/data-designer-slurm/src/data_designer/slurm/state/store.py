@@ -197,8 +197,9 @@ class SlurmStateWriter:
         attempt_id: AttemptId,
         *,
         published_at: datetime,
+        completed_at: datetime | None = None,
     ) -> ShardWinner:
-        """Validate attempt-local artifacts and publish one immutable winner."""
+        """Validate artifacts and optionally commit attempt success with its winner."""
         normalized_shard_id = self._validate_shard_id(shard_id)
         normalized_attempt_id = self._validate_attempt_id(attempt_id)
         if (
@@ -207,7 +208,18 @@ class SlurmStateWriter:
             or published_at.utcoffset() != timedelta(0)
         ):
             raise StateConflictError("winner publication timestamp must be timezone-aware UTC")
-        return self._finalizer.finalize_winner(normalized_shard_id, normalized_attempt_id, published_at)
+        if completed_at is not None and (
+            not isinstance(completed_at, datetime)
+            or completed_at.tzinfo is None
+            or completed_at.utcoffset() != timedelta(0)
+        ):
+            raise StateConflictError("attempt completion timestamp must be timezone-aware UTC")
+        return self._finalizer.finalize_winner(
+            normalized_shard_id,
+            normalized_attempt_id,
+            published_at,
+            completed_at,
+        )
 
     def load_winner(self, shard_id: ShardId) -> ShardWinner:
         """Load and validate one shard's immutable winner chain."""

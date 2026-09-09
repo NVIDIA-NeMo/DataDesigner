@@ -22,6 +22,7 @@ from data_designer.slurm.state import (
     AttemptLifecycleState,
     AttemptManifest,
     AttemptReadiness,
+    AttemptTerminalClassification,
     CandidateOutputManifest,
     SchedulerIdentity,
     ShardWinner,
@@ -89,7 +90,18 @@ class FakeStateStore:
         attempt_id: str,
         *,
         published_at: datetime,
+        completed_at: datetime | None = None,
     ) -> ShardWinner:
+        if completed_at is not None:
+            self.update_attempt(
+                self.attempt.model_copy(
+                    update={
+                        "state": AttemptLifecycleState.SUCCEEDED,
+                        "terminal_classification": AttemptTerminalClassification.SUCCEEDED,
+                        "updated_at": completed_at,
+                    }
+                )
+            )
         assert self.attempt.state is AttemptLifecycleState.SUCCEEDED
         assert self.attempt.candidate_output is not None
         winner = ShardWinner(

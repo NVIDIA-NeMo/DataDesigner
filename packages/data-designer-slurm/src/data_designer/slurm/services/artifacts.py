@@ -30,6 +30,7 @@ from data_designer.slurm.state import (
     SlurmStateError,
     SlurmStateWriter,
     StateConflictError,
+    StateNotFoundError,
 )
 from data_designer.slurm.state.filesystem import (
     open_verified_directory,
@@ -122,7 +123,10 @@ class StateRunArtifactPublisher:
         """Mark every initial attempt failed after its held job is cancelled."""
         writer = SlurmStateWriter(self._workspace_root, plan.run_id)
         for shard in plan.shards:
-            attempt = writer.load_attempt(shard.shard_id, "attempt-0001")
+            try:
+                attempt = writer.load_attempt(shard.shard_id, "attempt-0001")
+            except StateNotFoundError:
+                continue
             writer.update_attempt(
                 attempt.model_copy(
                     update={

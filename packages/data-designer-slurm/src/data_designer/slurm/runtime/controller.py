@@ -59,6 +59,10 @@ class RuntimeStateStore(Protocol):
         """Persist a monotonic attempt update."""
         ...
 
+    def load_attempt(self, shard_id: str, attempt_id: str) -> AttemptManifest:
+        """Load one persisted attempt."""
+        ...
+
     def publish_attempt_result(
         self,
         client_result: ClientResult,
@@ -82,8 +86,9 @@ class RuntimeStateStore(Protocol):
         attempt_id: str,
         *,
         published_at: datetime,
+        completed_at: datetime | None = None,
     ) -> ShardWinner:
-        """Publish the immutable winning candidate for a successful attempt."""
+        """Commit attempt success and publish its immutable winning candidate."""
         ...
 
     def write_readiness(self, readiness: AttemptReadiness) -> AttemptReadiness:
@@ -163,23 +168,38 @@ class OneNodeAllocationController:
         self._record_outcome_failure(outcome)
         self._cleanup_runtime(outcome)
         self._record_stopped_readiness(outcome)
-        terminal = self._persist_terminal_outcome(outcome)
+        if outcome.failure is None:
+            try:
+                terminal = self._finalize_success(outcome)
+            except BaseException as error:
+                outcome.failure = _normalize_failure(error)
+                outcome.failure_cause = error
+                terminal = self._persist_terminal_outcome(outcome)
+        else:
+            terminal = self._persist_terminal_outcome(outcome)
         if outcome.failure is not None:
             if outcome.failure_cause is outcome.failure:
                 raise outcome.failure
             raise outcome.failure from outcome.failure_cause
-        try:
-            self._state.finalize_winner(
-                terminal.shard_id,
-                terminal.attempt_id,
-                published_at=self._now(),
-            )
-        except BaseException as error:
-            failure = _normalize_failure(error)
-            if failure is error:
-                raise
-            raise failure from error
         return terminal
+
+    def _finalize_success(self, outcome: _RunOutcome) -> AttemptManifest:
+        if outcome.candidate_reference is None:
+            raise SlurmRuntimeError(
+                SlurmRuntimeErrorCode.FINALIZATION_FAILED,
+                "successful allocation has no candidate reference",
+            )
+        completed_at = self._now()
+        if outcome.client_completed_at is not None and outcome.client_completed_at > completed_at:
+            completed_at = outcome.client_completed_at
+        self._state.finalize_winner(
+            self._attempt.shard_id,
+            self._attempt.attempt_id,
+            completed_at=completed_at,
+            published_at=max(self._now(), completed_at),
+        )
+        self._attempt = self._state.load_attempt(self._attempt.shard_id, self._attempt.attempt_id)
+        return self._attempt
 
     def _capture_execution(self) -> _RunOutcome:
         try:
