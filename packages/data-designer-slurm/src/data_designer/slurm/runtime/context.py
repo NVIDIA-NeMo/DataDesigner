@@ -56,10 +56,8 @@ def load_allocation_context(
 def _load_state_writer(plan_path: Path, attempt_directory: Path) -> SlurmStateWriter:
     if not plan_path.is_absolute() or not attempt_directory.is_absolute():
         raise SlurmRuntimeError(SlurmRuntimeErrorCode.INVALID_CONTEXT, "runtime paths must be absolute")
-    if plan_path.name != "resolved-plan.json" or plan_path.parent.parent.name != "runs":
+    if plan_path.name != "resolved-plan.json":
         raise SlurmRuntimeError(SlurmRuntimeErrorCode.INVALID_CONTEXT, "resolved plan path is invalid")
-    workspace_root = plan_path.parent.parent.parent
-    run_id = plan_path.parent.name
     try:
         with open_verified_directory(plan_path.parent, require_private=True) as descriptor:
             content = read_regular_text(
@@ -73,10 +71,12 @@ def _load_state_writer(plan_path: Path, attempt_directory: Path) -> SlurmStateWr
         raise SlurmRuntimeError(
             SlurmRuntimeErrorCode.INVALID_CONTEXT, "resolved plan is unavailable or invalid"
         ) from error
+    run_id = plan.run_id
     logical_workspace_root = plan.selected_profile.profile.workspace_root
     logical_plan_path = Path(logical_workspace_root) / "runs" / run_id / plan_path.name
-    if plan.run_id != run_id or get_container_path(plan, logical_plan_path.as_posix()) != plan_path.as_posix():
+    if get_container_path(plan, logical_plan_path.as_posix()) != plan_path.as_posix():
         raise SlurmRuntimeError(SlurmRuntimeErrorCode.INVALID_CONTEXT, "resolved plan path is invalid")
+    workspace_root = Path(get_container_path(plan, logical_workspace_root, require_writable=True))
     return SlurmStateWriter(
         workspace_root,
         run_id,

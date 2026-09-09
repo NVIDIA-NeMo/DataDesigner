@@ -30,6 +30,8 @@ def test_allocation_context_reads_and_updates_state_through_remapped_workspace(
     physical_workspace = tmp_path / "workspace"
     physical_workspace.mkdir()
     logical_workspace = single_node_plan.selected_profile.profile.workspace_root
+    logical_runs = Path(logical_workspace) / "runs"
+    fast_runs = tmp_path / "fast-runs"
     logical_attempts = (
         Path(logical_workspace)
         / "runs"
@@ -44,6 +46,7 @@ def test_allocation_context_reads_and_updates_state_through_remapped_workspace(
     profile_payload = cast(dict[str, object], selected["profile"])
     mounts = [
         {"source": logical_workspace, "target": physical_workspace.as_posix(), "read_only": False},
+        {"source": logical_runs.as_posix(), "target": fast_runs.as_posix(), "read_only": False},
         {"source": logical_attempts.as_posix(), "target": fast_attempts.as_posix(), "read_only": False},
     ]
     profile_payload["container_mounts"] = mounts
@@ -94,7 +97,10 @@ def test_allocation_context_reads_and_updates_state_through_remapped_workspace(
     )
     host_writer.initialize_run(authored_run_single, plan, run, (shard,))
     host_writer.create_attempt(attempt)
-    plan_path = physical_workspace / "runs" / plan.run_id / "resolved-plan.json"
+    plan_path = fast_runs / plan.run_id / "resolved-plan.json"
+    plan_path.parent.mkdir(parents=True, mode=0o700)
+    plan_path.write_text(plan.serialize_json())
+    plan_path.chmod(0o600)
     attempt_directory = fast_attempts / attempt.attempt_id
     attempt_directory.mkdir(parents=True, mode=0o700)
 
