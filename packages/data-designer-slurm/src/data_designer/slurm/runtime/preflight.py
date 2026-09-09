@@ -76,7 +76,7 @@ class SystemAllocationPreflight:
                     f"scheduler environment {name!r} does not match the resolved plan",
                 )
         visible_gpus = environment.get("CUDA_VISIBLE_DEVICES") or environment.get("SLURM_JOB_GPUS")
-        if _parse_gpu_count(visible_gpus) != context.plan.resolved_gpus_per_node:
+        if _parse_gpu_count(visible_gpus) < context.plan.resolved_gpus_per_node:
             raise SlurmRuntimeError(
                 SlurmRuntimeErrorCode.PREFLIGHT_FAILED,
                 "allocation GPU visibility does not match the resolved plan",

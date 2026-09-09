@@ -30,6 +30,18 @@ def test_scheduler_preflight_accepts_exact_one_node_gpu_shape(runtime_case: Runt
     SystemAllocationPreflight._verify_scheduler(runtime_case.context, environment)
 
 
+def test_scheduler_preflight_accepts_exclusive_allocation_gpu_superset(runtime_case: RuntimeCase) -> None:
+    environment = {
+        "SLURM_ARRAY_JOB_ID": "4101",
+        "SLURM_ARRAY_TASK_ID": "0",
+        "SLURM_JOB_NUM_NODES": "1",
+        "SLURM_NODEID": "0",
+        "CUDA_VISIBLE_DEVICES": "0,1,2,3,4,5,6,7,8",
+    }
+
+    SystemAllocationPreflight._verify_scheduler(runtime_case.context, environment)
+
+
 @pytest.mark.parametrize(
     ("name", "value"),
     (
