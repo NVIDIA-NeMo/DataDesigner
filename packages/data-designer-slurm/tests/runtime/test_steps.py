@@ -244,12 +244,13 @@ def test_client_receives_client_secrets_without_server_only_secrets(
         {
             "PACKAGE_INDEX_TOKEN": "client-secret",
             "HF_TOKEN": "server-secret",
+            "SLURM_JOB_GPUS": "0",
         },
     )
 
     assert step.environment["PACKAGE_INDEX_TOKEN"] == "client-secret"
     assert "HF_TOKEN" not in step.environment
-    assert "--container-env=PACKAGE_INDEX_TOKEN" in step.command
+    assert "--container-env=PACKAGE_INDEX_TOKEN,SLURM_JOB_GPUS" in step.command
 
     with pytest.raises(SlurmRuntimeError, match="PACKAGE_INDEX_TOKEN"):
         DefaultClientStepBuilder().build_preflight_step(

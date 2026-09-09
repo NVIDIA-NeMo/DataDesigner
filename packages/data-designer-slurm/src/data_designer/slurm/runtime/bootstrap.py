@@ -143,6 +143,7 @@ def build_runtime_manifest(
             "client-preflight",
             "preflight",
             context,
+            environment,
             endpoints,
             runtime_container_root,
             log_directory,
@@ -167,6 +168,7 @@ def build_runtime_manifest(
             "client-generation",
             "client",
             context,
+            environment,
             endpoints,
             runtime_container_root,
             log_directory,
@@ -195,6 +197,7 @@ def _build_client_step(
     step_id: str,
     operation: str,
     context: AllocationContext,
+    environment: Mapping[str, str],
     endpoints: tuple[RuntimeEndpoint, ...],
     runtime_container_root: str,
     log_directory: Path,
@@ -220,6 +223,11 @@ def _build_client_step(
     secret_names = collect_secret_environment_names(
         (plan.client.authored.dependencies.index_credentials, plan.invocation.authored.mcp_providers)
     )
+    allocation_environment = (
+        {"SLURM_JOB_GPUS": environment["SLURM_JOB_GPUS"]}
+        if plan.selected_profile.profile.gpu_request_mode == "gres"
+        else {}
+    )
     return _step(
         step_id=step_id,
         role=role,
@@ -227,10 +235,10 @@ def _build_client_step(
         command=command,
         cpus=plan.client.authored.cpus,
         gpu_indices=(),
-        literal_environment={"LC_ALL": "C", "PYTHONPATH": runtime_container_root},
+        literal_environment={"LC_ALL": "C", "PYTHONPATH": runtime_container_root, **allocation_environment},
         secret_environment={name: name for name in secret_names},
         environment_prefixes={},
-        container_environment=tuple(sorted((*secret_names, "PYTHONPATH"))),
+        container_environment=tuple(sorted((*secret_names, *allocation_environment, "PYTHONPATH"))),
         log_directory=log_directory,
     )
 

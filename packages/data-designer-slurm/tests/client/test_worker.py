@@ -60,6 +60,18 @@ def test_preflight_materializes_endpoint_and_ready_environment(client_worker_cas
     )
 
 
+def test_preflight_rejects_endpoint_from_another_gpu_allocation(client_worker_case: ClientWorkerCase) -> None:
+    alias = client_worker_case.plan.deployments[0].authored.model_alias
+
+    with pytest.raises(ClientWorkerError, match="runtime model endpoint is invalid"):
+        ClientWorker(data_designer_factory=FakeDataDesigner, environment={"SLURM_JOB_GPUS": "0"}).preflight(
+            client_worker_case.plan_path,
+            prepared=client_worker_case.prepared,
+            endpoints={alias: "http://127.0.0.1:10256/v1"},
+            plugins=(),
+        )
+
+
 def test_preflight_rejects_missing_managed_assets(client_worker_case: ClientWorkerCase) -> None:
     Path(client_worker_case.plan.invocation.effective_input_bindings.managed_assets_path).rmdir()
 
@@ -480,7 +492,7 @@ try:
     ClientWorker().preflight(
         plan_path,
         prepared=prepared,
-        endpoints={"generator": "http://127.0.0.1:17000/v1"},
+        endpoints={"generator": "http://127.0.0.1:10000/v1"},
         plugins=plugins,
     )
 except ClientWorkerError as error:

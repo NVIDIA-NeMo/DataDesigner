@@ -52,6 +52,7 @@ from data_designer.slurm.config.run import LocalStdioMCPProviderConfig, RemoteMC
 from data_designer.slurm.contracts import ArtifactReference
 from data_designer.slurm.planning import PlannedShard, ResolvedDependencyLock, ResolvedSlurmRunPlan
 from data_designer.slurm.runtime.paths import get_container_path, get_host_path
+from data_designer.slurm.runtime.ports import resolve_allocation_plan
 from data_designer.slurm.state import CandidateOutcome, CandidateOutputFile, CandidateOutputManifest
 
 Clock = Callable[[], datetime]
@@ -155,9 +156,11 @@ class ClientWorker:
         *,
         data_designer_factory: DataDesignerFactory = DataDesigner,
         clock: Clock | None = None,
+        environment: Mapping[str, str] | None = None,
     ) -> None:
         self._data_designer_factory = data_designer_factory
         self._clock = clock or (lambda: datetime.now(timezone.utc))
+        self._environment = os.environ if environment is None else environment
 
     def preflight(
         self,
@@ -273,7 +276,8 @@ class ClientWorker:
                 raise ClientWorkerError(ClientErrorCode.DEPENDENCY_CONFLICT, "client environment differs from the lock")
             builder_payload = self._load_builder(plan)
             builder = DataDesignerConfigBuilder.from_config(builder_payload)
-            providers = self._materialize_model_endpoints(plan, builder, endpoints)
+            allocation_plan = resolve_allocation_plan(plan, self._environment)
+            providers = self._materialize_model_endpoints(allocation_plan, builder, endpoints)
             self._validate_model_references(builder)
             self._materialize_seed(plan, shard, builder)
             mcp_providers = self._materialize_mcp_providers(plan)

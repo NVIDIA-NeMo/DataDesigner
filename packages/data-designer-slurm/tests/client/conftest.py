@@ -18,6 +18,7 @@ from data_designer.slurm.client.environment import PreparedClientEnvironment
 from data_designer.slurm.client.records import ClientInstallerOutcome
 from data_designer.slurm.contracts import InstalledDistribution, compute_canonical_json_sha256
 from data_designer.slurm.planning import ResolvedDependencyLock, ResolvedSlurmRunPlan
+from data_designer.slurm.runtime.ports import resolve_allocation_plan
 
 GOLDEN_DIRECTORY = Path(__file__).parents[1] / "contracts" / "golden"
 
@@ -104,6 +105,11 @@ class FakeDataDesigner:
         return results
 
 
+@pytest.fixture(autouse=True)
+def allocation_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SLURM_JOB_GPUS", "0")
+
+
 @pytest.fixture
 def client_worker_case(tmp_path: Path) -> ClientWorkerCase:
     workspace = tmp_path / "workspace"
@@ -150,5 +156,10 @@ def client_worker_case(tmp_path: Path) -> ClientWorkerCase:
             for distribution in lock.image_distributions
         ),
     )
-    endpoints = {plan.deployments[0].authored.model_alias: f"http://127.0.0.1:{plan.client.ports[0].port}/v1"}
+    allocation_plan = resolve_allocation_plan(plan, {"SLURM_JOB_GPUS": "0"})
+    endpoints = {
+        allocation_plan.deployments[
+            0
+        ].authored.model_alias: f"http://127.0.0.1:{allocation_plan.client.ports[0].port}/v1"
+    }
     return ClientWorkerCase(plan, plan_path, lock, attempt_dir, prepared, endpoints)

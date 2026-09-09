@@ -23,21 +23,25 @@ def resolve_allocation_deployments(
     environment: Mapping[str, str],
 ) -> tuple[ResolvedVllmServerDeployment, ...]:
     """Resolve deployments with ports isolated to one scheduler array element."""
-    plan = _remap_plan_ports(context, environment)
+    plan = resolve_allocation_plan(context.plan, environment)
     return tuple(resolve_vllm_server(plan, item.deployment_id) for item in plan.deployments)
 
 
 def allocation_ports(context: AllocationContext, environment: Mapping[str, str]) -> tuple[int, ...]:
     """Return every allocation-local port in deterministic claim order."""
-    plan = _remap_plan_ports(context, environment)
+    plan = resolve_allocation_plan(context.plan, environment)
     return tuple(port.port for port in plan.client.ports) + tuple(
         port.port for deployment in plan.deployments for port in deployment.ports
     )
 
 
-def _remap_plan_ports(context: AllocationContext, environment: Mapping[str, str]) -> ResolvedSlurmRunPlan:
-    if context.plan.selected_profile.profile.gpu_request_mode == "visible":
-        return context.plan
+def resolve_allocation_plan(
+    plan: ResolvedSlurmRunPlan,
+    environment: Mapping[str, str],
+) -> ResolvedSlurmRunPlan:
+    """Return a plan with ports bound to the allocation's assigned GPUs."""
+    if plan.selected_profile.profile.gpu_request_mode == "visible":
+        return plan
     gpu_ids = _parse_gpu_ids(environment.get("SLURM_JOB_GPUS"))
     block_start = _PORT_RANGE_START + min(gpu_ids) * _PORTS_PER_GPU
     block_end = block_start + _PORTS_PER_GPU
@@ -46,16 +50,14 @@ def _remap_plan_ports(context: AllocationContext, environment: Mapping[str, str]
             SlurmRuntimeErrorCode.PREFLIGHT_FAILED,
             "allocated GPU index exceeds the supported allocation port range",
         )
-    claims = context.plan.client.ports + tuple(
-        port for deployment in context.plan.deployments for port in deployment.ports
-    )
+    claims = plan.client.ports + tuple(port for deployment in plan.deployments for port in deployment.ports)
     claims_by_node: dict[int, set[int]] = {}
     for claim in claims:
         claims_by_node.setdefault(claim.node_index, set()).add(claim.port)
     reserved_by_node: dict[int, set[int]] = {}
-    otel_port = context.plan.invocation.effective_run_config.get("otel_metrics_port")
+    otel_port = plan.invocation.effective_run_config.get("otel_metrics_port")
     if type(otel_port) is int and block_start <= otel_port < block_end:
-        reserved_by_node[context.plan.client.host_node_index] = {otel_port}
+        reserved_by_node[plan.client.host_node_index] = {otel_port}
     mapping: dict[tuple[int, int], int] = {}
     for node_index, planned_ports in claims_by_node.items():
         reserved = reserved_by_node.get(node_index, set())
@@ -72,12 +74,12 @@ def _remap_plan_ports(context: AllocationContext, environment: Mapping[str, str]
     def remap(port: PortClaim) -> PortClaim:
         return port.model_copy(update={"port": mapping[(port.node_index, port.port)]})
 
-    client = context.plan.client.model_copy(update={"ports": tuple(remap(port) for port in context.plan.client.ports)})
+    client = plan.client.model_copy(update={"ports": tuple(remap(port) for port in plan.client.ports)})
     deployments = tuple(
         deployment.model_copy(update={"ports": tuple(remap(port) for port in deployment.ports)})
-        for deployment in context.plan.deployments
+        for deployment in plan.deployments
     )
-    return context.plan.model_copy(update={"client": client, "deployments": deployments})
+    return plan.model_copy(update={"client": client, "deployments": deployments})
 
 
 def _parse_gpu_ids(value: str | None) -> tuple[int, ...]:
@@ -96,4 +98,4 @@ def _parse_gpu_ids(value: str | None) -> tuple[int, ...]:
     return gpu_ids
 
 
-__all__ = ["allocation_ports", "resolve_allocation_deployments"]
+__all__ = ["allocation_ports", "resolve_allocation_deployments", "resolve_allocation_plan"]

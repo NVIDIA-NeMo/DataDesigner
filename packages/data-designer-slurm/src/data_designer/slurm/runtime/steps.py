@@ -133,13 +133,14 @@ class DefaultClientStepBuilder:
     ) -> RuntimeStep:
         command = build_client_command(operation, plan, shard, attempt, attempt_directory, endpoints)
         secret_names, environment = _build_client_environment(plan, source_environment)
+        allocation_environment = ("SLURM_JOB_GPUS",) if plan.selected_profile.profile.gpu_request_mode == "gres" else ()
         return _build_srun_step(
             step_id=step_id,
             role=role,
             image_path=plan.client.image.path,
             command=command,
             environment=environment,
-            container_environment=secret_names,
+            container_environment=(*secret_names, *allocation_environment),
             plan=plan,
             attempt_directory=attempt_directory,
         )
