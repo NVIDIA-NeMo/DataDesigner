@@ -271,7 +271,7 @@ def _build_server_step(
         step_id=process.process_id,
         role=RuntimeStepRole.SERVER,
         image_path=deployment.image.path,
-        command=build_vllm_command(deployment, process),
+        command=build_vllm_command(deployment, process, context.plan),
         cpus=context.plan.client.authored.cpus,
         gpu_indices=tuple(process.gpu_indices),
         literal_environment=literal_environment,

@@ -280,7 +280,7 @@ def _build_vllm_step(
     runtime_root: Path,
 ) -> RuntimeStep:
     _validate_local_vllm_process(process)
-    command = build_vllm_command(deployment, process)
+    command = build_vllm_command(deployment, process, plan)
     environment, container_environment = _build_vllm_environment(
         deployment,
         source_environment,
@@ -311,13 +311,15 @@ def _validate_local_vllm_process(process: ResolvedVllmProcess) -> None:
 def build_vllm_command(
     deployment: ResolvedVllmServerDeployment,
     process: ResolvedVllmProcess,
+    plan: ResolvedSlurmRunPlan,
 ) -> tuple[str, ...]:
     if process.http_port is None:  # pragma: no cover - validated before command construction
         raise AssertionError("vLLM HTTP port is unavailable")
+    model = get_container_path(plan, deployment.model) if deployment.model.startswith("/") else deployment.model
     command: tuple[str, ...] = (
         deployment.executable_path,
         "serve",
-        deployment.model,
+        model,
         "--served-model-name",
         deployment.served_model_name,
         "--host",

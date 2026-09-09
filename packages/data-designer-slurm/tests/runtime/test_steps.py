@@ -3,14 +3,16 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import cast
 
 import pytest
 from conftest import RuntimeCase, relocate_plan
 
-from data_designer.slurm.config import QueueBackpressureConfig
-from data_designer.slurm.contracts import ArtifactReference
+from data_designer.slurm.config import QueueBackpressureConfig, SlurmProfile
+from data_designer.slurm.contracts import ArtifactReference, compute_canonical_json_sha256
 from data_designer.slurm.planning import ResolvedSlurmRunPlan
 from data_designer.slurm.runtime.backpressure import (
     MAX_WAITING_REQUESTS_ENVIRONMENT,
@@ -21,6 +23,7 @@ from data_designer.slurm.runtime.models import RuntimeEndpoint, RuntimeStepRole
 from data_designer.slurm.runtime.steps import (
     DefaultClientStepBuilder,
     build_endpoint_steps,
+    build_vllm_command,
     build_vllm_steps,
 )
 from data_designer.slurm.serving.resolver import resolve_vllm_server
@@ -103,6 +106,26 @@ def test_all_processes_use_structured_srun_steps_and_sanitized_environment(runti
     assert all("--gpus-per-task=" not in argument for step in client_steps for argument in step.command)
     assert all("--gres=none" in step.command for step in client_steps)
     assert all("CUDA_VISIBLE_DEVICES" not in step.environment for step in client_steps)
+
+
+def test_vllm_command_maps_absolute_model_path(runtime_case: RuntimeCase) -> None:
+    plan = runtime_case.context.plan
+    host_model = runtime_case.workspace / "models" / "generator"
+    payload = cast(dict[str, object], json.loads(plan.serialize_json()))
+    deployment_payload = cast(dict[str, object], cast(list[object], payload["deployments"])[0])
+    authored = cast(dict[str, object], deployment_payload["authored"])
+    authored["model"] = host_model.as_posix()
+    authored["served_model_name"] = deployment_payload["served_model_name"]
+    selected_profile = cast(dict[str, object], payload["selected_profile"])
+    profile_payload = cast(dict[str, object], selected_profile["profile"])
+    profile = SlurmProfile.model_validate(profile_payload)
+    selected_profile["profile_sha256"] = compute_canonical_json_sha256(profile.model_dump(mode="json"))
+    plan = ResolvedSlurmRunPlan.model_validate_json(json.dumps(payload))
+    deployment = resolve_vllm_server(plan, plan.deployments[0].deployment_id)
+
+    command = build_vllm_command(deployment, deployment.processes[0], plan)
+
+    assert command[2] == "/workspace/primary/models/generator"
 
 
 def test_client_worker_receives_only_persisted_identity_and_logical_endpoint(runtime_case: RuntimeCase) -> None:
