@@ -45,7 +45,6 @@ class PreparedClientEnvironment:
 @dataclass(frozen=True)
 class _BootstrapInputs:
     run_id: str
-    run_root: Path
     logical_run_root: Path
     shard_id: str
     attempt_id: str
@@ -55,6 +54,7 @@ class _BootstrapInputs:
     installer_path: Path
     inspection: dict[str, object]
     dependency_lock: ArtifactReference
+    plan: dict[str, object]
 
 
 @dataclass(frozen=True)
@@ -121,7 +121,6 @@ class ClientEnvironmentBuilder:
             raise ClientWorkerError(ClientErrorCode.INVALID_INPUT, "attempt identifier is invalid")
         plan_payload = _load_json_object(plan_path, ClientErrorCode.INVALID_INPUT)
         run_id = _require_string(plan_payload, "run_id")
-        run_root = plan_path.parent
         authored_reference = _artifact_reference(_require_object(plan_payload, "authored_config"))
         logical_run_root = Path(authored_reference.path).parent
         if (
@@ -156,7 +155,6 @@ class ClientEnvironmentBuilder:
             raise ClientWorkerError(ClientErrorCode.INVALID_INPUT, "dependency lock path is not canonical")
         return _BootstrapInputs(
             run_id=run_id,
-            run_root=run_root,
             logical_run_root=logical_run_root,
             shard_id=shard_id,
             attempt_id=attempt_id,
@@ -166,11 +164,12 @@ class ClientEnvironmentBuilder:
             installer_path=installer_path,
             inspection=inspection,
             dependency_lock=lock_reference,
+            plan=plan_payload,
         )
 
     def _verify_dependency_lock(self, inputs: _BootstrapInputs) -> _VerifiedDependencies:
         lock_bytes = read_regular_bytes(
-            inputs.run_root / "dependency-lock.json",
+            Path(_get_container_path(inputs.plan, inputs.dependency_lock.path)),
             missing_code=ClientErrorCode.DEPENDENCY_ARTIFACT_MISSING,
         )
         if _sha256_bytes(lock_bytes) != inputs.dependency_lock.sha256:
@@ -200,7 +199,7 @@ class ClientEnvironmentBuilder:
             _verify_input_artifact(
                 source_reference,
                 inputs.logical_run_root / "inputs",
-                inputs.run_root / "inputs",
+                inputs.plan,
             )
         return _VerifiedDependencies(
             image_distributions=expected_image,
@@ -214,11 +213,20 @@ class ClientEnvironmentBuilder:
     ) -> tuple[Path, ClientInstallerOutcome, tuple[InstalledDistribution, ...]]:
         expected_overlay, wheels = _verify_wheels(
             dependencies.overlay_packages,
-            inputs.run_root / "dependencies",
             inputs.logical_run_root / "dependencies",
             dependencies.image_distributions,
+            inputs.plan,
         )
-        overlay_path = inputs.attempt_dir / "client-env" / "site-packages"
+        logical_overlay = (
+            inputs.logical_run_root
+            / "shards"
+            / inputs.shard_id
+            / "attempts"
+            / inputs.attempt_id
+            / "client-env"
+            / "site-packages"
+        )
+        overlay_path = Path(_get_container_path(inputs.plan, logical_overlay.as_posix(), require_writable=True))
         outcome = self._install_overlay(inputs.installer_path, wheels, expected_overlay, overlay_path)
         installed = tuple(sorted((*dependencies.image_distributions, *expected_overlay), key=lambda item: item.name))
         return overlay_path, outcome, installed
@@ -310,9 +318,9 @@ def _run_installer(command: tuple[str, ...]) -> None:
 
 def _verify_wheels(
     packages: tuple[dict[str, object], ...],
-    dependencies_root: Path,
     logical_dependencies_root: Path,
     image_distributions: tuple[InstalledDistribution, ...],
+    plan: dict[str, object],
 ) -> tuple[tuple[InstalledDistribution, ...], tuple[Path, ...]]:
     expected: list[InstalledDistribution] = []
     wheels: list[Path] = []
@@ -324,13 +332,9 @@ def _verify_wheels(
             raise ClientWorkerError(ClientErrorCode.DEPENDENCY_CONFLICT, "dependency distributions overlap")
         artifact = _artifact_reference(_require_object(package, "artifact"))
         logical_wheel = Path(artifact.path)
-        try:
-            relative_path = logical_wheel.relative_to(logical_dependencies_root)
-        except ValueError as error:
-            raise ClientWorkerError(ClientErrorCode.INVALID_INPUT, "dependency wheel path is not canonical") from error
-        wheel = dependencies_root / relative_path
         if logical_wheel.parent != logical_dependencies_root or logical_wheel.suffix != ".whl":
             raise ClientWorkerError(ClientErrorCode.INVALID_INPUT, "dependency wheel path is not canonical")
+        wheel = Path(_get_container_path(plan, logical_wheel.as_posix()))
         if compute_file_sha256(wheel, missing_code=ClientErrorCode.DEPENDENCY_ARTIFACT_MISSING) != artifact.sha256:
             raise ClientWorkerError(ClientErrorCode.DEPENDENCY_DIGEST_MISMATCH, "dependency wheel digest differs")
         try:
@@ -351,15 +355,11 @@ def _verify_wheels(
     return tuple(pair[0] for pair in sorted_pairs), tuple(pair[1] for pair in sorted_pairs)
 
 
-def _verify_input_artifact(reference: ArtifactReference, logical_root: Path, root: Path) -> None:
+def _verify_input_artifact(reference: ArtifactReference, logical_root: Path, plan: dict[str, object]) -> None:
     logical_path = Path(reference.path)
-    try:
-        relative_path = logical_path.relative_to(logical_root)
-    except ValueError as error:
-        raise ClientWorkerError(ClientErrorCode.INVALID_INPUT, "dependency source path is not canonical") from error
-    path = root / relative_path
     if logical_path.parent != logical_root or logical_path.suffix != ".json":
         raise ClientWorkerError(ClientErrorCode.INVALID_INPUT, "dependency source path is not canonical")
+    path = Path(_get_container_path(plan, logical_path.as_posix()))
     if compute_file_sha256(path, missing_code=ClientErrorCode.DEPENDENCY_ARTIFACT_MISSING) != reference.sha256:
         raise ClientWorkerError(ClientErrorCode.DEPENDENCY_DIGEST_MISMATCH, "dependency source digest differs")
 
