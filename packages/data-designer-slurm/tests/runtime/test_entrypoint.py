@@ -88,7 +88,7 @@ def test_control_phases_record_running_ready_and_failed(
     manifest_path = runtime_case.context.attempt_directory / "runtime-manifest.json"
     _patch_runtime_context(monkeypatch, runtime_case, state)
     monkeypatch.setattr(entrypoint.SystemAllocationPreflight, "verify_attempt_directory", lambda path: None)
-    monkeypatch.setattr(entrypoint.SystemAllocationPreflight, "verify_ports", lambda context: None)
+    monkeypatch.setattr(entrypoint.SystemAllocationPreflight, "verify_ports", lambda *args: None)
     monkeypatch.setattr(
         entrypoint,
         "build_runtime_manifest",
@@ -117,7 +117,7 @@ def test_succeed_phase_stops_runtime_and_finalizes_winner(
     manifest_path = runtime_case.context.attempt_directory / "runtime-manifest.json"
     _patch_runtime_context(monkeypatch, runtime_case, state)
     monkeypatch.setattr(entrypoint.SystemAllocationPreflight, "verify_attempt_directory", lambda path: None)
-    monkeypatch.setattr(entrypoint.SystemAllocationPreflight, "verify_ports", lambda context: None)
+    monkeypatch.setattr(entrypoint.SystemAllocationPreflight, "verify_ports", lambda *args: None)
     monkeypatch.setattr(
         entrypoint,
         "build_runtime_manifest",
@@ -154,7 +154,7 @@ def test_succeed_phase_does_not_strand_success_when_winner_finalization_fails(
     manifest_path = runtime_case.context.attempt_directory / "runtime-manifest.json"
     _patch_runtime_context(monkeypatch, runtime_case, state)
     monkeypatch.setattr(entrypoint.SystemAllocationPreflight, "verify_attempt_directory", lambda path: None)
-    monkeypatch.setattr(entrypoint.SystemAllocationPreflight, "verify_ports", lambda context: None)
+    monkeypatch.setattr(entrypoint.SystemAllocationPreflight, "verify_ports", lambda *args: None)
     monkeypatch.setattr(
         entrypoint,
         "build_runtime_manifest",
@@ -181,6 +181,7 @@ def _patch_runtime_context(
 ) -> None:
     monkeypatch.setattr(entrypoint, "load_allocation_context", lambda *args: (runtime_case.context, state))
     monkeypatch.setattr(entrypoint, "get_container_path", lambda plan, path, **kwargs: path)
+    monkeypatch.setenv("SLURM_JOB_GPUS", "0")
 
 
 def _phase_arguments(

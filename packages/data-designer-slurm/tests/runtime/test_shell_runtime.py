@@ -57,6 +57,7 @@ dd_slurm_run_allocation "${{DD_PLAN}}" "${{DD_ATTEMPT_DIR}}"
         "SLURM_ARRAY_JOB_ID": "4101",
         "SLURM_ARRAY_TASK_ID": "0",
         "SLURM_JOB_NUM_NODES": "1",
+        "SLURM_JOB_GPUS": "0",
         "SLURM_NODEID": "0",
     }
 
@@ -271,6 +272,7 @@ command=${arguments[index + 1]}
 if [[ ${command} == python3 ]]; then
     operation=${arguments[index + 4]}
     [[ ! ${SOURCE_TOKEN+x} && ! ${SERVER_TOKEN+x} && ! ${CUDA_VISIBLE_DEVICES+x} ]]
+    [[ ${arguments[*]} == *--container-env=PYTHONPATH,SLURM_JOB_GPUS* ]]
     if [[ ${operation} == prepare ]]; then
         for ((position = index + 5; position < ${#arguments[@]}; position++)); do
             if [[ ${arguments[position]} == --manifest ]]; then

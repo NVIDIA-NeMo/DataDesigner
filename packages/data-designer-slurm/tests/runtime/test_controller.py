@@ -38,6 +38,8 @@ from data_designer.slurm.state import (
 )
 from data_designer.slurm.state.artifacts import compute_candidate_schema_digest
 
+_ALLOCATION_ENVIRONMENT = {"SLURM_JOB_GPUS": "0"}
+
 
 @dataclass(slots=True)
 class _FakeProcess:
@@ -168,7 +170,7 @@ def test_controller_runs_preflight_servers_endpoint_client_and_cleanup(runtime_c
         client_steps=FakeClientStepBuilder(),
         prober=_FakeProber(ready=True, clock=clock),
         clock=clock,
-        environment={},
+        environment=_ALLOCATION_ENVIRONMENT,
     )
 
     result = controller.run()
@@ -209,7 +211,7 @@ def test_controller_publishes_result_before_success_with_real_state_writer(
         client_steps=FakeClientStepBuilder(),
         prober=_FakeProber(ready=True, clock=clock),
         clock=clock,
-        environment={},
+        environment=_ALLOCATION_ENVIRONMENT,
     )
 
     result = controller.run()
@@ -239,7 +241,7 @@ def test_winner_finalization_failure_leaves_controller_attempt_retryable(runtime
         client_steps=FakeClientStepBuilder(),
         prober=_FakeProber(ready=True, clock=clock),
         clock=clock,
-        environment={},
+        environment=_ALLOCATION_ENVIRONMENT,
     )
 
     with pytest.raises(SlurmRuntimeError, match="allocation runtime failed"):
@@ -264,7 +266,7 @@ def test_preflight_failure_starts_no_process_and_fails_attempt(runtime_case: Run
         client_steps=FakeClientStepBuilder(),
         prober=_FakeProber(ready=True, clock=clock),
         clock=clock,
-        environment={},
+        environment=_ALLOCATION_ENVIRONMENT,
     )
 
     with pytest.raises(SlurmRuntimeError, match="injected preflight failure") as raised:
@@ -329,7 +331,7 @@ def test_requeued_running_attempt_publishes_restart_epoch_and_uses_fresh_logs(
         client_steps=FakeClientStepBuilder(),
         prober=_FakeProber(ready=True, clock=clock),
         clock=clock,
-        environment={},
+        environment=_ALLOCATION_ENVIRONMENT,
     )
 
     result = controller.run()
@@ -363,7 +365,7 @@ def test_required_server_exit_fails_and_cleans_partial_start(runtime_case: Runti
         client_steps=FakeClientStepBuilder(),
         prober=_FakeProber(ready=True, clock=clock),
         clock=clock,
-        environment={},
+        environment=_ALLOCATION_ENVIRONMENT,
     )
 
     with pytest.raises(SlurmRuntimeError, match="required runtime step"):
@@ -394,7 +396,7 @@ def test_interrupted_failed_readiness_write_cannot_bypass_cleanup(runtime_case: 
         client_steps=FakeClientStepBuilder(),
         prober=_FakeProber(ready=True, clock=clock),
         clock=clock,
-        environment={},
+        environment=_ALLOCATION_ENVIRONMENT,
     )
 
     with pytest.raises(SlurmRuntimeError, match="required runtime step") as raised:
@@ -418,7 +420,7 @@ def test_readiness_timeout_fails_and_terminates_server(runtime_case: RuntimeCase
         client_steps=FakeClientStepBuilder(),
         prober=_FakeProber(ready=False, clock=clock, advance_on_failure=10_000),
         clock=clock,
-        environment={},
+        environment=_ALLOCATION_ENVIRONMENT,
     )
 
     with pytest.raises(SlurmRuntimeError, match="readiness timed out"):
@@ -454,7 +456,7 @@ def test_managed_step_failure_fails_attempt_and_cleans_started_services(
         client_steps=FakeClientStepBuilder(),
         prober=_FakeProber(ready=True, clock=clock),
         clock=clock,
-        environment={},
+        environment=_ALLOCATION_ENVIRONMENT,
     )
 
     with pytest.raises(SlurmRuntimeError, match="status 23"):
@@ -491,7 +493,7 @@ def test_cleanup_failure_prevents_false_success(runtime_case: RuntimeCase) -> No
         client_steps=FakeClientStepBuilder(),
         prober=_FakeProber(ready=True, clock=clock),
         clock=clock,
-        environment={},
+        environment=_ALLOCATION_ENVIRONMENT,
     )
 
     with pytest.raises(SlurmRuntimeError, match="cleanup failed"):
@@ -520,7 +522,7 @@ def test_cleanup_failure_is_retained_as_a_note_on_the_primary_failure(runtime_ca
         client_steps=FakeClientStepBuilder(),
         prober=_FakeProber(ready=True, clock=clock),
         clock=clock,
-        environment={},
+        environment=_ALLOCATION_ENVIRONMENT,
     )
 
     with pytest.raises(SlurmRuntimeError, match="status 23") as raised:
@@ -551,7 +553,7 @@ def test_incomplete_cleanup_does_not_publish_stopped_readiness(runtime_case: Run
         client_steps=FakeClientStepBuilder(),
         prober=_FakeProber(ready=True, clock=clock),
         clock=clock,
-        environment={},
+        environment=_ALLOCATION_ENVIRONMENT,
     )
 
     with pytest.raises(SlurmRuntimeError, match="cleanup failed"):
@@ -580,7 +582,7 @@ def test_future_client_timestamp_cannot_push_persisted_state_clock_forward(runti
         client_steps=FakeClientStepBuilder(),
         prober=_FakeProber(ready=True, clock=clock),
         clock=clock,
-        environment={},
+        environment=_ALLOCATION_ENVIRONMENT,
     )
 
     with pytest.raises(SlurmRuntimeError, match="later than the allocation clock"):
@@ -602,7 +604,7 @@ def test_partial_client_result_is_classified_before_candidate_loading(runtime_ca
         client_steps=FakeClientStepBuilder(),
         prober=_FakeProber(ready=True, clock=clock),
         clock=clock,
-        environment={},
+        environment=_ALLOCATION_ENVIRONMENT,
     )
 
     with pytest.raises(SlurmRuntimeError) as raised:
@@ -626,7 +628,7 @@ def test_stale_candidate_from_an_earlier_generation_cannot_succeed(runtime_case:
         client_steps=FakeClientStepBuilder(),
         prober=_FakeProber(ready=True, clock=clock),
         clock=clock,
-        environment={},
+        environment=_ALLOCATION_ENVIRONMENT,
     )
 
     with pytest.raises(SlurmRuntimeError, match="predates the current generation"):

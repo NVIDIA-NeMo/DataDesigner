@@ -268,7 +268,7 @@ class OneNodeAllocationController:
 
     def _prepare_runtime(self) -> _RuntimeTopology:
         self._validate_attempt_state()
-        deployments = resolve_allocation_deployments(self._context)
+        deployments = resolve_allocation_deployments(self._context, self._environment)
         restarting = self._readiness is not None
         if restarting:
             self._begin_execution(deployments, ReadinessState.RESTARTING)

@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Literal
 
@@ -118,6 +119,7 @@ class RuntimeBootstrapManifest(ContractRecord):
 
 def build_runtime_manifest(
     context: AllocationContext,
+    environment: Mapping[str, str],
     *,
     runtime_root: Path,
     log_directory: Path,
@@ -125,7 +127,7 @@ def build_runtime_manifest(
     """Build the secret-free one-node command handoff for the Bash controller."""
     plan = context.plan
     runtime_container_root = get_container_path(plan, runtime_root.as_posix(), require_writable=True)
-    deployments = resolve_allocation_deployments(context)
+    deployments = resolve_allocation_deployments(context, environment)
     endpoints = tuple(
         RuntimeEndpoint(
             model_alias=deployment.model_alias,

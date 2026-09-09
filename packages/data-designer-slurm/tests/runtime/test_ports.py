@@ -3,34 +3,28 @@
 
 from __future__ import annotations
 
+import pytest
 from conftest import RuntimeCase
 
+from data_designer.slurm.runtime.errors import SlurmRuntimeError
 from data_designer.slurm.runtime.models import AllocationContext
 from data_designer.slurm.runtime.ports import allocation_ports, resolve_allocation_deployments
 
 
-def test_allocation_ports_are_deterministic_and_isolated_by_scheduler_identity(runtime_case: RuntimeCase) -> None:
-    first = allocation_ports(runtime_case.context)
-    scheduler = runtime_case.context.attempt.scheduler
-    assert scheduler is not None
-    alternate_attempt = runtime_case.context.attempt.model_copy(
-        update={"scheduler": scheduler.model_copy(update={"array_job_id": 4102})}
-    )
-    alternate = AllocationContext(
-        plan=runtime_case.context.plan,
-        shard=runtime_case.context.shard,
-        attempt=alternate_attempt,
-        attempt_directory=runtime_case.context.attempt_directory,
-    )
+def test_allocation_ports_are_deterministic_and_isolated_by_gpu(runtime_case: RuntimeCase) -> None:
+    first = allocation_ports(runtime_case.context, {"SLURM_JOB_GPUS": "0"})
+    second = allocation_ports(runtime_case.context, {"SLURM_JOB_GPUS": "1"})
 
-    assert first == allocation_ports(runtime_case.context)
-    assert set(first).isdisjoint(allocation_ports(alternate))
-    assert all(10000 <= port < 30000 for port in first)
+    assert first == allocation_ports(runtime_case.context, {"SLURM_JOB_GPUS": "0"})
+    assert set(first).isdisjoint(second)
+    assert all(10000 <= port < 10256 for port in first)
+    assert all(10256 <= port < 10512 for port in second)
 
 
 def test_allocation_deployment_uses_remapped_ports(runtime_case: RuntimeCase) -> None:
-    deployment = resolve_allocation_deployments(runtime_case.context)[0]
-    ports = set(allocation_ports(runtime_case.context))
+    environment = {"SLURM_JOB_GPUS": "0"}
+    deployment = resolve_allocation_deployments(runtime_case.context, environment)[0]
+    ports = set(allocation_ports(runtime_case.context, environment))
 
     assert deployment.logical_endpoint.port in ports
     assert {backend.port for backend in deployment.backend_endpoints} <= ports
@@ -39,7 +33,8 @@ def test_allocation_deployment_uses_remapped_ports(runtime_case: RuntimeCase) ->
 
 
 def test_allocation_ports_skip_client_otel_port(runtime_case: RuntimeCase) -> None:
-    otel_port = allocation_ports(runtime_case.context)[0]
+    environment = {"SLURM_JOB_GPUS": "0"}
+    otel_port = allocation_ports(runtime_case.context, environment)[0]
     invocation = runtime_case.context.plan.invocation.model_copy(
         update={"effective_run_config": {"otel_metrics_port": otel_port}}
     )
@@ -51,4 +46,30 @@ def test_allocation_ports_skip_client_otel_port(runtime_case: RuntimeCase) -> No
         attempt_directory=runtime_case.context.attempt_directory,
     )
 
-    assert otel_port not in allocation_ports(context)
+    assert otel_port not in allocation_ports(context, environment)
+
+
+@pytest.mark.parametrize("environment", ({}, {"SLURM_JOB_GPUS": ""}, {"SLURM_JOB_GPUS": "0,0"}))
+def test_allocation_ports_reject_invalid_gpu_ids(
+    runtime_case: RuntimeCase,
+    environment: dict[str, str],
+) -> None:
+    with pytest.raises(SlurmRuntimeError, match="SLURM_JOB_GPUS"):
+        allocation_ports(runtime_case.context, environment)
+
+
+def test_visible_gpu_mode_keeps_planned_ports(runtime_case: RuntimeCase) -> None:
+    profile = runtime_case.context.plan.selected_profile.profile.model_copy(update={"gpu_request_mode": "visible"})
+    selected_profile = runtime_case.context.plan.selected_profile.model_copy(update={"profile": profile})
+    plan = runtime_case.context.plan.model_copy(update={"selected_profile": selected_profile})
+    context = AllocationContext(
+        plan=plan,
+        shard=runtime_case.context.shard,
+        attempt=runtime_case.context.attempt,
+        attempt_directory=runtime_case.context.attempt_directory,
+    )
+    planned = tuple(port.port for port in plan.client.ports) + tuple(
+        port.port for deployment in plan.deployments for port in deployment.ports
+    )
+
+    assert allocation_ports(context, {}) == planned

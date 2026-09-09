@@ -44,7 +44,7 @@ class SystemAllocationPreflight:
             )
             self.verify_attempt_directory(attempt_directory)
             self._verify_artifacts(context)
-            self.verify_ports(context)
+            self.verify_ports(context, environment)
         except SlurmRuntimeError:
             raise
         except (OSError, ValueError) as error:
@@ -124,9 +124,9 @@ class SystemAllocationPreflight:
             _verify_artifact(reference)
 
     @staticmethod
-    def verify_ports(context: AllocationContext) -> None:
+    def verify_ports(context: AllocationContext, environment: Mapping[str, str]) -> None:
         """Verify that every planned one-node port is currently bindable."""
-        ports = allocation_ports(context)
+        ports = allocation_ports(context, environment)
         reservations: list[socket.socket] = []
         try:
             for port in ports:

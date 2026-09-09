@@ -141,7 +141,7 @@ def test_port_preflight_detects_collision_before_launch(
     monkeypatch.setattr("data_designer.slurm.runtime.preflight.socket.socket", _UnavailableSocket)
 
     with pytest.raises(SlurmRuntimeError, match="ports are unavailable"):
-        SystemAllocationPreflight.verify_ports(runtime_case.context)
+        SystemAllocationPreflight.verify_ports(runtime_case.context, {"SLURM_JOB_GPUS": "0"})
     assert _UnavailableSocket.closed
 
 

@@ -148,7 +148,7 @@ dd_run_control_phase() {
     )
     [[ -z ${DD_CONTAINER_MOUNTS} ]] || command+=("--container-mounts=${DD_CONTAINER_MOUNTS}")
     command+=(
-        --container-env=PYTHONPATH
+        --container-env=PYTHONPATH,SLURM_JOB_GPUS
         --
         python3
         -m

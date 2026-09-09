@@ -91,13 +91,14 @@ def _prepare(arguments: argparse.Namespace, environment: Mapping[str, str]) -> N
     context, writer = load_allocation_context(arguments.plan, arguments.attempt_dir, environment)
     _validate_attempt_is_executable(context.attempt)
     SystemAllocationPreflight.verify_attempt_directory(arguments.attempt_dir)
-    SystemAllocationPreflight.verify_ports(context)
-    readiness = _begin_attempt(context, writer)
+    SystemAllocationPreflight.verify_ports(context, environment)
+    readiness = _begin_attempt(context, writer, environment)
     log_directory = execution_log_directory(context.attempt_directory, readiness.revision)
     container_log_directory = Path(get_container_path(context.plan, log_directory.as_posix(), require_writable=True))
     ensure_private_directory(container_log_directory)
     manifest = build_runtime_manifest(
         context,
+        environment,
         runtime_root=arguments.runtime_root,
         log_directory=log_directory,
     )
@@ -115,7 +116,7 @@ def _ready(arguments: argparse.Namespace, environment: Mapping[str, str]) -> Non
     context, writer = load_allocation_context(arguments.plan, arguments.attempt_dir, environment)
     previous = writer.load_readiness(context.shard.shard_id, context.attempt.attempt_id)
     timestamp = _now(context.attempt, previous)
-    deployments = _resolve_deployments(context)
+    deployments = _resolve_deployments(context, environment)
     writer.write_readiness(
         AttemptReadiness(
             schema_version=1,
@@ -219,7 +220,11 @@ def _fail(arguments: argparse.Namespace, environment: Mapping[str, str]) -> None
     )
 
 
-def _begin_attempt(context: AllocationContext, writer: SlurmStateWriter) -> AttemptReadiness:
+def _begin_attempt(
+    context: AllocationContext,
+    writer: SlurmStateWriter,
+    environment: Mapping[str, str],
+) -> AttemptReadiness:
     attempt = context.attempt
     previous = _load_optional_readiness(context, writer)
     timestamp = _now(attempt, previous)
@@ -227,7 +232,7 @@ def _begin_attempt(context: AllocationContext, writer: SlurmStateWriter) -> Atte
         attempt = writer.update_attempt(
             attempt.model_copy(update={"state": AttemptLifecycleState.RUNNING, "updated_at": timestamp})
         )
-    deployments = _resolve_deployments(context)
+    deployments = _resolve_deployments(context, environment)
     initial_state = ReadinessState.RESTARTING if previous is not None else ReadinessState.PENDING
     initial = writer.write_readiness(_readiness(context, deployments, previous, initial_state, timestamp))
     return writer.write_readiness(
@@ -347,8 +352,11 @@ def _load_optional_readiness(context: AllocationContext, writer: SlurmStateWrite
         return None
 
 
-def _resolve_deployments(context: AllocationContext) -> tuple[ResolvedVllmServerDeployment, ...]:
-    return resolve_allocation_deployments(context)
+def _resolve_deployments(
+    context: AllocationContext,
+    environment: Mapping[str, str],
+) -> tuple[ResolvedVllmServerDeployment, ...]:
+    return resolve_allocation_deployments(context, environment)
 
 
 def _validate_attempt_is_executable(attempt: AttemptManifest) -> None:

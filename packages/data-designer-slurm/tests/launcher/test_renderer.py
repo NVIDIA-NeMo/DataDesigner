@@ -73,6 +73,7 @@ def test_renderer_omits_gres_for_visible_mode_and_emits_optional_submission_fiel
     assert "#SBATCH --gres=" not in script
     assert "#SBATCH --account=" not in script
     assert "#SBATCH --partition=" not in script
+    assert "#SBATCH --exclusive\n" in script
     assert '#SBATCH --comment="safe test run"\n' in script
 
 

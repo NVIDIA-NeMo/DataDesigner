@@ -16,6 +16,7 @@ def test_bootstrap_manifest_builds_typed_one_node_steps_without_secret_values(ru
 
     manifest = build_runtime_manifest(
         context,
+        {"SLURM_JOB_GPUS": "0"},
         runtime_root=runtime_root,
         log_directory=log_directory,
     )
