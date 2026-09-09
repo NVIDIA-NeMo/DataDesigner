@@ -1555,6 +1555,45 @@ def test_validate_raises_error_when_seed_collides(
         data_designer.validate(config_builder)
 
 
+def test_validate_with_literal_braces_in_prompts(
+    stub_artifact_path,
+    stub_model_providers,
+    stub_check_models_model_configs,
+    stub_managed_assets_path,
+):
+    """Literal braces that are valid Jinja text must not crash validation.
+
+    Regression test for #904: an unmatched ``}`` in a prompt or an unmatched ``{``
+    in a system prompt is invalid f-string syntax but valid Jinja text, so the
+    f-string advisory check must not leak ``ValueError`` from ``string.Formatter``.
+    """
+    config_builder = DataDesignerConfigBuilder(model_configs=stub_check_models_model_configs)
+    config_builder.add_column(
+        SamplerColumnConfig(
+            name="topic",
+            sampler_type=SamplerType.CATEGORY,
+            params=CategorySamplerParams(values=["science"]),
+        )
+    )
+    config_builder.add_column(
+        LLMTextColumnConfig(
+            name="story",
+            model_alias="stub-model",
+            prompt="Write about {{ topic }}. End with a literal } brace.",
+            system_prompt="Open every answer with a literal { brace.",
+        )
+    )
+
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+    )
+
+    assert data_designer.validate(config_builder) is None
+
+
 def test_init_auto_configures_logging_by_default(
     stub_artifact_path: Path,
     stub_model_providers: list[ModelProvider],

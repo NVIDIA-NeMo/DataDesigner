@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import re
 from enum import Enum
 from fnmatch import fnmatch
 from string import Formatter
@@ -450,9 +451,20 @@ def validate_skip_references(
     return violations
 
 
+_F_STRING_REFERENCE_PATTERN = re.compile(r"(?<!\{)\{\s*(\w+)\s*(?:![sra])?(?::[^{}]*)?\}(?!\})")
+
+
 def _get_string_formatter_references(template: str, allowed_references: list[str]) -> list[str]:
-    return [
-        k[1].strip()
-        for k in Formatter().parse(template)
-        if len(k) > 1 and k[1] is not None and k[1].strip() in allowed_references
-    ]
+    try:
+        return [
+            k[1].strip()
+            for k in Formatter().parse(template)
+            if len(k) > 1 and k[1] is not None and k[1].strip() in allowed_references
+        ]
+    except ValueError:
+        # Unmatched literal braces (e.g. JSON examples like 'output format: }') are
+        # invalid f-string syntax but valid Jinja text, so ``Formatter().parse`` can
+        # raise ``ValueError``. Fall back to a tolerant regex scan that skips Jinja
+        # ``{{ ... }}`` expressions so the advisory check still detects ``{column}``
+        # references without crashing validation.
+        return [m for m in _F_STRING_REFERENCE_PATTERN.findall(template) if m in allowed_references]
