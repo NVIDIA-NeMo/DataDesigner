@@ -86,6 +86,52 @@ def test_client_runs_through_non_identity_workspace_mount(client_worker_case: Cl
     assert result.candidate_output_manifest.path.startswith(logical_workspace)
 
 
+def test_environment_prepares_through_nested_runs_mount(
+    client_worker_case: ClientWorkerCase,
+    tmp_path: Path,
+) -> None:
+    physical_workspace = client_worker_case.plan_path.parents[2]
+    physical_run = tmp_path / "fast-run"
+    logical_workspace = "/host/workspace"
+    payload = cast(
+        dict[str, object],
+        json.loads(client_worker_case.plan.serialize_json().replace(physical_workspace.as_posix(), logical_workspace)),
+    )
+    selected = cast(dict[str, object], payload["selected_profile"])
+    profile_payload = cast(dict[str, object], selected["profile"])
+    mounts = [
+        {"source": logical_workspace, "target": physical_workspace.as_posix(), "read_only": False},
+        {
+            "source": f"{logical_workspace}/runs/{payload['run_id']}",
+            "target": physical_run.as_posix(),
+            "read_only": False,
+        },
+    ]
+    profile_payload["container_mounts"] = mounts
+    payload["container_mounts"] = mounts
+    profile = SlurmProfile.model_validate(profile_payload)
+    selected["profile_sha256"] = compute_canonical_json_sha256(profile.model_dump(mode="json"))
+    plan = ResolvedSlurmRunPlan.model_validate_json(json.dumps(payload))
+    plan_path = physical_run / "resolved-plan.json"
+    plan_path.parent.mkdir(parents=True)
+    plan_path.write_text(plan.serialize_json())
+    (plan_path.parent / "dependency-lock.json").write_text(client_worker_case.lock.serialize_json())
+    shard_id = plan.shards[0].shard_id
+    attempt_dir = plan_path.parent / "shards" / shard_id / "attempts" / "attempt-0001"
+
+    def inventory(path: Path | None) -> tuple[InstalledDistribution, ...]:
+        return client_worker_case.lock.image_distributions if path is None else ()
+
+    prepared = ClientEnvironmentBuilder(inventory=inventory).prepare(
+        plan_path,
+        shard_id=shard_id,
+        attempt_id="attempt-0001",
+        attempt_dir=attempt_dir,
+    )
+
+    assert prepared.attempt_dir == attempt_dir
+
+
 def test_inspect_distributions_omits_path_for_active_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[dict[str, object]] = []
 

@@ -126,8 +126,8 @@ class ClientEnvironmentBuilder:
         logical_run_root = Path(authored_reference.path).parent
         if (
             plan_path.name != "resolved-plan.json"
-            or run_root.name != run_id
-            or run_root.parent.name != "runs"
+            or logical_run_root.name != run_id
+            or logical_run_root.parent.name != "runs"
             or _get_container_path(plan_payload, (logical_run_root / plan_path.name).as_posix()) != plan_path.as_posix()
         ):
             raise ClientWorkerError(ClientErrorCode.INVALID_INPUT, "resolved plan path is not canonical")
