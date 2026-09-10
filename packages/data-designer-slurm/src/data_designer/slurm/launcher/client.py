@@ -8,7 +8,7 @@ from __future__ import annotations
 import re
 import subprocess
 import unicodedata
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TypeAlias
@@ -32,6 +32,7 @@ from data_designer.slurm.state import SchedulerIdentity
 
 _JobSelector: TypeAlias = int | SchedulerIdentity
 _IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+_ENVIRONMENT_NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _MAX_SLURM_INTEGER = (1 << 32) - 1
 
 
@@ -43,10 +44,11 @@ class SlurmExecutables:
     squeue: str = "squeue"
     sacct: str = "sacct"
     scancel: str = "scancel"
+    scontrol: str = "scontrol"
     sinfo: str = "sinfo"
 
     def __post_init__(self) -> None:
-        for executable in (self.sbatch, self.squeue, self.sacct, self.scancel, self.sinfo):
+        for executable in (self.sbatch, self.squeue, self.sacct, self.scancel, self.scontrol, self.sinfo):
             _validate_argument(executable, field_name="Slurm executable")
             if any(character.isspace() for character in executable):
                 raise ValueError("Slurm executable must be one argument-vector token")
@@ -67,22 +69,42 @@ class SlurmCommandClient:
         self._runner = runner if runner is not None else SubprocessRunner()
         self._executables = executables if executables is not None else SlurmExecutables()
 
-    def submit(self, script_path: str | Path) -> SlurmJobSubmissionReceipt:
+    def submit(
+        self,
+        script_path: str | Path,
+        *,
+        hold: bool = False,
+        export_environment: Mapping[str, str] | None = None,
+    ) -> SlurmJobSubmissionReceipt:
         """Submit one rendered batch script and return its assigned job ID."""
         path = str(script_path)
         _validate_argument(path, field_name="batch script path")
         if path.startswith("-"):
             raise ValueError("batch script path must not begin with '-'; prefix relative paths with './'")
-        output = self._run((self._executables.sbatch, "--parsable", "--export=NIL", path))
+        hold_arguments = ("--hold",) if hold else ()
+        export_argument, environment = _format_export_environment(export_environment)
+        output = self._run(
+            (self._executables.sbatch, "--parsable", *hold_arguments, export_argument, path),
+            environment=environment,
+        )
         return parse_submission(output)
 
-    def submit_script(self, script: str) -> SlurmJobSubmissionReceipt:
+    def submit_script(
+        self,
+        script: str,
+        *,
+        hold: bool = False,
+        export_environment: Mapping[str, str] | None = None,
+    ) -> SlurmJobSubmissionReceipt:
         """Submit verified batch-script text through standard input."""
         if type(script) is not str or not script or "\0" in script:
             raise ValueError("batch script text must be non-empty UTF-8 text without NUL")
+        hold_arguments = ("--hold",) if hold else ()
+        export_argument, environment = _format_export_environment(export_environment)
         output = self._run(
-            (self._executables.sbatch, "--parsable", "--export=NIL"),
+            (self._executables.sbatch, "--parsable", *hold_arguments, export_argument),
             input_text=script,
+            environment=environment,
         )
         return parse_submission(output)
 
@@ -134,6 +156,10 @@ class SlurmCommandClient:
         """Cancel one managed Slurm job, array, or array task."""
         self._run((self._executables.scancel, _format_selector(selector)))
 
+    def release(self, job_id: int) -> None:
+        """Release one held managed Slurm job or array."""
+        self._run((self._executables.scontrol, "release", _format_job_id(job_id)))
+
     def query_gpu_counts(self, *, partition: Identifier | None = None) -> tuple[int, ...]:
         """Return configured GPU counts reported for eligible node groups."""
         command = [self._executables.sinfo, "--noheader", "--format=%G"]
@@ -143,12 +169,23 @@ class SlurmCommandClient:
             command.append(f"--partition={partition}")
         return parse_gpu_counts(self._run(command))
 
-    def _run(self, command: Sequence[str], *, input_text: str | None = None) -> str:
+    def _run(
+        self,
+        command: Sequence[str],
+        *,
+        input_text: str | None = None,
+        environment: Mapping[str, str] | None = None,
+    ) -> str:
         command_name = Path(command[0]).name
         try:
-            completed = (
-                self._runner.run(command) if input_text is None else self._runner.run(command, input_text=input_text)
-            )
+            if environment is None:
+                completed = (
+                    self._runner.run(command)
+                    if input_text is None
+                    else self._runner.run(command, input_text=input_text)
+                )
+            else:
+                completed = self._runner.run(command, input_text=input_text, environment=environment)
         except (OSError, subprocess.SubprocessError) as error:
             raise SlurmCommandError(f"{command_name} could not be executed: {_format_error_detail(error)}") from error
         returncode = getattr(completed, "returncode", None)
@@ -160,6 +197,19 @@ class SlurmCommandClient:
             detail = _normalize_bounded_text(stderr) or "no diagnostic output"
             raise SlurmCommandError(f"{command_name} failed with exit code {returncode}: {detail}")
         return stdout
+
+
+def _format_export_environment(environment: Mapping[str, str] | None) -> tuple[str, Mapping[str, str] | None]:
+    if not environment:
+        return "--export=NIL", None
+    names = tuple(sorted(environment))
+    for name in names:
+        if _ENVIRONMENT_NAME_PATTERN.fullmatch(name) is None:
+            raise ValueError("exported environment names must be valid identifiers")
+        value = environment[name]
+        if type(value) is not str or "\0" in value:
+            raise ValueError("exported environment values must be strings without NUL")
+    return f"--export={','.join(names)}", environment
 
 
 def _format_selectors(selectors: Sequence[_JobSelector]) -> str:

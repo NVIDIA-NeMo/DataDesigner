@@ -9,16 +9,19 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+from typing import cast
 from unittest.mock import Mock
 
 import pytest
-from conftest import ClientWorkerCase
+from conftest import ClientWorkerCase, FakeDataDesigner
 
 from data_designer.slurm.client.environment import ClientEnvironmentBuilder, inspect_distributions
 from data_designer.slurm.client.errors import ClientWorkerError
+from data_designer.slurm.client.execution import ClientWorker
 from data_designer.slurm.client.plugins import discover_plugins
 from data_designer.slurm.client.records import ClientErrorCode, ClientInstallerOutcome
-from data_designer.slurm.contracts import InstalledDistribution
+from data_designer.slurm.config import SlurmProfile
+from data_designer.slurm.contracts import InstalledDistribution, compute_canonical_json_sha256
 from data_designer.slurm.planning import ResolvedSlurmRunPlan
 
 
@@ -35,6 +38,97 @@ def test_environment_prepares_empty_verified_overlay(client_worker_case: ClientW
 
     assert prepared.installer_outcome is ClientInstallerOutcome.NOT_REQUIRED
     assert prepared.installed_distributions == client_worker_case.lock.image_distributions
+
+
+def test_client_runs_through_non_identity_workspace_mount(client_worker_case: ClientWorkerCase) -> None:
+    physical_workspace = client_worker_case.plan_path.parents[2]
+    logical_workspace = "/host/workspace"
+    payload = cast(
+        dict[str, object],
+        json.loads(client_worker_case.plan.serialize_json().replace(physical_workspace.as_posix(), logical_workspace)),
+    )
+    selected = cast(dict[str, object], payload["selected_profile"])
+    profile_payload = cast(dict[str, object], selected["profile"])
+    mount = {"source": logical_workspace, "target": physical_workspace.as_posix(), "read_only": False}
+    profile_payload["container_mounts"] = [mount]
+    payload["container_mounts"] = [mount]
+    profile = SlurmProfile.model_validate(profile_payload)
+    selected["profile_sha256"] = compute_canonical_json_sha256(profile.model_dump(mode="json"))
+    plan = ResolvedSlurmRunPlan.model_validate_json(json.dumps(payload))
+    client_worker_case.plan_path.write_text(plan.serialize_json())
+
+    def inventory(path: Path | None) -> tuple[InstalledDistribution, ...]:
+        return client_worker_case.lock.image_distributions if path is None else ()
+
+    prepared = ClientEnvironmentBuilder(inventory=inventory).prepare(
+        client_worker_case.plan_path,
+        shard_id=plan.shards[0].shard_id,
+        attempt_id="attempt-0001",
+        attempt_dir=client_worker_case.attempt_dir,
+    )
+    worker = ClientWorker(data_designer_factory=FakeDataDesigner)
+    worker.preflight(
+        client_worker_case.plan_path,
+        prepared=prepared,
+        endpoints=client_worker_case.endpoints,
+        plugins=(),
+    )
+
+    result = worker.run(
+        client_worker_case.plan_path,
+        prepared=prepared,
+        endpoints=client_worker_case.endpoints,
+        plugins=(),
+    )
+
+    assert result.dataset_path.startswith(logical_workspace)
+    assert result.candidate_output_manifest is not None
+    assert result.candidate_output_manifest.path.startswith(logical_workspace)
+
+
+def test_environment_maps_each_artifact_through_nested_mounts(
+    client_worker_case: ClientWorkerCase,
+    tmp_path: Path,
+) -> None:
+    physical_workspace = client_worker_case.plan_path.parents[2]
+    physical_plan = tmp_path / "fast-plan" / "resolved-plan.json"
+    logical_workspace = "/host/workspace"
+    payload = cast(
+        dict[str, object],
+        json.loads(client_worker_case.plan.serialize_json().replace(physical_workspace.as_posix(), logical_workspace)),
+    )
+    logical_plan = f"{logical_workspace}/runs/{payload['run_id']}/resolved-plan.json"
+    selected = cast(dict[str, object], payload["selected_profile"])
+    profile_payload = cast(dict[str, object], selected["profile"])
+    mounts = [
+        {"source": logical_workspace, "target": physical_workspace.as_posix(), "read_only": False},
+        {
+            "source": logical_plan,
+            "target": physical_plan.as_posix(),
+            "read_only": False,
+        },
+    ]
+    profile_payload["container_mounts"] = mounts
+    payload["container_mounts"] = mounts
+    profile = SlurmProfile.model_validate(profile_payload)
+    selected["profile_sha256"] = compute_canonical_json_sha256(profile.model_dump(mode="json"))
+    plan = ResolvedSlurmRunPlan.model_validate_json(json.dumps(payload))
+    physical_plan.parent.mkdir(parents=True)
+    physical_plan.write_text(plan.serialize_json())
+    shard_id = plan.shards[0].shard_id
+    attempt_dir = physical_workspace / "runs" / plan.run_id / "shards" / shard_id / "attempts" / "attempt-0001"
+
+    def inventory(path: Path | None) -> tuple[InstalledDistribution, ...]:
+        return client_worker_case.lock.image_distributions if path is None else ()
+
+    prepared = ClientEnvironmentBuilder(inventory=inventory).prepare(
+        physical_plan,
+        shard_id=shard_id,
+        attempt_id="attempt-0001",
+        attempt_dir=attempt_dir,
+    )
+
+    assert prepared.attempt_dir == attempt_dir
 
 
 def test_inspect_distributions_omits_path_for_active_environment(monkeypatch: pytest.MonkeyPatch) -> None:

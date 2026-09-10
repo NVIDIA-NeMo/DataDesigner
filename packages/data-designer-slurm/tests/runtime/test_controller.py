@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass, replace
 from datetime import timedelta
 from pathlib import Path
@@ -12,6 +13,7 @@ import pytest
 from conftest import FakeClientStepBuilder, FakePreflight, FakeStateStore, RuntimeCase
 from slurm_test_fakes import FakeClock
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.slurm.client import ClientOutcome, ClientResult
 from data_designer.slurm.config import DataDesignerSlurmConfig
 from data_designer.slurm.contracts import ArtifactReference
@@ -34,6 +36,9 @@ from data_designer.slurm.state import (
     ShardManifest,
     SlurmStateWriter,
 )
+from data_designer.slurm.state.artifacts import compute_candidate_schema_digest
+
+_ALLOCATION_ENVIRONMENT = {"SLURM_JOB_GPUS": "0"}
 
 
 @dataclass(slots=True)
@@ -149,7 +154,12 @@ def _supervisor(
 def test_controller_runs_preflight_servers_endpoint_client_and_cleanup(runtime_case: RuntimeCase) -> None:
     clock = FakeClock(runtime_case.created_at.replace(second=10), monotonic_time=100)
     state = FakeStateStore(runtime_case.context.attempt)
-    runner = _FakeRunner(generation_hook=lambda: _write_complete_result(runtime_case, clock))
+
+    def write_result_under_dataset_lease() -> None:
+        assert state.dataset_workspace_lease_active
+        _write_complete_result(runtime_case, clock)
+
+    runner = _FakeRunner(generation_hook=write_result_under_dataset_lease)
     supervisor = _supervisor(runner, clock, poll_interval_seconds=0.1)
     controller = OneNodeAllocationController(
         runtime_case.context,
@@ -160,7 +170,7 @@ def test_controller_runs_preflight_servers_endpoint_client_and_cleanup(runtime_c
         client_steps=FakeClientStepBuilder(),
         prober=_FakeProber(ready=True, clock=clock),
         clock=clock,
-        environment={},
+        environment=_ALLOCATION_ENVIRONMENT,
     )
 
     result = controller.run()
@@ -168,6 +178,9 @@ def test_controller_runs_preflight_servers_endpoint_client_and_cleanup(runtime_c
     assert result.state is AttemptLifecycleState.SUCCEEDED
     assert result.terminal_classification is AttemptTerminalClassification.SUCCEEDED
     assert result.candidate_output is not None
+    assert state.dataset_workspace_modes == ["never"]
+    assert not state.dataset_workspace_lease_active
+    assert state.winners[0].attempt_id == result.attempt_id
     assert [step.role for step in runner.steps] == [
         RuntimeStepRole.CLIENT_PREFLIGHT,
         RuntimeStepRole.SERVER,
@@ -198,7 +211,7 @@ def test_controller_publishes_result_before_success_with_real_state_writer(
         client_steps=FakeClientStepBuilder(),
         prober=_FakeProber(ready=True, clock=clock),
         clock=clock,
-        environment={},
+        environment=_ALLOCATION_ENVIRONMENT,
     )
 
     result = controller.run()
@@ -207,6 +220,36 @@ def test_controller_publishes_result_before_success_with_real_state_writer(
     assert persisted == result
     assert persisted.state is AttemptLifecycleState.SUCCEEDED
     assert persisted.candidate_output is not None
+    assert state.load_winner(result.shard_id).attempt_id == result.attempt_id
+
+
+def test_winner_finalization_failure_leaves_controller_attempt_retryable(runtime_case: RuntimeCase) -> None:
+    clock = FakeClock(runtime_case.created_at.replace(second=10), monotonic_time=100)
+
+    class FailingState(FakeStateStore):
+        def finalize_winner(self, *args: object, **kwargs: object) -> None:
+            raise RuntimeError("injected finalization failure")
+
+    state = FailingState(runtime_case.context.attempt)
+    runner = _FakeRunner(generation_hook=lambda: _write_complete_result(runtime_case, clock))
+    controller = OneNodeAllocationController(
+        runtime_case.context,
+        runtime_proxy_path=runtime_case.context.attempt_directory / "runtime/proxy.py",
+        state=state,
+        supervisor=_supervisor(runner, clock),
+        preflight=FakePreflight(),
+        client_steps=FakeClientStepBuilder(),
+        prober=_FakeProber(ready=True, clock=clock),
+        clock=clock,
+        environment=_ALLOCATION_ENVIRONMENT,
+    )
+
+    with pytest.raises(SlurmRuntimeError, match="allocation runtime failed"):
+        controller.run()
+
+    assert state.attempt.state is AttemptLifecycleState.FAILED
+    assert state.attempt.candidate_output is not None
+    assert state.winners == []
 
 
 def test_preflight_failure_starts_no_process_and_fails_attempt(runtime_case: RuntimeCase) -> None:
@@ -223,7 +266,7 @@ def test_preflight_failure_starts_no_process_and_fails_attempt(runtime_case: Run
         client_steps=FakeClientStepBuilder(),
         prober=_FakeProber(ready=True, clock=clock),
         clock=clock,
-        environment={},
+        environment=_ALLOCATION_ENVIRONMENT,
     )
 
     with pytest.raises(SlurmRuntimeError, match="injected preflight failure") as raised:
@@ -288,7 +331,7 @@ def test_requeued_running_attempt_publishes_restart_epoch_and_uses_fresh_logs(
         client_steps=FakeClientStepBuilder(),
         prober=_FakeProber(ready=True, clock=clock),
         clock=clock,
-        environment={},
+        environment=_ALLOCATION_ENVIRONMENT,
     )
 
     result = controller.run()
@@ -322,7 +365,7 @@ def test_required_server_exit_fails_and_cleans_partial_start(runtime_case: Runti
         client_steps=FakeClientStepBuilder(),
         prober=_FakeProber(ready=True, clock=clock),
         clock=clock,
-        environment={},
+        environment=_ALLOCATION_ENVIRONMENT,
     )
 
     with pytest.raises(SlurmRuntimeError, match="required runtime step"):
@@ -353,7 +396,7 @@ def test_interrupted_failed_readiness_write_cannot_bypass_cleanup(runtime_case: 
         client_steps=FakeClientStepBuilder(),
         prober=_FakeProber(ready=True, clock=clock),
         clock=clock,
-        environment={},
+        environment=_ALLOCATION_ENVIRONMENT,
     )
 
     with pytest.raises(SlurmRuntimeError, match="required runtime step") as raised:
@@ -377,7 +420,7 @@ def test_readiness_timeout_fails_and_terminates_server(runtime_case: RuntimeCase
         client_steps=FakeClientStepBuilder(),
         prober=_FakeProber(ready=False, clock=clock, advance_on_failure=10_000),
         clock=clock,
-        environment={},
+        environment=_ALLOCATION_ENVIRONMENT,
     )
 
     with pytest.raises(SlurmRuntimeError, match="readiness timed out"):
@@ -413,7 +456,7 @@ def test_managed_step_failure_fails_attempt_and_cleans_started_services(
         client_steps=FakeClientStepBuilder(),
         prober=_FakeProber(ready=True, clock=clock),
         clock=clock,
-        environment={},
+        environment=_ALLOCATION_ENVIRONMENT,
     )
 
     with pytest.raises(SlurmRuntimeError, match="status 23"):
@@ -450,7 +493,7 @@ def test_cleanup_failure_prevents_false_success(runtime_case: RuntimeCase) -> No
         client_steps=FakeClientStepBuilder(),
         prober=_FakeProber(ready=True, clock=clock),
         clock=clock,
-        environment={},
+        environment=_ALLOCATION_ENVIRONMENT,
     )
 
     with pytest.raises(SlurmRuntimeError, match="cleanup failed"):
@@ -479,7 +522,7 @@ def test_cleanup_failure_is_retained_as_a_note_on_the_primary_failure(runtime_ca
         client_steps=FakeClientStepBuilder(),
         prober=_FakeProber(ready=True, clock=clock),
         clock=clock,
-        environment={},
+        environment=_ALLOCATION_ENVIRONMENT,
     )
 
     with pytest.raises(SlurmRuntimeError, match="status 23") as raised:
@@ -510,7 +553,7 @@ def test_incomplete_cleanup_does_not_publish_stopped_readiness(runtime_case: Run
         client_steps=FakeClientStepBuilder(),
         prober=_FakeProber(ready=True, clock=clock),
         clock=clock,
-        environment={},
+        environment=_ALLOCATION_ENVIRONMENT,
     )
 
     with pytest.raises(SlurmRuntimeError, match="cleanup failed"):
@@ -539,7 +582,7 @@ def test_future_client_timestamp_cannot_push_persisted_state_clock_forward(runti
         client_steps=FakeClientStepBuilder(),
         prober=_FakeProber(ready=True, clock=clock),
         clock=clock,
-        environment={},
+        environment=_ALLOCATION_ENVIRONMENT,
     )
 
     with pytest.raises(SlurmRuntimeError, match="later than the allocation clock"):
@@ -561,7 +604,7 @@ def test_partial_client_result_is_classified_before_candidate_loading(runtime_ca
         client_steps=FakeClientStepBuilder(),
         prober=_FakeProber(ready=True, clock=clock),
         clock=clock,
-        environment={},
+        environment=_ALLOCATION_ENVIRONMENT,
     )
 
     with pytest.raises(SlurmRuntimeError) as raised:
@@ -585,7 +628,7 @@ def test_stale_candidate_from_an_earlier_generation_cannot_succeed(runtime_case:
         client_steps=FakeClientStepBuilder(),
         prober=_FakeProber(ready=True, clock=clock),
         clock=clock,
-        environment={},
+        environment=_ALLOCATION_ENVIRONMENT,
     )
 
     with pytest.raises(SlurmRuntimeError, match="predates the current generation"):
@@ -598,6 +641,11 @@ def _write_complete_result(runtime_case: RuntimeCase, clock: FakeClock) -> None:
     context = runtime_case.context
     requested = context.shard.requested_records
     dataset_path = (context.attempt_directory / "dataset").as_posix()
+    output_path = Path(dataset_path) / "part-00000.parquet"
+    output_path.parent.mkdir(exist_ok=True)
+    table = lazy.pa.table({"record_id": range(requested)})
+    lazy.pq.write_table(table, output_path)
+    output_bytes = output_path.read_bytes()
     candidate = CandidateOutputManifest(
         schema_version=1,
         run_id=context.plan.run_id,
@@ -612,12 +660,12 @@ def _write_complete_result(runtime_case: RuntimeCase, clock: FakeClock) -> None:
         files=(
             CandidateOutputFile(
                 relative_path="part-00000.parquet",
-                sha256="a" * 64,
-                byte_size=128,
+                sha256=hashlib.sha256(output_bytes).hexdigest(),
+                byte_size=len(output_bytes),
                 record_count=requested,
             ),
         ),
-        dataset_schema_digest="b" * 64,
+        dataset_schema_digest=compute_candidate_schema_digest(table.schema),
         provenance_digest=context.plan.compute_sha256(),
     )
     candidate_path = context.attempt_directory / "output-manifest.json"

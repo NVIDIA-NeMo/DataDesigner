@@ -10,9 +10,11 @@ from pathlib import Path
 import pytest
 from conftest import RuntimeCase
 
+from data_designer.slurm.config import ContainerMount
 from data_designer.slurm.contracts import ArtifactReference
 from data_designer.slurm.runtime import preflight as runtime_preflight
 from data_designer.slurm.runtime.errors import SlurmRuntimeError
+from data_designer.slurm.runtime.models import AllocationContext
 from data_designer.slurm.runtime.preflight import SystemAllocationPreflight, _verify_artifact
 
 
@@ -23,6 +25,18 @@ def test_scheduler_preflight_accepts_exact_one_node_gpu_shape(runtime_case: Runt
         "SLURM_JOB_NUM_NODES": "1",
         "SLURM_NODEID": "0",
         "CUDA_VISIBLE_DEVICES": "0,1,2,3,4,5,6,7",
+    }
+
+    SystemAllocationPreflight._verify_scheduler(runtime_case.context, environment)
+
+
+def test_scheduler_preflight_accepts_exclusive_allocation_gpu_superset(runtime_case: RuntimeCase) -> None:
+    environment = {
+        "SLURM_ARRAY_JOB_ID": "4101",
+        "SLURM_ARRAY_TASK_ID": "0",
+        "SLURM_JOB_NUM_NODES": "1",
+        "SLURM_NODEID": "0",
+        "CUDA_VISIBLE_DEVICES": "0,1,2,3,4,5,6,7,8",
     }
 
     SystemAllocationPreflight._verify_scheduler(runtime_case.context, environment)
@@ -127,7 +141,7 @@ def test_port_preflight_detects_collision_before_launch(
     monkeypatch.setattr("data_designer.slurm.runtime.preflight.socket.socket", _UnavailableSocket)
 
     with pytest.raises(SlurmRuntimeError, match="ports are unavailable"):
-        SystemAllocationPreflight._verify_ports(runtime_case.context)
+        SystemAllocationPreflight.verify_ports(runtime_case.context, {"SLURM_JOB_GPUS": "0"})
     assert _UnavailableSocket.closed
 
 
@@ -135,4 +149,42 @@ def test_attempt_directory_must_be_restrictive(runtime_case: RuntimeCase) -> Non
     runtime_case.context.attempt_directory.chmod(0o755)
 
     with pytest.raises(SlurmRuntimeError, match="restrictive directory"):
-        SystemAllocationPreflight._verify_attempt_directory(runtime_case.context.attempt_directory)
+        SystemAllocationPreflight.verify_attempt_directory(runtime_case.context.attempt_directory)
+
+
+def test_preflight_translates_host_paths_into_container(
+    runtime_case: RuntimeCase,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    logical_attempt = runtime_case.context.attempt_directory
+    container_workspace = tmp_path / "container-workspace"
+    container_attempt = container_workspace / logical_attempt.relative_to(runtime_case.workspace)
+    logical_attempt.rmdir()
+    container_attempt.mkdir(parents=True, mode=0o700)
+    plan = runtime_case.context.plan.model_copy(
+        update={
+            "container_mounts": (
+                ContainerMount(
+                    source=runtime_case.workspace.as_posix(),
+                    target=container_workspace.as_posix(),
+                ),
+            )
+        }
+    )
+    context = AllocationContext(
+        plan=plan,
+        shard=runtime_case.context.shard,
+        attempt=runtime_case.context.attempt,
+        attempt_directory=logical_attempt,
+    )
+    verified_paths: list[str] = []
+    monkeypatch.setattr(SystemAllocationPreflight, "_verify_scheduler", lambda *args: None)
+    monkeypatch.setattr(SystemAllocationPreflight, "verify_ports", lambda *args: None)
+    monkeypatch.setattr(runtime_preflight, "_verify_artifact", lambda reference: verified_paths.append(reference.path))
+
+    SystemAllocationPreflight().verify(context, {})
+
+    assert verified_paths
+    assert any(path.startswith(container_workspace.as_posix()) for path in verified_paths)
+    assert not any(path.startswith(runtime_case.workspace.as_posix()) for path in verified_paths)

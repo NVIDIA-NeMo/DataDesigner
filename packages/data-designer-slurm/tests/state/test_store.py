@@ -23,9 +23,10 @@ import pytest
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.slurm import filesystem as slurm_filesystem
 from data_designer.slurm.client import ClientOutcome, ClientResult
-from data_designer.slurm.config import DataDesignerSlurmConfig, SlurmProfile
+from data_designer.slurm.config import ContainerMount, DataDesignerSlurmConfig, SlurmProfile
 from data_designer.slurm.contracts import ArtifactReference, ContractValue, compute_canonical_json_sha256, pretty_json
 from data_designer.slurm.planning import ResolvedSlurmRunPlan
+from data_designer.slurm.runtime.paths import get_container_path
 from data_designer.slurm.state import (
     AttemptId,
     AttemptLifecycleState,
@@ -187,6 +188,9 @@ def test_context_loading_reads_each_immutable_record_once(
 
     attempt = _submitted_attempt(case)
     case.writer.create_attempt(attempt)
+    runtime_directory = case.writer.run_root / "shards/shard-00000/attempts/attempt-0001/runtime"
+    assert runtime_directory.is_dir()
+    assert runtime_directory.stat().st_mode & 0o777 == 0o700
     readiness = _readiness(case, attempt)
     case.writer.write_readiness(readiness)
     record_names.clear()
@@ -1236,6 +1240,208 @@ def test_result_publication_binds_candidate_before_success_transition(
         case.writer.update_attempt(conflicting_success)
 
 
+def test_winner_publication_failure_restores_running_attempt_for_retry(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    case = _initialized_case(tmp_path, authored_run_single, single_node_plan)
+    attempt = _submitted_attempt(case)
+    case.writer.create_attempt(attempt)
+    with case.writer.acquire_dataset_workspace(attempt.shard_id, attempt.attempt_id, "never") as dataset_path:
+        finalization = _persist_complete_result(case, attempt, dataset_path, complete_attempt=False)
+    original_publish = case.writer._storage.publish_winner
+
+    def fail_winner_publication(winner: ShardWinner) -> None:
+        raise OSError("injected winner publication failure")
+
+    monkeypatch.setattr(case.writer._storage, "publish_winner", fail_winner_publication)
+    completed_at = case.created_at + timedelta(minutes=5)
+    with pytest.raises(SlurmStateError, match="cannot finalize"):
+        case.writer.finalize_winner(
+            attempt.shard_id,
+            attempt.attempt_id,
+            completed_at=completed_at,
+            published_at=finalization.published_at,
+        )
+
+    persisted = case.writer.load_attempt(attempt.shard_id, attempt.attempt_id)
+    assert persisted.state is AttemptLifecycleState.RUNNING
+    assert persisted.candidate_output == finalization.client_result.candidate_output_manifest
+
+    monkeypatch.setattr(case.writer._storage, "publish_winner", original_publish)
+    winner = case.writer.finalize_winner(
+        attempt.shard_id,
+        attempt.attempt_id,
+        completed_at=completed_at,
+        published_at=finalization.published_at,
+    )
+    assert case.writer.load_attempt(attempt.shard_id, attempt.attempt_id).state is AttemptLifecycleState.SUCCEEDED
+    assert case.writer.load_winner(attempt.shard_id) == winner
+
+
+def test_fresh_writer_resumes_finalization_interrupted_after_success_commit(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    case = _initialized_case(tmp_path, authored_run_single, single_node_plan)
+    attempt = _submitted_attempt(case)
+    case.writer.create_attempt(attempt)
+    with case.writer.acquire_dataset_workspace(attempt.shard_id, attempt.attempt_id, "never") as dataset_path:
+        finalization = _persist_complete_result(case, attempt, dataset_path, complete_attempt=False)
+    original_replace = case.writer._storage.replace_attempt
+
+    def interrupt_after_success_commit(updated: AttemptManifest) -> None:
+        original_replace(updated)
+        if updated.state is AttemptLifecycleState.SUCCEEDED:
+            raise KeyboardInterrupt("injected process interruption")
+
+    monkeypatch.setattr(case.writer._storage, "replace_attempt", interrupt_after_success_commit)
+    with pytest.raises(KeyboardInterrupt, match="process interruption"):
+        case.writer.finalize_winner(
+            attempt.shard_id,
+            attempt.attempt_id,
+            completed_at=case.created_at + timedelta(minutes=5),
+            published_at=finalization.published_at,
+        )
+
+    resumed = SlurmStateWriter(case.workspace, case.plan.run_id)
+    persisted = resumed.load_attempt(attempt.shard_id, attempt.attempt_id)
+    assert persisted.state is AttemptLifecycleState.SUCCEEDED
+    with pytest.raises(StateNotFoundError):
+        resumed.load_winner(attempt.shard_id)
+
+    winner = resumed.resume_incomplete_finalization(
+        attempt.shard_id,
+        published_at=finalization.published_at,
+    )
+
+    assert winner is not None
+    assert resumed.load_winner(attempt.shard_id) == winner
+
+
+def test_interrupted_finalization_resumes_through_nested_attempt_mount(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    base_case = _build_case(tmp_path, authored_run_single, single_node_plan)
+    logical_attempts = base_case.workspace / "runs" / base_case.plan.run_id / "shards" / "shard-00000" / "attempts"
+    fast_attempts = tmp_path / "fast-attempts"
+    mounts = (
+        *base_case.plan.container_mounts,
+        ContainerMount(source=logical_attempts.as_posix(), target=fast_attempts.as_posix()),
+    )
+    profile = SlurmProfile.model_validate(
+        base_case.plan.selected_profile.profile.model_dump(mode="python") | {"container_mounts": list(mounts)}
+    )
+    selected_profile = base_case.plan.selected_profile.model_copy(
+        update={
+            "profile": profile,
+            "profile_sha256": compute_canonical_json_sha256(profile.model_dump(mode="json")),
+        }
+    )
+    plan = ResolvedSlurmRunPlan.model_validate(
+        base_case.plan.model_dump(mode="python") | {"selected_profile": selected_profile, "container_mounts": mounts}
+    )
+    plan_reference = base_case.run.resolved_plan.model_copy(update={"sha256": plan.compute_sha256()})
+    run = base_case.run.model_copy(update={"resolved_plan": plan_reference})
+    writer = SlurmStateWriter(
+        base_case.workspace,
+        plan.run_id,
+        local_path_resolver=lambda path: get_container_path(plan, path, require_writable=True),
+    )
+    case = _StateCase(
+        workspace=base_case.workspace,
+        authored_config=base_case.authored_config,
+        plan=plan,
+        run=run,
+        shards=base_case.shards,
+        writer=writer,
+        created_at=base_case.created_at,
+    )
+    writer.initialize_run(case.authored_config, case.plan, case.run, case.shards)
+    attempt = _submitted_attempt(case).model_copy(update={"resolved_plan": plan_reference})
+    writer.create_attempt(attempt)
+    logical_dataset = logical_attempts / attempt.attempt_id / "dataset"
+    with writer.acquire_dataset_workspace(attempt.shard_id, attempt.attempt_id, "never") as dataset_path:
+        assert dataset_path == fast_attempts / attempt.attempt_id / "dataset"
+        dataset_path.mkdir(parents=True, mode=0o700)
+        finalization = _persist_complete_result(
+            case,
+            attempt,
+            dataset_path,
+            manifest_dataset_path=logical_dataset,
+            complete_attempt=False,
+        )
+    original_replace = writer._storage.replace_attempt
+
+    def interrupt_after_success_commit(updated: AttemptManifest) -> None:
+        original_replace(updated)
+        if updated.state is AttemptLifecycleState.SUCCEEDED:
+            raise KeyboardInterrupt("injected process interruption")
+
+    monkeypatch.setattr(writer._storage, "replace_attempt", interrupt_after_success_commit)
+    with pytest.raises(KeyboardInterrupt, match="process interruption"):
+        writer.finalize_winner(
+            attempt.shard_id,
+            attempt.attempt_id,
+            completed_at=case.created_at + timedelta(minutes=5),
+            published_at=finalization.published_at,
+        )
+
+    resumed = SlurmStateWriter(
+        case.workspace,
+        plan.run_id,
+        local_path_resolver=lambda path: get_container_path(plan, path, require_writable=True),
+    )
+    winner = resumed.resume_incomplete_finalization(
+        attempt.shard_id,
+        published_at=finalization.published_at,
+    )
+
+    assert winner is not None
+    assert resumed.load_winner(attempt.shard_id) == winner
+
+
+def test_runtime_finalization_converges_after_committed_winner_sync_failure(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    case = _initialized_case(tmp_path, authored_run_single, single_node_plan)
+    attempt = _submitted_attempt(case)
+    case.writer.create_attempt(attempt)
+    with case.writer.acquire_dataset_workspace(attempt.shard_id, attempt.attempt_id, "never") as dataset_path:
+        finalization = _persist_complete_result(case, attempt, dataset_path, complete_attempt=False)
+    winner_path = case.writer.run_root / "shards/shard-00000/winner.json"
+    original_fsync = state_filesystem.os.fsync
+    failed = False
+
+    def fail_after_winner_link(descriptor: int) -> None:
+        nonlocal failed
+        if winner_path.exists() and not failed:
+            failed = True
+            raise OSError("injected winner directory fsync failure")
+        original_fsync(descriptor)
+
+    monkeypatch.setattr(state_filesystem.os, "fsync", fail_after_winner_link)
+    winner = case.writer.finalize_winner(
+        attempt.shard_id,
+        attempt.attempt_id,
+        completed_at=case.created_at + timedelta(minutes=5),
+        published_at=finalization.published_at,
+    )
+
+    assert case.writer.load_attempt(attempt.shard_id, attempt.attempt_id).state is AttemptLifecycleState.SUCCEEDED
+    assert case.writer.load_winner(attempt.shard_id) == winner
+
+
 def test_attempt_update_cannot_bind_candidate_before_result_publication(
     tmp_path: Path,
     authored_run_single: DataDesignerSlurmConfig,
@@ -1963,6 +2169,25 @@ def test_resumable_workspace_is_shard_owned_and_exclusively_locked(
             pass
 
 
+def test_if_possible_lease_does_not_create_resume_workspace(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    plan_payload = single_node_plan.model_dump(mode="python")
+    plan_payload["invocation"]["authored"]["resume"] = "if_possible"
+    case = _initialized_case(tmp_path, authored_run_single, ResolvedSlurmRunPlan.model_validate(plan_payload))
+    attempt = _submitted_attempt(case)
+    case.writer.create_attempt(attempt)
+    resume_path = Path(case.shards[0].resume_workspace.path)
+
+    with case.writer.acquire_dataset_workspace(attempt.shard_id, attempt.attempt_id, "if_possible") as path:
+        assert path == resume_path
+        assert not path.exists()
+
+    assert not resume_path.exists()
+
+
 def test_dataset_lock_rejects_unsafe_files_without_reclassifying_body_errors(
     tmp_path: Path,
     authored_run_single: DataDesignerSlurmConfig,
@@ -2217,6 +2442,7 @@ def _persist_complete_result(
     relative_path: str = "part-00000.parquet",
     physical_records: int | None = None,
     reported_schema_digest: str | None = None,
+    manifest_dataset_path: Path | None = None,
     complete_attempt: bool = True,
 ) -> _FinalizationCase:
     running_attempt = _validated_copy(
@@ -2236,6 +2462,7 @@ def _persist_complete_result(
     lazy.pq.write_table(table, output_path)
     output_path.chmod(0o644)
     content = output_path.read_bytes()
+    persisted_dataset_path = manifest_dataset_path or dataset_path
     candidate = CandidateOutputManifest(
         schema_version=1,
         run_id=case.plan.run_id,
@@ -2243,7 +2470,7 @@ def _persist_complete_result(
         attempt_id=attempt.attempt_id,
         attempt_ordinal=attempt.attempt_ordinal,
         created_at=case.created_at + timedelta(minutes=3),
-        dataset_path=dataset_path.as_posix(),
+        dataset_path=persisted_dataset_path.as_posix(),
         requested_records=requested_records,
         actual_records=requested_records,
         outcome=CandidateOutcome.COMPLETE,
@@ -2272,7 +2499,7 @@ def _persist_complete_result(
         requested_records=requested_records,
         actual_records=requested_records,
         outcome=ClientOutcome.COMPLETE,
-        dataset_path=dataset_path.as_posix(),
+        dataset_path=persisted_dataset_path.as_posix(),
         early_shutdown=False,
         requested_resume_mode=case.plan.invocation.authored.resume,
         effective_resume_mode="never",

@@ -11,6 +11,8 @@ from data_designer.slurm.launcher.batch import quote_shell_value, render_batch_d
 from data_designer.slurm.launcher.errors import SlurmBatchRenderError
 from data_designer.slurm.planning import ResolvedSlurmRunPlan
 
+_SYSTEM_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
 
 def render_generation_attempt_script(plan: ResolvedSlurmRunPlan, *, attempt_ordinal: int) -> str:
     """Render a resolved generation plan as one thin deterministic entrypoint."""
@@ -20,12 +22,16 @@ def render_generation_attempt_script(plan: ResolvedSlurmRunPlan, *, attempt_ordi
     run_root = posixpath.dirname(plan.authored_config.path)
     plan_path = posixpath.join(run_root, "resolved-plan.json")
     directive_text = render_batch_directives(_build_generation_directives(plan))
+    if plan.selected_profile.profile.gpu_request_mode == "visible":
+        directive_text = f"{directive_text}\n#SBATCH --exclusive"
     attempt = f"{attempt_ordinal:04d}"
+    scheduler_bin_path = plan.selected_profile.profile.scheduler.bin_path
+    command_path = _SYSTEM_PATH if scheduler_bin_path is None else f"{scheduler_bin_path}:{_SYSTEM_PATH}"
 
     return f"""#!/usr/bin/env bash
 {directive_text}
 set -Eeuo pipefail
-export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+export PATH={quote_shell_value(command_path)}
 
 readonly DD_RUNTIME_ARCHIVE={quote_shell_value(plan.runtime_bundle.path)}
 readonly DD_RUNTIME_SHA256={quote_shell_value(plan.runtime_bundle.sha256)}
@@ -50,12 +56,11 @@ readonly DD_ARRAY_TASK_ID="${{SLURM_ARRAY_TASK_ID}}"
 printf -v DD_SHARD_ID 'shard-%05d' "${{DD_ARRAY_TASK_ID}}"
 readonly DD_SHARD_ID
 readonly DD_ATTEMPT_DIR="${{DD_RUN_ROOT}}/shards/${{DD_SHARD_ID}}/attempts/attempt-${{DD_ATTEMPT_ORDINAL}}"
-install -d -m 0700 "${{DD_ATTEMPT_DIR}}"
-DD_RUNTIME_DIR="$(mktemp -d "${{DD_ATTEMPT_DIR}}/runtime.${{DD_RUNTIME_SHA256}}.XXXXXX")"
-readonly DD_RUNTIME_DIR
-tar -xzf "${{DD_RUNTIME_ARCHIVE}}" -C "${{DD_RUNTIME_DIR}}"
+readonly DD_RUNTIME_ROOT="${{DD_ATTEMPT_DIR}}/runtime"
+[[ -d ${{DD_RUNTIME_ROOT}} && ! -L ${{DD_RUNTIME_ROOT}} ]]
+tar -xzf "${{DD_RUNTIME_ARCHIVE}}" -C "${{DD_RUNTIME_ROOT}}"
 
-source "${{DD_RUNTIME_DIR}}/entrypoint.sh"
+source "${{DD_RUNTIME_ROOT}}/entrypoint.sh"
 dd_slurm_run_allocation "${{DD_PLAN}}" "${{DD_ATTEMPT_DIR}}"
 """
 

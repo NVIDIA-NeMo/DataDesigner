@@ -27,15 +27,18 @@ _RecordT = TypeVar("_RecordT", bound=ContractRecord)
 def load_complete_client_candidate(
     context: AllocationContext,
     attempt: AttemptManifest,
+    *,
+    attempt_directory: Path | None = None,
 ) -> tuple[ClientResult, CandidateOutputManifest]:
     """Load a complete semantic client result and its digest-bound candidate."""
-    client_result = _read_record(context.attempt_directory, _CLIENT_RESULT_NAME, ClientResult)
+    record_directory = context.attempt_directory if attempt_directory is None else attempt_directory
+    client_result = _read_record(record_directory, _CLIENT_RESULT_NAME, ClientResult)
     if client_result.outcome is not ClientOutcome.COMPLETE:
         raise SlurmRuntimeError(
             SlurmRuntimeErrorCode.CLIENT_FAILED,
             f"client generation finished with outcome {client_result.outcome.value!r}",
         )
-    candidate = _read_record(context.attempt_directory, _CANDIDATE_NAME, CandidateOutputManifest)
+    candidate = _read_record(record_directory, _CANDIDATE_NAME, CandidateOutputManifest)
     try:
         PlanStateValidator(context.plan).validate_client_candidate(
             context.shard,
