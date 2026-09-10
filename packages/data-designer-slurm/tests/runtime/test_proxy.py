@@ -189,6 +189,12 @@ def test_proxy_rejects_non_loopback_or_malformed_backend(value: str) -> None:
         _parse_backend(value)
 
 
+def test_proxy_matches_allowed_backend_hosts_case_insensitively() -> None:
+    backend = _parse_backend("http://compute-001:8000", frozenset({"Compute-001"}))
+
+    assert backend == _Backend("compute-001", 8000)
+
+
 def test_pool_selects_least_active_backend() -> None:
     pool = _BackendPool((_Backend("127.0.0.1", 8001), _Backend("127.0.0.1", 8002)), 1)
     first = pool.acquire(frozenset())

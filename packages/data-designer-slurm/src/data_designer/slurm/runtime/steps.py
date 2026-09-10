@@ -274,8 +274,24 @@ def build_endpoint_command(
     plan: ResolvedSlurmRunPlan,
     runtime_proxy_path: Path,
     port: int,
+    *,
+    backend_hosts: tuple[str, ...] | None = None,
 ) -> tuple[str, ...]:
-    backends = tuple(f"http://127.0.0.1:{backend.port}" for backend in deployment.backend_endpoints)
+    selected_hosts = backend_hosts or ("127.0.0.1",) * len(deployment.backend_endpoints)
+    if len(selected_hosts) != len(deployment.backend_endpoints):
+        raise SlurmRuntimeError(
+            SlurmRuntimeErrorCode.INVALID_CONTEXT,
+            "endpoint backend hosts do not match the resolved deployment",
+        )
+    backends = tuple(
+        f"http://{host}:{backend.port}"
+        for host, backend in zip(selected_hosts, deployment.backend_endpoints, strict=True)
+    )
+    allowed_host_arguments = (
+        tuple(argument for host in dict.fromkeys(selected_hosts) for argument in ("--allowed-host", host))
+        if backend_hosts is not None
+        else ()
+    )
     retry_after_seconds = deployment.launch_policy.queue_backpressure.retry_after_seconds
     retry_arguments = ("--retry-after-seconds", str(retry_after_seconds)) if retry_after_seconds is not None else ()
     return (
@@ -284,6 +300,7 @@ def build_endpoint_command(
         "--listen-port",
         str(port),
         *retry_arguments,
+        *allowed_host_arguments,
         *(argument for backend in backends for argument in ("--backend", backend)),
     )
 

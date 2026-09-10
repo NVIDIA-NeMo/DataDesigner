@@ -47,9 +47,15 @@ dd_slurm_run_allocation() {
     trap 'exit 130' INT TERM
 
     DD_RUNTIME_PREPARED=1
+    local host
+    local -a host_arguments=()
+    for host in "${DD_ALLOCATION_HOSTS[@]}"; do
+        host_arguments+=(--node-host "${host}")
+    done
     dd_run_bound_control_phase prepare \
         --runtime-root "${DD_RUNTIME_DIR}" \
-        --manifest "${DD_RUNTIME_MANIFEST_CONTAINER_PATH}"
+        --manifest "${DD_RUNTIME_MANIFEST_CONTAINER_PATH}" \
+        "${host_arguments[@]}"
     dd_verify_runtime_manifest \
         "${DD_RUNTIME_MANIFEST}" \
         "${DD_PLAN_SHA256}" \
@@ -61,6 +67,7 @@ dd_slurm_run_allocation() {
     ((${#DD_STEP_IDS[@]} == 1))
     dd_run_step "${DD_RUNTIME_MANIFEST}" "${DD_STEP_IDS[0]}"
 
+    dd_run_role_steps server_preflight
     dd_start_servers
     dd_wait_for_role_readiness server
     dd_start_endpoints
@@ -100,7 +107,11 @@ dd_verify_host_context() {
     done
     [[ -d ${DD_ATTEMPT_PATH} && ! -L ${DD_ATTEMPT_PATH} ]]
     [[ ${SLURM_ARRAY_TASK_ID:-} =~ ^[0-9]+$ ]]
-    [[ ${SLURM_JOB_NUM_NODES:-} == 1 && ${SLURM_NODEID:-} == 0 ]]
+    [[ ${DD_EXPECTED_NODES} =~ ^[1-9][0-9]*$ ]]
+    [[ ${DD_CLIENT_NODE_INDEX} =~ ^[0-9]+$ && ${DD_CLIENT_NODE_INDEX} -lt ${DD_EXPECTED_NODES} ]]
+    [[ ${SLURM_JOB_NUM_NODES:-} == "${DD_EXPECTED_NODES}" ]]
+    [[ ${SLURM_NODEID:-} == "${DD_CLIENT_NODE_INDEX}" ]]
+    dd_resolve_allocation_hosts
     dd_verify_gpu_count
     dd_read_artifacts "${DD_PLAN_PATH}" "${SLURM_ARRAY_TASK_ID}"
     local index path digest actual
@@ -113,6 +124,24 @@ dd_verify_host_context() {
             return 65
         }
     done
+}
+
+dd_resolve_allocation_hosts() {
+    local node_list=${SLURM_JOB_NODELIST:-}
+    [[ -n ${node_list} && ${node_list} != -* && ${#node_list} -le 4096 ]] || return 65
+    [[ ${node_list} != *[$'\t\r\n ']* ]] || return 65
+    local expanded
+    expanded=$(scontrol show hostnames "${node_list}") || return 65
+    DD_ALLOCATION_HOSTS=()
+    local host
+    while IFS= read -r host; do
+        DD_ALLOCATION_HOSTS+=("${host}")
+    done <<<"${expanded}"
+    ((${#DD_ALLOCATION_HOSTS[@]} == DD_EXPECTED_NODES)) || return 65
+    for host in "${DD_ALLOCATION_HOSTS[@]}"; do
+        [[ ${host} =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ && ${#host} -le 253 ]] || return 65
+    done
+    DD_CLIENT_HOST=${DD_ALLOCATION_HOSTS[DD_CLIENT_NODE_INDEX]}
 }
 
 dd_verify_gpu_count() {
@@ -156,6 +185,15 @@ dd_start_servers() {
     done
 }
 
+dd_run_role_steps() {
+    local role=$1
+    local step_id
+    dd_read_step_ids "${DD_RUNTIME_MANIFEST}" "${role}"
+    for step_id in "${DD_STEP_IDS[@]+"${DD_STEP_IDS[@]}"}"; do
+        dd_run_step "${DD_RUNTIME_MANIFEST}" "${step_id}"
+    done
+}
+
 dd_start_endpoints() {
     dd_read_step_ids "${DD_RUNTIME_MANIFEST}" endpoint
     local step_id
@@ -168,19 +206,25 @@ dd_start_endpoints() {
 
 dd_wait_for_role_readiness() {
     local role=$1
-    local step_id deadline
+    local step_id index host port path deadline_seconds deadline
     dd_read_step_ids "${DD_RUNTIME_MANIFEST}" "${role}"
     for step_id in "${DD_STEP_IDS[@]+"${DD_STEP_IDS[@]}"}"; do
         dd_read_step "${DD_RUNTIME_MANIFEST}" "${step_id}"
-        deadline=$((SECONDS + DD_STEP_PROBE_DEADLINE))
-        until curl --fail --silent --max-time 1 \
-            "http://${DD_STEP_PROBE_HOST}:${DD_STEP_PROBE_PORT}${DD_STEP_PROBE_PATH}" >/dev/null 2>&1; do
-            dd_require_running
-            ((SECONDS < deadline)) || {
-                printf 'runtime step %q readiness timed out\n' "${step_id}" >&2
-                return 70
-            }
-            dd_sleep 0.5
+        ((${#DD_STEP_PROBE_FIELDS[@]} % 4 == 0 && ${#DD_STEP_PROBE_FIELDS[@]} > 0)) || return 65
+        for ((index = 0; index < ${#DD_STEP_PROBE_FIELDS[@]}; index += 4)); do
+            host=${DD_STEP_PROBE_FIELDS[index]}
+            port=${DD_STEP_PROBE_FIELDS[index + 1]}
+            path=${DD_STEP_PROBE_FIELDS[index + 2]}
+            deadline_seconds=${DD_STEP_PROBE_FIELDS[index + 3]}
+            deadline=$((SECONDS + deadline_seconds))
+            until curl --fail --silent --max-time 1 "http://${host}:${port}${path}" >/dev/null 2>&1; do
+                dd_require_running
+                ((SECONDS < deadline)) || {
+                    printf 'runtime step %q readiness timed out\n' "${step_id}" >&2
+                    return 70
+                }
+                dd_sleep 0.5
+            done
         done
     done
 }
