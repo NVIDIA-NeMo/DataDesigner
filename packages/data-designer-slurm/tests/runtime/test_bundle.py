@@ -48,6 +48,7 @@ def test_runtime_bundle_is_deterministic_content_addressed_and_restrictive(tmp_p
         entrypoint = archive.extractfile("entrypoint.sh")
         assert entrypoint is not None
         entrypoint_content = entrypoint.read()
+        assert b"SPDX-License-Identifier: Apache-2.0" in entrypoint_content
         assert b"python3 -m data_designer.slurm.runtime.entrypoint" not in entrypoint_content
         assert b"--retry-plan-sha256" in entrypoint_content
         assert b"--effective-resume-mode" in entrypoint_content

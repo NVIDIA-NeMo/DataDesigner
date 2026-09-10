@@ -317,6 +317,362 @@ def test_client_removes_terminal_controls_from_command_failures(fake_slurm_runne
     assert "\x1b" not in str(error.value)
 
 
+@pytest.mark.parametrize(
+    ("diagnostic", "expected", "secret"),
+    (
+        ("--api-key\x00plaintext-secret", "--api-key <redacted>", "plaintext-secret"),
+        ("--api_key\x1funderscore-secret", "--api_key <redacted>", "underscore-secret"),
+        ("--access-token\u200bformat-secret", "--access-token <redacted>", "format-secret"),
+        (
+            "Authorization: Custom control-secret\x00value\nstatus=failed",
+            "Authorization: <redacted> status=failed",
+            "control-secret",
+        ),
+        ("HF_TOKEN=secret\x00suffix status=failed", "HF_TOKEN=<redacted> status=failed", "suffix"),
+        (
+            "https://user:secret\x00suffix@example.test/path status=failed",
+            "https://<redacted>@example.test/path status=failed",
+            "suffix",
+        ),
+        ("HF_TOKEN\x00=boundary-secret", "HF_TOKEN =<redacted>", "boundary-secret"),
+        (
+            'HF_TOKEN="first-secret";status=failed --api-key\x00second-secret next=ready',
+            "HF_TOKEN=<redacted>;status=failed --api-key <redacted> next=ready",
+            "second-secret",
+        ),
+        (
+            "HF_TOKEN=<data-designer-redaction>\x00suffix status=failed",
+            "HF_TOKEN=<redacted> status=failed",
+            "suffix",
+        ),
+    ),
+    ids=(
+        "nul",
+        "unit-separator",
+        "format-control",
+        "authorization-line-boundary",
+        "assignment-secret-suffix",
+        "uri-userinfo-secret-suffix",
+        "assignment-hidden-boundary",
+        "raw-and-normalized-pass",
+        "placeholder-collision",
+    ),
+)
+def test_client_redacts_secrets_obscured_by_control_characters(
+    fake_slurm_runner: FakeSlurmRunner,
+    diagnostic: str,
+    expected: str,
+    secret: str,
+) -> None:
+    fake_slurm_runner.script_next("squeue", FakeCommandResponse(stderr=diagnostic, returncode=2))
+
+    with pytest.raises(SlurmCommandError) as error:
+        SlurmCommandClient(fake_slurm_runner).query_queue((4101,))
+
+    detail = str(error.value).partition(": ")[2]
+    assert detail == expected
+    assert secret not in detail
+
+
+@pytest.mark.parametrize(
+    "control",
+    (
+        pytest.param("\t", id="tab"),
+        pytest.param("\v", id="vertical-tab"),
+        pytest.param("\f", id="form-feed"),
+        pytest.param("\x1c", id="file-separator"),
+        pytest.param("\x1d", id="group-separator"),
+        pytest.param("\x1e", id="record-separator"),
+        pytest.param("\x1f", id="unit-separator"),
+        pytest.param("\x85", id="next-line"),
+    ),
+)
+def test_client_redacts_whitespace_control_credential_suffixes(
+    fake_slurm_runner: FakeSlurmRunner,
+    control: str,
+) -> None:
+    diagnostic = (
+        f"HF_TOKEN=assignment-secret{control}suffix status=failed "
+        f"https://user:uri-secret{control}suffix@example.test/path"
+    )
+    fake_slurm_runner.script_next("squeue", FakeCommandResponse(stderr=diagnostic, returncode=2))
+
+    with pytest.raises(SlurmCommandError) as error:
+        SlurmCommandClient(fake_slurm_runner).query_queue((4101,))
+
+    detail = str(error.value).partition(": ")[2]
+    assert detail == "HF_TOKEN=<redacted> status=failed https://<redacted>@example.test/path"
+    assert "secret" not in detail
+    assert "suffix" not in detail
+
+
+@pytest.mark.parametrize(
+    "boundary",
+    (
+        pytest.param("\u00a0", id="no-break-space"),
+        pytest.param("\u1680", id="ogham-space"),
+        pytest.param("\u2007", id="figure-space"),
+        pytest.param("\u202f", id="narrow-no-break-space"),
+        pytest.param("\u205f", id="medium-mathematical-space"),
+        pytest.param("\u3000", id="ideographic-space"),
+    ),
+)
+def test_client_redacts_unicode_whitespace_credential_suffixes(
+    fake_slurm_runner: FakeSlurmRunner,
+    boundary: str,
+) -> None:
+    diagnostic = (
+        f"HF_TOKEN=assignment-secret{boundary}suffix status=failed "
+        f"https://user:uri-secret{boundary}suffix@example.test/path"
+    )
+    fake_slurm_runner.script_next("squeue", FakeCommandResponse(stderr=diagnostic, returncode=2))
+
+    with pytest.raises(SlurmCommandError) as error:
+        SlurmCommandClient(fake_slurm_runner).query_queue((4101,))
+
+    detail = str(error.value).partition(": ")[2]
+    assert detail == "HF_TOKEN=<redacted> status=failed https://<redacted>@example.test/path"
+    assert "secret" not in detail
+    assert "suffix" not in detail
+
+
+@pytest.mark.parametrize("line_break", ("\n", "\r", "\r\n"), ids=("line-feed", "carriage-return", "crlf"))
+def test_client_retains_unambiguous_diagnostic_line_boundaries(
+    fake_slurm_runner: FakeSlurmRunner,
+    line_break: str,
+) -> None:
+    fake_slurm_runner.script_next(
+        "squeue",
+        FakeCommandResponse(stderr=f"HF_TOKEN=secret{line_break}status=failed", returncode=2),
+    )
+
+    with pytest.raises(SlurmCommandError) as error:
+        SlurmCommandClient(fake_slurm_runner).query_queue((4101,))
+
+    assert str(error.value).endswith("HF_TOKEN=<redacted> status=failed")
+
+
+@pytest.mark.parametrize(
+    ("diagnostic", "secret"),
+    (
+        ("HF_TOKEN=super-secret-value", "super-secret-value"),
+        ('HF_TOKEN="quoted secret value"', "quoted secret value"),
+        ("--api-key plaintext-secret", "plaintext-secret"),
+        ("Authorization: Bearer bearer-secret;suffix status=failed", "bearer-secret;suffix"),
+        ('{"access_token":"json-secret"}', "json-secret"),
+        ("Authorization: Bearer bearer-secret", "bearer-secret"),
+        ("https://user:url-secret@example.test/index", "url-secret"),
+        (f"token github_pat_{'a' * 24}", f"github_pat_{'a' * 24}"),
+    ),
+    ids=(
+        "environment",
+        "quoted-environment",
+        "option",
+        "authorization-punctuation",
+        "json",
+        "authorization",
+        "url",
+        "known-token",
+    ),
+)
+def test_client_redacts_secrets_from_command_failures(
+    fake_slurm_runner: FakeSlurmRunner,
+    diagnostic: str,
+    secret: str,
+) -> None:
+    fake_slurm_runner.script_next("squeue", FakeCommandResponse(stderr=diagnostic, returncode=2))
+    client = SlurmCommandClient(fake_slurm_runner)
+
+    with pytest.raises(SlurmCommandError) as error:
+        client.query_queue((4101,))
+
+    assert secret not in str(error.value)
+    assert "<redacted>" in str(error.value)
+
+
+@pytest.mark.parametrize(
+    ("diagnostic", "expected", "secret"),
+    (
+        ("Authorization: Token token-secret status=failed", "Authorization: <redacted>", "token-secret"),
+        ("Authorization=ApiKey key-secret", "Authorization=<redacted>", "key-secret"),
+        ("authorization: opaque secret value", "authorization: <redacted>", "opaque secret value"),
+        (
+            "Authorization: Custom custom-secret\nstatus=failed",
+            "Authorization: <redacted> status=failed",
+            "custom-secret",
+        ),
+        (
+            '{"Authorization": "Bearer serialized-secret-value", "status": "failed"}',
+            '{"Authorization": <redacted>',
+            "serialized-secret-value",
+        ),
+    ),
+    ids=("token", "api-key", "bare", "newline-boundary", "serialized-header"),
+)
+def test_client_redacts_complete_authorization_values(
+    fake_slurm_runner: FakeSlurmRunner,
+    diagnostic: str,
+    expected: str,
+    secret: str,
+) -> None:
+    fake_slurm_runner.script_next("squeue", FakeCommandResponse(stderr=diagnostic, returncode=2))
+
+    with pytest.raises(SlurmCommandError) as error:
+        SlurmCommandClient(fake_slurm_runner).query_queue((4101,))
+
+    detail = str(error.value).partition(": ")[2]
+    assert detail == expected
+    assert secret not in detail
+
+
+def test_client_redacts_quoted_authorization_value_with_control_obscured_suffix(
+    fake_slurm_runner: FakeSlurmRunner,
+) -> None:
+    scheme = "Bear" + "er"
+    diagnostic = f'Authorization: "{scheme} token"\x00secret-suffix\nstatus=failed'
+    fake_slurm_runner.script_next("squeue", FakeCommandResponse(stderr=diagnostic, returncode=2))
+
+    with pytest.raises(SlurmCommandError) as error:
+        SlurmCommandClient(fake_slurm_runner).query_queue((4101,))
+
+    detail = str(error.value).partition(": ")[2]
+    assert detail == "Authorization: <redacted> status=failed"
+    assert "token" not in detail
+    assert "suffix" not in detail
+
+
+@pytest.mark.parametrize(
+    ("diagnostic", "expected"),
+    (
+        (
+            "https://user:first@second@example.test/index",
+            "https://<redacted>@example.test/index",
+        ),
+        ("ssh://user:secret@example.test/repository", "ssh://<redacted>@example.test/repository"),
+        ("git+ssh://user:p@ss@example.test/repository", "git+ssh://<redacted>@example.test/repository"),
+        ("https://example.test/path@owner", "https://example.test/path@owner"),
+    ),
+    ids=("last-at", "ssh", "compound-scheme", "at-after-path"),
+)
+def test_client_redacts_general_uri_userinfo(
+    fake_slurm_runner: FakeSlurmRunner,
+    diagnostic: str,
+    expected: str,
+) -> None:
+    fake_slurm_runner.script_next("squeue", FakeCommandResponse(stderr=diagnostic, returncode=2))
+
+    with pytest.raises(SlurmCommandError) as error:
+        SlurmCommandClient(fake_slurm_runner).query_queue((4101,))
+
+    assert str(error.value).partition(": ")[2] == expected
+
+
+@pytest.mark.parametrize(
+    ("diagnostic", "expected"),
+    (
+        ("HF_TOKEN=secret;status=failed job=4", "HF_TOKEN=<redacted> job=4"),
+        ("HF_TOKEN=secret,status=failed job=4", "HF_TOKEN=<redacted> job=4"),
+        ("HF_TOKEN=secret status=failed", "HF_TOKEN=<redacted> status=failed"),
+        ("status=failed;HF_TOKEN=secret;job=4 next=ready", "status=failed;HF_TOKEN=<redacted> next=ready"),
+        ("status=failed,HF_TOKEN=secret,job=4 next=ready", "status=failed,HF_TOKEN=<redacted> next=ready"),
+        ("status=failed HF_TOKEN=secret job=4", "status=failed HF_TOKEN=<redacted> job=4"),
+        ("status=failed; HF_TOKEN=secret, job=4", "status=failed; HF_TOKEN=<redacted> job=4"),
+        ("status=failed;HF_TOKEN=secret", "status=failed;HF_TOKEN=<redacted>"),
+        ("status=failed,HF_TOKEN=secret", "status=failed,HF_TOKEN=<redacted>"),
+        ("status=failed HF_TOKEN=secret", "status=failed HF_TOKEN=<redacted>"),
+        ("status=failed|HF_TOKEN=secret", "status=failed|HF_TOKEN=<redacted>"),
+        ("status=failed/HF_TOKEN=secret", "status=failed/HF_TOKEN=<redacted>"),
+        ("HF_TOKEN=secret;suffix status=failed", "HF_TOKEN=<redacted> status=failed"),
+        ("HF_TOKEN=secret,suffix status=failed", "HF_TOKEN=<redacted> status=failed"),
+        ("HF_TOKEN=secret;part=value status=failed", "HF_TOKEN=<redacted> status=failed"),
+        ("HF_TOKEN=secret,part=value status=failed", "HF_TOKEN=<redacted> status=failed"),
+        ('HF_TOKEN="secret";status=failed', "HF_TOKEN=<redacted>;status=failed"),
+    ),
+    ids=(
+        "first-semicolon",
+        "first-comma",
+        "first-whitespace",
+        "middle-semicolon",
+        "middle-comma",
+        "middle-whitespace",
+        "middle-spaced-punctuation",
+        "last-semicolon",
+        "last-comma",
+        "last-whitespace",
+        "pipe-before-secret",
+        "slash-before-secret",
+        "semicolon-inside-value",
+        "comma-inside-value",
+        "assignment-looking-semicolon-suffix",
+        "assignment-looking-comma-suffix",
+        "quoted-value-boundary",
+    ),
+)
+def test_client_redacts_adjacent_assignments_fail_closed(
+    fake_slurm_runner: FakeSlurmRunner,
+    diagnostic: str,
+    expected: str,
+) -> None:
+    fake_slurm_runner.script_next(
+        "squeue",
+        FakeCommandResponse(stderr=diagnostic, returncode=2),
+    )
+
+    with pytest.raises(SlurmCommandError) as error:
+        SlurmCommandClient(fake_slurm_runner).query_queue((4101,))
+
+    assert expected in str(error.value)
+    assert "HF_TOKEN=secret" not in str(error.value)
+
+
+@pytest.mark.parametrize(
+    ("diagnostic", "expected", "secret"),
+    (
+        ("--format compact|--api-key secret", "--format compact|--api-key <redacted>", "secret"),
+        ("--format compact|--api_key secret", "--format compact|--api_key <redacted>", "secret"),
+        ("--api-key plaintext-secret", "--api-key <redacted>", "plaintext-secret"),
+        ("--api_key plaintext-secret", "--api_key <redacted>", "plaintext-secret"),
+        ('--api_Key "quoted secret value" status=failed', "--api_Key <redacted> status=failed", "quoted secret value"),
+        (
+            "status=failed/--access_token.key 'single quoted secret' next=ready",
+            "status=failed/--access_token.key <redacted> next=ready",
+            "single quoted secret",
+        ),
+        ("--api-key secret;part=value status=failed", "--api-key <redacted> status=failed", "secret;part=value"),
+        ("--api_key secret,part=value status=failed", "--api_key <redacted> status=failed", "secret,part=value"),
+        ("--access-token_key mixed-secret", "--access-token_key <redacted>", "mixed-secret"),
+        ("--output_format compact status=failed", "--output_format compact status=failed", None),
+    ),
+    ids=(
+        "hyphen-after-unknown-separator",
+        "underscore-after-unknown-separator",
+        "hyphen-unquoted",
+        "underscore-unquoted",
+        "mixed-case-double-quoted",
+        "mixed-dot-underscore-single-quoted",
+        "hyphen-punctuation-suffix",
+        "underscore-punctuation-suffix",
+        "mixed-hyphen-underscore",
+        "nonsecret-underscore-preserved",
+    ),
+)
+def test_client_redacts_option_values_without_overlap(
+    fake_slurm_runner: FakeSlurmRunner,
+    diagnostic: str,
+    expected: str,
+    secret: str | None,
+) -> None:
+    fake_slurm_runner.script_next("squeue", FakeCommandResponse(stderr=diagnostic, returncode=2))
+
+    with pytest.raises(SlurmCommandError) as error:
+        SlurmCommandClient(fake_slurm_runner).query_queue((4101,))
+
+    detail = str(error.value).partition(": ")[2]
+    assert detail == expected
+    if secret is not None:
+        assert secret not in detail
+
+
 def test_client_bounds_command_failure_detail(fake_slurm_runner: FakeSlurmRunner) -> None:
     fake_slurm_runner.script_next("squeue", FakeCommandResponse(stderr="x" * 600, returncode=2))
     client = SlurmCommandClient(fake_slurm_runner)
