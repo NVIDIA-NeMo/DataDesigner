@@ -184,6 +184,31 @@ def test_public_audit_scans_unknown_suffix_archive_members(tmp_path: Path) -> No
     assert "GitHub token" in result.stderr
 
 
+def test_public_audit_detects_zip_archive_by_content(tmp_path: Path) -> None:
+    archive_path = tmp_path / "opaque-artifact"
+    with zipfile.ZipFile(archive_path, mode="w") as archive:
+        archive.writestr("credentials.env", f"token=github_pat_{'a' * 24}\n")
+
+    result = _run_audit(archive_path)
+
+    assert result.returncode == 1
+    assert "GitHub token" in result.stderr
+
+
+def test_public_audit_detects_tar_archive_by_content(tmp_path: Path) -> None:
+    archive_path = tmp_path / "opaque-artifact"
+    secret = f"nvapi-{'a' * 24}".encode()
+    with tarfile.open(archive_path, mode="w:gz") as archive:
+        member = tarfile.TarInfo("credentials.env")
+        member.size = len(secret)
+        archive.addfile(member, BytesIO(secret))
+
+    result = _run_audit(archive_path)
+
+    assert result.returncode == 1
+    assert "NGC API key" in result.stderr
+
+
 def test_public_audit_checks_runtime_tar_content_and_entrypoint_license(tmp_path: Path) -> None:
     archive_path = tmp_path / "runtime.tar.gz"
     secret = f"nvapi-{'a' * 24}"
@@ -199,6 +224,36 @@ def test_public_audit_checks_runtime_tar_content_and_entrypoint_license(tmp_path
     assert "NGC API key" in result.stderr
     assert "missing the NVIDIA Apache-2.0 SPDX header" in result.stderr
     assert secret not in result.stderr
+
+
+@pytest.mark.parametrize(
+    "member_type",
+    (tarfile.FIFOTYPE, tarfile.CHRTYPE, tarfile.BLKTYPE),
+    ids=("fifo", "character-device", "block-device"),
+)
+def test_public_audit_rejects_tar_special_members(tmp_path: Path, member_type: bytes) -> None:
+    archive_path = tmp_path / "runtime.tar"
+    with tarfile.open(archive_path, mode="w") as archive:
+        member = tarfile.TarInfo("unsupported-member")
+        member.type = member_type
+        archive.addfile(member)
+
+    result = _run_audit(archive_path)
+
+    assert result.returncode == 1
+    assert "archive member type is unsupported" in result.stderr
+
+
+def test_public_audit_allows_tar_directories(tmp_path: Path) -> None:
+    archive_path = tmp_path / "runtime.tar"
+    with tarfile.open(archive_path, mode="w") as archive:
+        directory = tarfile.TarInfo("runtime")
+        directory.type = tarfile.DIRTYPE
+        archive.addfile(directory)
+
+    result = _run_audit(archive_path)
+
+    assert result.returncode == 0, result.stderr
 
 
 def test_public_audit_rejects_explicit_symbolic_link_without_disclosing_its_parent(tmp_path: Path) -> None:

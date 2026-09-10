@@ -273,8 +273,10 @@ def _audit_tar_member(
         return [AuditFinding(location, "archive member path is unsafe")]
     if member.issym() or member.islnk():
         return [AuditFinding(location, "archive member is a link")]
-    if not member.isfile():
+    if member.isdir():
         return []
+    if not member.isfile():
+        return [AuditFinding(location, "archive member type is unsupported")]
     stream = archive.extractfile(member)
     if stream is None:
         return [AuditFinding(location, "archive member cannot be read")]
@@ -365,12 +367,22 @@ def _is_unsafe_archive_name(name: str) -> bool:
 
 
 def _is_zip_archive(path: Path) -> bool:
-    return path.suffix.casefold() in {".whl", ".zip"}
+    if path.suffix.casefold() in {".whl", ".zip"}:
+        return True
+    try:
+        return zipfile.is_zipfile(path)
+    except OSError:
+        return False
 
 
 def _is_tar_archive(path: Path) -> bool:
     normalized = path.name.casefold()
-    return normalized.endswith((".tar", ".tar.gz", ".tgz"))
+    if normalized.endswith((".tar", ".tar.gz", ".tgz")):
+        return True
+    try:
+        return tarfile.is_tarfile(path)
+    except OSError:
+        return False
 
 
 def _display_path(path: Path) -> str:
