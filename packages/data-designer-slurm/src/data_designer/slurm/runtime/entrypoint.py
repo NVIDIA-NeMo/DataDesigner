@@ -21,7 +21,11 @@ from data_designer.slurm.runtime.logs import execution_log_directory
 from data_designer.slurm.runtime.models import AllocationContext
 from data_designer.slurm.runtime.paths import get_container_path
 from data_designer.slurm.runtime.ports import resolve_allocation_deployments
-from data_designer.slurm.runtime.preflight import SystemAllocationPreflight
+from data_designer.slurm.runtime.preflight import (
+    AllocationLayout,
+    SystemAllocationPreflight,
+    validate_allocation_layout,
+)
 from data_designer.slurm.runtime.records import load_complete_client_candidate
 from data_designer.slurm.serving.deployment import ResolvedVllmServerDeployment
 from data_designer.slurm.state import (
@@ -76,6 +80,7 @@ def _parse_arguments(arguments: Sequence[str] | None) -> argparse.Namespace:
     prepare = subparsers.choices["prepare"]
     prepare.add_argument("--runtime-root", required=True, type=Path)
     prepare.add_argument("--manifest", required=True, type=Path)
+    prepare.add_argument("--node-host", action="append", required=True)
     client = subparsers.add_parser("client")
     _add_context_arguments(client)
     client.add_argument("--endpoint", action="append", default=[])
@@ -93,6 +98,8 @@ def _add_context_arguments(parser: argparse.ArgumentParser) -> None:
 def _prepare(arguments: argparse.Namespace, environment: Mapping[str, str]) -> None:
     context, writer = _load_context(arguments, environment)
     _validate_attempt_is_executable(context.attempt)
+    layout = AllocationLayout(tuple(arguments.node_host))
+    validate_allocation_layout(context.plan, layout)
     SystemAllocationPreflight.verify_attempt_directory(arguments.attempt_dir)
     SystemAllocationPreflight.verify_ports(context, environment)
     readiness = _begin_attempt(context, writer, environment)
@@ -104,6 +111,7 @@ def _prepare(arguments: argparse.Namespace, environment: Mapping[str, str]) -> N
         environment,
         runtime_root=arguments.runtime_root,
         log_directory=log_directory,
+        layout=layout,
     )
     expected_manifest = context.attempt_directory / "runtime-manifest.json"
     if arguments.manifest.as_posix() != get_container_path(
