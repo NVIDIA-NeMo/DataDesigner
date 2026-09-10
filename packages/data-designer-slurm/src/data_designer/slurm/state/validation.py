@@ -15,7 +15,11 @@ from data_designer.slurm.state.outputs import (
     CollectionPlan,
     ShardWinner,
 )
-from data_designer.slurm.state.scheduler import SchedulerObservation, SchedulerState
+from data_designer.slurm.state.scheduler import (
+    SchedulerObservation,
+    SchedulerState,
+    is_scheduler_terminal_state,
+)
 
 _ATTEMPT_STATE_ORDER = {
     AttemptLifecycleState.CREATED: 0,
@@ -183,6 +187,8 @@ def validate_scheduler_observation_transition(
     """Validate scheduler identity, chronology, and a fixed accounting-lag deadline."""
     _require(current.scheduler == previous.scheduler, "scheduler identity cannot change between observations")
     _require(current.observed_at >= previous.observed_at, "scheduler observed_at cannot move backward")
+    if is_scheduler_terminal_state(previous.state):
+        _require(current.state is previous.state, "terminal scheduler evidence cannot change")
 
     if previous.state is SchedulerState.ACCOUNTING_LAG:
         deadline = previous.reconciliation_deadline
@@ -196,6 +202,12 @@ def validate_scheduler_observation_transition(
             _require(
                 current.observed_at > deadline,
                 "accounting lag cannot become unknown before its reconciliation deadline expires",
+            )
+    if previous.state is SchedulerState.PREEMPTED and previous.reconciliation_deadline is not None:
+        if current.state is SchedulerState.PREEMPTED and current.reconciliation_deadline is not None:
+            _require(
+                current.reconciliation_deadline == previous.reconciliation_deadline,
+                "preemption reconciliation deadline cannot change",
             )
     return current
 

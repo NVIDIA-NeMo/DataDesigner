@@ -32,6 +32,8 @@ from data_designer.slurm.state import (
     DeploymentReadiness,
     EndpointPublicationState,
     ReadinessState,
+    RetryPlan,
+    RetryShard,
     RunManifest,
     ShardManifest,
     SlurmStateWriter,
@@ -250,6 +252,48 @@ def test_winner_finalization_failure_leaves_controller_attempt_retryable(runtime
     assert state.attempt.state is AttemptLifecycleState.FAILED
     assert state.attempt.candidate_output is not None
     assert state.winners == []
+
+
+def test_controller_binds_retry_resume_mode_to_client_and_workspace(runtime_case: RuntimeCase) -> None:
+    context = runtime_case.context
+    retry = RetryPlan(
+        schema_version=1,
+        retry_id="retry-0001",
+        run_id=context.plan.run_id,
+        created_at=runtime_case.created_at,
+        resolved_plan=context.attempt.resolved_plan,
+        planned_shards=(
+            RetryShard(
+                shard_id=context.shard.shard_id,
+                attempt_id=context.attempt.attempt_id,
+                attempt_ordinal=context.attempt.attempt_ordinal,
+                array_task_index=context.shard.array_task_index,
+            ),
+        ),
+        effective_resume_mode="never",
+    )
+    retry_context = replace(context, retry_plan=retry)
+    clock = FakeClock(runtime_case.created_at.replace(second=10), monotonic_time=100)
+    state = FakeStateStore(context.attempt)
+    runner = _FakeRunner(generation_hook=lambda: _write_complete_result(runtime_case, clock))
+    client_steps = FakeClientStepBuilder()
+    controller = OneNodeAllocationController(
+        retry_context,
+        runtime_proxy_path=context.attempt_directory / "runtime/proxy.py",
+        state=state,
+        supervisor=_supervisor(runner, clock),
+        preflight=FakePreflight(),
+        client_steps=client_steps,
+        prober=_FakeProber(ready=True, clock=clock),
+        clock=clock,
+        environment=_ALLOCATION_ENVIRONMENT,
+    )
+
+    result = controller.run()
+
+    assert result.state is AttemptLifecycleState.SUCCEEDED
+    assert client_steps.retry_resume_modes == ["never", "never"]
+    assert state.dataset_workspace_modes == ["never"]
 
 
 def test_preflight_failure_starts_no_process_and_fails_attempt(runtime_case: RuntimeCase) -> None:

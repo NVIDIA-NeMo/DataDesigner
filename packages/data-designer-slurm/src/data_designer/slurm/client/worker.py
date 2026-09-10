@@ -11,6 +11,7 @@ from collections.abc import Sequence
 from datetime import datetime, timezone
 from pathlib import Path
 
+from data_designer.config import ResumeMode
 from data_designer.slurm.client.environment import (
     ClientEnvironmentBuilder,
     PreparedClientEnvironment,
@@ -47,10 +48,23 @@ def main(argv: Sequence[str] | None = None) -> int:
         execution_module = importlib.import_module("data_designer.slurm.client.execution")
         ClientWorker = getattr(execution_module, "ClientWorker")
         worker = ClientWorker()
+        retry_resume = None if arguments.resume_mode is None else ResumeMode(arguments.resume_mode)
         if arguments.operation == "preflight":
-            worker.preflight(arguments.plan, prepared=prepared, endpoints=endpoints, plugins=plugins)
+            worker.preflight(
+                arguments.plan,
+                prepared=prepared,
+                endpoints=endpoints,
+                plugins=plugins,
+                retry_resume=retry_resume,
+            )
         else:
-            worker.run(arguments.plan, prepared=prepared, endpoints=endpoints, plugins=plugins)
+            worker.run(
+                arguments.plan,
+                prepared=prepared,
+                endpoints=endpoints,
+                plugins=plugins,
+                retry_resume=retry_resume,
+            )
         return 0
     except ClientWorkerError as error:
         if prepared is not None and error.code is ClientErrorCode.PLUGIN_LOAD_FAILED:
@@ -78,6 +92,7 @@ def _parse_arguments(argv: Sequence[str] | None) -> argparse.Namespace:
     parser.add_argument("--shard-id", required=True)
     parser.add_argument("--attempt-id", required=True)
     parser.add_argument("--attempt-dir", required=True, type=Path)
+    parser.add_argument("--resume-mode", choices=("never", "always"))
     parser.add_argument("--endpoint", action="append", default=[])
     return parser.parse_args(argv)
 

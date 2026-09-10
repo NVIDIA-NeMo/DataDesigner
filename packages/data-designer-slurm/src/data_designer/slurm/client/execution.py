@@ -79,6 +79,7 @@ class _ExecutionContext:
     builder: DataDesignerConfigBuilder
     designer: DataDesigner
     requested_resume: ResumeMode
+    retry_resume: ResumeMode | None
     dataset_path: Path
 
 
@@ -169,10 +170,16 @@ class ClientWorker:
         prepared: PreparedClientEnvironment,
         endpoints: Mapping[str, str],
         plugins: tuple[ClientPluginEntryPoint, ...],
+        retry_resume: ResumeMode | None = None,
     ) -> ClientEnvironmentManifest:
         """Validate packages, plugins, assets, and config without generation."""
         try:
-            context = self._build_context(plan_path, prepared=prepared, endpoints=endpoints)
+            context = self._build_context(
+                plan_path,
+                prepared=prepared,
+                endpoints=endpoints,
+                retry_resume=retry_resume,
+            )
             progress = _ProgressWriter(context, prepared, self._clock)
             progress.required(ClientProgressPhase.VALIDATING_PLUGINS)
             progress.required(ClientProgressPhase.VALIDATING_CONFIG)
@@ -200,12 +207,18 @@ class ClientWorker:
         prepared: PreparedClientEnvironment,
         endpoints: Mapping[str, str],
         plugins: tuple[ClientPluginEntryPoint, ...],
+        retry_resume: ResumeMode | None = None,
     ) -> ClientResult:
         """Invoke the public Data Designer generation contract and persist its result."""
         context: _ExecutionContext | None = None
         progress: _ProgressWriter | None = None
         try:
-            context = self._build_context(plan_path, prepared=prepared, endpoints=endpoints)
+            context = self._build_context(
+                plan_path,
+                prepared=prepared,
+                endpoints=endpoints,
+                retry_resume=retry_resume,
+            )
             progress = _ProgressWriter(context, prepared, self._clock, revision=2)
             self._validate_environment_manifest(context, prepared, plugins)
             progress.required(ClientProgressPhase.GENERATING, completed_records=0)
@@ -245,6 +258,7 @@ class ClientWorker:
         *,
         prepared: PreparedClientEnvironment,
         endpoints: Mapping[str, str],
+        retry_resume: ResumeMode | None = None,
     ) -> _ExecutionContext:
         try:
             plan = ResolvedSlurmRunPlan.model_validate_json(
@@ -283,7 +297,14 @@ class ClientWorker:
             mcp_providers = self._materialize_mcp_providers(plan)
             managed_assets_path = self._validate_assets(plan)
             requested_resume = ResumeMode(plan.invocation.authored.resume)
-            dataset_path = self._dataset_path(plan, shard, prepared, requested_resume)
+            execution_resume = requested_resume if retry_resume is None else retry_resume
+            if (
+                retry_resume is not None
+                and requested_resume is not ResumeMode.IF_POSSIBLE
+                and retry_resume is not requested_resume
+            ):
+                raise ClientWorkerError(ClientErrorCode.INVALID_INPUT, "retry resume mode differs from the plan")
+            dataset_path = self._dataset_path(plan, shard, prepared, execution_resume)
             designer = self._data_designer_factory(
                 artifact_path=dataset_path.parent,
                 model_providers=providers,
@@ -292,7 +313,7 @@ class ClientWorker:
                 auto_configure_logging=False,
             )
             designer.set_run_config(RunConfig.model_validate(plan.invocation.effective_run_config))
-            return _ExecutionContext(plan, shard, builder, designer, requested_resume, dataset_path)
+            return _ExecutionContext(plan, shard, builder, designer, requested_resume, retry_resume, dataset_path)
         except ClientWorkerError:
             raise
         except Exception as error:
@@ -485,9 +506,10 @@ class ClientWorker:
             ensure_private_directory(context.dataset_path.parent)
         elif not context.dataset_path.parent.is_dir():
             raise ClientWorkerError(ClientErrorCode.OUTPUT_INVALID, "shard dataset workspace is unavailable")
-        if context.requested_resume is not ResumeMode.NEVER:
+        execution_resume = context.requested_resume if context.retry_resume is None else context.retry_resume
+        if execution_resume is not ResumeMode.NEVER:
             ensure_private_directory(context.dataset_path)
-        if context.requested_resume is ResumeMode.NEVER and context.dataset_path.exists():
+        if execution_resume is ResumeMode.NEVER and context.dataset_path.exists():
             if not context.dataset_path.is_dir() or any(context.dataset_path.iterdir()):
                 raise ClientWorkerError(ClientErrorCode.OUTPUT_INVALID, "attempt dataset workspace is not empty")
 
@@ -503,7 +525,7 @@ class ClientWorker:
                     context.builder,
                     num_records=context.shard.requested_records,
                     dataset_name=context.dataset_path.name,
-                    resume=context.requested_resume,
+                    resume=context.requested_resume if context.retry_resume is None else context.retry_resume,
                     artifact_path=context.dataset_path.parent,
                     on_batch_complete=progress.on_batch_complete,
                 ),
@@ -538,11 +560,16 @@ class ClientWorker:
             raise ClientWorkerError(ClientErrorCode.OUTPUT_INVALID, "Data Designer result counts are invalid")
         if results.early_shutdown is None or results.effective_resume_mode is None:
             raise ClientWorkerError(ClientErrorCode.OUTPUT_INVALID, "Data Designer result metadata is incomplete")
-        if results.requested_resume_mode is not context.requested_resume:
+        execution_resume = context.requested_resume if context.retry_resume is None else context.retry_resume
+        if results.requested_resume_mode is not execution_resume:
             raise ClientWorkerError(ClientErrorCode.OUTPUT_INVALID, "Data Designer resume metadata differs")
 
         dataset_path = Path(results.dataset_path)
         effective_resume = results.effective_resume_mode
+        if context.retry_resume is not None and effective_resume is not context.retry_resume:
+            raise ClientWorkerError(
+                ClientErrorCode.OUTPUT_INVALID, "Data Designer effective resume mode differs from retry intent"
+            )
         shared_path = Path(get_container_path(context.plan, context.shard.resume_workspace.path, require_writable=True))
         expected_path = shared_path if effective_resume is ResumeMode.ALWAYS else prepared.attempt_dir / "dataset"
         if (
