@@ -25,12 +25,13 @@ from data_designer.slurm.state.errors import (
 )
 from data_designer.slurm.state.execution import AttemptLifecycleState, AttemptManifest, RunManifest, ShardManifest
 from data_designer.slurm.state.finalization import WinnerFinalizer
-from data_designer.slurm.state.outputs import CandidateOutputManifest, ShardWinner
+from data_designer.slurm.state.outputs import CandidateOutputManifest, RetryPlan, ShardWinner
 from data_designer.slurm.state.plan_validation import PersistedPlanStateValidator, PlanStateContractError
 from data_designer.slurm.state.reader import StateReader
 from data_designer.slurm.state.readiness import AttemptReadiness
 from data_designer.slurm.state.reconciliation import validate_readiness_transition
 from data_designer.slurm.state.results import AttemptResultPublisher
+from data_designer.slurm.state.retry_storage import RetryStorage
 from data_designer.slurm.state.storage import StateStorage
 from data_designer.slurm.state.validation import (
     StateContractError,
@@ -84,6 +85,7 @@ class SlurmStateWriter:
         self._reader = StateReader(self._storage, normalized_run_id)
         self._results = AttemptResultPublisher(self._storage, self._reader)
         self._finalizer = WinnerFinalizer(self._storage, self._reader)
+        self._retries = RetryStorage(self._storage)
         self._run_id = normalized_run_id
 
     @property
@@ -123,6 +125,22 @@ class SlurmStateWriter:
     def load_resolved_plan(self) -> ResolvedSlurmRunPlan:
         """Load and digest-verify the run's immutable resolved plan."""
         return self._reader.load_resolved_plan()
+
+    def load_retry_plan(self, retry_id: Identifier) -> RetryPlan:
+        """Load one retry plan and verify its status binds the same immutable record."""
+        try:
+            normalized_retry_id = _IDENTIFIER_ADAPTER.validate_python(retry_id, strict=True)
+            plan = self._retries.read_plan(normalized_retry_id)
+            status = self._retries.read_status(normalized_retry_id)
+            if status.retry_plan != self._retries.get_plan_reference(plan):
+                raise StateCorruptionError("retry status does not bind its persisted retry plan")
+            return plan
+        except (StateCorruptionError, StateNotFoundError):
+            raise
+        except (FileNotFoundError, ValidationError) as error:
+            raise StateNotFoundError(f"retry {retry_id!r} is unavailable") from error
+        except OSError as error:
+            raise StateCorruptionError(f"retry {retry_id!r} is unsafe or unreadable") from error
 
     def load_shards(self) -> tuple[ShardManifest, ...]:
         """Load and validate the complete ordered shard set."""

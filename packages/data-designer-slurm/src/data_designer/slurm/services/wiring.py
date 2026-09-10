@@ -65,15 +65,15 @@ from data_designer.slurm.serving.resolver import resolve_vllm_server
 from data_designer.slurm.state import (
     AttemptLifecycleState,
     AttemptManifest,
+    AttemptStatus,
     AttemptTerminalClassification,
     EffectiveAttemptState,
-    SchedulerObservation,
     SchedulerState,
     SlurmStateError,
+    SlurmStateReconciler,
     SlurmStateWriter,
     StateConflictError,
     StateNotFoundError,
-    reconcile_attempt_observation,
 )
 
 RunIdFactory = Callable[[], str]
@@ -548,63 +548,53 @@ class _SystemRunBackend:
         )
         if not active:
             return
-        identities = tuple(attempt.scheduler for attempt in active if attempt.scheduler is not None)
         try:
-            queue = {entry.job_identity: entry.state for entry in self._launcher.query_queue(identities)}
-            missing = tuple(identity for identity in identities if identity not in queue)
-            accounting = (
-                {entry.job_identity: entry.state for entry in self._launcher.query_accounting(missing)}
-                if missing
-                else {}
+            reconciled = SlurmStateReconciler(
+                self._profile.profile.workspace_root,
+                writer.load_run().run_id,
+                self._launcher,
+            ).refresh(observed_at=self._clock())
+        except SlurmStateError as error:
+            if isinstance(error.__cause__, SlurmLauncherError):
+                return
+            raise
+        active_identities = {(attempt.shard_id, attempt.attempt_id) for attempt in active}
+        for shard in reconciled.shards:
+            for status in shard.attempts:
+                if (status.attempt.shard_id, status.attempt.attempt_id) in active_identities:
+                    self._update_reconciled_attempt(writer, status)
+
+    @staticmethod
+    def _update_reconciled_attempt(
+        writer: SlurmStateWriter,
+        status: AttemptStatus,
+    ) -> None:
+        attempt = status.attempt
+        scheduler = status.scheduler
+        if scheduler is None:  # pragma: no cover - active attempts always have scheduler evidence
+            raise AssertionError("active attempt has no reconciled scheduler evidence")
+        update: dict[str, object] = {"updated_at": scheduler.observed_at}
+        if status.effective_state is EffectiveAttemptState.PENDING and attempt.state is AttemptLifecycleState.SUBMITTED:
+            update["state"] = AttemptLifecycleState.PENDING
+        elif status.effective_state is EffectiveAttemptState.RUNNING and attempt.state in {
+            AttemptLifecycleState.SUBMITTED,
+            AttemptLifecycleState.PENDING,
+        }:
+            update["state"] = AttemptLifecycleState.RUNNING
+        elif status.effective_state is EffectiveAttemptState.FAILED:
+            update.update(
+                state=AttemptLifecycleState.FAILED,
+                terminal_classification=_FAILURE_CLASSIFICATIONS.get(
+                    scheduler.state,
+                    AttemptTerminalClassification.UNKNOWN,
+                ),
             )
-        except SlurmLauncherError:
+        else:
             return
-        for attempt in active:
-            scheduler = attempt.scheduler
-            assert scheduler is not None
-            scheduler_state = queue.get(scheduler, accounting.get(scheduler))
-            if scheduler_state is None:
-                continue
-            readiness = _load_optional(lambda: writer.load_readiness(attempt.shard_id, attempt.attempt_id))
-            observed_at = max(
-                self._clock(),
-                attempt.updated_at,
-                readiness.updated_at if readiness is not None else attempt.updated_at,
-            )
-            observation = SchedulerObservation(
-                schema_version=1,
-                scheduler=scheduler,
-                observed_at=observed_at,
-                state=scheduler_state,
-            )
-            effective = reconcile_attempt_observation(
-                attempt,
-                readiness,
-                observation,
-                current_time=observed_at,
-            )
-            update: dict[str, object] = {"updated_at": observed_at}
-            if effective is EffectiveAttemptState.PENDING and attempt.state is AttemptLifecycleState.SUBMITTED:
-                update["state"] = AttemptLifecycleState.PENDING
-            elif effective is EffectiveAttemptState.RUNNING and attempt.state in {
-                AttemptLifecycleState.SUBMITTED,
-                AttemptLifecycleState.PENDING,
-            }:
-                update["state"] = AttemptLifecycleState.RUNNING
-            elif effective is EffectiveAttemptState.FAILED:
-                update.update(
-                    state=AttemptLifecycleState.FAILED,
-                    terminal_classification=_FAILURE_CLASSIFICATIONS.get(
-                        scheduler_state,
-                        AttemptTerminalClassification.UNKNOWN,
-                    ),
-                )
-            else:
-                continue
-            try:
-                writer.update_attempt(attempt.model_copy(update=update))
-            except StateConflictError:
-                continue
+        try:
+            writer.update_attempt(attempt.model_copy(update=update))
+        except StateConflictError:
+            return
 
     def cancel(self, run_id: Identifier) -> SlurmRunCancellation:
         status = self.status(run_id)
