@@ -7,13 +7,13 @@ from __future__ import annotations
 
 import argparse
 import os
-import subprocess
 import sys
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from data_designer.slurm.client.filesystem import ensure_private_directory, replace_private_text
+from data_designer.slurm.client.process import ClientWorkerProcess
 from data_designer.slurm.runtime.bootstrap import build_runtime_manifest
 from data_designer.slurm.runtime.context import load_allocation_context
 from data_designer.slurm.runtime.errors import SlurmRuntimeError, SlurmRuntimeErrorCode
@@ -145,8 +145,14 @@ def _ready(arguments: argparse.Namespace, environment: Mapping[str, str]) -> Non
     )
 
 
-def _client(arguments: argparse.Namespace, environment: Mapping[str, str]) -> None:
+def _client(
+    arguments: argparse.Namespace,
+    environment: Mapping[str, str],
+    *,
+    client_worker: ClientWorkerProcess | None = None,
+) -> None:
     context, writer = _load_context(arguments, environment)
+    worker_process = client_worker or ClientWorkerProcess()
     generation_started_at = _now(context.attempt, _load_optional_readiness(context, writer))
     resume_mode = (
         context.plan.invocation.authored.resume
@@ -158,7 +164,7 @@ def _client(arguments: argparse.Namespace, environment: Mapping[str, str]) -> No
         context.attempt.attempt_id,
         resume_mode,
     ):
-        return_code = run_client_worker(
+        return_code = worker_process.run(
             (
                 "run",
                 "--plan",
@@ -200,12 +206,6 @@ def _client(arguments: argparse.Namespace, environment: Mapping[str, str]) -> No
                 "client completion timestamp is later than the allocation clock",
             )
         writer.publish_attempt_result(client_result, candidate)
-
-
-def run_client_worker(arguments: Sequence[str]) -> int:
-    """Run the plugin-aware client worker in a fresh Python interpreter."""
-    command = (sys.executable, "-m", "data_designer.slurm.client.worker", *arguments)
-    return subprocess.run(command, check=False).returncode
 
 
 def _succeed(arguments: argparse.Namespace, environment: Mapping[str, str]) -> None:

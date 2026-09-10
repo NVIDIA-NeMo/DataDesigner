@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import subprocess
 import sys
-from collections.abc import Sequence
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -13,6 +12,7 @@ import pytest
 from conftest import FakeStateStore, RuntimeCase
 
 import data_designer.slurm.runtime.entrypoint as entrypoint
+from data_designer.slurm.client.process import ClientWorkerProcess
 from data_designer.slurm.contracts import ArtifactReference
 from data_designer.slurm.state import AttemptLifecycleState, ReadinessState
 
@@ -68,8 +68,6 @@ def test_container_phases_use_the_container_attempt_directory(
     with pytest.raises(_InjectedFailure):
         entrypoint._prepare(prepare, {})
 
-    monkeypatch.setattr(entrypoint, "run_client_worker", lambda arguments: 0)
-
     def load_candidate(*args: object, attempt_directory: Path | None = None) -> None:
         assert attempt_directory == container_attempt_directory
         raise _InjectedFailure
@@ -79,7 +77,7 @@ def test_container_phases_use_the_container_attempt_directory(
         _phase_arguments("client", runtime_case, attempt_directory=container_attempt_directory)
     )
     with pytest.raises(_InjectedFailure):
-        entrypoint._client(client, {})
+        entrypoint._client(client, {}, client_worker=ClientWorkerProcess(executor=lambda command: 0))
 
 
 def test_client_phase_starts_plugin_worker_in_a_fresh_interpreter(
@@ -93,14 +91,13 @@ def test_client_phase_starts_plugin_worker_in_a_fresh_interpreter(
     assert "data_designer.config.column_types" in sys.modules
     original_run = subprocess.run
 
-    def run_plugin_probe(command: Sequence[str], *, check: bool) -> subprocess.CompletedProcess[str]:
+    def run_plugin_probe(command: tuple[str, ...]) -> int:
         assert tuple(command[:4]) == (
             sys.executable,
             "-m",
             "data_designer.slurm.client.worker",
             "run",
         )
-        assert check is False
         script = """
 import sys
 from pathlib import Path
@@ -151,9 +148,7 @@ assert builder.get_column_configs()[0].column_type == "fake-slurm-column"
             text=True,
         )
         assert probe.returncode == 0, probe.stderr
-        return subprocess.CompletedProcess(command, returncode=0)
-
-    monkeypatch.setattr(entrypoint.subprocess, "run", run_plugin_probe)
+        return 0
 
     def load_candidate(*args: object, **kwargs: object) -> None:
         raise _InjectedFailure
@@ -162,7 +157,11 @@ assert builder.get_column_configs()[0].column_type == "fake-slurm-column"
     client = entrypoint._parse_arguments(_phase_arguments("client", runtime_case))
 
     with pytest.raises(_InjectedFailure):
-        entrypoint._client(client, {})
+        entrypoint._client(
+            client,
+            {},
+            client_worker=ClientWorkerProcess(executor=run_plugin_probe),
+        )
 
 
 def test_control_phases_record_running_ready_and_failed(
