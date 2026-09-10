@@ -14,7 +14,7 @@ from data_designer.slurm.planning import PlannedShard, ResolvedSlurmRunPlan
 from data_designer.slurm.runtime.errors import SlurmRuntimeError, SlurmRuntimeErrorCode
 from data_designer.slurm.runtime.models import AllocationContext
 from data_designer.slurm.runtime.paths import get_container_path
-from data_designer.slurm.state import SlurmStateWriter
+from data_designer.slurm.state import RetryPlan, SlurmStateError, SlurmStateWriter
 from data_designer.slurm.state.filesystem import open_verified_directory, read_regular_text
 
 _MAXIMUM_RECORD_SIZE = 16 * 1024 * 1024
@@ -24,6 +24,10 @@ def load_allocation_context(
     plan_path: Path,
     attempt_directory: Path,
     environment: Mapping[str, str],
+    *,
+    retry_id: str | None = None,
+    retry_plan_sha256: str | None = None,
+    effective_resume_mode: str | None = None,
 ) -> tuple[AllocationContext, SlurmStateWriter]:
     """Load one scheduler-selected shard attempt through its container paths."""
     writer = _load_state_writer(plan_path, attempt_directory)
@@ -50,7 +54,40 @@ def load_allocation_context(
             SlurmRuntimeErrorCode.INVALID_CONTEXT,
             "scheduler array job does not match the persisted attempt",
         )
-    return AllocationContext(plan, shard, attempt, host_attempt_directory), writer
+    retry_plan = _load_retry_plan(
+        writer,
+        retry_id=retry_id,
+        retry_plan_sha256=retry_plan_sha256,
+        effective_resume_mode=effective_resume_mode,
+    )
+    return AllocationContext(plan, shard, attempt, host_attempt_directory, retry_plan), writer
+
+
+def _load_retry_plan(
+    writer: SlurmStateWriter,
+    *,
+    retry_id: str | None,
+    retry_plan_sha256: str | None,
+    effective_resume_mode: str | None,
+) -> RetryPlan | None:
+    arguments = (retry_id, retry_plan_sha256, effective_resume_mode)
+    if all(argument is None for argument in arguments):
+        return None
+    if any(argument is None for argument in arguments):
+        raise SlurmRuntimeError(SlurmRuntimeErrorCode.INVALID_CONTEXT, "runtime retry binding is incomplete")
+    assert retry_id is not None and retry_plan_sha256 is not None and effective_resume_mode is not None
+    if effective_resume_mode not in {"never", "always"}:
+        raise SlurmRuntimeError(SlurmRuntimeErrorCode.INVALID_CONTEXT, "runtime retry resume mode is invalid")
+    try:
+        retry_plan = writer.load_retry_plan(retry_id)
+    except SlurmStateError as error:
+        raise SlurmRuntimeError(SlurmRuntimeErrorCode.INVALID_CONTEXT, "runtime retry plan is unavailable") from error
+    if retry_plan.compute_sha256() != retry_plan_sha256 or retry_plan.effective_resume_mode != effective_resume_mode:
+        raise SlurmRuntimeError(
+            SlurmRuntimeErrorCode.INVALID_CONTEXT,
+            "runtime retry binding differs from persisted state",
+        )
+    return retry_plan
 
 
 def _load_state_writer(plan_path: Path, attempt_directory: Path) -> SlurmStateWriter:

@@ -203,6 +203,7 @@ def _build_client_step(
     log_directory: Path,
 ) -> RuntimeStepSpec:
     plan = context.plan
+    retry_resume_mode = None if context.retry_plan is None else context.retry_plan.effective_resume_mode
     command = build_client_command(
         "preflight" if operation == "preflight" else "run",
         plan,
@@ -210,15 +211,35 @@ def _build_client_step(
         context.attempt,
         context.attempt_directory,
         endpoints,
+        retry_resume_mode,
     )
     if operation == "client":
+        endpoint_arguments = tuple(
+            argument
+            for endpoint in endpoints
+            for argument in ("--endpoint", f"{endpoint.model_alias}=http://{endpoint.host}:{endpoint.port}/v1")
+        )
+        retry_binding = (
+            ()
+            if context.retry_plan is None
+            else (
+                "--retry-id",
+                context.retry_plan.retry_id,
+                "--retry-plan-sha256",
+                context.retry_plan.compute_sha256(),
+                "--effective-resume-mode",
+                context.retry_plan.effective_resume_mode,
+            )
+        )
         command = (
             "python3",
             "-m",
             "data_designer.slurm.runtime.entrypoint",
             "client",
             *command[4:6],
-            *command[10:],
+            *command[10:12],
+            *retry_binding,
+            *endpoint_arguments,
         )
     secret_names = collect_secret_environment_names(
         (plan.client.authored.dependencies.index_credentials, plan.invocation.authored.mcp_providers)

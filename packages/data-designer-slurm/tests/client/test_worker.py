@@ -135,6 +135,8 @@ def test_main_preserves_equals_in_model_alias(
             client_worker_case.prepared.attempt_id,
             "--attempt-dir",
             client_worker_case.attempt_dir.as_posix(),
+            "--resume-mode",
+            "always",
             "--endpoint",
             f"judge=v2={endpoint}",
         ]
@@ -142,6 +144,7 @@ def test_main_preserves_equals_in_model_alias(
 
     assert result == 0
     assert worker.preflight.call_args.kwargs["endpoints"] == {"judge=v2": endpoint}
+    assert worker.preflight.call_args.kwargs["retry_resume"] is ResumeMode.ALWAYS
 
 
 @pytest.mark.parametrize(
@@ -346,6 +349,77 @@ def test_if_possible_without_workspace_uses_attempt_dataset(client_worker_case: 
     assert result.requested_resume_mode == "if_possible"
     assert result.effective_resume_mode == "never"
     assert result.dataset_path == (client_worker_case.attempt_dir / "dataset").as_posix()
+
+
+@pytest.mark.parametrize("retry_resume", [ResumeMode.NEVER, ResumeMode.ALWAYS])
+def test_retry_resume_mode_controls_if_possible_generation(
+    client_worker_case: ClientWorkerCase,
+    retry_resume: ResumeMode,
+) -> None:
+    payload = client_worker_case.plan.model_dump(mode="json")
+    payload["invocation"]["authored"]["resume"] = "if_possible"
+    plan = ResolvedSlurmRunPlan.model_validate_json(json.dumps(payload))
+    client_worker_case.plan_path.write_text(plan.serialize_json())
+    if retry_resume is ResumeMode.ALWAYS:
+        resume_path = Path(plan.shards[0].resume_workspace.path)
+        resume_path.mkdir()
+        (resume_path / "partial").touch()
+    worker = ClientWorker(
+        data_designer_factory=partial(FakeDataDesigner, effective_resume=retry_resume),
+    )
+    worker.preflight(
+        client_worker_case.plan_path,
+        prepared=client_worker_case.prepared,
+        endpoints=client_worker_case.endpoints,
+        plugins=(),
+        retry_resume=retry_resume,
+    )
+
+    result = worker.run(
+        client_worker_case.plan_path,
+        prepared=client_worker_case.prepared,
+        endpoints=client_worker_case.endpoints,
+        plugins=(),
+        retry_resume=retry_resume,
+    )
+
+    expected_path = (
+        Path(plan.shards[0].resume_workspace.path)
+        if retry_resume is ResumeMode.ALWAYS
+        else client_worker_case.attempt_dir / "dataset"
+    )
+    assert result.requested_resume_mode == "if_possible"
+    assert result.effective_resume_mode == retry_resume.value
+    assert result.dataset_path == expected_path.as_posix()
+
+
+def test_retry_rejects_effective_resume_mode_drift(client_worker_case: ClientWorkerCase) -> None:
+    payload = client_worker_case.plan.model_dump(mode="json")
+    payload["invocation"]["authored"]["resume"] = "if_possible"
+    plan = ResolvedSlurmRunPlan.model_validate_json(json.dumps(payload))
+    client_worker_case.plan_path.write_text(plan.serialize_json())
+    resume_path = Path(plan.shards[0].resume_workspace.path)
+    resume_path.mkdir()
+    (resume_path / "partial").touch()
+    worker = ClientWorker(data_designer_factory=FakeDataDesigner)
+    worker.preflight(
+        client_worker_case.plan_path,
+        prepared=client_worker_case.prepared,
+        endpoints=client_worker_case.endpoints,
+        plugins=(),
+        retry_resume=ResumeMode.ALWAYS,
+    )
+
+    with pytest.raises(ClientWorkerError) as error:
+        worker.run(
+            client_worker_case.plan_path,
+            prepared=client_worker_case.prepared,
+            endpoints=client_worker_case.endpoints,
+            plugins=(),
+            retry_resume=ResumeMode.ALWAYS,
+        )
+
+    assert error.value.code is ClientErrorCode.OUTPUT_INVALID
 
 
 def test_if_possible_interruption_preserves_workspace_for_retry(client_worker_case: ClientWorkerCase) -> None:

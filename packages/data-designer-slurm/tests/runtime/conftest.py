@@ -151,6 +151,9 @@ class FakePreflight:
 
 
 class FakeClientStepBuilder:
+    def __init__(self) -> None:
+        self.retry_resume_modes: list[Literal["never", "always"] | None] = []
+
     def build_preflight_step(
         self,
         plan: ResolvedSlurmRunPlan,
@@ -159,8 +162,11 @@ class FakeClientStepBuilder:
         attempt_directory: Path,
         endpoints: tuple[RuntimeEndpoint, ...],
         source_environment: object,
+        *,
+        retry_resume_mode: Literal["never", "always"] | None = None,
     ) -> RuntimeStep:
         del plan, shard, attempt, endpoints, source_environment
+        self.retry_resume_modes.append(retry_resume_mode)
         return _step("client-preflight", RuntimeStepRole.CLIENT_PREFLIGHT, attempt_directory)
 
     def build_generation_step(
@@ -171,8 +177,11 @@ class FakeClientStepBuilder:
         attempt_directory: Path,
         endpoints: tuple[RuntimeEndpoint, ...],
         source_environment: object,
+        *,
+        retry_resume_mode: Literal["never", "always"] | None = None,
     ) -> RuntimeStep:
         del plan, shard, attempt, endpoints, source_environment
+        self.retry_resume_modes.append(retry_resume_mode)
         return _step("client-generation", RuntimeStepRole.CLIENT, attempt_directory)
 
 
