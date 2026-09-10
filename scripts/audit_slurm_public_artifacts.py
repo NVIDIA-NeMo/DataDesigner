@@ -42,21 +42,25 @@ _LICENSED_SOURCE_SUFFIXES = frozenset({".py", ".rc", ".sh"})
 _SPDX_COPYRIGHT = "SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved."
 _SPDX_LICENSE = "SPDX-License-Identifier: Apache-2.0"
 _SLURM_DIST_INFO_PATTERN = re.compile(r"^data_designer_slurm-[^/]+\.dist-info$")
+_SENTINEL_VALUE_CHARACTERS = r"A-Za-z0-9+/_.:@-"
 _TEST_SOURCE_SENTINELS = {
     "packages/data-designer-slurm/tests/config/test_loading_builder.py": (
         '"clusters": {secret: profile_catalog.clusters["primary"]}',
         "super-secret-token",
+        "super-secret-token: x",
         "sk_live_ABC123XYZ",
     ),
     "packages/data-designer-slurm/tests/contracts/test_config_records.py": ("plaintext-secret",),
     "packages/data-designer-slurm/tests/launcher/test_client.py": (
         "Authorization: Bearer bearer-secret;suffix status=failed",
         "Authorization: Bearer bearer-secret",
+        '{"Authorization": "Bearer serialized-secret-value", "status": "failed"}',
     ),
     "packages/data-designer-slurm/tests/planning/test_compiler.py": ("super-secret-token",),
     "packages/data-designer-slurm/tests/test_public_artifacts.py": (
         "/home/specific-user/run",
         "10.23.45.67",
+        "data_designer/slurm/10.23.45.67.py",
         "service.internal.nvidia.com",
         "super-secret-token",
     ),
@@ -102,7 +106,10 @@ _CONTENT_RULES = (
             r"\b\s*[:=]\s*[\"']?(?!<|\$|\{|\[)[A-Za-z0-9+/_.:@-]{16,}"
         ),
     ),
-    AuditRule("authorization credential", re.compile(r"(?i)\bauthorization\s*:\s*(?:basic|bearer)\s+\S{16,}")),
+    AuditRule(
+        "authorization credential",
+        re.compile(r"(?i)(?P<quote>[\"']?)\bauthorization(?P=quote)\s*:\s*[\"']?(?:basic|bearer)\s+\S{16,}"),
+    ),
     AuditRule(
         "internal NVIDIA hostname",
         re.compile(r"(?i)\b(?:(?:[a-z0-9-]+\.)*(?:corp|internal)|gitlab-master|urm)\.nvidia\.com\b"),
@@ -132,7 +139,9 @@ def audit_public_artifacts(paths: Iterable[Path]) -> tuple[AuditFinding, ...]:
                     )
                 elif "__pycache__" in child.parts:
                     continue
-                elif child.is_file():
+                elif child.is_dir():
+                    continue
+                else:
                     findings.extend(_audit_file(child))
         else:
             findings.extend(_audit_file(path))
@@ -140,6 +149,12 @@ def audit_public_artifacts(paths: Iterable[Path]) -> tuple[AuditFinding, ...]:
 
 
 def _audit_file(path: Path) -> list[AuditFinding]:
+    try:
+        mode = path.lstat().st_mode
+    except OSError:
+        return [AuditFinding(_display_path(path), "artifact cannot be inspected")]
+    if not stat.S_ISREG(mode):
+        return [AuditFinding(_display_path(path), "artifact is not a regular file")]
     if _is_zip_archive(path):
         return _audit_zip(path)
     if _is_tar_archive(path):
@@ -233,8 +248,13 @@ def _audit_zip_member(
     try:
         with archive.open(member) as stream:
             content = _read_bounded(stream, expected_size=member.file_size)
-    except (OSError, ValueError) as error:
+    except ValueError as error:
         return _ZipMemberAudit((AuditFinding(location, str(error)),), dist_info_root=dist_info_root)
+    except (OSError, RuntimeError, NotImplementedError, zipfile.BadZipFile):
+        return _ZipMemberAudit(
+            (AuditFinding(location, "archive member cannot be read"),),
+            dist_info_root=dist_info_root,
+        )
     return _ZipMemberAudit(
         findings=tuple(_audit_content(location, member.filename, content)),
         dist_info_root=dist_info_root,
@@ -305,7 +325,11 @@ def _audit_content(
 ) -> list[AuditFinding]:
     text = content.decode("utf-8", errors="replace")
     for sentinel in sorted(allowed_sentinels, key=len, reverse=True):
-        text = text.replace(sentinel, "<allowed-test-sentinel>")
+        text = re.sub(
+            rf"(?<![{_SENTINEL_VALUE_CHARACTERS}]){re.escape(sentinel)}(?![{_SENTINEL_VALUE_CHARACTERS}])",
+            "<allowed-test-sentinel>",
+            text,
+        )
     findings = [
         AuditFinding(location, rule.name)
         for rule in _CONTENT_RULES

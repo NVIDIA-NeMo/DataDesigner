@@ -38,8 +38,8 @@ dependent implementation and documentation must still be frozen and validated to
   reports only `click` and `typer` as transitive imports guaranteed by the exact-version `data-designer` dependency;
   there are no unresolved imported modules.
 - The scanner deliberately permits only generic test representations that its high-confidence rules do not classify:
-  `example.test` hosts, loopback addresses, and `/workspace` paths. Python test modules contain deliberate credential
-  sentinels and are not default publication inputs; maintained golden and fixture artifacts are scanned.
+  `example.test` hosts, loopback addresses, and `/workspace` paths. Its default scope includes the complete Python test
+  tree and masks only exact, path-scoped synthetic sentinel values before applying the same high-confidence rules.
 
 ## Commands for this review slice
 

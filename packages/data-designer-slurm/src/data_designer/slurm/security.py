@@ -14,7 +14,10 @@ _ASSIGNMENT_START_PATTERN = re.compile(
     r"(?P<prefix>(?P<quote>[\"']?)(?P<name>-{0,2}[A-Za-z][A-Za-z0-9_.-]*)(?P=quote)\s*[:=]\s*)"
 )
 _OPTION_START_PATTERN = re.compile(r"(?P<prefix>(?P<name>--[A-Za-z][A-Za-z0-9_.-]*)\s+)")
-_AUTHORIZATION_PATTERN = re.compile(r"(?i)(?P<prefix>\bauthorization\s*[:=]\s*)[^\r\n]*")
+_AUTHORIZATION_PATTERN = re.compile(
+    r"(?i)(?P<prefix>(?P<key_quote>[\"']?)\bauthorization(?P=key_quote)\s*[:=]\s*)"
+    r"(?P<value>\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'|[^\r\n]*)"
+)
 _URL_USERINFO_PATTERN = re.compile(r"(?i)(?P<scheme>\b[A-Za-z][A-Za-z0-9+.-]*://)[^/\s?#]*@")
 _TOKEN_PATTERNS = (
     re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
@@ -52,7 +55,14 @@ def _redact_sensitive_text(
     replacement: str,
     protected_replacement: str | None = None,
 ) -> str:
-    redacted = _AUTHORIZATION_PATTERN.sub(lambda match: f"{match.group('prefix')}{replacement}", value)
+    redacted = _AUTHORIZATION_PATTERN.sub(
+        lambda match: _redact_authorization_value(
+            match,
+            replacement=replacement,
+            protected_replacement=protected_replacement,
+        ),
+        value,
+    )
     redacted = _URL_USERINFO_PATTERN.sub(lambda match: f"{match.group('scheme')}{replacement}@", redacted)
     redacted = _redact_named_values(
         redacted,
@@ -69,6 +79,17 @@ def _redact_sensitive_text(
     for pattern in _TOKEN_PATTERNS:
         redacted = pattern.sub(replacement, redacted)
     return redacted
+
+
+def _redact_authorization_value(
+    match: re.Match[str],
+    *,
+    replacement: str,
+    protected_replacement: str | None,
+) -> str:
+    if protected_replacement is not None and match.group("value").startswith(protected_replacement):
+        return match.group(0)
+    return f"{match.group('prefix')}{replacement}"
 
 
 def _redact_named_values(
@@ -122,9 +143,11 @@ def _find_quoted_value_end(value: str, start: int) -> int:
 
 
 def _replace_control_characters(value: str, *, replacement: str) -> str:
-    """Replace non-line controls while retaining diagnostic line boundaries."""
+    """Replace ambiguous non-line boundaries before scanning for secrets."""
     return "".join(
-        character if character in "\r\n" or not unicodedata.category(character).startswith("C") else replacement
+        character
+        if character in "\r\n " or not (character.isspace() or unicodedata.category(character).startswith("C"))
+        else replacement
         for character in value
     )
 

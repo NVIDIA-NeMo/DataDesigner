@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 import tarfile
@@ -50,6 +51,18 @@ def test_public_audit_reports_rule_without_echoing_sensitive_content(
     assert rule in result.stderr
     assert content.strip() not in result.stderr
     assert str(tmp_path) not in result.stderr
+
+
+def test_public_audit_detects_quoted_authorization_header(tmp_path: Path) -> None:
+    artifact = tmp_path / "runtime.log"
+    serialized_header = '{"Author' + 'ization": "Bearer ' + "serialized-secret-value" + '"}\n'
+    artifact.write_text(serialized_header)
+
+    result = _run_audit(artifact)
+
+    assert result.returncode == 1
+    assert "authorization credential" in result.stderr
+    assert "serialized-secret-value" not in result.stderr
 
 
 def test_public_audit_checks_wheel_members_and_license_text(tmp_path: Path) -> None:
@@ -173,6 +186,25 @@ def test_public_audit_scans_archive_member_names_without_echoing_them(tmp_path: 
     assert sensitive_member not in result.stderr
 
 
+def test_public_audit_sanitizes_encrypted_zip_member_failures(tmp_path: Path) -> None:
+    archive_path = tmp_path / "artifacts.zip"
+    sensitive_member = "sensitive-member-name.txt"
+    with zipfile.ZipFile(archive_path, mode="w") as archive:
+        archive.writestr(sensitive_member, "safe\n")
+    content = bytearray(archive_path.read_bytes())
+    local_header = content.index(b"PK\x03\x04")
+    central_header = content.index(b"PK\x01\x02")
+    content[local_header + 6] |= 1
+    content[central_header + 8] |= 1
+    archive_path.write_bytes(content)
+
+    result = _run_audit(archive_path)
+
+    assert result.returncode == 1
+    assert "archive member cannot be read" in result.stderr
+    assert sensitive_member not in result.stderr
+
+
 def test_public_audit_scans_unknown_suffix_archive_members(tmp_path: Path) -> None:
     archive_path = tmp_path / "artifacts.zip"
     with zipfile.ZipFile(archive_path, mode="w") as archive:
@@ -282,6 +314,19 @@ def test_public_audit_rejects_symbolic_link_named_as_generated_cache(tmp_path: P
     assert "symbolic-link artifact requires explicit review" in result.stderr
 
 
+@pytest.mark.parametrize("scan_directory", (False, True), ids=("explicit", "directory"))
+def test_public_audit_rejects_fifo_without_opening_it(tmp_path: Path, scan_directory: bool) -> None:
+    artifacts = tmp_path / "artifacts"
+    artifacts.mkdir()
+    fifo = artifacts / "named-pipe"
+    os.mkfifo(fifo)
+
+    result = _run_audit(artifacts if scan_directory else fifo)
+
+    assert result.returncode == 1
+    assert "artifact is not a regular file" in result.stderr
+
+
 @pytest.mark.parametrize("filename", ("credentials.env", "records.csv", "METADATA", "LICENSE"))
 def test_public_audit_scans_content_with_unknown_or_empty_suffixes(tmp_path: Path, filename: str) -> None:
     artifact = tmp_path / filename
@@ -303,11 +348,27 @@ def test_public_audit_does_not_allow_test_sentinels_outside_exact_sources(tmp_pa
     assert "plaintext secret assignment" in result.stderr
 
 
-def _run_audit(*paths: Path) -> subprocess.CompletedProcess[str]:
+def test_public_audit_does_not_mask_sentinel_prefixes(tmp_path: Path) -> None:
+    audit_script = tmp_path / "scripts" / "audit_slurm_public_artifacts.py"
+    audit_script.parent.mkdir()
+    audit_script.write_bytes(AUDIT_SCRIPT.read_bytes())
+    artifact = tmp_path / "packages" / "data-designer-slurm" / "tests" / "config" / "test_loading_builder.py"
+    artifact.parent.mkdir(parents=True)
+    extended_sentinel = "super-secret-token" + "-production-value"
+    artifact.write_text(f'secret = "{extended_sentinel}"\n')
+
+    result = _run_audit(artifact, audit_script=audit_script)
+
+    assert result.returncode == 1
+    assert "plaintext secret assignment" in result.stderr
+
+
+def _run_audit(*paths: Path, audit_script: Path = AUDIT_SCRIPT) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        [sys.executable, str(AUDIT_SCRIPT), *(str(path) for path in paths)],
+        [sys.executable, str(audit_script), *(str(path) for path in paths)],
         cwd=REPOSITORY_ROOT,
         check=False,
         capture_output=True,
         text=True,
+        timeout=10,
     )
