@@ -60,6 +60,8 @@ def test_entrypoint_rejects_relative_paths_without_traceback(capsys: pytest.Capt
                 "runtime",
                 "--manifest",
                 "runtime-manifest.json",
+                "--node-host",
+                "compute-001",
             )
         )
         == 64
@@ -465,5 +467,13 @@ def _phase_arguments(
     )
     if operation == "prepare":
         assert runtime_root is not None and manifest_path is not None
-        return (*arguments, "--runtime-root", runtime_root.as_posix(), "--manifest", manifest_path.as_posix())
+        return (
+            *arguments,
+            "--runtime-root",
+            runtime_root.as_posix(),
+            "--manifest",
+            manifest_path.as_posix(),
+            "--node-host",
+            "compute-001",
+        )
     return arguments

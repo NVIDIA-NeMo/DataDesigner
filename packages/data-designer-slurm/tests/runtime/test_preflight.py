@@ -6,6 +6,8 @@ from __future__ import annotations
 import hashlib
 import os
 from pathlib import Path
+from types import SimpleNamespace
+from typing import cast
 
 import pytest
 from conftest import RuntimeCase
@@ -15,7 +17,40 @@ from data_designer.slurm.contracts import ArtifactReference
 from data_designer.slurm.runtime import preflight as runtime_preflight
 from data_designer.slurm.runtime.errors import SlurmRuntimeError
 from data_designer.slurm.runtime.models import AllocationContext
-from data_designer.slurm.runtime.preflight import SystemAllocationPreflight, _verify_artifact
+from data_designer.slurm.runtime.preflight import AllocationLayout, SystemAllocationPreflight, _verify_artifact
+
+
+def test_allocation_layout_rejects_invalid_hosts_and_indices() -> None:
+    layout = AllocationLayout(("compute-001", "compute-002"))
+
+    with pytest.raises(SlurmRuntimeError, match="outside"):
+        layout.get_host(-1)
+    with pytest.raises(SlurmRuntimeError, match="identity"):
+        AllocationLayout(("compute-001", "--invalid"))
+
+
+def test_scheduler_preflight_accepts_complete_multi_node_plan() -> None:
+    context = cast(
+        AllocationContext,
+        SimpleNamespace(
+            plan=SimpleNamespace(
+                client=SimpleNamespace(host_node_index=0),
+                deployments=(SimpleNamespace(node_indices=(0, 1)), SimpleNamespace(node_indices=(2,))),
+                resolved_gpus_per_node=8,
+            ),
+            attempt=SimpleNamespace(scheduler=SimpleNamespace(array_job_id=4101)),
+            shard=SimpleNamespace(array_task_index=0),
+        ),
+    )
+    environment = {
+        "SLURM_ARRAY_JOB_ID": "4101",
+        "SLURM_ARRAY_TASK_ID": "0",
+        "SLURM_JOB_NUM_NODES": "3",
+        "SLURM_NODEID": "0",
+        "CUDA_VISIBLE_DEVICES": "0,1,2,3,4,5,6,7",
+    }
+
+    SystemAllocationPreflight._verify_scheduler(context, environment)
 
 
 def test_scheduler_preflight_accepts_exact_one_node_gpu_shape(runtime_case: RuntimeCase) -> None:
