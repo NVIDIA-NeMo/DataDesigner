@@ -245,7 +245,6 @@ def test_run_service_delegates_retry_with_stable_shard_order() -> None:
         "42",
         shard_ids=("shard-00003", "shard-00001"),
         resume="always",
-        force=True,
     )
 
     assert result is expected
@@ -254,25 +253,22 @@ def test_run_service_delegates_retry_with_stable_shard_order() -> None:
         shard_ids=("shard-00001", "shard-00003"),
         resume="always",
         dry_run=False,
-        force=True,
     )
 
 
 @pytest.mark.parametrize(
-    ("shard_ids", "resume", "dry_run", "force"),
+    ("shard_ids", "resume", "dry_run"),
     [
-        ((), "never", False, False),
-        (("shard-00001", "shard-00001"), "never", False, False),
-        (None, "sometimes", False, False),
-        (None, "never", 1, False),
-        (None, "never", False, 1),
+        ((), "never", False),
+        (("shard-00001", "shard-00001"), "never", False),
+        (None, "sometimes", False),
+        (None, "never", 1),
     ],
 )
 def test_run_service_rejects_invalid_retry_actions(
     shard_ids: object,
     resume: object,
     dry_run: object,
-    force: object,
 ) -> None:
     service = SlurmRunService(FakeRunPlanningBackend(()), FakeBatchScriptRenderer(()), Mock(spec=SlurmRunBackend))
 
@@ -282,7 +278,6 @@ def test_run_service_rejects_invalid_retry_actions(
             shard_ids=shard_ids,
             resume=resume,
             dry_run=dry_run,
-            force=force,
         )
 
     assert caught.value.code is SlurmServiceErrorCode.INVALID_REQUEST
@@ -310,6 +305,27 @@ def test_run_service_normalizes_collection_paths(tmp_path: Path, monkeypatch: py
         tmp_path / "runs/run-0001",
         destination=tmp_path / "collected",
         num_partitions=2,
+    )
+
+
+def test_run_service_uses_persisted_collection_partitions_when_omitted(tmp_path: Path) -> None:
+    backend = Mock(spec=SlurmRunBackend)
+    expected = SlurmCollectionExecution(
+        run_id="run-0001",
+        collection_id="collection-0001",
+        state=CollectionState.SUBMITTED,
+        job_id=44,
+        output_path=(tmp_path / "collected").as_posix(),
+        num_partitions=2,
+    )
+    backend.collect.return_value = expected
+    service = SlurmRunService(FakeRunPlanningBackend(()), FakeBatchScriptRenderer(()), backend)
+
+    assert service.collect(tmp_path / "runs/run-0001", destination=tmp_path / "collected") is expected
+    backend.collect.assert_called_once_with(
+        tmp_path / "runs/run-0001",
+        destination=tmp_path / "collected",
+        num_partitions=None,
     )
 
 

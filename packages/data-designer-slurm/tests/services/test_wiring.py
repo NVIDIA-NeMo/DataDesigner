@@ -461,7 +461,10 @@ def test_status_does_not_expire_requeue_window_from_another_attempt_clock(
     single_node_plan: ResolvedSlurmRunPlan,
 ) -> None:
     authored = authored_run_single.model_copy(
-        update={"array_tasks": authored_run_single.array_tasks.model_copy(update={"count": 2})}
+        update={
+            "array_tasks": authored_run_single.array_tasks.model_copy(update={"count": 2}),
+            "invocation": authored_run_single.invocation.model_copy(update={"resume": "if_possible"}),
+        }
     )
     _register_images(tmp_path, authored, single_node_plan)
     launcher = _Launcher()
@@ -531,18 +534,20 @@ def test_production_retry_dry_run_and_submission_are_sparse_and_idempotent(
         ),
     )
 
-    preview = service.retry("42", shard_ids=("shard-00000",), resume="never", dry_run=True)
+    preview = service.retry("42", shard_ids=("shard-00000",), resume="if_possible", dry_run=True)
     assert not (tmp_path / "runs" / "run-wired" / "retries").exists()
+    assert not (tmp_path / "runs" / "run-wired" / "retry.lock").exists()
     assert not (
         tmp_path / "runs" / "run-wired" / "shards" / "shard-00000" / "attempts" / "attempt-0001" / "scheduler.json"
     ).exists()
     assert len(launcher.submissions) == 1
-    submitted = service.retry("42", shard_ids=("shard-00000",), resume="never")
-    repeated = service.retry("run-wired", shard_ids=("shard-00000",), resume="never")
+    submitted = service.retry("42", shard_ids=("shard-00000",), resume="if_possible")
+    repeated = service.retry("run-wired", shard_ids=("shard-00000",), resume="if_possible")
 
     assert preview.state == "dry_run"
     assert preview.job_id is None
     assert preview.shard_ids == ("shard-00000",)
+    assert preview.effective_resume_mode == "never"
     assert preview.batch_script is not None
     assert "#SBATCH --array=0" in preview.batch_script
     assert submitted.state == "submitted"
@@ -550,6 +555,87 @@ def test_production_retry_dry_run_and_submission_are_sparse_and_idempotent(
     assert submitted.shard_ids == ("shard-00000",)
     assert repeated == submitted
     assert len(launcher.submissions) == 2
+
+
+def test_production_retry_if_possible_reuses_populated_workspace(
+    tmp_path: Path,
+    profile_catalog: SlurmProfileCatalog,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    authored = authored_run_single.model_copy(
+        update={"invocation": authored_run_single.invocation.model_copy(update={"resume": "if_possible"})}
+    )
+    _register_images(tmp_path, authored, single_node_plan)
+    launcher = _Launcher()
+    now = datetime(2026, 9, 8, tzinfo=timezone.utc)
+    service = create_slurm_run_service(
+        profile=_profile(tmp_path, profile_catalog),
+        launcher=launcher,  # type: ignore[arg-type]
+        run_id_factory=lambda: "run-wired",
+        clock=lambda: now,
+        package_version="0.9.2",
+    )
+    service.execute(authored, source_root=tmp_path)
+    plan = SlurmStateWriter(tmp_path, "run-wired").load_resolved_plan()
+    resume_workspace = Path(plan.shards[0].resume_workspace.path)
+    resume_workspace.mkdir(parents=True)
+    (resume_workspace / "partial.parquet").touch()
+    failed = SchedulerIdentity(array_job_id=42, array_task_id=0)
+    launcher.accounting_entries = (
+        SlurmAccountingEntry(
+            job_identity=failed,
+            state=SchedulerState.FAILED,
+            process_exit_code=SlurmProcessExitCode(exit_status=1, termination_signal=0),
+        ),
+    )
+
+    preview = service.retry("run-wired", resume="if_possible", dry_run=True)
+
+    assert preview.effective_resume_mode == "always"
+    assert preview.shard_ids == ("shard-00000",)
+
+
+def test_production_retry_if_possible_rejects_mixed_workspace_availability(
+    tmp_path: Path,
+    profile_catalog: SlurmProfileCatalog,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    authored = authored_run_single.model_copy(
+        update={
+            "array_tasks": authored_run_single.array_tasks.model_copy(update={"count": 2}),
+            "invocation": authored_run_single.invocation.model_copy(update={"resume": "if_possible"}),
+        }
+    )
+    _register_images(tmp_path, authored, single_node_plan)
+    launcher = _Launcher()
+    now = datetime(2026, 9, 8, tzinfo=timezone.utc)
+    service = create_slurm_run_service(
+        profile=_profile(tmp_path, profile_catalog),
+        launcher=launcher,  # type: ignore[arg-type]
+        run_id_factory=lambda: "run-wired",
+        clock=lambda: now,
+        package_version="0.9.2",
+    )
+    service.execute(authored, source_root=tmp_path)
+    plan = SlurmStateWriter(tmp_path, "run-wired").load_resolved_plan()
+    resume_workspace = Path(plan.shards[0].resume_workspace.path)
+    resume_workspace.mkdir(parents=True)
+    (resume_workspace / "partial.parquet").touch()
+    launcher.accounting_entries = tuple(
+        SlurmAccountingEntry(
+            job_identity=SchedulerIdentity(array_job_id=42, array_task_id=task_id),
+            state=SchedulerState.FAILED,
+            process_exit_code=SlurmProcessExitCode(exit_status=1, termination_signal=0),
+        )
+        for task_id in range(2)
+    )
+
+    with pytest.raises(SlurmServiceError, match="mixes resumable and fresh shards") as caught:
+        service.retry("run-wired", resume="if_possible", dry_run=True)
+
+    assert caught.value.code is SlurmServiceErrorCode.INVALID_REQUEST
 
 
 def test_production_retry_rejects_no_retryable_shards(
@@ -597,6 +683,29 @@ def test_production_retry_rejects_ambiguous_scheduler_job_id(
     assert caught.value.code is SlurmServiceErrorCode.CONFLICT
 
 
+def test_production_retry_rejects_numeric_run_and_job_ambiguity(
+    tmp_path: Path,
+    profile_catalog: SlurmProfileCatalog,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    _register_images(tmp_path, authored_run_single, single_node_plan)
+    run_ids = iter(("run-one", "42"))
+    service = create_slurm_run_service(
+        profile=_profile(tmp_path, profile_catalog),
+        launcher=_Launcher(submission_job_ids=(42, 43)),  # type: ignore[arg-type]
+        run_id_factory=lambda: next(run_ids),
+        package_version="0.9.2",
+    )
+    service.execute(authored_run_single, source_root=tmp_path)
+    service.execute(authored_run_single, source_root=tmp_path)
+
+    with pytest.raises(SlurmServiceError, match="numeric reference") as caught:
+        service.retry("42", resume="never")
+
+    assert caught.value.code is SlurmServiceErrorCode.CONFLICT
+
+
 def test_collection_rejects_unmanaged_input_and_destination(
     tmp_path: Path,
     profile_catalog: SlurmProfileCatalog,
@@ -616,9 +725,12 @@ def test_collection_rejects_unmanaged_input_and_destination(
         service.collect(tmp_path / "run-wired", destination=tmp_path / "collected")
     with pytest.raises(SlurmServiceError) as destination:
         service.collect(tmp_path / "runs/run-wired", destination=tmp_path.parent / "collected")
+    with pytest.raises(SlurmServiceError) as partitions:
+        service.collect(tmp_path / "runs/run-wired", destination=tmp_path / "collected", num_partitions=2)
 
     assert unmanaged.value.code is SlurmServiceErrorCode.INVALID_REQUEST
     assert destination.value.code is SlurmServiceErrorCode.INVALID_REQUEST
+    assert partitions.value.code is SlurmServiceErrorCode.INVALID_REQUEST
 
 
 def test_collection_returns_active_and_completed_jobs(

@@ -5,8 +5,9 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable
+from enum import Enum
 from pathlib import Path
-from typing import Literal, NoReturn, TypeVar
+from typing import NoReturn, TypeVar
 
 import click
 import typer
@@ -30,6 +31,13 @@ _EXIT_CODES = {
     SlurmServiceErrorCode.UNAVAILABLE: 5,
     SlurmServiceErrorCode.INTERNAL: 1,
 }
+
+
+class _RetryResumeMode(str, Enum):
+    NEVER = "never"
+    ALWAYS = "always"
+    IF_POSSIBLE = "if_possible"
+
 
 app = typer.Typer(
     name="slurm",
@@ -98,24 +106,31 @@ def cancel_command(
 def retry_command(
     run_or_job_id: str = typer.Argument(..., help="Managed run ID or Slurm array job ID"),
     task_ids: list[int] | None = typer.Option(None, "--task-id", min=0, help="Array task ID to retry; repeatable"),
-    resume: Literal["never", "always", "if_possible"] = typer.Option("if_possible", "--resume"),
+    resume: _RetryResumeMode = typer.Option(_RetryResumeMode.IF_POSSIBLE, "--resume"),
     dry_run: bool = typer.Option(False, "--dry-run"),
-    force: bool = typer.Option(False, "--force"),
+    force: bool = typer.Option(False, "--force", help="Submit without confirmation"),
     profile_file: Path | None = typer.Option(None, "--profile-file", dir_okay=False),
     cluster: str | None = typer.Option(None, "--cluster"),
 ) -> None:
     """Retry failed shards from immutable persisted run state."""
     operation = SlurmServiceOperation.RETRY_RUN
     shard_ids = None if task_ids is None else tuple(f"shard-{task_id:05d}" for task_id in task_ids)
-    result = _invoke(
-        operation,
-        lambda: create_slurm_run_service(profile_file=profile_file, cluster=cluster).retry(
+
+    def retry(*, preview: bool) -> BaseModel:
+        return create_slurm_run_service(profile_file=profile_file, cluster=cluster).retry(
             run_or_job_id,
             shard_ids=shard_ids,
-            resume=resume,
-            dry_run=dry_run,
-            force=force,
-        ),
+            resume=resume.value,
+            dry_run=preview,
+        )
+
+    if not dry_run and not force:
+        _invoke(operation, lambda: retry(preview=True))
+        if not click.confirm("Submit this retry?", default=False, err=True):
+            raise typer.Exit()
+    result = _invoke(
+        operation,
+        lambda: retry(preview=dry_run),
     )
     _emit_result(result)
 
@@ -124,7 +139,7 @@ def retry_command(
 def merge_command(
     input_path: Path = typer.Option(..., "--input-path", file_okay=False),
     output_path: Path = typer.Option(..., "--output-path", file_okay=False),
-    num_partitions: int = typer.Option(1, "--num-partitions", min=1),
+    num_partitions: int | None = typer.Option(None, "--num-partitions", min=1),
     profile_file: Path | None = typer.Option(None, "--profile-file", dir_okay=False),
     cluster: str | None = typer.Option(None, "--cluster"),
 ) -> None:

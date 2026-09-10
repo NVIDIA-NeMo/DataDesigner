@@ -25,8 +25,8 @@ from data_designer.slurm.state import CollectionState
 class _RunService:
     def __init__(self) -> None:
         self.calls: list[tuple[DataDesignerSlurmConfig, Path, bool, bool]] = []
-        self.retry_calls: list[tuple[str, tuple[str, ...] | None, str, bool, bool]] = []
-        self.collection_calls: list[tuple[Path, Path, int]] = []
+        self.retry_calls: list[tuple[str, tuple[str, ...] | None, str, bool]] = []
+        self.collection_calls: list[tuple[Path, Path, int | None]] = []
 
     def execute(
         self,
@@ -52,17 +52,17 @@ class _RunService:
         shard_ids: tuple[str, ...] | None,
         resume: str,
         dry_run: bool,
-        force: bool,
     ) -> SlurmRetryExecution:
-        self.retry_calls.append((run_or_job_id, shard_ids, resume, dry_run, force))
-        assert shard_ids is not None
+        self.retry_calls.append((run_or_job_id, shard_ids, resume, dry_run))
+        selected = ("shard-00000",) if shard_ids is None else shard_ids
         return SlurmRetryExecution(
             run_id="run-0001",
-            state="dry_run",
-            shard_ids=shard_ids,
-            attempt_ids=tuple("attempt-0002" for _ in shard_ids),
+            state="dry_run" if dry_run else "submitted",
+            shard_ids=selected,
+            attempt_ids=tuple("attempt-0002" for _ in selected),
             effective_resume_mode="always",
-            batch_script="#!/bin/bash\n",
+            job_id=None if dry_run else 43,
+            batch_script="#!/bin/bash\n" if dry_run else None,
         )
 
     def collect(
@@ -70,7 +70,7 @@ class _RunService:
         input_path: Path,
         *,
         destination: Path,
-        num_partitions: int,
+        num_partitions: int | None,
     ) -> SlurmCollectionExecution:
         self.collection_calls.append((input_path, destination, num_partitions))
         return SlurmCollectionExecution(
@@ -79,7 +79,7 @@ class _RunService:
             state=CollectionState.SUBMITTED,
             job_id=43,
             output_path=destination.resolve().as_posix(),
-            num_partitions=num_partitions,
+            num_partitions=1 if num_partitions is None else num_partitions,
         )
 
 
@@ -113,7 +113,7 @@ def test_retry_emits_deterministic_json_and_maps_task_ids(monkeypatch) -> None:
 
     result = CliRunner().invoke(
         cli_module.create_cli(),
-        ["retry", "42", "--task-id", "1", "--task-id", "3", "--resume", "always", "--dry-run", "--force"],
+        ["retry", "42", "--task-id", "1", "--task-id", "3", "--resume", "always", "--dry-run"],
     )
 
     assert result.exit_code == 0
@@ -126,7 +126,40 @@ def test_retry_emits_deterministic_json_and_maps_task_ids(monkeypatch) -> None:
         "shard_ids": ["shard-00001", "shard-00003"],
         "state": "dry_run",
     }
-    assert service.retry_calls == [("42", ("shard-00001", "shard-00003"), "always", True, True)]
+    assert service.retry_calls == [("42", ("shard-00001", "shard-00003"), "always", True)]
+
+
+def test_retry_auto_selects_tasks_and_confirms_submission(monkeypatch) -> None:
+    service = _RunService()
+    monkeypatch.setattr(cli_module, "create_slurm_run_service", lambda **_: service)
+
+    result = CliRunner().invoke(cli_module.create_cli(), ["retry", "42"], input="y\n")
+
+    assert result.exit_code == 0
+    assert json.loads(result.stdout.splitlines()[-1]) == {
+        "attempt_ids": ["attempt-0002"],
+        "batch_script": None,
+        "effective_resume_mode": "always",
+        "job_id": 43,
+        "run_id": "run-0001",
+        "shard_ids": ["shard-00000"],
+        "state": "submitted",
+    }
+    assert "Submit this retry?" in result.stderr
+    assert service.retry_calls == [
+        ("42", None, "if_possible", True),
+        ("42", None, "if_possible", False),
+    ]
+
+
+def test_retry_force_skips_confirmation(monkeypatch) -> None:
+    service = _RunService()
+    monkeypatch.setattr(cli_module, "create_slurm_run_service", lambda **_: service)
+
+    result = CliRunner().invoke(cli_module.create_cli(), ["retry", "42", "--force"])
+
+    assert result.exit_code == 0
+    assert service.retry_calls == [("42", None, "if_possible", False)]
 
 
 def test_merge_emits_collection_job_and_forwards_paths(tmp_path: Path, monkeypatch) -> None:

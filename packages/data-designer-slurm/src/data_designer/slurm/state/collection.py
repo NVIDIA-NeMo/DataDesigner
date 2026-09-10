@@ -295,7 +295,7 @@ class SlurmCollectionCoordinator:
         resolved = self._destinations.validate_persisted(resolved_plan, plan)
         requested = self._destinations.resolve(resolved_plan, requested_destination)
         if requested != resolved:
-            raise StateCorruptionError("persisted collection destination does not match the requested destination")
+            raise StateConflictError("persisted collection destination does not match the requested destination")
         if plan.host_destination != resolved.host_path or plan.container_destination != resolved.container_path:
             raise StateCorruptionError("persisted collection destination does not match the resolved plan")
         if status.state is CollectionState.SUCCEEDED:

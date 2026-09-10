@@ -710,6 +710,8 @@ def test_collection_submits_cpu_job_and_publishes_ordered_winners_atomically(
 
     assert submitted.state is CollectionState.SUBMITTED
     assert submitted.scheduler == 5101
+    with pytest.raises(StateConflictError, match="requested destination"):
+        coordinator.submit(destination=Path(case.plan.output.root).parent / "other")
     script = cast(str, runner.inputs[-1])
     assert "data_designer.slurm.state.collection_worker" in script
     assert "--gpus" not in script

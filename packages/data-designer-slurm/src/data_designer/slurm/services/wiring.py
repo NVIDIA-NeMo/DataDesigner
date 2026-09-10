@@ -637,14 +637,12 @@ class _SystemRunBackend:
         shard_ids: tuple[ShardId, ...] | None,
         resume: Literal["never", "always", "if_possible"],
         dry_run: bool,
-        force: bool,
     ) -> SlurmRetryExecution:
         return self._retry_collection.retry(
             run_or_job_id,
             shard_ids=shard_ids,
             resume=resume,
             dry_run=dry_run,
-            force=force,
         )
 
     def collect(
@@ -652,7 +650,7 @@ class _SystemRunBackend:
         input_path: Path,
         *,
         destination: Path,
-        num_partitions: int,
+        num_partitions: int | None,
     ) -> SlurmCollectionExecution:
         return self._retry_collection.collect(
             input_path,

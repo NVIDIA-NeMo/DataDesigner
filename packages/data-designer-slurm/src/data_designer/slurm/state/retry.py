@@ -126,11 +126,10 @@ class SlurmRetryCoordinator:
         try:
             if effective_resume_mode not in {"never", "always"}:
                 raise StateConflictError("effective resume mode must be 'never' or 'always'")
-            with self._retries.acquire_lock():
-                status = self._reconciler.observe(observed_at=timestamp)
-                selected = _select_retryable_shards(status, shard_ids)
-                plan = self._build_retry_plan(status, selected, effective_resume_mode, timestamp)
-                return plan, render_generation_retry_script(self._reader.load_resolved_plan(status.run), plan)
+            status = self._reconciler.observe(observed_at=timestamp)
+            selected = _select_retryable_shards(status, shard_ids)
+            plan = self._build_retry_plan(status, selected, effective_resume_mode, timestamp)
+            return plan, render_generation_retry_script(self._reader.load_resolved_plan(status.run), plan)
         except (StateConflictError, StateCorruptionError, SlurmStateError):
             raise
         except (OSError, ValidationError, ValueError) as error:
