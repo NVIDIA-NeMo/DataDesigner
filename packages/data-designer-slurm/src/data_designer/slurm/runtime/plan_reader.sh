@@ -18,13 +18,15 @@ dd_read_control_plan() {
     local plan=$1
     jq -e '
         .schema_version == 1
-        and .client.host_node_index == 0
-        and ([.deployments[].node_indices] | all(. == [0]))
+        and ([.deployments[].node_indices[]] | length > 0)
+        and ([.deployments[].node_indices[]] | all(type == "number" and . >= 0))
         and ([.container_mounts[] | (.source + .target)] | all(test("[,:]") | not))
     ' "${plan}" >/dev/null
     DD_CLIENT_IMAGE=$(jq -er '.client.image.path' "${plan}")
     DD_CLIENT_CPUS=$(jq -er '.client.authored.cpus | tostring' "${plan}")
     DD_EXPECTED_GPUS=$(jq -er '.resolved_gpus_per_node | tostring' "${plan}")
+    DD_EXPECTED_NODES=$(jq -er '[.deployments[].node_indices[]] | max + 1 | tostring' "${plan}")
+    DD_CLIENT_NODE_INDEX=$(jq -er '.client.host_node_index | tostring' "${plan}")
     DD_GPU_REQUEST_MODE=$(jq -er '.selected_profile.profile.gpu_request_mode' "${plan}")
     DD_CONTAINER_MOUNTS=$(jq -jr '
         [.container_mounts[] | .source + ":" + .target + (if .read_only then ":ro" else "" end)]
@@ -140,10 +142,7 @@ dd_read_step() {
               .stdout_path, "\u0000",
               .stderr_path, "\u0000",
               (.launch_delay_seconds | tostring), "\u0000",
-              (.readiness.host // ""), "\u0000",
-              (.readiness.port // "" | tostring), "\u0000",
-              (.readiness.path // ""), "\u0000",
-              (.readiness.deadline_seconds // "" | tostring), "\u0000"
+              (.kill_on_bad_exit | tostring), "\u0000"
         ' "${manifest}"
     )
     DD_STEP_IMAGE=${DD_STEP_FIELDS[0]}
@@ -151,10 +150,7 @@ dd_read_step() {
     DD_STEP_STDOUT=${DD_STEP_FIELDS[2]}
     DD_STEP_STDERR=${DD_STEP_FIELDS[3]}
     DD_STEP_DELAY=${DD_STEP_FIELDS[4]}
-    DD_STEP_PROBE_HOST=${DD_STEP_FIELDS[5]}
-    DD_STEP_PROBE_PORT=${DD_STEP_FIELDS[6]}
-    DD_STEP_PROBE_PATH=${DD_STEP_FIELDS[7]}
-    DD_STEP_PROBE_DEADLINE=${DD_STEP_FIELDS[8]}
+    DD_STEP_KILL_ON_BAD_EXIT=${DD_STEP_FIELDS[5]}
     dd_read_null_values DD_STEP_COMMAND < <(
         jq -j --arg step_id "${step_id}" '.steps[] | select(.step_id == $step_id) | .command[] | ., "\u0000"' \
             "${manifest}"
@@ -162,6 +158,21 @@ dd_read_step() {
     dd_read_null_values DD_STEP_GPU_INDICES < <(
         jq -j --arg step_id "${step_id}" \
             '.steps[] | select(.step_id == $step_id) | .gpu_indices[] | tostring, "\u0000"' "${manifest}"
+    )
+    dd_read_null_values DD_STEP_NODE_HOSTS < <(
+        jq -j --arg step_id "${step_id}" \
+            '.steps[] | select(.step_id == $step_id) | .node_hosts[] | ., "\u0000"' "${manifest}"
+    )
+    dd_read_null_values DD_STEP_PROBE_FIELDS < <(
+        jq -j --arg step_id "${step_id}" '
+            .steps[]
+            | select(.step_id == $step_id)
+            | .readiness[]
+            | .host, "\u0000",
+              (.port | tostring), "\u0000",
+              .path, "\u0000",
+              (.deadline_seconds | tostring), "\u0000"
+        ' "${manifest}"
     )
     dd_read_null_values DD_STEP_CONTAINER_ENV < <(
         jq -j --arg step_id "${step_id}" \
