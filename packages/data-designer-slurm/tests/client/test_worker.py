@@ -500,7 +500,14 @@ def test_preflight_rejects_plugin_secondary_model_alias(
 ) -> None:
     payload = client_worker_case.plan.model_dump(mode="json")
     builder = payload["builder"]["inline"]
-    builder["data_designer"]["columns"] = [{"name": "custom", "column_type": "fake-slurm-column"}]
+    builder["data_designer"]["columns"] = [
+        {
+            "name": "custom",
+            "column_type": "fake-slurm-column",
+            "model_alias": "generator",
+            "judge_model_alias": "missing",
+        }
+    ]
     payload["builder"]["content_sha256"] = compute_serialized_json_sha256(builder)
     lock_payload = client_worker_case.lock.model_dump(mode="json")
     wheel_path = (
