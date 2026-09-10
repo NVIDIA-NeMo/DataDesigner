@@ -18,7 +18,7 @@ The `ModelConfig` class has the following fields:
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `alias` | `str` | Yes | Unique identifier for this model configuration (e.g., `"my-text-model"`, `"reasoning-model"`) |
-| `model` | `str` | Yes | Model identifier as recognized by the provider (e.g., `"nvidia/nemotron-3-nano-30b-a3b"`, `"gpt-4"`) |
+| `model` | `str` | Yes | Model identifier as recognized by the provider (e.g., `"nvidia/nemotron-3.5-lightning-30b-a3b"`, `"gpt-4"`) |
 | `inference_parameters` | `InferenceParamsT` | No | Controls model behavior during generation. Use `ChatCompletionInferenceParams` for text/code/structured generation or `EmbeddingInferenceParams` for embeddings. Defaults to `ChatCompletionInferenceParams()` if not provided. The generation type is automatically determined by the inference parameters type. See [Inference Parameters](/concepts/models/inference-parameters) for details. |
 | `provider` | `str` | Yes | Reference to the name of the Provider to use (e.g., `"nvidia"`, `"openai"`, `"openrouter"`). |
 | `skip_health_check` | `bool` | No | Whether to skip the health check for this model. Defaults to `False`. Set to `True` to skip health checks when you know the model is accessible or want to defer validation. |
@@ -38,7 +38,7 @@ import data_designer.config as dd
 # Simple model configuration with fixed parameters
 model_config = dd.ModelConfig(
     alias="my-text-model",
-    model="nvidia/nemotron-3-nano-30b-a3b",
+    model="nvidia/nemotron-3.5-lightning-30b-a3b",
     provider="nvidia",
     inference_parameters=dd.ChatCompletionInferenceParams(
         temperature=0.85,
@@ -57,7 +57,7 @@ model_configs = [
     # Creative tasks
     dd.ModelConfig(
         alias="creative-model",
-        model="nvidia/nemotron-3-nano-30b-a3b",
+        model="nvidia/nemotron-3.5-lightning-30b-a3b",
         provider="nvidia",
         inference_parameters=dd.ChatCompletionInferenceParams(
             temperature=0.9,
@@ -68,7 +68,7 @@ model_configs = [
     # Critic tasks
     dd.ModelConfig(
         alias="critic-model",
-        model="nvidia/nemotron-3-nano-30b-a3b",
+        model="nvidia/nemotron-3.5-lightning-30b-a3b",
         provider="nvidia",
         inference_parameters=dd.ChatCompletionInferenceParams(
             temperature=0.25,
@@ -127,7 +127,7 @@ import data_designer.config as dd
 
 model_config = dd.ModelConfig(
     alias="my-model",
-    model="nvidia/nemotron-3-nano-30b-a3b",
+    model="nvidia/nemotron-3.5-lightning-30b-a3b",
     provider="nvidia",
     inference_parameters=dd.ChatCompletionInferenceParams(
         temperature=0.85,

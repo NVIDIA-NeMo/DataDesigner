@@ -1,0 +1,665 @@
+---
+title: "Chart Question Answering"
+description: "Generate chart-grounded QA with balanced and difficulty-targeted prompt packs."
+---
+
+Use `level1` for a balanced mix of chart-reading questions. Use `level2` to target compound visual conditions, rank-N selection, restricted ranges, multi-panel scans, exclusions, topology cues, trend matching, and cross-panel references. The difficulty mode skips charts that cannot support at least two of these features.
+
+The seed dataset must contain one chart per row in an `image_url` column, for example `{"id": "figure-1", "image_url": "file:///absolute/path/figure.png"}`. HTTP(S) URLs are also supported. For a local file URL, the vLLM server must see the same absolute path and its `--allowed-local-media-path` must include the chart directory. This URL-mode recipe does not accept raw base64 image data.
+
+<Info title="Download Recipe">
+  [Download the complete recipe script](https://github.com/NVIDIA-NeMo/DataDesigner/blob/main/docs/assets/recipes/chart_qa/chart_qa.py)
+</Info>
+
+```python
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#     "data-designer>=0.5.6",
+# ]
+# ///
+"""Chart Question-Answering Recipe
+
+Generate chart-grounded question-answer pairs with either of two prompt packs:
+
+  - level1: balanced chart-style visual reasoning questions.
+  - level2: failure-focused questions that require at least two
+    compositional difficulty features. Charts that cannot support the
+    difficulty floor produce <SKIP> and a quality score of 0.
+
+For each seed record, the pipeline:
+
+  1. Samples one of four chart question types.
+  2. Generates a chart-grounded question.
+  3. Generates a bare answer while capturing the reasoning trace separately.
+  4. Evaluates image, question, answer, and reasoning quality.
+
+Prerequisites:
+    - A JSONL or parquet seed dataset containing an image_url column.
+      Each value can be an HTTP(S) URL or an absolute file:// URL. When
+      using local files, launch vLLM with an appropriate
+      --allowed-local-media-path.
+    - A vLLM-compatible VLM deployment. The default model matches the
+      production profile used to develop these prompts:
+      Qwen/Qwen3.5-397B-A17B-FP8.
+
+      Example vLLM flags:
+        --tensor-parallel-size 8
+        --max-model-len 100000
+        --allowed-local-media-path /path/to/charts
+        --reasoning-parser qwen3
+        --limit-mm-per-prompt '{"video": 0}'
+        --trust-remote-code
+
+Run:
+    # Balanced baseline
+    uv run chart_qa.py \
+        --vllm-endpoint http://localhost:8000/v1 \
+        --seed-path chart_seed.jsonl \
+        --prompt-version level1
+
+    # Failure-focused difficult questions
+    uv run chart_qa.py \
+        --vllm-endpoint http://localhost:8000/v1 \
+        --seed-path chart_seed.jsonl \
+        --prompt-version level2
+
+    # For help
+    uv run chart_qa.py --help
+
+Output columns:
+    question_type, question, answer, answer__reasoning_content, and
+    quality_check.
+
+For level2, filter rows whose question or answer is <SKIP> or whose
+quality check ends in score: 0 before using the data for training.
+"""
+
+from __future__ import annotations
+
+from argparse import ArgumentParser
+from pathlib import Path
+from typing import NamedTuple
+
+import data_designer.config as dd
+from data_designer.interface import DataDesigner, DatasetCreationResults
+
+DEFAULT_VLM_MODEL = "Qwen/Qwen3.5-397B-A17B-FP8"
+VLLM_PROVIDER_NAME = "vllm-vl"
+DEFAULT_MODEL_ALIAS = "chart-vlm"
+PROMPT_VERSIONS = ("level1", "level2")
+QUESTION_TYPES = (
+    "Text-in-Chart",
+    "Text-in-General",
+    "Number-in-Chart",
+    "Number-in-General",
+)
+QUESTION_TYPE_WEIGHTS = (0.25, 0.25, 0.25, 0.25)
+PRODUCTION_SAMPLING = {
+    "temperature": 0.6,
+    "top_p": 0.95,
+    "top_k": 20,
+    "min_p": 0.0,
+    "presence_penalty": 0.0,
+    "repetition_penalty": 1.0,
+}
+
+
+class PromptPack(NamedTuple):
+    question: str
+    answer: str
+    quality: str
+
+
+LEVEL1_QUESTION_PROMPT = """\
+Generate one high-quality chart-style visual reasoning question about this chart.
+
+Target question type:
+{{ question_type }}
+
+{% if question_type == "Text-in-Chart" %}
+The question must ask for a visible text label from the chart, such as a method, model, legend entry, category, subplot title, axis label, or series name.
+It must require using chart structure, colors, markers, positions, or a visual condition to select the correct text.
+Use patterns like:
+- Which method/model/series/category has the highest or lowest metric in a specific subplot or condition?
+- What is the label of the curve, bar, marker, or group that satisfies a visual condition?
+- In a specified subplot, which legend entry corresponds to a trend, extreme value, threshold crossing, or rank?
+{% elif question_type == "Text-in-General" %}
+The question must ask for a non-numeric judgment grounded in the chart, such as yes/no, which trend, which subplot, which category, or whether a relationship holds.
+It must require comparing visible chart evidence rather than reading one label directly.
+Use patterns like:
+- Does one series consistently outperform another over a visible range?
+- Which subplot shows the largest or smallest gap between two visible series?
+- Which condition shows the clearest increasing, decreasing, stable, or crossing trend?
+{% elif question_type == "Number-in-Chart" %}
+The question must ask for a visible or approximately readable numeric value, coordinate, rank, difference, ratio, percentage, peak value, or x/y location.
+It must require reading axes, ticks, annotations, bar heights, point locations, or line values carefully.
+Use patterns like:
+- What is the approximate value of a metric for a named series at a specific x-axis value?
+- At what x-axis value does a named series reach its peak, minimum, or first threshold crossing?
+- What is the approximate difference, ratio, or percentage-point gap between two series at a specific position?
+{% elif question_type == "Number-in-General" %}
+The question must ask for a numeric result derived from the chart, such as counting curves/bars/points/subplots satisfying a condition, counting crossings, checking thresholds, monotonicity, extrema, or aggregating over candidates.
+It must require checking every relevant candidate, not just one visual element.
+Use patterns like:
+- How many curves, bars, points, or subplots satisfy a visible threshold condition?
+- How many times does a named curve cross or touch a specified axis/value/line?
+- How many panels show a monotonic increase or decrease over a specified range?
+- How many methods ever exceed, fall below, peak before, or remain within a specified value range?
+{% endif %}
+
+The question must:
+- Be answerable from the chart image alone.
+- Require reading chart structure, labels, trends, or values.
+- Have a solution that can be explained by mapping the question to visible chart evidence, reading/counting/comparing that evidence, and then giving a short final answer.
+- Match the chart structure: do not reference subplots if there is only one panel, do not reference legend entries if there is no legend, do not reference units if axes are unitless.
+- Be specific enough to avoid ambiguity.
+- Avoid asking for external paper context.
+- Avoid ties or cases where multiple answers are equally defensible.
+
+Return only the question text.
+"""
+
+LEVEL1_ANSWER_PROMPT = """\
+Answer the chart question using only the image.
+
+Question:
+{{ question }}
+
+Generate a concise chart-style visual reasoning trace before the final answer.
+
+Use this reasoning template as a guide, not as a rigid schema. Adapt it to the chart and question.
+Prefer 4-7 numbered steps. If the question is simple, fewer steps are acceptable.
+
+Reasoning trace requirements:
+1. Question parse: identify the requested operation, scope, candidate answers, and decision rule.
+2. Visual mapping: map key words in the question to visible chart evidence, such as subplot or panel titles, axes, tick labels, legends, colors, markers, line styles, bars, points, table cells, annotations, captions, or other visible text.
+3. Evidence extraction: read, count, or estimate only the visual evidence needed to answer.
+4. Comparison or calculation: apply the decision rule, such as counting, ranking, comparing, estimating, matching, computing a difference, or eliminating candidates.
+5. Conclusion: state the selected answer and the visual evidence that supports it.
+
+Style constraints:
+- Ground every reasoning step in visible chart evidence.
+- Prefer concise, direct statements over long exploratory reasoning.
+- Do not invent chart elements, labels, values, or relationships that are not visible.
+- Do not repeat the same observation.
+- Do not loop, backtrack repeatedly, or include unresolved self-corrections.
+- Be decisive: after extracting the relevant evidence, commit to the conclusion. At most one brief verification step is allowed.
+- Avoid meta phrases such as "the user wants me to", "I need to", "let me", "wait", or "actually".
+- Use approximation language only when exact values are not visually available, such as "about", "roughly", or "approximately".
+- Keep the reasoning trace as short as possible while still showing the necessary visual evidence and comparison/count/calculation.
+- For count or all-candidate questions, enumerate the relevant candidates and mark whether each satisfies the condition.
+- For label questions, bind the selected text to the visible chart element that satisfies the condition.
+
+You MUST use this exact output structure:
+<think>
+[all reasoning here, following the reasoning trace and style requirements above]
+</think>
+[bare final answer only — no reasoning, no explanation, no labels, no markdown, no extra text]
+"""
+
+LEVEL1_QUALITY_PROMPT = """\
+Evaluate the generated chart QA pair.
+
+<question>
+{{ question }}
+</question>
+
+<answer>
+{{ answer }}
+</answer>
+
+<answer_reasoning>
+{{ answer__reasoning_content }}
+</answer_reasoning>
+
+Evaluate the question-answer pair AND its reasoning trace. Be strict: this data will be used for supervised fine-tuning.
+Use the delimited fields above: <question> contains the generated question, <answer> contains the bare final answer, and <answer_reasoning> contains the reasoning trace.
+
+Critical checks. If any critical check fails, assign score 0:
+1. Image content quality: the image must be a readable chart/plot with enough visible text, axes, marks, or visual structure to support the QA pair.
+2. Question quality: the <question> content must be grounded in the image, unambiguous, chart-style, answerable from the image alone, and not dependent on external paper context.
+3. Answer correctness: verify the <answer> content from the image yourself. For counts, count the relevant items yourself. For chart values, find the specific chart element and check the value. For labels, verify the exact visible label.
+4. Final answer format: the <answer> content must be bare. Score 0 if it contains reasoning, labels such as "Answer:", protocol text, markdown explanation, citations, or extra text beyond the requested result.
+5. Reasoning presence: the <answer_reasoning> content must be present and must not be empty, truncated, or unfinished.
+6. Reasoning grounding: the <answer_reasoning> content must parse the question, map it to the correct visible subplot/legend/axis/marks, extract the needed evidence, apply the needed comparison/count/calculation, and not hallucinate or contradict the image.
+7. Reasoning stability: score 0 if the <answer_reasoning> content repeats the same evidence without progress, restarts after finding the relevant evidence, keeps generating new alternatives after enough evidence exists, or contains obvious loop markers.
+8. Candidate coverage: for count, threshold, ranking, or "which/all" questions, the <answer_reasoning> content must check every relevant candidate or explain a complete visual scan. Score 0 if it only checks one convenient example.
+9. Numeric discipline: for numeric answers, the <answer_reasoning> content must use the correct axis, tick scale, unit, sign, denominator, difference, ratio, percentage, or percentage-point interpretation. Score 0 for count/percent/ratio/unit confusion.
+
+Reasoning trace style expectations:
+- Good traces are concise visual-evidence traces, not exploratory internal monologues.
+- Penalize meta phrases such as "the user wants me to", "I need to", "let me", "wait", or "actually".
+- Penalize vague references like "the chart shows" when the relevant subplot, axis, legend item, color, marker, bar, line, point, or visible label should be identified.
+- Penalize invented labels/values, missing candidate checks, unsupported conclusions, or excessive length.
+
+Assign one integer score from 0 to 5:
+- 0: Bad or unusable. Any critical check fails.
+- 1: Very poor. Critical checks barely pass, but grounding is weak or the sample is not useful.
+- 2: Poor. Some useful grounding, but the question, answer, or reasoning has notable weakness.
+- 3: Acceptable. Grounded and likely correct, but simple, generic, or has minor format/style issues.
+- 4: Good. Clear, grounded, correct, chart-style, and useful for training, with only minor imperfections.
+- 5: Excellent. Readable chart image, strong unambiguous chart-style question, bare correct final answer, and concise fully correct visual reasoning trace.
+
+Return exactly this format:
+image_content_quality: <brief assessment>
+question_quality: <brief assessment>
+answer_correctness: <brief assessment>
+reasoning_trace_correctness: <brief assessment>
+score: <0-5>
+"""
+
+LEVEL2_QUESTION_PROMPT = """\
+Generate one high-quality chart-style visual reasoning question about this chart.
+
+Target question type:
+{{ question_type }}
+
+DIFFICULTY FLOOR (required):
+The question MUST satisfy AT LEAST TWO of the compositional difficulty features below, combined into one coherent, natural-sounding question. Pick features that match this chart's visible content. Do not invent elements that are not in the image.
+
+(a) Compound condition: two or more simultaneous visual constraints joined by "and"/"with"/"but"/"while" (e.g., a series that is BOTH lowest in panel X AND increases fastest after t=10).
+(b) Rank-N selection: ask for second/third/fourth/last highest, lowest, or first crosser, not just the single global extremum.
+(c) Restricted range: condition the answer on a visible sub-interval of an axis (e.g., "between x=10 and x=30", "for values < 2.7", "after iteration 150", "in the second major peak", "from t=0 to t=400").
+(d) Multi-panel scan: when the chart has >= 2 panels, require checking every panel (e.g., "across all subplots", "in which subplot (a)-(f)", "row r, column c").
+(e) Exclusion / negation: use "excluding", "regardless of", "ignoring", "except", or "discarding ..." to remove a candidate or constraint.
+(f) Shape / topology cue: loops, crossings/intersections, flat horizontal sections, axes of symmetry, local minima/maxima, bounded area, density of clusters, dispersion/variance, error-bar/CI width, outlier distance.
+(g) Trend-shape match: ask which series shares (or opposes) a trend with a reference series over a stated range, or which is the "most consistent" / "closest in shape".
+(h) Conditional cross-reference: ask for a label/value in one panel whose corresponding panel elsewhere satisfies a visual condition.
+
+A question that asks only for a single global extremum without any of these features is NOT acceptable. Combine the chosen features naturally; do not list them mechanically (no "and also ...").
+
+Per-type framing and reference style (match this complexity; do NOT copy verbatim):
+
+{% if question_type == "Text-in-Chart" %}
+The final answer must be visible chart text (method/model/series/category/subplot title/ legend entry/axis label/curve label/point label).
+Reasoning may involve filtering, ranking, exclusion, or trend matching, but the returned answer must be an exact visible text token.
+
+Reference style examples (illustrative composition only; the surface form, named entities, and numeric values are placeholders and must be replaced with elements that actually appear in the current chart):
+- Which curve is the second one to reach a stable plateau on the y-axis after the midpoint of the x range?
+- In the bottom-left panel, which legend entry maintains a similar relative gap with the reference baseline across every visible x value?
+- Ignoring axis tick magnitudes, in which panel does the dashed curve most closely mirror the overall shape of the solid reference line?
+- What is the x-axis label of the panel whose paired subplot covers a smaller high-intensity area within the bracketed horizontal band?
+- What is the name of the method that starts lowest on all three reported metrics yet shows the steepest improvement as the input quality increases?
+- Which two methods exhibit a monotonic increase across the entire visible x range in every panel where both fixed parameters are at their middle value?
+
+{% elif question_type == "Text-in-General" %}
+The final answer must be an inferred non-numeric judgment grounded in the chart (yes/no, trend type, relationship validity, comparison conclusion, a row+column index, a quadrant ID, a (a)-(f) subplot letter), NOT a directly-copied chart token.
+
+Reference style examples (illustrative composition only; the surface form, named entities, and numeric values are placeholders and must be replaced with elements that actually appear in the current chart):
+- Of the three side-by-side panels, which one contains the fewest distinct ridge crossings along the central horizontal slice of its plotted surface?
+- What is the row and column index of the panel whose recorded signal stays lower than every other panel across the entire shown interval? Answer as row and column index using the labels printed on the chart.
+- In the top-right panel, do the two highlighted curves move in the same direction or in opposite directions across the right half of the displayed x range?
+- Counting the stacked panels from top to bottom, which positional index has the most nearly mirror-symmetric shape about the vertical axis?
+- Which named subgroup has every member point falling into a single quadrant of the divided plotting area?
+- Among the side-by-side panels, which one covers the largest fraction of its plotting area with colors below the midpoint of the shared colorbar?
+
+{% elif question_type == "Number-in-Chart" %}
+The final answer must be a numeric value directly read from visible chart evidence.
+
+Numeric-readout policy:
+- Approximate wording is allowed when exact values are not printed.
+- "Approximate" must mean: choose the nearest visible tick/gridline/annotated mark.
+- Do not require hidden interpolation beyond visible anchors.
+- If rounding is requested, it must align with visible scale granularity.
+
+Reference style examples (illustrative composition only; the surface form, named entities, and numeric values are placeholders and must be replaced with elements that actually appear in the current chart):
+- At approximately what x-axis value do the two highest-frequency tracks first cross inside the shaded uncertainty band?
+- In the average-error panel, at which x-axis value does the second-highest parameter level first exceed the 0.2% threshold?
+- At which control-parameter setting does the relative ordering of the two compared lines flip at the rightmost x-tick?
+- Around which parameter value does the vertical spread of the highlighted traces first exceed roughly 30% of the dashed reference value?
+- What is the approximate confidence-interval half-width for the strongest baseline at the middle x-axis tick?
+- At approximately what x value does the highlighted trace reach its maximum amplitude within the dashed-bracket window?
+
+{% elif question_type == "Number-in-General" %}
+The final answer must be a numeric value inferred from chart evidence over a candidate set, not a single direct readout. Counts, differences, intersections, monotonicity tallies, aggregations, or rank-N positions.
+
+Reference style examples (illustrative composition only; the surface form, named entities, and numeric values are placeholders and must be replaced with elements that actually appear in the current chart):
+- Excluding the reference series itself, how many other curves follow the same overall direction as it across the full visible x range?
+- Excluding the last labeled panel, how many of the remaining panels share the flattest probability profile?
+- For how many of the listed methods does every plotted bootstrap replicate sit above the horizontal reference line?
+- In the second-row panel, under how many grouping conditions does the marker with the largest x value also display the largest reported slope?
+- In the basis-functions panel, how many times does the third-listed curve cross or touch any of the other plotted curves over its full domain?
+- How many of the displayed panels contain at least one clearly visible local peak along their plotted surface?
+- How many distinct flat horizontal segments are visible along the labeled response curve?
+- Across the two right-most panels, at how many forecast horizons does a single method stay above every other method by more than the visible error-bar width?
+
+{% endif %}
+
+The question must:
+- Be answerable from the chart image alone.
+- Require reading chart structure, labels, trends, or values.
+- Match the chart structure: do not reference subplots if there is only one panel, do not reference legend entries if there is no legend, do not reference units if axes are unitless.
+- Be specific enough to avoid ambiguity.
+- Avoid asking for external paper context.
+- Avoid ties or cases where multiple answers are equally defensible.
+- Combine the chosen difficulty features into one natural-sounding question.
+
+NO-ATTEMPT CLAUSE (important):
+If this chart's visible content genuinely cannot support a question that satisfies the difficulty floor -- for example the chart is too simple, has only one series with no range structure, has illegible axes/labels, has no comparable items for a multi-condition question, has only a single panel without enough internal structure for exclusion/range/ topology reasoning, or is degraded/cropped -- do NOT force a low-quality or single-extremum question.
+Instead, return EXACTLY the token:
+<SKIP>
+on its own line, with no other characters, no explanation, no reasoning, and no markdown.
+
+When NOT skipping, return only the question text.
+"""
+
+LEVEL2_ANSWER_PROMPT = """\
+Answer the chart question using only the image.
+
+Question:
+{{ question }}
+
+NO-ATTEMPT HANDLING (check this FIRST):
+If the question above is exactly "<SKIP>", or is the single token "<SKIP>" with only surrounding whitespace, return EXACTLY:
+<SKIP>
+with no other characters, no <think> block, no reasoning, no markdown. Stop generation.
+
+Otherwise, generate a concise chart-style visual reasoning trace before the final answer.
+
+Reasoning trace requirements:
+1. Question parse: identify the requested operation, scope, candidate set, and decision rule; explicitly name every difficulty feature present in the question (compound condition, rank-N, restricted range, multi-panel scan, exclusion, shape/topology cue, trend match, conditional cross-reference).
+2. Visual mapping: map key words to visible chart evidence (subplot/panel titles, axes, tick labels, legend entries, colors, markers, line styles, bars, points, table cells, annotations).
+3. Candidate enumeration: list every relevant candidate (every series, panel, bar, marker, or interval that could possibly satisfy the condition). For multi-panel questions the enumeration MUST list each panel by its visible label, e.g. "(a), (b), (c), (d)".
+4. Evidence extraction: for each candidate, read or estimate the visual evidence needed.
+5. Filtering / comparison / calculation: apply the decision rule, marking pass/fail for each candidate. For rank-N questions, sort candidates and select position N. For exclusion, remove the excluded candidate before ranking/counting.
+6. Conclusion: state the selected answer and the visible evidence supporting it.
+
+Reasoning length policy:
+- Single-operation simple questions: 3-5 numbered steps.
+- Compound, rank-N, multi-panel, count-over-candidates, exclusion, topology, or trend-match questions: 6-10 numbered steps. The candidate-enumeration step is REQUIRED and must visibly list every relevant candidate (e.g. "panels: (a), (b), (c), (d), (e), (f)" or "series: A, B, C, D"). The "be decisive" cap below does NOT shorten this step.
+
+Style constraints:
+- Ground every reasoning step in visible chart evidence.
+- Prefer concise, direct statements over long exploratory reasoning.
+- Do not invent chart elements, labels, values, or relationships that are not visible.
+- Do not repeat the same observation. Do not loop or restart after evidence is collected.
+- Be decisive: allow at most one brief verification step at the end.
+- Avoid meta phrases such as "the user wants me to", "I need to", "let me", "wait", or "actually".
+- Use approximation language only when exact values are not visually available ("about", "roughly", "approximately"). Use the nearest visible tick/gridline as the approximation anchor.
+- For count or all-candidate questions, enumerate the candidates and mark pass/fail.
+- For label questions, bind the selected text to the visible chart element that satisfies the condition.
+
+You MUST use this exact output structure:
+<think>
+[all reasoning here, following the reasoning trace and style requirements above]
+</think>
+[bare final answer only -- no reasoning, no explanation, no labels, no markdown, no extra text]
+"""
+
+LEVEL2_QUALITY_PROMPT = """\
+Evaluate the generated chart QA pair.
+
+<question>
+{{ question }}
+</question>
+
+<answer>
+{{ answer }}
+</answer>
+
+<answer_reasoning>
+{{ answer__reasoning_content }}
+</answer_reasoning>
+
+NO-ATTEMPT HANDLING (check this FIRST):
+If <question> is exactly "<SKIP>" (with optional surrounding whitespace), or <answer> is exactly "<SKIP>", treat this row as an explicit skip. Return EXACTLY:
+
+image_content_quality: skip token detected
+question_quality: skip token detected
+answer_correctness: skip token detected
+reasoning_trace_correctness: skip token detected
+score: 0
+
+Do not evaluate further.
+
+Otherwise, evaluate the QA pair AND its reasoning trace strictly; this data will be used for supervised fine-tuning.
+
+Critical checks. If ANY critical check fails, assign score 0:
+1. Image content quality: the image must be a readable chart/plot with enough visible text, axes, marks, or visual structure to support the QA pair.
+2. Question quality: the <question> content must be grounded in the image, unambiguous, chart-style, answerable from the image alone, and not dependent on external paper context.
+3. Answer correctness: verify the <answer> content from the image yourself. For counts, count the relevant items yourself. For chart values, find the chart element and check the value. For labels, verify the exact visible label.
+4. Final answer format: the <answer> content must be bare. Score 0 if it contains reasoning, labels such as "Answer:", protocol text, markdown explanation, citations, or extra text beyond the requested result.
+5. Reasoning presence: the <answer_reasoning> content must be present and not empty, truncated, or unfinished.
+6. Reasoning grounding: the <answer_reasoning> content must parse the question, map it to the correct visible subplot/legend/axis/marks, extract the needed evidence, apply the needed comparison/count/calculation, and not hallucinate or contradict the image.
+7. Reasoning stability: score 0 if the <answer_reasoning> content repeats the same evidence without progress, restarts after finding the relevant evidence, keeps generating new alternatives after enough evidence exists, or contains obvious loop markers.
+8. Candidate coverage: for count, threshold, ranking, exclusion, multi-panel scan, or "which/all" questions, the <answer_reasoning> content must check every relevant candidate or explain a complete visual scan. Score 0 if it only checks one convenient example.
+9. Numeric discipline: for numeric answers, the <answer_reasoning> content must use the correct axis, tick scale, unit, sign, denominator, difference, ratio, percentage, or percentage-point interpretation. Score 0 for count/percent/ratio/unit confusion.
+
+Difficulty caps (do not zero, but cap the maximum score):
+10. Difficulty floor. Count how many of the following compositional difficulty features
+    appear in <question>:
+        - compound condition (two or more simultaneous visual constraints)
+        - rank-N selection (second/third/fourth/last)
+        - restricted range (visible sub-interval condition)
+        - multi-panel scan (>= two visible panels enumerated)
+        - exclusion / negation ("excluding", "regardless of", "except", "ignoring", "discarding")
+        - shape / topology cue (loops, crossings, flat sections, symmetry, bounded area, dispersion, CI/error-bar width, outlier distance, cluster density)
+        - trend-shape match (consistency / opposition over a stated range)
+        - conditional cross-reference (one panel's answer is conditioned on another panel's visual condition)
+    Apply these caps:
+        - 0 features (a single-operation global extremum question with no range, exclusion, or compound qualifier): cap score at 2.
+        - 1 feature: cap score at 3.
+        - >= 2 features: no cap from this rule.
+11. Multi-panel grounding: if the chart has >= 2 visible panels and the question only uses one panel without explicit justification, cap at 3.
+12. Single-readout penalty for Number-in-Chart: if the answer is a value printed directly on the chart (annotation, table cell, big number) with no axis reading required, cap at 3.
+
+Reasoning trace style expectations:
+- Good traces are concise visual-evidence traces, not exploratory monologues.
+- Penalize meta phrases such as "the user wants me to", "I need to", "let me", "wait", "actually".
+- Penalize vague references like "the chart shows" when a specific subplot/axis/legend item should be named.
+- Penalize invented labels/values, missing candidate checks, unsupported conclusions, or excessive length.
+- For compound, rank-N, multi-panel, count-over-candidates, exclusion, topology, or trend-match questions, the trace MUST include an explicit candidate-enumeration step that lists every relevant candidate (e.g. panels (a)-(f) or series A-D). Cap at 3 if this step is missing.
+
+Scoring (after applying all caps):
+- 0: Bad or unusable. Any critical check fails, or skip token detected.
+- 1: Very poor. Critical checks barely pass, grounding is weak, or sample is not useful.
+- 2: Poor. Some grounding, but question/answer/reasoning has notable weakness, OR the question is a no-feature single-extremum question.
+- 3: Acceptable. Grounded and likely correct, but only one difficulty feature, missing candidate-enumeration, single-panel use on a multi-panel chart, or single-readout numeric.
+- 4: Good. Two or more difficulty features, grounded, correct, chart-style, useful for training, with only minor imperfections.
+- 5: Excellent. Strong readable chart, well-composed multi-feature question, bare correct final answer, and a concise fully correct visual reasoning trace including the required candidate-enumeration step.
+
+Return EXACTLY this format:
+image_content_quality: <brief assessment>
+question_quality: <brief assessment, including how many difficulty features were detected>
+answer_correctness: <brief assessment>
+reasoning_trace_correctness: <brief assessment>
+score: <0-5>
+"""
+
+PROMPT_PACKS = {
+    "level1": PromptPack(
+        question=LEVEL1_QUESTION_PROMPT.rstrip(),
+        answer=LEVEL1_ANSWER_PROMPT.rstrip(),
+        quality=LEVEL1_QUALITY_PROMPT.rstrip(),
+    ),
+    "level2": PromptPack(
+        question=LEVEL2_QUESTION_PROMPT.rstrip(),
+        answer=LEVEL2_ANSWER_PROMPT.rstrip(),
+        quality=LEVEL2_QUALITY_PROMPT.rstrip(),
+    ),
+}
+
+
+def get_prompt_pack(prompt_version: str) -> PromptPack:
+    """Return the embedded prompt pack for prompt_version."""
+    try:
+        return PROMPT_PACKS[prompt_version]
+    except KeyError as exc:
+        choices = ", ".join(PROMPT_VERSIONS)
+        raise ValueError(f"Unknown prompt version {prompt_version!r}; choose one of: {choices}") from exc
+
+
+def _get_inference_params() -> dd.ChatCompletionInferenceParams:
+    return dd.ChatCompletionInferenceParams(
+        max_tokens=50000,
+        timeout=1200,
+        temperature=PRODUCTION_SAMPLING["temperature"],
+        top_p=PRODUCTION_SAMPLING["top_p"],
+        max_parallel_requests=20,
+        extra_body=dict(PRODUCTION_SAMPLING),
+    )
+
+
+def build_config(
+    seed_path: str = "chart_seed.jsonl",
+    prompt_version: str = "level1",
+    model_alias: str = DEFAULT_MODEL_ALIAS,
+    model_id: str = DEFAULT_VLM_MODEL,
+    image_column: str = "image_url",
+) -> dd.DataDesignerConfigBuilder:
+    """Build a chart-QA pipeline for the selected prompt version."""
+    prompts = get_prompt_pack(prompt_version)
+    question_alias = f"{model_alias}-question"
+    answer_alias = model_alias
+    quality_alias = f"{model_alias}-quality"
+    model_configs = [
+        dd.ModelConfig(
+            alias=answer_alias,
+            model=model_id,
+            provider=VLLM_PROVIDER_NAME,
+            inference_parameters=_get_inference_params(),
+        ),
+        dd.ModelConfig(
+            alias=question_alias,
+            model=model_id,
+            provider=VLLM_PROVIDER_NAME,
+            inference_parameters=_get_inference_params(),
+        ),
+        dd.ModelConfig(
+            alias=quality_alias,
+            model=model_id,
+            provider=VLLM_PROVIDER_NAME,
+            inference_parameters=_get_inference_params(),
+        ),
+    ]
+    config_builder = dd.DataDesignerConfigBuilder(model_configs=model_configs)
+    config_builder.with_seed_dataset(dd.LocalFileSeedSource(path=seed_path))
+
+    config_builder.add_column(
+        dd.SamplerColumnConfig(
+            name="question_type",
+            sampler_type=dd.SamplerType.CATEGORY,
+            params=dd.CategorySamplerParams(
+                values=list(QUESTION_TYPES),
+                weights=list(QUESTION_TYPE_WEIGHTS),
+            ),
+        )
+    )
+
+    image_context = [
+        dd.ImageContext(
+            column_name=image_column,
+            data_type=dd.ModalityDataType.URL,
+            image_format=None,
+        ),
+    ]
+
+    config_builder.add_column(
+        dd.LLMTextColumnConfig(
+            name="question",
+            model_alias=question_alias,
+            prompt=prompts.question,
+            multi_modal_context=image_context,
+        )
+    )
+
+    config_builder.add_column(
+        dd.LLMTextColumnConfig(
+            name="answer",
+            model_alias=answer_alias,
+            prompt=prompts.answer,
+            multi_modal_context=image_context,
+            extract_reasoning_content=True,
+        )
+    )
+
+    config_builder.add_column(
+        dd.LLMTextColumnConfig(
+            name="quality_check",
+            model_alias=quality_alias,
+            prompt=prompts.quality,
+            multi_modal_context=image_context,
+        )
+    )
+
+    return config_builder
+
+
+def create_dataset(
+    config_builder: dd.DataDesignerConfigBuilder,
+    num_records: int,
+    vllm_endpoint: str,
+    prompt_version: str,
+    artifact_path: Path | str | None = None,
+) -> DatasetCreationResults:
+    """Generate the chart-QA dataset."""
+    model_providers = [
+        dd.ModelProvider(
+            name=VLLM_PROVIDER_NAME,
+            endpoint=vllm_endpoint,
+            provider_type="openai",
+            api_key=None,
+        ),
+    ]
+    data_designer = DataDesigner(
+        artifact_path=artifact_path,
+        model_providers=model_providers,
+    )
+    data_designer.set_run_config(dd.RunConfig(display_tui=True, disable_early_shutdown=True))
+    return data_designer.create(
+        config_builder,
+        num_records=num_records,
+        dataset_name=f"chart_qa_{prompt_version}",
+    )
+
+
+def build_arg_parser() -> ArgumentParser:
+    parser = ArgumentParser(description="Generate chart-style QA data")
+    parser.add_argument(
+        "--vllm-endpoint",
+        type=str,
+        required=True,
+        help="Base URL of the vLLM server (for example, http://localhost:8000/v1)",
+    )
+    parser.add_argument("--seed-path", type=str, required=True, help="Path to the seed JSONL or parquet file")
+    parser.add_argument(
+        "--prompt-version",
+        choices=PROMPT_VERSIONS,
+        default="level1",
+        help="Use the balanced baseline or failure-focused difficulty prompt pack",
+    )
+    parser.add_argument("--model-alias", type=str, default=DEFAULT_MODEL_ALIAS)
+    parser.add_argument("--model-id", type=str, default=DEFAULT_VLM_MODEL)
+    parser.add_argument("--image-column", type=str, default="image_url")
+    parser.add_argument("--num-records", type=int, default=5)
+    parser.add_argument("--artifact-path", type=str, default=None)
+    return parser
+
+
+def main() -> None:
+    args = build_arg_parser().parse_args()
+    config_builder = build_config(
+        seed_path=args.seed_path,
+        prompt_version=args.prompt_version,
+        model_alias=args.model_alias,
+        model_id=args.model_id,
+        image_column=args.image_column,
+    )
+    results = create_dataset(
+        config_builder,
+        num_records=args.num_records,
+        vllm_endpoint=args.vllm_endpoint,
+        prompt_version=args.prompt_version,
+        artifact_path=args.artifact_path,
+    )
+
+    print(f"Dataset saved to: {results.artifact_storage.final_dataset_path}")
+    results.load_analysis().to_report()
+
+
+if __name__ == "__main__":
+    main()
+```
