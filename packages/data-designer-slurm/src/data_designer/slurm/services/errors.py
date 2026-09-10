@@ -32,6 +32,8 @@ class SlurmServiceOperation(str, Enum):
     EXECUTE_RUN = "execute_run"
     STATUS_RUN = "status_run"
     CANCEL_RUN = "cancel_run"
+    RETRY_RUN = "retry_run"
+    COLLECT_RUN = "collect_run"
     RESOLVE_IMAGE = "resolve_image"
     ADD_IMAGE = "add_image"
     LIST_IMAGES = "list_images"

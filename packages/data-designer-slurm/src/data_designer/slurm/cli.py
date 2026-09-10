@@ -6,7 +6,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 from pathlib import Path
-from typing import NoReturn, TypeVar
+from typing import Literal, NoReturn, TypeVar
 
 import click
 import typer
@@ -90,6 +90,53 @@ def cancel_command(
     result = _invoke(
         operation,
         lambda: create_slurm_run_service(profile_file=profile_file, cluster=cluster).cancel(run_id),
+    )
+    _emit_result(result)
+
+
+@app.command("retry")
+def retry_command(
+    run_or_job_id: str = typer.Argument(..., help="Managed run ID or Slurm array job ID"),
+    task_ids: list[int] | None = typer.Option(None, "--task-id", min=0, help="Array task ID to retry; repeatable"),
+    resume: Literal["never", "always", "if_possible"] = typer.Option("if_possible", "--resume"),
+    dry_run: bool = typer.Option(False, "--dry-run"),
+    force: bool = typer.Option(False, "--force"),
+    profile_file: Path | None = typer.Option(None, "--profile-file", dir_okay=False),
+    cluster: str | None = typer.Option(None, "--cluster"),
+) -> None:
+    """Retry failed shards from immutable persisted run state."""
+    operation = SlurmServiceOperation.RETRY_RUN
+    shard_ids = None if task_ids is None else tuple(f"shard-{task_id:05d}" for task_id in task_ids)
+    result = _invoke(
+        operation,
+        lambda: create_slurm_run_service(profile_file=profile_file, cluster=cluster).retry(
+            run_or_job_id,
+            shard_ids=shard_ids,
+            resume=resume,
+            dry_run=dry_run,
+            force=force,
+        ),
+    )
+    _emit_result(result)
+
+
+@app.command("merge")
+def merge_command(
+    input_path: Path = typer.Option(..., "--input-path", file_okay=False),
+    output_path: Path = typer.Option(..., "--output-path", file_okay=False),
+    num_partitions: int = typer.Option(1, "--num-partitions", min=1),
+    profile_file: Path | None = typer.Option(None, "--profile-file", dir_okay=False),
+    cluster: str | None = typer.Option(None, "--cluster"),
+) -> None:
+    """Submit winner-driven collection as a zero-GPU Slurm job."""
+    operation = SlurmServiceOperation.COLLECT_RUN
+    result = _invoke(
+        operation,
+        lambda: create_slurm_run_service(profile_file=profile_file, cluster=cluster).collect(
+            input_path,
+            destination=output_path,
+            num_partitions=num_partitions,
+        ),
     )
     _emit_result(result)
 

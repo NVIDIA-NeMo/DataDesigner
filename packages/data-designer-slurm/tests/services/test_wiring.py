@@ -7,9 +7,11 @@ import hashlib
 from collections.abc import Mapping
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
+import data_designer.slurm.services.retry_collection as retry_collection_module
 from data_designer.slurm.client.dependencies import ResolvedClientDependencies
 from data_designer.slurm.config import (
     BuilderInput,
@@ -28,11 +30,13 @@ from data_designer.slurm.launcher.models import (
     SlurmJobSubmissionReceipt,
     SlurmProcessExitCode,
     SlurmQueueEntry,
+    SlurmSubmissionMatch,
 )
 from data_designer.slurm.planning import ResolvedSlurmRunPlan
 from data_designer.slurm.services import (
     SlurmServiceError,
     SlurmServiceErrorCode,
+    SlurmServiceOperation,
     create_slurm_image_service,
     create_slurm_run_service,
 )
@@ -40,6 +44,7 @@ from data_designer.slurm.state import (
     AttemptLifecycleState,
     AttemptManifest,
     AttemptTerminalClassification,
+    CollectionState,
     RunManifest,
     SchedulerIdentity,
     SchedulerState,
@@ -55,6 +60,7 @@ class _Launcher:
         self,
         gpu_counts: tuple[int, ...] = (),
         *,
+        submission_job_ids: tuple[int, ...] = (42,),
         cancel_error: Exception | None = None,
         release_error: Exception | None = None,
     ) -> None:
@@ -65,6 +71,8 @@ class _Launcher:
         self.exported_environments: list[dict[str, str]] = []
         self.queue_entries: tuple[SlurmQueueEntry, ...] = ()
         self.accounting_entries: tuple[SlurmAccountingEntry, ...] = ()
+        self.submission_matches: tuple[SlurmSubmissionMatch, ...] = ()
+        self.submission_job_ids = submission_job_ids
         self.gpu_counts = gpu_counts
         self.cancel_error = cancel_error
         self.release_error = release_error
@@ -79,7 +87,8 @@ class _Launcher:
         self.submissions.append(script)
         self.held_submissions.append(hold)
         self.exported_environments.append(dict(export_environment or {}))
-        return SlurmJobSubmissionReceipt(job_id=42)
+        index = min(len(self.submissions) - 1, len(self.submission_job_ids) - 1)
+        return SlurmJobSubmissionReceipt(job_id=self.submission_job_ids[index])
 
     def cancel(self, job_id: int) -> None:
         self.cancellations.append(job_id)
@@ -102,6 +111,15 @@ class _Launcher:
     def query_accounting(self, selectors: object) -> tuple[SlurmAccountingEntry, ...]:
         del selectors
         return self.accounting_entries
+
+    def query_submissions_by_name(
+        self,
+        job_name: str,
+        *,
+        submitted_after: datetime,
+    ) -> tuple[SlurmSubmissionMatch, ...]:
+        del job_name, submitted_after
+        return self.submission_matches
 
 
 class _Publisher:
@@ -482,6 +500,163 @@ def test_status_does_not_expire_requeue_window_from_another_attempt_clock(
 
     assert still_requeueing.shards[0].attempts[0].attempt.state is AttemptLifecycleState.PENDING
     assert requeued.shards[0].attempts[0].attempt.state is AttemptLifecycleState.PENDING
+
+
+def test_production_retry_dry_run_and_submission_are_sparse_and_idempotent(
+    tmp_path: Path,
+    profile_catalog: SlurmProfileCatalog,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    authored = authored_run_single.model_copy(
+        update={"array_tasks": authored_run_single.array_tasks.model_copy(update={"count": 2})}
+    )
+    _register_images(tmp_path, authored, single_node_plan)
+    launcher = _Launcher(submission_job_ids=(42, 43))
+    now = datetime(2026, 9, 8, tzinfo=timezone.utc)
+    service = create_slurm_run_service(
+        profile=_profile(tmp_path, profile_catalog),
+        launcher=launcher,  # type: ignore[arg-type]
+        run_id_factory=lambda: "run-wired",
+        clock=lambda: now,
+        package_version="0.9.2",
+    )
+    service.execute(authored, source_root=tmp_path)
+    failed = SchedulerIdentity(array_job_id=42, array_task_id=0)
+    launcher.accounting_entries = (
+        SlurmAccountingEntry(
+            job_identity=failed,
+            state=SchedulerState.FAILED,
+            process_exit_code=SlurmProcessExitCode(exit_status=1, termination_signal=0),
+        ),
+    )
+
+    preview = service.retry("42", shard_ids=("shard-00000",), resume="never", dry_run=True)
+    assert not (tmp_path / "runs" / "run-wired" / "retries").exists()
+    assert not (
+        tmp_path / "runs" / "run-wired" / "shards" / "shard-00000" / "attempts" / "attempt-0001" / "scheduler.json"
+    ).exists()
+    assert len(launcher.submissions) == 1
+    submitted = service.retry("42", shard_ids=("shard-00000",), resume="never")
+    repeated = service.retry("run-wired", shard_ids=("shard-00000",), resume="never")
+
+    assert preview.state == "dry_run"
+    assert preview.job_id is None
+    assert preview.shard_ids == ("shard-00000",)
+    assert preview.batch_script is not None
+    assert "#SBATCH --array=0" in preview.batch_script
+    assert submitted.state == "submitted"
+    assert submitted.job_id == 43
+    assert submitted.shard_ids == ("shard-00000",)
+    assert repeated == submitted
+    assert len(launcher.submissions) == 2
+
+
+def test_production_retry_rejects_no_retryable_shards(
+    tmp_path: Path,
+    profile_catalog: SlurmProfileCatalog,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    _register_images(tmp_path, authored_run_single, single_node_plan)
+    service = create_slurm_run_service(
+        profile=_profile(tmp_path, profile_catalog),
+        launcher=_Launcher(),  # type: ignore[arg-type]
+        run_id_factory=lambda: "run-wired",
+        package_version="0.9.2",
+    )
+    service.execute(authored_run_single, source_root=tmp_path)
+
+    with pytest.raises(SlurmServiceError, match="no retryable shards") as caught:
+        service.retry("run-wired", resume="never")
+
+    assert caught.value.code is SlurmServiceErrorCode.CONFLICT
+    assert caught.value.operation is SlurmServiceOperation.RETRY_RUN
+
+
+def test_production_retry_rejects_ambiguous_scheduler_job_id(
+    tmp_path: Path,
+    profile_catalog: SlurmProfileCatalog,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    _register_images(tmp_path, authored_run_single, single_node_plan)
+    run_ids = iter(("run-one", "run-two"))
+    service = create_slurm_run_service(
+        profile=_profile(tmp_path, profile_catalog),
+        launcher=_Launcher(),  # type: ignore[arg-type]
+        run_id_factory=lambda: next(run_ids),
+        package_version="0.9.2",
+    )
+    service.execute(authored_run_single, source_root=tmp_path)
+    service.execute(authored_run_single, source_root=tmp_path)
+
+    with pytest.raises(SlurmServiceError, match="multiple managed runs") as caught:
+        service.retry("42", resume="never")
+
+    assert caught.value.code is SlurmServiceErrorCode.CONFLICT
+
+
+def test_collection_rejects_unmanaged_input_and_destination(
+    tmp_path: Path,
+    profile_catalog: SlurmProfileCatalog,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    _register_images(tmp_path, authored_run_single, single_node_plan)
+    service = create_slurm_run_service(
+        profile=_profile(tmp_path, profile_catalog),
+        launcher=_Launcher(),  # type: ignore[arg-type]
+        run_id_factory=lambda: "run-wired",
+        package_version="0.9.2",
+    )
+    service.execute(authored_run_single, source_root=tmp_path)
+
+    with pytest.raises(SlurmServiceError) as unmanaged:
+        service.collect(tmp_path / "run-wired", destination=tmp_path / "collected")
+    with pytest.raises(SlurmServiceError) as destination:
+        service.collect(tmp_path / "runs/run-wired", destination=tmp_path.parent / "collected")
+
+    assert unmanaged.value.code is SlurmServiceErrorCode.INVALID_REQUEST
+    assert destination.value.code is SlurmServiceErrorCode.INVALID_REQUEST
+
+
+def test_collection_returns_active_and_completed_jobs(
+    tmp_path: Path,
+    profile_catalog: SlurmProfileCatalog,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _register_images(tmp_path, authored_run_single, single_node_plan)
+    service = create_slurm_run_service(
+        profile=_profile(tmp_path, profile_catalog),
+        launcher=_Launcher(),  # type: ignore[arg-type]
+        run_id_factory=lambda: "run-wired",
+        package_version="0.9.2",
+    )
+    service.execute(authored_run_single, source_root=tmp_path)
+    statuses = iter(
+        (
+            SimpleNamespace(collection_id="collection-0001", state=CollectionState.RUNNING, scheduler=43),
+            SimpleNamespace(collection_id="collection-0001", state=CollectionState.SUCCEEDED, scheduler=43),
+        )
+    )
+
+    class Coordinator:
+        def submit(self, *, destination: Path, submitted_at: datetime) -> SimpleNamespace:
+            del destination, submitted_at
+            return next(statuses)
+
+    monkeypatch.setattr(retry_collection_module, "SlurmCollectionCoordinator", lambda *_: Coordinator())
+    output_path = tmp_path / "collected"
+
+    active = service.collect(tmp_path / "runs/run-wired", destination=output_path)
+    completed = service.collect(tmp_path / "runs/run-wired", destination=output_path)
+
+    assert active.state is CollectionState.RUNNING
+    assert completed.state is CollectionState.SUCCEEDED
+    assert active.job_id == completed.job_id == 43
 
 
 def test_auto_gpu_resolution_rejects_mixed_node_shapes(

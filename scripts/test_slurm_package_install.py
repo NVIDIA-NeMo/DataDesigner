@@ -133,6 +133,8 @@ assert "packaging.requirements" not in sys.modules
         statement += f"""
 slurm_help_result = CliRunner().invoke(app, ["slurm", "--help"])
 assert slurm_help_result.exit_code == 0, (slurm_help_result.output, repr(slurm_help_result.exception))
+assert all(command in slurm_help_result.output for command in ("execute", "status", "cancel", "retry", "merge", "image"))
+assert "benchmark" not in slurm_help_result.output
 assert "data_designer.slurm.cli" in sys.modules
 assert version("data-designer-slurm") == {version!r}
 from data_designer.slurm.contracts import ArtifactReference as ContractArtifactReference

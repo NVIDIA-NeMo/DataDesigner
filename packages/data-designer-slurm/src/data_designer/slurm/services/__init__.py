@@ -16,9 +16,11 @@ from data_designer.slurm.services.errors import (
 )
 from data_designer.slurm.services.images import SlurmImageManager, SlurmImageResolver, SlurmImageService
 from data_designer.slurm.services.results import (
+    SlurmCollectionExecution,
     SlurmPersistedAttemptStatus,
     SlurmPersistedRunStatus,
     SlurmPersistedShardStatus,
+    SlurmRetryExecution,
     SlurmRunCancellation,
     SlurmRunExecution,
 )
@@ -41,12 +43,14 @@ __all__ = [
     "SlurmBatchScriptRenderer",
     "SlurmBenchmarkBackend",
     "SlurmBenchmarkService",
+    "SlurmCollectionExecution",
     "SlurmImageManager",
     "SlurmImageResolver",
     "SlurmImageService",
     "SlurmPersistedAttemptStatus",
     "SlurmPersistedRunStatus",
     "SlurmPersistedShardStatus",
+    "SlurmRetryExecution",
     "SlurmRunArtifactPublisher",
     "SlurmRunBackend",
     "SlurmRunCancellation",
