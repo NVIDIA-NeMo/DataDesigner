@@ -13,8 +13,8 @@ class FakePluginConfig(SingleColumnConfig):
     """Minimal custom column configuration."""
 
     column_type: Literal["fake-slurm-column"] = "fake-slurm-column"
-    model_alias: str = "generator"
-    judge_model_alias: str = "judge"
+    model_alias: str | None = None
+    judge_model_alias: str | None = None
 
     @property
     def required_columns(self) -> list[str]:
@@ -25,19 +25,11 @@ class FakePluginConfig(SingleColumnConfig):
         return []
 
     def get_model_aliases(self) -> list[str]:
-        return [self.model_alias, self.judge_model_alias]
-
-
-class FakePluginImplementation:
-    """Minimal loadable implementation for entry-point verification."""
-
-    def generate(self, data: dict[str, object]) -> dict[str, object]:
-        """Return the provided record unchanged."""
-        return data
+        return [alias for alias in (self.model_alias, self.judge_model_alias) if alias is not None]
 
 
 plugin = Plugin(
     config_qualified_name="fake_data_designer_plugin.plugin.FakePluginConfig",
-    impl_qualified_name="fake_data_designer_plugin.plugin.FakePluginImplementation",
+    impl_qualified_name="fake_data_designer_plugin.implementation.FakePluginImplementation",
     plugin_type=PluginType.COLUMN_GENERATOR,
 )

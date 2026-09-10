@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from data_designer.slurm.client.filesystem import ensure_private_directory, replace_private_text
-from data_designer.slurm.client.worker import main as client_worker_main
+from data_designer.slurm.client.process import ClientWorkerProcess
 from data_designer.slurm.runtime.bootstrap import build_runtime_manifest
 from data_designer.slurm.runtime.context import load_allocation_context
 from data_designer.slurm.runtime.errors import SlurmRuntimeError, SlurmRuntimeErrorCode
@@ -145,8 +145,14 @@ def _ready(arguments: argparse.Namespace, environment: Mapping[str, str]) -> Non
     )
 
 
-def _client(arguments: argparse.Namespace, environment: Mapping[str, str]) -> None:
+def _client(
+    arguments: argparse.Namespace,
+    environment: Mapping[str, str],
+    *,
+    client_worker: ClientWorkerProcess | None = None,
+) -> None:
     context, writer = _load_context(arguments, environment)
+    worker_process = client_worker or ClientWorkerProcess()
     generation_started_at = _now(context.attempt, _load_optional_readiness(context, writer))
     resume_mode = (
         context.plan.invocation.authored.resume
@@ -158,7 +164,7 @@ def _client(arguments: argparse.Namespace, environment: Mapping[str, str]) -> No
         context.attempt.attempt_id,
         resume_mode,
     ):
-        return_code = client_worker_main(
+        return_code = worker_process.run(
             (
                 "run",
                 "--plan",
