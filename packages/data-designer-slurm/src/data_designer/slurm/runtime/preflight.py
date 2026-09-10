@@ -18,6 +18,7 @@ from data_designer.slurm.contracts import ArtifactReference
 from data_designer.slurm.runtime.errors import SlurmRuntimeError, SlurmRuntimeErrorCode
 from data_designer.slurm.runtime.models import AllocationContext
 from data_designer.slurm.runtime.paths import get_container_path
+from data_designer.slurm.runtime.ports import allocation_ports
 
 _DIGEST_CHUNK_SIZE = 1024 * 1024
 _GPU_COUNT_PATTERN = re.compile(r"^(?:gpu(?::[^:]+)?):([0-9]+)$")
@@ -38,10 +39,12 @@ class SystemAllocationPreflight:
         """Verify every launch-critical fact before model services start."""
         try:
             self._verify_scheduler(context, environment)
-            self._verify_attempt_directory(context.attempt_directory)
-            get_container_path(context.plan, context.attempt_directory.as_posix(), require_writable=True)
+            attempt_directory = Path(
+                get_container_path(context.plan, context.attempt_directory.as_posix(), require_writable=True)
+            )
+            self.verify_attempt_directory(attempt_directory)
             self._verify_artifacts(context)
-            self._verify_ports(context)
+            self.verify_ports(context, environment)
         except SlurmRuntimeError:
             raise
         except (OSError, ValueError) as error:
@@ -74,14 +77,15 @@ class SystemAllocationPreflight:
                     f"scheduler environment {name!r} does not match the resolved plan",
                 )
         visible_gpus = environment.get("CUDA_VISIBLE_DEVICES") or environment.get("SLURM_JOB_GPUS")
-        if _parse_gpu_count(visible_gpus) != context.plan.resolved_gpus_per_node:
+        if _parse_gpu_count(visible_gpus) < context.plan.resolved_gpus_per_node:
             raise SlurmRuntimeError(
                 SlurmRuntimeErrorCode.PREFLIGHT_FAILED,
                 "allocation GPU visibility does not match the resolved plan",
             )
 
     @staticmethod
-    def _verify_attempt_directory(attempt_directory: Path) -> None:
+    def verify_attempt_directory(attempt_directory: Path) -> None:
+        """Require an attempt workspace accessible only to its owner."""
         status = attempt_directory.lstat()
         if not stat.S_ISDIR(status.st_mode) or status.st_mode & 0o077:
             raise SlurmRuntimeError(
@@ -112,13 +116,17 @@ class SystemAllocationPreflight:
         references.extend(reference for reference in optional_references if reference is not None)
         unique_references = {(reference.path, reference.sha256): reference for reference in references}
         for reference in unique_references.values():
+            if any(
+                reference.path == mount.source or reference.path.startswith(f"{mount.source}/")
+                for mount in plan.container_mounts
+            ):
+                reference = reference.model_copy(update={"path": get_container_path(plan, reference.path)})
             _verify_artifact(reference)
 
     @staticmethod
-    def _verify_ports(context: AllocationContext) -> None:
-        ports = tuple(port.port for port in context.plan.client.ports) + tuple(
-            port.port for deployment in context.plan.deployments for port in deployment.ports
-        )
+    def verify_ports(context: AllocationContext, environment: Mapping[str, str]) -> None:
+        """Verify that every planned one-node port is currently bindable."""
+        ports = allocation_ports(context, environment)
         reservations: list[socket.socket] = []
         try:
             for port in ports:

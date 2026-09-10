@@ -70,7 +70,7 @@ def status_command(
     profile_file: Path | None = typer.Option(None, "--profile-file", dir_okay=False),
     cluster: str | None = typer.Option(None, "--cluster"),
 ) -> None:
-    """Show persisted M2 run status without scheduler reconciliation."""
+    """Reconcile scheduler observations and show persisted M2 run status."""
     operation = SlurmServiceOperation.STATUS_RUN
     result = _invoke(
         operation,
@@ -85,7 +85,7 @@ def cancel_command(
     profile_file: Path | None = typer.Option(None, "--profile-file", dir_okay=False),
     cluster: str | None = typer.Option(None, "--cluster"),
 ) -> None:
-    """Request job cancellation; status changes after reconciliation."""
+    """Request cancellation of active jobs."""
     operation = SlurmServiceOperation.CANCEL_RUN
     result = _invoke(
         operation,

@@ -13,7 +13,7 @@ export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 readonly DD_RUNTIME_ARCHIVE="/workspace/primary/runtime/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee.tar.gz"
 readonly DD_RUNTIME_SHA256="eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
 readonly DD_PLAN="/workspace/primary/runs/run-001/resolved-plan.json"
-readonly DD_PLAN_SHA256="902919292da35aca426a191bee775acf140b0f8b7440b55887fb2ba60ed98a52"
+readonly DD_PLAN_SHA256="69ff0f0e29331a513d732f9ad9f5fc979f5ed833b75061d8fdf769feff96ab11"
 readonly DD_RUN_ROOT="/workspace/primary/runs/run-001"
 readonly DD_ATTEMPT_ORDINAL="0001"
 
@@ -33,10 +33,9 @@ readonly DD_ARRAY_TASK_ID="${SLURM_ARRAY_TASK_ID}"
 printf -v DD_SHARD_ID 'shard-%05d' "${DD_ARRAY_TASK_ID}"
 readonly DD_SHARD_ID
 readonly DD_ATTEMPT_DIR="${DD_RUN_ROOT}/shards/${DD_SHARD_ID}/attempts/attempt-${DD_ATTEMPT_ORDINAL}"
-install -d -m 0700 "${DD_ATTEMPT_DIR}"
-DD_RUNTIME_DIR="$(mktemp -d "${DD_ATTEMPT_DIR}/runtime.${DD_RUNTIME_SHA256}.XXXXXX")"
-readonly DD_RUNTIME_DIR
-tar -xzf "${DD_RUNTIME_ARCHIVE}" -C "${DD_RUNTIME_DIR}"
+readonly DD_RUNTIME_ROOT="${DD_ATTEMPT_DIR}/runtime"
+[[ -d ${DD_RUNTIME_ROOT} && ! -L ${DD_RUNTIME_ROOT} ]]
+tar -xzf "${DD_RUNTIME_ARCHIVE}" -C "${DD_RUNTIME_ROOT}"
 
-source "${DD_RUNTIME_DIR}/entrypoint.sh"
+source "${DD_RUNTIME_ROOT}/entrypoint.sh"
 dd_slurm_run_allocation "${DD_PLAN}" "${DD_ATTEMPT_DIR}"
