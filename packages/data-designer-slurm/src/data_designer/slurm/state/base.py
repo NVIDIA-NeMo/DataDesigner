@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from typing import TypeAlias
 
 from pydantic import NonNegativeInt, PositiveInt
 
@@ -44,10 +45,14 @@ class SchedulerIdentity(StateValue):
     array_task_id: NonNegativeInt
 
 
+SchedulerJobIdentity: TypeAlias = PositiveInt | SchedulerIdentity
+
+
 __all__ = [
     "ArtifactReference",
     "Identifier",
     "SchedulerIdentity",
+    "SchedulerJobIdentity",
     "Sha256Digest",
     "StateRecord",
     "StateValue",

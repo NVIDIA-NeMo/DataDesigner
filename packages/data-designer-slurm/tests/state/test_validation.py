@@ -569,6 +569,8 @@ def test_reconciliation_covers_nonterminal_and_fallback_states() -> None:
 
     cases = (
         (attempt, ready, SchedulerState.PENDING, EffectiveAttemptState.PENDING),
+        (attempt, ready, SchedulerState.PREEMPTED, EffectiveAttemptState.PENDING),
+        (attempt, ready, SchedulerState.REQUEUED, EffectiveAttemptState.PENDING),
         (attempt, ready, SchedulerState.RUNNING, EffectiveAttemptState.RUNNING),
         (attempt, ready, SchedulerState.COMPLETED, EffectiveAttemptState.FAILED),
         (attempt, pending, SchedulerState.UNKNOWN, EffectiveAttemptState.UNKNOWN),
