@@ -442,23 +442,28 @@ def test_benchmark_service_delegates_run_and_analysis(
     benchmark_report: BenchmarkReport,
 ) -> None:
     benchmark_manifest = manifest_with_matching_config_digest
+    source_root = Path.cwd().resolve()
     backend = FakeBenchmarkBackend(
-        run_responses=((benchmark_config, benchmark_manifest),),
-        analysis_responses=(((benchmark_manifest.benchmark_id, True), benchmark_report),),
+        run_responses=(((benchmark_config, source_root, True), benchmark_manifest),),
+        analysis_responses=(((benchmark_manifest.benchmark_id, True, True), benchmark_report),),
     )
     service = SlurmBenchmarkService(backend)
 
-    assert service.run(benchmark_config) is benchmark_manifest
-    assert service.analyze(benchmark_manifest.benchmark_id, refresh_state=True) is benchmark_report
-    assert backend.run_calls == [benchmark_config]
-    assert backend.analysis_calls == [(benchmark_manifest.benchmark_id, True)]
+    assert service.run(benchmark_config, force=True) is benchmark_manifest
+    assert (
+        service.analyze(benchmark_manifest.benchmark_id, refresh_state=True, fail_if_incomplete=True)
+        is benchmark_report
+    )
+    assert backend.run_calls == [(benchmark_config, source_root, True)]
+    assert backend.analysis_calls == [(benchmark_manifest.benchmark_id, True, True)]
     backend.assert_complete()
 
 
 def test_benchmark_service_rejects_invalid_manifest(
     benchmark_config: DataDesignerSlurmBenchmarkConfig,
 ) -> None:
-    backend = FakeBenchmarkBackend(run_responses=((benchmark_config, object()),))  # type: ignore[arg-type]
+    request = (benchmark_config, Path.cwd().resolve(), False)
+    backend = FakeBenchmarkBackend(run_responses=((request, object()),))  # type: ignore[arg-type]
 
     with pytest.raises(SlurmServiceError) as caught:
         SlurmBenchmarkService(backend).run(benchmark_config)
@@ -466,13 +471,13 @@ def test_benchmark_service_rejects_invalid_manifest(
     assert caught.value.code is SlurmServiceErrorCode.INTERNAL
     assert caught.value.operation is SlurmServiceOperation.RUN_BENCHMARK
     assert str(caught.value) == "run benchmark failed"
-    assert backend.run_calls == [benchmark_config]
+    assert backend.run_calls == [request]
     backend.assert_complete()
 
 
 def test_benchmark_service_rejects_invalid_report(benchmark_manifest: BenchmarkManifest) -> None:
     backend = FakeBenchmarkBackend(
-        analysis_responses=(((benchmark_manifest.benchmark_id, False), object()),),  # type: ignore[arg-type]
+        analysis_responses=(((benchmark_manifest.benchmark_id, False, False), object()),),  # type: ignore[arg-type]
     )
 
     with pytest.raises(SlurmServiceError) as caught:
@@ -481,7 +486,7 @@ def test_benchmark_service_rejects_invalid_report(benchmark_manifest: BenchmarkM
     assert caught.value.code is SlurmServiceErrorCode.INTERNAL
     assert caught.value.operation is SlurmServiceOperation.ANALYZE_BENCHMARK
     assert str(caught.value) == "analyze benchmark failed"
-    assert backend.analysis_calls == [(benchmark_manifest.benchmark_id, False)]
+    assert backend.analysis_calls == [(benchmark_manifest.benchmark_id, False, False)]
     backend.assert_complete()
 
 
@@ -491,14 +496,15 @@ def test_benchmark_service_rejects_manifest_for_another_config(
 ) -> None:
     reference = manifest_with_matching_config_digest.benchmark_config.model_copy(update={"sha256": "0" * 64})
     manifest = manifest_with_matching_config_digest.model_copy(update={"benchmark_config": reference})
-    backend = FakeBenchmarkBackend(run_responses=((benchmark_config, manifest),))
+    request = (benchmark_config, Path.cwd().resolve(), False)
+    backend = FakeBenchmarkBackend(run_responses=((request, manifest),))
 
     with pytest.raises(SlurmServiceError) as caught:
         SlurmBenchmarkService(backend).run(benchmark_config)
 
     assert caught.value.code is SlurmServiceErrorCode.INTERNAL
     assert caught.value.operation is SlurmServiceOperation.RUN_BENCHMARK
-    assert backend.run_calls == [benchmark_config]
+    assert backend.run_calls == [request]
     backend.assert_complete()
 
 
@@ -513,17 +519,22 @@ def test_benchmark_service_rejects_untyped_config() -> None:
 
 
 @pytest.mark.parametrize(
-    ("benchmark_id", "refresh_state"),
-    [("", False), ("invalid/id", False), ("benchmark-001", 1)],
+    ("benchmark_id", "refresh_state", "fail_if_incomplete"),
+    [("", False, False), ("invalid/id", False, False), ("benchmark-001", 1, False), ("benchmark-001", False, 1)],
 )
 def test_benchmark_service_validates_analysis_actions(
     benchmark_id: object,
     refresh_state: object,
+    fail_if_incomplete: object,
 ) -> None:
     service = SlurmBenchmarkService(FakeBenchmarkBackend())
 
     with pytest.raises(SlurmServiceError) as caught:
-        service.analyze(benchmark_id, refresh_state=refresh_state)  # type: ignore[arg-type]
+        service.analyze(  # type: ignore[arg-type]
+            benchmark_id,
+            refresh_state=refresh_state,
+            fail_if_incomplete=fail_if_incomplete,
+        )
 
     assert caught.value.code is SlurmServiceErrorCode.INVALID_REQUEST
     assert caught.value.operation is SlurmServiceOperation.ANALYZE_BENCHMARK
@@ -535,7 +546,7 @@ def test_benchmark_service_rejects_uncorrelated_report(
 ) -> None:
     report = benchmark_report.model_copy(update={"benchmark_id": "other-benchmark"})
     backend = FakeBenchmarkBackend(
-        analysis_responses=(((benchmark_manifest.benchmark_id, False), report),),
+        analysis_responses=(((benchmark_manifest.benchmark_id, False, False), report),),
     )
 
     with pytest.raises(SlurmServiceError) as caught:
@@ -543,7 +554,7 @@ def test_benchmark_service_rejects_uncorrelated_report(
 
     assert caught.value.code is SlurmServiceErrorCode.INTERNAL
     assert caught.value.operation is SlurmServiceOperation.ANALYZE_BENCHMARK
-    assert backend.analysis_calls == [(benchmark_manifest.benchmark_id, False)]
+    assert backend.analysis_calls == [(benchmark_manifest.benchmark_id, False, False)]
     backend.assert_complete()
 
 

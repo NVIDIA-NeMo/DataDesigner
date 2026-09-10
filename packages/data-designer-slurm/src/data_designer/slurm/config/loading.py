@@ -17,6 +17,7 @@ from pydantic import JsonValue, ValidationError
 from yaml.nodes import MappingNode
 
 from data_designer.slurm._errors import format_parse_error, format_validation_error
+from data_designer.slurm.config.benchmark import DataDesignerSlurmBenchmarkConfig
 from data_designer.slurm.config.errors import SlurmConfigLoadError
 from data_designer.slurm.config.profiles import (
     SelectedSlurmProfile,
@@ -30,7 +31,12 @@ from data_designer.slurm.config.run import BuilderInput, DataDesignerSlurmConfig
 PROFILE_FILE_ENVIRONMENT = "DATA_DESIGNER_SLURM_PROFILE_FILE"
 DEFAULT_PROFILE_FILE_NAME = ".data-designer-slurm-profile.yml"
 
-_ConfigT = TypeVar("_ConfigT", DataDesignerSlurmConfig, SlurmProfileCatalog)
+_ConfigT = TypeVar(
+    "_ConfigT",
+    DataDesignerSlurmBenchmarkConfig,
+    DataDesignerSlurmConfig,
+    SlurmProfileCatalog,
+)
 _HostnameResolver = Callable[[], tuple[str, ...]]
 
 
@@ -67,6 +73,11 @@ _StrictYamlLoader.add_constructor(
 def load_run_config(path: str | Path) -> DataDesignerSlurmConfig:
     """Load one strict local YAML or JSON run declaration."""
     return _load_config(path, DataDesignerSlurmConfig)
+
+
+def load_benchmark_config(path: str | Path) -> DataDesignerSlurmBenchmarkConfig:
+    """Load one strict local YAML or JSON benchmark declaration."""
+    return _load_config(path, DataDesignerSlurmBenchmarkConfig)
 
 
 def load_profile_catalog(path: str | Path) -> SlurmProfileCatalog:
@@ -161,6 +172,8 @@ def _load_config(path: str | Path, config_type: type[_ConfigT]) -> _ConfigT:
         payload = _parse_mapping(contents, suffix=resolved_path.suffix)
         if config_type is DataDesignerSlurmConfig:
             _reject_run_environment_interpolation(payload)
+        elif config_type is DataDesignerSlurmBenchmarkConfig:
+            _reject_benchmark_environment_interpolation(payload)
         else:
             _reject_environment_interpolation(payload)
         return config_type.model_validate(payload)
@@ -221,6 +234,20 @@ def _reject_run_environment_interpolation(payload: Mapping[str, object]) -> None
             _reject_environment_interpolation(builder_key)
             if builder_key != "inline":
                 _reject_environment_interpolation(builder_value)
+
+
+def _reject_benchmark_environment_interpolation(payload: Mapping[str, object]) -> None:
+    for key, value in payload.items():
+        _reject_environment_interpolation(key)
+        if key != "base_run" or not isinstance(value, Mapping):
+            _reject_environment_interpolation(value)
+            continue
+        for base_key, base_value in value.items():
+            _reject_environment_interpolation(base_key)
+            if base_key == "inline" and isinstance(base_value, Mapping):
+                _reject_run_environment_interpolation(base_value)
+            else:
+                _reject_environment_interpolation(base_value)
 
 
 def _resolve_profile_path(

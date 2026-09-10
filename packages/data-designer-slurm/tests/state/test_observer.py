@@ -12,8 +12,11 @@ from pathlib import Path
 from typing import cast
 
 import pytest
-from slurm_test_fakes import FakeCommandResponse, FakeSlurmRunner
+from slurm_test_fakes import FakeCommandResponse, FakeSlurmArray, FakeSlurmRunner, FakeSlurmTask
 
+from data_designer.slurm.benchmark.analysis import BenchmarkObservationFailure
+from data_designer.slurm.benchmark.observer import PersistedBenchmarkRunObserver
+from data_designer.slurm.benchmark.records import BenchmarkOutcome
 from data_designer.slurm.client import ClientOutcome, ClientResult
 from data_designer.slurm.config import DataDesignerSlurmConfig, SlurmProfile
 from data_designer.slurm.contracts import ArtifactReference, compute_canonical_json_sha256
@@ -23,13 +26,19 @@ from data_designer.slurm.planning import ResolvedSlurmRunPlan
 from data_designer.slurm.state import (
     AttemptLifecycleState,
     AttemptManifest,
+    AttemptReadiness,
     AttemptTerminalClassification,
     CandidateOutcome,
     CandidateOutputFile,
     CandidateOutputManifest,
+    DeploymentReadiness,
     EffectiveAttemptState,
     EffectiveRunState,
+    EndpointPublicationState,
     GenerationState,
+    ProbeEvidence,
+    ProbeOutcome,
+    ReadinessState,
     RunManifest,
     SchedulerIdentity,
     SchedulerJobIdentity,
@@ -193,6 +202,262 @@ def test_fresh_process_refresh_persists_one_fixed_accounting_lag_deadline(
     assert stat.S_IMODE(scheduler_path.stat().st_mode) == 0o600
 
 
+def test_benchmark_observer_refreshes_from_a_fresh_process(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+    fake_slurm_runner: FakeSlurmRunner,
+) -> None:
+    case = _initialized_case(tmp_path, authored_run_single, single_node_plan)
+    SlurmCommandClient(fake_slurm_runner).submit("run.sbatch")
+    scheduler = cast(SchedulerIdentity, case.attempt.scheduler)
+    fake_slurm_runner.set_task_state(scheduler, queue_state=None, accounting_state=None)
+    observed_at = case.created_at + timedelta(minutes=3)
+
+    observation = PersistedBenchmarkRunObserver(
+        case.workspace,
+        SlurmCommandClient(fake_slurm_runner),
+        lambda: observed_at,
+    ).observe(case.plan.run_id, refresh_state=True)
+
+    assert observation.outcome is BenchmarkOutcome.ACCOUNTING_LAG
+    assert observation.authored_config == authored_run_single
+    assert observation.resolved_plan == case.plan
+
+
+def test_benchmark_observer_preserves_missing_and_tampered_child_state(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    case = _initialized_case(tmp_path, authored_run_single, single_node_plan, submitted=False)
+    observer = PersistedBenchmarkRunObserver(case.workspace, _StaticSchedulerClient((), ()), lambda: case.created_at)
+
+    with pytest.raises(BenchmarkObservationFailure) as missing:
+        observer.observe("run-missing", refresh_state=False)
+    assert missing.value.outcome is BenchmarkOutcome.MISSING
+
+    authored_path = case.writer.run_root / "authored-config.json"
+    authored_path.write_text("{}\n")
+    with pytest.raises(BenchmarkObservationFailure) as stale:
+        observer.observe(case.plan.run_id, refresh_state=False)
+    assert stale.value.outcome is BenchmarkOutcome.STALE
+
+
+@pytest.mark.parametrize(
+    ("attempt_state", "terminal_classification", "expected"),
+    [
+        (AttemptLifecycleState.SUBMITTED, None, BenchmarkOutcome.PENDING),
+        (
+            AttemptLifecycleState.FAILED,
+            AttemptTerminalClassification.FAILED,
+            BenchmarkOutcome.FAILED,
+        ),
+    ],
+)
+def test_benchmark_observer_reconstructs_persisted_non_success_outcomes(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+    attempt_state: AttemptLifecycleState,
+    terminal_classification: AttemptTerminalClassification | None,
+    expected: BenchmarkOutcome,
+) -> None:
+    case = _initialized_case(tmp_path, authored_run_single, single_node_plan)
+    if attempt_state is not AttemptLifecycleState.SUBMITTED:
+        case.writer.update_attempt(
+            _copy_attempt(
+                case.attempt,
+                state=attempt_state,
+                terminal_classification=terminal_classification,
+            )
+        )
+
+    observation = PersistedBenchmarkRunObserver(
+        case.workspace,
+        _StaticSchedulerClient((), ()),
+        lambda: case.created_at,
+    ).observe(case.plan.run_id, refresh_state=False)
+
+    assert observation.outcome is expected
+    assert observation.measurements is None
+
+
+def test_benchmark_observer_requires_measurements_for_persisted_winner(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    case = _initialized_case(tmp_path, authored_run_single, single_node_plan)
+    _publish_winner_state(case)
+
+    observation = PersistedBenchmarkRunObserver(
+        case.workspace,
+        _StaticSchedulerClient((), ()),
+        lambda: case.created_at,
+    ).observe(case.plan.run_id, refresh_state=False)
+
+    assert observation.outcome is BenchmarkOutcome.SUCCEEDED
+    assert observation.measurements is None
+
+
+def test_benchmark_observer_reads_complete_measurements_from_ordinary_state(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+    fake_slurm_runner: FakeSlurmRunner,
+) -> None:
+    case = _initialized_case(tmp_path, authored_run_single, single_node_plan)
+    ready_at = case.created_at + timedelta(minutes=2)
+    deployment = case.plan.deployments[0]
+    case.writer.write_readiness(
+        AttemptReadiness(
+            schema_version=1,
+            run_id=case.plan.run_id,
+            shard_id=case.shard.shard_id,
+            attempt_id=case.attempt.attempt_id,
+            revision=1,
+            updated_at=ready_at,
+            started_at=case.attempt.created_at,
+            state=ReadinessState.PENDING,
+            deployments=(
+                DeploymentReadiness(
+                    deployment_id=deployment.deployment_id,
+                    model_alias=deployment.authored.model_alias,
+                    state=ReadinessState.PENDING,
+                    expected_backends=deployment.topology.replica_count,
+                    ready_backends=0,
+                    endpoint_publication=EndpointPublicationState.PENDING,
+                ),
+            ),
+        )
+    )
+    case.writer.write_readiness(
+        AttemptReadiness(
+            schema_version=1,
+            run_id=case.plan.run_id,
+            shard_id=case.shard.shard_id,
+            attempt_id=case.attempt.attempt_id,
+            revision=2,
+            updated_at=ready_at,
+            started_at=case.attempt.created_at,
+            state=ReadinessState.STARTING,
+            deployments=(
+                DeploymentReadiness(
+                    deployment_id=deployment.deployment_id,
+                    model_alias=deployment.authored.model_alias,
+                    state=ReadinessState.STARTING,
+                    expected_backends=deployment.topology.replica_count,
+                    ready_backends=0,
+                    endpoint_publication=EndpointPublicationState.PENDING,
+                ),
+            ),
+        )
+    )
+    case.writer.write_readiness(
+        AttemptReadiness(
+            schema_version=1,
+            run_id=case.plan.run_id,
+            shard_id=case.shard.shard_id,
+            attempt_id=case.attempt.attempt_id,
+            revision=3,
+            updated_at=ready_at,
+            started_at=case.attempt.created_at,
+            state=ReadinessState.READY,
+            deployments=(
+                DeploymentReadiness(
+                    deployment_id=deployment.deployment_id,
+                    model_alias=deployment.authored.model_alias,
+                    state=ReadinessState.READY,
+                    expected_backends=deployment.topology.replica_count,
+                    ready_backends=deployment.topology.replica_count,
+                    endpoint_publication=EndpointPublicationState.PUBLISHED,
+                    last_probe=ProbeEvidence(
+                        observed_at=ready_at,
+                        outcome=ProbeOutcome.SUCCESS,
+                        reason_code="backend_ready",
+                        redacted_message="Backend is ready",
+                    ),
+                ),
+            ),
+        )
+    )
+    _publish_winner_state(case)
+    SlurmCommandClient(fake_slurm_runner).submit("run.sbatch")
+    scheduler = cast(SchedulerIdentity, case.attempt.scheduler)
+    fake_slurm_runner.set_task_state(scheduler, queue_state=None, accounting_state="COMPLETED")
+
+    observation = PersistedBenchmarkRunObserver(
+        case.workspace,
+        SlurmCommandClient(fake_slurm_runner),
+        lambda: case.created_at + timedelta(minutes=8),
+    ).observe(case.plan.run_id, refresh_state=True)
+
+    assert observation.outcome is BenchmarkOutcome.SUCCEEDED
+    assert observation.measurements is not None
+    assert observation.measurements.actual_records == authored_run_single.invocation.num_records
+    assert observation.measurements.boot_seconds == 60
+    assert observation.measurements.generation_seconds == 180
+    assert observation.measurements.wall_seconds == 300
+
+
+def test_benchmark_observer_ignores_superseded_attempt_evidence_after_retry_wins(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    case = _initialized_case(tmp_path, authored_run_single, single_node_plan)
+    case.writer.update_attempt(
+        _copy_attempt(
+            case.attempt,
+            state=AttemptLifecycleState.FAILED,
+            terminal_classification=AttemptTerminalClassification.PREEMPTED,
+            updated_at=case.attempt.created_at + timedelta(minutes=2),
+        )
+    )
+    retry = AttemptManifest(
+        schema_version=1,
+        run_id=case.plan.run_id,
+        shard_id=case.shard.shard_id,
+        attempt_id="attempt-0002",
+        attempt_ordinal=2,
+        resolved_plan=case.run.resolved_plan,
+        state=AttemptLifecycleState.SUBMITTED,
+        scheduler=SchedulerIdentity(array_job_id=4102, array_task_id=0),
+        created_at=case.attempt.created_at + timedelta(minutes=3),
+        updated_at=case.attempt.created_at + timedelta(minutes=3),
+    )
+    case.writer.create_attempt(retry)
+    _publish_ready_state(case, retry)
+    _, winner = _publish_winner_state(case, retry)
+    runner = FakeSlurmRunner(
+        arrays=(
+            FakeSlurmArray(tasks=(FakeSlurmTask(SchedulerIdentity(array_job_id=4101, array_task_id=0)),)),
+            FakeSlurmArray(tasks=(FakeSlurmTask(SchedulerIdentity(array_job_id=4102, array_task_id=0)),)),
+        )
+    )
+    observer = PersistedBenchmarkRunObserver(
+        case.workspace,
+        SlurmCommandClient(runner),
+        lambda: winner.published_at + timedelta(minutes=1),
+    )
+
+    persisted = observer.observe(case.plan.run_id, refresh_state=False)
+    first_scheduler = cast(SchedulerIdentity, case.attempt.scheduler)
+    retry_scheduler = cast(SchedulerIdentity, retry.scheduler)
+    SlurmCommandClient(runner).submit("first.sbatch")
+    SlurmCommandClient(runner).submit("retry.sbatch")
+    runner.set_task_state(first_scheduler, queue_state=None, accounting_state="PREEMPTED")
+    runner.set_task_state(retry_scheduler, queue_state=None, accounting_state="COMPLETED")
+    refreshed = observer.observe(case.plan.run_id, refresh_state=True)
+
+    assert persisted.outcome is BenchmarkOutcome.SUCCEEDED
+    assert persisted.measurements is not None
+    assert persisted.measurements.boot_seconds == 60
+    assert refreshed.outcome is BenchmarkOutcome.SUCCEEDED
+    assert refreshed.measurements == persisted.measurements
+
+
 def test_refresh_uses_terminal_accounting_over_stale_active_queue_state(
     tmp_path: Path,
     authored_run_single: DataDesignerSlurmConfig,
@@ -351,6 +616,15 @@ def test_refresh_rejects_winner_that_conflicts_with_terminal_scheduler_evidence(
             case.plan.run_id,
             SlurmCommandClient(fake_slurm_runner),
         ).refresh(observed_at=winner.published_at + timedelta(minutes=1))
+
+    observer = PersistedBenchmarkRunObserver(
+        case.workspace,
+        SlurmCommandClient(fake_slurm_runner),
+        lambda: winner.published_at + timedelta(minutes=1),
+    )
+    with pytest.raises(BenchmarkObservationFailure) as conflict:
+        observer.observe(case.plan.run_id, refresh_state=True)
+    assert conflict.value.outcome is BenchmarkOutcome.SCHEDULER_INCONSISTENT
 
 
 def test_refresh_reports_a_validated_winner_as_succeeded(
@@ -623,14 +897,20 @@ def _relocate_plan(plan: ResolvedSlurmRunPlan, workspace: Path) -> ResolvedSlurm
     return ResolvedSlurmRunPlan.model_validate_json(json.dumps(payload))
 
 
-def _publish_winner_state(case: _ReconciliationCase) -> tuple[AttemptManifest, ShardWinner]:
+def _publish_winner_state(
+    case: _ReconciliationCase,
+    attempt: AttemptManifest | None = None,
+) -> tuple[AttemptManifest, ShardWinner]:
+    attempt = case.attempt if attempt is None else attempt
     running = _copy_attempt(
-        case.attempt,
+        attempt,
         state=AttemptLifecycleState.RUNNING,
-        updated_at=case.created_at + timedelta(minutes=3),
+        updated_at=attempt.created_at + timedelta(minutes=2),
     )
     case.writer.update_attempt(running)
-    candidate_path = case.writer.run_root / "shards/shard-00000/attempts/attempt-0001/output-manifest.json"
+    candidate_path = (
+        case.writer.run_root / f"shards/{attempt.shard_id}/attempts/{attempt.attempt_id}/output-manifest.json"
+    )
     dataset_path = candidate_path.parent / "dataset"
     requested = case.plan.shards[0].requested_records
     candidate = CandidateOutputManifest(
@@ -639,7 +919,7 @@ def _publish_winner_state(case: _ReconciliationCase) -> tuple[AttemptManifest, S
         shard_id=running.shard_id,
         attempt_id=running.attempt_id,
         attempt_ordinal=running.attempt_ordinal,
-        created_at=case.created_at + timedelta(minutes=4),
+        created_at=attempt.created_at + timedelta(minutes=3),
         dataset_path=dataset_path.as_posix(),
         requested_records=requested,
         actual_records=requested,
@@ -661,7 +941,7 @@ def _publish_winner_state(case: _ReconciliationCase) -> tuple[AttemptManifest, S
         run_id=case.plan.run_id,
         shard_id=running.shard_id,
         attempt_id=running.attempt_id,
-        completed_at=case.created_at + timedelta(minutes=5),
+        completed_at=attempt.created_at + timedelta(minutes=4),
         requested_records=requested,
         actual_records=requested,
         outcome=ClientOutcome.COMPLETE,
@@ -677,7 +957,7 @@ def _publish_winner_state(case: _ReconciliationCase) -> tuple[AttemptManifest, S
         state=AttemptLifecycleState.SUCCEEDED,
         terminal_classification=AttemptTerminalClassification.SUCCEEDED,
         candidate_output=candidate_reference,
-        updated_at=case.created_at + timedelta(minutes=6),
+        updated_at=attempt.created_at + timedelta(minutes=5),
     )
     case.writer.update_attempt(completed)
     winner = ShardWinner(
@@ -687,12 +967,79 @@ def _publish_winner_state(case: _ReconciliationCase) -> tuple[AttemptManifest, S
         attempt_id=completed.attempt_id,
         attempt_ordinal=completed.attempt_ordinal,
         candidate_manifest=candidate_reference,
-        published_at=case.created_at + timedelta(minutes=7),
+        published_at=attempt.created_at + timedelta(minutes=6),
     )
-    winner_path = case.writer.run_root / "shards/shard-00000/winner.json"
+    winner_path = case.writer.run_root / f"shards/{attempt.shard_id}/winner.json"
     winner_path.write_text(winner.serialize_json())
     winner_path.chmod(0o600)
     return completed, winner
+
+
+def _publish_ready_state(case: _ReconciliationCase, attempt: AttemptManifest) -> None:
+    deployment = case.plan.deployments[0]
+    started_at = attempt.created_at + timedelta(minutes=2)
+    ready_at = started_at + timedelta(minutes=1)
+    pending = AttemptReadiness(
+        schema_version=1,
+        run_id=case.plan.run_id,
+        shard_id=attempt.shard_id,
+        attempt_id=attempt.attempt_id,
+        revision=1,
+        updated_at=started_at,
+        started_at=started_at,
+        state=ReadinessState.PENDING,
+        deployments=(
+            DeploymentReadiness(
+                deployment_id=deployment.deployment_id,
+                model_alias=deployment.authored.model_alias,
+                state=ReadinessState.PENDING,
+                expected_backends=deployment.topology.replica_count,
+                ready_backends=0,
+                endpoint_publication=EndpointPublicationState.PENDING,
+            ),
+        ),
+    )
+    case.writer.write_readiness(pending)
+    case.writer.write_readiness(
+        pending.model_copy(
+            update={
+                "revision": 2,
+                "state": ReadinessState.STARTING,
+                "deployments": tuple(
+                    deployment.model_copy(update={"state": ReadinessState.STARTING})
+                    for deployment in pending.deployments
+                ),
+            }
+        )
+    )
+    case.writer.write_readiness(
+        AttemptReadiness(
+            schema_version=1,
+            run_id=case.plan.run_id,
+            shard_id=attempt.shard_id,
+            attempt_id=attempt.attempt_id,
+            revision=3,
+            updated_at=ready_at,
+            started_at=started_at,
+            state=ReadinessState.READY,
+            deployments=(
+                DeploymentReadiness(
+                    deployment_id=deployment.deployment_id,
+                    model_alias=deployment.authored.model_alias,
+                    state=ReadinessState.READY,
+                    expected_backends=deployment.topology.replica_count,
+                    ready_backends=deployment.topology.replica_count,
+                    endpoint_publication=EndpointPublicationState.PUBLISHED,
+                    last_probe=ProbeEvidence(
+                        observed_at=ready_at,
+                        outcome=ProbeOutcome.SUCCESS,
+                        reason_code="backend_ready",
+                        redacted_message="Backend is ready",
+                    ),
+                ),
+            ),
+        )
+    )
 
 
 def _copy_attempt(attempt: AttemptManifest, **updates: object) -> AttemptManifest:

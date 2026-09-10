@@ -27,12 +27,17 @@ from data_designer.slurm.services.run import SlurmBatchScriptRenderer, SlurmRunB
 if TYPE_CHECKING:
     from data_designer.slurm.services.wiring import (  # noqa: F401
         SlurmRunArtifactPublisher,
+        create_slurm_benchmark_service,
         create_slurm_image_service,
         create_slurm_run_service,
     )
 
 _LAZY_IMPORTS = {
     "SlurmRunArtifactPublisher": ("data_designer.slurm.services.wiring", "SlurmRunArtifactPublisher"),
+    "create_slurm_benchmark_service": (
+        "data_designer.slurm.services.wiring",
+        "create_slurm_benchmark_service",
+    ),
     "create_slurm_image_service": ("data_designer.slurm.services.wiring", "create_slurm_image_service"),
     "create_slurm_run_service": ("data_designer.slurm.services.wiring", "create_slurm_run_service"),
 }
@@ -56,6 +61,7 @@ __all__ = [
     "SlurmServiceError",
     "SlurmServiceErrorCode",
     "SlurmServiceOperation",
+    "create_slurm_benchmark_service",
     "create_slurm_image_service",
     "create_slurm_run_service",
 ]

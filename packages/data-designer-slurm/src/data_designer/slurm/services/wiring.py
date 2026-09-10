@@ -17,6 +17,8 @@ from uuid import uuid4
 
 from pydantic import JsonValue
 
+from data_designer.slurm.benchmark.execution import SystemBenchmarkBackend
+from data_designer.slurm.benchmark.observer import PersistedBenchmarkRunObserver
 from data_designer.slurm.client.dependencies import (
     ClientDependencyResolutionError,
     ClientDependencyResolver,
@@ -51,6 +53,7 @@ from data_designer.slurm.planning.resolution import resolve_slurm_config
 from data_designer.slurm.runtime.bundle import stage_runtime_bundle
 from data_designer.slurm.runtime.errors import SlurmRuntimeError
 from data_designer.slurm.services.artifacts import StateRunArtifactPublisher
+from data_designer.slurm.services.benchmark import SlurmBenchmarkService
 from data_designer.slurm.services.errors import SlurmServiceError, SlurmServiceErrorCode, SlurmServiceOperation
 from data_designer.slurm.services.images import SlurmImageService
 from data_designer.slurm.services.results import (
@@ -725,6 +728,54 @@ def create_slurm_image_service(
     return SlurmImageService(backend, backend)
 
 
+def create_slurm_benchmark_service(
+    *,
+    profile: SlurmProfile | None = None,
+    catalog: SlurmProfileCatalog | None = None,
+    profile_file: str | Path | None = None,
+    cluster: str | None = None,
+    artifact_publisher: SlurmRunArtifactPublisher | None = None,
+    dependency_resolver: ClientDependencyResolver | None = None,
+    launcher: SlurmCommandClient | None = None,
+    clock: Clock | None = None,
+    package_version: str | None = None,
+    source_environment: Mapping[str, str] | None = None,
+) -> SlurmBenchmarkService:
+    """Create the production benchmark service for one selected cluster profile."""
+    selected = resolve_profile(profile=profile, catalog=catalog, profile_file=profile_file, cluster=cluster)
+    command_client = launcher or SlurmCommandClient()
+    selected_clock = clock or _utc_now
+    publisher = artifact_publisher or StateRunArtifactPublisher(selected.profile.workspace_root, selected_clock)
+    dependencies = dependency_resolver or ClientDependencyResolver()
+    environment = dict(os.environ if source_environment is None else source_environment)
+    version = package_version or importlib.metadata.version("data-designer-slurm")
+
+    def create_child_service(run_id: Identifier) -> SlurmRunService:
+        return create_slurm_run_service(
+            profile=selected.profile,
+            artifact_publisher=publisher,
+            dependency_resolver=dependencies,
+            launcher=command_client,
+            run_id_factory=lambda: run_id,
+            clock=selected_clock,
+            package_version=version,
+            source_environment=environment,
+        )
+
+    observer = PersistedBenchmarkRunObserver(
+        selected.profile.workspace_root,
+        command_client,
+        selected_clock,
+    )
+    backend = SystemBenchmarkBackend(
+        selected.profile.workspace_root,
+        create_child_service,
+        observer,
+        selected_clock,
+    )
+    return SlurmBenchmarkService(backend)
+
+
 def _resolve_builder_payload(
     authored: DataDesignerSlurmConfig,
     source_root: Path,
@@ -757,6 +808,7 @@ def _format_job_ids(job_ids: list[int]) -> str:
 
 __all__ = [
     "SlurmRunArtifactPublisher",
+    "create_slurm_benchmark_service",
     "create_slurm_image_service",
     "create_slurm_run_service",
 ]

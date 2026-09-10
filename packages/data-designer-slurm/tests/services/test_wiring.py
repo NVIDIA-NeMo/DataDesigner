@@ -10,9 +10,12 @@ from pathlib import Path
 
 import pytest
 
+from data_designer.slurm.benchmark.compiler import BenchmarkCompiler
 from data_designer.slurm.client.dependencies import ResolvedClientDependencies
 from data_designer.slurm.config import (
+    BenchmarkBaseRun,
     BuilderInput,
+    DataDesignerSlurmBenchmarkConfig,
     DataDesignerSlurmConfig,
     ImageBuildRequest,
     SecretRef,
@@ -33,6 +36,7 @@ from data_designer.slurm.planning import ResolvedSlurmRunPlan
 from data_designer.slurm.services import (
     SlurmServiceError,
     SlurmServiceErrorCode,
+    create_slurm_benchmark_service,
     create_slurm_image_service,
     create_slurm_run_service,
 )
@@ -57,6 +61,7 @@ class _Launcher:
         *,
         cancel_error: Exception | None = None,
         release_error: Exception | None = None,
+        submission_error: Exception | None = None,
     ) -> None:
         self.submissions: list[str] = []
         self.cancellations: list[int] = []
@@ -68,6 +73,7 @@ class _Launcher:
         self.gpu_counts = gpu_counts
         self.cancel_error = cancel_error
         self.release_error = release_error
+        self.submission_error = submission_error
 
     def submit_script(
         self,
@@ -79,6 +85,8 @@ class _Launcher:
         self.submissions.append(script)
         self.held_submissions.append(hold)
         self.exported_environments.append(dict(export_environment or {}))
+        if self.submission_error is not None:
+            raise self.submission_error
         return SlurmJobSubmissionReceipt(job_id=42)
 
     def cancel(self, job_id: int) -> None:
@@ -194,6 +202,79 @@ def test_production_wiring_dry_run_resolves_and_renders_without_submission(
     assert result.batch_script is not None
     assert "#SBATCH --array=0" in result.batch_script
     assert launcher.submissions == []
+
+
+def test_production_benchmark_wiring_submits_each_case_as_an_ordinary_run(
+    tmp_path: Path,
+    profile_catalog: SlurmProfileCatalog,
+    benchmark_config: DataDesignerSlurmBenchmarkConfig,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    config = benchmark_config.model_copy(
+        update={
+            "base_run": BenchmarkBaseRun(inline=authored_run_single),
+            "concurrency_values": [32],
+            "deployment_cases": [benchmark_config.deployment_cases[0]],
+        }
+    )
+    _register_images(tmp_path, authored_run_single, single_node_plan)
+    launcher = _Launcher()
+    publisher = _Publisher()
+    service = create_slurm_benchmark_service(
+        profile=_profile(tmp_path, profile_catalog),
+        launcher=launcher,  # type: ignore[arg-type]
+        artifact_publisher=publisher,
+        package_version="0.9.2",
+    )
+
+    manifest = service.run(config, source_root=tmp_path, force=True)
+
+    assert len(manifest.children) == 1
+    assert publisher.initializations == [(manifest.children[0].child_run_id, False)]
+    assert len(launcher.submissions) == 1
+    assert (tmp_path / "benchmarks" / manifest.benchmark_id / "benchmark.json").is_file()
+
+
+@pytest.mark.parametrize("drop_run_manifest", [False, True])
+def test_production_benchmark_force_resumes_initialized_child_without_submission(
+    tmp_path: Path,
+    profile_catalog: SlurmProfileCatalog,
+    benchmark_config: DataDesignerSlurmBenchmarkConfig,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+    drop_run_manifest: bool,
+) -> None:
+    config = benchmark_config.model_copy(
+        update={
+            "base_run": BenchmarkBaseRun(inline=authored_run_single),
+            "concurrency_values": [32],
+            "deployment_cases": [benchmark_config.deployment_cases[0]],
+        }
+    )
+    child_run_id = BenchmarkCompiler.compile(config, authored_run_single).cases[0].child_run_id
+    _register_images(tmp_path, authored_run_single, single_node_plan)
+    launcher = _Launcher(submission_error=SlurmLauncherError("unavailable"))
+    service = create_slurm_benchmark_service(
+        profile=_profile(tmp_path, profile_catalog),
+        launcher=launcher,  # type: ignore[arg-type]
+        package_version="0.9.2",
+    )
+
+    with pytest.raises(SlurmServiceError, match="1 of 1") as unavailable:
+        service.run(config, source_root=tmp_path)
+    assert unavailable.value.code is SlurmServiceErrorCode.UNAVAILABLE
+    run_root = tmp_path / "runs" / child_run_id
+    if drop_run_manifest:
+        (run_root / "run.json").unlink()
+    launcher.submission_error = None
+
+    manifest = service.run(config, source_root=tmp_path, force=True)
+
+    writer = SlurmStateWriter(tmp_path, manifest.children[0].child_run_id)
+    shard = writer.load_shards()[0]
+    assert len(launcher.submissions) == 2
+    assert writer.load_attempts(shard.shard_id)[0].scheduler is not None
 
 
 def test_public_plan_resolves_builder_relative_to_explicit_source_root(

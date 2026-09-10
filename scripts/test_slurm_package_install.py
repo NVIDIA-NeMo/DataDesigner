@@ -133,8 +133,10 @@ assert "packaging.requirements" not in sys.modules
         statement += f"""
 slurm_help_result = CliRunner().invoke(app, ["slurm", "--help"])
 assert slurm_help_result.exit_code == 0, (slurm_help_result.output, repr(slurm_help_result.exception))
+assert "benchmark" in slurm_help_result.output
 assert "data_designer.slurm.cli" in sys.modules
 assert version("data-designer-slurm") == {version!r}
+from data_designer.slurm.benchmark import BenchmarkCompiler
 from data_designer.slurm.contracts import ArtifactReference as ContractArtifactReference
 from data_designer.slurm.contracts import RecordRange as ContractRecordRange
 from data_designer.slurm.contracts import ResumeWorkspace as ContractResumeWorkspace
@@ -156,6 +158,9 @@ from data_designer.slurm.state import (
     SlurmRetryCoordinator,
     SlurmStateReconciler,
 )
+from data_designer.slurm.services import create_slurm_benchmark_service
+assert BenchmarkCompiler.__name__ == "BenchmarkCompiler"
+assert callable(create_slurm_benchmark_service)
 assert CollectionResult.__name__ == "CollectionResult"
 assert RetryPlan.__name__ == "RetryPlan"
 assert RunManifest.__name__ == "RunManifest"
@@ -225,7 +230,7 @@ def main() -> None:
         assert str(leaf_base_requirement.specifier) == f"=={version}"
         assert leaf_packaging_requirement.specifier == Requirement("packaging>=25,<27").specifier
         assert leaf_pip_requirement.specifier == Requirement("pip>=25,<27").specifier
-        assert leaf_pydantic_requirement.specifier == Requirement("pydantic>=2.9.2,<3").specifier
+        assert leaf_pydantic_requirement.specifier == Requirement("pydantic>=2.12,<3").specifier
         assert leaf_pyyaml_requirement.specifier == Requirement("pyyaml>=6.0.1,<7").specifier
         assert base_leaf_requirement.marker is not None
         assert base_leaf_requirement.marker.evaluate({"extra": "slurm"})

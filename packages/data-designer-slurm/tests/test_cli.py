@@ -10,7 +10,9 @@ import pytest
 from click.testing import CliRunner
 
 import data_designer.slurm.cli as cli_module
-from data_designer.slurm.config import DataDesignerSlurmConfig
+import data_designer.slurm.cli_benchmark as benchmark_cli_module
+from data_designer.slurm.benchmark import BenchmarkManifest, BenchmarkReport
+from data_designer.slurm.config import DataDesignerSlurmBenchmarkConfig, DataDesignerSlurmConfig
 from data_designer.slurm.services import (
     SlurmRunExecution,
     SlurmServiceError,
@@ -41,6 +43,22 @@ class _RunService:
         )
 
 
+class _BenchmarkService:
+    def __init__(self, manifest: BenchmarkManifest, report: BenchmarkReport) -> None:
+        self.manifest = manifest
+        self.report = report
+        self.run_calls = []
+        self.analysis_calls = []
+
+    def run(self, config, *, source_root, force):
+        self.run_calls.append((config, source_root, force))
+        return self.manifest
+
+    def analyze(self, benchmark_id, *, refresh_state, fail_if_incomplete):
+        self.analysis_calls.append((benchmark_id, refresh_state, fail_if_incomplete))
+        return self.report
+
+
 def test_execute_emits_deterministic_json_and_forwards_actions(
     tmp_path: Path,
     authored_run_single: DataDesignerSlurmConfig,
@@ -63,6 +81,35 @@ def test_execute_emits_deterministic_json_and_forwards_actions(
         "state": "dry_run",
     }
     assert service.calls == [(authored_run_single, tmp_path, True, True)]
+
+
+def test_benchmark_cli_forwards_run_and_analysis_actions(
+    tmp_path: Path,
+    benchmark_config: DataDesignerSlurmBenchmarkConfig,
+    benchmark_manifest: BenchmarkManifest,
+    benchmark_report: BenchmarkReport,
+    monkeypatch,
+) -> None:
+    benchmark_file = tmp_path / "benchmark.json"
+    benchmark_file.write_text(benchmark_config.serialize_json())
+    service = _BenchmarkService(benchmark_manifest, benchmark_report)
+    monkeypatch.setattr(benchmark_cli_module, "create_slurm_benchmark_service", lambda **_: service)
+
+    run_result = CliRunner().invoke(
+        cli_module.create_cli(),
+        ["benchmark", "run", str(benchmark_file), "--force"],
+    )
+    analyze_result = CliRunner().invoke(
+        cli_module.create_cli(),
+        ["benchmark", "analyze", "/workspace/benchmarks/benchmark-001", "--refresh", "--fail-if-incomplete"],
+    )
+
+    assert run_result.exit_code == 0
+    assert json.loads(run_result.stdout)["benchmark_id"] == benchmark_manifest.benchmark_id
+    assert analyze_result.exit_code == 0
+    assert json.loads(analyze_result.stdout)["analysis_id"] == benchmark_report.analysis_id
+    assert service.run_calls == [(benchmark_config, tmp_path, True)]
+    assert service.analysis_calls == [("benchmark-001", True, True)]
 
 
 @pytest.mark.parametrize(
@@ -139,9 +186,9 @@ def test_image_add_rejects_mutable_oci_source(source: str) -> None:
     }
 
 
-def test_cli_exposes_only_m2_run_commands() -> None:
+def test_cli_exposes_benchmark_without_retry_or_merge() -> None:
     result = CliRunner().invoke(cli_module.create_cli(), ["--help"])
 
     assert result.exit_code == 0
-    assert all(command in result.stdout for command in ("execute", "status", "cancel", "image"))
-    assert all(command not in result.stdout for command in ("retry", "merge", "benchmark"))
+    assert all(command in result.stdout for command in ("execute", "status", "cancel", "image", "benchmark"))
+    assert all(command not in result.stdout for command in ("retry", "merge"))

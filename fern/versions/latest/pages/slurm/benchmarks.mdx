@@ -1,0 +1,94 @@
+# Slurm benchmarks
+
+Use a benchmark to compare concurrency and deployment topology while keeping each case as an ordinary Data Designer Slurm run. No benchmark controller stays resident after submission.
+
+Install the Slurm extension:
+
+```bash
+pip install "data-designer[slurm]"
+```
+
+## Define cases
+
+Create `benchmark.yaml` next to an existing `run.yaml`:
+
+```yaml
+schema_version: 1
+name: generator-scaling
+base_run: run.yaml
+model_aliases:
+  - generator
+concurrency_values:
+  - 32
+  - 64
+deployment_cases:
+  - name: two-independent-replicas
+    deployments:
+      generator:
+        nodes: 2
+        nodes_per_replica: 1
+  - name: one-two-node-replica
+    deployments:
+      generator:
+        nodes: 2
+        nodes_per_replica: 2
+record_policy:
+  type: adaptive
+  base_records: 1000
+  max_records: 5000
+  records_per_concurrency: 1.0
+analysis:
+  target_total_records: 1000000
+  target_runtime: 4h
+```
+
+The compiler expands the authored order deterministically. For this example, the first cases are `two-independent-replicas-c32` and `one-two-node-replica-c32`. An adaptive record policy uses `ceil(concurrency * records_per_concurrency)`, bounded by `base_records` and `max_records`.
+
+## Run
+
+```bash
+data-designer slurm benchmark run benchmark.yaml \
+  --profile-file ~/.data-designer-slurm-profile.yml \
+  --cluster primary
+```
+
+The command writes `benchmarks/<benchmark-id>/config.json`, the resolved `base-run.json`, and `benchmark.json` before submitting any child. The manifest is an immutable ordered mapping from case IDs to normal run IDs. Each child keeps its authored config, state, attempts, scheduler evidence, and results under `runs/<run-id>`.
+
+If submission stops partway through, rerun the same command. Children with scheduler submission evidence are not submitted again, and missing children are attempted in the original order. If a child has initialized inputs but no submission evidence, rerun with `--force` to resume it. Force never replaces benchmark or child metadata. Partial scheduler evidence across a child's shards is preserved as a conflict for operator investigation and cannot be overwritten with force.
+
+## Observe and analyze
+
+Inspect any child with the normal run command:
+
+```bash
+data-designer slurm status <child-run-id>
+```
+
+Write a point-in-time benchmark report from persisted child state:
+
+```bash
+data-designer slurm benchmark analyze <benchmark-id> --refresh-state
+```
+
+`--refresh-state` performs one fresh-process scheduler reconciliation per child before analysis. Add `--fail-if-incomplete` when automation should return a conflict after the report is persisted if any case is not successful.
+
+Reports retain every manifest case in order. Outcomes include `pending`, `accounting_lag`, `succeeded`, `failed`, `incomplete`, `missing`, `stale`, and `scheduler_inconsistent`. Successful cases can be infeasible when boot time consumes the runtime budget. Boot and wall timing begin when execution starts inside the allocation, so queue wait does not affect topology comparisons. `generation_seconds` is the target runtime remaining after boot, while `rows_per_second` comes from the measured generation window. Only successful feasible cases participate in Pareto, minimum-job, and minimum-GPU-hour recommendations.
+
+## Python API
+
+```python
+from pathlib import Path
+
+from data_designer.slurm.config import load_benchmark_config
+from data_designer.slurm.services import create_slurm_benchmark_service
+
+benchmark_file = Path("benchmark.yaml").resolve()
+config = load_benchmark_config(benchmark_file)
+service = create_slurm_benchmark_service(
+    profile_file="~/.data-designer-slurm-profile.yml",
+    cluster="primary",
+)
+
+manifest = service.run(config, source_root=benchmark_file.parent)
+report = service.analyze(manifest.benchmark_id, refresh_state=True)
+```

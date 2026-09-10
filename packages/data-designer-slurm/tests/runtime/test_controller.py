@@ -193,6 +193,10 @@ def test_controller_runs_preflight_servers_endpoint_client_and_cleanup(runtime_c
     assert ReadinessState.READY in [item.state for item in state.readiness]
     assert state.readiness[-1].state is ReadinessState.STOPPED
     assert state.readiness[-1].deployments[0].endpoint_publication is EndpointPublicationState.PUBLISHED
+    assert state.readiness[-1].deployments[0].last_probe is not None
+    assert state.readiness[-1].deployments[0].last_probe.reason_code == "endpoint_ready"
+    assert state.readiness[0].started_at is not None
+    assert {item.started_at for item in state.readiness} == {state.readiness[0].started_at}
     assert all(process.poll() is not None for process in runner.processes)
     assert {step.stdout_path.parent.name for step in runner.steps} == {"execution-00000001"}
 
