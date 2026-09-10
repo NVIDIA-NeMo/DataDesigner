@@ -6,6 +6,7 @@ from __future__ import annotations
 import hashlib
 import importlib
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -142,6 +143,20 @@ def test_inspect_distributions_omits_path_for_active_environment(monkeypatch: py
 
     assert inspect_distributions(None) == ()
     assert calls == [{}]
+
+
+def test_inspect_distributions_refreshes_overlay_with_unchanged_directory_mtime(tmp_path: Path) -> None:
+    original_stat = tmp_path.stat()
+    assert inspect_distributions(tmp_path) == ()
+    distribution = tmp_path / "cache_probe-1.0.0.dist-info"
+    distribution.mkdir()
+    (distribution / "METADATA").write_text(
+        "Metadata-Version: 2.1\nName: cache-probe\nVersion: 1.0.0\n",
+        encoding="utf-8",
+    )
+    os.utime(tmp_path, ns=(original_stat.st_atime_ns, original_stat.st_mtime_ns))
+
+    assert inspect_distributions(tmp_path) == (InstalledDistribution(name="cache-probe", version="1.0.0"),)
 
 
 def test_inspect_distributions_rejects_unhashed_direct_url(monkeypatch: pytest.MonkeyPatch) -> None:
