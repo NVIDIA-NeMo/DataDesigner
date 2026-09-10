@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from data_designer.slurm.config import ContainerMount
+from data_designer.slurm.config import ContainerMount, injected_profile
 from data_designer.slurm.contracts import ArtifactReference, compute_canonical_json_sha256
 from data_designer.slurm.launcher.collection import render_collection_script
 from data_designer.slurm.launcher.renderer import render_generation_retry_script
@@ -123,6 +123,36 @@ def test_retry_renderer_waits_for_persisted_attempt_before_starting_runtime(
     assert '--array-job-id "${DD_ARRAY_JOB_ID}" --array-task-id "${DD_ARRAY_TASK_ID}"' in script
     assert script.index("data_designer.slurm.state.attempt_identity") < script.index("DD_RUNTIME_DIR")
     assert '"${DD_RETRY_PLAN_SHA256}" "${DD_EFFECTIVE_RESUME_MODE}"' in script
+    assert subprocess.run(("bash", "-n"), input=script, text=True, check=False).returncode == 0
+
+
+def test_retry_renderer_uses_profile_slurm_bin_path(multi_node_plan: ResolvedSlurmRunPlan) -> None:
+    scheduler = multi_node_plan.selected_profile.profile.scheduler.model_copy(update={"bin_path": "/opt/slurm/bin"})
+    profile = multi_node_plan.selected_profile.profile.model_copy(update={"scheduler": scheduler})
+    plan = multi_node_plan.model_copy(update={"selected_profile": injected_profile(profile)})
+    retry = RetryPlan(
+        schema_version=1,
+        retry_id="retry-0001",
+        run_id=plan.run_id,
+        created_at=datetime(2026, 9, 2, tzinfo=timezone.utc),
+        resolved_plan=ArtifactReference(
+            path="/workspace/primary/runs/run-001/resolved-plan.json",
+            sha256=plan.compute_sha256(),
+        ),
+        planned_shards=(
+            RetryShard(
+                shard_id="shard-00001",
+                attempt_id="attempt-0002",
+                attempt_ordinal=2,
+                array_task_index=1,
+            ),
+        ),
+        effective_resume_mode="never",
+    )
+
+    script = render_generation_retry_script(plan, retry)
+
+    assert 'export PATH="/opt/slurm/bin:/usr/local/sbin:' in script
     assert subprocess.run(("bash", "-n"), input=script, text=True, check=False).returncode == 0
 
 

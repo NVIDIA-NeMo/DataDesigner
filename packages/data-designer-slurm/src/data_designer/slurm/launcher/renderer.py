@@ -27,13 +27,10 @@ def render_generation_attempt_script(plan: ResolvedSlurmRunPlan, *, attempt_ordi
     if plan.selected_profile.profile.gpu_request_mode == "visible":
         directive_text = f"{directive_text}\n#SBATCH --exclusive"
     attempt = f"{attempt_ordinal:04d}"
-    scheduler_bin_path = plan.selected_profile.profile.scheduler.bin_path
-    command_path = _SYSTEM_PATH if scheduler_bin_path is None else f"{scheduler_bin_path}:{_SYSTEM_PATH}"
-
     return f"""#!/usr/bin/env bash
 {directive_text}
 set -Eeuo pipefail
-export PATH={quote_shell_value(command_path)}
+export PATH={quote_shell_value(_get_command_path(plan))}
 
 readonly DD_RUNTIME_ARCHIVE={quote_shell_value(plan.runtime_bundle.path)}
 readonly DD_RUNTIME_SHA256={quote_shell_value(plan.runtime_bundle.sha256)}
@@ -98,7 +95,7 @@ def render_generation_retry_script(plan: ResolvedSlurmRunPlan, retry: RetryPlan)
     return f"""#!/usr/bin/env bash
 {directives}
 set -Eeuo pipefail
-export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+export PATH={quote_shell_value(_get_command_path(plan))}
 
 readonly DD_RUNTIME_ARCHIVE={quote_shell_value(plan.runtime_bundle.path)}
 readonly DD_RUNTIME_SHA256={quote_shell_value(plan.runtime_bundle.sha256)}
@@ -164,6 +161,11 @@ dd_slurm_run_allocation \
     "${{DD_PLAN}}" "${{DD_ATTEMPT_DIR}}" "${{DD_RETRY_ID}}" \
     "${{DD_RETRY_PLAN_SHA256}}" "${{DD_EFFECTIVE_RESUME_MODE}}"
 """
+
+
+def _get_command_path(plan: ResolvedSlurmRunPlan) -> str:
+    scheduler_bin_path = plan.selected_profile.profile.scheduler.bin_path
+    return _SYSTEM_PATH if scheduler_bin_path is None else f"{scheduler_bin_path}:{_SYSTEM_PATH}"
 
 
 def _build_generation_directives(
