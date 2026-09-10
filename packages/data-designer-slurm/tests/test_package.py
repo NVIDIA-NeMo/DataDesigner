@@ -17,6 +17,12 @@ def test_slurm_uses_shared_namespace() -> None:
     assert data_designer.slurm.__name__ == "data_designer.slurm"
 
 
+def test_slurm_license_matches_repository() -> None:
+    package_license = REPO_ROOT / "packages" / "data-designer-slurm" / "LICENSE"
+
+    assert package_license.read_bytes() == (REPO_ROOT / "LICENSE").read_bytes()
+
+
 def test_slurm_is_published_before_base_extra() -> None:
     publish_script = (REPO_ROOT / "scripts" / "publish.sh").read_text()
 
