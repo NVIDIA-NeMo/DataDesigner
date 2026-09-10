@@ -272,6 +272,8 @@ class ClientEnvironmentBuilder:
 
 def inspect_distributions(path: Path | None) -> tuple[InstalledDistribution, ...]:
     """Return an exact immutable distribution inventory."""
+    if path is not None:
+        importlib.invalidate_caches()
     distributions = (
         importlib.metadata.distributions() if path is None else importlib.metadata.distributions(path=[path.as_posix()])
     )
