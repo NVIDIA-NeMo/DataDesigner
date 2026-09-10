@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Mapping
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -397,6 +397,43 @@ def test_status_reconciles_cancelled_scheduler_attempt(
     attempt = status.shards[0].attempts[0].attempt
     assert attempt.state is AttemptLifecycleState.FAILED
     assert attempt.terminal_classification is AttemptTerminalClassification.CANCELLED
+
+
+def test_status_expires_unrequeued_preemption_and_cancel_skips_terminal_job(
+    tmp_path: Path,
+    profile_catalog: SlurmProfileCatalog,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    _register_images(tmp_path, authored_run_single, single_node_plan)
+    launcher = _Launcher()
+    current_time = [datetime(2026, 9, 8, tzinfo=timezone.utc)]
+    service = create_slurm_run_service(
+        profile=_profile(tmp_path, profile_catalog),
+        launcher=launcher,  # type: ignore[arg-type]
+        run_id_factory=lambda: "run-wired",
+        clock=lambda: current_time[0],
+        package_version="0.9.2",
+    )
+    result = service.execute(authored_run_single, source_root=tmp_path)
+    scheduler = SchedulerIdentity(array_job_id=42, array_task_id=0)
+    launcher.accounting_entries = (
+        SlurmAccountingEntry(
+            job_identity=scheduler,
+            state=SchedulerState.PREEMPTED,
+            process_exit_code=SlurmProcessExitCode(exit_status=0, termination_signal=0),
+        ),
+    )
+
+    pending = service.status(result.run_id)
+    current_time[0] += timedelta(minutes=5, seconds=1)
+    failed = service.status(result.run_id)
+    cancellation = service.cancel(result.run_id)
+
+    assert pending.shards[0].attempts[0].attempt.state is AttemptLifecycleState.PENDING
+    assert failed.shards[0].attempts[0].attempt.state is AttemptLifecycleState.FAILED
+    assert cancellation.job_ids == ()
+    assert launcher.cancellations == []
 
 
 def test_auto_gpu_resolution_rejects_mixed_node_shapes(
