@@ -5,23 +5,28 @@
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import unicodedata
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from data_designer.slurm.contracts import Identifier
-from data_designer.slurm.launcher.errors import SlurmCommandError, SlurmCommandOutputError
+from data_designer.slurm.launcher.errors import SlurmCommandError, SlurmCommandOutputError, SlurmSubmissionError
 from data_designer.slurm.launcher.models import (
     SlurmAccountingEntry,
     SlurmJobSubmissionReceipt,
+    SlurmNamedJobEntry,
     SlurmQueueEntry,
+    SlurmSubmissionMatch,
 )
 from data_designer.slurm.launcher.parsing import (
     parse_accounting,
     parse_gpu_counts,
+    parse_named_jobs,
     parse_queue,
     parse_submission,
 )
@@ -104,12 +109,21 @@ class SlurmCommandClient:
             raise ValueError("batch script text must be non-empty UTF-8 text without NUL")
         hold_arguments = ("--hold",) if hold else ()
         export_argument, environment = _format_export_environment(export_environment)
-        output = self._run(
-            (self._executables.sbatch, "--parsable", *hold_arguments, export_argument),
-            input_text=script,
-            environment=environment,
-        )
-        return parse_submission(output)
+        try:
+            output = self._run(
+                (self._executables.sbatch, "--parsable", *hold_arguments, export_argument),
+                input_text=script,
+                environment=environment,
+            )
+        except SlurmCommandError as error:
+            raise SlurmSubmissionError(
+                str(error),
+                may_have_succeeded=error.command_may_have_completed,
+            ) from error
+        try:
+            return parse_submission(output)
+        except SlurmCommandOutputError as error:
+            raise SlurmSubmissionError(str(error), may_have_succeeded=True) from error
 
     def query_queue(self, selectors: Sequence[SchedulerJobIdentity]) -> tuple[SlurmQueueEntry, ...]:
         """Return normalized active-queue rows for explicit managed jobs."""
@@ -160,6 +174,47 @@ class SlurmCommandClient:
         )
         return tuple(entry for entry in entries if entry.job_identity not in ignored)
 
+    def query_submissions_by_name(
+        self,
+        job_name: Identifier,
+        *,
+        submitted_after: datetime,
+    ) -> tuple[SlurmSubmissionMatch, ...]:
+        """Return current-user allocations matching one exact recovery name."""
+        if type(job_name) is not str or _IDENTIFIER_PATTERN.fullmatch(job_name) is None:
+            raise ValueError("Slurm job name must be a valid identifier")
+        accounting_start = _format_accounting_start(submitted_after)
+        queue_output = self._run(
+            (
+                self._executables.squeue,
+                "--noheader",
+                "--array",
+                "--format=%i|%.128j",
+                "--me",
+                f"--name={job_name}",
+            )
+        )
+        accounting_output = self._run(
+            (
+                self._executables.sacct,
+                "--noheader",
+                "--array",
+                "--allocations",
+                "--parsable2",
+                "--format=JobID,JobName%128",
+                f"--uid={os.getuid()}",
+                f"--starttime={accounting_start}",
+                f"--name={job_name}",
+            )
+        )
+        entries = (
+            *parse_named_jobs(queue_output, command="squeue"),
+            *parse_named_jobs(accounting_output, command="sacct"),
+        )
+        if any(entry.job_name != job_name for entry in entries):
+            raise SlurmCommandOutputError("scheduler returned a job outside the requested exact name")
+        return _merge_submission_matches(entries)
+
     def cancel(self, selector: SchedulerJobIdentity) -> None:
         """Cancel one managed Slurm job, array, or array task."""
         self._run((self._executables.scancel, _format_selector(selector)))
@@ -194,13 +249,26 @@ class SlurmCommandClient:
                 )
             else:
                 completed = self._runner.run(command, input_text=input_text, environment=environment)
-        except (OSError, subprocess.SubprocessError) as error:
+        except subprocess.TimeoutExpired as error:
+            raise SlurmCommandError(
+                f"{command_name} could not be executed: {_format_error_detail(error)}",
+                command_may_have_completed=True,
+            ) from error
+        except OSError as error:
             raise SlurmCommandError(f"{command_name} could not be executed: {_format_error_detail(error)}") from error
+        except subprocess.SubprocessError as error:
+            raise SlurmCommandError(
+                f"{command_name} could not be executed: {_format_error_detail(error)}",
+                command_may_have_completed=True,
+            ) from error
         returncode = getattr(completed, "returncode", None)
         stdout = getattr(completed, "stdout", None)
         stderr = getattr(completed, "stderr", None)
         if type(returncode) is not int or not isinstance(stdout, str) or not isinstance(stderr, str):
-            raise SlurmCommandError(f"{command_name} returned a malformed process result")
+            raise SlurmCommandError(
+                f"{command_name} returned a malformed process result",
+                command_may_have_completed=True,
+            )
         if returncode:
             detail = _normalize_bounded_text(stderr) or "no diagnostic output"
             raise SlurmCommandError(f"{command_name} failed with exit code {returncode}: {detail}")
@@ -288,3 +356,26 @@ def _format_error_detail(error: BaseException) -> str:
 def _is_unknown_queue_job_error(error: SlurmCommandError) -> bool:
     message = str(error)
     return any(message.endswith(f": {detail}") for detail in _UNKNOWN_QUEUE_JOB_DETAILS)
+
+
+def _format_accounting_start(value: datetime) -> str:
+    if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() is None:
+        raise ValueError("submission lookup timestamp must be timezone-aware")
+    return (value - timedelta(minutes=1)).astimezone().strftime("%Y-%m-%dT%H:%M:%S")
+
+
+def _merge_submission_matches(entries: Sequence[SlurmNamedJobEntry]) -> tuple[SlurmSubmissionMatch, ...]:
+    grouped: dict[tuple[int, str], set[int]] = {}
+    ordinary: set[tuple[int, str]] = set()
+    for entry in entries:
+        key = (entry.job_id, entry.job_name)
+        if entry.array_task_id is None:
+            ordinary.add(key)
+        else:
+            grouped.setdefault(key, set()).add(entry.array_task_id)
+    matches: list[SlurmSubmissionMatch] = []
+    for job_id, job_name in sorted(ordinary | set(grouped)):
+        key = (job_id, job_name)
+        task_ids = tuple(sorted(grouped[key])) if key in grouped else None
+        matches.append(SlurmSubmissionMatch(job_id=job_id, job_name=job_name, array_task_ids=task_ids))
+    return tuple(matches)

@@ -53,7 +53,6 @@ class _ShardSnapshot:
 class _ObservationBatch:
     previous: dict[SchedulerIdentity, SchedulerObservation | None]
     current: dict[SchedulerJobIdentity, SchedulerObservation]
-    observed_at: datetime
 
 
 class SlurmStateReconciler:
@@ -101,11 +100,15 @@ class SlurmStateReconciler:
         attempts_by_shard = self._reader.load_validated_attempts(run, plan, shards)
         previous = self._load_previous_observations(attempts_by_shard)
         selectors = tuple(previous.keys())
-        current = self._collector.collect(selectors, observed_at=timestamp, previous=previous)
+        current = self._collector.collect(
+            selectors,
+            observed_at=timestamp,
+            previous=previous,
+            observation_floors=self._load_observation_floors(plan, attempts_by_shard, previous),
+        )
         batch = _ObservationBatch(
             previous=previous,
             current={observation.scheduler: observation for observation in current},
-            observed_at=timestamp,
         )
         shard_statuses = tuple(
             self._refresh_shard(
@@ -142,6 +145,28 @@ class SlurmStateReconciler:
                 if attempt.scheduler is not None:
                     previous[attempt.scheduler] = self._reader.load_optional_scheduler_observation(attempt)
         return previous
+
+    def _load_observation_floors(
+        self,
+        plan: ResolvedSlurmRunPlan,
+        attempts_by_shard: dict[ShardId, tuple[AttemptManifest, ...]],
+        previous: dict[SchedulerIdentity, SchedulerObservation | None],
+    ) -> dict[SchedulerIdentity, datetime]:
+        floors: dict[SchedulerIdentity, datetime] = {}
+        for attempts in attempts_by_shard.values():
+            for attempt in attempts:
+                scheduler = attempt.scheduler
+                if scheduler is None:
+                    continue
+                floor = attempt.updated_at
+                prior = previous[scheduler]
+                if prior is not None:
+                    floor = max(floor, prior.observed_at)
+                readiness = self._reader.load_optional_readiness(plan, attempt)
+                if readiness is not None:
+                    floor = max(floor, readiness.updated_at)
+                floors[scheduler] = floor
+        return floors
 
     def _refresh_shard(
         self,
@@ -200,7 +225,7 @@ class SlurmStateReconciler:
                 attempt,
                 readiness,
                 scheduler,
-                current_time=batch.observed_at,
+                current_time=scheduler.observed_at,
             )
         else:
             if attempt.state is not AttemptLifecycleState.CREATED:

@@ -47,7 +47,10 @@ def test_runtime_bundle_is_deterministic_content_addressed_and_restrictive(tmp_p
         assert all(archive.getmember(name).uid == 0 for name in names)
         entrypoint = archive.extractfile("entrypoint.sh")
         assert entrypoint is not None
-        assert b"python3 -m data_designer.slurm.runtime.entrypoint" not in entrypoint.read()
+        entrypoint_content = entrypoint.read()
+        assert b"python3 -m data_designer.slurm.runtime.entrypoint" not in entrypoint_content
+        assert b"--retry-plan-sha256" in entrypoint_content
+        assert b"--effective-resume-mode" in entrypoint_content
 
 
 def test_runtime_bundle_recursively_collects_and_imports_nested_packages(

@@ -62,6 +62,7 @@ class SchedulerObservationCollector:
         *,
         observed_at: datetime,
         previous: Mapping[SchedulerJobIdentity, SchedulerObservation | None] | None = None,
+        observation_floors: Mapping[SchedulerJobIdentity, datetime] | None = None,
     ) -> tuple[SchedulerObservation, ...]:
         """Return one deterministic observation for every requested identity."""
         validate_utc_timestamp(observed_at)
@@ -69,13 +70,14 @@ class SchedulerObservationCollector:
         if not requested:
             return ()
         prior = {} if previous is None else previous
+        observation_times = _resolve_observation_times(requested, observed_at, observation_floors)
         queue, accounting = self._query_scheduler(requested)
         queue_by_identity = self._index_records(queue, requested, source="active queue")
         accounting_by_identity = self._index_records(accounting, requested, source="accounting")
         return tuple(
             self._resolve_observation(
                 identity,
-                observed_at,
+                observation_times[identity],
                 queue_by_identity.get(identity),
                 accounting_by_identity.get(identity),
                 prior.get(identity),
@@ -146,6 +148,22 @@ class SchedulerObservationCollector:
             except StateContractError as error:
                 raise SlurmStateError("scheduler observation violates persisted chronology") from error
         return observation
+
+
+def _resolve_observation_times(
+    requested: tuple[SchedulerJobIdentity, ...],
+    observed_at: datetime,
+    observation_floors: Mapping[SchedulerJobIdentity, datetime] | None,
+) -> dict[SchedulerJobIdentity, datetime]:
+    floors = {} if observation_floors is None else observation_floors
+    if not set(floors).issubset(requested):
+        raise SlurmStateError("scheduler observation floors contain an unrequested identity")
+    resolved: dict[SchedulerJobIdentity, datetime] = {}
+    for identity in requested:
+        floor = floors.get(identity, observed_at)
+        validate_utc_timestamp(floor)
+        resolved[identity] = max(observed_at, floor)
+    return resolved
 
 
 def _select_observed_state(

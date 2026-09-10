@@ -436,6 +436,54 @@ def test_status_expires_unrequeued_preemption_and_cancel_skips_terminal_job(
     assert launcher.cancellations == []
 
 
+def test_status_does_not_expire_requeue_window_from_another_attempt_clock(
+    tmp_path: Path,
+    profile_catalog: SlurmProfileCatalog,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    authored = authored_run_single.model_copy(
+        update={"array_tasks": authored_run_single.array_tasks.model_copy(update={"count": 2})}
+    )
+    _register_images(tmp_path, authored, single_node_plan)
+    launcher = _Launcher()
+    current_time = [datetime(2026, 9, 8, tzinfo=timezone.utc)]
+    service = create_slurm_run_service(
+        profile=_profile(tmp_path, profile_catalog),
+        launcher=launcher,  # type: ignore[arg-type]
+        run_id_factory=lambda: "run-wired",
+        clock=lambda: current_time[0],
+        package_version="0.9.2",
+    )
+    result = service.execute(authored, source_root=tmp_path)
+    preempted = SchedulerIdentity(array_job_id=42, array_task_id=0)
+    running = SchedulerIdentity(array_job_id=42, array_task_id=1)
+    launcher.queue_entries = (SlurmQueueEntry(job_identity=running, state=SchedulerState.RUNNING),)
+    launcher.accounting_entries = (
+        SlurmAccountingEntry(
+            job_identity=preempted,
+            state=SchedulerState.PREEMPTED,
+            process_exit_code=SlurmProcessExitCode(exit_status=0, termination_signal=0),
+        ),
+    )
+    service.status(result.run_id)
+    writer = SlurmStateWriter(tmp_path, result.run_id)
+    other_attempt = writer.load_attempt("shard-00001", "attempt-0001")
+    writer.update_attempt(other_attempt.model_copy(update={"updated_at": current_time[0] + timedelta(minutes=10)}))
+
+    current_time[0] += timedelta(minutes=1)
+    still_requeueing = service.status(result.run_id)
+    current_time[0] += timedelta(minutes=1)
+    launcher.queue_entries = (
+        SlurmQueueEntry(job_identity=preempted, state=SchedulerState.PENDING),
+        SlurmQueueEntry(job_identity=running, state=SchedulerState.RUNNING),
+    )
+    requeued = service.status(result.run_id)
+
+    assert still_requeueing.shards[0].attempts[0].attempt.state is AttemptLifecycleState.PENDING
+    assert requeued.shards[0].attempts[0].attempt.state is AttemptLifecycleState.PENDING
+
+
 def test_auto_gpu_resolution_rejects_mixed_node_shapes(
     tmp_path: Path,
     profile_catalog: SlurmProfileCatalog,
