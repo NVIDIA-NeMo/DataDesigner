@@ -68,7 +68,7 @@ def test_container_phases_use_the_container_attempt_directory(
     with pytest.raises(_InjectedFailure):
         entrypoint._prepare(prepare, {})
 
-    monkeypatch.setattr(entrypoint, "_run_client_worker", lambda arguments: 0)
+    monkeypatch.setattr(entrypoint, "run_client_worker", lambda arguments: 0)
 
     def load_candidate(*args: object, attempt_directory: Path | None = None) -> None:
         assert attempt_directory == container_attempt_directory

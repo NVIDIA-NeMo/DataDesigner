@@ -158,7 +158,7 @@ def _client(arguments: argparse.Namespace, environment: Mapping[str, str]) -> No
         context.attempt.attempt_id,
         resume_mode,
     ):
-        return_code = _run_client_worker(
+        return_code = run_client_worker(
             (
                 "run",
                 "--plan",
@@ -202,7 +202,8 @@ def _client(arguments: argparse.Namespace, environment: Mapping[str, str]) -> No
         writer.publish_attempt_result(client_result, candidate)
 
 
-def _run_client_worker(arguments: Sequence[str]) -> int:
+def run_client_worker(arguments: Sequence[str]) -> int:
+    """Run the plugin-aware client worker in a fresh Python interpreter."""
     command = (sys.executable, "-m", "data_designer.slurm.client.worker", *arguments)
     return subprocess.run(command, check=False).returncode
 
