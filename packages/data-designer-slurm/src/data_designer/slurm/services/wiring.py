@@ -548,17 +548,12 @@ class _SystemRunBackend:
         )
         if not active:
             return
-        observed_at = max(self._clock(), *(attempt.updated_at for attempt in active))
-        for attempt in active:
-            readiness = _load_optional(lambda: writer.load_readiness(attempt.shard_id, attempt.attempt_id))
-            if readiness is not None:
-                observed_at = max(observed_at, readiness.updated_at)
         try:
             reconciled = SlurmStateReconciler(
                 self._profile.profile.workspace_root,
                 writer.load_run().run_id,
                 self._launcher,
-            ).refresh(observed_at=observed_at)
+            ).refresh(observed_at=self._clock())
         except SlurmStateError as error:
             if isinstance(error.__cause__, SlurmLauncherError):
                 return
@@ -567,16 +562,18 @@ class _SystemRunBackend:
         for shard in reconciled.shards:
             for status in shard.attempts:
                 if (status.attempt.shard_id, status.attempt.attempt_id) in active_identities:
-                    self._update_reconciled_attempt(writer, status, observed_at)
+                    self._update_reconciled_attempt(writer, status)
 
     @staticmethod
     def _update_reconciled_attempt(
         writer: SlurmStateWriter,
         status: AttemptStatus,
-        observed_at: datetime,
     ) -> None:
         attempt = status.attempt
-        update: dict[str, object] = {"updated_at": observed_at}
+        scheduler = status.scheduler
+        if scheduler is None:  # pragma: no cover - active attempts always have scheduler evidence
+            raise AssertionError("active attempt has no reconciled scheduler evidence")
+        update: dict[str, object] = {"updated_at": scheduler.observed_at}
         if status.effective_state is EffectiveAttemptState.PENDING and attempt.state is AttemptLifecycleState.SUBMITTED:
             update["state"] = AttemptLifecycleState.PENDING
         elif status.effective_state is EffectiveAttemptState.RUNNING and attempt.state in {
@@ -585,11 +582,10 @@ class _SystemRunBackend:
         }:
             update["state"] = AttemptLifecycleState.RUNNING
         elif status.effective_state is EffectiveAttemptState.FAILED:
-            scheduler_state = SchedulerState.UNKNOWN if status.scheduler is None else status.scheduler.state
             update.update(
                 state=AttemptLifecycleState.FAILED,
                 terminal_classification=_FAILURE_CLASSIFICATIONS.get(
-                    scheduler_state,
+                    scheduler.state,
                     AttemptTerminalClassification.UNKNOWN,
                 ),
             )
