@@ -30,6 +30,17 @@ class SchedulerProfile(AuthoredConfig):
     account: Identifier | None = None
     partition: Identifier | None = None
     mem_per_gpu: Annotated[str, StringConstraints(pattern=r"^[1-9][0-9]*(?:K|M|G|T)$")] | None = None
+    bin_path: str | None = None
+
+    @field_validator("bin_path")
+    @classmethod
+    def validate_bin_path(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        validated = validate_absolute_path(value)
+        if ":" in validated:
+            raise ValueError("scheduler bin path must name one directory")
+        return validated
 
 
 class ImageBuildProfile(AuthoredConfig):

@@ -110,6 +110,7 @@ class FakeSlurmRunner:
         *,
         check: bool = False,
         input_text: str | None = None,
+        environment: Mapping[str, str] | None = None,
     ) -> subprocess.CompletedProcess[str]:
         """Run one fake Slurm command and optionally raise on failure."""
         if not command:
@@ -117,6 +118,7 @@ class FakeSlurmRunner:
         argv = tuple(command)
         self.calls.append(argv)
         self.inputs.append(input_text)
+        del environment
         command_name = Path(argv[0]).name
         scripted = self._scripted_responses.get(command_name)
         if scripted:
