@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import subprocess
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 import pytest
 from slurm_test_fakes import FakeCommandResponse, FakeSlurmJob, FakeSlurmRunner
@@ -38,6 +38,38 @@ def test_client_submits_verified_script_text_through_standard_input() -> None:
     assert submission.job_id == 5101
     assert runner.calls == [("sbatch", "--parsable", "--export=NIL")]
     assert runner.inputs == [script]
+
+
+def test_client_holds_submission_until_initial_state_is_recorded() -> None:
+    runner = FakeSlurmRunner(jobs=(FakeSlurmJob(job_id=5101),))
+    runner.script_next("scontrol", FakeCommandResponse())
+    client = SlurmCommandClient(runner)
+
+    submission = client.submit_script("#!/usr/bin/env bash\n", hold=True)
+    client.release(submission.job_id)
+
+    assert runner.calls == [
+        ("sbatch", "--parsable", "--hold", "--export=NIL"),
+        ("scontrol", "release", "5101"),
+    ]
+
+
+def test_client_exports_only_explicit_environment_names_without_values_in_argv() -> None:
+    runner = _EnvironmentRunner()
+    client = SlurmCommandClient(runner)
+
+    client.submit_script(
+        "#!/usr/bin/env bash\n",
+        export_environment={"HF_TOKEN": "secret-value", "SLURM_EXPORT_ENV": "ALL"},
+    )
+
+    assert runner.command == (
+        "sbatch",
+        "--parsable",
+        "--export=HF_TOKEN,SLURM_EXPORT_ENV",
+    )
+    assert runner.environment == {"HF_TOKEN": "secret-value", "SLURM_EXPORT_ENV": "ALL"}
+    assert "secret-value" not in " ".join(runner.command)
 
 
 def test_client_queries_accounting_and_cancels_one_array_task(fake_slurm_runner: FakeSlurmRunner) -> None:
@@ -279,6 +311,23 @@ class _FailingRunner:
     def run(self, command: Sequence[str]) -> subprocess.CompletedProcess[str]:
         del command
         raise FileNotFoundError("missing executable")
+
+
+class _EnvironmentRunner:
+    def __init__(self) -> None:
+        self.command: tuple[str, ...] = ()
+        self.environment: dict[str, str] = {}
+
+    def run(
+        self,
+        command: Sequence[str],
+        *,
+        input_text: str | None = None,
+        environment: Mapping[str, str] | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        self.command = tuple(command)
+        self.environment = dict(environment or {})
+        return subprocess.CompletedProcess(command, 0, stdout="42\n", stderr="")
 
 
 class _TimeoutRunner:

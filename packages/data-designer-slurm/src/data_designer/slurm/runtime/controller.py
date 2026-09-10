@@ -7,16 +7,18 @@ from __future__ import annotations
 
 import subprocess
 from collections.abc import Mapping
+from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Protocol
+from typing import Literal, Protocol
 
 from data_designer.slurm.client import ClientResult
 from data_designer.slurm.contracts import ArtifactReference
 from data_designer.slurm.runtime.errors import SlurmRuntimeError, SlurmRuntimeErrorCode
 from data_designer.slurm.runtime.logs import bind_execution_logs, execution_log_directory
 from data_designer.slurm.runtime.models import AllocationContext, RuntimeEndpoint, RuntimeStep
+from data_designer.slurm.runtime.ports import resolve_allocation_deployments
 from data_designer.slurm.runtime.preflight import AllocationPreflight
 from data_designer.slurm.runtime.probes import ReadinessProber
 from data_designer.slurm.runtime.records import load_complete_client_candidate
@@ -27,7 +29,6 @@ from data_designer.slurm.runtime.steps import (
 )
 from data_designer.slurm.runtime.supervisor import ManagedStep, RuntimeClock, StepSupervisor
 from data_designer.slurm.serving.deployment import ResolvedVllmServerDeployment
-from data_designer.slurm.serving.resolver import resolve_vllm_server
 from data_designer.slurm.state import (
     AttemptLifecycleState,
     AttemptManifest,
@@ -39,6 +40,7 @@ from data_designer.slurm.state import (
     ProbeEvidence,
     ProbeOutcome,
     ReadinessState,
+    ShardWinner,
     StateNotFoundError,
 )
 
@@ -57,12 +59,36 @@ class RuntimeStateStore(Protocol):
         """Persist a monotonic attempt update."""
         ...
 
+    def load_attempt(self, shard_id: str, attempt_id: str) -> AttemptManifest:
+        """Load one persisted attempt."""
+        ...
+
     def publish_attempt_result(
         self,
         client_result: ClientResult,
         candidate: CandidateOutputManifest,
     ) -> tuple[ClientResult, CandidateOutputManifest]:
         """Publish one complete result pair and bind it to its running attempt."""
+        ...
+
+    def acquire_dataset_workspace(
+        self,
+        shard_id: str,
+        attempt_id: str,
+        resume_mode: Literal["never", "always", "if_possible"],
+    ) -> AbstractContextManager[Path]:
+        """Hold exclusive ownership of the dataset workspace for generation."""
+        ...
+
+    def finalize_winner(
+        self,
+        shard_id: str,
+        attempt_id: str,
+        *,
+        published_at: datetime,
+        completed_at: datetime | None = None,
+    ) -> ShardWinner:
+        """Commit attempt success and publish its immutable winning candidate."""
         ...
 
     def write_readiness(self, readiness: AttemptReadiness) -> AttemptReadiness:
@@ -106,6 +132,7 @@ class OneNodeAllocationController:
         context: AllocationContext,
         *,
         runtime_proxy_path: Path,
+        runtime_root: Path | None = None,
         state: RuntimeStateStore,
         supervisor: StepSupervisor,
         preflight: AllocationPreflight,
@@ -120,6 +147,7 @@ class OneNodeAllocationController:
             raise ValueError("runtime probe intervals must be positive")
         self._context = context
         self._runtime_proxy_path = runtime_proxy_path
+        self._runtime_root = runtime_root if runtime_root is not None else runtime_proxy_path.parent
         self._state = state
         self._supervisor = supervisor
         self._preflight = preflight
@@ -140,12 +168,38 @@ class OneNodeAllocationController:
         self._record_outcome_failure(outcome)
         self._cleanup_runtime(outcome)
         self._record_stopped_readiness(outcome)
-        terminal = self._persist_terminal_outcome(outcome)
+        if outcome.failure is None:
+            try:
+                terminal = self._finalize_success(outcome)
+            except BaseException as error:
+                outcome.failure = _normalize_failure(error)
+                outcome.failure_cause = error
+                terminal = self._persist_terminal_outcome(outcome)
+        else:
+            terminal = self._persist_terminal_outcome(outcome)
         if outcome.failure is not None:
             if outcome.failure_cause is outcome.failure:
                 raise outcome.failure
             raise outcome.failure from outcome.failure_cause
         return terminal
+
+    def _finalize_success(self, outcome: _RunOutcome) -> AttemptManifest:
+        if outcome.candidate_reference is None:
+            raise SlurmRuntimeError(
+                SlurmRuntimeErrorCode.FINALIZATION_FAILED,
+                "successful allocation has no candidate reference",
+            )
+        completed_at = self._now()
+        if outcome.client_completed_at is not None and outcome.client_completed_at > completed_at:
+            completed_at = outcome.client_completed_at
+        self._state.finalize_winner(
+            self._attempt.shard_id,
+            self._attempt.attempt_id,
+            completed_at=completed_at,
+            published_at=max(self._now(), completed_at),
+        )
+        self._attempt = self._state.load_attempt(self._attempt.shard_id, self._attempt.attempt_id)
+        return self._attempt
 
     def _capture_execution(self) -> _RunOutcome:
         try:
@@ -214,10 +268,7 @@ class OneNodeAllocationController:
 
     def _prepare_runtime(self) -> _RuntimeTopology:
         self._validate_attempt_state()
-        deployments = tuple(
-            resolve_vllm_server(self._context.plan, deployment.deployment_id)
-            for deployment in self._context.plan.deployments
-        )
+        deployments = resolve_allocation_deployments(self._context, self._environment)
         restarting = self._readiness is not None
         if restarting:
             self._begin_execution(deployments, ReadinessState.RESTARTING)
@@ -297,20 +348,25 @@ class OneNodeAllocationController:
                 self._environment,
             )
         )
-        generation_started_at = self._now()
-        self._supervisor.wait(self._supervisor.start(generation), required=required_processes)
-        self._supervisor.require_running(required_processes)
-        client_result, candidate = load_complete_client_candidate(self._context, self._attempt)
-        self._validate_client_timestamps(candidate.created_at, client_result.completed_at, generation_started_at)
-        candidate_reference = client_result.candidate_output_manifest
-        if candidate_reference is None:  # pragma: no cover - the record contract requires this for complete results
-            raise SlurmRuntimeError(
-                SlurmRuntimeErrorCode.FINALIZATION_FAILED,
-                "complete client result has no candidate reference",
-            )
-        self._state.publish_attempt_result(client_result, candidate)
-        self._attempt = _copy_attempt(self._attempt, candidate_output=candidate_reference)
-        return candidate_reference, client_result.completed_at
+        with self._state.acquire_dataset_workspace(
+            self._attempt.shard_id,
+            self._attempt.attempt_id,
+            self._context.plan.invocation.authored.resume,
+        ):
+            generation_started_at = self._now()
+            self._supervisor.wait(self._supervisor.start(generation), required=required_processes)
+            self._supervisor.require_running(required_processes)
+            client_result, candidate = load_complete_client_candidate(self._context, self._attempt)
+            self._validate_client_timestamps(candidate.created_at, client_result.completed_at, generation_started_at)
+            candidate_reference = client_result.candidate_output_manifest
+            if candidate_reference is None:  # pragma: no cover - the record contract requires this for complete results
+                raise SlurmRuntimeError(
+                    SlurmRuntimeErrorCode.FINALIZATION_FAILED,
+                    "complete client result has no candidate reference",
+                )
+            self._state.publish_attempt_result(client_result, candidate)
+            self._attempt = _copy_attempt(self._attempt, candidate_output=candidate_reference)
+            return candidate_reference, client_result.completed_at
 
     def _validate_client_timestamps(
         self,
@@ -379,6 +435,7 @@ class OneNodeAllocationController:
                     self._context.plan,
                     self._context.attempt_directory,
                     self._environment,
+                    self._runtime_root,
                 )
             )
             for process, step in zip(deployment.processes, steps, strict=True):

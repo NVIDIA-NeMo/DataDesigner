@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -23,7 +23,7 @@ from data_designer.slurm.state.errors import (
     StateCorruptionError,
     StateNotFoundError,
 )
-from data_designer.slurm.state.execution import AttemptManifest, RunManifest, ShardManifest
+from data_designer.slurm.state.execution import AttemptLifecycleState, AttemptManifest, RunManifest, ShardManifest
 from data_designer.slurm.state.finalization import WinnerFinalizer
 from data_designer.slurm.state.outputs import CandidateOutputManifest, ShardWinner
 from data_designer.slurm.state.plan_validation import PersistedPlanStateValidator, PlanStateContractError
@@ -53,17 +53,34 @@ class SlurmStateWriter:
     audit snapshots.
 
     Args:
-        workspace_root: Selected compute-visible workspace root.
+        workspace_root: Workspace root visible to this process.
         run_id: Stable application-owned run identity.
+        logical_workspace_root: Optional host-side root persisted in plan records.
+        local_path_resolver: Optional mapping for persisted paths with nested mounts.
     """
 
-    def __init__(self, workspace_root: str | Path, run_id: Identifier) -> None:
+    def __init__(
+        self,
+        workspace_root: str | Path,
+        run_id: Identifier,
+        *,
+        logical_workspace_root: str | Path | None = None,
+        local_path_resolver: Callable[[str], str | Path] | None = None,
+    ) -> None:
         try:
             normalized_root = validate_absolute_path(Path(workspace_root).as_posix())
+            normalized_logical_root = validate_absolute_path(
+                Path(logical_workspace_root if logical_workspace_root is not None else workspace_root).as_posix()
+            )
             normalized_run_id = _IDENTIFIER_ADAPTER.validate_python(run_id, strict=True)
         except (ValidationError, ValueError) as error:
             raise SlurmStateError("invalid persisted run location") from error
-        self._storage = StateStorage(Path(normalized_root), normalized_run_id)
+        self._storage = StateStorage(
+            Path(normalized_root),
+            normalized_run_id,
+            logical_workspace_root=Path(normalized_logical_root),
+            local_path_resolver=local_path_resolver,
+        )
         self._reader = StateReader(self._storage, normalized_run_id)
         self._results = AttemptResultPublisher(self._storage, self._reader)
         self._finalizer = WinnerFinalizer(self._storage, self._reader)
@@ -177,17 +194,17 @@ class SlurmStateWriter:
         self,
         shard_id: ShardId,
         attempt_id: AttemptId,
-        effective_resume_mode: Literal["never", "always"],
+        resume_mode: Literal["never", "always", "if_possible"],
     ) -> Iterator[Path]:
         """Yield one validated dataset path while holding its shard lease."""
         normalized_shard_id = self._validate_shard_id(shard_id)
         normalized_attempt_id = self._validate_attempt_id(attempt_id)
-        if type(effective_resume_mode) is not str or effective_resume_mode not in {"never", "always"}:
-            raise StateConflictError("effective resume mode must be 'never' or 'always'")
+        if type(resume_mode) is not str or resume_mode not in {"never", "always", "if_possible"}:
+            raise StateConflictError("resume mode must be 'never', 'always', or 'if_possible'")
         with self._finalizer.acquire_dataset_workspace(
             normalized_shard_id,
             normalized_attempt_id,
-            effective_resume_mode,
+            resume_mode,
         ) as dataset_path:
             yield dataset_path
 
@@ -197,8 +214,9 @@ class SlurmStateWriter:
         attempt_id: AttemptId,
         *,
         published_at: datetime,
+        completed_at: datetime | None = None,
     ) -> ShardWinner:
-        """Validate attempt-local artifacts and publish one immutable winner."""
+        """Validate artifacts and optionally commit attempt success with its winner."""
         normalized_shard_id = self._validate_shard_id(shard_id)
         normalized_attempt_id = self._validate_attempt_id(attempt_id)
         if (
@@ -207,11 +225,50 @@ class SlurmStateWriter:
             or published_at.utcoffset() != timedelta(0)
         ):
             raise StateConflictError("winner publication timestamp must be timezone-aware UTC")
-        return self._finalizer.finalize_winner(normalized_shard_id, normalized_attempt_id, published_at)
+        if completed_at is not None and (
+            not isinstance(completed_at, datetime)
+            or completed_at.tzinfo is None
+            or completed_at.utcoffset() != timedelta(0)
+        ):
+            raise StateConflictError("attempt completion timestamp must be timezone-aware UTC")
+        return self._finalizer.finalize_winner(
+            normalized_shard_id,
+            normalized_attempt_id,
+            published_at,
+            completed_at,
+        )
 
     def load_winner(self, shard_id: ShardId) -> ShardWinner:
         """Load and validate one shard's immutable winner chain."""
         return self._finalizer.load_winner(self._validate_shard_id(shard_id))
+
+    def resume_incomplete_finalization(
+        self,
+        shard_id: ShardId,
+        *,
+        published_at: datetime,
+    ) -> ShardWinner | None:
+        """Finish winner publication for a successful attempt after process interruption."""
+        normalized_shard_id = self._validate_shard_id(shard_id)
+        try:
+            return self._finalizer.load_winner(normalized_shard_id)
+        except StateNotFoundError:
+            pass
+        successful = tuple(
+            attempt
+            for attempt in self._reader.load_attempts(normalized_shard_id)
+            if attempt.state is AttemptLifecycleState.SUCCEEDED
+        )
+        if not successful:
+            return None
+        if len(successful) != 1:
+            raise StateCorruptionError(f"shard {normalized_shard_id!r} has multiple successful attempts")
+        attempt = successful[0]
+        return self.finalize_winner(
+            normalized_shard_id,
+            attempt.attempt_id,
+            published_at=max(published_at, attempt.updated_at),
+        )
 
     def _create_attempt_with_locks(self, attempt: AttemptManifest) -> AttemptManifest:
         with self._storage.acquire_resume_and_shard_locks(attempt.shard_id):
@@ -221,6 +278,7 @@ class SlurmStateWriter:
             if existing is not None:
                 if existing != attempt:
                     raise StateConflictError(f"attempt {attempt.attempt_id!r} already contains different state")
+                self._storage.ensure_runtime_directory(attempt.shard_id, attempt.attempt_id)
                 self._storage.sync_attempt_directory(attempt.shard_id, attempt.attempt_id)
                 return existing
             self._finalizer.require_no_winner(run, plan, shard, shard_attempts)
@@ -230,6 +288,7 @@ class SlurmStateWriter:
             self._reader.validate_attempt_against_plan(run, plan, shard, attempt)
             validate_shard_attempt_set(run, shard, shard_attempts + (attempt,))
             self._storage.publish_attempt(attempt)
+            self._storage.ensure_runtime_directory(attempt.shard_id, attempt.attempt_id)
             return attempt
 
     def _update_attempt_with_locks(self, attempt: AttemptManifest) -> AttemptManifest:
@@ -325,16 +384,16 @@ class SlurmStateWriter:
     ) -> None:
         if run.run_id != self._run_id or resolved_plan.run_id != self._run_id:
             raise StateContractError("run identity does not match the state writer")
-        if resolved_plan.selected_profile.profile.workspace_root != self._storage.workspace_root.as_posix():
+        if resolved_plan.selected_profile.profile.workspace_root != self._storage.logical_workspace_root.as_posix():
             raise StateContractError("resolved plan workspace does not match the state writer")
         if resolved_plan.authored_config.sha256 != authored_config.compute_sha256():
             raise StateContractError("authored config digest does not match the resolved plan")
         if run.authored_config != resolved_plan.authored_config:
             raise StateContractError("run authored config does not match the resolved plan")
-        if run.authored_config.path != self._storage.authored_config_path.as_posix():
+        if run.authored_config.path != self._storage.logical_authored_config_path.as_posix():
             raise StateContractError("run authored config reference does not match its persisted location")
         if (
-            run.resolved_plan.path != self._storage.resolved_plan_path.as_posix()
+            run.resolved_plan.path != self._storage.logical_resolved_plan_path.as_posix()
             or run.resolved_plan.sha256 != resolved_plan.compute_sha256()
         ):
             raise StateContractError("run resolved plan reference does not match persisted plan bytes")

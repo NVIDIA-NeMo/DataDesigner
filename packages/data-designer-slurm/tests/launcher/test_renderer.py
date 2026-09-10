@@ -73,6 +73,7 @@ def test_renderer_omits_gres_for_visible_mode_and_emits_optional_submission_fiel
     assert "#SBATCH --gres=" not in script
     assert "#SBATCH --account=" not in script
     assert "#SBATCH --partition=" not in script
+    assert "#SBATCH --exclusive\n" in script
     assert '#SBATCH --comment="safe test run"\n' in script
 
 
@@ -83,6 +84,17 @@ def test_renderer_emits_mem_per_gpu_for_gres_mode(single_node_plan: ResolvedSlur
     plan = single_node_plan.model_copy(update={"selected_profile": injected_profile(profile)})
 
     assert "#SBATCH --mem-per-gpu=80G\n" in render_generation_attempt_script(plan, attempt_ordinal=1)
+
+
+def test_renderer_uses_profile_slurm_bin_path(single_node_plan: ResolvedSlurmRunPlan) -> None:
+    scheduler = single_node_plan.selected_profile.profile.scheduler.model_copy(update={"bin_path": "/opt/slurm/bin"})
+    profile = single_node_plan.selected_profile.profile.model_copy(update={"scheduler": scheduler})
+    plan = single_node_plan.model_copy(update={"selected_profile": injected_profile(profile)})
+
+    script = render_generation_attempt_script(plan, attempt_ordinal=1)
+
+    assert 'export PATH="/opt/slurm/bin:/usr/local/sbin:' in script
+    assert "#SBATCH --exclusive" not in script
 
 
 @pytest.mark.parametrize("gpu_request_mode", ("gres", "visible"))
@@ -192,6 +204,7 @@ def test_rendered_script_verifies_exact_persisted_plan_bytes_before_sourcing_run
 ) -> None:
     run_root = tmp_path / "run"
     run_root.mkdir()
+    (run_root / "shards/shard-00000/attempts/attempt-0001/runtime").mkdir(parents=True)
     captured_plan_path = tmp_path / "captured-plan.json"
     entrypoint_path = tmp_path / "entrypoint.sh"
     entrypoint_path.write_text(

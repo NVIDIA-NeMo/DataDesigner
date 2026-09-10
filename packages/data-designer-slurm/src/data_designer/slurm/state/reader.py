@@ -33,8 +33,8 @@ class StateReader:
             run = self._storage.read_run()
             if (
                 run.run_id != self._run_id
-                or run.authored_config.path != self._storage.authored_config_path.as_posix()
-                or run.resolved_plan.path != self._storage.resolved_plan_path.as_posix()
+                or run.authored_config.path != self._storage.logical_authored_config_path.as_posix()
+                or run.resolved_plan.path != self._storage.logical_resolved_plan_path.as_posix()
             ):
                 raise StateCorruptionError(f"run {self._run_id!r} manifest does not match its persisted location")
             return run
@@ -52,7 +52,7 @@ class StateReader:
         except (FileNotFoundError, OSError) as error:
             raise StateCorruptionError(f"run {self._run_id!r} has no valid authored config") from error
         if (
-            bound_run.authored_config.path != self._storage.authored_config_path.as_posix()
+            bound_run.authored_config.path != self._storage.logical_authored_config_path.as_posix()
             or bound_run.authored_config.sha256 != authored_config.compute_sha256()
         ):
             raise StateCorruptionError(f"run {self._run_id!r} authored config does not match its manifest")
@@ -65,7 +65,7 @@ class StateReader:
         except (FileNotFoundError, OSError) as error:
             raise StateCorruptionError(f"run {self._run_id!r} has no valid resolved plan") from error
         if (
-            bound_run.resolved_plan.path != self._storage.resolved_plan_path.as_posix()
+            bound_run.resolved_plan.path != self._storage.logical_resolved_plan_path.as_posix()
             or bound_run.resolved_plan.sha256 != plan.compute_sha256()
         ):
             raise StateCorruptionError(f"run {self._run_id!r} resolved plan does not match its manifest")

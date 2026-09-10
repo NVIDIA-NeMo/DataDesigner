@@ -419,13 +419,14 @@
       },
       "scheduler": {
         "account": "research",
+        "bin_path": null,
         "mem_per_gpu": null,
         "partition": "batch"
       },
       "schema_version": 1,
       "workspace_root": "/workspace/primary"
     },
-    "profile_sha256": "80e50266bc5748469c0429533731e1973856f6f58259d89ab6cde6d4dc0e5bc0",
+    "profile_sha256": "657ae8b87f9f6d271b059e0987b571a83f06622fab1633447dae1326f28f232d",
     "schema_version": 1,
     "selection_source": "explicit"
   },
