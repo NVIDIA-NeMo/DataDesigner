@@ -146,9 +146,10 @@ def test_retry_auto_selects_tasks_and_confirms_submission(monkeypatch) -> None:
         "state": "submitted",
     }
     assert "Submit this retry?" in result.stderr
+    assert "Retry shard-00000 with resume=always" in result.stderr
     assert service.retry_calls == [
         ("42", None, "if_possible", True),
-        ("42", None, "if_possible", False),
+        ("42", ("shard-00000",), "always", False),
     ]
 
 
@@ -160,6 +161,34 @@ def test_retry_force_skips_confirmation(monkeypatch) -> None:
 
     assert result.exit_code == 0
     assert service.retry_calls == [("42", None, "if_possible", False)]
+
+
+def test_retry_decline_emits_stable_result(monkeypatch) -> None:
+    service = _RunService()
+    monkeypatch.setattr(cli_module, "create_slurm_run_service", lambda **_: service)
+
+    result = CliRunner().invoke(cli_module.create_cli(), ["retry", "42"], input="n\n")
+
+    assert result.exit_code == 0
+    assert json.loads(result.stdout.splitlines()[-1]) == {"operation": "retry_run", "state": "declined"}
+    assert service.retry_calls == [("42", None, "if_possible", True)]
+
+
+def test_retry_noninteractive_confirmation_is_invalid_request(monkeypatch) -> None:
+    service = _RunService()
+    monkeypatch.setattr(cli_module, "create_slurm_run_service", lambda **_: service)
+
+    result = CliRunner().invoke(cli_module.create_cli(), ["retry", "42"], input="")
+
+    assert result.exit_code == 2
+    assert json.loads(result.stderr.splitlines()[-1]) == {
+        "error": {
+            "code": "invalid_request",
+            "message": "interactive confirmation is unavailable; pass --force or --dry-run",
+            "operation": "retry_run",
+        }
+    }
+    assert service.retry_calls == [("42", None, "if_possible", True)]
 
 
 def test_merge_emits_collection_job_and_forwards_paths(tmp_path: Path, monkeypatch) -> None:

@@ -135,6 +135,29 @@ class SlurmRetryCoordinator:
         except (OSError, ValidationError, ValueError) as error:
             raise SlurmStateError(f"cannot preview retry for persisted run {self._run_id!r}") from error
 
+    def preview_active(
+        self,
+        *,
+        shard_ids: Sequence[ShardId] | None = None,
+        observed_at: datetime | None = None,
+    ) -> tuple[RetryPlan, str] | None:
+        """Render the latest active retry without persisting observations."""
+        timestamp = datetime.now(timezone.utc) if observed_at is None else observed_at
+        try:
+            status = self._reconciler.observe(observed_at=timestamp)
+            retry_ids = self._retries.list_retry_ids()
+            if not retry_ids:
+                return None
+            retry_status = self._retries.read_status(retry_ids[-1])
+            plan = self._load_bound_plan(retry_status)
+            if self._load_active_retry(status, shard_ids, plan.effective_resume_mode) is None:
+                return None
+            return plan, render_generation_retry_script(self._reader.load_resolved_plan(status.run), plan)
+        except (StateConflictError, StateCorruptionError, SlurmStateError):
+            raise
+        except (OSError, ValidationError, ValueError) as error:
+            raise SlurmStateError(f"cannot preview active retry for persisted run {self._run_id!r}") from error
+
     def _settle_pending_retry(self, updated_at: datetime) -> None:
         retry_ids = self._retries.list_retry_ids()
         if not retry_ids:

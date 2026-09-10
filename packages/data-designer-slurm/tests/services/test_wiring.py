@@ -512,7 +512,10 @@ def test_production_retry_dry_run_and_submission_are_sparse_and_idempotent(
     single_node_plan: ResolvedSlurmRunPlan,
 ) -> None:
     authored = authored_run_single.model_copy(
-        update={"array_tasks": authored_run_single.array_tasks.model_copy(update={"count": 2})}
+        update={
+            "array_tasks": authored_run_single.array_tasks.model_copy(update={"count": 2}),
+            "invocation": authored_run_single.invocation.model_copy(update={"resume": "if_possible"}),
+        }
     )
     _register_images(tmp_path, authored, single_node_plan)
     launcher = _Launcher(submission_job_ids=(42, 43))
@@ -525,6 +528,7 @@ def test_production_retry_dry_run_and_submission_are_sparse_and_idempotent(
         package_version="0.9.2",
     )
     service.execute(authored, source_root=tmp_path)
+    assert SlurmStateWriter(tmp_path, "run-wired").load_resolved_plan().invocation.authored.resume == "if_possible"
     failed = SchedulerIdentity(array_job_id=42, array_task_id=0)
     launcher.accounting_entries = (
         SlurmAccountingEntry(

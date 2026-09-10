@@ -59,13 +59,17 @@ class RunRetryCollectionBackend:
             effective_resume_mode = self._resolve_retry_resume_mode(resolved_plan, resume)
             preview: tuple[RetryPlan, str] | None = None
             if effective_resume_mode is None:
-                preview = coordinator.preview(
-                    shard_ids=shard_ids,
-                    effective_resume_mode="never",
-                    observed_at=observed_at,
-                )
+                preview = coordinator.preview_active(shard_ids=shard_ids, observed_at=observed_at)
+                if preview is None:
+                    preview = coordinator.preview(
+                        shard_ids=shard_ids,
+                        effective_resume_mode="never",
+                        observed_at=observed_at,
+                    )
+                    effective_resume_mode = self._resolve_if_possible_resume_mode(resolved_plan, preview[0], operation)
+                else:
+                    effective_resume_mode = preview[0].effective_resume_mode
                 shard_ids = tuple(shard.shard_id for shard in preview[0].planned_shards)
-                effective_resume_mode = self._resolve_if_possible_resume_mode(resolved_plan, preview[0], operation)
             if dry_run:
                 if preview is None or preview[0].effective_resume_mode != effective_resume_mode:
                     preview = coordinator.preview(

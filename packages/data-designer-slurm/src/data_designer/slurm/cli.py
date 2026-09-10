@@ -16,6 +16,7 @@ from pydantic import BaseModel, ValidationError
 from data_designer.slurm.config import ImageBuildRequest, SlurmConfigLoadError, load_run_config
 from data_designer.slurm.contracts import canonical_json
 from data_designer.slurm.services import (
+    SlurmRetryExecution,
     SlurmServiceError,
     SlurmServiceErrorCode,
     SlurmServiceOperation,
@@ -115,9 +116,13 @@ def retry_command(
     """Retry failed shards from immutable persisted run state."""
     operation = SlurmServiceOperation.RETRY_RUN
     shard_ids = None if task_ids is None else tuple(f"shard-{task_id:05d}" for task_id in task_ids)
+    service = _invoke(
+        operation,
+        lambda: create_slurm_run_service(profile_file=profile_file, cluster=cluster),
+    )
 
-    def retry(*, preview: bool) -> BaseModel:
-        return create_slurm_run_service(profile_file=profile_file, cluster=cluster).retry(
+    def retry(*, preview: bool) -> SlurmRetryExecution:
+        return service.retry(
             run_or_job_id,
             shard_ids=shard_ids,
             resume=resume.value,
@@ -125,9 +130,27 @@ def retry_command(
         )
 
     if not dry_run and not force:
-        _invoke(operation, lambda: retry(preview=True))
-        if not click.confirm("Submit this retry?", default=False, err=True):
-            raise typer.Exit()
+        planned = _invoke(operation, lambda: retry(preview=True))
+        typer.echo(
+            f"Retry {', '.join(planned.shard_ids)} with resume={planned.effective_resume_mode}",
+            err=True,
+        )
+        try:
+            confirmed = click.confirm("Submit this retry?", default=False, err=True)
+        except click.Abort:
+            typer.echo(err=True)
+            _fail(
+                SlurmServiceError(
+                    SlurmServiceErrorCode.INVALID_REQUEST,
+                    operation,
+                    "interactive confirmation is unavailable; pass --force or --dry-run",
+                )
+            )
+        if not confirmed:
+            _emit_json({"operation": operation.value, "state": "declined"})
+            return
+        shard_ids = planned.shard_ids
+        resume = _RetryResumeMode(planned.effective_resume_mode)
     result = _invoke(
         operation,
         lambda: retry(preview=dry_run),
