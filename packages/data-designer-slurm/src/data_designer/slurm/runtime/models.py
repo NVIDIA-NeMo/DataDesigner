@@ -25,6 +25,7 @@ class RuntimeStepRole(str, Enum):
     """Lifecycle role of one allocation-local Slurm step."""
 
     CLIENT_PREFLIGHT = "client_preflight"
+    SERVER_PREFLIGHT = "server_preflight"
     SERVER = "server"
     ENDPOINT = "endpoint"
     CLIENT = "client"

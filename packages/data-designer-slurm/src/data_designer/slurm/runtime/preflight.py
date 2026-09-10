@@ -11,17 +11,68 @@ import re
 import socket
 import stat
 from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
 from data_designer.slurm.contracts import ArtifactReference
+from data_designer.slurm.planning import ResolvedSlurmRunPlan
 from data_designer.slurm.runtime.errors import SlurmRuntimeError, SlurmRuntimeErrorCode
 from data_designer.slurm.runtime.models import AllocationContext
+from data_designer.slurm.runtime.network import validate_host_name
 from data_designer.slurm.runtime.paths import get_container_path
-from data_designer.slurm.runtime.ports import allocation_ports
+from data_designer.slurm.runtime.ports import resolve_allocation_plan
 
 _DIGEST_CHUNK_SIZE = 1024 * 1024
 _GPU_COUNT_PATTERN = re.compile(r"^(?:gpu(?::[^:]+)?):([0-9]+)$")
+
+
+@dataclass(frozen=True, slots=True)
+class AllocationLayout:
+    """Verified allocation host identities in planner-index order."""
+
+    node_hosts: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.node_hosts) is not tuple
+            or not self.node_hosts
+            or len(self.node_hosts) != len(set(self.node_hosts))
+        ):
+            raise SlurmRuntimeError(SlurmRuntimeErrorCode.PREFLIGHT_FAILED, "allocation node identities are invalid")
+        try:
+            for host in self.node_hosts:
+                validate_host_name(host)
+        except ValueError as error:
+            raise SlurmRuntimeError(SlurmRuntimeErrorCode.PREFLIGHT_FAILED, str(error)) from error
+
+    def get_host(self, node_index: int) -> str:
+        """Return the host assigned to one planner node index."""
+        if type(node_index) is not int or node_index < 0:
+            raise SlurmRuntimeError(
+                SlurmRuntimeErrorCode.PREFLIGHT_FAILED,
+                "resolved node index is outside the allocation",
+            )
+        try:
+            return self.node_hosts[node_index]
+        except (IndexError, TypeError):
+            raise SlurmRuntimeError(
+                SlurmRuntimeErrorCode.PREFLIGHT_FAILED,
+                "resolved node index is outside the allocation",
+            ) from None
+
+
+def validate_allocation_layout(plan: ResolvedSlurmRunPlan, layout: AllocationLayout) -> None:
+    """Require one scheduler host for every contiguous planner node index."""
+    node_indices = {
+        plan.client.host_node_index,
+        *(index for deployment in plan.deployments for index in deployment.node_indices),
+    }
+    if node_indices != set(range(len(layout.node_hosts))):
+        raise SlurmRuntimeError(
+            SlurmRuntimeErrorCode.PREFLIGHT_FAILED,
+            "allocation host identities do not match the resolved plan",
+        )
 
 
 class AllocationPreflight(Protocol):
@@ -59,16 +110,17 @@ class SystemAllocationPreflight:
             context.plan.client.host_node_index,
             *(index for deployment in context.plan.deployments for index in deployment.node_indices),
         }
-        if node_indices != {0}:
+        node_count = max(node_indices) + 1
+        if node_indices != set(range(node_count)):
             raise SlurmRuntimeError(
                 SlurmRuntimeErrorCode.PREFLIGHT_FAILED,
-                "one-node runtime received a multi-node execution plan",
+                "resolved allocation node indices are not complete",
             )
         expected = {
             "SLURM_ARRAY_JOB_ID": context.attempt.scheduler.array_job_id,
             "SLURM_ARRAY_TASK_ID": context.shard.array_task_index,
-            "SLURM_JOB_NUM_NODES": 1,
-            "SLURM_NODEID": 0,
+            "SLURM_JOB_NUM_NODES": node_count,
+            "SLURM_NODEID": context.plan.client.host_node_index,
         }
         for name, value in expected.items():
             if _parse_non_negative_integer(environment.get(name), name) != value:
@@ -125,19 +177,26 @@ class SystemAllocationPreflight:
 
     @staticmethod
     def verify_ports(context: AllocationContext, environment: Mapping[str, str]) -> None:
-        """Verify that every planned one-node port is currently bindable."""
-        ports = allocation_ports(context, environment)
+        """Verify ports owned by the local client host before nested steps start."""
+        plan = resolve_allocation_plan(context.plan, environment)
+        local_node_index = plan.client.host_node_index
+        ports = tuple(port.port for port in plan.client.ports if port.node_index == local_node_index) + tuple(
+            port.port
+            for deployment in plan.deployments
+            for port in deployment.ports
+            if port.node_index == local_node_index
+        )
         reservations: list[socket.socket] = []
         try:
             for port in ports:
                 reservation = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 reservations.append(reservation)
                 reservation.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 0)
-                reservation.bind(("127.0.0.1", port))
+                reservation.bind(("0.0.0.0", port))
         except OSError as error:
             raise SlurmRuntimeError(
                 SlurmRuntimeErrorCode.PREFLIGHT_FAILED,
-                "one or more resolved allocation ports are unavailable",
+                "one or more local allocation ports are unavailable",
             ) from error
         finally:
             for reservation in reservations:
@@ -195,4 +254,9 @@ def _parse_gpu_count(value: str | None) -> int:
     return len(values)
 
 
-__all__ = ["AllocationPreflight", "SystemAllocationPreflight"]
+__all__ = [
+    "AllocationLayout",
+    "AllocationPreflight",
+    "SystemAllocationPreflight",
+    "validate_allocation_layout",
+]
