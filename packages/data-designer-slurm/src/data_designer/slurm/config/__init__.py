@@ -15,7 +15,11 @@ from data_designer.slurm.config.benchmark import (
     FixedRecordPolicy,
 )
 from data_designer.slurm.config.builder import DataDesignerSlurmConfigBuilder
-from data_designer.slurm.config.environment import LiteralEnvironmentBinding, SecretRef
+from data_designer.slurm.config.environment import (
+    LiteralEnvironmentBinding,
+    SecretRef,
+    collect_secret_environment_names,
+)
 from data_designer.slurm.config.errors import SlurmConfigBuilderError, SlurmConfigLoadError
 from data_designer.slurm.config.images import (
     ClientImageInspection,
@@ -104,6 +108,7 @@ __all__ = [
     "RemoteMCPProviderConfig",
     "SchedulerProfile",
     "SecretRef",
+    "collect_secret_environment_names",
     "SelectedSlurmProfile",
     "ServerDeploymentConfig",
     "ServingImageInspection",

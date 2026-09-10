@@ -24,12 +24,22 @@ from data_designer.slurm.state.errors import (
     StateCorruptionError,
     StateNotFoundError,
 )
-from data_designer.slurm.state.execution import AttemptLifecycleState, AttemptManifest, RunManifest, ShardManifest
+from data_designer.slurm.state.execution import (
+    AttemptLifecycleState,
+    AttemptManifest,
+    AttemptTerminalClassification,
+    RunManifest,
+    ShardManifest,
+)
 from data_designer.slurm.state.outputs import CandidateOutputManifest, ShardWinner
 from data_designer.slurm.state.plan_validation import PersistedPlanStateValidator, PlanStateContractError
 from data_designer.slurm.state.reader import StateReader
 from data_designer.slurm.state.storage import StateStorage
-from data_designer.slurm.state.validation import StateContractError, validate_shard_winner
+from data_designer.slurm.state.validation import (
+    StateContractError,
+    validate_attempt_transition,
+    validate_shard_winner,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,6 +47,8 @@ class _WinnerResolution:
     winner: ShardWinner
     candidate: CandidateOutputManifest
     plan: ResolvedSlurmRunPlan
+    persisted_attempt: AttemptManifest
+    successful_attempt: AttemptManifest
     already_published: bool
 
 
@@ -46,23 +58,29 @@ class WinnerFinalizer:
     def __init__(self, storage: StateStorage, reader: StateReader) -> None:
         self._storage = storage
         self._reader = reader
-        self._artifacts = CandidateArtifactVerifier()
+        self._artifacts = CandidateArtifactVerifier(storage.get_local_path)
 
     @contextmanager
     def acquire_dataset_workspace(
         self,
         shard_id: ShardId,
         attempt_id: AttemptId,
-        effective_resume_mode: Literal["never", "always"],
+        resume_mode: Literal["never", "always", "if_possible"],
     ) -> Iterator[Path]:
         with self._storage.acquire_resume_lock(shard_id):
-            dataset_path = self._prepare_workspace_or_normalize(shard_id, attempt_id, effective_resume_mode)
+            dataset_path = self._prepare_workspace_or_normalize(shard_id, attempt_id, resume_mode)
             yield dataset_path
 
-    def finalize_winner(self, shard_id: ShardId, attempt_id: AttemptId, published_at: datetime) -> ShardWinner:
+    def finalize_winner(
+        self,
+        shard_id: ShardId,
+        attempt_id: AttemptId,
+        published_at: datetime,
+        completed_at: datetime | None = None,
+    ) -> ShardWinner:
         try:
             with self._storage.acquire_resume_lock(shard_id):
-                return self._finalize_with_dataset_lease(shard_id, attempt_id, published_at)
+                return self._finalize_with_dataset_lease(shard_id, attempt_id, published_at, completed_at)
         except (StateConflictError, StateCorruptionError, StateNotFoundError):
             raise
         except (PlanStateContractError, StateContractError, ValidationError) as error:
@@ -124,14 +142,22 @@ class WinnerFinalizer:
         shard_id: ShardId,
         attempt_id: AttemptId,
         published_at: datetime,
+        completed_at: datetime | None,
     ) -> ShardWinner:
-        resolution = self._resolve_under_state_locks(shard_id, attempt_id, published_at)
+        resolution = self._resolve_under_state_locks(shard_id, attempt_id, published_at, completed_at)
         if resolution.already_published:
             return resolution.winner
         with ExitStack() as resources:
             artifacts = self._open_candidate_artifacts(resources, resolution)
             self._validate_artifact_metadata(resolution.candidate, artifacts)
-            return self._publish_verified_resolution(shard_id, attempt_id, published_at, resolution, artifacts)
+            return self._publish_verified_resolution(
+                shard_id,
+                attempt_id,
+                published_at,
+                completed_at,
+                resolution,
+                artifacts,
+            )
 
     def _open_candidate_artifacts(
         self,
@@ -148,20 +174,35 @@ class WinnerFinalizer:
         shard_id: ShardId,
         attempt_id: AttemptId,
         published_at: datetime,
+        completed_at: datetime | None,
         expected: _WinnerResolution,
         artifacts: VerifiedCandidateArtifacts,
     ) -> ShardWinner:
         with self._storage.acquire_shard_lock(shard_id):
-            current = self._resolve_winner(shard_id, attempt_id, published_at)
+            current = self._resolve_winner(shard_id, attempt_id, published_at, completed_at)
             if current.already_published:
                 return current.winner
-            if current.winner != expected.winner or current.candidate != expected.candidate:
+            if (
+                current.winner != expected.winner
+                or current.candidate != expected.candidate
+                or current.successful_attempt != expected.successful_attempt
+            ):
                 raise StateContractError("attempt finalization records changed during verification")
             try:
                 artifacts.rebind()
             except OSError as error:
                 raise StateContractError("candidate output paths changed during finalization") from error
-            self._storage.publish_winner(expected.winner)
+            if current.persisted_attempt != current.successful_attempt:
+                self._storage.replace_attempt(current.successful_attempt)
+            try:
+                self._storage.publish_winner(expected.winner)
+            except BaseException:
+                winner_was_published = self._winner_was_published(expected.winner)
+                if not winner_was_published:
+                    self._storage.replace_attempt(current.persisted_attempt)
+                elif completed_at is not None:
+                    return expected.winner
+                raise
             return expected.winner
 
     def _resolve_under_state_locks(
@@ -169,46 +210,98 @@ class WinnerFinalizer:
         shard_id: ShardId,
         attempt_id: AttemptId,
         published_at: datetime,
+        completed_at: datetime | None,
     ) -> _WinnerResolution:
         with self._storage.acquire_shard_lock(shard_id):
-            return self._resolve_winner(shard_id, attempt_id, published_at)
+            return self._resolve_winner(shard_id, attempt_id, published_at, completed_at)
 
     def _resolve_winner(
         self,
         shard_id: ShardId,
         attempt_id: AttemptId,
         published_at: datetime,
+        completed_at: datetime | None,
     ) -> _WinnerResolution:
         run, plan, shard = self._reader.load_shard_context(shard_id)
         attempts = self._reader.load_validated_shard_attempts(run, plan, shard)
-        attempt = self._reader.get_attempt(attempts, attempt_id)
+        persisted_attempt = self._reader.get_attempt(attempts, attempt_id)
         existing = self.load_optional_winner(run, plan, shard, attempts)
-        client_result, candidate = self._load_finalization_records(attempt)
+        client_result, candidate = self._load_finalization_records(persisted_attempt)
         if existing is not None:
             if existing.attempt_id != attempt_id:
                 raise StateConflictError(f"shard {shard_id!r} already has an immutable winner")
-            return _WinnerResolution(existing, candidate, plan, True)
-        winner = self._build_winner(run, shard, attempt, client_result, published_at)
-        self._validate_finalization_chain(run, plan, shard, attempt, client_result, candidate, winner)
-        return _WinnerResolution(winner, candidate, plan, False)
+            return _WinnerResolution(
+                existing,
+                candidate,
+                plan,
+                persisted_attempt,
+                persisted_attempt,
+                True,
+            )
+        successful_attempt = self._successful_attempt(persisted_attempt, completed_at)
+        winner = self._build_winner(run, shard, successful_attempt, client_result, published_at)
+        self._validate_finalization_chain(
+            run,
+            plan,
+            shard,
+            successful_attempt,
+            client_result,
+            candidate,
+            winner,
+        )
+        return _WinnerResolution(
+            winner,
+            candidate,
+            plan,
+            persisted_attempt,
+            successful_attempt,
+            False,
+        )
+
+    def _winner_was_published(self, expected: ShardWinner) -> bool:
+        try:
+            persisted = self._storage.read_winner(expected.shard_id)
+        except FileNotFoundError:
+            return False
+        if persisted != expected:
+            raise StateCorruptionError("persisted winner changed during finalization")
+        return True
+
+    @staticmethod
+    def _successful_attempt(attempt: AttemptManifest, completed_at: datetime | None) -> AttemptManifest:
+        if completed_at is None or attempt.state is AttemptLifecycleState.SUCCEEDED:
+            return attempt
+        successful = attempt.model_copy(
+            update={
+                "state": AttemptLifecycleState.SUCCEEDED,
+                "terminal_classification": AttemptTerminalClassification.SUCCEEDED,
+                "updated_at": max(completed_at, attempt.updated_at),
+            }
+        )
+        validate_attempt_transition(attempt, successful)
+        return successful
 
     def _prepare_dataset_workspace(
         self,
         shard_id: ShardId,
         attempt_id: AttemptId,
-        effective_resume_mode: Literal["never", "always"],
+        resume_mode: Literal["never", "always", "if_possible"],
     ) -> Path:
         with self._storage.acquire_shard_lock(shard_id):
             run, plan, shard = self._reader.load_shard_context(shard_id)
             attempts = self._reader.load_validated_shard_attempts(run, plan, shard)
             attempt = self._reader.get_attempt(attempts, attempt_id)
             self.require_no_winner(run, plan, shard, attempts)
-            self._validate_workspace_mode(plan, attempt, effective_resume_mode)
-            dataset_path = self._storage.ensure_dataset_directory(shard_id, attempt_id, effective_resume_mode)
+            self._validate_workspace_mode(plan, attempt, resume_mode)
+            if resume_mode == "if_possible":
+                return self._storage.get_local_path(shard.resume_workspace.path)
+            dataset_path = self._storage.ensure_dataset_directory(shard_id, attempt_id, resume_mode)
             expected_path = (
-                Path(shard.resume_workspace.path)
-                if effective_resume_mode == "always"
-                else self._storage.get_attempt_path(shard_id, attempt_id) / "dataset"
+                self._storage.get_local_path(shard.resume_workspace.path)
+                if resume_mode == "always"
+                else self._storage.get_local_path(
+                    self._storage.logical_run_root / "shards" / shard_id / "attempts" / attempt_id / "dataset"
+                )
             )
             if dataset_path != expected_path:
                 raise StateContractError("dataset workspace path does not match the resolved plan")
@@ -218,10 +311,10 @@ class WinnerFinalizer:
         self,
         shard_id: ShardId,
         attempt_id: AttemptId,
-        effective_resume_mode: Literal["never", "always"],
+        resume_mode: Literal["never", "always", "if_possible"],
     ) -> Path:
         try:
-            return self._prepare_dataset_workspace(shard_id, attempt_id, effective_resume_mode)
+            return self._prepare_dataset_workspace(shard_id, attempt_id, resume_mode)
         except (StateConflictError, StateCorruptionError, StateNotFoundError, SlurmStateError):
             raise
         except (PlanStateContractError, StateContractError) as error:
@@ -309,7 +402,7 @@ class WinnerFinalizer:
     def _validate_workspace_mode(
         plan: ResolvedSlurmRunPlan,
         attempt: AttemptManifest,
-        effective_resume_mode: Literal["never", "always"],
+        resume_mode: Literal["never", "always", "if_possible"],
     ) -> None:
         if attempt.state not in {
             AttemptLifecycleState.SUBMITTED,
@@ -318,8 +411,8 @@ class WinnerFinalizer:
         }:
             raise StateContractError("dataset workspace requires an active submitted attempt")
         requested = plan.invocation.authored.resume
-        if requested != "if_possible" and effective_resume_mode != requested:
-            raise StateContractError("effective resume mode does not match the resolved plan")
+        if requested != "if_possible" and resume_mode != requested:
+            raise StateContractError("resume mode does not match the resolved plan")
 
     def _get_winner_attempt(
         self,
