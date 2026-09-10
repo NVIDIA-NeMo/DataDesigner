@@ -15,6 +15,7 @@ from rich.rule import Rule
 from rich.table import Column, Table
 from rich.text import Text
 
+from data_designer.config.analysis.column_statistics import MissingValue
 from data_designer.config.analysis.utils.errors import AnalysisReportError
 from data_designer.config.column_types import (
     DataDesignerColumnType,
@@ -163,15 +164,20 @@ def generate_analysis_report(
 
 def create_judge_score_summary_table(
     score_name: str,
-    histogram: CategoricalHistogramData,
+    histogram: CategoricalHistogramData | MissingValue,
     summary: str,
     accent_style: str = ACCENT_STYLE,
     summary_border_style: str = "dim",
 ) -> Table:
     layout = Table.grid(Column(), Column(), expand=True, padding=(0, 2))
 
+    histogram_data = (
+        {}
+        if isinstance(histogram, MissingValue)
+        else {str(s): c for s, c in zip(histogram.categories, histogram.counts)}
+    )
     histogram_table = create_rich_histogram_table(
-        {str(s): c for s, c in zip(histogram.categories, histogram.counts)},
+        histogram_data,
         ("score", "count"),
         name_style=HIST_NAME_STYLE,
         value_style=HIST_VALUE_STYLE,
