@@ -29,6 +29,40 @@ def test_node_worker_spec_round_trips_and_rejects_untrusted_payload() -> None:
         decode_node_worker_spec("not-base64")
 
 
+def test_node_preflight_rejects_missing_required_model_path(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    model_path = tmp_path / "missing-model"
+    spec = _worker_spec(
+        (NodeProcessSpec("lane-0", ("true",), (0,), 0),),
+        required_model_path=model_path.as_posix(),
+    )
+    _set_node_environment(monkeypatch)
+
+    assert runtime_node_worker.main(("preflight", "--spec", encode_node_worker_spec(spec))) == 70
+    assert capsys.readouterr().err == "node worker failed at a validated runtime boundary\n"
+
+
+def test_node_preflight_rejects_unreadable_required_model_path(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    model_path = tmp_path / "model"
+    model_path.mkdir()
+    spec = _worker_spec(
+        (NodeProcessSpec("lane-0", ("true",), (0,), 0),),
+        required_model_path=model_path.as_posix(),
+    )
+    _set_node_environment(monkeypatch)
+    monkeypatch.setattr(runtime_node_worker.os, "access", lambda path, mode: False)
+
+    assert runtime_node_worker.main(("preflight", "--spec", encode_node_worker_spec(spec))) == 70
+    assert capsys.readouterr().err == "node worker failed at a validated runtime boundary\n"
+
+
 def test_partial_startup_failure_cleans_already_started_lane(monkeypatch: pytest.MonkeyPatch) -> None:
     process = _FakeProcess(pid=41)
     calls = 0
@@ -153,12 +187,24 @@ class _FakeProcess:
         return self.returncode
 
 
-def _worker_spec(processes: tuple[NodeProcessSpec, ...]) -> NodeWorkerSpec:
+def _worker_spec(
+    processes: tuple[NodeProcessSpec, ...],
+    *,
+    required_model_path: str | None = None,
+) -> NodeWorkerSpec:
     return NodeWorkerSpec(
         schema_version=1,
         resolved_gpus_per_node=8,
+        required_model_path=required_model_path,
         nodes=(NodeSpec(node_index=0, host="compute-001", ports=(18000,), processes=processes),),
     )
+
+
+def _set_node_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SLURM_PROCID", "0")
+    monkeypatch.setenv("SLURM_NTASKS", "1")
+    monkeypatch.setenv("SLURMD_NODENAME", "compute-001")
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0,1,2,3,4,5,6,7")
 
 
 def _wait_for_file(path: Path) -> None:

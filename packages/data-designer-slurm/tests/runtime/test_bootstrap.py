@@ -11,9 +11,12 @@ from conftest import RuntimeCase, relocate_plan
 from data_designer.slurm.contracts import ArtifactReference
 from data_designer.slurm.planning import ResolvedSlurmRunPlan
 from data_designer.slurm.runtime.bootstrap import RuntimeBootstrapManifest, build_runtime_manifest
+from data_designer.slurm.runtime.distributed import build_vllm_process_command
 from data_designer.slurm.runtime.models import AllocationContext, RuntimeStepRole
 from data_designer.slurm.runtime.node_spec import decode_node_worker_spec
+from data_designer.slurm.runtime.ports import resolve_allocation_deployments
 from data_designer.slurm.runtime.preflight import AllocationLayout
+from data_designer.slurm.serving.vllm import ResolvedVllmProcess
 from data_designer.slurm.state import RetryPlan, RetryShard
 
 
@@ -134,14 +137,41 @@ def test_bootstrap_manifest_composes_multi_node_workers_and_remote_endpoints(
     assert "--master-addr" in worker_spec.nodes[0].processes[0].command
     assert "compute-001" in worker_spec.nodes[0].processes[0].command
     assert worker_spec.nodes[0].processes[0].command[2] == "/workspace/primary/models/model-0"
+    assert worker_spec.required_model_path == "/workspace/primary/models/model-0"
     assert "--headless" in worker_spec.nodes[1].processes[0].command
     assert tuple(probe.host for probe in distributed.readiness) == ("compute-001",)
     assert "http://compute-001:" in " ".join(endpoint.command)
     assert endpoint.node_hosts == ("compute-001",)
     assert remote_preflight.node_hosts == ("compute-003",)
+    remote_worker_spec = decode_node_worker_spec(remote_preflight.command[-1])
+    assert remote_worker_spec.required_model_path == "/workspace/primary/models/model-1"
     assert remote_server.node_hosts == ("compute-003",)
     assert remote_server.command[2] == "/workspace/primary/models/model-1"
+    executor_index = remote_server.command.index("--distributed-executor-backend")
+    assert remote_server.command[executor_index + 1] == "uni"
     assert tuple(probe.host for probe in remote_server.readiness) == ("compute-003",)
+
+
+def test_pipeline_parallel_process_uses_multi_process_executor(
+    runtime_case: RuntimeCase,
+    multi_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    context = _replace_plan(runtime_case, multi_node_plan)
+    layout = AllocationLayout(("compute-001", "compute-002", "compute-003"))
+    deployment = resolve_allocation_deployments(
+        context,
+        {"SLURM_JOB_GPUS": "0,1,2,3,4,5,6,7"},
+    )[0]
+    payload = deployment.processes[0].model_dump(mode="python")
+    payload.update({"gpu_indices": (0,), "tensor_parallel": 1})
+    process = ResolvedVllmProcess.model_validate(payload)
+
+    command = build_vllm_process_command(deployment, process, context.plan, layout)
+
+    executor_index = command.index("--distributed-executor-backend")
+    assert process.tensor_parallel == 1
+    assert process.pipeline_parallel == 2
+    assert command[executor_index + 1] == "mp"
 
 
 def _replace_plan(runtime_case: RuntimeCase, source_plan: ResolvedSlurmRunPlan) -> AllocationContext:

@@ -19,6 +19,7 @@ def build_node_worker_spec(
     layout: AllocationLayout,
 ) -> NodeWorkerSpec:
     """Build the validated work assigned to each node in one deployment."""
+    model = _resolve_model(deployment, plan)
     nodes = tuple(
         NodeSpec(
             node_index=node_index,
@@ -40,6 +41,7 @@ def build_node_worker_spec(
     return NodeWorkerSpec(
         schema_version=1,
         resolved_gpus_per_node=deployment.gpus_per_node,
+        required_model_path=model if deployment.model.startswith("/") else None,
         nodes=nodes,
     )
 
@@ -52,7 +54,7 @@ def build_vllm_process_command(
 ) -> tuple[str, ...]:
     """Build one shell-free vLLM lane command at its resolved host placement."""
     backend = deployment.backend_endpoints[process.deployment_replica_index]
-    model = get_container_path(plan, deployment.model) if deployment.model.startswith("/") else deployment.model
+    model = _resolve_model(deployment, plan)
     command: tuple[str, ...] = (
         deployment.executable_path,
         "serve",
@@ -66,7 +68,7 @@ def build_vllm_process_command(
         "--tensor-parallel-size",
         str(process.tensor_parallel),
         "--distributed-executor-backend",
-        "uni" if process.tensor_parallel == 1 else "mp",
+        "uni" if process.tensor_parallel * process.pipeline_parallel == 1 else "mp",
         "--data-parallel-backend",
         "mp",
         "--middleware",
@@ -76,6 +78,10 @@ def build_vllm_process_command(
     if deployment.launch_policy.enable_expert_parallel:
         command += ("--enable-expert-parallel",)
     return command + deployment.launch_policy.extra_args
+
+
+def _resolve_model(deployment: ResolvedVllmServerDeployment, plan: ResolvedSlurmRunPlan) -> str:
+    return get_container_path(plan, deployment.model) if deployment.model.startswith("/") else deployment.model
 
 
 def _distributed_arguments(

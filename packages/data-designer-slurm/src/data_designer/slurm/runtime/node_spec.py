@@ -10,6 +10,7 @@ import binascii
 import json
 from dataclasses import dataclass
 
+from data_designer.slurm.contracts import validate_absolute_path
 from data_designer.slurm.runtime.network import validate_host_name, validate_network_port
 
 _MAXIMUM_SPEC_BYTES = 64 * 1024
@@ -77,6 +78,7 @@ class NodeWorkerSpec:
 
     schema_version: int
     resolved_gpus_per_node: int
+    required_model_path: str | None
     nodes: tuple[NodeSpec, ...]
 
     def __post_init__(self) -> None:
@@ -84,6 +86,10 @@ class NodeWorkerSpec:
             raise ValueError("node worker schema version is unsupported")
         if type(self.resolved_gpus_per_node) is not int or self.resolved_gpus_per_node <= 0:
             raise ValueError("resolved GPU count is invalid")
+        if self.required_model_path is not None and type(self.required_model_path) is not str:
+            raise ValueError("required model path is invalid")
+        if self.required_model_path is not None:
+            validate_absolute_path(self.required_model_path)
         if (
             type(self.nodes) is not tuple
             or not self.nodes
@@ -106,6 +112,7 @@ def encode_node_worker_spec(spec: NodeWorkerSpec) -> str:
     payload = {
         "schema_version": spec.schema_version,
         "resolved_gpus_per_node": spec.resolved_gpus_per_node,
+        "required_model_path": spec.required_model_path,
         "nodes": [
             {
                 "node_index": node.node_index,
@@ -145,11 +152,12 @@ def decode_node_worker_spec(encoded: str) -> NodeWorkerSpec:
 
 
 def _parse_worker_spec(payload: object) -> NodeWorkerSpec:
-    root = _require_mapping(payload, {"schema_version", "resolved_gpus_per_node", "nodes"})
+    root = _require_mapping(payload, {"schema_version", "resolved_gpus_per_node", "required_model_path", "nodes"})
     nodes = tuple(_parse_node(value) for value in _require_list(root["nodes"]))
     return NodeWorkerSpec(
         schema_version=_require_integer(root["schema_version"]),
         resolved_gpus_per_node=_require_integer(root["resolved_gpus_per_node"]),
+        required_model_path=_require_optional_string(root["required_model_path"]),
         nodes=nodes,
     )
 
@@ -190,6 +198,12 @@ def _require_string(payload: object) -> str:
     if type(payload) is not str:
         raise ValueError("node worker string value is invalid")
     return payload
+
+
+def _require_optional_string(payload: object) -> str | None:
+    if payload is None:
+        return None
+    return _require_string(payload)
 
 
 def _require_integer(payload: object) -> int:

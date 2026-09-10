@@ -9,6 +9,7 @@ import argparse
 import os
 import signal
 import socket
+import stat
 import subprocess
 import sys
 import time
@@ -130,6 +131,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
         visible_gpus = _parse_visible_gpus(os.environ.get("CUDA_VISIBLE_DEVICES"))
         _verify_node(spec, node, visible_gpus, os.environ)
         if parsed.operation == "preflight":
+            _verify_required_model_path(spec.required_model_path)
             _verify_ports(node.ports)
             return 0
         return _run_node(node, visible_gpus)
@@ -207,6 +209,17 @@ def _verify_ports(ports: tuple[int, ...]) -> None:
     finally:
         for reservation in reservations:
             reservation.close()
+
+
+def _verify_required_model_path(path: str | None) -> None:
+    if path is None:
+        return
+    status = os.stat(path)
+    if not stat.S_ISREG(status.st_mode) and not stat.S_ISDIR(status.st_mode):
+        raise OSError("required model path has an unsupported type")
+    access_mode = os.R_OK | os.X_OK if stat.S_ISDIR(status.st_mode) else os.R_OK
+    if not os.access(path, access_mode):
+        raise OSError("required model path is not readable")
 
 
 def _parse_visible_gpus(value: str | None) -> tuple[str, ...]:
