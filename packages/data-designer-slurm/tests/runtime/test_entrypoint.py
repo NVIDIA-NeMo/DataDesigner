@@ -3,6 +3,9 @@
 
 from __future__ import annotations
 
+import subprocess
+import sys
+from collections.abc import Sequence
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -65,7 +68,7 @@ def test_container_phases_use_the_container_attempt_directory(
     with pytest.raises(_InjectedFailure):
         entrypoint._prepare(prepare, {})
 
-    monkeypatch.setattr(entrypoint, "client_worker_main", lambda arguments: 0)
+    monkeypatch.setattr(entrypoint, "_run_client_worker", lambda arguments: 0)
 
     def load_candidate(*args: object, attempt_directory: Path | None = None) -> None:
         assert attempt_directory == container_attempt_directory
@@ -75,6 +78,89 @@ def test_container_phases_use_the_container_attempt_directory(
     client = entrypoint._parse_arguments(
         _phase_arguments("client", runtime_case, attempt_directory=container_attempt_directory)
     )
+    with pytest.raises(_InjectedFailure):
+        entrypoint._client(client, {})
+
+
+def test_client_phase_starts_plugin_worker_in_a_fresh_interpreter(
+    monkeypatch: pytest.MonkeyPatch,
+    runtime_case: RuntimeCase,
+    fake_plugin_overlay: Path,
+    tmp_path: Path,
+) -> None:
+    state = FakeStateStore(runtime_case.context.attempt)
+    _patch_runtime_context(monkeypatch, runtime_case, state)
+    assert "data_designer.config.column_types" in sys.modules
+    original_run = subprocess.run
+
+    def run_plugin_probe(command: Sequence[str], *, check: bool) -> subprocess.CompletedProcess[str]:
+        assert tuple(command[:4]) == (
+            sys.executable,
+            "-m",
+            "data_designer.slurm.client.worker",
+            "run",
+        )
+        assert check is False
+        script = """
+import sys
+from pathlib import Path
+
+import data_designer.slurm.client.worker as worker
+
+assert "data_designer.config.column_types" not in sys.modules
+from data_designer.slurm.client.environment import PreparedClientEnvironment
+from data_designer.slurm.client.records import ClientInstallerOutcome
+from data_designer.slurm.contracts import ArtifactReference, InstalledDistribution
+
+prepared = PreparedClientEnvironment(
+    run_id="run-test",
+    shard_id="shard-00000",
+    attempt_id="attempt-0001",
+    attempt_dir=Path(sys.argv[2]),
+    overlay_path=Path(sys.argv[1]),
+    dependency_lock=ArtifactReference(path=(Path(sys.argv[2]) / "dependency-lock.json").as_posix(), sha256="a" * 64),
+    client_image_sha256="b" * 64,
+    python_abi="test",
+    installer_outcome=ClientInstallerOutcome.REUSED,
+    installed_distributions=(InstalledDistribution(name="fake-data-designer-plugin", version="1.0.0"),),
+)
+worker.activate_environment(prepared)
+
+from data_designer.slurm.client.plugins import discover_plugins
+
+plugins = discover_plugins(prepared.installed_distributions)
+assert plugins[0].plugin_name == "fake-slurm-column"
+
+from data_designer.config import DataDesignerConfigBuilder
+
+builder = DataDesignerConfigBuilder.from_config(
+    {"data_designer": {"columns": [{"name": "custom", "column_type": "fake-slurm-column"}], "model_configs": []}}
+)
+assert builder.get_column_configs()[0].column_type == "fake-slurm-column"
+"""
+        probe = original_run(
+            (
+                sys.executable,
+                "-c",
+                script,
+                fake_plugin_overlay.as_posix(),
+                (tmp_path / "plugin-attempt").as_posix(),
+            ),
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        assert probe.returncode == 0, probe.stderr
+        return subprocess.CompletedProcess(command, returncode=0)
+
+    monkeypatch.setattr(entrypoint.subprocess, "run", run_plugin_probe)
+
+    def load_candidate(*args: object, **kwargs: object) -> None:
+        raise _InjectedFailure
+
+    monkeypatch.setattr(entrypoint, "load_complete_client_candidate", load_candidate)
+    client = entrypoint._parse_arguments(_phase_arguments("client", runtime_case))
+
     with pytest.raises(_InjectedFailure):
         entrypoint._client(client, {})
 

@@ -7,13 +7,13 @@ from __future__ import annotations
 
 import argparse
 import os
+import subprocess
 import sys
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from data_designer.slurm.client.filesystem import ensure_private_directory, replace_private_text
-from data_designer.slurm.client.worker import main as client_worker_main
 from data_designer.slurm.runtime.bootstrap import build_runtime_manifest
 from data_designer.slurm.runtime.context import load_allocation_context
 from data_designer.slurm.runtime.errors import SlurmRuntimeError, SlurmRuntimeErrorCode
@@ -158,7 +158,7 @@ def _client(arguments: argparse.Namespace, environment: Mapping[str, str]) -> No
         context.attempt.attempt_id,
         resume_mode,
     ):
-        return_code = client_worker_main(
+        return_code = _run_client_worker(
             (
                 "run",
                 "--plan",
@@ -200,6 +200,11 @@ def _client(arguments: argparse.Namespace, environment: Mapping[str, str]) -> No
                 "client completion timestamp is later than the allocation clock",
             )
         writer.publish_attempt_result(client_result, candidate)
+
+
+def _run_client_worker(arguments: Sequence[str]) -> int:
+    command = (sys.executable, "-m", "data_designer.slurm.client.worker", *arguments)
+    return subprocess.run(command, check=False).returncode
 
 
 def _succeed(arguments: argparse.Namespace, environment: Mapping[str, str]) -> None:
