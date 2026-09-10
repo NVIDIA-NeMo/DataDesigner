@@ -25,23 +25,9 @@ _ENTRYPOINT_MODE = 0o500
 _SOURCE_MODE = 0o400
 _MAXIMUM_SOURCE_SIZE = 16 * 1024 * 1024
 _TEMPORARY_NAME_PATTERN = re.compile(r"^\.runtime\.[0-9a-f]{16}\.tmp$")
-_ENTRYPOINT_NAME = "entrypoint.sh"
+_SHELL_SOURCE_NAMES = ("entrypoint.sh", "plan_reader.sh", "step_runner.sh", "cleanup.sh")
 _SLURM_PACKAGE_ROOT = "data_designer/slurm"
 _SOURCE_MANIFEST_NAME = f"{_SLURM_PACKAGE_ROOT}/runtime/slurm-sources.txt"
-_ENTRYPOINT = b"""#!/usr/bin/env bash
-set -Eeuo pipefail
-
-dd_slurm_run_allocation() {
-    if [[ $# -ne 2 ]]; then
-        printf '%s\\n' 'allocation runtime requires plan and attempt directory arguments' >&2
-        return 64
-    fi
-    local runtime_root
-    runtime_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
-    PYTHONNOUSERSITE=1 PYTHONSAFEPATH=1 PYTHONPATH="${runtime_root}" \
-        python3 -m data_designer.slurm.runtime.entrypoint --plan "$1" --attempt-dir "$2"
-}
-"""
 
 
 def stage_runtime_bundle(workspace_root: str | Path) -> ArtifactReference:
@@ -69,13 +55,16 @@ def stage_runtime_bundle(workspace_root: str | Path) -> ArtifactReference:
 
 
 def _build_runtime_archive() -> bytes:
-    sources = _collect_slurm_sources(Path(__file__).parents[1])
+    source_root = Path(__file__).parents[1]
+    sources = _collect_slurm_sources(source_root)
     output = io.BytesIO()
     with (
         gzip.GzipFile(fileobj=output, mode="wb", filename="", mtime=0) as compressed,
         tarfile.open(fileobj=compressed, mode="w", format=tarfile.PAX_FORMAT) as archive,
     ):
-        _add_archive_file(archive, _ENTRYPOINT_NAME, _ENTRYPOINT, mode=_ENTRYPOINT_MODE)
+        for name in _SHELL_SOURCE_NAMES:
+            mode = _ENTRYPOINT_MODE if name == "entrypoint.sh" else _SOURCE_MODE
+            _add_archive_file(archive, name, _read_runtime_source(source_root / "runtime" / name), mode=mode)
         manifest = "".join(f"{archive_name}\n" for archive_name, _ in sources).encode()
         _add_archive_file(archive, _SOURCE_MANIFEST_NAME, manifest, mode=_SOURCE_MODE)
         for archive_name, source_path in sources:

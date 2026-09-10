@@ -15,6 +15,7 @@
       },
       "scheduler": {
         "account": "lab",
+        "bin_path": null,
         "mem_per_gpu": null,
         "partition": "gpu"
       },
@@ -43,6 +44,7 @@
       },
       "scheduler": {
         "account": "research",
+        "bin_path": null,
         "mem_per_gpu": null,
         "partition": "batch"
       },

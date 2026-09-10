@@ -4,10 +4,12 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import cast
+from typing import Literal, cast
 
 import pytest
 
@@ -20,8 +22,10 @@ from data_designer.slurm.state import (
     AttemptLifecycleState,
     AttemptManifest,
     AttemptReadiness,
+    AttemptTerminalClassification,
     CandidateOutputManifest,
     SchedulerIdentity,
+    ShardWinner,
     StateNotFoundError,
     validate_attempt_transition,
     validate_readiness_transition,
@@ -39,6 +43,9 @@ class RuntimeCase:
 class FakeStateStore:
     attempt: AttemptManifest
     readiness: list[AttemptReadiness] = field(default_factory=list)
+    dataset_workspace_lease_active: bool = False
+    dataset_workspace_modes: list[str] = field(default_factory=list)
+    winners: list[ShardWinner] = field(default_factory=list)
 
     def update_attempt(self, attempt: AttemptManifest) -> AttemptManifest:
         validate_attempt_transition(self.attempt, attempt)
@@ -50,6 +57,7 @@ class FakeStateStore:
         client_result: ClientResult,
         candidate: CandidateOutputManifest,
     ) -> tuple[ClientResult, CandidateOutputManifest]:
+        assert self.dataset_workspace_lease_active
         reference = client_result.candidate_output_manifest
         assert reference is not None
         assert candidate.compute_sha256() == reference.sha256
@@ -58,6 +66,55 @@ class FakeStateStore:
         validate_attempt_transition(self.attempt, bound_attempt)
         self.attempt = bound_attempt
         return client_result, candidate
+
+    @contextmanager
+    def acquire_dataset_workspace(
+        self,
+        shard_id: str,
+        attempt_id: str,
+        resume_mode: Literal["never", "always", "if_possible"],
+    ) -> Iterator[Path]:
+        assert shard_id == self.attempt.shard_id
+        assert attempt_id == self.attempt.attempt_id
+        assert not self.dataset_workspace_lease_active
+        self.dataset_workspace_modes.append(resume_mode)
+        self.dataset_workspace_lease_active = True
+        try:
+            yield Path(self.attempt.resolved_plan.path).parent / "dataset"
+        finally:
+            self.dataset_workspace_lease_active = False
+
+    def finalize_winner(
+        self,
+        shard_id: str,
+        attempt_id: str,
+        *,
+        published_at: datetime,
+        completed_at: datetime | None = None,
+    ) -> ShardWinner:
+        if completed_at is not None:
+            self.update_attempt(
+                self.attempt.model_copy(
+                    update={
+                        "state": AttemptLifecycleState.SUCCEEDED,
+                        "terminal_classification": AttemptTerminalClassification.SUCCEEDED,
+                        "updated_at": completed_at,
+                    }
+                )
+            )
+        assert self.attempt.state is AttemptLifecycleState.SUCCEEDED
+        assert self.attempt.candidate_output is not None
+        winner = ShardWinner(
+            schema_version=1,
+            run_id=self.attempt.run_id,
+            shard_id=shard_id,
+            attempt_id=attempt_id,
+            attempt_ordinal=self.attempt.attempt_ordinal,
+            candidate_manifest=self.attempt.candidate_output,
+            published_at=published_at,
+        )
+        self.winners.append(winner)
+        return winner
 
     def write_readiness(self, readiness: AttemptReadiness) -> AttemptReadiness:
         if self.readiness:
@@ -74,6 +131,11 @@ class FakeStateStore:
         assert readiness.shard_id == shard_id
         assert readiness.attempt_id == attempt_id
         return readiness
+
+    def load_attempt(self, shard_id: str, attempt_id: str) -> AttemptManifest:
+        assert self.attempt.shard_id == shard_id
+        assert self.attempt.attempt_id == attempt_id
+        return self.attempt
 
 
 class FakePreflight:

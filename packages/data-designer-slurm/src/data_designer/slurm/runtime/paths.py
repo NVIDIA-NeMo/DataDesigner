@@ -44,4 +44,42 @@ def get_container_path(
     return validate_absolute_path(mapped)
 
 
-__all__ = ["get_container_path"]
+def get_host_path(
+    plan: ResolvedSlurmRunPlan,
+    container_path: str,
+    *,
+    require_writable: bool = False,
+) -> str:
+    """Map one absolute container path back through the most specific resolved mount."""
+    try:
+        normalized = validate_absolute_path(container_path)
+    except ValueError as error:
+        raise SlurmRuntimeError(SlurmRuntimeErrorCode.INVALID_CONTEXT, "runtime container path is invalid") from error
+    candidates = tuple(
+        mount
+        for mount in plan.container_mounts
+        if normalized == mount.target or normalized.startswith(f"{mount.target}/")
+    )
+    if not candidates:
+        raise SlurmRuntimeError(
+            SlurmRuntimeErrorCode.PREFLIGHT_FAILED,
+            "runtime path is not available through a resolved container mount",
+        )
+    mount = max(candidates, key=lambda value: len(value.target))
+    if require_writable and mount.read_only:
+        raise SlurmRuntimeError(
+            SlurmRuntimeErrorCode.PREFLIGHT_FAILED,
+            "runtime path requires a writable resolved container mount",
+        )
+    relative_path = posixpath.relpath(normalized, mount.target)
+    mapped = mount.source if relative_path == "." else posixpath.join(mount.source, relative_path)
+    host_path = validate_absolute_path(mapped)
+    if get_container_path(plan, host_path, require_writable=require_writable) != normalized:
+        raise SlurmRuntimeError(
+            SlurmRuntimeErrorCode.INVALID_CONTEXT,
+            "runtime path does not map unambiguously through resolved container mounts",
+        )
+    return host_path
+
+
+__all__ = ["get_container_path", "get_host_path"]

@@ -16,7 +16,13 @@ from typing import Protocol
 class CommandRunner(Protocol):
     """Minimal command boundary implemented by production and fake runners."""
 
-    def run(self, command: Sequence[str], *, input_text: str | None = None) -> subprocess.CompletedProcess[str]:
+    def run(
+        self,
+        command: Sequence[str],
+        *,
+        input_text: str | None = None,
+        environment: Mapping[str, str] | None = None,
+    ) -> subprocess.CompletedProcess[str]:
         """Execute one argument-vector command."""
         ...
 
@@ -35,9 +41,12 @@ class SubprocessRunner:
     ) -> None:
         if type(timeout_seconds) not in {int, float} or not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be a finite positive number")
-        explicit_environment = (
-            dict(environment) if environment is not None else {"PATH": os.environ.get("PATH") or os.defpath}
-        )
+        if environment is None:
+            explicit_environment = {"PATH": os.environ.get("PATH") or os.defpath}
+            if "SLURM_CONF" in os.environ:
+                explicit_environment["SLURM_CONF"] = os.environ["SLURM_CONF"]
+        else:
+            explicit_environment = dict(environment)
         for name, value in explicit_environment.items():
             if type(name) is not str or not name or "=" in name or "\0" in name:
                 raise ValueError("environment names must be non-empty and must not contain '=' or NUL")
@@ -51,8 +60,18 @@ class SubprocessRunner:
         """Return the allowlisted environment forwarded to child processes."""
         return self._environment
 
-    def run(self, command: Sequence[str], *, input_text: str | None = None) -> subprocess.CompletedProcess[str]:
+    def run(
+        self,
+        command: Sequence[str],
+        *,
+        input_text: str | None = None,
+        environment: Mapping[str, str] | None = None,
+    ) -> subprocess.CompletedProcess[str]:
         """Execute an argument vector with captured text output."""
+        process_environment = dict(self._environment)
+        if environment is not None:
+            _validate_environment(environment)
+            process_environment.update(environment)
         if input_text is not None:
             return subprocess.run(
                 tuple(command),
@@ -62,7 +81,7 @@ class SubprocessRunner:
                 text=True,
                 encoding="utf-8",
                 errors="replace",
-                env=dict(self._environment),
+                env=process_environment,
                 timeout=self._timeout_seconds,
             )
         return subprocess.run(
@@ -73,6 +92,14 @@ class SubprocessRunner:
             text=True,
             encoding="utf-8",
             errors="replace",
-            env=dict(self._environment),
+            env=process_environment,
             timeout=self._timeout_seconds,
         )
+
+
+def _validate_environment(environment: Mapping[str, str]) -> None:
+    for name, value in environment.items():
+        if type(name) is not str or not name or "=" in name or "\0" in name:
+            raise ValueError("environment names must be non-empty and must not contain '=' or NUL")
+        if type(value) is not str or "\0" in value:
+            raise ValueError("environment values must not contain NUL")

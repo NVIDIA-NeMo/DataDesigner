@@ -4,7 +4,8 @@
 from __future__ import annotations
 
 import hashlib
-from datetime import UTC, datetime
+from collections.abc import Mapping
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -14,13 +15,20 @@ from data_designer.slurm.config import (
     BuilderInput,
     DataDesignerSlurmConfig,
     ImageBuildRequest,
+    SecretRef,
     SlurmProfile,
     SlurmProfileCatalog,
 )
 from data_designer.slurm.contracts import ArtifactReference, canonical_json
 from data_designer.slurm.images.records import RegisteredImage
 from data_designer.slurm.images.registry import ImageRegistryStore
-from data_designer.slurm.launcher.models import SlurmJobSubmissionReceipt
+from data_designer.slurm.launcher.errors import SlurmLauncherError
+from data_designer.slurm.launcher.models import (
+    SlurmAccountingEntry,
+    SlurmJobSubmissionReceipt,
+    SlurmProcessExitCode,
+    SlurmQueueEntry,
+)
 from data_designer.slurm.planning import ResolvedSlurmRunPlan
 from data_designer.slurm.services import (
     SlurmServiceError,
@@ -31,23 +39,46 @@ from data_designer.slurm.services import (
 from data_designer.slurm.state import (
     AttemptLifecycleState,
     AttemptManifest,
+    AttemptTerminalClassification,
     RunManifest,
     SchedulerIdentity,
+    SchedulerState,
     ShardManifest,
     SlurmStateWriter,
     StateConflictError,
+    StateNotFoundError,
 )
 
 
 class _Launcher:
-    def __init__(self, gpu_counts: tuple[int, ...] = (), *, cancel_error: Exception | None = None) -> None:
+    def __init__(
+        self,
+        gpu_counts: tuple[int, ...] = (),
+        *,
+        cancel_error: Exception | None = None,
+        release_error: Exception | None = None,
+    ) -> None:
         self.submissions: list[str] = []
         self.cancellations: list[int] = []
+        self.releases: list[int] = []
+        self.held_submissions: list[bool] = []
+        self.exported_environments: list[dict[str, str]] = []
+        self.queue_entries: tuple[SlurmQueueEntry, ...] = ()
+        self.accounting_entries: tuple[SlurmAccountingEntry, ...] = ()
         self.gpu_counts = gpu_counts
         self.cancel_error = cancel_error
+        self.release_error = release_error
 
-    def submit_script(self, script: str) -> SlurmJobSubmissionReceipt:
+    def submit_script(
+        self,
+        script: str,
+        *,
+        hold: bool = False,
+        export_environment: Mapping[str, str] | None = None,
+    ) -> SlurmJobSubmissionReceipt:
         self.submissions.append(script)
+        self.held_submissions.append(hold)
+        self.exported_environments.append(dict(export_environment or {}))
         return SlurmJobSubmissionReceipt(job_id=42)
 
     def cancel(self, job_id: int) -> None:
@@ -55,9 +86,22 @@ class _Launcher:
         if self.cancel_error is not None:
             raise self.cancel_error
 
+    def release(self, job_id: int) -> None:
+        self.releases.append(job_id)
+        if self.release_error is not None:
+            raise self.release_error
+
     def query_gpu_counts(self, *, partition: str | None = None) -> tuple[int, ...]:
         assert partition is not None
         return self.gpu_counts
+
+    def query_queue(self, selectors: object) -> tuple[SlurmQueueEntry, ...]:
+        del selectors
+        return self.queue_entries
+
+    def query_accounting(self, selectors: object) -> tuple[SlurmAccountingEntry, ...]:
+        del selectors
+        return self.accounting_entries
 
 
 class _Publisher:
@@ -69,6 +113,7 @@ class _Publisher:
     ) -> None:
         self.initializations: list[tuple[str, bool]] = []
         self.submissions: list[tuple[str, int, datetime]] = []
+        self.submission_failures: list[tuple[str, datetime]] = []
         self.initialization_error = initialization_error
         self.submission_error = submission_error
 
@@ -92,6 +137,9 @@ class _Publisher:
         if self.submission_error is not None:
             raise self.submission_error
         self.submissions.append((plan.run_id, job_id, submitted_at))
+
+    def record_submission_failure(self, plan: ResolvedSlurmRunPlan, *, failed_at: datetime) -> None:
+        self.submission_failures.append((plan.run_id, failed_at))
 
 
 def _profile(tmp_path: Path, profile_catalog: SlurmProfileCatalog) -> SlurmProfile:
@@ -182,7 +230,7 @@ def test_production_wiring_submits_after_publisher_initialization(
     _register_images(tmp_path, authored_run_single, single_node_plan)
     launcher = _Launcher()
     publisher = _Publisher()
-    submitted_at = datetime(2026, 9, 8, tzinfo=UTC)
+    submitted_at = datetime(2026, 9, 8, tzinfo=timezone.utc)
     service = create_slurm_run_service(
         profile=_profile(tmp_path, profile_catalog),
         artifact_publisher=publisher,  # type: ignore[arg-type]
@@ -199,9 +247,13 @@ def test_production_wiring_submits_after_publisher_initialization(
     assert publisher.initializations == [("run-wired", True)]
     assert publisher.submissions == [("run-wired", 42, submitted_at)]
     assert len(launcher.submissions) == 1
+    assert launcher.held_submissions == [True]
+    assert launcher.releases == [42]
+    assert launcher.exported_environments == [{"SLURM_EXPORT_ENV": "ALL"}]
+    assert (tmp_path / "managed-assets").is_dir()
 
 
-def test_production_wiring_stops_before_submission_without_state_publisher(
+def test_production_publisher_rejects_force_before_submission(
     tmp_path: Path,
     profile_catalog: SlurmProfileCatalog,
     authored_run_single: DataDesignerSlurmConfig,
@@ -216,12 +268,135 @@ def test_production_wiring_stops_before_submission_without_state_publisher(
         package_version="0.9.2",
     )
 
-    with pytest.raises(SlurmServiceError) as caught:
-        service.execute(authored_run_single, source_root=tmp_path)
+    with pytest.raises(SlurmServiceError, match="different inputs") as caught:
+        service.execute(authored_run_single, source_root=tmp_path, force=True)
 
-    assert caught.value.code is SlurmServiceErrorCode.UNAVAILABLE
-    assert str(caught.value) == "run submission is not available; use --dry-run"
+    assert caught.value.code is SlurmServiceErrorCode.CONFLICT
     assert launcher.submissions == []
+
+
+def test_production_wiring_exports_referenced_secrets_to_the_allocation(
+    tmp_path: Path,
+    profile_catalog: SlurmProfileCatalog,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    deployment = authored_run_single.deployments[0]
+    server = deployment.server.model_copy(
+        update={"environment": {"HF_TOKEN": SecretRef(type="secret", environment="SOURCE_TOKEN")}}
+    )
+    authored = authored_run_single.model_copy(
+        update={"deployments": [deployment.model_copy(update={"server": server})]}
+    )
+    _register_images(tmp_path, authored, single_node_plan)
+    launcher = _Launcher()
+    service = create_slurm_run_service(
+        profile=_profile(tmp_path, profile_catalog),
+        artifact_publisher=_Publisher(),  # type: ignore[arg-type]
+        launcher=launcher,  # type: ignore[arg-type]
+        run_id_factory=lambda: "run-wired",
+        package_version="0.9.2",
+        source_environment={"SOURCE_TOKEN": "secret-value"},
+    )
+
+    service.execute(authored, source_root=tmp_path)
+
+    assert launcher.exported_environments == [{"SLURM_EXPORT_ENV": "ALL", "SOURCE_TOKEN": "secret-value"}]
+
+
+def test_production_wiring_rejects_missing_secret_before_publishing(
+    tmp_path: Path,
+    profile_catalog: SlurmProfileCatalog,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    deployment = authored_run_single.deployments[0]
+    server = deployment.server.model_copy(
+        update={"environment": {"HF_TOKEN": SecretRef(type="secret", environment="MISSING_TOKEN")}}
+    )
+    authored = authored_run_single.model_copy(
+        update={"deployments": [deployment.model_copy(update={"server": server})]}
+    )
+    _register_images(tmp_path, authored, single_node_plan)
+    launcher = _Launcher()
+    publisher = _Publisher()
+    service = create_slurm_run_service(
+        profile=_profile(tmp_path, profile_catalog),
+        artifact_publisher=publisher,  # type: ignore[arg-type]
+        launcher=launcher,  # type: ignore[arg-type]
+        run_id_factory=lambda: "run-wired",
+        package_version="0.9.2",
+        source_environment={},
+    )
+
+    with pytest.raises(SlurmServiceError, match="MISSING_TOKEN") as caught:
+        service.execute(authored, source_root=tmp_path)
+
+    assert caught.value.code is SlurmServiceErrorCode.INVALID_REQUEST
+    assert publisher.initializations == []
+    assert launcher.submissions == []
+
+
+def test_production_wiring_publishes_initial_state_before_releasing_submission(
+    tmp_path: Path,
+    profile_catalog: SlurmProfileCatalog,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    _register_images(tmp_path, authored_run_single, single_node_plan)
+    launcher = _Launcher()
+    service = create_slurm_run_service(
+        profile=_profile(tmp_path, profile_catalog),
+        launcher=launcher,  # type: ignore[arg-type]
+        run_id_factory=lambda: "run-wired",
+        package_version="0.9.2",
+    )
+
+    result = service.execute(authored_run_single, source_root=tmp_path)
+
+    writer = SlurmStateWriter(tmp_path, result.run_id)
+    attempts = writer.load_attempts("shard-00000")
+    assert result.state == "submitted"
+    assert writer.load_run().run_id == result.run_id
+    dependency_bytes = (tmp_path / "runs/run-wired/dependency-lock.json").read_bytes()
+    assert hashlib.sha256(dependency_bytes).hexdigest() == writer.load_resolved_plan().client.dependency_lock.sha256
+    assert attempts[0].state is AttemptLifecycleState.SUBMITTED
+    assert attempts[0].scheduler == SchedulerIdentity(array_job_id=42, array_task_id=0)
+    assert launcher.held_submissions == [True]
+    assert launcher.releases == [42]
+
+
+def test_status_reconciles_cancelled_scheduler_attempt(
+    tmp_path: Path,
+    profile_catalog: SlurmProfileCatalog,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    _register_images(tmp_path, authored_run_single, single_node_plan)
+    launcher = _Launcher()
+    service = create_slurm_run_service(
+        profile=_profile(tmp_path, profile_catalog),
+        launcher=launcher,  # type: ignore[arg-type]
+        run_id_factory=lambda: "run-wired",
+        clock=lambda: datetime(2026, 9, 8, tzinfo=timezone.utc),
+        package_version="0.9.2",
+    )
+    result = service.execute(authored_run_single, source_root=tmp_path)
+    service.cancel(result.run_id)
+    scheduler = SchedulerIdentity(array_job_id=42, array_task_id=0)
+    launcher.accounting_entries = (
+        SlurmAccountingEntry(
+            job_identity=scheduler,
+            state=SchedulerState.CANCELLED,
+            process_exit_code=SlurmProcessExitCode(exit_status=0, termination_signal=15),
+        ),
+    )
+
+    status = service.status(result.run_id)
+
+    attempt = status.shards[0].attempts[0].attempt
+    assert attempt.state is AttemptLifecycleState.FAILED
+    assert attempt.terminal_classification is AttemptTerminalClassification.CANCELLED
 
 
 def test_auto_gpu_resolution_rejects_mixed_node_shapes(
@@ -291,6 +466,81 @@ def test_recording_conflict_cancels_the_accepted_job(
 
     assert caught.value.code is SlurmServiceErrorCode.CONFLICT
     assert launcher.cancellations == [42]
+    assert len(publisher.submission_failures) == 1
+
+
+def test_partial_submission_recording_failure_cancels_job_and_fails_created_attempts(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    profile_catalog: SlurmProfileCatalog,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    authored = authored_run_single.model_copy(
+        update={"array_tasks": authored_run_single.array_tasks.model_copy(update={"count": 2})}
+    )
+    _register_images(tmp_path, authored, single_node_plan)
+    original_create = SlurmStateWriter.create_attempt
+    created = 0
+
+    def fail_second_attempt(writer: SlurmStateWriter, attempt: AttemptManifest) -> AttemptManifest:
+        nonlocal created
+        created += 1
+        if created == 2:
+            raise StateConflictError("injected partial submission failure")
+        return original_create(writer, attempt)
+
+    monkeypatch.setattr(SlurmStateWriter, "create_attempt", fail_second_attempt)
+    launcher = _Launcher()
+    failed_at = datetime(2026, 9, 8, tzinfo=timezone.utc)
+    service = create_slurm_run_service(
+        profile=_profile(tmp_path, profile_catalog),
+        launcher=launcher,  # type: ignore[arg-type]
+        run_id_factory=lambda: "run-wired",
+        clock=lambda: failed_at,
+        package_version="0.9.2",
+    )
+
+    with pytest.raises(SlurmServiceError) as caught:
+        service.execute(authored, source_root=tmp_path)
+
+    assert caught.value.code is SlurmServiceErrorCode.CONFLICT
+    assert launcher.cancellations == [42]
+    writer = SlurmStateWriter(tmp_path, "run-wired")
+    attempt = writer.load_attempt("shard-00000", "attempt-0001")
+    assert attempt.state is AttemptLifecycleState.FAILED
+    assert attempt.terminal_classification is AttemptTerminalClassification.CANCELLED
+    with pytest.raises(StateNotFoundError):
+        writer.load_attempt("shard-00001", "attempt-0001")
+
+
+def test_release_failure_cancels_the_held_job(
+    tmp_path: Path,
+    profile_catalog: SlurmProfileCatalog,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    _register_images(tmp_path, authored_run_single, single_node_plan)
+    launcher = _Launcher(release_error=SlurmLauncherError("release failed"))
+    failed_at = datetime(2026, 9, 8, tzinfo=timezone.utc)
+    service = create_slurm_run_service(
+        profile=_profile(tmp_path, profile_catalog),
+        launcher=launcher,  # type: ignore[arg-type]
+        run_id_factory=lambda: "run-wired",
+        clock=lambda: failed_at,
+        package_version="0.9.2",
+    )
+
+    with pytest.raises(SlurmServiceError, match="could not be released and was cancelled") as caught:
+        service.execute(authored_run_single, source_root=tmp_path)
+
+    assert caught.value.code is SlurmServiceErrorCode.UNAVAILABLE
+    assert launcher.releases == [42]
+    assert launcher.cancellations == [42]
+    attempt = SlurmStateWriter(tmp_path, "run-wired").load_attempt("shard-00000", "attempt-0001")
+    assert attempt.state is AttemptLifecycleState.FAILED
+    assert attempt.terminal_classification is AttemptTerminalClassification.CANCELLED
+    assert attempt.updated_at == failed_at
 
 
 def test_failed_compensating_cancel_reports_accepted_job_id(
@@ -352,7 +602,7 @@ def test_production_status_and_cancel_use_only_persisted_m2_records(
         package_version="0.9.2",
     )
     plan = service.plan(authored_run_single)
-    now = datetime(2026, 9, 8, tzinfo=UTC)
+    now = datetime(2026, 9, 8, tzinfo=timezone.utc)
     plan_reference = ArtifactReference(
         path=(tmp_path / "runs/run-wired/resolved-plan.json").as_posix(),
         sha256=plan.compute_sha256(),
