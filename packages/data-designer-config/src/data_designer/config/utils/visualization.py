@@ -268,7 +268,7 @@ def create_rich_histogram_table(
         table.add_row(str(name), f"{bar} {value:.1f}")
 
     if not data:
-        table.add_row("[dim]no data[/dim]", "")
+        table.add_row(Text("no data", style="dim"), "")
 
     return table
 

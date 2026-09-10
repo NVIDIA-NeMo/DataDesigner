@@ -205,21 +205,25 @@ def test_dataset_profiler_results_from_dict():
 
 
 @pytest.mark.parametrize(
-    "score_distributions",
+    ("score_distributions", "expects_placeholder"),
     [
-        _dists({"helpfulness": {"categories": [], "counts": []}}),
-        _dists({"helpfulness": "--"}),
-        "--",
-        _dists({}),
-        _DISTS,
+        (_dists({"helpfulness": {"categories": [], "counts": []}}), True),
+        (_dists({"helpfulness": "--"}), True),
+        ("--", True),
+        (_dists({}), True),
+        (_DISTS, False),
     ],
     ids=["empty", "missing-value", "no-distributions", "no-histogram", "populated"],
 )
-def test_to_report_renders_degenerate_judge_histograms(score_distributions: object, tmp_path: Path) -> None:
+def test_to_report_renders_degenerate_judge_histograms(
+    score_distributions: object, expects_placeholder: bool, tmp_path: Path
+) -> None:
     """Test that to_report renders judge profiles whose histogram data is empty or missing."""
     results = DatasetProfilerResults.model_validate(_judge_profile_document(score_distributions))
     report = tmp_path / "report.html"
 
     results.to_report(report)
 
-    assert report.stat().st_size > 0
+    html = report.read_text()
+    assert ("no data" in html) is expects_placeholder
+    assert "[dim]" not in html
