@@ -79,6 +79,7 @@ def test_bootstrap_manifest_binds_retry_plan_to_control_and_client_workers(runti
         {"SLURM_JOB_GPUS": "0"},
         runtime_root=context.attempt_directory / "runtime",
         log_directory=context.attempt_directory / "logs/execution-00000002",
+        layout=AllocationLayout(("compute-001",)),
     )
 
     preflight = manifest.steps[0].command
