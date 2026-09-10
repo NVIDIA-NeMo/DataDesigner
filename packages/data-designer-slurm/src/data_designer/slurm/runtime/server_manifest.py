@@ -73,7 +73,7 @@ def build_distributed_server_step(
         deployment,
         runtime_container_root,
     )
-    worker_spec = build_node_worker_spec(deployment, layout)
+    worker_spec = build_node_worker_spec(deployment, context.plan, layout)
     readiness = (
         tuple(
             RuntimeProbeSpec(
@@ -166,7 +166,7 @@ def _build_local_server_step(
     command = (
         build_vllm_command(deployment, process, context.plan)
         if len(layout.node_hosts) == 1
-        else build_vllm_process_command(deployment, process, layout)
+        else build_vllm_process_command(deployment, process, context.plan, layout)
     )
     return RuntimeStepSpec(
         step_id=process.process_id,

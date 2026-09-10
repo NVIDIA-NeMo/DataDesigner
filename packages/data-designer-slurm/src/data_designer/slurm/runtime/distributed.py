@@ -5,7 +5,9 @@
 
 from __future__ import annotations
 
+from data_designer.slurm.planning import ResolvedSlurmRunPlan
 from data_designer.slurm.runtime.node_spec import NodeProcessSpec, NodeSpec, NodeWorkerSpec
+from data_designer.slurm.runtime.paths import get_container_path
 from data_designer.slurm.runtime.preflight import AllocationLayout
 from data_designer.slurm.serving.deployment import ResolvedVllmServerDeployment
 from data_designer.slurm.serving.vllm import ResolvedVllmProcess
@@ -13,6 +15,7 @@ from data_designer.slurm.serving.vllm import ResolvedVllmProcess
 
 def build_node_worker_spec(
     deployment: ResolvedVllmServerDeployment,
+    plan: ResolvedSlurmRunPlan,
     layout: AllocationLayout,
 ) -> NodeWorkerSpec:
     """Build the validated work assigned to each node in one deployment."""
@@ -24,7 +27,7 @@ def build_node_worker_spec(
             processes=tuple(
                 NodeProcessSpec(
                     process_id=process.process_id,
-                    command=build_vllm_process_command(deployment, process, layout),
+                    command=build_vllm_process_command(deployment, process, plan, layout),
                     gpu_indices=tuple(process.gpu_indices),
                     launch_delay_seconds=process.launch_delay_seconds,
                 )
@@ -44,14 +47,16 @@ def build_node_worker_spec(
 def build_vllm_process_command(
     deployment: ResolvedVllmServerDeployment,
     process: ResolvedVllmProcess,
+    plan: ResolvedSlurmRunPlan,
     layout: AllocationLayout,
 ) -> tuple[str, ...]:
     """Build one shell-free vLLM lane command at its resolved host placement."""
     backend = deployment.backend_endpoints[process.deployment_replica_index]
+    model = get_container_path(plan, deployment.model) if deployment.model.startswith("/") else deployment.model
     command: tuple[str, ...] = (
         deployment.executable_path,
         "serve",
-        deployment.model,
+        model,
         "--served-model-name",
         deployment.served_model_name,
         "--host",

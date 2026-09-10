@@ -94,7 +94,21 @@ def test_bootstrap_manifest_composes_multi_node_workers_and_remote_endpoints(
     runtime_case: RuntimeCase,
     multi_node_plan: ResolvedSlurmRunPlan,
 ) -> None:
-    context = _replace_plan(runtime_case, multi_node_plan)
+    deployments = tuple(
+        deployment.model_copy(
+            update={
+                "authored": deployment.authored.model_copy(
+                    update={
+                        "model": f"/workspace/primary/models/model-{deployment_index}",
+                        "served_model_name": deployment.served_model_name,
+                    }
+                ),
+                "model": f"/workspace/primary/models/model-{deployment_index}",
+            }
+        )
+        for deployment_index, deployment in enumerate(multi_node_plan.deployments)
+    )
+    context = _replace_plan(runtime_case, multi_node_plan.model_copy(update={"deployments": deployments}))
     layout = AllocationLayout(("compute-001", "compute-002", "compute-003"))
 
     manifest = build_runtime_manifest(
@@ -118,12 +132,14 @@ def test_bootstrap_manifest_composes_multi_node_workers_and_remote_endpoints(
     assert tuple(node.host for node in worker_spec.nodes) == distributed.node_hosts
     assert "--master-addr" in worker_spec.nodes[0].processes[0].command
     assert "compute-001" in worker_spec.nodes[0].processes[0].command
+    assert worker_spec.nodes[0].processes[0].command[2] == "/workspace/primary/models/model-0"
     assert "--headless" in worker_spec.nodes[1].processes[0].command
     assert tuple(probe.host for probe in distributed.readiness) == ("compute-001",)
     assert "http://compute-001:" in " ".join(endpoint.command)
     assert endpoint.node_hosts == ("compute-001",)
     assert remote_preflight.node_hosts == ("compute-003",)
     assert remote_server.node_hosts == ("compute-003",)
+    assert remote_server.command[2] == "/workspace/primary/models/model-1"
     assert tuple(probe.host for probe in remote_server.readiness) == ("compute-003",)
 
 
