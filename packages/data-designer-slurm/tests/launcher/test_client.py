@@ -503,7 +503,7 @@ def test_client_redacts_secrets_from_command_failures(
         ),
         (
             '{"Authorization": "Bearer serialized-secret-value", "status": "failed"}',
-            '{"Authorization": <redacted>, "status": "failed"}',
+            '{"Authorization": <redacted>',
             "serialized-secret-value",
         ),
     ),
@@ -523,6 +523,22 @@ def test_client_redacts_complete_authorization_values(
     detail = str(error.value).partition(": ")[2]
     assert detail == expected
     assert secret not in detail
+
+
+def test_client_redacts_quoted_authorization_value_with_control_obscured_suffix(
+    fake_slurm_runner: FakeSlurmRunner,
+) -> None:
+    scheme = "Bear" + "er"
+    diagnostic = f'Authorization: "{scheme} token"\x00secret-suffix\nstatus=failed'
+    fake_slurm_runner.script_next("squeue", FakeCommandResponse(stderr=diagnostic, returncode=2))
+
+    with pytest.raises(SlurmCommandError) as error:
+        SlurmCommandClient(fake_slurm_runner).query_queue((4101,))
+
+    detail = str(error.value).partition(": ")[2]
+    assert detail == "Authorization: <redacted> status=failed"
+    assert "token" not in detail
+    assert "suffix" not in detail
 
 
 @pytest.mark.parametrize(

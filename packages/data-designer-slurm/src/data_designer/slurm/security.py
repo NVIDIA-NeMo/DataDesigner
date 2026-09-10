@@ -16,7 +16,7 @@ _ASSIGNMENT_START_PATTERN = re.compile(
 _OPTION_START_PATTERN = re.compile(r"(?P<prefix>(?P<name>--[A-Za-z][A-Za-z0-9_.-]*)\s+)")
 _AUTHORIZATION_PATTERN = re.compile(
     r"(?i)(?P<prefix>(?P<key_quote>[\"']?)\bauthorization(?P=key_quote)\s*[:=]\s*)"
-    r"(?P<value>\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'|[^\r\n]*)"
+    r"[^\r\n]*"
 )
 _URL_USERINFO_PATTERN = re.compile(r"(?i)(?P<scheme>\b[A-Za-z][A-Za-z0-9+.-]*://)[^/\s?#]*@")
 _TOKEN_PATTERNS = (
@@ -55,14 +55,7 @@ def _redact_sensitive_text(
     replacement: str,
     protected_replacement: str | None = None,
 ) -> str:
-    redacted = _AUTHORIZATION_PATTERN.sub(
-        lambda match: _redact_authorization_value(
-            match,
-            replacement=replacement,
-            protected_replacement=protected_replacement,
-        ),
-        value,
-    )
+    redacted = _AUTHORIZATION_PATTERN.sub(lambda match: f"{match.group('prefix')}{replacement}", value)
     redacted = _URL_USERINFO_PATTERN.sub(lambda match: f"{match.group('scheme')}{replacement}@", redacted)
     redacted = _redact_named_values(
         redacted,
@@ -79,17 +72,6 @@ def _redact_sensitive_text(
     for pattern in _TOKEN_PATTERNS:
         redacted = pattern.sub(replacement, redacted)
     return redacted
-
-
-def _redact_authorization_value(
-    match: re.Match[str],
-    *,
-    replacement: str,
-    protected_replacement: str | None,
-) -> str:
-    if protected_replacement is not None and match.group("value").startswith(protected_replacement):
-        return match.group(0)
-    return f"{match.group('prefix')}{replacement}"
 
 
 def _redact_named_values(
