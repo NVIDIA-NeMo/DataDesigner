@@ -57,18 +57,19 @@ class RunRetryCollectionBackend:
             coordinator = SlurmRetryCoordinator(self._workspace_root, run_id, self._launcher)
             resolved_plan = SlurmStateWriter(self._workspace_root, run_id).load_resolved_plan()
             effective_resume_mode = self._resolve_retry_resume_mode(resolved_plan, resume)
-            preview: tuple[RetryPlan, str] | None = None
-            if effective_resume_mode is None:
-                preview = coordinator.preview_active(shard_ids=shard_ids, observed_at=observed_at)
-                if preview is None:
-                    preview = coordinator.preview(
-                        shard_ids=shard_ids,
-                        effective_resume_mode="never",
-                        observed_at=observed_at,
-                    )
-                    effective_resume_mode = self._resolve_if_possible_resume_mode(resolved_plan, preview[0], operation)
-                else:
-                    effective_resume_mode = preview[0].effective_resume_mode
+            preview = coordinator.preview_active(shard_ids=shard_ids, observed_at=observed_at)
+            if preview is not None and effective_resume_mode not in {None, preview[0].effective_resume_mode}:
+                preview = None
+            if preview is not None:
+                effective_resume_mode = preview[0].effective_resume_mode
+                shard_ids = tuple(shard.shard_id for shard in preview[0].planned_shards)
+            elif effective_resume_mode is None:
+                preview = coordinator.preview(
+                    shard_ids=shard_ids,
+                    effective_resume_mode="never",
+                    observed_at=observed_at,
+                )
+                effective_resume_mode = self._resolve_if_possible_resume_mode(resolved_plan, preview[0], operation)
                 shard_ids = tuple(shard.shard_id for shard in preview[0].planned_shards)
             if dry_run:
                 if preview is None or preview[0].effective_resume_mode != effective_resume_mode:

@@ -148,7 +148,9 @@ class SlurmRetryCoordinator:
             retry_ids = self._retries.list_retry_ids()
             if not retry_ids:
                 return None
-            retry_status = self._retries.read_status(retry_ids[-1])
+            retry_status = self._retries.read_optional_status(retry_ids[-1])
+            if retry_status is None:
+                return None
             plan = self._load_bound_plan(retry_status)
             if self._load_active_retry(status, shard_ids, plan.effective_resume_mode) is None:
                 return None

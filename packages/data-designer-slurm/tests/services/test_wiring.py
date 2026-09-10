@@ -561,6 +561,41 @@ def test_production_retry_dry_run_and_submission_are_sparse_and_idempotent(
     assert len(launcher.submissions) == 2
 
 
+def test_production_retry_preview_recovers_active_pinned_mode(
+    tmp_path: Path,
+    profile_catalog: SlurmProfileCatalog,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    _register_images(tmp_path, authored_run_single, single_node_plan)
+    launcher = _Launcher(submission_job_ids=(42, 43))
+    now = datetime(2026, 9, 8, tzinfo=timezone.utc)
+    service = create_slurm_run_service(
+        profile=_profile(tmp_path, profile_catalog),
+        launcher=launcher,  # type: ignore[arg-type]
+        run_id_factory=lambda: "run-wired",
+        clock=lambda: now,
+        package_version="0.9.2",
+    )
+    service.execute(authored_run_single, source_root=tmp_path)
+    launcher.accounting_entries = (
+        SlurmAccountingEntry(
+            job_identity=SchedulerIdentity(array_job_id=42, array_task_id=0),
+            state=SchedulerState.FAILED,
+            process_exit_code=SlurmProcessExitCode(exit_status=1, termination_signal=0),
+        ),
+    )
+    submitted = service.retry("run-wired", resume="never")
+
+    preview = service.retry("run-wired", resume="never", dry_run=True)
+
+    assert preview.state == "dry_run"
+    assert preview.shard_ids == submitted.shard_ids
+    assert preview.attempt_ids == submitted.attempt_ids
+    assert preview.effective_resume_mode == "never"
+    assert len(launcher.submissions) == 2
+
+
 def test_production_retry_if_possible_reuses_populated_workspace(
     tmp_path: Path,
     profile_catalog: SlurmProfileCatalog,

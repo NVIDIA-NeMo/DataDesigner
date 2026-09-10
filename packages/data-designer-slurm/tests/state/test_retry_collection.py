@@ -129,6 +129,34 @@ def test_retry_refreshes_failed_shard_and_publishes_exact_next_attempt(
     assert sum(Path(call[0]).name == "sbatch" for call in runner.calls) == 2
 
 
+def test_active_retry_preview_ignores_statusless_journal_tail(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    case = _initialize_run(tmp_path, authored_run_single, single_node_plan)
+    runner = FakeSlurmRunner(
+        arrays=(FakeSlurmArray(tasks=(FakeSlurmTask(SchedulerIdentity(array_job_id=4101, array_task_id=0)),)),)
+    )
+    scheduler = SlurmCommandClient(runner)
+    scheduler.submit_script("initial")
+    attempt = _submitted_attempt(case, case.shards[0], scheduler=SchedulerIdentity(array_job_id=4101, array_task_id=0))
+    case.writer.create_attempt(attempt)
+    runner.set_task_state(attempt.scheduler, queue_state=None, accounting_state="FAILED", exit_code="1:0")
+    storage = RetryStorage(StateStorage(case.workspace, case.plan.run_id))
+    storage.ensure_retry("retry-0001")
+
+    coordinator = SlurmRetryCoordinator(case.workspace, case.plan.run_id, scheduler)
+    assert coordinator.preview_active(observed_at=case.created_at + timedelta(minutes=5)) is None
+    preview, _ = coordinator.preview(
+        effective_resume_mode="never",
+        observed_at=case.created_at + timedelta(minutes=5),
+    )
+
+    assert preview.retry_id == "retry-0001"
+    assert storage.get_retry_root("retry-0001").is_dir()
+
+
 def test_retry_rejects_a_nonterminal_explicit_shard(
     tmp_path: Path,
     authored_run_single: DataDesignerSlurmConfig,
