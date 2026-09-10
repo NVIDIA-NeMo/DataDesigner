@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any, Callable
 
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.column_configs import ExpressionColumnConfig, GenerationStrategy
+from data_designer.config.terminal_failure import TerminalTaskFailure
 from data_designer.engine.capacity import (
     AsyncCapacityConfigured,
     AsyncCapacityObservedMaxima,
@@ -214,6 +215,7 @@ class AsyncTaskScheduler:
         adaptive_row_group_initial_target: int = 1,
         request_pressure_provider: RequestPressureSnapshotProvider | None = None,
         request_pressure_advisory: bool = False,
+        capture_terminal_failures: bool = False,
     ) -> None:
         self._generators = generators
         self._graph = graph
@@ -339,6 +341,7 @@ class AsyncTaskScheduler:
         # context naturally because the from_scratch task raised; the async
         # engine drops rows and continues, losing the cause unless we capture it.
         self._first_non_retryable_error: Exception | None = None
+        self._terminal_failures: list[TerminalTaskFailure] | None = [] if capture_terminal_failures else None
         self._fatal_worker_error: BaseException | None = None
         self._cancel_requested = Event()
         self._run_loop: asyncio.AbstractEventLoop | None = None
@@ -445,6 +448,11 @@ class AsyncTaskScheduler:
         Returns ``None`` for runs that completed without non-retryable errors.
         """
         return self._first_non_retryable_error
+
+    @property
+    def terminal_failures(self) -> list[TerminalTaskFailure]:
+        """Terminal column failures captured for omitted seed rows."""
+        return sorted(self._terminal_failures or [])
 
     @property
     def retryable_outcome_metrics(self) -> dict[str, object]:
@@ -1542,6 +1550,7 @@ class AsyncTaskScheduler:
             already_dropped = task.row_index is not None and self._tracker.is_dropped(task.row_group, task.row_index)
             if not already_dropped and self._reporter:
                 self._reporter.record_failure(task.column)
+            self._record_terminal_failure(task)
             if task.row_index is not None:
                 self._drop_row(task.row_group, task.row_index, exclude_columns={task.column})
             else:
@@ -1766,6 +1775,22 @@ class AsyncTaskScheduler:
         self._apply_frontier_delta(self._tracker.drop_row(row_group, row_index))
         if self._buffer_manager:
             self._buffer_manager.drop_row(row_group, row_index)
+
+    def _record_terminal_failure(self, task: Task) -> None:
+        if self._terminal_failures is None:
+            return
+
+        start_offset = self._get_rg_start_offset(task.row_group)
+        if start_offset is None:
+            return
+        row_indices = (task.row_index,) if task.row_index is not None else range(self._get_rg_size(task.row_group))
+        for row_index in row_indices:
+            # Preserve the failure that actually caused the row to be omitted.
+            if self._tracker.is_dropped(task.row_group, row_index):
+                continue
+            self._terminal_failures.append(
+                TerminalTaskFailure(seed_row_index=start_offset + row_index, column=task.column)
+            )
 
     def _drop_row_group(self, row_group: int, row_group_size: int, *, exclude_columns: set[str] | None = None) -> None:
         for row_index in range(row_group_size):
@@ -2091,6 +2116,7 @@ class AsyncTaskScheduler:
                     logger.error("Unexpected %s", log_message, exc_info=True)
                 # Non-retryable data/user/provider failures drop the affected row(s);
                 # internal bug-shaped failures above abort the run instead.
+                self._record_terminal_failure(task)
                 if task.row_index is not None:
                     self._drop_row(task.row_group, task.row_index, exclude_columns={task.column})
                 else:

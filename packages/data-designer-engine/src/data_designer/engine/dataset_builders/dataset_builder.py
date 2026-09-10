@@ -27,6 +27,7 @@ from data_designer.config.processors import (
     ProcessorConfig,
     ProcessorType,
 )
+from data_designer.config.terminal_failure import TerminalTaskFailure
 from data_designer.config.utils.type_helpers import StrEnum
 from data_designer.config.version import get_library_version
 from data_designer.engine.column_generators.generators.base import (
@@ -193,6 +194,7 @@ class DatasetBuilder:
         # async run, if any. Used by the interface to surface the original cause
         # when a run produces 0 records due to deterministic failures.
         self._first_non_retryable_error: Exception | None = None
+        self._terminal_failures: list[TerminalTaskFailure] = []
 
         self._data_designer_config = compile_data_designer_config(data_designer_config, resource_provider)
         self._column_configs = compile_dataset_builder_column_configs(self._data_designer_config)
@@ -239,6 +241,11 @@ class DatasetBuilder:
         """First non-retryable error captured by the scheduler in the most recent run."""
         return self._first_non_retryable_error
 
+    @property
+    def terminal_failures(self) -> list[TerminalTaskFailure]:
+        """Terminal column failures captured during the most recent run."""
+        return list(self._terminal_failures)
+
     @functools.cached_property
     def single_column_configs(self) -> list[ColumnConfigT]:
         configs = []
@@ -256,6 +263,7 @@ class DatasetBuilder:
         on_batch_complete: Callable[[Path], None] | None = None,
         save_multimedia_to_disk: bool = True,
         resume: ResumeMode = ResumeMode.NEVER,
+        capture_terminal_failures: bool = False,
     ) -> Path:
         """Build the dataset.
 
@@ -279,6 +287,7 @@ class DatasetBuilder:
 
                 In all resume modes, in-flight partial results from the interrupted run are
                 discarded before generation continues.
+            capture_terminal_failures: Capture the terminal column for omitted seed rows.
 
         Returns:
             Path to the generated dataset directory.
@@ -351,7 +360,14 @@ class DatasetBuilder:
             resume = ResumeMode.NEVER
             self.artifact_storage.resume = ResumeMode.NEVER
 
-        self._build_async(generators, num_records, buffer_size, on_batch_complete, resume=resume)
+        self._build_async(
+            generators,
+            num_records,
+            buffer_size,
+            on_batch_complete,
+            resume=resume,
+            capture_terminal_failures=capture_terminal_failures,
+        )
 
         # After-generation processors run unconditionally on the on-disk dataset
         # (not gated on ``generated``). When resume sees every row group already
@@ -537,7 +553,7 @@ class DatasetBuilder:
             completed_row_groups=completed_row_groups,
         )
 
-    def build_preview(self, *, num_records: int) -> pd.DataFrame:
+    def build_preview(self, *, num_records: int, capture_terminal_failures: bool = False) -> pd.DataFrame:
         self._reset_run_state()
         run_readiness_check(
             self.single_column_configs,
@@ -551,7 +567,11 @@ class DatasetBuilder:
         generators, self._graph = self._initialize_generators_and_graph()
         start_time = time.perf_counter()
 
-        dataset = self._build_async_preview(generators, num_records)
+        dataset = self._build_async_preview(
+            generators,
+            num_records,
+            capture_terminal_failures=capture_terminal_failures,
+        )
 
         self._resource_provider.model_registry.log_model_usage(time.perf_counter() - start_time)
 
@@ -564,8 +584,15 @@ class DatasetBuilder:
         self._actual_num_records = -1
         self._first_non_retryable_error = None
         self._task_traces = []
+        self._terminal_failures = []
 
-    def _build_async_preview(self, generators: list[ColumnGenerator], num_records: int) -> pd.DataFrame:
+    def _build_async_preview(
+        self,
+        generators: list[ColumnGenerator],
+        num_records: int,
+        *,
+        capture_terminal_failures: bool = False,
+    ) -> pd.DataFrame:
         """Async preview path - single row group, no disk writes, returns in-memory DataFrame."""
         logger.info("⚡ Using async task-queue preview")
 
@@ -578,6 +605,7 @@ class DatasetBuilder:
             buffer_size=num_records,
             run_post_batch_in_scheduler=False,
             trace=trace_enabled,
+            capture_terminal_failures=capture_terminal_failures,
         )
 
         loop = ensure_async_engine_loop()
@@ -590,6 +618,7 @@ class DatasetBuilder:
             self._partial_row_groups = scheduler.partial_row_groups
             self._actual_num_records = buffer_manager.actual_num_records
             self._first_non_retryable_error = scheduler.first_non_retryable_error
+            self._terminal_failures = scheduler.terminal_failures
 
         if not buffer_manager.has_row_group(0):
             return lazy.pd.DataFrame()
@@ -746,6 +775,7 @@ class DatasetBuilder:
         on_batch_complete: Callable[[Path], None] | None = None,
         *,
         resume: ResumeMode = ResumeMode.NEVER,
+        capture_terminal_failures: bool = False,
     ) -> bool:
         """Async task-queue builder path - dispatches tasks based on dependency readiness.
 
@@ -851,6 +881,7 @@ class DatasetBuilder:
                 initial_actual_num_records=initial_actual_num_records,
                 initial_total_num_batches=initial_total_num_batches,
                 scheduler_event_sink=scheduler_event_sink,
+                capture_terminal_failures=capture_terminal_failures,
             )
 
             # Run on background event loop. Capture scheduler state in `finally`
@@ -867,6 +898,7 @@ class DatasetBuilder:
                 self._partial_row_groups = scheduler.partial_row_groups
                 self._actual_num_records = buffer_manager.actual_num_records
                 self._first_non_retryable_error = scheduler.first_non_retryable_error
+                self._terminal_failures = scheduler.terminal_failures
 
         # Emit telemetry
         try:
@@ -917,6 +949,7 @@ class DatasetBuilder:
         initial_actual_num_records: int = 0,
         initial_total_num_batches: int = 0,
         scheduler_event_sink: SchedulerAdmissionEventSink | None = None,
+        capture_terminal_failures: bool = False,
     ) -> tuple[AsyncTaskScheduler, RowGroupBufferManager]:
         """Build a fully-wired scheduler and buffer manager for async generation.
 
@@ -1008,6 +1041,7 @@ class DatasetBuilder:
             ),
             request_pressure_provider=self._resource_provider.model_registry.request_admission,
             request_pressure_advisory=True,
+            capture_terminal_failures=capture_terminal_failures,
         )
         return scheduler, buffer_manager
 

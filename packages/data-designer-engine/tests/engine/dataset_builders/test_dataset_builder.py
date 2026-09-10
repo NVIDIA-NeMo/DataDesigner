@@ -30,6 +30,7 @@ from data_designer.config.sampler_params import SamplerType, UUIDSamplerParams
 from data_designer.config.seed import IndexRange, PartitionBlock, SamplingStrategy
 from data_designer.config.seed_source import LocalFileSeedSource
 from data_designer.config.seed_source_dataframe import DataFrameSeedSource
+from data_designer.config.terminal_failure import TerminalTaskFailure
 from data_designer.engine.column_generators.generators.base import GenerationStrategy
 from data_designer.engine.dataset_builders.dataset_builder import DatasetBuilder, build_row_group_resume_plan
 from data_designer.engine.dataset_builders.errors import DatasetGenerationError, DatasetProcessingError
@@ -440,6 +441,7 @@ def test_build_async_preview_returns_empty_dataframe_when_row_group_is_already_f
         early_shutdown: bool = False
         partial_row_groups: tuple[int, ...] = ()
         first_non_retryable_error: Exception | None = None
+        terminal_failures: list[TerminalTaskFailure] = []
 
         async def run(self) -> None:
             return None
@@ -506,6 +508,7 @@ def test_reset_run_state_clears_per_run_signals(stub_resource_provider, stub_tes
     builder._partial_row_groups = (0, 1)
     builder._actual_num_records = 42
     builder._task_traces = ["trace"]  # type: ignore[list-item]
+    builder._terminal_failures = [TerminalTaskFailure(seed_row_index=3, column="failed_col")]
 
     builder._reset_run_state()
 
@@ -513,6 +516,7 @@ def test_reset_run_state_clears_per_run_signals(stub_resource_provider, stub_tes
     assert builder.partial_row_groups == ()
     assert builder.actual_num_records == -1
     assert builder.task_traces == []
+    assert builder.terminal_failures == []
 
 
 # Processor tests

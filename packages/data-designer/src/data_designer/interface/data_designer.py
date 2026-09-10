@@ -223,6 +223,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         resume: ResumeMode = ResumeMode.NEVER,
         artifact_path: Path | str | None = None,
         on_batch_complete: Callable[[Path], None] | None = None,
+        capture_terminal_failures: bool = False,
     ) -> DatasetCreationResults:
         """Create dataset and save results to the local artifact storage.
 
@@ -263,6 +264,8 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
                 path, so it is recommended to keep it lightweight or delegate slow work to a queue, e.g.
                 ``on_batch_complete=lambda path: queue_upload(path)``. Callback exceptions abort the run
                 and are wrapped as ``DataDesignerGenerationError``.
+            capture_terminal_failures: Capture the terminal column for each omitted seed row.
+                When results report ``early_shutdown=True``, cancelled rows are not included.
 
         Returns:
             DatasetCreationResults object with methods for loading the generated dataset,
@@ -296,11 +299,19 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             raise DataDesignerGenerationError(f"🛑 Error generating dataset: {e}") from e
 
         try:
-            builder.build(num_records=num_records, on_batch_complete=on_batch_complete, resume=resume)
+            builder.build(
+                num_records=num_records,
+                on_batch_complete=on_batch_complete,
+                resume=resume,
+                capture_terminal_failures=capture_terminal_failures,
+            )
         except DeprecationWarning:
             raise
         except Exception as e:
-            raise DataDesignerGenerationError(f"🛑 Error generating dataset: {e}") from e
+            raise DataDesignerGenerationError(
+                f"🛑 Error generating dataset: {e}",
+                terminal_failures=builder.terminal_failures,
+            ) from e
 
         task_traces = builder.task_traces
 
@@ -319,17 +330,22 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
                     "🛑 Generation produced zero records — early shutdown was triggered. "
                     "The non-retryable error rate exceeded the configured threshold; check the "
                     "warnings above (and any 'Provider showing degraded performance' logs) for "
-                    "the contributing failures."
+                    "the contributing failures.",
+                    terminal_failures=builder.terminal_failures,
                 ) from e
             # Surface the original task error when the run produced 0 records due to a
             # deterministic non-retryable failure (e.g. bad seed source). Without this,
             # the user sees a generic FileNotFoundError-on-parquet that obscures the cause.
             root_cause = builder.first_non_retryable_error
             if root_cause is not None and builder.actual_num_records == 0:
-                raise DataDesignerGenerationError(f"🛑 {type(root_cause).__name__}: {root_cause}") from root_cause
+                raise DataDesignerGenerationError(
+                    f"🛑 {type(root_cause).__name__}: {root_cause}",
+                    terminal_failures=builder.terminal_failures,
+                ) from root_cause
             raise DataDesignerGenerationError(
                 f"🛑 Failed to load generated dataset — all records may have been dropped "
-                f"due to generation failures. Check the warnings above for details. Original error: {e}"
+                f"due to generation failures. Check the warnings above for details. Original error: {e}",
+                terminal_failures=builder.terminal_failures,
             ) from e
 
         # Defensive: the batch manager skips writing when the buffer is empty, so in
@@ -343,14 +359,19 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             if builder.early_shutdown and builder.actual_num_records == 0:
                 raise DataDesignerEarlyShutdownError(
                     "🛑 Dataset is empty — early shutdown was triggered before any records "
-                    "could complete. Check the warnings above for the contributing failures."
+                    "could complete. Check the warnings above for the contributing failures.",
+                    terminal_failures=builder.terminal_failures,
                 )
             root_cause = builder.first_non_retryable_error
             if root_cause is not None and builder.actual_num_records == 0:
-                raise DataDesignerGenerationError(f"🛑 {type(root_cause).__name__}: {root_cause}") from root_cause
+                raise DataDesignerGenerationError(
+                    f"🛑 {type(root_cause).__name__}: {root_cause}",
+                    terminal_failures=builder.terminal_failures,
+                ) from root_cause
             raise DataDesignerGenerationError(
                 "🛑 Dataset is empty — all records were dropped due to generation failures. "
-                "Check the warnings above for details on which columns failed."
+                "Check the warnings above for details on which columns failed.",
+                terminal_failures=builder.terminal_failures,
             )
 
         try:
@@ -378,6 +399,8 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             config_builder=config_builder,
             dataset_metadata=dataset_metadata,
             task_traces=task_traces,
+            terminal_failures=builder.terminal_failures,
+            early_shutdown=builder.early_shutdown,
         )
 
     async def acreate(
@@ -388,15 +411,25 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         dataset_name: str = "dataset",
         resume: ResumeMode = ResumeMode.NEVER,
         artifact_path: Path | str | None = None,
+        capture_terminal_failures: bool = False,
     ) -> DatasetCreationResults:
         """Async wrapper for creating a dataset without blocking the caller's event loop."""
-        kwargs = {"num_records": num_records, "dataset_name": dataset_name, "resume": resume}
+        kwargs = {
+            "num_records": num_records,
+            "dataset_name": dataset_name,
+            "resume": resume,
+            "capture_terminal_failures": capture_terminal_failures,
+        }
         if artifact_path is not None:
             kwargs["artifact_path"] = artifact_path
         return await asyncio.to_thread(self.create, config_builder, **kwargs)
 
     def preview(
-        self, config_builder: DataDesignerConfigBuilder, *, num_records: int = DEFAULT_NUM_RECORDS
+        self,
+        config_builder: DataDesignerConfigBuilder,
+        *,
+        num_records: int = DEFAULT_NUM_RECORDS,
+        capture_terminal_failures: bool = False,
     ) -> PreviewResults:
         """Generate preview dataset for fast iteration on your Data Designer configuration.
 
@@ -407,6 +440,8 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             config_builder: The DataDesignerConfigBuilder containing the dataset
                 configuration (columns, constraints, seed data, etc.).
             num_records: Number of records to generate.
+            capture_terminal_failures: Capture the terminal column for each omitted seed row.
+                When results report ``early_shutdown=True``, cancelled rows are not included.
 
         Returns:
             PreviewResults object with methods for inspecting the results.
@@ -421,9 +456,13 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         self._log_jinja_rendering_engine_mode()
 
         resource_provider = self._create_resource_provider("preview-dataset", config_builder)
+        builder: DatasetBuilder | None = None
         try:
             builder = self._create_dataset_builder(config_builder.build(), resource_provider)
-            raw_dataset = builder.build_preview(num_records=num_records)
+            raw_dataset = builder.build_preview(
+                num_records=num_records,
+                capture_terminal_failures=capture_terminal_failures,
+            )
             processed_dataset = builder.process_preview(raw_dataset)
         except DeprecationWarning:
             # See comment in create() — strict warning filters convert engine-level
@@ -431,7 +470,10 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             # propagate untouched.
             raise
         except Exception as e:
-            raise DataDesignerGenerationError(f"🛑 Error generating preview dataset: {e}") from e
+            raise DataDesignerGenerationError(
+                f"🛑 Error generating preview dataset: {e}",
+                terminal_failures=builder.terminal_failures if builder is not None else None,
+            ) from e
 
         if len(processed_dataset) == 0:
             # Mirror the create() path: distinguish "early shutdown produced zero
@@ -440,14 +482,19 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             if builder.early_shutdown and builder.actual_num_records == 0:
                 raise DataDesignerEarlyShutdownError(
                     "🛑 Preview is empty — early shutdown was triggered before any records "
-                    "could complete. Check the warnings above for the contributing failures."
+                    "could complete. Check the warnings above for the contributing failures.",
+                    terminal_failures=builder.terminal_failures,
                 )
             root_cause = builder.first_non_retryable_error
             if root_cause is not None and builder.actual_num_records == 0:
-                raise DataDesignerGenerationError(f"🛑 {type(root_cause).__name__}: {root_cause}") from root_cause
+                raise DataDesignerGenerationError(
+                    f"🛑 {type(root_cause).__name__}: {root_cause}",
+                    terminal_failures=builder.terminal_failures,
+                ) from root_cause
             raise DataDesignerGenerationError(
                 "🛑 Dataset is empty — all records were dropped due to generation or processing failures. "
-                "Check the warnings above for details on which columns failed."
+                "Check the warnings above for details on which columns failed.",
+                terminal_failures=builder.terminal_failures,
             )
 
         dropped_columns = raw_dataset.columns.difference(processed_dataset.columns)
@@ -479,6 +526,8 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             config_builder=config_builder,
             dataset_metadata=dataset_metadata,
             task_traces=builder.task_traces or None,
+            terminal_failures=builder.terminal_failures,
+            early_shutdown=builder.early_shutdown,
         )
 
     def compose_workflow(self, *, name: str) -> CompositeWorkflow:

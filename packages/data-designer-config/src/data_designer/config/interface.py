@@ -33,6 +33,7 @@ class DataDesignerInterface(ABC, Generic[ResultsT]):
         config_builder: DataDesignerConfigBuilder,
         *,
         num_records: int = DEFAULT_NUM_RECORDS,
+        capture_terminal_failures: bool = False,
     ) -> ResultsT: ...
 
     @abstractmethod
@@ -41,6 +42,7 @@ class DataDesignerInterface(ABC, Generic[ResultsT]):
         config_builder: DataDesignerConfigBuilder,
         *,
         num_records: int = DEFAULT_NUM_RECORDS,
+        capture_terminal_failures: bool = False,
     ) -> PreviewResults: ...
 
     @abstractmethod

@@ -12,6 +12,7 @@ from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.dataset_metadata import DatasetMetadata
 from data_designer.config.errors import InvalidFileFormatError
 from data_designer.config.seed_source_dataframe import DataFrameSeedSource
+from data_designer.config.terminal_failure import TerminalTaskFailure
 from data_designer.config.utils.visualization import WithRecordSamplerMixin
 from data_designer.engine.dataset_builders.errors import ArtifactStorageError
 from data_designer.engine.storage.artifact_storage import ArtifactStorage
@@ -50,6 +51,8 @@ class DatasetCreationResults(WithRecordSamplerMixin):
         config_builder: DataDesignerConfigBuilder,
         dataset_metadata: DatasetMetadata,
         task_traces: list[TaskTrace] | None = None,
+        terminal_failures: list[TerminalTaskFailure] | None = None,
+        early_shutdown: bool = False,
     ):
         """Creates a new instance with results based on a dataset creation run.
 
@@ -62,12 +65,19 @@ class DatasetCreationResults(WithRecordSamplerMixin):
                 Resume note: only contains traces for the current invocation; traces
                 from earlier ``create()`` calls that this run resumed are not
                 retained.
+            terminal_failures: Terminal column failures for seed rows omitted by
+                the current invocation. Check ``early_shutdown`` before treating
+                this list as complete.
+            early_shutdown: Whether generation stopped at the global error-rate threshold.
+                Cancelled rows are not included in ``terminal_failures``.
         """
         self.artifact_storage = artifact_storage
         self._analysis = analysis
         self._config_builder = config_builder
         self.dataset_metadata = dataset_metadata
         self.task_traces: list[TaskTrace] = task_traces or []
+        self.terminal_failures: list[TerminalTaskFailure] = list(terminal_failures or [])
+        self.early_shutdown = early_shutdown
 
     def load_analysis(self) -> DatasetProfilerResults:
         """Load the profiling analysis results for the generated dataset.
