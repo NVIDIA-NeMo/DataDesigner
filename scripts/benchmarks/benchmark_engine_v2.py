@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.column_configs import LLMTextColumnConfig, SamplerColumnConfig, ValidationColumnConfig
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.mcp import MCPProvider, ToolConfig
@@ -31,10 +32,8 @@ from data_designer.config.sampler_params import SamplerType, UniformSamplerParam
 from data_designer.config.validator_params import LocalCallableValidatorParams, ValidatorType
 from data_designer.engine.mcp.registry import MCPToolDefinition, MCPToolResult
 from data_designer.engine.models.clients.types import AssistantMessage, ChatCompletionResponse, ToolCall
-from data_designer.lazy_heavy_imports import np, pd
 
 if TYPE_CHECKING:
-    import numpy as np
     import pandas as pd
 
 
@@ -277,11 +276,11 @@ def _format_stats(stats: MetricStats, *, unit: str, precision: int = 3) -> str:
 
 
 def _json_default(value: Any) -> Any:
-    if isinstance(value, np.generic):
+    if isinstance(value, lazy.np.generic):
         return value.item()
-    if isinstance(value, np.ndarray):
+    if isinstance(value, lazy.np.ndarray):
         return value.tolist()
-    if isinstance(value, (pd.Timestamp, pd.Timedelta)):
+    if isinstance(value, (lazy.pd.Timestamp, lazy.pd.Timedelta)):
         return value.isoformat()
     if isinstance(value, set):
         return sorted(value)
@@ -472,10 +471,10 @@ def _validate_recommendation(df: pd.DataFrame) -> pd.DataFrame:
     series = df["llm_stage3"].astype(str)
     scores = series.map(lambda text: _extract_metric(text, "score"))
     latencies = series.map(lambda text: _extract_metric(text, "latency_ms"))
-    scores_numeric = pd.to_numeric(scores, errors="coerce")
-    latency_numeric = pd.to_numeric(latencies, errors="coerce")
+    scores_numeric = lazy.pd.to_numeric(scores, errors="coerce")
+    latency_numeric = lazy.pd.to_numeric(latencies, errors="coerce")
     is_valid = scores_numeric.between(0.0, 10.0) & latency_numeric.between(0.0, 900.0)
-    return pd.DataFrame(
+    return lazy.pd.DataFrame(
         {
             "is_valid": is_valid.fillna(False).astype(bool),
             "score": scores_numeric,
@@ -584,7 +583,7 @@ def _run_single_benchmark(settings: BenchmarkSettings, engine_mode: str) -> Benc
     from data_designer.engine.storage.artifact_storage import ArtifactStorage
 
     random.seed(settings.seed)
-    np.random.seed(settings.seed)
+    lazy.np.random.seed(settings.seed)
 
     run_config = RunConfig(
         buffer_size=settings.buffer_size,
