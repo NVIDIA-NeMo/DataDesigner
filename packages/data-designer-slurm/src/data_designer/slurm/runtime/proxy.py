@@ -13,6 +13,8 @@ from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import SplitResult, urlsplit
 
+from data_designer.slurm.runtime.network import validate_host_name
+
 _MAXIMUM_REQUEST_BYTES = 64 * 1024 * 1024
 _MAXIMUM_RESPONSE_BYTES = 64 * 1024 * 1024
 _HOP_HEADERS = frozenset(
@@ -191,9 +193,14 @@ def main(arguments: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="data-designer-slurm-proxy")
     parser.add_argument("--listen-port", required=True, type=int)
     parser.add_argument("--backend", action="append", required=True)
+    parser.add_argument("--allowed-host", action="append")
     parser.add_argument("--retry-after-seconds", type=int)
     parsed = parser.parse_args(arguments)
-    backends = tuple(_parse_backend(value) for value in parsed.backend)
+    try:
+        allowed_hosts = frozenset(validate_host_name(value) for value in (parsed.allowed_host or ("127.0.0.1",)))
+    except ValueError as error:
+        parser.error(str(error))
+    backends = tuple(_parse_backend(value, allowed_hosts) for value in parsed.backend)
     if not 1 <= parsed.listen_port <= 65535:
         parser.error("listen port must be between 1 and 65535")
     if parsed.retry_after_seconds is not None and parsed.retry_after_seconds <= 0:
@@ -204,15 +211,18 @@ def main(arguments: Sequence[str] | None = None) -> int:
     return 0
 
 
-def _parse_backend(value: str) -> _Backend:
+def _parse_backend(value: str, allowed_hosts: frozenset[str] = frozenset({"127.0.0.1"})) -> _Backend:
     parsed: SplitResult = urlsplit(value)
+    host = parsed.hostname
+    normalized_allowed_hosts = frozenset(allowed_host.casefold() for allowed_host in allowed_hosts)
     try:
         port = parsed.port
     except ValueError as error:
         raise argparse.ArgumentTypeError("backend port is invalid") from error
     if (
         parsed.scheme != "http"
-        or parsed.hostname != "127.0.0.1"
+        or host is None
+        or host.casefold() not in normalized_allowed_hosts
         or parsed.username is not None
         or parsed.password is not None
         or parsed.path not in {"", "/"}
@@ -220,8 +230,8 @@ def _parse_backend(value: str) -> _Backend:
         or parsed.fragment
         or port is None
     ):
-        raise argparse.ArgumentTypeError("backends must be loopback HTTP origins")
-    return _Backend(parsed.hostname, port)
+        raise argparse.ArgumentTypeError("backends must be allowed HTTP origins")
+    return _Backend(host, port)
 
 
 def _retry_after_headers(headers: dict[str, str], retry_after_seconds: int | None) -> dict[str, str]:
