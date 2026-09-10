@@ -16,7 +16,7 @@ from pydantic import TypeAdapter, ValidationError
 from data_designer.slurm.contracts import Identifier
 from data_designer.slurm.planning import PlannedShard, ResolvedSlurmRunPlan
 from data_designer.slurm.runtime.errors import SlurmRuntimeError, SlurmRuntimeErrorCode
-from data_designer.slurm.state import AttemptManifest
+from data_designer.slurm.state import AttemptManifest, RetryPlan
 
 _IDENTIFIER_ADAPTER = TypeAdapter(Identifier)
 
@@ -117,6 +117,7 @@ class AllocationContext:
     shard: PlannedShard
     attempt: AttemptManifest
     attempt_directory: Path
+    retry_plan: RetryPlan | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.plan, ResolvedSlurmRunPlan):
@@ -147,3 +148,25 @@ class AllocationContext:
                 SlurmRuntimeErrorCode.INVALID_CONTEXT,
                 "allocation attempt does not match its planned scheduler task",
             )
+        if self.retry_plan is not None:
+            selected = tuple(
+                retry_shard
+                for retry_shard in self.retry_plan.planned_shards
+                if retry_shard.shard_id == self.shard.shard_id
+                and retry_shard.attempt_id == self.attempt.attempt_id
+                and retry_shard.array_task_index == self.shard.array_task_index
+            )
+            if (
+                self.retry_plan.run_id != self.plan.run_id
+                or self.retry_plan.resolved_plan != self.attempt.resolved_plan
+                or (
+                    self.plan.invocation.authored.resume != "if_possible"
+                    and self.retry_plan.effective_resume_mode != self.plan.invocation.authored.resume
+                )
+                or len(selected) != 1
+                or selected[0].attempt_ordinal != self.attempt.attempt_ordinal
+            ):
+                raise SlurmRuntimeError(
+                    SlurmRuntimeErrorCode.INVALID_CONTEXT,
+                    "allocation attempt does not match its persisted retry plan",
+                )
