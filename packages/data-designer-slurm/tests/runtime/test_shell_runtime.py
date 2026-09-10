@@ -35,7 +35,7 @@ def test_bash_controller_scopes_secrets_cleans_steps_and_never_runs_host_python(
     _write_executable(fake_bin / "python3", f"#!/usr/bin/env bash\nprintf ran > {marker_path}\nexit 99\n")
     _write_executable(fake_bin / "curl", "#!/usr/bin/env bash\nexit 0\n")
     _write_executable(fake_bin / "getent", "#!/usr/bin/env bash\nexit 0\n")
-    _write_executable(fake_bin / "scontrol", "#!/usr/bin/env bash\nexit 0\n")
+    _write_executable(fake_bin / "scontrol", "#!/usr/bin/env bash\nprintf 'compute-001\\n'\n")
     _write_executable(fake_bin / "srun", _fake_srun())
     command = f"""
     set -Eeuo pipefail
@@ -57,6 +57,7 @@ dd_slurm_run_allocation "${{DD_PLAN}}" "${{DD_ATTEMPT_DIR}}"
         "SLURM_ARRAY_JOB_ID": "4101",
         "SLURM_ARRAY_TASK_ID": "0",
         "SLURM_JOB_NUM_NODES": "1",
+        "SLURM_JOB_NODELIST": "compute-001",
         "SLURM_JOB_GPUS": "0",
         "SLURM_NODEID": "0",
     }
@@ -130,6 +131,62 @@ dd_stop_runtime_timer
 """
 
     completed = subprocess.run(("bash", "-c", command), capture_output=True, text=True, timeout=5)
+
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_step_runner_builds_one_coordinated_srun_across_selected_nodes() -> None:
+    runtime_root = Path(__file__).parents[2] / "src/data_designer/slurm/runtime"
+    command = f"""
+set -Eeuo pipefail
+source {shlex.quote((runtime_root / "step_runner.sh").as_posix())}
+DD_STEP_NODE_HOSTS=(compute-001 compute-002)
+DD_STEP_GPU_INDICES=(0 1)
+DD_STEP_CONTAINER_ENV=()
+DD_STEP_CPUS=4
+DD_STEP_IMAGE=/images/server.sqsh
+DD_STEP_KILL_ON_BAD_EXIT=true
+DD_GPU_REQUEST_MODE=gres
+DD_CONTAINER_MOUNTS=
+dd_build_srun_command
+command=${{DD_SRUN_COMMAND[*]}}
+[[ $command == *--nodes=2* ]]
+[[ $command == *--ntasks=2* ]]
+[[ $command == *--ntasks-per-node=1* ]]
+[[ $command == *--nodelist=compute-001,compute-002* ]]
+[[ $command == *--kill-on-bad-exit=1* ]]
+[[ $command == *--gpus-per-task=2* ]]
+"""
+
+    completed = subprocess.run(("bash", "-c", command), capture_output=True, text=True)
+
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_shell_resolves_scheduler_hosts_in_planner_order(tmp_path: Path) -> None:
+    runtime_root = Path(__file__).parents[2] / "src/data_designer/slurm/runtime"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    _write_executable(fake_bin / "scontrol", "#!/usr/bin/env bash\nprintf 'compute-001\\ncompute-002\\n'\n")
+    command = f"""
+set -Eeuo pipefail
+source {shlex.quote((runtime_root / "entrypoint.sh").as_posix())}
+DD_EXPECTED_NODES=2
+DD_CLIENT_NODE_INDEX=0
+SLURM_JOB_NODELIST=compute-[001-002]
+dd_resolve_allocation_hosts
+[[ ${{DD_ALLOCATION_HOSTS[*]}} == 'compute-001 compute-002' ]]
+[[ $DD_CLIENT_HOST == compute-001 ]]
+DD_EXPECTED_NODES=3
+! dd_resolve_allocation_hosts
+"""
+
+    completed = subprocess.run(
+        ("bash", "-c", command),
+        capture_output=True,
+        text=True,
+        env={**os.environ, "PATH": f"{fake_bin}:{os.environ['PATH']}"},
+    )
 
     assert completed.returncode == 0, completed.stderr
 
@@ -245,6 +302,8 @@ def _step(
         "command": [command],
         "cpus": 1,
         "gpu_indices": gpu_indices or [],
+        "node_hosts": ["compute-001"],
+        "kill_on_bad_exit": False,
         "literal_environment": {"LC_ALL": "C"},
         "secret_environment": secret_environment or {},
         "environment_prefixes": {},
@@ -252,7 +311,7 @@ def _step(
         "stdout_path": (log_root / f"{step_id}.out").as_posix(),
         "stderr_path": (log_root / f"{step_id}.err").as_posix(),
         "launch_delay_seconds": 0,
-        "readiness": readiness,
+        "readiness": [readiness] if readiness is not None else [],
     }
 
 

@@ -66,12 +66,17 @@ dd_materialize_step_environment() {
 }
 
 dd_build_srun_command() {
-    local index gpu_mask=0 container_names=
+    local index gpu_mask=0 container_names= node_list=
+    ((${#DD_STEP_NODE_HOSTS[@]})) || return 64
+    printf -v node_list '%s,' "${DD_STEP_NODE_HOSTS[@]}"
+    node_list=${node_list%,}
     DD_STEP_VISIBLE_GPUS=
     DD_SRUN_COMMAND=(
         srun
-        --nodes=1
-        --ntasks=1
+        "--nodes=${#DD_STEP_NODE_HOSTS[@]}"
+        "--ntasks=${#DD_STEP_NODE_HOSTS[@]}"
+        --ntasks-per-node=1
+        "--nodelist=${node_list}"
         --exact
         --overlap
         --unbuffered
@@ -79,6 +84,9 @@ dd_build_srun_command() {
         "--cpus-per-task=${DD_STEP_CPUS}"
         "--container-image=${DD_STEP_IMAGE}"
     )
+    if [[ ${DD_STEP_KILL_ON_BAD_EXIT} == true ]]; then
+        DD_SRUN_COMMAND+=(--kill-on-bad-exit=1)
+    fi
     if ((${#DD_STEP_GPU_INDICES[@]})); then
         if [[ ${DD_GPU_REQUEST_MODE} == gres ]]; then
             for index in "${DD_STEP_GPU_INDICES[@]+"${DD_STEP_GPU_INDICES[@]}"}"; do
@@ -138,6 +146,7 @@ dd_run_control_phase() {
         srun
         --nodes=1
         --ntasks=1
+        "--nodelist=${DD_CLIENT_HOST}"
         --exact
         --overlap
         --unbuffered
