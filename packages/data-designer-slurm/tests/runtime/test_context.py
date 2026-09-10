@@ -7,19 +7,79 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import cast
+from unittest.mock import Mock
 
+import pytest
+
+import data_designer.slurm.runtime.context as runtime_context
 from data_designer.slurm.config import DataDesignerSlurmConfig, SlurmProfile
 from data_designer.slurm.contracts import ArtifactReference, compute_canonical_json_sha256
 from data_designer.slurm.planning import ResolvedSlurmRunPlan
 from data_designer.slurm.runtime.context import load_allocation_context
+from data_designer.slurm.runtime.errors import SlurmRuntimeError
 from data_designer.slurm.state import (
     AttemptLifecycleState,
     AttemptManifest,
+    RetryPlan,
+    RetryShard,
     RunManifest,
     SchedulerIdentity,
     ShardManifest,
     SlurmStateWriter,
 )
+
+
+def test_runtime_retry_binding_requires_all_arguments() -> None:
+    with pytest.raises(SlurmRuntimeError, match="binding is incomplete"):
+        runtime_context._load_retry_plan(
+            Mock(),
+            retry_id="retry-0001",
+            retry_plan_sha256=None,
+            effective_resume_mode="never",
+        )
+
+
+@pytest.mark.parametrize(
+    ("digest", "resume_mode"),
+    [
+        pytest.param("f" * 64, "never", id="digest"),
+        pytest.param(None, "always", id="resume-mode"),
+    ],
+)
+def test_runtime_retry_binding_rejects_tampered_arguments(
+    single_node_plan: ResolvedSlurmRunPlan,
+    digest: str | None,
+    resume_mode: str,
+) -> None:
+    retry = RetryPlan(
+        schema_version=1,
+        retry_id="retry-0001",
+        run_id=single_node_plan.run_id,
+        created_at=datetime(2026, 9, 2, tzinfo=timezone.utc),
+        resolved_plan=ArtifactReference(
+            path="/workspace/primary/runs/run-single/resolved-plan.json",
+            sha256=single_node_plan.compute_sha256(),
+        ),
+        planned_shards=(
+            RetryShard(
+                shard_id="shard-00000",
+                attempt_id="attempt-0002",
+                attempt_ordinal=2,
+                array_task_index=0,
+            ),
+        ),
+        effective_resume_mode="never",
+    )
+    writer = Mock()
+    writer.load_retry_plan.return_value = retry
+
+    with pytest.raises(SlurmRuntimeError, match="binding differs"):
+        runtime_context._load_retry_plan(
+            writer,
+            retry_id=retry.retry_id,
+            retry_plan_sha256=retry.compute_sha256() if digest is None else digest,
+            effective_resume_mode=resume_mode,
+        )
 
 
 def test_allocation_context_reads_and_updates_state_through_remapped_workspace(

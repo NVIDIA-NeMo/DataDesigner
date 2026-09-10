@@ -10,15 +10,24 @@ source "${DD_RUNTIME_DIR}/cleanup.sh"
 
 DD_RUNTIME_PREPARED=0
 DD_RUNTIME_FINALIZED=0
+DD_RUNTIME_RETRY_ARGUMENTS=()
 
 dd_slurm_run_allocation() {
-    if [[ $# -ne 2 ]]; then
-        printf '%s\n' 'allocation runtime requires plan and attempt directory arguments' >&2
+    if [[ $# -ne 2 && $# -ne 5 ]]; then
+        printf '%s\n' 'allocation runtime requires plan and attempt with optional retry binding' >&2
         return 64
     fi
     DD_PLAN_PATH=$1
     DD_ATTEMPT_PATH=$2
     DD_RUNTIME_MANIFEST=${DD_ATTEMPT_PATH}/runtime-manifest.json
+    DD_RUNTIME_RETRY_ARGUMENTS=()
+    if [[ $# -eq 5 ]]; then
+        DD_RUNTIME_RETRY_ARGUMENTS=(
+            --retry-id "$3"
+            --retry-plan-sha256 "$4"
+            --effective-resume-mode "$5"
+        )
+    fi
     dd_read_control_plan "${DD_PLAN_PATH}"
     dd_read_plan_secret_names "${DD_PLAN_PATH}"
     dd_read_container_path "${DD_PLAN_PATH}" "${DD_PLAN_PATH}" false
@@ -38,7 +47,7 @@ dd_slurm_run_allocation() {
     trap 'exit 130' INT TERM
 
     DD_RUNTIME_PREPARED=1
-    dd_run_control_phase prepare \
+    dd_run_bound_control_phase prepare \
         --runtime-root "${DD_RUNTIME_DIR}" \
         --manifest "${DD_RUNTIME_MANIFEST_CONTAINER_PATH}"
     dd_verify_runtime_manifest \
@@ -57,7 +66,7 @@ dd_slurm_run_allocation() {
     dd_start_endpoints
     dd_wait_for_role_readiness endpoint
     dd_require_running
-    dd_run_control_phase ready
+    dd_run_bound_control_phase ready
 
     dd_read_step_ids "${DD_RUNTIME_MANIFEST}" client
     ((${#DD_STEP_IDS[@]} == 1))
@@ -68,8 +77,17 @@ dd_slurm_run_allocation() {
     dd_require_running
 
     dd_cleanup_steps
-    dd_run_control_phase succeed
+    dd_run_bound_control_phase succeed
     DD_RUNTIME_FINALIZED=1
+}
+
+dd_run_bound_control_phase() {
+    local operation=$1
+    shift
+    dd_run_control_phase \
+        "${operation}" \
+        "${DD_RUNTIME_RETRY_ARGUMENTS[@]+"${DD_RUNTIME_RETRY_ARGUMENTS[@]}"}" \
+        "$@"
 }
 
 dd_verify_host_context() {
@@ -173,7 +191,7 @@ dd_runtime_exit() {
     set +e
     dd_cleanup_steps
     if ((DD_RUNTIME_PREPARED == 1 && DD_RUNTIME_FINALIZED == 0)); then
-        dd_run_control_phase fail >/dev/null
+        dd_run_bound_control_phase fail >/dev/null
     fi
     dd_stop_runtime_timer
     exit "${status}"

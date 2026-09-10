@@ -179,7 +179,7 @@ def _patch_runtime_context(
     runtime_case: RuntimeCase,
     state: FakeStateStore,
 ) -> None:
-    monkeypatch.setattr(entrypoint, "load_allocation_context", lambda *args: (runtime_case.context, state))
+    monkeypatch.setattr(entrypoint, "load_allocation_context", lambda *args, **kwargs: (runtime_case.context, state))
     monkeypatch.setattr(entrypoint, "get_container_path", lambda plan, path, **kwargs: path)
     monkeypatch.setenv("SLURM_JOB_GPUS", "0")
 

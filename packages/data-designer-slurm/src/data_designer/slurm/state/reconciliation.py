@@ -15,6 +15,7 @@ from data_designer.slurm.state.scheduler import (
     EffectiveAttemptState,
     SchedulerObservation,
     SchedulerState,
+    is_scheduler_failure_state,
 )
 from data_designer.slurm.state.validation import StateContractError
 
@@ -58,18 +59,6 @@ _ALLOWED_ENDPOINT_TRANSITIONS: dict[EndpointPublicationState, frozenset[Endpoint
     EndpointPublicationState.PUBLISHED: frozenset({EndpointPublicationState.PUBLISHED}),
     EndpointPublicationState.FAILED: frozenset({EndpointPublicationState.FAILED}),
 }
-
-_SCHEDULER_FAILURE_STATES = frozenset(
-    {
-        SchedulerState.FAILED,
-        SchedulerState.CANCELLED,
-        SchedulerState.TIMED_OUT,
-        SchedulerState.NODE_FAILED,
-        SchedulerState.PREEMPTED,
-        SchedulerState.REQUEUED,
-        SchedulerState.OUT_OF_MEMORY,
-    }
-)
 
 
 def validate_readiness_transition(
@@ -165,7 +154,7 @@ def reconcile_attempt_observation(
     if readiness is not None:
         _require(readiness.updated_at >= attempt.created_at, "readiness update cannot precede attempt creation")
 
-    if scheduler.state in _SCHEDULER_FAILURE_STATES:
+    if is_scheduler_failure_state(scheduler.state):
         return EffectiveAttemptState.FAILED
     if attempt.state is AttemptLifecycleState.FAILED:
         return EffectiveAttemptState.FAILED
@@ -184,7 +173,12 @@ def reconcile_attempt_observation(
         return EffectiveAttemptState.UNKNOWN
     if readiness is not None and readiness.state is ReadinessState.FAILED:
         return EffectiveAttemptState.FAILED
-    if scheduler.state is SchedulerState.PENDING:
+    if scheduler.state is SchedulerState.PREEMPTED:
+        deadline = scheduler.reconciliation_deadline
+        if deadline is not None and current_time > deadline:
+            return EffectiveAttemptState.FAILED
+        return EffectiveAttemptState.PENDING
+    if scheduler.state in {SchedulerState.PENDING, SchedulerState.REQUEUED}:
         return EffectiveAttemptState.PENDING
     if scheduler.state is SchedulerState.RUNNING:
         return EffectiveAttemptState.RUNNING

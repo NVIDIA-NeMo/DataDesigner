@@ -85,10 +85,13 @@ def _parse_arguments(arguments: Sequence[str] | None) -> argparse.Namespace:
 def _add_context_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--plan", required=True, type=Path)
     parser.add_argument("--attempt-dir", required=True, type=Path)
+    parser.add_argument("--retry-id")
+    parser.add_argument("--retry-plan-sha256")
+    parser.add_argument("--effective-resume-mode", choices=("never", "always"))
 
 
 def _prepare(arguments: argparse.Namespace, environment: Mapping[str, str]) -> None:
-    context, writer = load_allocation_context(arguments.plan, arguments.attempt_dir, environment)
+    context, writer = _load_context(arguments, environment)
     _validate_attempt_is_executable(context.attempt)
     SystemAllocationPreflight.verify_attempt_directory(arguments.attempt_dir)
     SystemAllocationPreflight.verify_ports(context, environment)
@@ -113,7 +116,7 @@ def _prepare(arguments: argparse.Namespace, environment: Mapping[str, str]) -> N
 
 
 def _ready(arguments: argparse.Namespace, environment: Mapping[str, str]) -> None:
-    context, writer = load_allocation_context(arguments.plan, arguments.attempt_dir, environment)
+    context, writer = _load_context(arguments, environment)
     previous = writer.load_readiness(context.shard.shard_id, context.attempt.attempt_id)
     timestamp = _now(context.attempt, previous)
     deployments = _resolve_deployments(context, environment)
@@ -143,12 +146,17 @@ def _ready(arguments: argparse.Namespace, environment: Mapping[str, str]) -> Non
 
 
 def _client(arguments: argparse.Namespace, environment: Mapping[str, str]) -> None:
-    context, writer = load_allocation_context(arguments.plan, arguments.attempt_dir, environment)
+    context, writer = _load_context(arguments, environment)
     generation_started_at = _now(context.attempt, _load_optional_readiness(context, writer))
+    resume_mode = (
+        context.plan.invocation.authored.resume
+        if context.retry_plan is None
+        else context.retry_plan.effective_resume_mode
+    )
     with writer.acquire_dataset_workspace(
         context.shard.shard_id,
         context.attempt.attempt_id,
-        context.plan.invocation.authored.resume,
+        resume_mode,
     ):
         return_code = client_worker_main(
             (
@@ -161,6 +169,7 @@ def _client(arguments: argparse.Namespace, environment: Mapping[str, str]) -> No
                 context.attempt.attempt_id,
                 "--attempt-dir",
                 arguments.attempt_dir.as_posix(),
+                *(() if context.retry_plan is None else ("--resume-mode", context.retry_plan.effective_resume_mode)),
                 *(argument for endpoint in arguments.endpoint for argument in ("--endpoint", endpoint)),
             )
         )
@@ -171,6 +180,14 @@ def _client(arguments: argparse.Namespace, environment: Mapping[str, str]) -> No
             context.attempt,
             attempt_directory=arguments.attempt_dir,
         )
+        if (
+            context.retry_plan is not None
+            and client_result.effective_resume_mode != context.retry_plan.effective_resume_mode
+        ):
+            raise SlurmRuntimeError(
+                SlurmRuntimeErrorCode.FINALIZATION_FAILED,
+                "client effective resume mode differs from the persisted retry plan",
+            )
         completed_at = client_result.completed_at
         if candidate.created_at < generation_started_at or completed_at < generation_started_at:
             raise SlurmRuntimeError(
@@ -186,7 +203,7 @@ def _client(arguments: argparse.Namespace, environment: Mapping[str, str]) -> No
 
 
 def _succeed(arguments: argparse.Namespace, environment: Mapping[str, str]) -> None:
-    context, writer = load_allocation_context(arguments.plan, arguments.attempt_dir, environment)
+    context, writer = _load_context(arguments, environment)
     stopped_at = _write_stopped_readiness(context, writer)
     attempt = writer.load_attempt(context.shard.shard_id, context.attempt.attempt_id)
     if attempt.candidate_output is None:
@@ -204,7 +221,7 @@ def _succeed(arguments: argparse.Namespace, environment: Mapping[str, str]) -> N
 
 
 def _fail(arguments: argparse.Namespace, environment: Mapping[str, str]) -> None:
-    context, writer = load_allocation_context(arguments.plan, arguments.attempt_dir, environment)
+    context, writer = _load_context(arguments, environment)
     attempt = writer.load_attempt(context.shard.shard_id, context.attempt.attempt_id)
     if attempt.state in {AttemptLifecycleState.SUCCEEDED, AttemptLifecycleState.FAILED}:
         return
@@ -217,6 +234,20 @@ def _fail(arguments: argparse.Namespace, environment: Mapping[str, str]) -> None
                 "updated_at": max(timestamp, attempt.updated_at),
             }
         )
+    )
+
+
+def _load_context(
+    arguments: argparse.Namespace,
+    environment: Mapping[str, str],
+) -> tuple[AllocationContext, SlurmStateWriter]:
+    return load_allocation_context(
+        arguments.plan,
+        arguments.attempt_dir,
+        environment,
+        retry_id=arguments.retry_id,
+        retry_plan_sha256=arguments.retry_plan_sha256,
+        effective_resume_mode=arguments.effective_resume_mode,
     )
 
 
