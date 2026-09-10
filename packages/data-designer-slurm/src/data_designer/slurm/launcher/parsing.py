@@ -6,16 +6,17 @@
 from __future__ import annotations
 
 import re
+from typing import Literal
 
 from data_designer.slurm.launcher.errors import SlurmCommandOutputError
 from data_designer.slurm.launcher.models import (
     SlurmAccountingEntry,
     SlurmJobSubmissionReceipt,
-    SlurmObservedJobIdentity,
+    SlurmNamedJobEntry,
     SlurmProcessExitCode,
     SlurmQueueEntry,
 )
-from data_designer.slurm.state import SchedulerIdentity, SchedulerState
+from data_designer.slurm.state import SchedulerIdentity, SchedulerJobIdentity, SchedulerState
 
 _ARRAY_ID_PATTERN = re.compile(r"^(?P<job>[1-9][0-9]*)_(?P<task>[0-9]+)$")
 _JOB_ID_PATTERN = re.compile(r"^[1-9][0-9]*$")
@@ -71,7 +72,7 @@ def parse_submission(output: str) -> SlurmJobSubmissionReceipt:
 def parse_queue(output: str) -> tuple[SlurmQueueEntry, ...]:
     """Parse ``squeue --format=%i|%T`` rows."""
     entries: list[SlurmQueueEntry] = []
-    identities: set[SlurmObservedJobIdentity] = set()
+    identities: set[SchedulerJobIdentity] = set()
     for line_number, line in _collect_nonempty_lines(output):
         fields = line.split("|")
         if len(fields) != 2:
@@ -85,7 +86,7 @@ def parse_queue(output: str) -> tuple[SlurmQueueEntry, ...]:
 def parse_accounting(output: str) -> tuple[SlurmAccountingEntry, ...]:
     """Parse job and array-task rows from ``sacct --format=JobID,State,ExitCode``."""
     entries: list[SlurmAccountingEntry] = []
-    identities: set[SlurmObservedJobIdentity] = set()
+    identities: set[SchedulerJobIdentity] = set()
     for line_number, line in _collect_nonempty_lines(output):
         fields = line.split("|")
         if len(fields) != 3:
@@ -99,6 +100,25 @@ def parse_accounting(output: str) -> tuple[SlurmAccountingEntry, ...]:
                 process_exit_code=_parse_exit_code(fields[2], line_number=line_number),
             )
         )
+    return tuple(entries)
+
+
+def parse_named_jobs(output: str, *, command: Literal["sacct", "squeue"]) -> tuple[SlurmNamedJobEntry, ...]:
+    """Parse scheduler allocations returned for an exact job-name lookup."""
+    entries: list[SlurmNamedJobEntry] = []
+    identities: set[tuple[int, int | None, str]] = set()
+    for line_number, line in _collect_nonempty_lines(output):
+        fields = tuple(field.strip() for field in line.split("|"))
+        if len(fields) != 2 or not fields[1]:
+            raise SlurmCommandOutputError(f"{command} line {line_number} must contain a job ID and name")
+        identity = _parse_job_identity(fields[0], command=command, line_number=line_number)
+        job_id = identity.array_job_id if isinstance(identity, SchedulerIdentity) else identity
+        array_task_id = identity.array_task_id if isinstance(identity, SchedulerIdentity) else None
+        key = (job_id, array_task_id, fields[1])
+        if key in identities:
+            continue
+        identities.add(key)
+        entries.append(SlurmNamedJobEntry(job_id=job_id, array_task_id=array_task_id, job_name=fields[1]))
     return tuple(entries)
 
 
@@ -184,7 +204,7 @@ def _parse_array_identity(value: str, *, command: str, line_number: int) -> Sche
     )
 
 
-def _parse_job_identity(value: str, *, command: str, line_number: int) -> SlurmObservedJobIdentity:
+def _parse_job_identity(value: str, *, command: str, line_number: int) -> SchedulerJobIdentity:
     message = f"{command} line {line_number} contains an invalid job or array-task ID"
     if _JOB_ID_PATTERN.fullmatch(value) is not None:
         return _parse_decimal(value, message=message)
@@ -218,8 +238,8 @@ def _parse_decimal(value: str, *, message: str) -> int:
 
 
 def _reject_duplicate(
-    job_identity: SlurmObservedJobIdentity,
-    identities: set[SlurmObservedJobIdentity],
+    job_identity: SchedulerJobIdentity,
+    identities: set[SchedulerJobIdentity],
     *,
     command: str,
     line_number: int,

@@ -295,6 +295,7 @@ class OneNodeAllocationController:
                 self._context.attempt_directory,
                 endpoints,
                 self._environment,
+                retry_resume_mode=self._retry_resume_mode,
             )
         )
         self._supervisor.wait(self._supervisor.start(client_preflight))
@@ -346,17 +347,26 @@ class OneNodeAllocationController:
                 self._context.attempt_directory,
                 endpoints,
                 self._environment,
+                retry_resume_mode=self._retry_resume_mode,
             )
         )
+        workspace_mode = self._retry_resume_mode
+        if workspace_mode is None:
+            workspace_mode = "never" if self._context.plan.invocation.authored.resume == "never" else "always"
         with self._state.acquire_dataset_workspace(
             self._attempt.shard_id,
             self._attempt.attempt_id,
-            self._context.plan.invocation.authored.resume,
+            workspace_mode,
         ):
             generation_started_at = self._now()
             self._supervisor.wait(self._supervisor.start(generation), required=required_processes)
             self._supervisor.require_running(required_processes)
             client_result, candidate = load_complete_client_candidate(self._context, self._attempt)
+            if self._retry_resume_mode is not None and client_result.effective_resume_mode != self._retry_resume_mode:
+                raise SlurmRuntimeError(
+                    SlurmRuntimeErrorCode.FINALIZATION_FAILED,
+                    "client effective resume mode differs from the persisted retry plan",
+                )
             self._validate_client_timestamps(candidate.created_at, client_result.completed_at, generation_started_at)
             candidate_reference = client_result.candidate_output_manifest
             if candidate_reference is None:  # pragma: no cover - the record contract requires this for complete results
@@ -367,6 +377,11 @@ class OneNodeAllocationController:
             self._state.publish_attempt_result(client_result, candidate)
             self._attempt = _copy_attempt(self._attempt, candidate_output=candidate_reference)
             return candidate_reference, client_result.completed_at
+
+    @property
+    def _retry_resume_mode(self) -> Literal["never", "always"] | None:
+        retry_plan = self._context.retry_plan
+        return None if retry_plan is None else retry_plan.effective_resume_mode
 
     def _validate_client_timestamps(
         self,
