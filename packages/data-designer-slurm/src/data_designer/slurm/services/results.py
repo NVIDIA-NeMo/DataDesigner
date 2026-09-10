@@ -40,7 +40,7 @@ class SlurmRunExecution(ContractValue):
 
 
 class SlurmPersistedAttemptStatus(ContractValue):
-    """Persisted attempt state available without scheduler reconciliation."""
+    """Persisted attempt state returned after scheduler reconciliation."""
 
     attempt: AttemptManifest
     readiness: AttemptReadiness | None = None
