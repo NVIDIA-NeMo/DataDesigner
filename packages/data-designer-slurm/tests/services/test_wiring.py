@@ -16,7 +16,6 @@ from data_designer.slurm.client.dependencies import ResolvedClientDependencies
 from data_designer.slurm.config import (
     BuilderInput,
     DataDesignerSlurmConfig,
-    ImageBuildRequest,
     SecretRef,
     SlurmProfile,
     SlurmProfileCatalog,
@@ -1094,7 +1093,7 @@ def test_production_status_maps_unknown_run_to_not_found(
     assert caught.value.code is SlurmServiceErrorCode.NOT_FOUND
 
 
-def test_production_image_registry_operations_and_lifecycle_gap(
+def test_production_image_registry_operations(
     tmp_path: Path,
     profile_catalog: SlurmProfileCatalog,
     authored_run_single: DataDesignerSlurmConfig,
@@ -1109,13 +1108,3 @@ def test_production_image_registry_operations_and_lifecycle_gap(
 
     assert selected == removed == images[0]
     assert len(service.list()) == 1
-    with pytest.raises(SlurmServiceError) as caught:
-        service.add(
-            ImageBuildRequest(
-                name="new-image",
-                kind="client",
-                source=f"registry.example/client@sha256:{'1' * 64}",
-            )
-        )
-    assert caught.value.code is SlurmServiceErrorCode.UNAVAILABLE
-    assert str(caught.value) == "image registration is not available; use a pre-registered image"

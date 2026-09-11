@@ -296,9 +296,98 @@ def test_image_add_rejects_mutable_oci_source(source: str) -> None:
     }
 
 
+def test_profile_init_creates_starter_and_emits_validation_command(tmp_path: Path) -> None:
+    profile_file = tmp_path / "profile.yml"
+    workspace = tmp_path / "workspace"
+
+    result = CliRunner().invoke(
+        cli_module.create_cli(),
+        [
+            "profile",
+            "init",
+            "--workspace-root",
+            str(workspace),
+            "--image-build-partition",
+            "cpu",
+            "--profile-file",
+            str(profile_file),
+            "--host-pattern",
+            "login.example.test",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.stdout) == {
+        "profile_file": profile_file.as_posix(),
+        "validation_command": f"data-designer slurm profile validate --profile-file {profile_file.as_posix()}",
+    }
+    assert profile_file.is_file()
+    assert not workspace.exists()
+
+
+def test_profile_validate_emits_selected_effective_paths(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    profile_file = tmp_path / "profile.json"
+    profile_file.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "default_cluster": "local",
+                "clusters": {
+                    "local": {
+                        "schema_version": 1,
+                        "gpus_per_node": 4,
+                        "workspace_root": workspace.as_posix(),
+                        "image_build": {
+                            "partition": "cpu",
+                            "cpus_per_task": 2,
+                            "memory": "8G",
+                            "time_limit": "04:00:00",
+                        },
+                    }
+                },
+            }
+        )
+    )
+
+    result = CliRunner().invoke(
+        cli_module.create_cli(),
+        ["profile", "validate", "--profile-file", str(profile_file), "--cluster", "local"],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert payload["profile_file"] == profile_file.as_posix()
+    assert payload["selected_cluster"] == "local"
+    assert payload["selection_source"] == "explicit"
+    assert payload["workspace_root"] == workspace.as_posix()
+    assert payload["image_root"] == (workspace / "images").as_posix()
+    assert payload["registry_file"] == (workspace / "images" / "registry.yaml").as_posix()
+    assert payload["gpus_per_node"] == 4
+    assert tuple(workspace.iterdir()) == ()
+
+
+def test_image_add_rejects_credential_bearing_oci_source() -> None:
+    source = f"https://user:secret@registry.example/image@sha256:{'a' * 64}"
+
+    result = CliRunner().invoke(cli_module.create_cli(), ["image", "add", source, "--kind", "client"])
+
+    assert result.exit_code == 2
+    error = json.loads(result.stderr)["error"]
+    assert error == {
+        "code": "invalid_request",
+        "message": "OCI image source must be a credential-free registry reference without a scheme",
+        "operation": "add_image",
+    }
+    assert "secret" not in result.stderr
+
+
 def test_cli_exposes_m3c_run_commands() -> None:
     result = CliRunner().invoke(cli_module.create_cli(), ["--help"])
 
     assert result.exit_code == 0
-    assert all(command in result.stdout for command in ("execute", "status", "cancel", "retry", "merge", "image"))
+    assert all(
+        command in result.stdout for command in ("execute", "status", "cancel", "retry", "merge", "image", "profile")
+    )
     assert "benchmark" not in result.stdout

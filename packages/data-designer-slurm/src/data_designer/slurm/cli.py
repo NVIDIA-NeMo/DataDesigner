@@ -16,11 +16,13 @@ from pydantic import BaseModel, ValidationError
 
 from data_designer.slurm.config import ImageBuildRequest, SlurmConfigLoadError, load_run_config
 from data_designer.slurm.contracts import canonical_json
+from data_designer.slurm.images.records import validate_oci_source_for_lifecycle
 from data_designer.slurm.services import (
     SlurmServiceError,
     SlurmServiceErrorCode,
     SlurmServiceOperation,
     create_slurm_image_service,
+    create_slurm_profile_service,
     create_slurm_run_service,
 )
 
@@ -46,7 +48,9 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 image_app = typer.Typer(help="Manage verified Slurm images", no_args_is_help=True)
+profile_app = typer.Typer(help="Initialize and validate Slurm profiles", no_args_is_help=True)
 app.add_typer(image_app, name="image")
+app.add_typer(profile_app, name="profile")
 
 
 @app.callback()
@@ -186,6 +190,46 @@ def merge_command(
     _emit_result(result)
 
 
+@profile_app.command("init")
+def profile_init_command(
+    workspace_root: Path = typer.Option(..., "--workspace-root", file_okay=False),
+    image_build_partition: str = typer.Option(..., "--image-build-partition"),
+    profile_file: Path | None = typer.Option(None, "--profile-file", dir_okay=False),
+    cluster: str = typer.Option("default", "--cluster"),
+    account: str | None = typer.Option(None, "--account"),
+    partition: str | None = typer.Option(None, "--partition"),
+    host_pattern: list[str] | None = typer.Option(None, "--host-pattern"),
+) -> None:
+    """Create a safe portable starter profile without overwriting."""
+    operation = SlurmServiceOperation.INIT_PROFILE
+    result = _invoke(
+        operation,
+        lambda: create_slurm_profile_service(profile_file=profile_file).initialize(
+            workspace_root=workspace_root,
+            image_build_partition=image_build_partition,
+            cluster=cluster,
+            account=account,
+            partition=partition,
+            host_patterns=tuple(host_pattern or ()),
+        ),
+    )
+    _emit_result(result)
+
+
+@profile_app.command("validate")
+def profile_validate_command(
+    profile_file: Path | None = typer.Option(None, "--profile-file", dir_okay=False),
+    cluster: str | None = typer.Option(None, "--cluster"),
+) -> None:
+    """Validate strict loading, cluster selection, workspace, and Slurm facts."""
+    operation = SlurmServiceOperation.VALIDATE_PROFILE
+    result = _invoke(
+        operation,
+        lambda: create_slurm_profile_service(profile_file=profile_file, cluster=cluster).validate(),
+    )
+    _emit_result(result)
+
+
 @image_app.command("add")
 def image_add_command(
     source: str = typer.Argument(...),
@@ -205,6 +249,14 @@ def image_add_command(
                 operation,
                 "OCI image source must be digest-qualified as name@sha256:<digest>",
             )
+        try:
+            validate_oci_source_for_lifecycle(source)
+        except ValueError:
+            raise SlurmServiceError(
+                SlurmServiceErrorCode.INVALID_REQUEST,
+                operation,
+                "OCI image source must be a credential-free registry reference without a scheme",
+            ) from None
         request = ImageBuildRequest(name=name or _derive_image_name(source), kind=kind, source=source)
         return create_slurm_image_service(profile_file=profile_file, cluster=cluster).add(request, replace=replace)
 
