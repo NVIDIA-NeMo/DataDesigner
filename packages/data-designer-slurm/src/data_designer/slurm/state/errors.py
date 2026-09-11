@@ -20,3 +20,7 @@ class StateConflictError(SlurmStateError):
 
 class StateCorruptionError(SlurmStateError):
     """Raised when persisted state cannot be safely read or validated."""
+
+
+class SchedulerStateConflictError(StateCorruptionError):
+    """Raised when persisted winners conflict with scheduler evidence."""

@@ -86,13 +86,21 @@ class AttemptReadiness(StateRecord):
     attempt_id: AttemptId
     revision: PositiveInt
     updated_at: datetime
+    started_at: datetime | None = Field(default=None, exclude_if=lambda value: value is None)
     state: ReadinessState
     deployments: tuple[DeploymentReadiness, ...] = Field(min_length=1)
 
     _updated_at_is_utc = field_validator("updated_at")(validate_utc_timestamp)
 
+    @field_validator("started_at")
+    @classmethod
+    def validate_started_at(cls, value: datetime | None) -> datetime | None:
+        return None if value is None else validate_utc_timestamp(value)
+
     @model_validator(mode="after")
     def validate_deployments(self) -> AttemptReadiness:
+        if self.started_at is not None and self.started_at > self.updated_at:
+            raise ValueError("readiness started_at cannot follow updated_at")
         _validate_deployment_uniqueness(self.deployments)
         _validate_probe_chronology(self.deployments, self.updated_at)
         _validate_attempt_state(self.state, self.deployments)

@@ -14,6 +14,7 @@ import click
 import typer
 from pydantic import BaseModel, ValidationError
 
+from data_designer.slurm.cli_benchmark import create_benchmark_app
 from data_designer.slurm.config import ImageBuildRequest, SlurmConfigLoadError, load_run_config
 from data_designer.slurm.contracts import canonical_json
 from data_designer.slurm.images.records import validate_oci_source_for_lifecycle
@@ -362,6 +363,9 @@ def _bounded_error_message(message: str, *, fallback: str) -> str:
     if not sanitized:
         return fallback
     return sanitized if len(sanitized) <= 512 else f"{sanitized[:509]}..."
+
+
+app.add_typer(create_benchmark_app(_invoke, _emit_result), name="benchmark")
 
 
 def create_cli() -> click.Command:
