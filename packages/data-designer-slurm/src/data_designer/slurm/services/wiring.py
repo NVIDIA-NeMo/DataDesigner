@@ -52,6 +52,7 @@ from data_designer.slurm.runtime.bundle import stage_runtime_bundle
 from data_designer.slurm.runtime.errors import SlurmRuntimeError
 from data_designer.slurm.services.artifacts import StateRunArtifactPublisher
 from data_designer.slurm.services.errors import SlurmServiceError, SlurmServiceErrorCode, SlurmServiceOperation
+from data_designer.slurm.services.image_lifecycle import SlurmImageLifecycleManager
 from data_designer.slurm.services.images import SlurmImageService
 from data_designer.slurm.services.results import (
     SlurmPersistedAttemptStatus,
@@ -624,9 +625,10 @@ class _SystemRunBackend:
 
 
 class _RegistryImageBackend:
-    def __init__(self, workspace_root: str) -> None:
+    def __init__(self, workspace_root: str, lifecycle: SlurmImageLifecycleManager) -> None:
         self._verified = VerifiedImageRegistry(workspace_root)
         self._store = ImageRegistryStore(workspace_root)
+        self._lifecycle = lifecycle
 
     def resolve(self, reference: ImageRef, *, expected_kind: ImageKind) -> ResolvedImage:
         try:
@@ -645,12 +647,7 @@ class _RegistryImageBackend:
             ) from None
 
     def add(self, request: ImageBuildRequest, *, replace: bool) -> RegisteredImage:
-        del request, replace
-        raise SlurmServiceError(
-            SlurmServiceErrorCode.UNAVAILABLE,
-            SlurmServiceOperation.ADD_IMAGE,
-            "image registration is not available; use a pre-registered image",
-        )
+        return self._lifecycle.add(request, replace=replace)
 
     def list(self) -> tuple[RegisteredImage, ...]:
         return self._invoke_registry(SlurmServiceOperation.LIST_IMAGES, self._store.list_images)
@@ -718,10 +715,22 @@ def create_slurm_image_service(
     catalog: SlurmProfileCatalog | None = None,
     profile_file: str | Path | None = None,
     cluster: str | None = None,
+    launcher: SlurmCommandClient | None = None,
+    lifecycle_id_factory: Callable[[], str] | None = None,
+    clock: Clock | None = None,
+    sleep: Callable[[float], None] | None = None,
 ) -> SlurmImageService:
     """Create the production image service for one selected cluster profile."""
     selected = resolve_profile(profile=profile, catalog=catalog, profile_file=profile_file, cluster=cluster)
-    backend = _RegistryImageBackend(selected.profile.workspace_root)
+    command_client = launcher or SlurmCommandClient()
+    lifecycle = SlurmImageLifecycleManager(
+        selected,
+        command_client,
+        lifecycle_id_factory=lifecycle_id_factory,
+        clock=clock,
+        sleep=sleep,
+    )
+    backend = _RegistryImageBackend(selected.profile.workspace_root, lifecycle)
     return SlurmImageService(backend, backend)
 
 
