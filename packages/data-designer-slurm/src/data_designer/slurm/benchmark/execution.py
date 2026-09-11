@@ -115,20 +115,21 @@ class SystemBenchmarkBackend:
         failures: list[SlurmServiceErrorCode] = []
         for case in compiled.cases:
             try:
-                if self._child_exists(case.child_run_id, case.child_run_config, force=force):
-                    continue
-                execution = self._run_service_factory(case.child_run_id).execute(
-                    case.child_run_config,
-                    source_root=child_source_root,
-                    dry_run=False,
-                    force=False,
-                )
-                if execution.run_id != case.child_run_id or execution.state != "submitted":
-                    raise SlurmServiceError(
-                        SlurmServiceErrorCode.INTERNAL,
-                        SlurmServiceOperation.RUN_BENCHMARK,
-                        "ordinary run service returned an invalid benchmark child",
+                with StateStorage(self._workspace_root, case.child_run_id).acquire_submission_lock():
+                    if self._child_exists(case.child_run_id, case.child_run_config, force=force):
+                        continue
+                    execution = self._run_service_factory(case.child_run_id).execute(
+                        case.child_run_config,
+                        source_root=child_source_root,
+                        dry_run=False,
+                        force=False,
                     )
+                    if execution.run_id != case.child_run_id or execution.state != "submitted":
+                        raise SlurmServiceError(
+                            SlurmServiceErrorCode.INTERNAL,
+                            SlurmServiceOperation.RUN_BENCHMARK,
+                            "ordinary run service returned an invalid benchmark child",
+                        )
             except SlurmServiceError as error:
                 failures.append(error.code)
             except Exception:

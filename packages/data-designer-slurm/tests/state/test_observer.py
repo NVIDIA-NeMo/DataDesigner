@@ -401,6 +401,34 @@ def test_benchmark_observer_reads_complete_measurements_from_ordinary_state(
     assert observation.measurements.wall_seconds == 300
 
 
+def test_benchmark_observer_excludes_queue_stagger_from_cross_shard_timings(
+    tmp_path: Path,
+    authored_run: DataDesignerSlurmConfig,
+    multi_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    cases = _initialized_cases(tmp_path, authored_run, multi_node_plan)
+    for index, case in enumerate(cases):
+        started_at = case.created_at + timedelta(minutes=2, hours=index)
+        _publish_ready_state(case, case.attempt, started_at=started_at)
+        _publish_winner_state(
+            case,
+            completed_at=started_at + timedelta(minutes=5),
+            stopped_at=started_at + timedelta(minutes=6),
+        )
+
+    observation = PersistedBenchmarkRunObserver(
+        cases[0].workspace,
+        _StaticSchedulerClient((), ()),
+        lambda: cases[-1].created_at + timedelta(hours=2),
+    ).observe(cases[0].plan.run_id, refresh_state=False)
+
+    assert observation.measurements is not None
+    assert observation.measurements.actual_records == authored_run.invocation.num_records
+    assert observation.measurements.boot_seconds == 60
+    assert observation.measurements.generation_seconds == 240
+    assert observation.measurements.wall_seconds == 360
+
+
 def test_benchmark_observer_ignores_superseded_attempt_evidence_after_retry_wins(
     tmp_path: Path,
     authored_run_single: DataDesignerSlurmConfig,
@@ -840,6 +868,18 @@ def _initialized_case(
     *,
     submitted: bool = True,
 ) -> _ReconciliationCase:
+    cases = _initialized_cases(tmp_path, authored_config, plan, submitted=submitted)
+    assert len(cases) == 1
+    return cases[0]
+
+
+def _initialized_cases(
+    tmp_path: Path,
+    authored_config: DataDesignerSlurmConfig,
+    plan: ResolvedSlurmRunPlan,
+    *,
+    submitted: bool = True,
+) -> tuple[_ReconciliationCase, ...]:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     relocated_plan = _relocate_plan(plan, workspace)
@@ -854,35 +894,44 @@ def _initialized_case(
             path=(run_root / "resolved-plan.json").as_posix(),
             sha256=relocated_plan.compute_sha256(),
         ),
-        shard_count=1,
+        shard_count=len(relocated_plan.shards),
     )
-    planned_shard = relocated_plan.shards[0]
-    shard = ShardManifest(
-        schema_version=1,
-        run_id=relocated_plan.run_id,
-        shard_id=planned_shard.shard_id,
-        shard_index=planned_shard.shard_index,
-        record_range=planned_shard.record_range,
-        input_partition=planned_shard.input_partition,
-        resume_workspace=planned_shard.resume_workspace,
-        created_at=created_at,
+    shards = tuple(
+        ShardManifest(
+            schema_version=1,
+            run_id=relocated_plan.run_id,
+            shard_id=planned_shard.shard_id,
+            shard_index=planned_shard.shard_index,
+            record_range=planned_shard.record_range,
+            input_partition=planned_shard.input_partition,
+            resume_workspace=planned_shard.resume_workspace,
+            created_at=created_at,
+        )
+        for planned_shard in relocated_plan.shards
     )
     writer = SlurmStateWriter(workspace, relocated_plan.run_id)
-    writer.initialize_run(authored_config, relocated_plan, run, (shard,))
-    attempt = AttemptManifest(
-        schema_version=1,
-        run_id=relocated_plan.run_id,
-        shard_id=shard.shard_id,
-        attempt_id="attempt-0001",
-        attempt_ordinal=1,
-        resolved_plan=run.resolved_plan,
-        state=AttemptLifecycleState.SUBMITTED if submitted else AttemptLifecycleState.CREATED,
-        scheduler=SchedulerIdentity(array_job_id=4101, array_task_id=0) if submitted else None,
-        created_at=created_at + timedelta(minutes=1),
-        updated_at=created_at + timedelta(minutes=2),
+    writer.initialize_run(authored_config, relocated_plan, run, shards)
+    attempts = tuple(
+        AttemptManifest(
+            schema_version=1,
+            run_id=relocated_plan.run_id,
+            shard_id=shard.shard_id,
+            attempt_id="attempt-0001",
+            attempt_ordinal=1,
+            resolved_plan=run.resolved_plan,
+            state=AttemptLifecycleState.SUBMITTED if submitted else AttemptLifecycleState.CREATED,
+            scheduler=(SchedulerIdentity(array_job_id=4101, array_task_id=shard.shard_index) if submitted else None),
+            created_at=created_at + timedelta(minutes=1),
+            updated_at=created_at + timedelta(minutes=2),
+        )
+        for shard in shards
     )
-    writer.create_attempt(attempt)
-    return _ReconciliationCase(workspace, relocated_plan, run, shard, attempt, writer, created_at)
+    for attempt in attempts:
+        writer.create_attempt(attempt)
+    return tuple(
+        _ReconciliationCase(workspace, relocated_plan, run, shard, attempt, writer, created_at)
+        for shard, attempt in zip(shards, attempts, strict=True)
+    )
 
 
 def _relocate_plan(plan: ResolvedSlurmRunPlan, workspace: Path) -> ResolvedSlurmRunPlan:
@@ -900,8 +949,13 @@ def _relocate_plan(plan: ResolvedSlurmRunPlan, workspace: Path) -> ResolvedSlurm
 def _publish_winner_state(
     case: _ReconciliationCase,
     attempt: AttemptManifest | None = None,
+    *,
+    completed_at: datetime | None = None,
+    stopped_at: datetime | None = None,
 ) -> tuple[AttemptManifest, ShardWinner]:
     attempt = case.attempt if attempt is None else attempt
+    result_completed_at = completed_at or attempt.created_at + timedelta(minutes=4)
+    attempt_stopped_at = stopped_at or attempt.created_at + timedelta(minutes=5)
     running = _copy_attempt(
         attempt,
         state=AttemptLifecycleState.RUNNING,
@@ -912,14 +966,16 @@ def _publish_winner_state(
         case.writer.run_root / f"shards/{attempt.shard_id}/attempts/{attempt.attempt_id}/output-manifest.json"
     )
     dataset_path = candidate_path.parent / "dataset"
-    requested = case.plan.shards[0].requested_records
+    requested = next(shard.requested_records for shard in case.plan.shards if shard.shard_id == case.shard.shard_id)
     candidate = CandidateOutputManifest(
         schema_version=1,
         run_id=case.plan.run_id,
         shard_id=running.shard_id,
         attempt_id=running.attempt_id,
         attempt_ordinal=running.attempt_ordinal,
-        created_at=attempt.created_at + timedelta(minutes=3),
+        created_at=(
+            result_completed_at - timedelta(minutes=1) if completed_at else attempt.created_at + timedelta(minutes=3)
+        ),
         dataset_path=dataset_path.as_posix(),
         requested_records=requested,
         actual_records=requested,
@@ -941,7 +997,7 @@ def _publish_winner_state(
         run_id=case.plan.run_id,
         shard_id=running.shard_id,
         attempt_id=running.attempt_id,
-        completed_at=attempt.created_at + timedelta(minutes=4),
+        completed_at=result_completed_at,
         requested_records=requested,
         actual_records=requested,
         outcome=ClientOutcome.COMPLETE,
@@ -957,7 +1013,7 @@ def _publish_winner_state(
         state=AttemptLifecycleState.SUCCEEDED,
         terminal_classification=AttemptTerminalClassification.SUCCEEDED,
         candidate_output=candidate_reference,
-        updated_at=attempt.created_at + timedelta(minutes=5),
+        updated_at=attempt_stopped_at,
     )
     case.writer.update_attempt(completed)
     winner = ShardWinner(
@@ -967,7 +1023,7 @@ def _publish_winner_state(
         attempt_id=completed.attempt_id,
         attempt_ordinal=completed.attempt_ordinal,
         candidate_manifest=candidate_reference,
-        published_at=attempt.created_at + timedelta(minutes=6),
+        published_at=attempt_stopped_at + timedelta(minutes=1),
     )
     winner_path = case.writer.run_root / f"shards/{attempt.shard_id}/winner.json"
     winner_path.write_text(winner.serialize_json())
@@ -975,9 +1031,13 @@ def _publish_winner_state(
     return completed, winner
 
 
-def _publish_ready_state(case: _ReconciliationCase, attempt: AttemptManifest) -> None:
-    deployment = case.plan.deployments[0]
-    started_at = attempt.created_at + timedelta(minutes=2)
+def _publish_ready_state(
+    case: _ReconciliationCase,
+    attempt: AttemptManifest,
+    *,
+    started_at: datetime | None = None,
+) -> None:
+    started_at = started_at or attempt.created_at + timedelta(minutes=2)
     ready_at = started_at + timedelta(minutes=1)
     pending = AttemptReadiness(
         schema_version=1,
@@ -988,7 +1048,7 @@ def _publish_ready_state(case: _ReconciliationCase, attempt: AttemptManifest) ->
         updated_at=started_at,
         started_at=started_at,
         state=ReadinessState.PENDING,
-        deployments=(
+        deployments=tuple(
             DeploymentReadiness(
                 deployment_id=deployment.deployment_id,
                 model_alias=deployment.authored.model_alias,
@@ -996,7 +1056,8 @@ def _publish_ready_state(case: _ReconciliationCase, attempt: AttemptManifest) ->
                 expected_backends=deployment.topology.replica_count,
                 ready_backends=0,
                 endpoint_publication=EndpointPublicationState.PENDING,
-            ),
+            )
+            for deployment in case.plan.deployments
         ),
     )
     case.writer.write_readiness(pending)
@@ -1022,7 +1083,7 @@ def _publish_ready_state(case: _ReconciliationCase, attempt: AttemptManifest) ->
             updated_at=ready_at,
             started_at=started_at,
             state=ReadinessState.READY,
-            deployments=(
+            deployments=tuple(
                 DeploymentReadiness(
                     deployment_id=deployment.deployment_id,
                     model_alias=deployment.authored.model_alias,
@@ -1036,7 +1097,8 @@ def _publish_ready_state(case: _ReconciliationCase, attempt: AttemptManifest) ->
                         reason_code="backend_ready",
                         redacted_message="Backend is ready",
                     ),
-                ),
+                )
+                for deployment in case.plan.deployments
             ),
         )
     )

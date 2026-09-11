@@ -28,13 +28,37 @@ from data_designer.slurm.planning import ResolvedSlurmRunPlan
 
 
 @dataclass(frozen=True, slots=True)
-class BenchmarkMeasurements:
-    """Complete timing and output facts for one successful ordinary run."""
+class BenchmarkShardMeasurements:
+    """Complete timing and output facts for one successful shard."""
 
     actual_records: int
     boot_seconds: float
     generation_seconds: float
     wall_seconds: float
+
+
+@dataclass(frozen=True, slots=True)
+class BenchmarkMeasurements:
+    """Complete timing and output facts for one successful ordinary run."""
+
+    shards: tuple[BenchmarkShardMeasurements, ...]
+
+    @property
+    def actual_records(self) -> int:
+        return sum(shard.actual_records for shard in self.shards)
+
+    @property
+    def boot_seconds(self) -> float:
+        return max(shard.boot_seconds for shard in self.shards)
+
+    @property
+    def generation_seconds(self) -> float:
+        rate = sum(shard.actual_records / shard.generation_seconds for shard in self.shards)
+        return self.actual_records / rate
+
+    @property
+    def wall_seconds(self) -> float:
+        return max(shard.wall_seconds for shard in self.shards)
 
 
 @dataclass(frozen=True, slots=True)
@@ -144,11 +168,27 @@ class BenchmarkAnalyzer:
             return _update_result(result, outcome=BenchmarkOutcome.INCOMPLETE)
         measurements = observed.measurements
         actual_records = measurements.actual_records
+        if (
+            not measurements.shards
+            or len(measurements.shards) != len(observed.resolved_plan.shards)
+            or any(
+                shard.actual_records <= 0
+                or shard.boot_seconds < 0
+                or shard.generation_seconds <= 0
+                or shard.wall_seconds <= 0
+                for shard in measurements.shards
+            )
+        ):
+            return _update_result(
+                result,
+                outcome=BenchmarkOutcome.INCOMPLETE,
+                actual_records=actual_records,
+            )
         boot_seconds = measurements.boot_seconds
         generation_seconds = measurements.generation_seconds
         wall_seconds = measurements.wall_seconds
         requested_records = observed.authored_config.invocation.num_records
-        if actual_records != requested_records or generation_seconds <= 0 or wall_seconds <= 0:
+        if actual_records != requested_records:
             return _update_result(
                 result,
                 outcome=BenchmarkOutcome.INCOMPLETE,
@@ -174,7 +214,11 @@ class BenchmarkAnalyzer:
                 gpu_hours_per_job=gpu_hours_per_job,
                 feasible=False,
             )
-        target_jobs = math.ceil(config.analysis.target_total_records / (rows_per_second * effective_generation_seconds))
+        records_per_job = sum(
+            shard.actual_records / shard.generation_seconds * (budget_seconds - shard.boot_seconds)
+            for shard in measurements.shards
+        ) / len(measurements.shards)
+        target_jobs = math.ceil(config.analysis.target_total_records / records_per_job)
         return _update_result(
             result,
             outcome=BenchmarkOutcome.SUCCEEDED,
@@ -294,6 +338,7 @@ def _recommend(cases: tuple[BenchmarkCaseResult, ...]) -> tuple[BenchmarkRecomme
 __all__ = [
     "BenchmarkAnalyzer",
     "BenchmarkMeasurements",
+    "BenchmarkShardMeasurements",
     "BenchmarkManifestMismatchError",
     "BenchmarkObservationFailure",
     "BenchmarkRunObservation",

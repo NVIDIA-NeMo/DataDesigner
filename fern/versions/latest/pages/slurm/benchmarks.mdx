@@ -72,7 +72,7 @@ data-designer slurm benchmark analyze <benchmark-id> --refresh-state
 
 `--refresh-state` performs one fresh-process scheduler reconciliation per child before analysis. Add `--fail-if-incomplete` when automation should return a conflict after the report is persisted if any case is not successful.
 
-Reports retain every manifest case in order. Outcomes include `pending`, `accounting_lag`, `succeeded`, `failed`, `incomplete`, `missing`, `stale`, and `scheduler_inconsistent`. Successful cases can be infeasible when boot time consumes the runtime budget. Boot and wall timing begin when execution starts inside the allocation, so queue wait does not affect topology comparisons. `generation_seconds` is the target runtime remaining after boot, while `rows_per_second` comes from the measured generation window. Only successful feasible cases participate in Pareto, minimum-job, and minimum-GPU-hour recommendations.
+Reports retain every manifest case in order. Outcomes include `pending`, `accounting_lag`, `succeeded`, `failed`, `incomplete`, `missing`, `stale`, and `scheduler_inconsistent`. Successful cases can be infeasible when boot time consumes the runtime budget. Boot and wall timing begin when execution starts inside each allocation, so queue wait does not affect topology comparisons. For array runs, `rows_per_second` sums the independently measured shard rates, while target jobs and GPU hours count individual task allocations. `generation_seconds` is the target runtime remaining after the slowest shard boot. Only successful feasible cases participate in Pareto, minimum-job, and minimum-GPU-hour recommendations.
 
 ## Python API
 

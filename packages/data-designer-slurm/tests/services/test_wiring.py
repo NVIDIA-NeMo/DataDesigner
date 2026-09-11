@@ -21,6 +21,7 @@ from data_designer.slurm.config import (
     SecretRef,
     SlurmProfile,
     SlurmProfileCatalog,
+    select_profile,
 )
 from data_designer.slurm.contracts import ArtifactReference, canonical_json
 from data_designer.slurm.images.records import RegisteredImage
@@ -60,6 +61,7 @@ class _Launcher:
         gpu_counts: tuple[int, ...] = (),
         *,
         cancel_error: Exception | None = None,
+        job_id: int = 42,
         release_error: Exception | None = None,
         submission_error: Exception | None = None,
     ) -> None:
@@ -71,6 +73,7 @@ class _Launcher:
         self.queue_entries: tuple[SlurmQueueEntry, ...] = ()
         self.accounting_entries: tuple[SlurmAccountingEntry, ...] = ()
         self.gpu_counts = gpu_counts
+        self.job_id = job_id
         self.cancel_error = cancel_error
         self.release_error = release_error
         self.submission_error = submission_error
@@ -87,7 +90,7 @@ class _Launcher:
         self.exported_environments.append(dict(export_environment or {}))
         if self.submission_error is not None:
             raise self.submission_error
-        return SlurmJobSubmissionReceipt(job_id=42)
+        return SlurmJobSubmissionReceipt(job_id=self.job_id)
 
     def cancel(self, job_id: int) -> None:
         self.cancellations.append(job_id)
@@ -120,8 +123,9 @@ class _Publisher:
         submission_error: BaseException | None = None,
     ) -> None:
         self.initializations: list[tuple[str, bool]] = []
+        self.plans: list[ResolvedSlurmRunPlan] = []
         self.submissions: list[tuple[str, int, datetime]] = []
-        self.submission_failures: list[tuple[str, datetime]] = []
+        self.submission_failures: list[tuple[str, int, datetime]] = []
         self.initialization_error = initialization_error
         self.submission_error = submission_error
 
@@ -139,6 +143,7 @@ class _Publisher:
         assert plan.authored_config.sha256 == authored.compute_sha256()
         assert builder_payload is None
         assert all(path.is_file() for path in dependencies.wheel_sources)
+        self.plans.append(plan)
         self.initializations.append((plan.run_id, force))
 
     def record_submission(self, plan: ResolvedSlurmRunPlan, job_id: int, *, submitted_at: datetime) -> None:
@@ -146,8 +151,14 @@ class _Publisher:
             raise self.submission_error
         self.submissions.append((plan.run_id, job_id, submitted_at))
 
-    def record_submission_failure(self, plan: ResolvedSlurmRunPlan, *, failed_at: datetime) -> None:
-        self.submission_failures.append((plan.run_id, failed_at))
+    def record_submission_failure(
+        self,
+        plan: ResolvedSlurmRunPlan,
+        job_id: int,
+        *,
+        failed_at: datetime,
+    ) -> None:
+        self.submission_failures.append((plan.run_id, job_id, failed_at))
 
 
 def _profile(tmp_path: Path, profile_catalog: SlurmProfileCatalog) -> SlurmProfile:
@@ -234,6 +245,43 @@ def test_production_benchmark_wiring_submits_each_case_as_an_ordinary_run(
     assert publisher.initializations == [(manifest.children[0].child_run_id, False)]
     assert len(launcher.submissions) == 1
     assert (tmp_path / "benchmarks" / manifest.benchmark_id / "benchmark.json").is_file()
+
+
+def test_production_benchmark_children_preserve_catalog_profile_provenance(
+    tmp_path: Path,
+    profile_catalog: SlurmProfileCatalog,
+    benchmark_config: DataDesignerSlurmBenchmarkConfig,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    config = benchmark_config.model_copy(
+        update={
+            "base_run": BenchmarkBaseRun(inline=authored_run_single),
+            "concurrency_values": [32],
+            "deployment_cases": [benchmark_config.deployment_cases[0]],
+        }
+    )
+    catalog = profile_catalog.model_copy(
+        update={
+            "clusters": {
+                name: profile.model_copy(update={"workspace_root": tmp_path.as_posix()})
+                for name, profile in profile_catalog.clusters.items()
+            }
+        }
+    )
+    _register_images(tmp_path, authored_run_single, single_node_plan)
+    publisher = _Publisher()
+    service = create_slurm_benchmark_service(
+        catalog=catalog,
+        cluster="primary",
+        launcher=_Launcher(),  # type: ignore[arg-type]
+        artifact_publisher=publisher,
+        package_version="0.9.2",
+    )
+
+    service.run(config, source_root=tmp_path)
+
+    assert publisher.plans[0].selected_profile == select_profile(catalog, cluster="primary")
 
 
 @pytest.mark.parametrize("drop_run_manifest", [False, True])
@@ -633,6 +681,39 @@ def test_recording_conflict_cancels_the_accepted_job(
     assert caught.value.code is SlurmServiceErrorCode.CONFLICT
     assert launcher.cancellations == [42]
     assert len(publisher.submission_failures) == 1
+
+
+def test_recording_conflict_does_not_fail_another_submission_attempt(
+    tmp_path: Path,
+    profile_catalog: SlurmProfileCatalog,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    _register_images(tmp_path, authored_run_single, single_node_plan)
+    profile = _profile(tmp_path, profile_catalog)
+    first = create_slurm_run_service(
+        profile=profile,
+        launcher=_Launcher(job_id=41),  # type: ignore[arg-type]
+        run_id_factory=lambda: "run-wired",
+        package_version="0.9.2",
+    )
+    first.execute(authored_run_single, source_root=tmp_path)
+    launcher = _Launcher(job_id=42)
+    second = create_slurm_run_service(
+        profile=profile,
+        launcher=launcher,  # type: ignore[arg-type]
+        run_id_factory=lambda: "run-wired",
+        package_version="0.9.2",
+    )
+
+    with pytest.raises(SlurmServiceError) as caught:
+        second.execute(authored_run_single, source_root=tmp_path)
+
+    assert caught.value.code is SlurmServiceErrorCode.CONFLICT
+    assert launcher.cancellations == [42]
+    attempt = SlurmStateWriter(tmp_path, "run-wired").load_attempt("shard-00000", "attempt-0001")
+    assert attempt.state is AttemptLifecycleState.SUBMITTED
+    assert attempt.scheduler == SchedulerIdentity(array_job_id=41, array_task_id=0)
 
 
 def test_partial_submission_recording_failure_cancels_job_and_fails_created_attempts(

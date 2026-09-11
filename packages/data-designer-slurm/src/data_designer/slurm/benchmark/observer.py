@@ -13,6 +13,7 @@ from data_designer.slurm.benchmark.analysis import (
     BenchmarkMeasurements,
     BenchmarkObservationFailure,
     BenchmarkRunObservation,
+    BenchmarkShardMeasurements,
 )
 from data_designer.slurm.benchmark.records import BenchmarkOutcome
 from data_designer.slurm.client import ClientOutcome, ClientResult
@@ -184,11 +185,7 @@ def _measure_status(status: RunStatus) -> BenchmarkMeasurements | None:
 
 
 def _measure_records(records: tuple[_MeasurementRecord, ...]) -> BenchmarkMeasurements | None:
-    attempts: list[AttemptManifest] = []
-    started_times: list[datetime] = []
-    ready_times: list[datetime] = []
-    completed_times: list[datetime] = []
-    actual_records = 0
+    measurements: list[BenchmarkShardMeasurements] = []
     for attempt, readiness, result in records:
         if result is None:
             return None
@@ -205,24 +202,21 @@ def _measure_records(records: tuple[_MeasurementRecord, ...]) -> BenchmarkMeasur
         probes = tuple(deployment.last_probe for deployment in readiness.deployments)
         if any(probe is None or probe.outcome is not ProbeOutcome.SUCCESS for probe in probes):
             return None
-        attempts.append(attempt)
-        started_times.append(readiness.started_at)
-        ready_times.append(max(probe.observed_at for probe in probes if probe is not None))
-        completed_times.append(client_result.completed_at)
-        actual_records += client_result.actual_records or 0
-
-    started_at = min(started_times)
-    ready_at = max(ready_times)
-    completed_at = max(completed_times)
-    stopped_at = max(attempt.updated_at for attempt in attempts)
-    if ready_at < started_at or completed_at <= ready_at or stopped_at <= started_at:
-        return None
-    return BenchmarkMeasurements(
-        actual_records=actual_records,
-        boot_seconds=(ready_at - started_at).total_seconds(),
-        generation_seconds=(completed_at - ready_at).total_seconds(),
-        wall_seconds=(stopped_at - started_at).total_seconds(),
-    )
+        started_at = readiness.started_at
+        ready_at = max(probe.observed_at for probe in probes if probe is not None)
+        completed_at = client_result.completed_at
+        stopped_at = attempt.updated_at
+        if ready_at < started_at or completed_at <= ready_at or stopped_at < completed_at or stopped_at <= started_at:
+            return None
+        measurements.append(
+            BenchmarkShardMeasurements(
+                actual_records=client_result.actual_records or 0,
+                boot_seconds=(ready_at - started_at).total_seconds(),
+                generation_seconds=(completed_at - ready_at).total_seconds(),
+                wall_seconds=(stopped_at - started_at).total_seconds(),
+            )
+        )
+    return BenchmarkMeasurements(shards=tuple(measurements))
 
 
 __all__ = ["PersistedBenchmarkRunObserver"]

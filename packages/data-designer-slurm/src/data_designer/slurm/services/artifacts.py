@@ -128,13 +128,21 @@ class StateRunArtifactPublisher:
                 )
             )
 
-    def record_submission_failure(self, plan: ResolvedSlurmRunPlan, *, failed_at: datetime) -> None:
-        """Mark every initial attempt failed after its held job is cancelled."""
+    def record_submission_failure(
+        self,
+        plan: ResolvedSlurmRunPlan,
+        job_id: int,
+        *,
+        failed_at: datetime,
+    ) -> None:
+        """Fail initial attempts owned by the cancelled held job."""
         writer = SlurmStateWriter(self._workspace_root, plan.run_id)
         for shard in plan.shards:
             try:
                 attempt = writer.load_attempt(shard.shard_id, "attempt-0001")
             except StateNotFoundError:
+                continue
+            if attempt.scheduler is None or attempt.scheduler.array_job_id != job_id:
                 continue
             writer.update_attempt(
                 attempt.model_copy(
