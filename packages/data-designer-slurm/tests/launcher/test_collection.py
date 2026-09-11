@@ -191,6 +191,36 @@ def test_destination_reauthorizes_explicit_path_through_workspace_mapping(
     assert resolver.validate_persisted(plan, collection) == destination
 
 
+@pytest.mark.parametrize(
+    ("destination_suffix", "error"),
+    [
+        ("images/collected", "package-managed workspace state"),
+        ("runtime/collected", "package-managed workspace state"),
+        ("benchmarks/collected", "package-managed workspace state"),
+        ("managed-assets/collected", "managed assets"),
+        ("runs/run-001/collections", "package-managed run state"),
+        ("runs/run-001/retries", "package-managed run state"),
+        ("runs/other-run/output", "package-managed run state"),
+    ],
+)
+def test_destination_rejects_package_managed_paths(
+    multi_node_plan: ResolvedSlurmRunPlan,
+    destination_suffix: str,
+    error: str,
+) -> None:
+    workspace_root = multi_node_plan.selected_profile.profile.workspace_root
+    requested = (Path(workspace_root) / destination_suffix).as_posix()
+
+    with pytest.raises(StateConflictError, match=error):
+        CollectionDestinationResolver().resolve(multi_node_plan, requested)
+
+
+def test_destination_allows_current_run_output_subtree(multi_node_plan: ResolvedSlurmRunPlan) -> None:
+    requested = (Path(multi_node_plan.output.root) / "collected").as_posix()
+
+    assert CollectionDestinationResolver().resolve(multi_node_plan, requested).host_path == requested
+
+
 def test_destination_requires_one_unique_most_specific_mapping(
     multi_node_plan: ResolvedSlurmRunPlan,
 ) -> None:
