@@ -1,1 +1,1 @@
-gpu:2
+batch*|gpu:2
