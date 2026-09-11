@@ -308,7 +308,7 @@ def test_default_image_add_retains_state_without_terminal_cancellation_evidence(
     assert _job_directory(workspace).is_dir()
 
 
-def test_default_image_add_cancels_completed_job_without_exit_evidence(tmp_path: Path) -> None:
+def test_default_image_add_retains_completed_job_without_accounting_exit_evidence(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     source = tmp_path / "client.sqsh"
     source.write_bytes(b"client")
@@ -322,8 +322,8 @@ def test_default_image_add_cancels_completed_job_without_exit_evidence(tmp_path:
 
     assert caught.value.code is SlurmServiceErrorCode.UNAVAILABLE
     assert launcher.cancellations == [_JOB_ID]
-    assert clock.sleep_calls == [300.0, 300.0]
-    assert not _job_directory(workspace).exists()
+    assert clock.sleep_calls == [300.0, 300.0, 300.0]
+    assert _job_directory(workspace).is_dir()
 
 
 def test_default_image_add_cancels_and_cleans_on_interrupt(tmp_path: Path) -> None:

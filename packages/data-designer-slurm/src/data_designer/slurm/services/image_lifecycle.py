@@ -179,7 +179,8 @@ class SlurmImageLifecycleManager:
         _cleanup_failed_lifecycle(prepared)
 
     def _wait_for_termination(self, job_id: int) -> bool:
-        observations = SchedulerObservationCollector(self._launcher)
+        client = _RecordingObservationClient(self._launcher)
+        observations = SchedulerObservationCollector(client)
         previous: SchedulerObservation | None = None
         deadline = self._clock() + _ACCOUNTING_EXIT_LAG
         while True:
@@ -189,7 +190,8 @@ class SlurmImageLifecycleManager:
                 observed_at=observed_at,
                 previous={job_id: previous},
             )[0]
-            if is_scheduler_terminal_state(observation.state):
+            accounting = next((entry for entry in client.accounting if entry.job_identity == job_id), None)
+            if accounting is not None and is_scheduler_terminal_state(accounting.state):
                 return True
             if observation.state is SchedulerState.UNKNOWN or observed_at >= deadline:
                 return False
