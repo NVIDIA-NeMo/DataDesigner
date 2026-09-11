@@ -146,6 +146,27 @@ def parse_gpu_counts(output: str) -> tuple[int, ...]:
     return tuple(counts)
 
 
+def parse_default_partition_gpu_counts(output: str) -> tuple[int, ...]:
+    """Parse GPU counts from ``sinfo --format=%P|%G`` default-partition rows."""
+    default_partition: str | None = None
+    resources: list[str] = []
+    for line_number, line in _collect_nonempty_lines(output):
+        fields = tuple(field.strip() for field in line.split("|"))
+        if len(fields) != 2 or not all(fields):
+            raise SlurmCommandOutputError(f"sinfo line {line_number} must contain a partition and resources")
+        partition, gres = fields
+        if not partition.endswith("*"):
+            continue
+        partition = partition.removesuffix("*")
+        if _CLUSTER_NAME_PATTERN.fullmatch(partition) is None:
+            raise SlurmCommandOutputError(f"sinfo line {line_number} contains an invalid default partition")
+        if default_partition is not None and partition != default_partition:
+            raise SlurmCommandOutputError("sinfo returned multiple default partitions")
+        default_partition = partition
+        resources.append(gres)
+    return parse_gpu_counts("\n".join(resources))
+
+
 def parse_state(value: str) -> SchedulerState:
     """Normalize one Slurm long state spelling without guessing unknown states."""
     normalized = value.strip().upper().removesuffix("+")
