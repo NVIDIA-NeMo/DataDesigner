@@ -136,6 +136,7 @@ def _ready(arguments: argparse.Namespace, environment: Mapping[str, str]) -> Non
             attempt_id=context.attempt.attempt_id,
             revision=previous.revision + 1,
             updated_at=timestamp,
+            started_at=previous.started_at,
             state=ReadinessState.READY,
             deployments=tuple(
                 DeploymentReadiness(
@@ -299,6 +300,7 @@ def _readiness(
         attempt_id=context.attempt.attempt_id,
         revision=1 if previous is None else previous.revision + 1,
         updated_at=timestamp,
+        started_at=timestamp if previous is None else previous.started_at,
         state=state,
         deployments=tuple(
             DeploymentReadiness(
@@ -327,6 +329,7 @@ def _write_failed_and_stopped_readiness(context: AllocationContext, writer: Slur
             attempt_id=previous.attempt_id,
             revision=previous.revision + 1,
             updated_at=failed_at,
+            started_at=previous.started_at,
             state=ReadinessState.FAILED,
             deployments=tuple(
                 deployment.model_copy(
@@ -369,18 +372,13 @@ def _write_stopped_readiness(
             attempt_id=previous.attempt_id,
             revision=previous.revision + 1,
             updated_at=timestamp,
+            started_at=previous.started_at,
             state=ReadinessState.STOPPED,
             deployments=tuple(
                 deployment.model_copy(
                     update={
                         "state": ReadinessState.STOPPED,
                         "ready_backends": 0,
-                        "last_probe": _probe(
-                            timestamp,
-                            ProbeOutcome.SUCCESS,
-                            "runtime_stopped",
-                            "allocation processes stopped",
-                        ),
                     }
                 )
                 for deployment in previous.deployments

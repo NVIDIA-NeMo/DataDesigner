@@ -57,13 +57,16 @@ class BenchmarkOutcome(str, Enum):
     SUCCEEDED = "succeeded"
     FAILED = "failed"
     INCOMPLETE = "incomplete"
+    MISSING = "missing"
+    STALE = "stale"
+    SCHEDULER_INCONSISTENT = "scheduler_inconsistent"
 
 
 class BenchmarkCaseResult(ContractValue):
     case_id: Identifier
     child_run_id: Identifier
     outcome: BenchmarkOutcome
-    topology_digest: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
+    topology_digest: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")] | None = None
     requested_records: PositiveInt
     actual_records: NonNegativeInt | None = None
     boot_seconds: NonNegativeFloat | None = None
@@ -72,8 +75,8 @@ class BenchmarkCaseResult(ContractValue):
     rows_per_second: NonNegativeFloat | None = None
     request_count: NonNegativeInt | None = None
     token_count: NonNegativeInt | None = None
-    gpus_per_job: PositiveInt
-    nodes_per_job: PositiveInt
+    gpus_per_job: PositiveInt | None = None
+    nodes_per_job: PositiveInt | None = None
     gpu_hours_per_job: NonNegativeFloat | None = None
     total_gpu_hours: NonNegativeFloat | None = None
     target_jobs: PositiveInt | None = None
@@ -89,9 +92,9 @@ class BenchmarkCaseResult(ContractValue):
             self.generation_seconds,
             self.wall_seconds,
             self.rows_per_second,
+            self.gpus_per_job,
+            self.nodes_per_job,
             self.gpu_hours_per_job,
-            self.total_gpu_hours,
-            self.target_jobs,
             self.feasible,
         )
         if self.outcome is BenchmarkOutcome.SUCCEEDED and any(value is None for value in required):
@@ -99,8 +102,14 @@ class BenchmarkCaseResult(ContractValue):
         if self.outcome is BenchmarkOutcome.SUCCEEDED:
             if self.actual_records != self.requested_records:
                 raise ValueError("successful benchmark cases require the requested record count")
-            if self.generation_seconds == 0 or self.wall_seconds == 0 or self.rows_per_second == 0:
-                raise ValueError("successful benchmark generation, wall time, and throughput must be positive")
+            if self.wall_seconds == 0 or self.rows_per_second == 0:
+                raise ValueError("successful benchmark wall time and throughput must be positive")
+            if self.feasible and self.generation_seconds == 0:
+                raise ValueError("feasible benchmark generation time must be positive")
+            if self.feasible and (self.total_gpu_hours is None or self.target_jobs is None):
+                raise ValueError("feasible benchmark cases require target jobs and total GPU hours")
+            if not self.feasible and (self.total_gpu_hours is not None or self.target_jobs is not None):
+                raise ValueError("infeasible benchmark cases cannot have target jobs or total GPU hours")
         return self
 
 
