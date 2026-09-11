@@ -7,12 +7,20 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import PositiveInt, model_validator
+from pydantic import PositiveInt, field_validator, model_validator
 
-from data_designer.slurm.contracts import ContractValue, Identifier, Sha256Digest
+from data_designer.slurm.contracts import (
+    AttemptId,
+    ContractValue,
+    Identifier,
+    Sha256Digest,
+    ShardId,
+    validate_absolute_path,
+)
 from data_designer.slurm.state import (
     AttemptManifest,
     AttemptReadiness,
+    CollectionState,
     RunManifest,
     ShardManifest,
     ShardWinner,
@@ -104,10 +112,50 @@ class SlurmRunCancellation(ContractValue):
         return self
 
 
+class SlurmRetryExecution(ContractValue):
+    """One rendered retry dry run or accepted sparse retry submission."""
+
+    run_id: Identifier
+    state: Literal["dry_run", "submitted"]
+    shard_ids: tuple[ShardId, ...]
+    attempt_ids: tuple[AttemptId, ...]
+    effective_resume_mode: Literal["never", "always"]
+    job_id: PositiveInt | None = None
+    batch_script: str | None = None
+
+    @model_validator(mode="after")
+    def validate_execution(self) -> SlurmRetryExecution:
+        if not self.shard_ids or self.shard_ids != tuple(sorted(set(self.shard_ids))):
+            raise ValueError("retry shard IDs must be non-empty, sorted, and unique")
+        if len(self.attempt_ids) != len(self.shard_ids):
+            raise ValueError("retry attempt IDs must correspond to the selected shards")
+        if self.state == "dry_run":
+            if self.job_id is not None or not self.batch_script:
+                raise ValueError("dry-run retry requires only a rendered batch script")
+        elif self.job_id is None or self.batch_script is not None:
+            raise ValueError("submitted retry requires only a Slurm job ID")
+        return self
+
+
+class SlurmCollectionExecution(ContractValue):
+    """One accepted or previously active collection submission."""
+
+    run_id: Identifier
+    collection_id: Identifier
+    state: CollectionState
+    job_id: PositiveInt
+    output_path: str
+    num_partitions: PositiveInt
+
+    _output_path_is_absolute = field_validator("output_path")(validate_absolute_path)
+
+
 __all__ = [
+    "SlurmCollectionExecution",
     "SlurmPersistedAttemptStatus",
     "SlurmPersistedRunStatus",
     "SlurmPersistedShardStatus",
+    "SlurmRetryExecution",
     "SlurmRunCancellation",
     "SlurmRunExecution",
 ]
