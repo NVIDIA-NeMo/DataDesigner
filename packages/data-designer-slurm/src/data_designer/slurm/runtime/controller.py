@@ -531,13 +531,15 @@ class OneNodeAllocationController:
         if self._readiness is not None and not _can_advance_readiness(self._readiness.state, state):
             return
         revision = 1 if self._readiness is None else self._readiness.revision + 1
+        timestamp = self._now()
         readiness = AttemptReadiness(
             schema_version=1,
             run_id=self._attempt.run_id,
             shard_id=self._attempt.shard_id,
             attempt_id=self._attempt.attempt_id,
             revision=revision,
-            updated_at=self._now(),
+            updated_at=timestamp,
+            started_at=self._attempt.updated_at if self._readiness is None else self._readiness.started_at,
             state=state,
             deployments=tuple(
                 DeploymentReadiness(
@@ -578,12 +580,6 @@ class OneNodeAllocationController:
         for status in self._statuses:
             status.state = ReadinessState.STOPPED
             status.ready_backends = 0
-            status.last_probe = _probe_evidence(
-                self._now(),
-                ProbeOutcome.SUCCESS,
-                "runtime_stopped",
-                "allocation processes stopped",
-            )
         self._publish_readiness(ReadinessState.STOPPED)
 
     def _publish_terminal_attempt(

@@ -70,6 +70,7 @@ def validate_readiness_transition(
     _require(previous.shard_id == current.shard_id, "readiness shard_id cannot change")
     _require(previous.attempt_id == current.attempt_id, "readiness attempt_id cannot change")
     _require(current.revision == previous.revision + 1, "readiness revision must increase by exactly one")
+    _require(current.started_at == previous.started_at, "readiness started_at cannot change")
     _require(current.updated_at >= previous.updated_at, "readiness updated_at cannot move backward")
     _require(
         current.state in _ALLOWED_READINESS_TRANSITIONS[previous.state],

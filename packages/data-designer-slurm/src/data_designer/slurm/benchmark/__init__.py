@@ -5,6 +5,12 @@
 
 from __future__ import annotations
 
+from data_designer.slurm.benchmark.compiler import (
+    BenchmarkCompiler,
+    CompiledBenchmark,
+    CompiledBenchmarkCase,
+    resolve_requested_records,
+)
 from data_designer.slurm.benchmark.records import (
     BenchmarkCaseResult,
     BenchmarkChildRun,
@@ -16,6 +22,7 @@ from data_designer.slurm.benchmark.records import (
 )
 
 __all__ = [
+    "BenchmarkCompiler",
     "BenchmarkCaseResult",
     "BenchmarkChildRun",
     "BenchmarkManifest",
@@ -23,4 +30,7 @@ __all__ = [
     "BenchmarkRecommendation",
     "BenchmarkRecommendationKind",
     "BenchmarkReport",
+    "CompiledBenchmark",
+    "CompiledBenchmarkCase",
+    "resolve_requested_records",
 ]

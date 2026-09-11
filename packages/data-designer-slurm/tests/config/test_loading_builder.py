@@ -13,12 +13,14 @@ from data_designer.config import DataDesignerConfigBuilder, LLMTextColumnConfig,
 from data_designer.slurm.config import (
     DEFAULT_PROFILE_FILE_NAME,
     PROFILE_FILE_ENVIRONMENT,
+    DataDesignerSlurmBenchmarkConfig,
     DataDesignerSlurmConfig,
     DataDesignerSlurmConfigBuilder,
     ProfileSelectionSource,
     SlurmConfigBuilderError,
     SlurmConfigLoadError,
     SlurmProfileCatalog,
+    load_benchmark_config,
     load_builder_payload,
     load_profile_catalog,
     load_run_config,
@@ -77,6 +79,16 @@ def test_builder_write_config_round_trips_supported_formats(tmp_path: Path, suff
     builder.write_config(path)
 
     assert load_run_config(path) == builder.build()
+
+
+def test_benchmark_loader_round_trips_strict_config(
+    tmp_path: Path,
+    benchmark_config: DataDesignerSlurmBenchmarkConfig,
+) -> None:
+    path = tmp_path / "benchmark.json"
+    path.write_text(benchmark_config.serialize_json())
+
+    assert load_benchmark_config(path) == benchmark_config
 
 
 def test_builder_rejects_unsupported_output_format(tmp_path: Path) -> None:

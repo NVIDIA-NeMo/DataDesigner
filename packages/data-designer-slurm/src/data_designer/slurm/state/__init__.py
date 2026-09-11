@@ -33,6 +33,7 @@ from data_designer.slurm.state.collection_records import (
     CollectionStatus,
 )
 from data_designer.slurm.state.errors import (
+    SchedulerStateConflictError,
     SlurmStateError,
     StateConflictError,
     StateCorruptionError,
@@ -163,6 +164,7 @@ __all__ = [
     "SchedulerQueueRecord",
     "SchedulerObservation",
     "SchedulerState",
+    "SchedulerStateConflictError",
     "Sha256Digest",
     "ShardManifest",
     "ShardStatus",
