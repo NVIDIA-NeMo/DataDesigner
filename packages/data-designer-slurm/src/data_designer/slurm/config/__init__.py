@@ -33,6 +33,7 @@ from data_designer.slurm.config.images import (
 from data_designer.slurm.config.loading import (
     DEFAULT_PROFILE_FILE_NAME,
     PROFILE_FILE_ENVIRONMENT,
+    load_benchmark_config,
     load_builder_payload,
     load_profile_catalog,
     load_run_config,
@@ -120,6 +121,7 @@ __all__ = [
     "VllmServerConfig",
     "injected_profile",
     "load_builder_payload",
+    "load_benchmark_config",
     "load_profile_catalog",
     "load_run_config",
     "resolve_profile",
