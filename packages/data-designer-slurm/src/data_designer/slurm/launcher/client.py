@@ -24,6 +24,7 @@ from data_designer.slurm.launcher.models import (
 )
 from data_designer.slurm.launcher.parsing import (
     parse_accounting,
+    parse_default_partition_gpu_counts,
     parse_gpu_counts,
     parse_named_jobs,
     parse_queue,
@@ -224,12 +225,13 @@ class SlurmCommandClient:
         self._run((self._executables.scontrol, "release", _format_job_id(job_id)))
 
     def query_gpu_counts(self, *, partition: Identifier | None = None) -> tuple[int, ...]:
-        """Return configured GPU counts reported for eligible node groups."""
-        command = [self._executables.sinfo, "--noheader", "--format=%G"]
-        if partition is not None:
-            if type(partition) is not str or _IDENTIFIER_PATTERN.fullmatch(partition) is None:
-                raise ValueError("Slurm partition must be a valid identifier")
-            command.append(f"--partition={partition}")
+        """Return configured GPU counts for the requested or default partition."""
+        if partition is None:
+            command = (self._executables.sinfo, "--noheader", "--format=%P|%G")
+            return parse_default_partition_gpu_counts(self._run(command))
+        if type(partition) is not str or _IDENTIFIER_PATTERN.fullmatch(partition) is None:
+            raise ValueError("Slurm partition must be a valid identifier")
+        command = (self._executables.sinfo, "--noheader", "--format=%G", f"--partition={partition}")
         return parse_gpu_counts(self._run(command))
 
     def _run(
