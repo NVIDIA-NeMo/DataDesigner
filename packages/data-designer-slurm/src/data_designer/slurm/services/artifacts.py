@@ -38,6 +38,7 @@ from data_designer.slurm.state.filesystem import (
     publish_immutable_text,
     sync_directory,
 )
+from data_designer.slurm.state.storage import StateStorage
 
 _MAXIMUM_RECORD_SIZE = 16 * 1024 * 1024
 _TEMPORARY_PREFIX = ".artifact."
@@ -62,8 +63,16 @@ class StateRunArtifactPublisher:
     ) -> None:
         if force:
             raise StateConflictError("force cannot replace durable run state")
-        created_at = self._clock()
         writer = SlurmStateWriter(self._workspace_root, plan.run_id)
+        try:
+            created_at = writer.load_run().created_at
+        except StateNotFoundError:
+            try:
+                created_at = (
+                    StateStorage(self._workspace_root, plan.run_id).read_shard(plan.shards[0].shard_id).created_at
+                )
+            except FileNotFoundError:
+                created_at = self._clock()
         plan_reference = ArtifactReference(
             path=(writer.run_root / "resolved-plan.json").as_posix(),
             sha256=plan.compute_sha256(),
@@ -119,13 +128,21 @@ class StateRunArtifactPublisher:
                 )
             )
 
-    def record_submission_failure(self, plan: ResolvedSlurmRunPlan, *, failed_at: datetime) -> None:
-        """Mark every initial attempt failed after its held job is cancelled."""
+    def record_submission_failure(
+        self,
+        plan: ResolvedSlurmRunPlan,
+        job_id: int,
+        *,
+        failed_at: datetime,
+    ) -> None:
+        """Fail initial attempts owned by the cancelled held job."""
         writer = SlurmStateWriter(self._workspace_root, plan.run_id)
         for shard in plan.shards:
             try:
                 attempt = writer.load_attempt(shard.shard_id, "attempt-0001")
             except StateNotFoundError:
+                continue
+            if attempt.scheduler is None or attempt.scheduler.array_job_id != job_id:
                 continue
             writer.update_attempt(
                 attempt.model_copy(

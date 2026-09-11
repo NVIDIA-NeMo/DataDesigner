@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Protocol
 
 from pydantic import TypeAdapter, ValidationError
@@ -24,13 +25,25 @@ _IDENTIFIER_ADAPTER = TypeAdapter(Identifier)
 class SlurmBenchmarkBackend(Protocol):
     """Process benchmarks through a supported service dependency."""
 
-    def run(self, config: DataDesignerSlurmBenchmarkConfig) -> BenchmarkManifest:
+    def run(
+        self,
+        config: DataDesignerSlurmBenchmarkConfig,
+        *,
+        source_root: Path,
+        force: bool,
+    ) -> BenchmarkManifest:
         """Persist and start the ordinary child runs for one benchmark.
 
         Any non-``INTERNAL`` service error must contain a caller-safe message.
         """
 
-    def analyze(self, benchmark_id: Identifier, *, refresh_state: bool = False) -> BenchmarkReport:
+    def analyze(
+        self,
+        benchmark_id: Identifier,
+        *,
+        refresh_state: bool,
+        fail_if_incomplete: bool,
+    ) -> BenchmarkReport:
         """Return one point-in-time benchmark report.
 
         Any non-``INTERNAL`` service error must contain a caller-safe message.
@@ -49,7 +62,13 @@ class SlurmBenchmarkService:
     def __init__(self, backend: SlurmBenchmarkBackend) -> None:
         self._backend = backend
 
-    def run(self, config: DataDesignerSlurmBenchmarkConfig) -> BenchmarkManifest:
+    def run(
+        self,
+        config: DataDesignerSlurmBenchmarkConfig,
+        *,
+        source_root: str | Path = ".",
+        force: bool = False,
+    ) -> BenchmarkManifest:
         """Start all ordinary child runs and return their immutable mapping.
 
         The returned manifest must reference the exact serialized benchmark config.
@@ -60,9 +79,17 @@ class SlurmBenchmarkService:
         operation = SlurmServiceOperation.RUN_BENCHMARK
         if not isinstance(config, DataDesignerSlurmBenchmarkConfig):
             raise _make_invalid_request_error(operation, "config must be a DataDesignerSlurmBenchmarkConfig")
+        if not isinstance(source_root, str | Path):
+            raise _make_invalid_request_error(operation, "source_root must be a path")
+        if type(force) is not bool:
+            raise _make_invalid_request_error(operation, "force must be a boolean")
 
         def run_benchmark() -> BenchmarkManifest:
-            manifest = self._backend.run(config)
+            manifest = self._backend.run(
+                config,
+                source_root=Path(source_root).expanduser().resolve(),
+                force=force,
+            )
             if not isinstance(manifest, BenchmarkManifest):
                 raise TypeError("benchmark backend returned an invalid manifest")
             if manifest.benchmark_config.sha256 != config.compute_sha256():
@@ -71,12 +98,19 @@ class SlurmBenchmarkService:
 
         return _invoke_service_backend(operation, run_benchmark)
 
-    def analyze(self, benchmark_id: Identifier, *, refresh_state: bool = False) -> BenchmarkReport:
+    def analyze(
+        self,
+        benchmark_id: Identifier,
+        *,
+        refresh_state: bool = False,
+        fail_if_incomplete: bool = False,
+    ) -> BenchmarkReport:
         """Analyze one persisted benchmark without a resident monitor.
 
         Args:
             benchmark_id: Persisted benchmark identity to analyze.
             refresh_state: Request one point-in-time state refresh before analysis.
+            fail_if_incomplete: Fail after persisting a report containing non-success cases.
 
         Raises:
             SlurmServiceError: If the request is invalid or analysis fails.
@@ -86,11 +120,15 @@ class SlurmBenchmarkService:
             validated_id = _IDENTIFIER_ADAPTER.validate_python(benchmark_id, strict=True)
         except ValidationError:
             raise _make_invalid_request_error(operation, "benchmark_id must be a valid identifier") from None
-        if type(refresh_state) is not bool:
-            raise _make_invalid_request_error(operation, "refresh_state must be a boolean")
+        if type(refresh_state) is not bool or type(fail_if_incomplete) is not bool:
+            raise _make_invalid_request_error(operation, "analysis actions must be booleans")
 
         def analyze_benchmark() -> BenchmarkReport:
-            report = self._backend.analyze(validated_id, refresh_state=refresh_state)
+            report = self._backend.analyze(
+                validated_id,
+                refresh_state=refresh_state,
+                fail_if_incomplete=fail_if_incomplete,
+            )
             if not isinstance(report, BenchmarkReport):
                 raise TypeError("benchmark backend returned an invalid report")
             if report.benchmark_id != validated_id:

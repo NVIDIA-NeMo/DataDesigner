@@ -17,6 +17,8 @@ from uuid import uuid4
 
 from pydantic import JsonValue
 
+from data_designer.slurm.benchmark.execution import SystemBenchmarkBackend
+from data_designer.slurm.benchmark.observer import PersistedBenchmarkRunObserver
 from data_designer.slurm.client.dependencies import (
     ClientDependencyResolutionError,
     ClientDependencyResolver,
@@ -51,6 +53,7 @@ from data_designer.slurm.planning.resolution import resolve_slurm_config
 from data_designer.slurm.runtime.bundle import stage_runtime_bundle
 from data_designer.slurm.runtime.errors import SlurmRuntimeError
 from data_designer.slurm.services.artifacts import StateRunArtifactPublisher
+from data_designer.slurm.services.benchmark import SlurmBenchmarkService
 from data_designer.slurm.services.errors import SlurmServiceError, SlurmServiceErrorCode, SlurmServiceOperation
 from data_designer.slurm.services.image_lifecycle import SlurmImageLifecycleManager
 from data_designer.slurm.services.images import SlurmImageService
@@ -115,8 +118,14 @@ class SlurmRunArtifactPublisher(Protocol):
     def record_submission(self, plan: ResolvedSlurmRunPlan, job_id: int, *, submitted_at: datetime) -> None:
         """Persist the submitted scheduler identity for every initial attempt."""
 
-    def record_submission_failure(self, plan: ResolvedSlurmRunPlan, *, failed_at: datetime) -> None:
-        """Mark initial attempts failed after a held submission is cancelled."""
+    def record_submission_failure(
+        self,
+        plan: ResolvedSlurmRunPlan,
+        job_id: int,
+        *,
+        failed_at: datetime,
+    ) -> None:
+        """Fail initial attempts owned by the cancelled held job."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -338,7 +347,7 @@ class _SystemRunBackend:
                         f"Slurm job {receipt.job_id} was submitted but could not be recorded or cancelled",
                     ) from error
                 try:
-                    self._record_submission_failure(publisher, plan)
+                    self._record_submission_failure(publisher, plan, receipt.job_id)
                 except SlurmServiceError as state_error:
                     raise SlurmServiceError(
                         SlurmServiceErrorCode.INTERNAL,
@@ -353,7 +362,7 @@ class _SystemRunBackend:
                     pass
                 else:
                     try:
-                        self._record_submission_failure(publisher, plan)
+                        self._record_submission_failure(publisher, plan, receipt.job_id)
                     except BaseException:
                         pass
                 raise
@@ -369,7 +378,7 @@ class _SystemRunBackend:
                         f"held Slurm job {receipt.job_id} could not be released or cancelled",
                     ) from error
                 try:
-                    self._record_submission_failure(publisher, plan)
+                    self._record_submission_failure(publisher, plan, receipt.job_id)
                 except SlurmServiceError as state_error:
                     raise SlurmServiceError(
                         SlurmServiceErrorCode.INTERNAL,
@@ -498,9 +507,14 @@ class _SystemRunBackend:
                 "submission state cannot be recorded",
             ) from None
 
-    def _record_submission_failure(self, publisher: SlurmRunArtifactPublisher, plan: ResolvedSlurmRunPlan) -> None:
+    def _record_submission_failure(
+        self,
+        publisher: SlurmRunArtifactPublisher,
+        plan: ResolvedSlurmRunPlan,
+        job_id: int,
+    ) -> None:
         try:
-            publisher.record_submission_failure(plan, failed_at=self._clock())
+            publisher.record_submission_failure(plan, job_id, failed_at=self._clock())
         except (StateNotFoundError, StateConflictError, SlurmStateError):
             raise SlurmServiceError(
                 SlurmServiceErrorCode.INTERNAL,
@@ -724,6 +738,29 @@ def create_slurm_run_service(
 ) -> SlurmRunService:
     """Create the production run service for one selected cluster profile."""
     selected = resolve_profile(profile=profile, catalog=catalog, profile_file=profile_file, cluster=cluster)
+    return _create_slurm_run_service(
+        selected,
+        artifact_publisher=artifact_publisher,
+        dependency_resolver=dependency_resolver,
+        launcher=launcher,
+        run_id_factory=run_id_factory,
+        clock=clock,
+        package_version=package_version,
+        source_environment=source_environment,
+    )
+
+
+def _create_slurm_run_service(
+    selected: SelectedSlurmProfile,
+    *,
+    artifact_publisher: SlurmRunArtifactPublisher | None = None,
+    dependency_resolver: ClientDependencyResolver | None = None,
+    launcher: SlurmCommandClient | None = None,
+    run_id_factory: RunIdFactory | None = None,
+    clock: Clock | None = None,
+    package_version: str | None = None,
+    source_environment: Mapping[str, str] | None = None,
+) -> SlurmRunService:
     command_client = launcher or SlurmCommandClient()
     selected_clock = clock or _utc_now
     preparer = _RunPreparer(
@@ -770,6 +807,54 @@ def create_slurm_image_service(
     return SlurmImageService(backend, backend)
 
 
+def create_slurm_benchmark_service(
+    *,
+    profile: SlurmProfile | None = None,
+    catalog: SlurmProfileCatalog | None = None,
+    profile_file: str | Path | None = None,
+    cluster: str | None = None,
+    artifact_publisher: SlurmRunArtifactPublisher | None = None,
+    dependency_resolver: ClientDependencyResolver | None = None,
+    launcher: SlurmCommandClient | None = None,
+    clock: Clock | None = None,
+    package_version: str | None = None,
+    source_environment: Mapping[str, str] | None = None,
+) -> SlurmBenchmarkService:
+    """Create the production benchmark service for one selected cluster profile."""
+    selected = resolve_profile(profile=profile, catalog=catalog, profile_file=profile_file, cluster=cluster)
+    command_client = launcher or SlurmCommandClient()
+    selected_clock = clock or _utc_now
+    publisher = artifact_publisher or StateRunArtifactPublisher(selected.profile.workspace_root, selected_clock)
+    dependencies = dependency_resolver or ClientDependencyResolver()
+    environment = dict(os.environ if source_environment is None else source_environment)
+    version = package_version or importlib.metadata.version("data-designer-slurm")
+
+    def create_child_service(run_id: Identifier) -> SlurmRunService:
+        return _create_slurm_run_service(
+            selected,
+            artifact_publisher=publisher,
+            dependency_resolver=dependencies,
+            launcher=command_client,
+            run_id_factory=lambda: run_id,
+            clock=selected_clock,
+            package_version=version,
+            source_environment=environment,
+        )
+
+    observer = PersistedBenchmarkRunObserver(
+        selected.profile.workspace_root,
+        command_client,
+        selected_clock,
+    )
+    backend = SystemBenchmarkBackend(
+        selected.profile.workspace_root,
+        create_child_service,
+        observer,
+        selected_clock,
+    )
+    return SlurmBenchmarkService(backend)
+
+
 def _resolve_builder_payload(
     authored: DataDesignerSlurmConfig,
     source_root: Path,
@@ -802,6 +887,7 @@ def _format_job_ids(job_ids: list[int]) -> str:
 
 __all__ = [
     "SlurmRunArtifactPublisher",
+    "create_slurm_benchmark_service",
     "create_slurm_image_service",
     "create_slurm_run_service",
 ]

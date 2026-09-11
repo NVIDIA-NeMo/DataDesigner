@@ -262,6 +262,22 @@ def test_successful_benchmark_case_requires_complete_positive_output(field: str,
         BenchmarkReport.model_validate_json(json.dumps(payload))
 
 
+def test_successful_infeasible_benchmark_case_allows_zero_budgeted_generation() -> None:
+    payload = json.loads((GOLDEN_DIR / "benchmark_report.json").read_text())
+    case = payload["cases"][0]
+    case.update(
+        feasible=False,
+        generation_seconds=0,
+        target_jobs=None,
+        total_gpu_hours=None,
+    )
+    payload["recommendations"] = []
+
+    report = BenchmarkReport.model_validate_json(json.dumps(payload))
+
+    assert report.cases[0].feasible is False
+
+
 def test_benchmark_report_allows_pareto_frontier_but_singleton_minima() -> None:
     payload = json.loads((GOLDEN_DIR / "benchmark_report.json").read_text())
     second_case = deepcopy(payload["cases"][0])

@@ -16,6 +16,7 @@ from data_designer.slurm.contracts import Identifier, ShardId, validate_absolute
 from data_designer.slurm.planning import ResolvedSlurmRunPlan
 from data_designer.slurm.state.base import SchedulerIdentity, SchedulerJobIdentity
 from data_designer.slurm.state.errors import (
+    SchedulerStateConflictError,
     SlurmStateError,
     StateConflictError,
     StateCorruptionError,
@@ -302,7 +303,7 @@ class SlurmStateReconciler:
             return
         winning = next(status for status in statuses if status.attempt.attempt_id == winner.attempt_id)
         if winning.effective_state is not EffectiveAttemptState.SUCCEEDED:
-            raise StateCorruptionError("persisted winner conflicts with terminal scheduler evidence")
+            raise SchedulerStateConflictError("persisted winner conflicts with terminal scheduler evidence")
 
 
 def _validate_location(workspace_root: str | Path, run_id: Identifier) -> tuple[Path, Identifier]:
