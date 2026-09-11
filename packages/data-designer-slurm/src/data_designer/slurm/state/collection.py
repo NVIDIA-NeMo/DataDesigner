@@ -293,9 +293,11 @@ class SlurmCollectionCoordinator:
         plan = self._load_bound_plan(status)
         resolved_plan = self._reader.load_resolved_plan()
         resolved = self._destinations.validate_persisted(resolved_plan, plan)
+        if requested_destination is not None and Path(requested_destination).as_posix() != resolved.host_path:
+            raise StateConflictError("persisted collection destination does not match the requested destination")
         requested = self._destinations.resolve(resolved_plan, requested_destination)
         if requested != resolved:
-            raise StateCorruptionError("persisted collection destination does not match the requested destination")
+            raise StateConflictError("persisted collection destination does not match the requested destination")
         if plan.host_destination != resolved.host_path or plan.container_destination != resolved.container_path:
             raise StateCorruptionError("persisted collection destination does not match the resolved plan")
         if status.state is CollectionState.SUCCEEDED:
