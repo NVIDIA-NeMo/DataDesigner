@@ -79,6 +79,10 @@ navigation:
         path: ./latest/pages/notebooks/5-generating-images.mdx
       - page: Image-to-Image Editing
         path: ./latest/pages/notebooks/6-editing-images-with-image-context.mdx
+  - section: Slurm
+    contents:
+      - page: Benchmarks
+        path: ./latest/pages/slurm/benchmarks.mdx
   - section: Recipes
     contents:
       - page: Recipe Cards

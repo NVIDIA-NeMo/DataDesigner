@@ -119,21 +119,38 @@ class FakeBenchmarkBackend(SlurmBenchmarkBackend):
     def __init__(
         self,
         *,
-        run_responses: Iterable[tuple[DataDesignerSlurmBenchmarkConfig, BenchmarkManifest | BaseException]] = (),
-        analysis_responses: Iterable[tuple[tuple[Identifier, bool], BenchmarkReport | BaseException]] = (),
+        run_responses: Iterable[
+            tuple[tuple[DataDesignerSlurmBenchmarkConfig, Path, bool], BenchmarkManifest | BaseException]
+        ] = (),
+        analysis_responses: Iterable[tuple[tuple[Identifier, bool, bool], BenchmarkReport | BaseException]] = (),
     ) -> None:
         self._run_script = _ScriptedResponses(run_responses)
         self._analysis_script = _ScriptedResponses(analysis_responses)
         self.run_calls = self._run_script.calls
         self.analysis_calls = self._analysis_script.calls
 
-    def run(self, config: DataDesignerSlurmBenchmarkConfig) -> BenchmarkManifest:
+    def run(
+        self,
+        config: DataDesignerSlurmBenchmarkConfig,
+        *,
+        source_root: Path,
+        force: bool,
+    ) -> BenchmarkManifest:
         """Return the manifest scripted for one exact benchmark config."""
-        return self._run_script.next(config, operation="benchmark run")
+        return self._run_script.next((config, source_root, force), operation="benchmark run")
 
-    def analyze(self, benchmark_id: Identifier, *, refresh_state: bool = False) -> BenchmarkReport:
+    def analyze(
+        self,
+        benchmark_id: Identifier,
+        *,
+        refresh_state: bool,
+        fail_if_incomplete: bool,
+    ) -> BenchmarkReport:
         """Return the report scripted for one benchmark and refresh action."""
-        return self._analysis_script.next((benchmark_id, refresh_state), operation="benchmark analysis")
+        return self._analysis_script.next(
+            (benchmark_id, refresh_state, fail_if_incomplete),
+            operation="benchmark analysis",
+        )
 
     def assert_complete(self) -> None:
         """Assert that every scripted benchmark response was consumed."""

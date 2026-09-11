@@ -53,6 +53,7 @@ _DATASET_DIRECTORY_NAME = "dataset"
 _RUNTIME_DIRECTORY_NAME = "runtime"
 _RESUME_LOCK_FILENAME = "resume.lock"
 _LOCK_DIRECTORY_NAME = ".locks"
+_SUBMISSION_LOCK_PREFIX = "submission"
 _MAXIMUM_RECORD_SIZE = 16 * 1024 * 1024
 _ATTEMPT_NAME_PATTERN = re.compile(r"^attempt-[0-9]{4,}$")
 _RecordT = TypeVar("_RecordT", bound=ContractRecord)
@@ -143,6 +144,20 @@ class StateStorage:
                         yield
         except FileNotFoundError as error:
             raise StateNotFoundError(f"run {self.run_id!r} is not initialized") from error
+
+    @contextmanager
+    def acquire_submission_lock(self) -> Iterator[None]:
+        """Serialize the initial submission decision for one run identity."""
+        self.ensure_storage()
+        with open_verified_directory(self.runs_root, require_private=True) as runs_descriptor:
+            with open_verified_child_directory(
+                runs_descriptor,
+                _LOCK_DIRECTORY_NAME,
+                self.locks_root,
+            ) as locks_descriptor:
+                lock_name = f"{_SUBMISSION_LOCK_PREFIX}-{self.run_id}.lock"
+                with acquire_file_lock(locks_descriptor, lock_name, self.locks_root / lock_name):
+                    yield
 
     @contextmanager
     def acquire_shard_lock(self, shard_id: ShardId) -> Iterator[None]:
