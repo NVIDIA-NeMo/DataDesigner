@@ -15,6 +15,13 @@ from data_designer.slurm.services.errors import (
     SlurmServiceOperation,
 )
 from data_designer.slurm.services.images import SlurmImageManager, SlurmImageResolver, SlurmImageService
+from data_designer.slurm.services.profiles import (
+    SlurmProfileInitialization,
+    SlurmProfileMatch,
+    SlurmProfileService,
+    SlurmProfileValidation,
+    create_slurm_profile_service,
+)
 from data_designer.slurm.services.results import (
     SlurmPersistedAttemptStatus,
     SlurmPersistedRunStatus,
@@ -47,6 +54,10 @@ __all__ = [
     "SlurmPersistedAttemptStatus",
     "SlurmPersistedRunStatus",
     "SlurmPersistedShardStatus",
+    "SlurmProfileInitialization",
+    "SlurmProfileMatch",
+    "SlurmProfileService",
+    "SlurmProfileValidation",
     "SlurmRunArtifactPublisher",
     "SlurmRunBackend",
     "SlurmRunCancellation",
@@ -57,6 +68,7 @@ __all__ = [
     "SlurmServiceErrorCode",
     "SlurmServiceOperation",
     "create_slurm_image_service",
+    "create_slurm_profile_service",
     "create_slurm_run_service",
 ]
 
