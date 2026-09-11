@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -184,7 +185,8 @@ class SlurmStateReconciler:
         persist: bool,
     ) -> ShardStatus:
         try:
-            with self._storage.acquire_shard_lock(expected.shard.shard_id):
+            shard_lock = self._storage.acquire_shard_lock(expected.shard.shard_id) if persist else nullcontext()
+            with shard_lock:
                 current_run, current_plan, current_shard = self._reader.load_shard_context(expected.shard.shard_id)
                 attempts = self._reader.load_validated_shard_attempts(current_run, current_plan, current_shard)
                 self._require_unchanged_context(

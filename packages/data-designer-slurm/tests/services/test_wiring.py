@@ -764,11 +764,14 @@ def test_collection_rejects_unmanaged_input_and_destination(
         service.collect(tmp_path / "run-wired", destination=tmp_path / "collected")
     with pytest.raises(SlurmServiceError) as destination:
         service.collect(tmp_path / "runs/run-wired", destination=tmp_path.parent / "collected")
+    with pytest.raises(SlurmServiceError) as managed_state:
+        service.collect(tmp_path / "runs/run-wired", destination=tmp_path / "runs/run-wired/collections")
     with pytest.raises(SlurmServiceError) as partitions:
         service.collect(tmp_path / "runs/run-wired", destination=tmp_path / "collected", num_partitions=2)
 
     assert unmanaged.value.code is SlurmServiceErrorCode.INVALID_REQUEST
     assert destination.value.code is SlurmServiceErrorCode.INVALID_REQUEST
+    assert managed_state.value.code is SlurmServiceErrorCode.INVALID_REQUEST
     assert partitions.value.code is SlurmServiceErrorCode.INVALID_REQUEST
 
 

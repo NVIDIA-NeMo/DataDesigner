@@ -6,6 +6,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 from enum import Enum
+from functools import partial
 from pathlib import Path
 from typing import NoReturn, TypeVar
 
@@ -16,7 +17,6 @@ from pydantic import BaseModel, ValidationError
 from data_designer.slurm.config import ImageBuildRequest, SlurmConfigLoadError, load_run_config
 from data_designer.slurm.contracts import canonical_json
 from data_designer.slurm.services import (
-    SlurmRetryExecution,
     SlurmServiceError,
     SlurmServiceErrorCode,
     SlurmServiceOperation,
@@ -121,16 +121,17 @@ def retry_command(
         lambda: create_slurm_run_service(profile_file=profile_file, cluster=cluster),
     )
 
-    def retry(*, preview: bool) -> SlurmRetryExecution:
-        return service.retry(
-            run_or_job_id,
-            shard_ids=shard_ids,
-            resume=resume.value,
-            dry_run=preview,
-        )
-
     if not dry_run and not force:
-        planned = _invoke(operation, lambda: retry(preview=True))
+        planned = _invoke(
+            operation,
+            partial(
+                service.retry,
+                run_or_job_id,
+                shard_ids=shard_ids,
+                resume=resume.value,
+                dry_run=True,
+            ),
+        )
         typer.echo(
             f"Retry {', '.join(planned.shard_ids)} with resume={planned.effective_resume_mode}",
             err=True,
@@ -153,7 +154,13 @@ def retry_command(
         resume = _RetryResumeMode(planned.effective_resume_mode)
     result = _invoke(
         operation,
-        lambda: retry(preview=dry_run),
+        partial(
+            service.retry,
+            run_or_job_id,
+            shard_ids=shard_ids,
+            resume=resume.value,
+            dry_run=dry_run,
+        ),
     )
     _emit_result(result)
 

@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from functools import partial
 from pathlib import Path
 from typing import Literal, Protocol
 
@@ -247,22 +248,17 @@ class SlurmRunService:
             raise _make_invalid_request_error(operation, "dry_run must be a boolean")
         backend = self._require_backend(operation)
 
-        def retry_run() -> SlurmRetryExecution:
-            result = backend.retry(
+        return _invoke_service_backend(
+            operation,
+            partial(
+                _retry_run,
+                backend,
                 normalized_reference,
                 shard_ids=normalized_shards,
                 resume=resume,
                 dry_run=dry_run,
-            )
-            if not isinstance(result, SlurmRetryExecution):
-                raise TypeError("run backend returned an invalid retry result")
-            if normalized_shards is not None and result.shard_ids != normalized_shards:
-                raise TypeError("run backend returned retry shards that do not match the request")
-            if result.state != ("dry_run" if dry_run else "submitted"):
-                raise TypeError("run backend returned a retry state that does not match the request")
-            return result
-
-        return _invoke_service_backend(operation, retry_run)
+            ),
+        )
 
     def collect(
         self,
@@ -281,21 +277,16 @@ class SlurmRunService:
         normalized_destination = Path(destination).expanduser().resolve()
         backend = self._require_backend(operation)
 
-        def collect_run() -> SlurmCollectionExecution:
-            result = backend.collect(
+        return _invoke_service_backend(
+            operation,
+            partial(
+                _collect_run,
+                backend,
                 normalized_input,
                 destination=normalized_destination,
                 num_partitions=num_partitions,
-            )
-            if not isinstance(result, SlurmCollectionExecution):
-                raise TypeError("run backend returned an invalid collection result")
-            if result.output_path != normalized_destination.as_posix() or (
-                num_partitions is not None and result.num_partitions != num_partitions
-            ):
-                raise TypeError("run backend returned collection intent that does not match the request")
-            return result
-
-        return _invoke_service_backend(operation, collect_run)
+            ),
+        )
 
     def _require_backend(self, operation: SlurmServiceOperation) -> SlurmRunBackend:
         if self._backend is None:
@@ -305,6 +296,50 @@ class SlurmRunService:
                 "run operations require package-owned service construction",
             )
         return self._backend
+
+
+def _retry_run(
+    backend: SlurmRunBackend,
+    run_or_job_id: Identifier,
+    *,
+    shard_ids: tuple[ShardId, ...] | None,
+    resume: Literal["never", "always", "if_possible"],
+    dry_run: bool,
+) -> SlurmRetryExecution:
+    result = backend.retry(
+        run_or_job_id,
+        shard_ids=shard_ids,
+        resume=resume,
+        dry_run=dry_run,
+    )
+    if not isinstance(result, SlurmRetryExecution):
+        raise TypeError("run backend returned an invalid retry result")
+    if shard_ids is not None and result.shard_ids != shard_ids:
+        raise TypeError("run backend returned retry shards that do not match the request")
+    if result.state != ("dry_run" if dry_run else "submitted"):
+        raise TypeError("run backend returned a retry state that does not match the request")
+    return result
+
+
+def _collect_run(
+    backend: SlurmRunBackend,
+    input_path: Path,
+    *,
+    destination: Path,
+    num_partitions: int | None,
+) -> SlurmCollectionExecution:
+    result = backend.collect(
+        input_path,
+        destination=destination,
+        num_partitions=num_partitions,
+    )
+    if not isinstance(result, SlurmCollectionExecution):
+        raise TypeError("run backend returned an invalid collection result")
+    if result.output_path != destination.as_posix() or (
+        num_partitions is not None and result.num_partitions != num_partitions
+    ):
+        raise TypeError("run backend returned collection intent that does not match the request")
+    return result
 
 
 def _validate_run_id(run_id: object, operation: SlurmServiceOperation) -> Identifier:
