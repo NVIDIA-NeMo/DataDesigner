@@ -236,11 +236,11 @@ def test_client_rejects_unbounded_or_invalid_job_selectors(fake_slurm_runner: Fa
     assert fake_slurm_runner.calls == []
 
 
-def test_client_queries_bounded_gpu_inventory(fake_slurm_runner: FakeSlurmRunner) -> None:
+def test_client_queries_default_partition_gpu_inventory(fake_slurm_runner: FakeSlurmRunner) -> None:
     client = SlurmCommandClient(fake_slurm_runner)
 
     assert client.query_gpu_counts() == (2,)
-    assert fake_slurm_runner.calls == [("sinfo", "--noheader", "--format=%G")]
+    assert fake_slurm_runner.calls == [("sinfo", "--noheader", "--format=%P|%G")]
 
 
 def test_client_queries_partition_scoped_gpu_inventory() -> None:
