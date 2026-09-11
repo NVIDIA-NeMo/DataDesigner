@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from functools import partial
 from pathlib import Path
 
 import typer
@@ -17,6 +18,35 @@ from data_designer.slurm.services.errors import SlurmServiceOperation
 
 _Invoke = Callable[[SlurmServiceOperation, Callable[[], BaseModel]], BaseModel]
 _Emit = Callable[[BaseModel], None]
+
+
+def _run_benchmark(
+    benchmark_file: Path,
+    *,
+    profile_file: Path | None,
+    cluster: str | None,
+    force: bool,
+) -> BaseModel:
+    config = load_benchmark_config(benchmark_file)
+    service = create_slurm_benchmark_service(profile_file=profile_file, cluster=cluster)
+    return service.run(config, source_root=benchmark_file.resolve().parent, force=force)
+
+
+def _analyze_benchmark(
+    benchmark: str,
+    *,
+    profile_file: Path | None,
+    cluster: str | None,
+    refresh: bool,
+    fail_if_incomplete: bool,
+) -> BaseModel:
+    benchmark_id = Path(benchmark.rstrip("/")).name
+    service = create_slurm_benchmark_service(profile_file=profile_file, cluster=cluster)
+    return service.analyze(
+        benchmark_id,
+        refresh_state=refresh,
+        fail_if_incomplete=fail_if_incomplete,
+    )
 
 
 def create_benchmark_app(invoke: _Invoke, emit: _Emit) -> typer.Typer:
@@ -31,13 +61,18 @@ def create_benchmark_app(invoke: _Invoke, emit: _Emit) -> typer.Typer:
         force: bool = typer.Option(False, "--force"),
     ) -> None:
         """Expand and submit ordinary child runs."""
-
-        def run() -> BaseModel:
-            config = load_benchmark_config(benchmark_file)
-            service = create_slurm_benchmark_service(profile_file=profile_file, cluster=cluster)
-            return service.run(config, source_root=benchmark_file.resolve().parent, force=force)
-
-        emit(invoke(SlurmServiceOperation.RUN_BENCHMARK, run))
+        emit(
+            invoke(
+                SlurmServiceOperation.RUN_BENCHMARK,
+                partial(
+                    _run_benchmark,
+                    benchmark_file,
+                    profile_file=profile_file,
+                    cluster=cluster,
+                    force=force,
+                ),
+            )
+        )
 
     @benchmark_app.command("analyze")
     def analyze_command(
@@ -48,17 +83,19 @@ def create_benchmark_app(invoke: _Invoke, emit: _Emit) -> typer.Typer:
         fail_if_incomplete: bool = typer.Option(False, "--fail-if-incomplete"),
     ) -> None:
         """Write one point-in-time report from ordinary child state."""
-        benchmark_id = Path(benchmark.rstrip("/")).name
-
-        def analyze() -> BaseModel:
-            service = create_slurm_benchmark_service(profile_file=profile_file, cluster=cluster)
-            return service.analyze(
-                benchmark_id,
-                refresh_state=refresh,
-                fail_if_incomplete=fail_if_incomplete,
+        emit(
+            invoke(
+                SlurmServiceOperation.ANALYZE_BENCHMARK,
+                partial(
+                    _analyze_benchmark,
+                    benchmark,
+                    profile_file=profile_file,
+                    cluster=cluster,
+                    refresh=refresh,
+                    fail_if_incomplete=fail_if_incomplete,
+                ),
             )
-
-        emit(invoke(SlurmServiceOperation.ANALYZE_BENCHMARK, analyze))
+        )
 
     return benchmark_app
 
