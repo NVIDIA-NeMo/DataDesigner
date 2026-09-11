@@ -154,6 +154,21 @@ def test_run_config_rejects_invalid_max_in_flight_tasks() -> None:
         RunConfig(max_in_flight_tasks=0)
 
 
+@pytest.mark.parametrize(
+    ("disable", "rate", "expected_effective"),
+    [(False, 0.2, 0.2), (True, 0.2, 1.0), (True, 0.0, 1.0), (False, 1.0, 1.0)],
+    ids=["enabled-keeps-rate", "disabled-overrides-rate", "disabled-overrides-zero-rate", "enabled-max-rate"],
+)
+def test_run_config_keeps_rate_and_derives_effective_rate(
+    disable: bool, rate: float, expected_effective: float
+) -> None:
+    run_config = RunConfig(disable_early_shutdown=disable, shutdown_error_rate=rate)
+
+    assert run_config.shutdown_error_rate == rate
+    assert run_config.effective_shutdown_error_rate == expected_effective
+    assert RunConfig.model_validate(run_config.model_dump()) == run_config
+
+
 def test_run_config_throttle_shim_rejects_unknown_legacy_fields() -> None:
     with pytest.raises(ValidationError, match="max_concurrent_requests"):
         RunConfig(throttle={"max_concurrent_requests": 1})
