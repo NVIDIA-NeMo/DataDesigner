@@ -23,9 +23,11 @@ from data_designer.slurm.services.profiles import (
     create_slurm_profile_service,
 )
 from data_designer.slurm.services.results import (
+    SlurmCollectionExecution,
     SlurmPersistedAttemptStatus,
     SlurmPersistedRunStatus,
     SlurmPersistedShardStatus,
+    SlurmRetryExecution,
     SlurmRunCancellation,
     SlurmRunExecution,
 )
@@ -48,6 +50,7 @@ __all__ = [
     "SlurmBatchScriptRenderer",
     "SlurmBenchmarkBackend",
     "SlurmBenchmarkService",
+    "SlurmCollectionExecution",
     "SlurmImageManager",
     "SlurmImageResolver",
     "SlurmImageService",
@@ -58,6 +61,7 @@ __all__ = [
     "SlurmProfileMatch",
     "SlurmProfileService",
     "SlurmProfileValidation",
+    "SlurmRetryExecution",
     "SlurmRunArtifactPublisher",
     "SlurmRunBackend",
     "SlurmRunCancellation",

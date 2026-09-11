@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import pickle
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 from slurm_test_fakes import (
@@ -29,9 +30,11 @@ from data_designer.slurm.services import (
     SlurmBatchScriptRenderer,
     SlurmBenchmarkBackend,
     SlurmBenchmarkService,
+    SlurmCollectionExecution,
     SlurmImageManager,
     SlurmImageResolver,
     SlurmImageService,
+    SlurmRetryExecution,
     SlurmRunArtifactPublisher,
     SlurmRunBackend,
     SlurmRunExecution,
@@ -41,6 +44,7 @@ from data_designer.slurm.services import (
     SlurmServiceErrorCode,
     SlurmServiceOperation,
 )
+from data_designer.slurm.state import CollectionState
 
 GOLDEN_DIRECTORY = Path(__file__).parents[1] / "slurm_test_fakes" / "golden" / "rendered"
 
@@ -222,6 +226,118 @@ def test_run_service_delegates_execute_actions(
 
     assert result.run_id == "run-0001"
     assert backend.calls == [(authored_run_single, tmp_path.resolve(), True, True)]
+
+
+def test_run_service_delegates_retry_with_stable_shard_order() -> None:
+    backend = Mock(spec=SlurmRunBackend)
+    expected = SlurmRetryExecution(
+        run_id="run-0001",
+        state="submitted",
+        shard_ids=("shard-00001", "shard-00003"),
+        attempt_ids=("attempt-0002", "attempt-0004"),
+        effective_resume_mode="always",
+        job_id=43,
+    )
+    backend.retry.return_value = expected
+    service = SlurmRunService(FakeRunPlanningBackend(()), FakeBatchScriptRenderer(()), backend)
+
+    result = service.retry(
+        "42",
+        shard_ids=("shard-00003", "shard-00001"),
+        resume="always",
+    )
+
+    assert result is expected
+    backend.retry.assert_called_once_with(
+        "42",
+        shard_ids=("shard-00001", "shard-00003"),
+        resume="always",
+        dry_run=False,
+    )
+
+
+@pytest.mark.parametrize(
+    ("shard_ids", "resume", "dry_run"),
+    [
+        ((), "never", False),
+        (("shard-00001", "shard-00001"), "never", False),
+        (None, "sometimes", False),
+        (None, "never", 1),
+    ],
+)
+def test_run_service_rejects_invalid_retry_actions(
+    shard_ids: object,
+    resume: object,
+    dry_run: object,
+) -> None:
+    service = SlurmRunService(FakeRunPlanningBackend(()), FakeBatchScriptRenderer(()), Mock(spec=SlurmRunBackend))
+
+    with pytest.raises(SlurmServiceError) as caught:
+        service.retry(  # type: ignore[arg-type]
+            "run-0001",
+            shard_ids=shard_ids,
+            resume=resume,
+            dry_run=dry_run,
+        )
+
+    assert caught.value.code is SlurmServiceErrorCode.INVALID_REQUEST
+    assert caught.value.operation is SlurmServiceOperation.RETRY_RUN
+
+
+def test_run_service_normalizes_collection_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    backend = Mock(spec=SlurmRunBackend)
+    expected = SlurmCollectionExecution(
+        run_id="run-0001",
+        collection_id="collection-0001",
+        state=CollectionState.SUBMITTED,
+        job_id=44,
+        output_path=(tmp_path / "collected").as_posix(),
+        num_partitions=2,
+    )
+    backend.collect.return_value = expected
+    service = SlurmRunService(FakeRunPlanningBackend(()), FakeBatchScriptRenderer(()), backend)
+
+    result = service.collect("runs/run-0001", destination="collected", num_partitions=2)
+
+    assert result is expected
+    backend.collect.assert_called_once_with(
+        tmp_path / "runs/run-0001",
+        destination=tmp_path / "collected",
+        num_partitions=2,
+    )
+
+
+def test_run_service_uses_persisted_collection_partitions_when_omitted(tmp_path: Path) -> None:
+    backend = Mock(spec=SlurmRunBackend)
+    expected = SlurmCollectionExecution(
+        run_id="run-0001",
+        collection_id="collection-0001",
+        state=CollectionState.SUBMITTED,
+        job_id=44,
+        output_path=(tmp_path / "collected").as_posix(),
+        num_partitions=2,
+    )
+    backend.collect.return_value = expected
+    service = SlurmRunService(FakeRunPlanningBackend(()), FakeBatchScriptRenderer(()), backend)
+
+    assert service.collect(tmp_path / "runs/run-0001", destination=tmp_path / "collected") is expected
+    backend.collect.assert_called_once_with(
+        tmp_path / "runs/run-0001",
+        destination=tmp_path / "collected",
+        num_partitions=None,
+    )
+
+
+@pytest.mark.parametrize("num_partitions", [0, -1, True, 1.5])
+def test_run_service_rejects_invalid_collection_partitions(num_partitions: object) -> None:
+    service = SlurmRunService(FakeRunPlanningBackend(()), FakeBatchScriptRenderer(()), Mock(spec=SlurmRunBackend))
+
+    with pytest.raises(SlurmServiceError) as caught:
+        service.collect("runs/run-0001", destination="collected", num_partitions=num_partitions)  # type: ignore[arg-type]
+
+    assert caught.value.code is SlurmServiceErrorCode.INVALID_REQUEST
+    assert caught.value.operation is SlurmServiceOperation.COLLECT_RUN
 
 
 def test_run_service_normalizes_and_redacts_unexpected_backend_errors(

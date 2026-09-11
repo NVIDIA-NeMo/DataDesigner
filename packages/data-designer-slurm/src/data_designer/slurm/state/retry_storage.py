@@ -49,7 +49,10 @@ class RetryStorage:
 
     def get_next_retry_id(self) -> Identifier:
         """Return the next monotonic retry identity."""
-        return f"retry-{len(self.list_retry_ids()) + 1:04d}"
+        retry_ids = self.list_retry_ids()
+        if retry_ids and self.read_optional_status(retry_ids[-1]) is None:
+            return retry_ids[-1]
+        return f"retry-{len(retry_ids) + 1:04d}"
 
     def discard_incomplete_tail(self) -> None:
         """Discard one trailing journal that cannot have reached submission."""
@@ -155,6 +158,13 @@ class RetryStorage:
         if status.retry_id != retry_id or status.run_id != self._state.run_id:
             raise OSError("retry status identity does not match its persisted location")
         return status
+
+    def read_optional_status(self, retry_id: Identifier) -> RetryStatus | None:
+        """Return retry status when its journal reached status publication."""
+        try:
+            return self.read_status(retry_id)
+        except FileNotFoundError:
+            return None
 
     @contextmanager
     def _open_retries_directory(self) -> Iterator[int]:
