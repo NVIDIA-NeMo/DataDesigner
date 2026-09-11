@@ -30,7 +30,12 @@ from data_designer.slurm.launcher.models import (
     SlurmProcessExitCode,
     SlurmQueueEntry,
 )
-from data_designer.slurm.services import SlurmServiceError, SlurmServiceErrorCode, create_slurm_image_service
+from data_designer.slurm.services import (
+    SlurmImageService,
+    SlurmServiceError,
+    SlurmServiceErrorCode,
+    create_slurm_image_service,
+)
 from data_designer.slurm.state import SchedulerState
 
 _JOB_ID = 42
@@ -113,6 +118,31 @@ class _DelayedAccountingLauncher(_Launcher):
                 ),
             )
         return super().query_accounting(selectors)
+
+
+class _DelayedCancellationLauncher(_Launcher):
+    def __init__(self) -> None:
+        super().__init__(accounting_state=None)
+
+    def cancel(self, job_id: int) -> None:
+        super().cancel(job_id)
+        self.accounting_state = SchedulerState.RUNNING
+
+    def query_accounting(self, selectors: object) -> tuple[SlurmAccountingEntry, ...]:
+        entries = super().query_accounting(selectors)
+        if self.cancellations:
+            self.accounting_state = SchedulerState.CANCELLED
+        return entries
+
+
+class _ImmediateCancellationLauncher(_Launcher):
+    def cancel(self, job_id: int) -> None:
+        super().cancel(job_id)
+        self.accounting_state = SchedulerState.CANCELLED
+
+
+def _interrupt(_: float) -> None:
+    raise KeyboardInterrupt
 
 
 def test_default_image_add_runs_lifecycle_and_registers_existing_sqsh(tmp_path: Path) -> None:
@@ -243,11 +273,11 @@ def test_default_image_add_retains_ambiguous_submission_state(tmp_path: Path) ->
     assert _job_directory(workspace).is_dir()
 
 
-def test_default_image_add_cancels_unknown_job_before_cleanup(tmp_path: Path) -> None:
+def test_default_image_add_waits_for_cancelled_job_before_cleanup(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     source = tmp_path / "client.sqsh"
     source.write_bytes(b"client")
-    launcher = _Launcher(accounting_state=None)
+    launcher = _DelayedCancellationLauncher()
     clock = FakeClock(datetime(2026, 9, 10, tzinfo=timezone.utc))
 
     with pytest.raises(SlurmServiceError) as caught:
@@ -257,8 +287,25 @@ def test_default_image_add_cancels_unknown_job_before_cleanup(tmp_path: Path) ->
 
     assert caught.value.code is SlurmServiceErrorCode.UNAVAILABLE
     assert launcher.cancellations == [_JOB_ID]
-    assert clock.sleep_calls == [300.0, 300.0]
+    assert clock.sleep_calls == [300.0, 300.0, 300.0]
     assert not _job_directory(workspace).exists()
+
+
+def test_default_image_add_retains_state_without_terminal_cancellation_evidence(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    source = tmp_path / "client.sqsh"
+    source.write_bytes(b"client")
+    launcher = _Launcher(accounting_state=None)
+    clock = FakeClock(datetime(2026, 9, 10, tzinfo=timezone.utc))
+
+    with pytest.raises(SlurmServiceError):
+        _service(workspace, launcher, clock=clock).add(
+            ImageBuildRequest(name="client", kind="client", source=source.as_posix())
+        )
+
+    assert launcher.cancellations == [_JOB_ID]
+    assert clock.sleep_calls == [300.0, 300.0, 300.0]
+    assert _job_directory(workspace).is_dir()
 
 
 def test_default_image_add_cancels_completed_job_without_exit_evidence(tmp_path: Path) -> None:
@@ -283,16 +330,13 @@ def test_default_image_add_cancels_and_cleans_on_interrupt(tmp_path: Path) -> No
     workspace = tmp_path / "workspace"
     source = tmp_path / "client.sqsh"
     source.write_bytes(b"client")
-    launcher = _Launcher(queue_state=SchedulerState.PENDING, accounting_state=None)
-
-    def interrupt(_: float) -> None:
-        raise KeyboardInterrupt
+    launcher = _ImmediateCancellationLauncher(queue_state=SchedulerState.PENDING, accounting_state=None)
 
     service = create_slurm_image_service(
         profile=_profile(workspace),
         launcher=launcher,  # type: ignore[arg-type]
         lifecycle_id_factory=lambda: _LIFECYCLE_ID,
-        sleep=interrupt,
+        sleep=_interrupt,
     )
 
     with pytest.raises(KeyboardInterrupt):
@@ -302,7 +346,7 @@ def test_default_image_add_cancels_and_cleans_on_interrupt(tmp_path: Path) -> No
     assert not _job_directory(workspace).exists()
 
 
-def _service(workspace: Path, launcher: _Launcher, *, clock: FakeClock | None = None):
+def _service(workspace: Path, launcher: _Launcher, *, clock: FakeClock | None = None) -> SlurmImageService:
     return create_slurm_image_service(
         profile=_profile(workspace),
         launcher=launcher,  # type: ignore[arg-type]

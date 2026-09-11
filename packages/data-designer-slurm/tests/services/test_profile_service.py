@@ -18,6 +18,7 @@ from data_designer.slurm.config import (
     SlurmProfileCatalog,
     load_profile_catalog,
 )
+from data_designer.slurm.launcher.errors import SlurmCommandOutputError
 from data_designer.slurm.services import SlurmServiceError, SlurmServiceErrorCode, create_slurm_profile_service
 
 
@@ -29,6 +30,12 @@ class _Launcher:
     def query_gpu_counts(self, *, partition: str | None = None) -> tuple[int, ...]:
         self.partitions.append(partition)
         return self.gpu_counts
+
+
+class _MalformedLauncher(_Launcher):
+    def query_gpu_counts(self, *, partition: str | None = None) -> tuple[int, ...]:
+        del partition
+        raise SlurmCommandOutputError("malformed")
 
 
 def test_profile_init_creates_deterministic_private_starter_without_side_effects(tmp_path: Path) -> None:
@@ -139,6 +146,23 @@ def test_profile_init_refuses_to_overwrite_or_leave_temporary_files(tmp_path: Pa
     assert caught.value.code is SlurmServiceErrorCode.CONFLICT
     assert profile_file.read_text() == "owned by caller\n"
     assert tuple(tmp_path.iterdir()) == (profile_file,)
+
+
+def test_profile_init_refuses_to_follow_dangling_destination_symlink(tmp_path: Path) -> None:
+    profile_file = tmp_path / "profile.yml"
+    target = tmp_path / "target.yml"
+    profile_file.symlink_to(target)
+
+    with pytest.raises(SlurmServiceError) as caught:
+        create_slurm_profile_service(profile_file=profile_file).initialize(
+            workspace_root=tmp_path / "workspace",
+            image_build_partition="cpu",
+            host_patterns=("login",),
+        )
+
+    assert caught.value.code is SlurmServiceErrorCode.CONFLICT
+    assert profile_file.is_symlink()
+    assert not target.exists()
 
 
 @pytest.mark.parametrize(
@@ -267,6 +291,20 @@ def test_profile_validate_rejects_duplicate_keys_with_stable_error(tmp_path: Pat
 
     assert caught.value.code is SlurmServiceErrorCode.INVALID_REQUEST
     assert str(caught.value) == "profile configuration cannot be resolved"
+
+
+def test_profile_validate_reports_malformed_slurm_output_as_unavailable(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    with pytest.raises(SlurmServiceError) as caught:
+        create_slurm_profile_service(
+            profile=_profile(workspace),
+            launcher=_MalformedLauncher(),  # type: ignore[arg-type]
+        ).validate()
+
+    assert caught.value.code is SlurmServiceErrorCode.UNAVAILABLE
+    assert str(caught.value) == "Slurm is unavailable"
 
 
 def _catalog(primary_workspace: Path, fallback_workspace: Path) -> SlurmProfileCatalog:

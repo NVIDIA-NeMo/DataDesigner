@@ -173,17 +173,17 @@ class SlurmProfileService:
             gpus_per_node = self._resolve_gpu_count(selected.profile)
         except SlurmServiceError:
             raise
-        except (SlurmConfigLoadError, ValidationError, ValueError, TypeError):
-            raise SlurmServiceError(
-                SlurmServiceErrorCode.INVALID_REQUEST,
-                operation,
-                "profile configuration cannot be resolved",
-            ) from None
         except SlurmLauncherError:
             raise SlurmServiceError(
                 SlurmServiceErrorCode.UNAVAILABLE,
                 operation,
                 "Slurm is unavailable",
+            ) from None
+        except (SlurmConfigLoadError, ValidationError, ValueError, TypeError):
+            raise SlurmServiceError(
+                SlurmServiceErrorCode.INVALID_REQUEST,
+                operation,
+                "profile configuration cannot be resolved",
             ) from None
         except OSError:
             raise SlurmServiceError(
@@ -368,7 +368,8 @@ def _resolve_profile_path(
     if source is None:
         home = Path.home() if home_directory is None else Path(home_directory)
         source = home / DEFAULT_PROFILE_FILE_NAME
-    path = Path(source).expanduser().resolve()
+    expanded = Path(source).expanduser()
+    path = expanded.parent.resolve() / expanded.name
     if path.suffix not in {".json", ".yaml", ".yml"}:
         raise SlurmConfigLoadError("configuration path must end in .json, .yaml, or .yml")
     return path

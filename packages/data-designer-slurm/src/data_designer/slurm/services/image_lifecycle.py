@@ -37,7 +37,7 @@ from data_designer.slurm.state import (
     SchedulerState,
     SlurmStateError,
 )
-from data_designer.slurm.state.scheduler import is_scheduler_failure_state
+from data_designer.slurm.state.scheduler import is_scheduler_failure_state, is_scheduler_terminal_state
 
 LifecycleIdFactory = Callable[[], str]
 Clock = Callable[[], datetime]
@@ -172,9 +172,29 @@ class SlurmImageLifecycleManager:
     def _cancel_and_cleanup(self, job_id: int, prepared: PreparedImageLifecycleJob) -> None:
         try:
             self._launcher.cancel(job_id)
-        except (SlurmLauncherError, OSError, ValueError):
+            if not self._wait_for_termination(job_id):
+                return
+        except (SlurmLauncherError, SlurmStateError, OSError, ValueError):
             return
         _cleanup_failed_lifecycle(prepared)
+
+    def _wait_for_termination(self, job_id: int) -> bool:
+        observations = SchedulerObservationCollector(self._launcher)
+        previous: SchedulerObservation | None = None
+        deadline = self._clock() + _ACCOUNTING_EXIT_LAG
+        while True:
+            observed_at = self._clock()
+            observation = observations.collect(
+                (job_id,),
+                observed_at=observed_at,
+                previous={job_id: previous},
+            )[0]
+            if is_scheduler_terminal_state(observation.state):
+                return True
+            if observation.state is SchedulerState.UNKNOWN or observed_at >= deadline:
+                return False
+            previous = observation
+            self._sleep(_POLL_INTERVAL_SECONDS)
 
 
 def _cleanup_failed_lifecycle(prepared: PreparedImageLifecycleJob) -> None:
