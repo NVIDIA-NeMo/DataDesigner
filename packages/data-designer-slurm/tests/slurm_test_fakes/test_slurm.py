@@ -245,7 +245,7 @@ def test_fake_slurm_runner_exposes_retry_terminal_spellings() -> None:
 
 
 def test_fake_slurm_runner_bounds_sinfo_queries(fake_slurm_runner: FakeSlurmRunner) -> None:
-    response = fake_slurm_runner.run(("/usr/bin/sinfo", "--noheader", "--format=%G"), check=True)
+    response = fake_slurm_runner.run(("/usr/bin/sinfo", "--noheader", "--format=%P|%G"), check=True)
 
     assert response.stdout == (GOLDEN_DIRECTORY / "sinfo_gres.txt").read_text()
     with pytest.raises(AssertionError, match="unexpected sinfo query"):

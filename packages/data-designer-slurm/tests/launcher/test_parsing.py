@@ -12,6 +12,7 @@ from data_designer.slurm.launcher.errors import SlurmCommandOutputError
 from data_designer.slurm.launcher.models import SlurmQueueEntry
 from data_designer.slurm.launcher.parsing import (
     parse_accounting,
+    parse_default_partition_gpu_counts,
     parse_gpu_counts,
     parse_queue,
     parse_state,
@@ -172,6 +173,22 @@ def test_parsers_normalize_oversized_numeric_fields(
 )
 def test_parse_gpu_counts_normalizes_configured_gres(output: str, expected: tuple[int, ...]) -> None:
     assert parse_gpu_counts(output) == expected
+
+
+def test_parse_default_partition_gpu_counts_ignores_other_partitions() -> None:
+    output = "cpu|(null)\ngpu*|gpu:h100:8\nother|gpu:a100:4\ngpu*|gpu:h100:8\n"
+
+    assert parse_default_partition_gpu_counts(output) == (8, 8)
+
+
+@pytest.mark.parametrize(
+    "output",
+    ("gpu*|gpu:8|extra\n", "*|gpu:8\n", "gpu*|gpu:8\nother*|gpu:4\n"),
+    ids=("field-count", "missing-name", "multiple-defaults"),
+)
+def test_parse_default_partition_gpu_counts_rejects_malformed_rows(output: str) -> None:
+    with pytest.raises(SlurmCommandOutputError):
+        parse_default_partition_gpu_counts(output)
 
 
 @pytest.mark.parametrize(

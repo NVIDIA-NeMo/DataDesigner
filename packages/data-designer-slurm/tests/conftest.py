@@ -197,7 +197,7 @@ def fake_slurm_runner() -> FakeSlurmRunner:
             ),
         ),
         sinfo_responses={
-            ("sinfo", "--noheader", "--format=%G"): FakeCommandResponse(
+            ("sinfo", "--noheader", "--format=%P|%G"): FakeCommandResponse(
                 stdout=(SLURM_GOLDEN_DIRECTORY / "sinfo_gres.txt").read_text()
             )
         },
