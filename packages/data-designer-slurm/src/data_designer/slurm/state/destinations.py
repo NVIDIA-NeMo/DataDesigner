@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from data_designer.slurm.config import ContainerMount
-from data_designer.slurm.contracts import is_path_below, validate_absolute_path
+from data_designer.slurm.contracts import is_path_below, paths_overlap, validate_absolute_path
 from data_designer.slurm.images.records import validate_enroot_mount_path
 from data_designer.slurm.planning import ResolvedSlurmRunPlan
 from data_designer.slurm.state.errors import StateConflictError
@@ -41,6 +41,7 @@ class CollectionDestinationResolver:
         except ValueError as error:
             raise StateConflictError("collection destination must be a normalized absolute path") from error
         workspace_root = plan.selected_profile.profile.workspace_root
+        _validate_destination_overlap(plan, host_path)
         workspace_mount = ContainerMount(source=workspace_root, target=workspace_root, read_only=False)
         authorized = {
             (mount.source, mount.target): mount
@@ -87,6 +88,23 @@ class CollectionDestinationResolver:
         if collection_plan.num_partitions != resolved_plan.output.partitions:
             raise StateConflictError("collection partition count no longer matches resolved intent")
         return destination
+
+
+def _validate_destination_overlap(plan: ResolvedSlurmRunPlan, host_path: str) -> None:
+    workspace_root = plan.selected_profile.profile.workspace_root
+    reserved = tuple(posixpath.join(workspace_root, name) for name in ("images", "runtime", "benchmarks"))
+    if any(paths_overlap(host_path, path) for path in reserved):
+        raise StateConflictError("collection destination must not overlap package-managed workspace state")
+    managed_assets_path = plan.invocation.effective_input_bindings.managed_assets_path
+    assert managed_assets_path is not None
+    if paths_overlap(host_path, managed_assets_path):
+        raise StateConflictError("collection destination must not overlap managed assets")
+    runs_root = posixpath.join(workspace_root, "runs")
+    run_output_root = posixpath.join(runs_root, plan.run_id, "output")
+    if paths_overlap(host_path, runs_root) and not (
+        host_path == run_output_root or is_path_below(host_path, run_output_root)
+    ):
+        raise StateConflictError("collection destination must not overlap package-managed run state")
 
 
 __all__ = ["CollectionDestination", "CollectionDestinationResolver"]

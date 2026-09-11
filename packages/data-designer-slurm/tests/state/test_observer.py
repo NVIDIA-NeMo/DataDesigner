@@ -442,6 +442,29 @@ def test_refresh_rejects_a_concurrent_attempt_change_instead_of_guessing_status(
         SlurmStateReconciler(case.workspace, case.plan.run_id, MutatingClient()).refresh(observed_at=observed_at)
 
 
+def test_observe_does_not_create_a_missing_shard_lock_or_persist_scheduler_evidence(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    case = _initialized_case(tmp_path, authored_run_single, single_node_plan)
+    scheduler = cast(SchedulerIdentity, case.attempt.scheduler)
+    shard_root = case.writer.run_root / "shards/shard-00000"
+    (shard_root / "shard.lock").unlink()
+    client = _StaticSchedulerClient(
+        (SlurmQueueEntry(job_identity=scheduler, state=SchedulerState.RUNNING),),
+        (),
+    )
+
+    status = SlurmStateReconciler(case.workspace, case.plan.run_id, client).observe(
+        observed_at=case.created_at + timedelta(minutes=3)
+    )
+
+    assert status.shards[0].attempts[0].effective_state is EffectiveAttemptState.RUNNING
+    assert not (shard_root / "shard.lock").exists()
+    assert not (shard_root / "attempts/attempt-0001/scheduler.json").exists()
+
+
 def test_terminal_observation_remains_authoritative_during_later_accounting_gap() -> None:
     task = SchedulerIdentity(array_job_id=4101, array_task_id=0)
     first_time = datetime(2026, 9, 2, 12, tzinfo=timezone.utc)
