@@ -12,7 +12,7 @@ from pydantic import TypeAdapter, ValidationError
 from data_designer.slurm.config import ImageKind, ImageRef
 from data_designer.slurm.config.images import ImageBuildRequest
 from data_designer.slurm.contracts import Identifier
-from data_designer.slurm.images.records import RegisteredImage
+from data_designer.slurm.images.records import RegisteredImage, validate_oci_source_for_lifecycle
 from data_designer.slurm.planning import ResolvedImage
 from data_designer.slurm.services.errors import (
     SlurmServiceError,
@@ -98,6 +98,13 @@ class SlurmImageService:
             raise _make_invalid_request_error(operation, "request must be an ImageBuildRequest")
         if type(replace) is not bool:
             raise _make_invalid_request_error(operation, "replace must be a boolean")
+        try:
+            validate_oci_source_for_lifecycle(request.source)
+        except ValueError:
+            raise _make_invalid_request_error(
+                operation,
+                "OCI image source must be a credential-free registry reference without a scheme",
+            ) from None
         manager = self._require_manager(operation)
 
         def add_image() -> RegisteredImage:

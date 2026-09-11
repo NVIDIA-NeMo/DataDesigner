@@ -113,6 +113,8 @@ import data_designer
 import data_designer.config
 import data_designer.engine
 import data_designer.interface
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from typer.testing import CliRunner
 
 from data_designer.cli.main import app
@@ -133,7 +135,10 @@ assert "packaging.requirements" not in sys.modules
         statement += f"""
 slurm_help_result = CliRunner().invoke(app, ["slurm", "--help"])
 assert slurm_help_result.exit_code == 0, (slurm_help_result.output, repr(slurm_help_result.exception))
-assert "benchmark" in slurm_help_result.output
+assert all(
+    command in slurm_help_result.output
+    for command in ("execute", "status", "cancel", "retry", "merge", "image", "profile", "benchmark")
+)
 assert "data_designer.slurm.cli" in sys.modules
 assert version("data-designer-slurm") == {version!r}
 from data_designer.slurm.benchmark import BenchmarkCompiler
@@ -176,6 +181,29 @@ assert PlanningResumeWorkspace is ContractResumeWorkspace
 assert StateArtifactReference is ContractArtifactReference
 assert StateRecordRange is ContractRecordRange
 assert StateResumeWorkspace is ContractResumeWorkspace
+profile_help_result = CliRunner().invoke(app, ["slurm", "profile", "--help"])
+assert profile_help_result.exit_code == 0, profile_help_result.output
+with TemporaryDirectory() as temporary_directory:
+    root = Path(temporary_directory)
+    profile_file = root / "profile.yml"
+    profile_init_result = CliRunner().invoke(
+        app,
+        [
+            "slurm",
+            "profile",
+            "init",
+            "--workspace-root",
+            str(root / "workspace"),
+            "--image-build-partition",
+            "cpu",
+            "--profile-file",
+            str(profile_file),
+            "--host-pattern",
+            "login.example.test",
+        ],
+    )
+    assert profile_init_result.exit_code == 0, profile_init_result.output
+    assert profile_file.is_file()
 """
     run([str(python), "-c", statement], cwd=cwd)
 

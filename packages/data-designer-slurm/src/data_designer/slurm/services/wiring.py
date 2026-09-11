@@ -12,7 +12,7 @@ from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Protocol, TypeVar
+from typing import Literal, Protocol, TypeVar
 from uuid import uuid4
 
 from pydantic import JsonValue
@@ -39,7 +39,7 @@ from data_designer.slurm.config import (
     load_builder_payload,
     resolve_profile,
 )
-from data_designer.slurm.contracts import Identifier
+from data_designer.slurm.contracts import Identifier, ShardId
 from data_designer.slurm.images.errors import ImageConflictError, ImageNotFoundError, SlurmImageError
 from data_designer.slurm.images.records import RegisteredImage
 from data_designer.slurm.images.registry import ImageRegistryStore
@@ -55,14 +55,18 @@ from data_designer.slurm.runtime.errors import SlurmRuntimeError
 from data_designer.slurm.services.artifacts import StateRunArtifactPublisher
 from data_designer.slurm.services.benchmark import SlurmBenchmarkService
 from data_designer.slurm.services.errors import SlurmServiceError, SlurmServiceErrorCode, SlurmServiceOperation
+from data_designer.slurm.services.image_lifecycle import SlurmImageLifecycleManager
 from data_designer.slurm.services.images import SlurmImageService
 from data_designer.slurm.services.results import (
+    SlurmCollectionExecution,
     SlurmPersistedAttemptStatus,
     SlurmPersistedRunStatus,
     SlurmPersistedShardStatus,
+    SlurmRetryExecution,
     SlurmRunCancellation,
     SlurmRunExecution,
 )
+from data_designer.slurm.services.retry_collection import RunRetryCollectionBackend
 from data_designer.slurm.services.run import SlurmRunService
 from data_designer.slurm.serving.resolver import resolve_vllm_server
 from data_designer.slurm.state import (
@@ -282,6 +286,11 @@ class _SystemRunBackend:
         self._publisher = publisher
         self._clock = clock
         self._source_environment = source_environment
+        self._retry_collection = RunRetryCollectionBackend(
+            selected_profile.profile.workspace_root,
+            launcher,
+            clock,
+        )
 
     def execute(
         self,
@@ -636,11 +645,40 @@ class _SystemRunBackend:
             )
         return SlurmRunCancellation(run_id=run_id, job_ids=job_ids)
 
+    def retry(
+        self,
+        run_or_job_id: Identifier,
+        *,
+        shard_ids: tuple[ShardId, ...] | None,
+        resume: Literal["never", "always", "if_possible"],
+        dry_run: bool,
+    ) -> SlurmRetryExecution:
+        return self._retry_collection.retry(
+            run_or_job_id,
+            shard_ids=shard_ids,
+            resume=resume,
+            dry_run=dry_run,
+        )
+
+    def collect(
+        self,
+        input_path: Path,
+        *,
+        destination: Path,
+        num_partitions: int | None,
+    ) -> SlurmCollectionExecution:
+        return self._retry_collection.collect(
+            input_path,
+            destination=destination,
+            num_partitions=num_partitions,
+        )
+
 
 class _RegistryImageBackend:
-    def __init__(self, workspace_root: str) -> None:
+    def __init__(self, workspace_root: str, lifecycle: SlurmImageLifecycleManager) -> None:
         self._verified = VerifiedImageRegistry(workspace_root)
         self._store = ImageRegistryStore(workspace_root)
+        self._lifecycle = lifecycle
 
     def resolve(self, reference: ImageRef, *, expected_kind: ImageKind) -> ResolvedImage:
         try:
@@ -659,12 +697,7 @@ class _RegistryImageBackend:
             ) from None
 
     def add(self, request: ImageBuildRequest, *, replace: bool) -> RegisteredImage:
-        del request, replace
-        raise SlurmServiceError(
-            SlurmServiceErrorCode.UNAVAILABLE,
-            SlurmServiceOperation.ADD_IMAGE,
-            "image registration is not available; use a pre-registered image",
-        )
+        return self._lifecycle.add(request, replace=replace)
 
     def list(self) -> tuple[RegisteredImage, ...]:
         return self._invoke_registry(SlurmServiceOperation.LIST_IMAGES, self._store.list_images)
@@ -755,10 +788,22 @@ def create_slurm_image_service(
     catalog: SlurmProfileCatalog | None = None,
     profile_file: str | Path | None = None,
     cluster: str | None = None,
+    launcher: SlurmCommandClient | None = None,
+    lifecycle_id_factory: Callable[[], str] | None = None,
+    clock: Clock | None = None,
+    sleep: Callable[[float], None] | None = None,
 ) -> SlurmImageService:
     """Create the production image service for one selected cluster profile."""
     selected = resolve_profile(profile=profile, catalog=catalog, profile_file=profile_file, cluster=cluster)
-    backend = _RegistryImageBackend(selected.profile.workspace_root)
+    command_client = launcher or SlurmCommandClient()
+    lifecycle = SlurmImageLifecycleManager(
+        selected,
+        command_client,
+        lifecycle_id_factory=lifecycle_id_factory,
+        clock=clock,
+        sleep=sleep,
+    )
+    backend = _RegistryImageBackend(selected.profile.workspace_root, lifecycle)
     return SlurmImageService(backend, backend)
 
 

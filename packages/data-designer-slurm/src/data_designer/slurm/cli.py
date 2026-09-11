@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable
+from enum import Enum
+from functools import partial
 from pathlib import Path
 from typing import NoReturn, TypeVar
 
@@ -15,11 +17,13 @@ from pydantic import BaseModel, ValidationError
 from data_designer.slurm.cli_benchmark import create_benchmark_app
 from data_designer.slurm.config import ImageBuildRequest, SlurmConfigLoadError, load_run_config
 from data_designer.slurm.contracts import canonical_json
+from data_designer.slurm.images.records import validate_oci_source_for_lifecycle
 from data_designer.slurm.services import (
     SlurmServiceError,
     SlurmServiceErrorCode,
     SlurmServiceOperation,
     create_slurm_image_service,
+    create_slurm_profile_service,
     create_slurm_run_service,
 )
 
@@ -32,13 +36,22 @@ _EXIT_CODES = {
     SlurmServiceErrorCode.INTERNAL: 1,
 }
 
+
+class _RetryResumeMode(str, Enum):
+    NEVER = "never"
+    ALWAYS = "always"
+    IF_POSSIBLE = "if_possible"
+
+
 app = typer.Typer(
     name="slurm",
     help="Run Data Designer workloads on Slurm",
     no_args_is_help=True,
 )
 image_app = typer.Typer(help="Manage verified Slurm images", no_args_is_help=True)
+profile_app = typer.Typer(help="Initialize and validate Slurm profiles", no_args_is_help=True)
 app.add_typer(image_app, name="image")
+app.add_typer(profile_app, name="profile")
 
 
 @app.callback()
@@ -95,6 +108,129 @@ def cancel_command(
     _emit_result(result)
 
 
+@app.command("retry")
+def retry_command(
+    run_or_job_id: str = typer.Argument(..., help="Managed run ID or Slurm array job ID"),
+    task_ids: list[int] | None = typer.Option(None, "--task-id", min=0, help="Array task ID to retry; repeatable"),
+    resume: _RetryResumeMode = typer.Option(_RetryResumeMode.IF_POSSIBLE, "--resume"),
+    dry_run: bool = typer.Option(False, "--dry-run"),
+    force: bool = typer.Option(False, "--force", help="Submit without confirmation"),
+    profile_file: Path | None = typer.Option(None, "--profile-file", dir_okay=False),
+    cluster: str | None = typer.Option(None, "--cluster"),
+) -> None:
+    """Retry failed shards from immutable persisted run state."""
+    operation = SlurmServiceOperation.RETRY_RUN
+    shard_ids = None if task_ids is None else tuple(f"shard-{task_id:05d}" for task_id in task_ids)
+    service = _invoke(
+        operation,
+        lambda: create_slurm_run_service(profile_file=profile_file, cluster=cluster),
+    )
+
+    if not dry_run and not force:
+        planned = _invoke(
+            operation,
+            partial(
+                service.retry,
+                run_or_job_id,
+                shard_ids=shard_ids,
+                resume=resume.value,
+                dry_run=True,
+            ),
+        )
+        typer.echo(
+            f"Retry {', '.join(planned.shard_ids)} with resume={planned.effective_resume_mode}",
+            err=True,
+        )
+        try:
+            confirmed = click.confirm("Submit this retry?", default=False, err=True)
+        except click.Abort:
+            typer.echo(err=True)
+            _fail(
+                SlurmServiceError(
+                    SlurmServiceErrorCode.INVALID_REQUEST,
+                    operation,
+                    "interactive confirmation is unavailable; pass --force or --dry-run",
+                )
+            )
+        if not confirmed:
+            _emit_json({"operation": operation.value, "state": "declined"})
+            return
+        shard_ids = planned.shard_ids
+        resume = _RetryResumeMode(planned.effective_resume_mode)
+    result = _invoke(
+        operation,
+        partial(
+            service.retry,
+            run_or_job_id,
+            shard_ids=shard_ids,
+            resume=resume.value,
+            dry_run=dry_run,
+        ),
+    )
+    _emit_result(result)
+
+
+@app.command("merge")
+def merge_command(
+    input_path: Path = typer.Option(..., "--input-path", file_okay=False),
+    output_path: Path = typer.Option(..., "--output-path", file_okay=False),
+    num_partitions: int | None = typer.Option(None, "--num-partitions", min=1),
+    profile_file: Path | None = typer.Option(None, "--profile-file", dir_okay=False),
+    cluster: str | None = typer.Option(None, "--cluster"),
+) -> None:
+    """Submit winner-driven collection as a zero-GPU Slurm job."""
+    operation = SlurmServiceOperation.COLLECT_RUN
+    result = _invoke(
+        operation,
+        lambda: create_slurm_run_service(profile_file=profile_file, cluster=cluster).collect(
+            input_path,
+            destination=output_path,
+            num_partitions=num_partitions,
+        ),
+    )
+    _emit_result(result)
+
+
+@profile_app.command("init")
+def profile_init_command(
+    workspace_root: Path = typer.Option(..., "--workspace-root", file_okay=False),
+    image_build_partition: str = typer.Option(..., "--image-build-partition"),
+    profile_file: Path | None = typer.Option(None, "--profile-file", dir_okay=False),
+    cluster: str = typer.Option("default", "--cluster"),
+    account: str | None = typer.Option(None, "--account"),
+    partition: str | None = typer.Option(None, "--partition"),
+    host_pattern: list[str] | None = typer.Option(None, "--host-pattern"),
+) -> None:
+    """Create a safe portable starter profile without overwriting."""
+    operation = SlurmServiceOperation.INIT_PROFILE
+    result = _invoke(
+        operation,
+        lambda: create_slurm_profile_service(profile_file=profile_file).initialize(
+            workspace_root=workspace_root,
+            image_build_partition=image_build_partition,
+            cluster=cluster,
+            account=account,
+            partition=partition,
+            host_patterns=tuple(host_pattern or ()),
+        ),
+    )
+    _emit_result(result)
+
+
+@profile_app.command("validate")
+def profile_validate_command(
+    profile_file: Path | None = typer.Option(None, "--profile-file", dir_okay=False),
+    cluster: str | None = typer.Option(None, "--cluster"),
+) -> None:
+    """Validate strict loading, cluster selection, workspace, and Slurm facts."""
+    operation = SlurmServiceOperation.VALIDATE_PROFILE
+    result = _invoke(
+        operation,
+        lambda: create_slurm_profile_service(profile_file=profile_file, cluster=cluster).validate(),
+    )
+    _emit_result(result)
+
+
 @image_app.command("add")
 def image_add_command(
     source: str = typer.Argument(...),
@@ -114,6 +250,14 @@ def image_add_command(
                 operation,
                 "OCI image source must be digest-qualified as name@sha256:<digest>",
             )
+        try:
+            validate_oci_source_for_lifecycle(source)
+        except ValueError:
+            raise SlurmServiceError(
+                SlurmServiceErrorCode.INVALID_REQUEST,
+                operation,
+                "OCI image source must be a credential-free registry reference without a scheme",
+            ) from None
         request = ImageBuildRequest(name=name or _derive_image_name(source), kind=kind, source=source)
         return create_slurm_image_service(profile_file=profile_file, cluster=cluster).add(request, replace=replace)
 

@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -93,6 +94,13 @@ class SlurmStateReconciler:
             SlurmStateError: If scheduler evidence cannot be queried or state
                 cannot be reconstructed safely.
         """
+        return self._observe(observed_at=observed_at, persist=True)
+
+    def observe(self, *, observed_at: datetime | None = None) -> RunStatus:
+        """Return current scheduler status without persisting observations."""
+        return self._observe(observed_at=observed_at, persist=False)
+
+    def _observe(self, *, observed_at: datetime | None, persist: bool) -> RunStatus:
         timestamp = datetime.now(timezone.utc) if observed_at is None else observed_at
         _validate_observed_at(timestamp)
         run, plan, shards = self._reader.load_context()
@@ -115,6 +123,7 @@ class SlurmStateReconciler:
             self._refresh_shard(
                 _ShardSnapshot(run, plan, shard, attempts_by_shard[shard.shard_id]),
                 batch,
+                persist=persist,
             )
             for shard in shards
         )
@@ -173,9 +182,12 @@ class SlurmStateReconciler:
         self,
         expected: _ShardSnapshot,
         batch: _ObservationBatch,
+        *,
+        persist: bool,
     ) -> ShardStatus:
         try:
-            with self._storage.acquire_shard_lock(expected.shard.shard_id):
+            shard_lock = self._storage.acquire_shard_lock(expected.shard.shard_id) if persist else nullcontext()
+            with shard_lock:
                 current_run, current_plan, current_shard = self._reader.load_shard_context(expected.shard.shard_id)
                 attempts = self._reader.load_validated_shard_attempts(current_run, current_plan, current_shard)
                 self._require_unchanged_context(
@@ -194,6 +206,7 @@ class SlurmStateReconciler:
                         batch,
                         attempt,
                         winner,
+                        persist=persist,
                     )
                     for attempt in attempts
                 )
@@ -215,13 +228,16 @@ class SlurmStateReconciler:
         batch: _ObservationBatch,
         attempt: AttemptManifest,
         winner: ShardWinner | None,
+        *,
+        persist: bool,
     ) -> AttemptStatus:
         readiness = self._reader.load_optional_readiness(snapshot.plan, attempt)
         result = self._reader.load_optional_attempt_result(snapshot.plan, snapshot.shard, attempt)
         scheduler = None
         if attempt.scheduler is not None:
             scheduler = batch.current[attempt.scheduler]
-            self._persist_observation(attempt, batch.previous[attempt.scheduler], scheduler)
+            if persist:
+                self._persist_observation(attempt, batch.previous[attempt.scheduler], scheduler)
             effective_state = reconcile_attempt_observation(
                 attempt,
                 readiness,
