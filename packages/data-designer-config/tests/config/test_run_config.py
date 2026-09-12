@@ -3,6 +3,9 @@
 
 from __future__ import annotations
 
+import pickle
+from unittest.mock import patch
+
 import pytest
 from pydantic import ValidationError
 
@@ -272,6 +275,17 @@ def test_deprecated_throttle_config_is_exported_from_config_package() -> None:
     namespace: dict[str, object] = {}
     exec("from data_designer.config import ThrottleConfig", namespace)
     assert namespace["ThrottleConfig"] is ThrottleConfig
+
+
+def test_deprecated_throttle_config_unpickles_from_pre_move_module_path() -> None:
+    # Pickles written before ThrottleConfig moved to run_config_deprecated record
+    # data_designer.config.run_config; patching __module__ reproduces those bytes. Unpickling
+    # resolves them through the module-level re-import in run_config.
+    with patch.object(ThrottleConfig, "__module__", "data_designer.config.run_config"):
+        legacy_payload = pickle.dumps(ThrottleConfig(reduce_factor=0.5))
+
+    assert b"data_designer.config.run_config_deprecated" not in legacy_payload
+    assert pickle.loads(legacy_payload) == ThrottleConfig(reduce_factor=0.5)
 
 
 def test_throttle_config_accepts_rampup_seconds() -> None:
