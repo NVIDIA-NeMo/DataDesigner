@@ -171,6 +171,7 @@ trap 'exit 143' TERM
 dd_initialize_local_scratch
 dd_stage_allocation_runtime
 readonly DD_RUNTIME_ROOT="${{DD_SCRATCH_ROOT}}/runtime"
+export PYTHONPATH="${{DD_SCRATCH_CONTAINER_ROOT}}/runtime"
 srun \\
     --nodes=1 \\
     --ntasks=1 \\
@@ -181,7 +182,8 @@ srun \\
     --gres=none \\
     --export=ALL \\
     --container-image="${{DD_CLIENT_IMAGE}}" \\
-    --container-mounts="${{DD_WORKSPACE_ROOT}}:${{DD_WORKSPACE_ROOT}}" \\
+    --container-mounts="${{DD_WORKSPACE_ROOT}}:${{DD_WORKSPACE_ROOT}},${{DD_SCRATCH_ROOT}}:${{DD_SCRATCH_CONTAINER_ROOT}}" \\
+    --container-env=PYTHONPATH \\
     -- \\
     python3 -m data_designer.slurm.state.attempt_identity \\
     --workspace-root "${{DD_WORKSPACE_ROOT}}" --run-id "${{DD_RUN_ID}}" \\

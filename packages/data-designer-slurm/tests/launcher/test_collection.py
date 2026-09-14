@@ -123,7 +123,12 @@ def test_retry_renderer_waits_for_persisted_attempt_before_starting_runtime(
     assert "data_designer.slurm.state.attempt_identity" in script
     assert "enroot start" not in script
     assert '--container-image="${DD_CLIENT_IMAGE}"' in script
-    assert '--container-mounts="${DD_WORKSPACE_ROOT}:${DD_WORKSPACE_ROOT}"' in script
+    assert (
+        '--container-mounts="${DD_WORKSPACE_ROOT}:${DD_WORKSPACE_ROOT},${DD_SCRATCH_ROOT}:${DD_SCRATCH_CONTAINER_ROOT}"'
+        in script
+    )
+    assert 'export PYTHONPATH="${DD_SCRATCH_CONTAINER_ROOT}/runtime"' in script
+    assert "--container-env=PYTHONPATH" in script
     assert "--gres=none" in script
     assert "--export=ALL" in script
     assert "python3 -m data_designer.slurm.state.attempt_identity" in script
