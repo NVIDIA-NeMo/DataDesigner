@@ -6,6 +6,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+import shutil
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -101,6 +102,14 @@ def test_retry_refreshes_failed_shard_and_publishes_exact_next_attempt(
     retry_plan = case.writer.load_retry_plan("retry-0001")
     assert retry_plan.effective_resume_mode == "never"
     assert retry_plan.planned_shards[0].attempt_id == attempts[0].attempt_id
+    mapped_workspace = tmp_path / "mapped-workspace"
+    shutil.copytree(case.workspace / "runs", mapped_workspace / "runs")
+    mapped_writer = SlurmStateWriter(
+        mapped_workspace,
+        case.plan.run_id,
+        logical_workspace_root=case.workspace,
+    )
+    assert mapped_writer.load_retry_plan("retry-0001") == retry_plan
     require_attempt_scheduler_identity(
         case.workspace,
         case.plan.run_id,
