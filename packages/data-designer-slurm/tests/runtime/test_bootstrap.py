@@ -58,6 +58,9 @@ def test_bootstrap_manifest_builds_typed_one_node_steps_without_secret_values(ru
     assert "--attempt-dir" in manifest.steps[-1].command
     assert all(step.node_hosts == ("compute-001",) for step in manifest.steps)
     assert all(step.role is not RuntimeStepRole.SERVER_PREFLIGHT for step in manifest.steps)
+    endpoint = next(step for step in manifest.steps if step.role is RuntimeStepRole.ENDPOINT)
+    assert endpoint.literal_environment["PYTHONPATH"] == runtime_root.as_posix()
+    assert endpoint.container_environment == ("PYTHONPATH",)
     client_steps = tuple(
         step for step in manifest.steps if step.role in {RuntimeStepRole.CLIENT_PREFLIGHT, RuntimeStepRole.CLIENT}
     )
@@ -164,6 +167,8 @@ def test_bootstrap_manifest_composes_multi_node_workers_and_remote_endpoints(
     assert tuple(probe.host for probe in distributed.readiness) == ("compute-001",)
     assert "http://compute-001:" in " ".join(endpoint.command)
     assert endpoint.node_hosts == ("compute-001",)
+    assert endpoint.literal_environment["PYTHONPATH"] == f"{ALLOCATION_SCRATCH_CONTAINER_ROOT}/runtime"
+    assert endpoint.container_environment == ("PYTHONPATH",)
     assert remote_preflight.node_hosts == ("compute-003",)
     remote_worker_spec = decode_node_worker_spec(remote_preflight.command[-1])
     assert remote_worker_spec.required_model_path == "/workspace/primary/models/model-1"

@@ -210,6 +210,8 @@ def test_endpoint_step_uses_resolved_retry_policy_and_backends(runtime_case: Run
         step.command.index("--retry-after-seconds") : step.command.index("--retry-after-seconds") + 2
     ]
     assert "--max-waiting-requests" not in step.command
+    assert step.environment["PYTHONPATH"].endswith("/runtime")
+    assert "--container-env=PYTHONPATH" in step.command
     for backend in deployment.backend_endpoints:
         assert f"http://127.0.0.1:{backend.port}" in step.command
 

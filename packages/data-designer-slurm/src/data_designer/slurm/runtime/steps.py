@@ -249,11 +249,22 @@ def build_endpoint_steps(
     attempt_directory: Path,
     source_environment: Mapping[str, str],
     runtime_proxy_path: Path,
+    runtime_root: Path | None = None,
 ) -> tuple[tuple[RuntimeStep, RuntimeEndpoint], ...]:
     """Build one package-owned logical-endpoint process per deployment."""
+    resolved_runtime_root = runtime_root if runtime_root is not None else runtime_proxy_path.parent
     steps: list[tuple[RuntimeStep, RuntimeEndpoint]] = []
     for deployment in deployments:
-        steps.append(_build_endpoint_step(deployment, plan, attempt_directory, source_environment, runtime_proxy_path))
+        steps.append(
+            _build_endpoint_step(
+                deployment,
+                plan,
+                attempt_directory,
+                source_environment,
+                runtime_proxy_path,
+                resolved_runtime_root,
+            )
+        )
     return tuple(steps)
 
 
@@ -263,6 +274,7 @@ def _build_endpoint_step(
     attempt_directory: Path,
     source_environment: Mapping[str, str],
     runtime_proxy_path: Path,
+    runtime_root: Path,
 ) -> tuple[RuntimeStep, RuntimeEndpoint]:
     endpoint = RuntimeEndpoint(
         model_alias=deployment.model_alias,
@@ -271,13 +283,15 @@ def _build_endpoint_step(
         port=deployment.logical_endpoint.port,
     )
     command = build_endpoint_command(deployment, plan, runtime_proxy_path, endpoint.port)
+    environment = _base_environment(source_environment)
+    environment["PYTHONPATH"] = get_container_path(plan, runtime_root.as_posix())
     step = _build_srun_step(
         step_id=f"{deployment.deployment_id}-endpoint",
         role=RuntimeStepRole.ENDPOINT,
         image_path=plan.client.image.path,
         command=command,
-        environment=_base_environment(source_environment),
-        container_environment=(),
+        environment=environment,
+        container_environment=("PYTHONPATH",),
         plan=plan,
         attempt_directory=attempt_directory,
     )

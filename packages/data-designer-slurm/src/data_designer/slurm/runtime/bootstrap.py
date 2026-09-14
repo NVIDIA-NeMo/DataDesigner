@@ -207,10 +207,10 @@ def _build_endpoint_step(
         command=command,
         cpus=context.plan.client.authored.cpus,
         gpu_indices=(),
-        literal_environment={"LC_ALL": "C"},
+        literal_environment={"LC_ALL": "C", "PYTHONPATH": runtime_root.as_posix()},
         secret_environment={},
         environment_prefixes={},
-        container_environment=(),
+        container_environment=("PYTHONPATH",),
         log_directory=log_directory,
         node_hosts=(layout.get_host(context.plan.client.host_node_index),),
         readiness=(
