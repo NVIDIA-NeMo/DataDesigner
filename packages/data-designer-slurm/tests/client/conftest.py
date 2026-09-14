@@ -29,6 +29,7 @@ class ClientWorkerCase:
     plan_path: Path
     lock: ResolvedDependencyLock
     attempt_dir: Path
+    scratch_root: Path
     prepared: PreparedClientEnvironment
     endpoints: dict[str, str]
 
@@ -111,7 +112,7 @@ def allocation_environment(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture
-def client_worker_case(tmp_path: Path) -> ClientWorkerCase:
+def client_worker_case(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> ClientWorkerCase:
     workspace = tmp_path / "workspace"
     payload = json.loads(
         (GOLDEN_DIRECTORY / "single_node_plan.json").read_text().replace("/workspace/primary", workspace.as_posix())
@@ -139,13 +140,17 @@ def client_worker_case(tmp_path: Path) -> ClientWorkerCase:
     Path(plan.invocation.effective_input_bindings.managed_assets_path).mkdir(parents=True)
     shard = plan.shards[0]
     attempt_dir = Path(shard.resume_workspace.path).parent / "attempts" / "attempt-0001"
-    overlay_path = attempt_dir / "client-env" / "site-packages"
+    attempt_dir.mkdir(parents=True)
+    scratch_root = tmp_path / "scratch"
+    monkeypatch.setenv("DATA_DESIGNER_SLURM_SCRATCH_ROOT", scratch_root.as_posix())
+    overlay_path = scratch_root / "client-env" / "site-packages"
     overlay_path.mkdir(parents=True)
     prepared = PreparedClientEnvironment(
         run_id=plan.run_id,
         shard_id=shard.shard_id,
         attempt_id="attempt-0001",
         attempt_dir=attempt_dir,
+        scratch_root=scratch_root,
         overlay_path=overlay_path,
         dependency_lock=plan.client.dependency_lock,
         client_image_sha256=plan.client.image.sha256,
@@ -162,4 +167,4 @@ def client_worker_case(tmp_path: Path) -> ClientWorkerCase:
             0
         ].authored.model_alias: f"http://127.0.0.1:{allocation_plan.client.ports[0].port}/v1"
     }
-    return ClientWorkerCase(plan, plan_path, lock, attempt_dir, prepared, endpoints)
+    return ClientWorkerCase(plan, plan_path, lock, attempt_dir, scratch_root, prepared, endpoints)

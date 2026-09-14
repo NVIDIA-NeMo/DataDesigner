@@ -15,6 +15,7 @@ from data_designer.slurm.config.environment import (
     SecretRef,
     collect_secret_environment_names,
 )
+from data_designer.slurm.contracts import validate_absolute_path
 from data_designer.slurm.planning import PlannedShard, ResolvedSlurmRunPlan
 from data_designer.slurm.runtime.backpressure import (
     MAX_WAITING_REQUESTS_ENVIRONMENT,
@@ -22,12 +23,13 @@ from data_designer.slurm.runtime.backpressure import (
 )
 from data_designer.slurm.runtime.errors import SlurmRuntimeError, SlurmRuntimeErrorCode
 from data_designer.slurm.runtime.models import RuntimeEndpoint, RuntimeStep, RuntimeStepRole
-from data_designer.slurm.runtime.paths import get_container_path
+from data_designer.slurm.runtime.paths import ALLOCATION_SCRATCH_CONTAINER_ROOT, get_container_path
 from data_designer.slurm.serving.deployment import ResolvedVllmServerDeployment
 from data_designer.slurm.serving.vllm import ResolvedVllmProcess
 from data_designer.slurm.state import AttemptManifest
 
 _SLURM_ENVIRONMENT_NAMES = (
+    "DD_SCRATCH_ROOT",
     "SLURM_ARRAY_JOB_ID",
     "SLURM_ARRAY_TASK_ID",
     "SLURM_CLUSTER_NAME",
@@ -159,7 +161,11 @@ class DefaultClientStepBuilder:
             image_path=plan.client.image.path,
             command=command,
             environment=environment,
-            container_environment=(*secret_names, *allocation_environment),
+            container_environment=(
+                *secret_names,
+                *allocation_environment,
+                "DATA_DESIGNER_SLURM_SCRATCH_ROOT",
+            ),
             plan=plan,
             attempt_directory=attempt_directory,
         )
@@ -211,6 +217,15 @@ def _build_client_environment(
                 SlurmRuntimeErrorCode.PREFLIGHT_FAILED,
                 f"required client secret environment {name!r} is unavailable",
             ) from None
+    try:
+        scratch_root = _validate_scratch_root(source_environment["DD_SCRATCH_ROOT"])
+    except KeyError:
+        raise SlurmRuntimeError(
+            SlurmRuntimeErrorCode.INVALID_CONTEXT,
+            "allocation scratch is unavailable",
+        ) from None
+    environment["DD_SCRATCH_ROOT"] = scratch_root
+    environment["DATA_DESIGNER_SLURM_SCRATCH_ROOT"] = ALLOCATION_SCRATCH_CONTAINER_ROOT
     return secret_names, environment
 
 
@@ -276,6 +291,7 @@ def build_endpoint_command(
     port: int,
     *,
     backend_hosts: tuple[str, ...] | None = None,
+    runtime_proxy_is_container_path: bool = False,
 ) -> tuple[str, ...]:
     selected_hosts = backend_hosts or ("127.0.0.1",) * len(deployment.backend_endpoints)
     if len(selected_hosts) != len(deployment.backend_endpoints):
@@ -294,9 +310,17 @@ def build_endpoint_command(
     )
     retry_after_seconds = deployment.launch_policy.queue_backpressure.retry_after_seconds
     retry_arguments = ("--retry-after-seconds", str(retry_after_seconds)) if retry_after_seconds is not None else ()
+    try:
+        container_proxy_path = (
+            validate_absolute_path(runtime_proxy_path.as_posix())
+            if runtime_proxy_is_container_path
+            else get_container_path(plan, runtime_proxy_path.as_posix())
+        )
+    except ValueError as error:
+        raise SlurmRuntimeError(SlurmRuntimeErrorCode.INVALID_CONTEXT, "runtime proxy path is invalid") from error
     return (
         "python3",
-        get_container_path(plan, runtime_proxy_path.as_posix()),
+        container_proxy_path,
         "--listen-port",
         str(port),
         *retry_arguments,
@@ -425,7 +449,7 @@ def _build_srun_step(
 ) -> RuntimeStep:
     srun_command = _build_srun_prefix(plan, image_path)
     _add_srun_resources(srun_command, gpu_indices)
-    _add_srun_container_options(srun_command, plan, container_environment)
+    _add_srun_container_options(srun_command, plan, container_environment, environment)
     srun_command.extend(("--", *command))
     log_root = attempt_directory / "logs"
     return RuntimeStep(
@@ -468,8 +492,9 @@ def _add_srun_container_options(
     srun_command: list[str],
     plan: ResolvedSlurmRunPlan,
     container_environment: tuple[str, ...],
+    environment: Mapping[str, str],
 ) -> None:
-    mounts = _render_mounts(plan)
+    mounts = _render_mounts(plan, environment.get("DD_SCRATCH_ROOT"))
     if mounts:
         srun_command.append(f"--container-mounts={mounts}")
     if container_environment:
@@ -480,7 +505,7 @@ def _get_gpu_mask(gpu_indices: tuple[int, ...]) -> int:
     return sum(1 << index for index in gpu_indices)
 
 
-def _render_mounts(plan: ResolvedSlurmRunPlan) -> str:
+def _render_mounts(plan: ResolvedSlurmRunPlan, scratch_root: str | None) -> str:
     rendered: list[str] = []
     for mount in plan.container_mounts:
         if any(character in mount.source or character in mount.target for character in (",", ":")):
@@ -492,7 +517,19 @@ def _render_mounts(plan: ResolvedSlurmRunPlan) -> str:
         if mount.read_only:
             value += ":ro"
         rendered.append(value)
+    if scratch_root is not None:
+        rendered.append(f"{_validate_scratch_root(scratch_root)}:{ALLOCATION_SCRATCH_CONTAINER_ROOT}")
     return ",".join(rendered)
+
+
+def _validate_scratch_root(value: str) -> str:
+    try:
+        validated = validate_absolute_path(value)
+    except ValueError as error:
+        raise SlurmRuntimeError(SlurmRuntimeErrorCode.INVALID_CONTEXT, "allocation scratch path is invalid") from error
+    if any(character in validated for character in (",", ":")):
+        raise SlurmRuntimeError(SlurmRuntimeErrorCode.INVALID_CONTEXT, "allocation scratch path is invalid")
+    return validated
 
 
 def _base_environment(source_environment: Mapping[str, str]) -> dict[str, str]:

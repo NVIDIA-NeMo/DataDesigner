@@ -21,7 +21,12 @@ dd_read_control_plan() {
         and ([.deployments[].node_indices[]] | length > 0)
         and ([.deployments[].node_indices[]] | all(type == "number" and . >= 0))
         and ([.container_mounts[] | (.source + .target)] | all(test("[,:]") | not))
-    ' "${plan}" >/dev/null
+        and ([.container_mounts[].target] | all(
+            . != "/run/data-designer-slurm"
+            and (startswith("/run/data-designer-slurm/") | not)
+            and (. as $target | ("/run/data-designer-slurm" | startswith($target + "/") | not))
+        ))
+    ' "${plan}" >/dev/null || return 65
     DD_CLIENT_IMAGE=$(jq -er '.client.image.path' "${plan}")
     DD_CLIENT_CPUS=$(jq -er '.client.authored.cpus | tostring' "${plan}")
     DD_EXPECTED_GPUS=$(jq -er '.resolved_gpus_per_node | tostring' "${plan}")

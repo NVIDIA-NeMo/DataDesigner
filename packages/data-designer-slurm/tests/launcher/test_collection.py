@@ -82,6 +82,7 @@ def test_collection_renderer_uses_authorized_mounts_and_no_gpu_directives(
     assert "data_designer.slurm.state.collection_worker" in script
     assert "#SBATCH --gres=" not in script
     assert "#SBATCH --gpus=" not in script
+    assert script.index("trap 'exit 143' TERM") < script.index("\ndd_initialize_local_scratch\n")
     assert subprocess.run(("bash", "-n"), input=script, text=True, check=False).returncode == 0
 
 
@@ -118,10 +119,13 @@ def test_retry_renderer_waits_for_persisted_attempt_before_starting_runtime(
     assert f'readonly DD_RETRY_ID="{retry.retry_id}"' in script
     assert f'readonly DD_RETRY_PLAN_SHA256="{retry.compute_sha256()}"' in script
     assert 'readonly DD_EFFECTIVE_RESUME_MODE="never"' in script
-    assert script.index("DD_ATTEMPT_MANIFEST") < script.index("DD_RUNTIME_DIR")
+    assert script.index("DD_ATTEMPT_MANIFEST") < script.index("DD_RUNTIME_ROOT")
     assert "data_designer.slurm.state.attempt_identity" in script
     assert '--array-job-id "${DD_ARRAY_JOB_ID}" --array-task-id "${DD_ARRAY_TASK_ID}"' in script
-    assert script.index("data_designer.slurm.state.attempt_identity") < script.index("DD_RUNTIME_DIR")
+    assert script.index("dd_stage_allocation_runtime") < script.index("data_designer.slurm.state.attempt_identity")
+    assert script.index("trap 'exit 143' TERM") < script.index("\ndd_initialize_local_scratch\n")
+    assert f'#SBATCH --output="/workspace/primary/runs/run-001/retries/{retry.retry_id}/slurm-%A_%a.out"' in script
+    assert f'#SBATCH --error="/workspace/primary/runs/run-001/retries/{retry.retry_id}/slurm-%A_%a.err"' in script
     assert '"${DD_RETRY_PLAN_SHA256}" "${DD_EFFECTIVE_RESUME_MODE}"' in script
     assert subprocess.run(("bash", "-n"), input=script, text=True, check=False).returncode == 0
 

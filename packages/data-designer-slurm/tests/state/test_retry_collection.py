@@ -743,7 +743,7 @@ def test_collection_submits_cpu_job_and_publishes_ordered_winners_atomically(
     script = cast(str, runner.inputs[-1])
     assert "data_designer.slurm.state.collection_worker" in script
     assert "--gpus" not in script
-    assert "--gres" not in script
+    assert "#SBATCH --gres" not in script
     stale_stage = Path(case.plan.output.root).parent / submitted.staging_directory
     stale_stage.mkdir(mode=0o700)
     (stale_stage / "partial").write_text("incomplete")

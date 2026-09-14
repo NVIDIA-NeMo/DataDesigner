@@ -12,9 +12,10 @@ from data_designer.slurm.config.environment import (
     SecretRef,
     collect_secret_environment_names,
 )
+from data_designer.slurm.runtime.errors import SlurmRuntimeError, SlurmRuntimeErrorCode
 from data_designer.slurm.runtime.manifest import RuntimeBootstrapManifest, RuntimeProbeSpec, RuntimeStepSpec
 from data_designer.slurm.runtime.models import AllocationContext, RuntimeEndpoint, RuntimeStepRole
-from data_designer.slurm.runtime.paths import get_container_path
+from data_designer.slurm.runtime.paths import ALLOCATION_SCRATCH_CONTAINER_ROOT
 from data_designer.slurm.runtime.ports import resolve_allocation_deployments
 from data_designer.slurm.runtime.preflight import AllocationLayout, validate_allocation_layout
 from data_designer.slurm.runtime.server_manifest import build_server_steps
@@ -33,7 +34,12 @@ def build_runtime_manifest(
     """Build the secret-free command handoff for the Bash controller."""
     plan = context.plan
     validate_allocation_layout(plan, layout)
-    runtime_container_root = get_container_path(plan, runtime_root.as_posix(), require_writable=True)
+    runtime_container_root = Path(ALLOCATION_SCRATCH_CONTAINER_ROOT) / "runtime"
+    if runtime_root != runtime_container_root:
+        raise SlurmRuntimeError(
+            SlurmRuntimeErrorCode.INVALID_CONTEXT,
+            "runtime root is outside allocation-local scratch",
+        )
     deployments = resolve_allocation_deployments(context, environment)
     endpoints = tuple(
         RuntimeEndpoint(
@@ -52,12 +58,12 @@ def build_runtime_manifest(
             context,
             environment,
             endpoints,
-            runtime_container_root,
+            runtime_container_root.as_posix(),
             log_directory,
             layout,
         )
     ]
-    steps.extend(build_server_steps(deployments, context, runtime_container_root, log_directory, layout))
+    steps.extend(build_server_steps(deployments, context, runtime_container_root.as_posix(), log_directory, layout))
     steps.extend(
         _build_endpoint_step(deployment, context, runtime_root, log_directory, layout) for deployment in deployments
     )
@@ -69,7 +75,7 @@ def build_runtime_manifest(
             context,
             environment,
             endpoints,
-            runtime_container_root,
+            runtime_container_root.as_posix(),
             log_directory,
             layout,
         )
@@ -157,10 +163,17 @@ def _build_client_step(
         command=command,
         cpus=plan.client.authored.cpus,
         gpu_indices=(),
-        literal_environment={"LC_ALL": "C", "PYTHONPATH": runtime_container_root, **allocation_environment},
+        literal_environment={
+            "DATA_DESIGNER_SLURM_SCRATCH_ROOT": ALLOCATION_SCRATCH_CONTAINER_ROOT,
+            "LC_ALL": "C",
+            "PYTHONPATH": runtime_container_root,
+            **allocation_environment,
+        },
         secret_environment={name: name for name in secret_names},
         environment_prefixes={},
-        container_environment=tuple(sorted((*secret_names, *allocation_environment, "PYTHONPATH"))),
+        container_environment=tuple(
+            sorted((*secret_names, *allocation_environment, "DATA_DESIGNER_SLURM_SCRATCH_ROOT", "PYTHONPATH"))
+        ),
         log_directory=log_directory,
         node_hosts=(layout.get_host(plan.client.host_node_index),),
     )
@@ -185,6 +198,7 @@ def _build_endpoint_step(
         proxy_path,
         deployment.logical_endpoint.port,
         backend_hosts=backend_hosts,
+        runtime_proxy_is_container_path=True,
     )
     return _step(
         step_id=f"{deployment.deployment_id}-endpoint",

@@ -23,10 +23,16 @@ def render_generation_attempt_script(plan: ResolvedSlurmRunPlan, *, attempt_ordi
 
     run_root = posixpath.dirname(plan.authored_config.path)
     plan_path = posixpath.join(run_root, "resolved-plan.json")
-    directive_text = render_batch_directives(_build_generation_directives(plan))
+    attempt = f"{attempt_ordinal:04d}"
+    directive_text = render_batch_directives(
+        _build_generation_directives(
+            plan,
+            output_path=posixpath.join(run_root, f"slurm-attempt-{attempt}-%A_%a.out"),
+            error_path=posixpath.join(run_root, f"slurm-attempt-{attempt}-%A_%a.err"),
+        )
+    )
     if plan.selected_profile.profile.gpu_request_mode == "visible":
         directive_text = f"{directive_text}\n#SBATCH --exclusive"
-    attempt = f"{attempt_ordinal:04d}"
     return f"""#!/usr/bin/env bash
 {directive_text}
 set -Eeuo pipefail
@@ -55,9 +61,13 @@ readonly DD_ARRAY_TASK_ID="${{SLURM_ARRAY_TASK_ID}}"
 printf -v DD_SHARD_ID 'shard-%05d' "${{DD_ARRAY_TASK_ID}}"
 readonly DD_SHARD_ID
 readonly DD_ATTEMPT_DIR="${{DD_RUN_ROOT}}/shards/${{DD_SHARD_ID}}/attempts/attempt-${{DD_ATTEMPT_ORDINAL}}"
-readonly DD_RUNTIME_ROOT="${{DD_ATTEMPT_DIR}}/runtime"
-[[ -d ${{DD_RUNTIME_ROOT}} && ! -L ${{DD_RUNTIME_ROOT}} ]]
-tar -xzf "${{DD_RUNTIME_ARCHIVE}}" -C "${{DD_RUNTIME_ROOT}}"
+source <(tar -xOf "${{DD_RUNTIME_ARCHIVE}}" scratch.sh)
+trap 'dd_cleanup_allocation_scratch || true' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+dd_initialize_local_scratch
+dd_stage_allocation_runtime
+readonly DD_RUNTIME_ROOT="${{DD_SCRATCH_ROOT}}/runtime"
 
 source "${{DD_RUNTIME_ROOT}}/entrypoint.sh"
 dd_slurm_run_allocation "${{DD_PLAN}}" "${{DD_ATTEMPT_DIR}}"
@@ -85,8 +95,15 @@ def render_generation_retry_script(plan: ResolvedSlurmRunPlan, retry: RetryPlan)
     array_tasks = ",".join(str(shard.array_task_index) for shard in retry.planned_shards)
     if plan.array_tasks.max_concurrent is not None:
         array_tasks = f"{array_tasks}%{plan.array_tasks.max_concurrent}"
+    retry_root = posixpath.join(run_root, "retries", retry.retry_id)
     directives = render_batch_directives(
-        _build_generation_directives(plan, array=array_tasks, job_name=retry.submission_job_name)
+        _build_generation_directives(
+            plan,
+            array=array_tasks,
+            job_name=retry.submission_job_name,
+            output_path=posixpath.join(retry_root, "slurm-%A_%a.out"),
+            error_path=posixpath.join(retry_root, "slurm-%A_%a.err"),
+        )
     )
     attempt_cases = "\n".join(
         f"    {shard.array_task_index}) DD_ATTEMPT_ORDINAL={quote_shell_value(f'{shard.attempt_ordinal:04d}')} ;;"
@@ -147,16 +164,20 @@ if [[ ! ${{SLURM_ARRAY_JOB_ID:-}} =~ ^[1-9][0-9]*$ ]]; then
 fi
 readonly DD_ARRAY_JOB_ID="${{SLURM_ARRAY_JOB_ID}}"
 readonly DD_ATTEMPT_ID="attempt-${{DD_ATTEMPT_ORDINAL}}"
+source <(tar -xOf "${{DD_RUNTIME_ARCHIVE}}" scratch.sh)
+trap 'dd_cleanup_allocation_scratch || true' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+dd_initialize_local_scratch
+dd_stage_allocation_runtime
+readonly DD_RUNTIME_ROOT="${{DD_SCRATCH_ROOT}}/runtime"
 enroot start --root --mount "${{DD_WORKSPACE_ROOT}}:${{DD_WORKSPACE_ROOT}}" "${{DD_CLIENT_IMAGE}}" \\
     python -m data_designer.slurm.state.attempt_identity \\
     --workspace-root "${{DD_WORKSPACE_ROOT}}" --run-id "${{DD_RUN_ID}}" \\
     --shard-id "${{DD_SHARD_ID}}" --attempt-id "${{DD_ATTEMPT_ID}}" \\
     --array-job-id "${{DD_ARRAY_JOB_ID}}" --array-task-id "${{DD_ARRAY_TASK_ID}}"
-DD_RUNTIME_DIR="$(mktemp -d "${{DD_ATTEMPT_DIR}}/runtime.${{DD_RUNTIME_SHA256}}.XXXXXX")"
-readonly DD_RUNTIME_DIR
-tar -xzf "${{DD_RUNTIME_ARCHIVE}}" -C "${{DD_RUNTIME_DIR}}"
 
-source "${{DD_RUNTIME_DIR}}/entrypoint.sh"
+source "${{DD_RUNTIME_ROOT}}/entrypoint.sh"
 dd_slurm_run_allocation \
     "${{DD_PLAN}}" "${{DD_ATTEMPT_DIR}}" "${{DD_RETRY_ID}}" \
     "${{DD_RETRY_PLAN_SHA256}}" "${{DD_EFFECTIVE_RESUME_MODE}}"
@@ -173,6 +194,8 @@ def _build_generation_directives(
     *,
     array: str | None = None,
     job_name: str | None = None,
+    output_path: str,
+    error_path: str,
 ) -> tuple[tuple[str, str | None], ...]:
     node_indices = (
         plan.client.host_node_index,
@@ -193,6 +216,9 @@ def _build_generation_directives(
         ("cpus-per-task", str(plan.client.authored.cpus)),
         ("time", plan.submission.time_limit),
         ("array", resolved_array),
+        ("chdir", posixpath.dirname(plan.authored_config.path)),
+        ("output", output_path),
+        ("error", error_path),
     ]
     profile = plan.selected_profile.profile
     if profile.gpu_request_mode == "gres":
