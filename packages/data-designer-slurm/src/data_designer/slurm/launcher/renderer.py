@@ -121,8 +121,8 @@ readonly DD_PLAN_SHA256={quote_shell_value(plan.compute_sha256())}
 readonly DD_RUN_ROOT={quote_shell_value(run_root)}
 readonly DD_WORKSPACE_ROOT={quote_shell_value(plan.selected_profile.profile.workspace_root)}
 readonly DD_RUN_ID={quote_shell_value(plan.run_id)}
-readonly DD_CLIENT_IMAGE={quote_shell_value(plan.client.image.path)}
-readonly DD_CLIENT_IMAGE_SHA256={quote_shell_value(plan.client.image.sha256)}
+readonly DD_VERIFIED_CLIENT_IMAGE={quote_shell_value(plan.client.image.path)}
+readonly DD_VERIFIED_CLIENT_IMAGE_SHA256={quote_shell_value(plan.client.image.sha256)}
 readonly DD_RETRY_ID={quote_shell_value(retry.retry_id)}
 readonly DD_RETRY_PLAN_SHA256={quote_shell_value(retry.compute_sha256())}
 readonly DD_EFFECTIVE_RESUME_MODE={quote_shell_value(retry.effective_resume_mode)}
@@ -135,7 +135,7 @@ verify_sha256() {{
 
 verify_sha256 "${{DD_RUNTIME_SHA256}}" "${{DD_RUNTIME_ARCHIVE}}"
 verify_sha256 "${{DD_PLAN_SHA256}}" "${{DD_PLAN}}"
-verify_sha256 "${{DD_CLIENT_IMAGE_SHA256}}" "${{DD_CLIENT_IMAGE}}"
+verify_sha256 "${{DD_VERIFIED_CLIENT_IMAGE_SHA256}}" "${{DD_VERIFIED_CLIENT_IMAGE}}"
 if [[ ! ${{SLURM_ARRAY_TASK_ID:-}} =~ ^[0-9]+$ ]]; then
     printf '%s\\n' 'SLURM_ARRAY_TASK_ID must be a non-negative integer' >&2
     exit 64
@@ -181,7 +181,7 @@ srun \\
     --unbuffered \\
     --gres=none \\
     --export=ALL \\
-    --container-image="${{DD_CLIENT_IMAGE}}" \\
+    --container-image="${{DD_VERIFIED_CLIENT_IMAGE}}" \\
     --container-mounts="${{DD_WORKSPACE_ROOT}}:${{DD_WORKSPACE_ROOT}},${{DD_SCRATCH_ROOT}}:${{DD_SCRATCH_CONTAINER_ROOT}}" \\
     --container-env=PYTHONPATH \\
     -- \\

@@ -122,7 +122,8 @@ def test_retry_renderer_waits_for_persisted_attempt_before_starting_runtime(
     assert script.index("DD_ATTEMPT_MANIFEST") < script.index("DD_RUNTIME_ROOT")
     assert "data_designer.slurm.state.attempt_identity" in script
     assert "enroot start" not in script
-    assert '--container-image="${DD_CLIENT_IMAGE}"' in script
+    assert '--container-image="${DD_VERIFIED_CLIENT_IMAGE}"' in script
+    assert "readonly DD_CLIENT_IMAGE=" not in script
     assert (
         '--container-mounts="${DD_WORKSPACE_ROOT}:${DD_WORKSPACE_ROOT},${DD_SCRATCH_ROOT}:${DD_SCRATCH_CONTAINER_ROOT}"'
         in script
