@@ -4,6 +4,7 @@
 set -Eeuo pipefail
 
 readonly DD_RUNTIME_DIR=$(cd -- "${BASH_SOURCE[0]%/*}" && pwd -P)
+source "${DD_RUNTIME_DIR}/scratch.sh"
 source "${DD_RUNTIME_DIR}/plan_reader.sh"
 source "${DD_RUNTIME_DIR}/step_runner.sh"
 source "${DD_RUNTIME_DIR}/cleanup.sh"
@@ -34,17 +35,16 @@ dd_slurm_run_allocation() {
     DD_PLAN_CONTAINER_PATH=${DD_CONTAINER_PATH}
     dd_read_container_path "${DD_PLAN_PATH}" "${DD_ATTEMPT_PATH}" true
     DD_ATTEMPT_CONTAINER_DIR=${DD_CONTAINER_PATH}
-    dd_read_container_path "${DD_PLAN_PATH}" "${DD_RUNTIME_DIR}" true
-    DD_RUNTIME_CONTAINER_ROOT=${DD_CONTAINER_PATH}
+    DD_RUNTIME_CONTAINER_ROOT=${DD_SCRATCH_CONTAINER_ROOT}/runtime
     dd_read_container_path "${DD_PLAN_PATH}" "${DD_RUNTIME_MANIFEST}" true
     DD_RUNTIME_MANIFEST_CONTAINER_PATH=${DD_CONTAINER_PATH}
     export DD_PLAN_PATH DD_ATTEMPT_PATH DD_RUNTIME_MANIFEST
     export DD_PLAN_CONTAINER_PATH DD_ATTEMPT_CONTAINER_DIR DD_RUNTIME_CONTAINER_ROOT
 
-    dd_verify_host_context
-    dd_start_runtime_timer
     trap dd_runtime_exit EXIT
     trap 'exit 130' INT TERM
+    dd_verify_host_context
+    dd_start_runtime_timer
 
     DD_RUNTIME_PREPARED=1
     local host
@@ -53,7 +53,7 @@ dd_slurm_run_allocation() {
         host_arguments+=(--node-host "${host}")
     done
     dd_run_bound_control_phase prepare \
-        --runtime-root "${DD_RUNTIME_DIR}" \
+        --runtime-root "${DD_RUNTIME_CONTAINER_ROOT}" \
         --manifest "${DD_RUNTIME_MANIFEST_CONTAINER_PATH}" \
         "${host_arguments[@]}"
     dd_verify_runtime_manifest \
@@ -99,12 +99,15 @@ dd_run_bound_control_phase() {
 
 dd_verify_host_context() {
     local tool
-    for tool in bash sha256sum tar jq srun scontrol getent curl; do
+    for tool in bash sha256sum tar jq srun scontrol getent curl find; do
         command -v "${tool}" >/dev/null || {
             printf 'required allocation tool %q is unavailable\n' "${tool}" >&2
             return 69
         }
     done
+    [[ ${DD_SCRATCH_ROOT:-} == /* && ${DD_RUNTIME_DIR} == "${DD_SCRATCH_ROOT}/runtime" ]]
+    [[ -d ${DD_SCRATCH_ROOT} && ! -L ${DD_SCRATCH_ROOT} && -O ${DD_SCRATCH_ROOT} ]]
+    [[ -d ${DD_RUNTIME_DIR} && ! -L ${DD_RUNTIME_DIR} && -O ${DD_RUNTIME_DIR} ]]
     [[ -d ${DD_ATTEMPT_PATH} && ! -L ${DD_ATTEMPT_PATH} ]]
     [[ ${SLURM_ARRAY_TASK_ID:-} =~ ^[0-9]+$ ]]
     [[ ${DD_EXPECTED_NODES} =~ ^[1-9][0-9]*$ ]]
@@ -237,6 +240,7 @@ dd_runtime_exit() {
     if ((DD_RUNTIME_PREPARED == 1 && DD_RUNTIME_FINALIZED == 0)); then
         dd_run_bound_control_phase fail >/dev/null
     fi
+    dd_cleanup_allocation_scratch >/dev/null 2>&1 || true
     dd_stop_runtime_timer
     exit "${status}"
 }

@@ -67,6 +67,7 @@ dd_materialize_step_environment() {
 
 dd_build_srun_command() {
     local index gpu_mask=0 container_names= node_list=
+    local container_mounts="${DD_SCRATCH_ROOT}:${DD_SCRATCH_CONTAINER_ROOT}"
     ((${#DD_STEP_NODE_HOSTS[@]})) || return 64
     printf -v node_list '%s,' "${DD_STEP_NODE_HOSTS[@]}"
     node_list=${node_list%,}
@@ -106,7 +107,8 @@ dd_build_srun_command() {
     else
         DD_SRUN_COMMAND+=(--gres=none)
     fi
-    [[ -z ${DD_CONTAINER_MOUNTS} ]] || DD_SRUN_COMMAND+=("--container-mounts=${DD_CONTAINER_MOUNTS}")
+    [[ -z ${DD_CONTAINER_MOUNTS} ]] || container_mounts="${DD_CONTAINER_MOUNTS},${container_mounts}"
+    DD_SRUN_COMMAND+=("--container-mounts=${container_mounts}")
     if ((${#DD_STEP_CONTAINER_ENV[@]})); then
         printf -v container_names '%s,' "${DD_STEP_CONTAINER_ENV[@]}"
         DD_SRUN_COMMAND+=("--container-env=${container_names%,}")
@@ -142,6 +144,7 @@ dd_run_step() {
 dd_run_control_phase() {
     local operation=$1
     shift
+    local container_mounts="${DD_SCRATCH_ROOT}:${DD_SCRATCH_CONTAINER_ROOT}"
     local -a command=(
         srun
         --nodes=1
@@ -155,7 +158,8 @@ dd_run_control_phase() {
         "--container-image=${DD_CLIENT_IMAGE}"
         --gres=none
     )
-    [[ -z ${DD_CONTAINER_MOUNTS} ]] || command+=("--container-mounts=${DD_CONTAINER_MOUNTS}")
+    [[ -z ${DD_CONTAINER_MOUNTS} ]] || container_mounts="${DD_CONTAINER_MOUNTS},${container_mounts}"
+    command+=("--container-mounts=${container_mounts}")
     command+=(
         --container-env=PYTHONPATH,SLURM_JOB_GPUS
         --

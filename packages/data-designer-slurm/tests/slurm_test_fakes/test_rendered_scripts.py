@@ -19,12 +19,12 @@ def test_rendered_script_fixtures_are_pinned_and_bound_to_canonical_plans(
     _assert_script_matches_plan(
         single_node_plan,
         "single_node.sbatch",
-        expected_fixture_sha256="3523fe78e80edd4b4acd1e090d9888b3a9879430f1460fecd3576755a4ca923e",
+        expected_fixture_sha256="dd74e01e7e2471a5c91343fe6fe771af4dd19976670fe3513e65e0d6568d8993",
     )
     _assert_script_matches_plan(
         multi_node_plan,
         "multi_node.sbatch",
-        expected_fixture_sha256="e69a4303113764670742d8d0ce12b1ebe4cc80751734bf68341b535b578108bf",
+        expected_fixture_sha256="5a76d1d73bc96112484689064e1cb9aad71a8e86970cc2f728c74ba47d415f9f",
     )
 
 
@@ -67,6 +67,9 @@ def _assert_script_matches_plan(
     assert f"#SBATCH --cpus-per-task={plan.client.authored.cpus}\n" in script
     assert f"#SBATCH --time={plan.submission.time_limit}\n" in script
     assert f"#SBATCH --array={array}\n" in script
+    assert f'#SBATCH --chdir="{run_root}"\n' in script
+    assert f'#SBATCH --output="{run_root}/slurm-attempt-0001-%A_%a.out"\n' in script
+    assert f'#SBATCH --error="{run_root}/slurm-attempt-0001-%A_%a.err"\n' in script
     assert f"#SBATCH --gres=gpu:{plan.resolved_gpus_per_node}\n" in script
     assert f'readonly DD_RUNTIME_ARCHIVE="{plan.runtime_bundle.path}"\n' in script
     assert f'readonly DD_RUNTIME_SHA256="{plan.runtime_bundle.sha256}"\n' in script

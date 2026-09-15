@@ -11,6 +11,8 @@ from data_designer.slurm.contracts import validate_absolute_path
 from data_designer.slurm.planning import ResolvedSlurmRunPlan
 from data_designer.slurm.runtime.errors import SlurmRuntimeError, SlurmRuntimeErrorCode
 
+ALLOCATION_SCRATCH_CONTAINER_ROOT = "/run/data-designer-slurm"
+
 
 def get_container_path(
     plan: ResolvedSlurmRunPlan,
@@ -82,4 +84,4 @@ def get_host_path(
     return host_path
 
 
-__all__ = ["get_container_path", "get_host_path"]
+__all__ = ["ALLOCATION_SCRATCH_CONTAINER_ROOT", "get_container_path", "get_host_path"]

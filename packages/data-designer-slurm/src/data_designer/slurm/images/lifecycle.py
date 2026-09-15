@@ -41,6 +41,7 @@ _ENROOT_RC_FILENAME = "enroot.rc"
 _PLAN_FILENAME = "image-lifecycle-plan.json"
 _SCRIPT_FILENAME = "image-lifecycle.sbatch"
 _RESOURCE_PACKAGE = "data_designer.slurm.images.resources"
+_SCRATCH_RESOURCE_PACKAGE = "data_designer.slurm.runtime"
 _IDENTIFIER_ADAPTER = TypeAdapter(Identifier)
 _MINIMUM_ENROOT_OCI_VERSION = (4, 0)
 _MINIMUM_ENROOT_SQSH_VERSION = (3, 5)
@@ -147,6 +148,7 @@ def render_image_lifecycle_script(plan: ImageLifecyclePlan) -> str:
 
     profile = plan.selected_profile.profile
     image_build = profile.image_build
+    scratch_source = resources.files(_SCRATCH_RESOURCE_PACKAGE).joinpath("scratch.sh").read_text()
     directives = render_batch_directives(
         (
             ("job-name", f"dd-image-{plan.request.kind}"),
@@ -208,6 +210,7 @@ fi
 set -Eeuo pipefail
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
+{scratch_source}
 readonly DD_JOB_DIR={quote_shell_value(plan.job_directory)}
 readonly DD_IMAGE_KIND={quote_shell_value(plan.request.kind)}
 readonly DD_IMAGE_SQSH={quote_shell_value(plan.sqsh_path)}
@@ -237,9 +240,14 @@ cleanup() {{
             rm -f -- "${{DD_IMAGE_SQSH}}" >/dev/null 2>&1 || true
         fi
     fi
+    if [[ -n ${{DD_SCRATCH_ROOT:-}} ]]; then
+        dd_remove_local_scratch "${{DD_SCRATCH_ROOT}}" >/dev/null 2>&1 || true
+    fi
     return "${{status}}"
 }}
 trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 compute_file_sha256() {{
     local actual_sha256
@@ -271,18 +279,9 @@ verify_enroot_compatibility() {{
 
 verify_sha256 "${{DD_INSPECTOR_SHA256}}" "${{DD_INSPECTOR}}"
 verify_sha256 "${{DD_ENROOT_RC_SHA256}}" "${{DD_ENROOT_RC}}"
-install -d -m 0700 \
-    "${{DD_JOB_DIR}}/home" \
-    "${{DD_JOB_DIR}}/enroot/cache" \
-    "${{DD_JOB_DIR}}/enroot/config" \
-    "${{DD_JOB_DIR}}/enroot/data" \
-    "${{DD_JOB_DIR}}/enroot/tmp" \
-    "${{DD_INSPECTION_DIRECTORY}}"
-export HOME="${{DD_JOB_DIR}}/home"
-export ENROOT_CACHE_PATH="${{DD_JOB_DIR}}/enroot/cache"
-export ENROOT_CONFIG_PATH="${{DD_JOB_DIR}}/enroot/config"
-export ENROOT_DATA_PATH="${{DD_JOB_DIR}}/enroot/data"
-export ENROOT_TEMP_PATH="${{DD_JOB_DIR}}/enroot/tmp"
+dd_initialize_local_scratch
+install -d -m 0700 "${{DD_INSPECTION_DIRECTORY}}"
+export HOME="${{DD_SCRATCH_ROOT}}/home"
 if [[ ! ${{SLURM_CPUS_PER_TASK:-}} =~ ^[1-9][0-9]*$ ]]; then
     printf '%s\\n' 'SLURM_CPUS_PER_TASK must be a positive integer' >&2
     exit 64

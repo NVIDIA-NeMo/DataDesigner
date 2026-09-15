@@ -135,10 +135,11 @@ def test_image_lifecycle_renderer_uses_explicit_cpu_profile_and_safe_mounts(tmp_
     assert 'enroot import -o "${DD_IMAGE_SQSH}" "${DD_OCI_SOURCE}"' in script
     assert "inspect_image.py:x-create=file,bind,ro" in script
     assert "/opt/data-designer-slurm/output:x-create=dir,bind" in script
-    assert 'export HOME="${DD_JOB_DIR}/home"' in script
-    assert 'export ENROOT_CONFIG_PATH="${DD_JOB_DIR}/enroot/config"' in script
+    assert 'export HOME="${DD_SCRATCH_ROOT}/home"' in script
+    assert script.index("trap 'exit 143' TERM") < script.index("\ndd_initialize_local_scratch\n")
+    assert 'export ENROOT_CONFIG_PATH="${root}/enroot/config"' in script
     assert 'export ENROOT_MAX_PROCESSORS="${SLURM_CPUS_PER_TASK}"' in script
-    assert script.index('export HOME="${DD_JOB_DIR}/home"') < script.rindex("\nverify_enroot_compatibility 4 0")
+    assert script.index('export HOME="${DD_SCRATCH_ROOT}/home"') < script.rindex("\nverify_enroot_compatibility 4 0")
     assert 'version="$(enroot version)"' in script
     assert 'verify_enroot_compatibility 4 0 "digest-pinned OCI imports"' in script
     assert f'--mount "{prepared.plan.job_directory}:' not in script
@@ -212,9 +213,10 @@ def test_rendered_image_lifecycle_job_computes_digest_and_runs_inspection(
     )
 
     assert completed.returncode == 0, completed.stderr
-    expected_home = Path(prepared.plan.job_directory) / "home"
-    assert set(home_log.read_text().splitlines()) == {expected_home.as_posix()}
-    assert stat.S_IMODE(expected_home.stat().st_mode) == 0o700
+    expected_home = Path(home_log.read_text().strip())
+    assert expected_home.name == "home"
+    assert expected_home.parent.name == "data-designer-slurm-5101-0"
+    assert not expected_home.parent.exists()
     assert Path(prepared.plan.inspection_output_path).read_text() == "{}\n"
     if source_kind == "oci":
         assert enroot_log.read_text().splitlines() == ["version", "import", "create", "start", "remove"]
