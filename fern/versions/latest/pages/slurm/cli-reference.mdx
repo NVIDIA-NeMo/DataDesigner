@@ -1,0 +1,42 @@
+# Slurm CLI reference
+
+Install the extension with `python -m pip install "data-designer[slurm]"`, then use `data-designer slurm COMMAND --help` for the authoritative option list.
+
+All commands accept `--profile-file PATH` and `--cluster NAME` where cluster selection is required.
+
+| Command | Purpose |
+| --- | --- |
+| `profile init` | Create a restrictive starter profile catalog without overwriting. |
+| `profile validate` | Validate catalog selection, shared workspace access, and scheduler facts. |
+| `image add` | Import or inspect an image through a CPU Slurm job and publish an alias. |
+| `image ls` | List aliases in the selected profile workspace. |
+| `image info NAME` | Show one registered alias and immutable image facts. |
+| `image rm NAME` | Remove an alias without deleting its SQSH artifact. |
+| `execute RUN_FILE` | Resolve and submit a run. Add `--dry-run` to render without submission. |
+| `status RUN_ID` | Reconcile scheduler observations with durable managed state. |
+| `cancel RUN_ID` | Cancel active jobs owned by a managed run. |
+| `retry RUN_OR_JOB_ID` | Preview or submit a sparse retry. Repeat `--task-id` to select shards. |
+| `merge` | Submit a zero-GPU winner collection job for a managed run directory. |
+| `benchmark run BENCHMARK_FILE` | Expand benchmark cases into ordinary child runs and submit them. |
+| `benchmark analyze BENCHMARK` | Write a report from persisted child state. |
+
+## Common options
+
+| Option | Commands | Meaning |
+| --- | --- | --- |
+| `--profile-file PATH` | Most commands | Use a catalog other than the default or environment-selected file. |
+| `--cluster NAME` | Most commands | Select one catalog entry explicitly. |
+| `--dry-run` | `execute`, `retry` | Perform resolution and render a batch script without submission. |
+| `--force` | `retry`, `benchmark run` | Skip retry confirmation or resume a safely recoverable benchmark submission. It does not overwrite immutable evidence. |
+| `--refresh-state` | `benchmark analyze` | Reconcile each child with the scheduler before analysis. |
+| `--fail-if-incomplete` | `benchmark analyze` | Persist the report, then return a conflict if any case is incomplete. |
+
+## Output and errors
+
+Success is one canonical JSON value on stdout. Failure is one object on stderr:
+
+```json
+{"error":{"code":"invalid_request","message":"...","operation":"execute"}}
+```
+
+Exit codes are `1` for internal errors, `2` for invalid requests, `3` for missing managed resources, `4` for conflicts, and `5` for unavailable external systems. Error messages are bounded and sanitized; inspect durable logs for operational detail.

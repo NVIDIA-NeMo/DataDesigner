@@ -1,0 +1,20 @@
+schema_version: 1
+name: generator-scaling
+base_run: run.yaml
+model_aliases:
+  - generator
+concurrency_values:
+  - 8
+  - 16
+deployment_cases:
+  - name: one-replica
+    deployments:
+      generator:
+        nodes: 1
+        nodes_per_replica: 1
+record_policy:
+  type: fixed
+  records: 100
+analysis:
+  target_total_records: 1000000
+  target_runtime: 4h

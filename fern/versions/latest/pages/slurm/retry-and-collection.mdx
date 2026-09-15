@@ -1,0 +1,56 @@
+# Retry and collection
+
+Retry and collection operate on persisted run state. They do not infer ownership from arbitrary Slurm jobs or directories.
+
+## Preview a retry
+
+```bash
+data-designer slurm retry <run-id> --dry-run
+```
+
+By default, retry selects failed or incomplete shards and resolves `--resume if_possible` to either `always` or `never` from persisted compatibility evidence. The response includes selected shard IDs, new attempt IDs, effective resume mode, and a batch script.
+
+Select specific zero-based array tasks when needed:
+
+```bash
+data-designer slurm retry <run-id> \
+  --task-id 2 \
+  --task-id 7 \
+  --resume never \
+  --dry-run
+```
+
+## Submit a retry
+
+```bash
+data-designer slurm retry <run-id>
+```
+
+Interactive use asks for confirmation. Add `--force` to skip that prompt in automation. Force does not replace immutable run metadata or discard scheduler evidence.
+
+You may pass a managed Slurm job ID instead of a run ID when the package can resolve it unambiguously. Prefer the run ID in scripts.
+
+Retries create new attempts. The original attempt records remain durable, and each shard publishes at most one winner. Status shows the complete attempt history.
+
+## Collect winners
+
+Default successful output is already managed beneath the run directory. Use `merge` to submit a zero-GPU CPU job that collects shard winners to an explicit compute-visible destination:
+
+```bash
+data-designer slurm merge \
+  --input-path /workspace/alice/data-designer-slurm/runs/<run-id> \
+  --output-path /workspace/alice/exports/final-dataset
+```
+
+`--input-path` must be exactly a managed run directory under the selected profile workspace. The output path must be absolute, writable, compute-visible, and authorized by the profile mounts.
+
+If supplied, `--num-partitions` must equal the partition count persisted in the run:
+
+```bash
+data-designer slurm merge \
+  --input-path /workspace/alice/data-designer-slurm/runs/<run-id> \
+  --output-path /workspace/alice/exports/final-dataset \
+  --num-partitions 20
+```
+
+Repeating collection returns or reuses managed state when safe. Conflicting destinations or partition counts are rejected.

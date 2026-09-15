@@ -1,0 +1,39 @@
+# Data Designer on Slurm
+
+Data Designer Slurm runs Data Designer clients and vLLM model servers in batch allocations. The optional extension owns profile selection, image inspection, submission, status, retry, result collection, and benchmark workflows.
+
+Start with [Getting Started](/slurm/getting-started). Use the surrounding guides when you need multiple clusters, larger deployments, dependencies, MCP providers, or recovery procedures.
+
+## Prerequisites
+
+The submit host needs:
+
+- Python 3.10 or later
+- `sbatch`, `squeue`, `sacct`, `scancel`, `scontrol`, and `sinfo`
+- Access to a shared workspace that is visible from the submit host and every eligible compute node
+
+Compute nodes need Enroot 3.5 or later for existing SQSH images. Digest-pinned OCI imports need Enroot 4.0 or later. The client image must contain the same Data Designer packages as the submit environment. Serving images must contain vLLM.
+
+Your Slurm administrator can confirm the account, GPU partition, CPU image-build partition, GPU request mode, and shared filesystem paths for your cluster.
+
+## Where each task runs
+
+| Persona | Responsibilities |
+| --- | --- |
+| Workstation | Author and version dataset and Slurm configuration. Copy files to a cluster-visible location before submission. |
+| Login or submit host | Install the CLI, select a profile, register images, submit work, inspect status, retry, cancel, and collect output. |
+| Compute node | Import or inspect images, start vLLM and client containers, generate records, and write managed state and results. |
+
+Run Slurm commands from a login or submit host. A laptop without the cluster CLI and shared filesystem can author configuration, but cannot validate or submit it.
+
+## Storage model
+
+The configured `workspace_root` is durable and shared. It contains image metadata, immutable run inputs, Slurm logs, attempt state, winning results, collection state, and default output.
+
+Runtime bundle extraction, the client dependency overlay, Data Designer home and cache directories, and Enroot state use allocation-local scratch. The runtime mounts that scratch at `/run/data-designer-slurm` inside containers and removes it on success, failure, cancellation, and retry. Do not configure a mount that overlaps this path or expect transient scratch files to remain after a job.
+
+## Supported in v1
+
+The public v1 surface supports named cluster profiles, client and serving image aliases, one or more vLLM deployments, independent replicas, multi-node replicas, Slurm arrays, bounded array concurrency, durable status, cancellation, sparse retry, winner-driven collection, dependencies, plugins, MCP providers, and benchmarks.
+
+Interactive allocations, code-sandbox sidecars, NeMo Run, SGLang, Dynamo, Kubernetes, Ray, and platform-specific orchestration are not part of the v1 Slurm extension.

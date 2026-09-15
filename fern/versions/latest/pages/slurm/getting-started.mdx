@@ -1,0 +1,171 @@
+# Slurm Getting Started
+
+This flow starts from a clean Python environment on a Slurm login host and submits one small Data Designer run. Replace the example account, partitions, image sources, and model with values available on your cluster.
+
+Before starting, confirm the [Slurm prerequisites and host responsibilities](/slurm/overview).
+
+## 1. Create and activate an environment
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+```
+
+## 2. Install Data Designer with Slurm support
+
+```bash
+python -m pip install "data-designer[slurm]"
+```
+
+The base `data-designer` wheel does not install or import Slurm support. The extra installs the same-version `data-designer-slurm` wheel and exposes the lazy `data-designer slurm` command group.
+
+## 3. Discover the CLI
+
+```bash
+data-designer --help
+data-designer slurm --help
+```
+
+## 4. Create a profile
+
+Create the durable shared workspace first, then initialize the default profile:
+
+```bash
+mkdir -p /workspace/alice/data-designer-slurm
+data-designer slurm profile init \
+  --workspace-root /workspace/alice/data-designer-slurm \
+  --image-build-partition cpu \
+  --account research \
+  --partition gpu \
+  --host-pattern 'login*.example.test'
+```
+
+This writes `~/.data-designer-slurm-profile.yml` with restrictive permissions and never overwrites an existing file. Edit `gpus_per_node` if the cluster cannot report one consistent GPU count for the selected partition.
+
+## 5. Validate the profile
+
+```bash
+data-designer slurm profile validate
+```
+
+Validation checks strict profile loading, cluster selection, workspace access, and scheduler facts. See [Profiles and clusters](/slurm/profiles-and-clusters) for non-default files and multiple clusters.
+
+## 6. Register a client image
+
+Use a digest-qualified OCI reference:
+
+```bash
+data-designer slurm image add \
+  registry.example.test/data-designer/client@sha256:0000000000000000000000000000000000000000000000000000000000000000 \
+  --kind client \
+  --name dd-client
+```
+
+## 7. Register a serving image
+
+```bash
+data-designer slurm image add \
+  registry.example.test/inference/vllm@sha256:1111111111111111111111111111111111111111111111111111111111111111 \
+  --kind serving \
+  --name vllm
+```
+
+Each `image add` command submits a CPU Slurm job, waits for it to finish, inspects the result, and only then publishes the alias. Keep the terminal open. You can also register an existing absolute `.sqsh` path. See [Images](/slurm/images).
+
+## 8. Create a Data Designer builder config
+
+Create `builder.yaml`:
+
+```yaml
+data_designer:
+  model_configs:
+    - alias: generator
+      model: example/generator
+      provider: openai
+  columns:
+    - name: greeting
+      column_type: llm-text
+      prompt: Write one short greeting.
+      model_alias: generator
+```
+
+The model alias in this file must match a deployment in the Slurm run config.
+
+## 9. Create a Slurm run config
+
+Create `run.yaml` next to `builder.yaml`:
+
+```yaml
+schema_version: 1
+name: greeting-run
+builder:
+  source: builder.yaml
+invocation:
+  num_records: 8
+  dataset_name: greetings
+  model_concurrency:
+    generator: 8
+client:
+  image:
+    name: dd-client
+deployments:
+  - model_alias: generator
+    model: example/generator
+    server:
+      type: vllm
+      image:
+        name: vllm
+    topology:
+      tensor_parallel: 1
+submission:
+  time_limit: 01:00:00
+output:
+  format: parquet
+  partitions: 1
+```
+
+The repository also contains these checked examples under `packages/data-designer-slurm/examples`.
+
+## 10. Dry-run the submission
+
+```bash
+data-designer slurm execute run.yaml --dry-run
+```
+
+Dry-run resolves the selected profile, verifies registered image contents, loads the builder envelope, resolves client dependencies, and renders the batch script without calling `sbatch`. Full builder and plugin validation runs inside the prepared client environment on the compute node.
+
+## 11. Submit the run
+
+```bash
+data-designer slurm execute run.yaml
+```
+
+The command prints one JSON object. Save its `run_id`; all lifecycle commands use the managed run ID rather than a raw Slurm job ID.
+
+## 12. Inspect or cancel the run
+
+```bash
+data-designer slurm status <run-id>
+data-designer slurm cancel <run-id>
+```
+
+Status reconciles active queue and accounting evidence with durable run state. Cancellation targets only jobs recorded for the managed run.
+
+## 13. Inspect results
+
+By default, successful output is written beneath:
+
+```text
+/workspace/alice/data-designer-slurm/runs/<run-id>/output
+```
+
+Use `status` to confirm every shard succeeded. For an explicit destination or repartitioned output, submit a managed collection job:
+
+```bash
+data-designer slurm merge \
+  --input-path /workspace/alice/data-designer-slurm/runs/<run-id> \
+  --output-path /workspace/alice/exports/greetings
+```
+
+Continue with [Run operations](/slurm/run-operations), [Retry and collection](/slurm/retry-and-collection), or [Scaling runs](/slurm/run-configuration#scale-runs).

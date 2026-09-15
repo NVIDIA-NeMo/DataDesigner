@@ -1,0 +1,26 @@
+schema_version: 1
+name: greeting-run
+builder:
+  source: builder.yaml
+invocation:
+  num_records: 8
+  dataset_name: greetings
+  model_concurrency:
+    generator: 8
+client:
+  image:
+    name: dd-client
+deployments:
+  - model_alias: generator
+    model: example/generator
+    server:
+      type: vllm
+      image:
+        name: vllm
+    topology:
+      tensor_parallel: 1
+submission:
+  time_limit: 01:00:00
+output:
+  format: parquet
+  partitions: 1

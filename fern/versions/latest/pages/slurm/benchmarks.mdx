@@ -2,6 +2,8 @@
 
 Use a benchmark to compare concurrency and deployment topology while keeping each case as an ordinary Data Designer Slurm run. No benchmark controller stays resident after submission.
 
+Complete [Getting Started](/slurm/getting-started) first so the profile, images, and base run are ready.
+
 Install the Slurm extension:
 
 ```bash
@@ -92,3 +94,5 @@ service = create_slurm_benchmark_service(
 manifest = service.run(config, source_root=benchmark_file.parent)
 report = service.analyze(manifest.benchmark_id, refresh_state=True)
 ```
+
+For child failure recovery and output collection, use [Retry and collection](/slurm/retry-and-collection).
