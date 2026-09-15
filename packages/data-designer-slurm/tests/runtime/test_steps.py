@@ -34,6 +34,7 @@ def test_all_processes_use_structured_srun_steps_and_sanitized_environment(runti
     context = runtime_case.context
     deployment = resolve_vllm_server(context.plan, context.plan.deployments[0].deployment_id)
     source_environment = {
+        "DD_SCRATCH_ROOT": "/tmp/data-designer-slurm-4101-0",
         "PATH": "/custom/bin",
         "SLURM_JOB_ID": "4101",
         "UNREVIEWED_VALUE": "must-not-forward",
@@ -82,6 +83,14 @@ def test_all_processes_use_structured_srun_steps_and_sanitized_environment(runti
     assert all(step.environment["LC_ALL"] == "C" for step in all_steps)
     assert all(step.stdout_path.parent == context.attempt_directory / "logs" for step in all_steps)
     assert all(f"--cpus-per-task={context.plan.client.authored.cpus}" in step.command for step in all_steps)
+    assert all(
+        any(
+            argument.endswith(":/run/data-designer-slurm")
+            for argument in step.command
+            if argument.startswith("--container-mounts=")
+        )
+        for step in all_steps
+    )
 
     server = server_steps[0]
     assert server.role is RuntimeStepRole.SERVER
@@ -135,7 +144,7 @@ def test_client_worker_receives_only_persisted_identity_and_logical_endpoint(run
         (deployment,),
         context.plan,
         context.attempt_directory,
-        {},
+        {"DD_SCRATCH_ROOT": "/tmp/data-designer-slurm-4101-0"},
         context.attempt_directory / "runtime/proxy.py",
     )
     endpoints = tuple(endpoint for _, endpoint in endpoint_steps)
@@ -146,7 +155,7 @@ def test_client_worker_receives_only_persisted_identity_and_logical_endpoint(run
         context.attempt,
         context.attempt_directory,
         endpoints,
-        {},
+        {"DD_SCRATCH_ROOT": "/tmp/data-designer-slurm-4101-0"},
     )
 
     separator = step.command.index("--")
@@ -161,6 +170,24 @@ def test_client_worker_receives_only_persisted_identity_and_logical_endpoint(run
     assert context.attempt.attempt_id in worker
     assert context.shard.shard_id in worker
     assert f"generator=http://127.0.0.1:{endpoints[0].port}/v1" in worker
+
+
+@pytest.mark.parametrize("environment", ({}, {"DD_SCRATCH_ROOT": "relative"}))
+def test_client_step_rejects_unavailable_allocation_scratch(
+    runtime_case: RuntimeCase,
+    environment: dict[str, str],
+) -> None:
+    context = runtime_case.context
+
+    with pytest.raises(SlurmRuntimeError, match="allocation scratch"):
+        DefaultClientStepBuilder().build_preflight_step(
+            context.plan,
+            context.shard,
+            context.attempt,
+            context.attempt_directory,
+            (),
+            environment,
+        )
 
 
 def test_endpoint_step_uses_resolved_retry_policy_and_backends(runtime_case: RuntimeCase) -> None:
@@ -183,6 +210,8 @@ def test_endpoint_step_uses_resolved_retry_policy_and_backends(runtime_case: Run
         step.command.index("--retry-after-seconds") : step.command.index("--retry-after-seconds") + 2
     ]
     assert "--max-waiting-requests" not in step.command
+    assert step.environment["PYTHONPATH"].endswith("/runtime")
+    assert "--container-env=PYTHONPATH" in step.command
     for backend in deployment.backend_endpoints:
         assert f"http://127.0.0.1:{backend.port}" in step.command
 
@@ -242,6 +271,7 @@ def test_client_receives_client_secrets_without_server_only_secrets(
         attempt_directory,
         endpoints,
         {
+            "DD_SCRATCH_ROOT": "/tmp/data-designer-slurm-4101-0",
             "PACKAGE_INDEX_TOKEN": "client-secret",
             "HF_TOKEN": "server-secret",
             "SLURM_JOB_GPUS": "0",
@@ -250,7 +280,7 @@ def test_client_receives_client_secrets_without_server_only_secrets(
 
     assert step.environment["PACKAGE_INDEX_TOKEN"] == "client-secret"
     assert "HF_TOKEN" not in step.environment
-    assert "--container-env=PACKAGE_INDEX_TOKEN,SLURM_JOB_GPUS" in step.command
+    assert "--container-env=DATA_DESIGNER_SLURM_SCRATCH_ROOT,PACKAGE_INDEX_TOKEN,SLURM_JOB_GPUS" in step.command
 
     with pytest.raises(SlurmRuntimeError, match="PACKAGE_INDEX_TOKEN"):
         DefaultClientStepBuilder().build_preflight_step(
@@ -259,5 +289,8 @@ def test_client_receives_client_secrets_without_server_only_secrets(
             attempt,
             attempt_directory,
             endpoints,
-            {"HF_TOKEN": "server-secret"},
+            {
+                "DD_SCRATCH_ROOT": "/tmp/data-designer-slurm-4101-0",
+                "HF_TOKEN": "server-secret",
+            },
         )

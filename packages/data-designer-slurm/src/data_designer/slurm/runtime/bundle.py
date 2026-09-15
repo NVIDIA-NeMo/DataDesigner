@@ -25,7 +25,7 @@ _ENTRYPOINT_MODE = 0o500
 _SOURCE_MODE = 0o400
 _MAXIMUM_SOURCE_SIZE = 16 * 1024 * 1024
 _TEMPORARY_NAME_PATTERN = re.compile(r"^\.runtime\.[0-9a-f]{16}\.tmp$")
-_SHELL_SOURCE_NAMES = ("entrypoint.sh", "plan_reader.sh", "step_runner.sh", "cleanup.sh")
+_SHELL_SOURCE_NAMES = ("scratch.sh", "entrypoint.sh", "plan_reader.sh", "step_runner.sh", "cleanup.sh")
 _SLURM_PACKAGE_ROOT = "data_designer/slurm"
 _SOURCE_MANIFEST_NAME = f"{_SLURM_PACKAGE_ROOT}/runtime/slurm-sources.txt"
 

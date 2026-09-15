@@ -6,6 +6,9 @@
 #SBATCH --cpus-per-task=32
 #SBATCH --time=03:55:00
 #SBATCH --array=0-1%2
+#SBATCH --chdir="/workspace/primary/runs/run-001"
+#SBATCH --output="/workspace/primary/runs/run-001/slurm-attempt-0001-%A_%a.out"
+#SBATCH --error="/workspace/primary/runs/run-001/slurm-attempt-0001-%A_%a.err"
 #SBATCH --gres=gpu:8
 set -Eeuo pipefail
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
@@ -33,9 +36,13 @@ readonly DD_ARRAY_TASK_ID="${SLURM_ARRAY_TASK_ID}"
 printf -v DD_SHARD_ID 'shard-%05d' "${DD_ARRAY_TASK_ID}"
 readonly DD_SHARD_ID
 readonly DD_ATTEMPT_DIR="${DD_RUN_ROOT}/shards/${DD_SHARD_ID}/attempts/attempt-${DD_ATTEMPT_ORDINAL}"
-readonly DD_RUNTIME_ROOT="${DD_ATTEMPT_DIR}/runtime"
-[[ -d ${DD_RUNTIME_ROOT} && ! -L ${DD_RUNTIME_ROOT} ]]
-tar -xzf "${DD_RUNTIME_ARCHIVE}" -C "${DD_RUNTIME_ROOT}"
+source <(tar -xOf "${DD_RUNTIME_ARCHIVE}" scratch.sh)
+trap 'dd_cleanup_allocation_scratch || true' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+dd_initialize_local_scratch
+dd_stage_allocation_runtime
+readonly DD_RUNTIME_ROOT="${DD_SCRATCH_ROOT}/runtime"
 
 source "${DD_RUNTIME_ROOT}/entrypoint.sh"
 dd_slurm_run_allocation "${DD_PLAN}" "${DD_ATTEMPT_DIR}"
