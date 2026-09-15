@@ -46,10 +46,19 @@ class _QuietIndexHandler(SimpleHTTPRequestHandler):
         pass
 
 
-def run(command: list[str], *, cwd: Path, check: bool = True) -> subprocess.CompletedProcess[str]:
+def run(
+    command: list[str],
+    *,
+    cwd: Path,
+    check: bool = True,
+    isolate_pip: bool = False,
+) -> subprocess.CompletedProcess[str]:
     environment = os.environ.copy()
     environment.pop("PYTHONPATH", None)
     environment.pop("VIRTUAL_ENV", None)
+    if isolate_pip:
+        environment = {name: value for name, value in environment.items() if not name.startswith("PIP_")}
+        environment["PIP_CONFIG_FILE"] = os.devnull
     result = subprocess.run(command, cwd=cwd, env=environment, capture_output=True, text=True, check=False)
     if check and result.returncode:
         raise RuntimeError(result.stdout + result.stderr)
@@ -135,11 +144,11 @@ def install(uv: str, python: Path, wheel_directory: Path, package: str, *, cwd: 
 
 def download_third_party_wheels(wheel_directory: Path, metadata: dict[str, Message]) -> None:
     requirements = {
-        str(requirement)
+        str(parsed)
         for distribution in metadata.values()
         for value in distribution.get_all("Requires-Dist", [])
-        if canonicalize_name((requirement := Requirement(value)).name) not in FIRST_PARTY_PACKAGES
-        and (requirement.marker is None or requirement.marker.evaluate())
+        if canonicalize_name((parsed := Requirement(value)).name) not in FIRST_PARTY_PACKAGES
+        and (parsed.marker is None or parsed.marker.evaluate())
     }
     run(
         [
@@ -155,6 +164,7 @@ def download_third_party_wheels(wheel_directory: Path, metadata: dict[str, Messa
             *sorted(requirements),
         ],
         cwd=REPOSITORY_ROOT,
+        isolate_pip=True,
     )
 
 
@@ -201,6 +211,7 @@ def install_from_index(python: Path, index_url: str, package: str, *, cwd: Path)
             package,
         ],
         cwd=cwd,
+        isolate_pip=True,
     )
 
 
@@ -285,8 +296,11 @@ assert StateRecordRange is ContractRecordRange
 assert StateResumeWorkspace is ContractResumeWorkspace
 examples = Path("examples")
 assert load_builder_payload(examples / "builder.yaml")["data_designer"]["columns"][0]["name"] == "greeting"
-assert load_run_config(examples / "run.yaml").name == "greeting-run"
-assert load_benchmark_config(examples / "benchmark.yaml").name == "generator-scaling"
+run_example = load_run_config(examples / "run.yaml")
+benchmark_example = load_benchmark_config(examples / "benchmark.yaml")
+assert run_example.name == "greeting-run"
+assert benchmark_example.name == "generator-scaling"
+assert len(BenchmarkCompiler.compile(benchmark_example, run_example).cases) == 4
 assert load_profile_catalog(examples / "profile-catalog.yaml").default_cluster == "primary"
 profile_help_result = CliRunner().invoke(app, ["slurm", "profile", "--help"])
 assert profile_help_result.exit_code == 0, profile_help_result.output
@@ -340,6 +354,8 @@ def main() -> None:
     uv = shutil.which("uv")
     if uv is None:
         raise RuntimeError("uv is required")
+    if run([sys.executable, "-m", "pip", "--version"], cwd=REPOSITORY_ROOT, check=False).returncode:
+        raise RuntimeError("pip is required")
     verify_documented_examples()
 
     with tempfile.TemporaryDirectory() as temporary_directory:

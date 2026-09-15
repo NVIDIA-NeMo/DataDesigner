@@ -26,7 +26,7 @@ from data_designer.slurm.state import CollectionState
 
 class _RunService:
     def __init__(self) -> None:
-        self.calls: list[tuple[DataDesignerSlurmConfig, Path, bool, bool]] = []
+        self.calls: list[tuple[DataDesignerSlurmConfig, Path, bool]] = []
         self.retry_calls: list[tuple[str, tuple[str, ...] | None, str, bool]] = []
         self.collection_calls: list[tuple[Path, Path, int | None]] = []
 
@@ -36,9 +36,8 @@ class _RunService:
         *,
         source_root: Path,
         dry_run: bool,
-        force: bool = False,
     ) -> SlurmRunExecution:
-        self.calls.append((config, source_root, dry_run, force))
+        self.calls.append((config, source_root, dry_run))
         return SlurmRunExecution(
             run_id="run-0001",
             state="dry_run",
@@ -122,7 +121,7 @@ def test_execute_emits_deterministic_json_and_forwards_actions(
         "shard_count": 1,
         "state": "dry_run",
     }
-    assert service.calls == [(authored_run_single, tmp_path, True, False)]
+    assert service.calls == [(authored_run_single, tmp_path, True)]
 
 
 def test_benchmark_cli_forwards_run_and_analysis_actions(
