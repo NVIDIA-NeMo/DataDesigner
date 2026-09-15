@@ -189,8 +189,7 @@ def test_context_loading_reads_each_immutable_record_once(
     attempt = _submitted_attempt(case)
     case.writer.create_attempt(attempt)
     runtime_directory = case.writer.run_root / "shards/shard-00000/attempts/attempt-0001/runtime"
-    assert runtime_directory.is_dir()
-    assert runtime_directory.stat().st_mode & 0o777 == 0o700
+    assert not runtime_directory.exists()
     readiness = _readiness(case, attempt)
     case.writer.write_readiness(readiness)
     record_names.clear()

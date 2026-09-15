@@ -32,8 +32,10 @@ def test_renderer_matches_contract_bound_goldens(
     request: pytest.FixtureRequest,
 ) -> None:
     plan = request.getfixturevalue(plan_fixture)
+    script = render_generation_attempt_script(plan, attempt_ordinal=1)
 
-    assert render_generation_attempt_script(plan, attempt_ordinal=1) == (GOLDEN_DIRECTORY / fixture_name).read_text()
+    assert script == (GOLDEN_DIRECTORY / fixture_name).read_text()
+    assert script.index("trap 'exit 143' TERM") < script.index("\ndd_initialize_local_scratch\n")
 
 
 def test_renderer_omits_unspecified_array_throttle(multi_node_plan: ResolvedSlurmRunPlan) -> None:
@@ -194,7 +196,7 @@ def test_renderer_is_a_thin_entrypoint(single_node_plan: ResolvedSlurmRunPlan) -
 
     assert script.count("dd_slurm_run_allocation") == 1
     assert 'readonly DD_ATTEMPT_ORDINAL="0012"' in script
-    assert len(script.splitlines()) <= 42
+    assert len(script.splitlines()) <= 48
     assert script.endswith("\n")
 
 
@@ -204,16 +206,29 @@ def test_rendered_script_verifies_exact_persisted_plan_bytes_before_sourcing_run
 ) -> None:
     run_root = tmp_path / "run"
     run_root.mkdir()
-    (run_root / "shards/shard-00000/attempts/attempt-0001/runtime").mkdir(parents=True)
+    (run_root / "shards/shard-00000/attempts/attempt-0001").mkdir(parents=True)
+    scratch_parent = tmp_path / "scratch"
+    scratch_parent.mkdir()
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_srun = fake_bin / "srun"
+    fake_srun.write_text(
+        '#!/usr/bin/env bash\nset -Eeuo pipefail\nwhile [[ $# -gt 0 && $1 != -- ]]; do shift; done\nshift\nexec "$@"\n'
+    )
+    fake_srun.chmod(0o700)
     captured_plan_path = tmp_path / "captured-plan.json"
     entrypoint_path = tmp_path / "entrypoint.sh"
     entrypoint_path.write_text(
         f'dd_slurm_run_allocation() {{\n    cp -- "$1" {shlex.quote(str(captured_plan_path))}\n}}\n'
     )
     runtime_archive_path = tmp_path / "runtime.tar.gz"
+    scratch_path = Path(__file__).parents[2] / "src/data_designer/slurm/runtime/scratch.sh"
     with tarfile.open(runtime_archive_path, mode="w:gz") as runtime_archive:
+        runtime_archive.add(scratch_path, arcname="scratch.sh")
         runtime_archive.add(entrypoint_path, arcname="entrypoint.sh")
 
+    scheduler = single_node_plan.selected_profile.profile.scheduler.model_copy(update={"bin_path": fake_bin.as_posix()})
+    profile = single_node_plan.selected_profile.profile.model_copy(update={"scheduler": scheduler})
     plan = single_node_plan.model_copy(
         update={
             "authored_config": ArtifactReference(
@@ -224,6 +239,7 @@ def test_rendered_script_verifies_exact_persisted_plan_bytes_before_sourcing_run
                 path=str(runtime_archive_path),
                 sha256=hashlib.sha256(runtime_archive_path.read_bytes()).hexdigest(),
             ),
+            "selected_profile": injected_profile(profile),
         }
     )
     plan_path = run_root / "resolved-plan.json"
@@ -231,7 +247,13 @@ def test_rendered_script_verifies_exact_persisted_plan_bytes_before_sourcing_run
     serialized_plan_bytes = serialized_plan.encode()
     plan_path.write_bytes(serialized_plan_bytes)
     script = render_generation_attempt_script(plan, attempt_ordinal=1)
-    environment = {**os.environ, "SLURM_ARRAY_TASK_ID": "0"}
+    environment = {
+        **os.environ,
+        "SLURM_ARRAY_TASK_ID": "0",
+        "SLURM_JOB_ID": "5101",
+        "SLURM_JOB_NUM_NODES": "1",
+        "SLURM_TMPDIR": scratch_parent.as_posix(),
+    }
 
     valid = subprocess.run(
         ("bash",),

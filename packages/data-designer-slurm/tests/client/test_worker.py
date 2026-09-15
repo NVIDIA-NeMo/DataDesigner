@@ -448,12 +448,14 @@ def test_if_possible_interruption_preserves_workspace_for_retry(client_worker_ca
     resume_path = Path(plan.shards[0].resume_workspace.path)
     assert (resume_path / "batch.parquet").is_file()
     attempt_dir = resume_path.parent / "attempts" / "attempt-0002"
-    overlay_path = attempt_dir / "client-env" / "site-packages"
+    scratch_root = client_worker_case.scratch_root.parent / "retry-scratch"
+    overlay_path = scratch_root / "client-env" / "site-packages"
     overlay_path.mkdir(parents=True)
     prepared = replace(
         client_worker_case.prepared,
         attempt_id="attempt-0002",
         attempt_dir=attempt_dir,
+        scratch_root=scratch_root,
         overlay_path=overlay_path,
     )
     retry = ClientWorker(data_designer_factory=partial(FakeDataDesigner, effective_resume=ResumeMode.ALWAYS))
@@ -554,6 +556,7 @@ prepared = PreparedClientEnvironment(
     shard_id=plan["shards"][0]["shard_id"],
     attempt_id="attempt-0001",
     attempt_dir=attempt_dir,
+    scratch_root=Path(sys.argv[3]).parent,
     overlay_path=Path(sys.argv[3]),
     dependency_lock=ArtifactReference(**plan["client"]["dependency_lock"]),
     client_image_sha256=plan["client"]["image"]["sha256"],

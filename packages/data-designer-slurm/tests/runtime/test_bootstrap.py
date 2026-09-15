@@ -6,14 +6,17 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path
 
+import pytest
 from conftest import RuntimeCase, relocate_plan
 
 from data_designer.slurm.contracts import ArtifactReference
 from data_designer.slurm.planning import ResolvedSlurmRunPlan
 from data_designer.slurm.runtime.bootstrap import RuntimeBootstrapManifest, build_runtime_manifest
 from data_designer.slurm.runtime.distributed import build_vllm_process_command
+from data_designer.slurm.runtime.errors import SlurmRuntimeError
 from data_designer.slurm.runtime.models import AllocationContext, RuntimeStepRole
 from data_designer.slurm.runtime.node_spec import decode_node_worker_spec
+from data_designer.slurm.runtime.paths import ALLOCATION_SCRATCH_CONTAINER_ROOT
 from data_designer.slurm.runtime.ports import resolve_allocation_deployments
 from data_designer.slurm.runtime.preflight import AllocationLayout
 from data_designer.slurm.serving.vllm import ResolvedVllmProcess
@@ -22,7 +25,7 @@ from data_designer.slurm.state import RetryPlan, RetryShard
 
 def test_bootstrap_manifest_builds_typed_one_node_steps_without_secret_values(runtime_case: RuntimeCase) -> None:
     context = runtime_case.context
-    runtime_root = context.attempt_directory / "runtime"
+    runtime_root = Path(ALLOCATION_SCRATCH_CONTAINER_ROOT) / "runtime"
     log_directory = context.attempt_directory / "logs/execution-00000002"
 
     manifest = build_runtime_manifest(
@@ -55,6 +58,28 @@ def test_bootstrap_manifest_builds_typed_one_node_steps_without_secret_values(ru
     assert "--attempt-dir" in manifest.steps[-1].command
     assert all(step.node_hosts == ("compute-001",) for step in manifest.steps)
     assert all(step.role is not RuntimeStepRole.SERVER_PREFLIGHT for step in manifest.steps)
+    endpoint = next(step for step in manifest.steps if step.role is RuntimeStepRole.ENDPOINT)
+    assert endpoint.literal_environment["PYTHONPATH"] == runtime_root.as_posix()
+    assert endpoint.container_environment == ("PYTHONPATH",)
+    client_steps = tuple(
+        step for step in manifest.steps if step.role in {RuntimeStepRole.CLIENT_PREFLIGHT, RuntimeStepRole.CLIENT}
+    )
+    assert all(
+        step.literal_environment["DATA_DESIGNER_SLURM_SCRATCH_ROOT"] == ALLOCATION_SCRATCH_CONTAINER_ROOT
+        for step in client_steps
+    )
+    assert "SLURM_TMPDIR" not in manifest.serialize_json()
+
+
+def test_bootstrap_manifest_rejects_runtime_outside_allocation_scratch(runtime_case: RuntimeCase) -> None:
+    with pytest.raises(SlurmRuntimeError, match="outside allocation-local scratch"):
+        build_runtime_manifest(
+            runtime_case.context,
+            {"SLURM_JOB_GPUS": "0"},
+            runtime_root=Path("/shared/runtime"),
+            log_directory=runtime_case.context.attempt_directory / "logs/execution-00000002",
+            layout=AllocationLayout(("compute-001",)),
+        )
 
 
 def test_bootstrap_manifest_binds_retry_plan_to_control_and_client_workers(runtime_case: RuntimeCase) -> None:
@@ -80,7 +105,7 @@ def test_bootstrap_manifest_binds_retry_plan_to_control_and_client_workers(runti
     manifest = build_runtime_manifest(
         retry_context,
         {"SLURM_JOB_GPUS": "0"},
-        runtime_root=context.attempt_directory / "runtime",
+        runtime_root=Path(ALLOCATION_SCRATCH_CONTAINER_ROOT) / "runtime",
         log_directory=context.attempt_directory / "logs/execution-00000002",
         layout=AllocationLayout(("compute-001",)),
     )
@@ -118,7 +143,7 @@ def test_bootstrap_manifest_composes_multi_node_workers_and_remote_endpoints(
     manifest = build_runtime_manifest(
         context,
         {"SLURM_JOB_GPUS": "0,1,2,3,4,5,6,7"},
-        runtime_root=context.attempt_directory / "runtime",
+        runtime_root=Path(ALLOCATION_SCRATCH_CONTAINER_ROOT) / "runtime",
         log_directory=context.attempt_directory / "logs/execution-00000002",
         layout=layout,
     )
@@ -142,6 +167,8 @@ def test_bootstrap_manifest_composes_multi_node_workers_and_remote_endpoints(
     assert tuple(probe.host for probe in distributed.readiness) == ("compute-001",)
     assert "http://compute-001:" in " ".join(endpoint.command)
     assert endpoint.node_hosts == ("compute-001",)
+    assert endpoint.literal_environment["PYTHONPATH"] == f"{ALLOCATION_SCRATCH_CONTAINER_ROOT}/runtime"
+    assert endpoint.container_environment == ("PYTHONPATH",)
     assert remote_preflight.node_hosts == ("compute-003",)
     remote_worker_spec = decode_node_worker_spec(remote_preflight.command[-1])
     assert remote_worker_spec.required_model_path == "/workspace/primary/models/model-1"

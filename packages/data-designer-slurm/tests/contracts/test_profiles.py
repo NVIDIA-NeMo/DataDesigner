@@ -109,6 +109,15 @@ def test_explicit_selection_rejects_unknown_cluster(profile_catalog: SlurmProfil
                 {"source": "/two", "target": "/same"},
             ]
         ),
+        lambda payload: payload["clusters"]["primary"].update(
+            container_mounts=[{"source": "/source", "target": "/run"}]
+        ),
+        lambda payload: payload["clusters"]["primary"].update(
+            container_mounts=[{"source": "/source", "target": "/run/data-designer-slurm"}]
+        ),
+        lambda payload: payload["clusters"]["primary"].update(
+            container_mounts=[{"source": "/source", "target": "/run/data-designer-slurm/nested"}]
+        ),
     ],
 )
 def test_profile_catalog_rejects_invalid_boundaries(

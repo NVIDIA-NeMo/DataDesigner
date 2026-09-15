@@ -35,10 +35,10 @@ def test_runtime_bundle_is_deterministic_content_addressed_and_restrictive(tmp_p
     assert stat.S_IMODE(archive_path.parent.stat().st_mode) == 0o700
     with tarfile.open(fileobj=io.BytesIO(content), mode="r:gz") as archive:
         names = archive.getnames()
-        assert names[0] == "entrypoint.sh"
-        assert names[1:4] == ["plan_reader.sh", "step_runner.sh", "cleanup.sh"]
-        assert names[4] == "data_designer/slurm/runtime/slurm-sources.txt"
-        assert names[5] == "data_designer/slurm/__init__.py"
+        assert names[:2] == ["scratch.sh", "entrypoint.sh"]
+        assert names[2:5] == ["plan_reader.sh", "step_runner.sh", "cleanup.sh"]
+        assert names[5] == "data_designer/slurm/runtime/slurm-sources.txt"
+        assert names[6] == "data_designer/slurm/__init__.py"
         assert "data_designer/slurm/runtime/controller.py" in names
         assert "data_designer/slurm/runtime/entrypoint.py" in names
         assert "data_designer/slurm/state/store.py" in names
@@ -67,7 +67,7 @@ def test_runtime_bundle_recursively_collects_and_imports_nested_packages(
     (source_root / "__init__.py").write_text("")
     (runtime_root / "__init__.py").write_text("")
     (runtime_root / "bundle.py").write_text("")
-    for name in ("entrypoint.sh", "plan_reader.sh", "step_runner.sh", "cleanup.sh"):
+    for name in ("scratch.sh", "entrypoint.sh", "plan_reader.sh", "step_runner.sh", "cleanup.sh"):
         (runtime_root / name).write_text("")
     (nested_root / "__init__.py").write_text("")
     (nested_root / "worker.py").write_text("VALUE = 42\n")

@@ -10,7 +10,11 @@ dd_start_runtime_timer() {
 }
 
 dd_sleep() {
-    read -r -t "$1" -u "${DD_RUNTIME_TIMER[0]}" _ || true
+    if [[ ${DD_RUNTIME_TIMER[0]:-} =~ ^[0-9]+$ ]]; then
+        read -r -t "$1" -u "${DD_RUNTIME_TIMER[0]}" _ || true
+    else
+        sleep "$1"
+    fi
 }
 
 dd_register_required_pid() {
