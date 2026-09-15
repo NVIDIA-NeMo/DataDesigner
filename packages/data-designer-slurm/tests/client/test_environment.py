@@ -16,7 +16,7 @@ from unittest.mock import Mock
 import pytest
 from conftest import ClientWorkerCase, FakeDataDesigner
 
-from data_designer.slurm.client.environment import ClientEnvironmentBuilder, inspect_distributions
+from data_designer.slurm.client.environment import ClientEnvironmentBuilder, activate_environment, inspect_distributions
 from data_designer.slurm.client.errors import ClientWorkerError
 from data_designer.slurm.client.execution import ClientWorker
 from data_designer.slurm.client.plugins import discover_plugins
@@ -35,10 +35,47 @@ def test_environment_prepares_empty_verified_overlay(client_worker_case: ClientW
         shard_id=client_worker_case.plan.shards[0].shard_id,
         attempt_id="attempt-0001",
         attempt_dir=client_worker_case.attempt_dir,
+        scratch_root=client_worker_case.scratch_root,
     )
 
     assert prepared.installer_outcome is ClientInstallerOutcome.NOT_REQUIRED
     assert prepared.installed_distributions == client_worker_case.lock.image_distributions
+    assert prepared.overlay_path == client_worker_case.scratch_root / "client-env/site-packages"
+    assert not (client_worker_case.attempt_dir / "client-env").exists()
+
+
+def test_environment_activation_keeps_home_and_cache_in_scratch(
+    client_worker_case: ClientWorkerCase,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(sys, "path", sys.path.copy())
+
+    activate_environment(client_worker_case.prepared)
+
+    assert os.environ["DATA_DESIGNER_HOME"] == (client_worker_case.scratch_root / "data-designer-home").as_posix()
+    assert os.environ["XDG_CACHE_HOME"] == (client_worker_case.scratch_root / "cache").as_posix()
+    assert not (client_worker_case.attempt_dir / "data-designer-home").exists()
+
+
+def test_environment_rejects_symlink_scratch_root(
+    client_worker_case: ClientWorkerCase,
+    tmp_path: Path,
+) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    scratch = tmp_path / "scratch-link"
+    scratch.symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(ClientWorkerError) as error:
+        ClientEnvironmentBuilder().prepare(
+            client_worker_case.plan_path,
+            shard_id=client_worker_case.plan.shards[0].shard_id,
+            attempt_id="attempt-0001",
+            attempt_dir=client_worker_case.attempt_dir,
+            scratch_root=scratch,
+        )
+
+    assert error.value.code is ClientErrorCode.INVALID_INPUT
 
 
 def test_client_runs_through_non_identity_workspace_mount(client_worker_case: ClientWorkerCase) -> None:
@@ -66,6 +103,7 @@ def test_client_runs_through_non_identity_workspace_mount(client_worker_case: Cl
         shard_id=plan.shards[0].shard_id,
         attempt_id="attempt-0001",
         attempt_dir=client_worker_case.attempt_dir,
+        scratch_root=client_worker_case.scratch_root,
     )
     worker = ClientWorker(data_designer_factory=FakeDataDesigner)
     worker.preflight(
@@ -127,6 +165,7 @@ def test_environment_maps_each_artifact_through_nested_mounts(
         shard_id=shard_id,
         attempt_id="attempt-0001",
         attempt_dir=attempt_dir,
+        scratch_root=client_worker_case.scratch_root,
     )
 
     assert prepared.attempt_dir == attempt_dir
@@ -185,6 +224,7 @@ def test_environment_rejects_client_image_inventory_conflict(client_worker_case:
             shard_id=client_worker_case.plan.shards[0].shard_id,
             attempt_id="attempt-0001",
             attempt_dir=client_worker_case.attempt_dir,
+            scratch_root=client_worker_case.scratch_root,
         )
 
     assert error.value.code is ClientErrorCode.DEPENDENCY_CONFLICT
@@ -211,6 +251,7 @@ def test_environment_rejects_invalid_identity_before_creating_attempt(
             shard_id=shard_id,
             attempt_id=attempt_id,
             attempt_dir=path,
+            scratch_root=client_worker_case.scratch_root,
         )
 
     assert error.value.code is ClientErrorCode.INVALID_INPUT
@@ -244,6 +285,7 @@ def test_environment_rejects_missing_locked_wheel(client_worker_case: ClientWork
             shard_id=plan.shards[0].shard_id,
             attempt_id="attempt-0001",
             attempt_dir=client_worker_case.attempt_dir,
+            scratch_root=client_worker_case.scratch_root,
         )
 
     assert error.value.code is ClientErrorCode.DEPENDENCY_ARTIFACT_MISSING
@@ -283,6 +325,7 @@ def test_environment_installs_verified_wheel_overlay(client_worker_case: ClientW
         shard_id=plan.shards[0].shard_id,
         attempt_id="attempt-0001",
         attempt_dir=client_worker_case.attempt_dir,
+        scratch_root=client_worker_case.scratch_root,
     )
 
     assert prepared.installer_outcome is ClientInstallerOutcome.INSTALLED
@@ -323,6 +366,7 @@ prepared = PreparedClientEnvironment(
     shard_id="shard-00000",
     attempt_id="attempt-0001",
     attempt_dir=Path(sys.argv[2]),
+    scratch_root=Path(sys.argv[1]).parent,
     overlay_path=Path(sys.argv[1]),
     dependency_lock=ArtifactReference(path=(Path(sys.argv[2]) / "dependency-lock.json").as_posix(), sha256="a" * 64),
     client_image_sha256="b" * 64,
