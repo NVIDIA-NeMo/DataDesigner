@@ -7,7 +7,9 @@ import hashlib
 import json
 import os
 import shlex
+import shutil
 import subprocess
+import tarfile
 from pathlib import Path
 
 import pytest
@@ -19,6 +21,9 @@ def test_bash_controller_scopes_secrets_cleans_steps_and_never_runs_host_python(
     gpu_request_mode: str,
 ) -> None:
     runtime_root = Path(__file__).parents[2] / "src/data_designer/slurm/runtime"
+    scratch_root = tmp_path / "data-designer-slurm-4101-0"
+    runtime_copy = scratch_root / "runtime"
+    shutil.copytree(runtime_root, runtime_copy)
     attempt_directory = tmp_path / "runs/run-shell/shards/shard-00000/attempts/attempt-0001"
     log_directory = attempt_directory / "logs/execution-00000002"
     fake_bin = tmp_path / "bin"
@@ -27,7 +32,7 @@ def test_bash_controller_scopes_secrets_cleans_steps_and_never_runs_host_python(
     artifacts = tuple(_artifact(tmp_path, name) for name in ("runtime", "lock", "client", "server"))
     plan_path = tmp_path / "runs/run-shell/resolved-plan.json"
     plan_path.parent.mkdir(parents=True, exist_ok=True)
-    plan = _plan(tmp_path, runtime_root, artifacts, gpu_request_mode)
+    plan = _plan(tmp_path, runtime_copy, artifacts, gpu_request_mode)
     plan_path.write_text(json.dumps(plan))
     manifest_path = tmp_path / "manifest-source.json"
     manifest_path.write_text(json.dumps(_manifest(attempt_directory, artifacts, "a" * 64)))
@@ -42,9 +47,11 @@ def test_bash_controller_scopes_secrets_cleans_steps_and_never_runs_host_python(
 DD_PLAN_SHA256={"a" * 64}
 DD_SHARD_ID=shard-00000
 DD_ATTEMPT_ORDINAL=0001
+DD_RUNTIME_ARCHIVE={shlex.quote(artifacts[0][0])}
+DD_RUNTIME_SHA256={artifacts[0][1]}
 readonly DD_PLAN={shlex.quote(plan_path.as_posix())}
 readonly DD_ATTEMPT_DIR={shlex.quote(attempt_directory.as_posix())}
-source {shlex.quote((runtime_root / "entrypoint.sh").as_posix())}
+source {shlex.quote((runtime_copy / "entrypoint.sh").as_posix())}
 dd_slurm_run_allocation "${{DD_PLAN}}" "${{DD_ATTEMPT_DIR}}"
 """
     environment = {
@@ -54,8 +61,10 @@ dd_slurm_run_allocation "${{DD_PLAN}}" "${{DD_ATTEMPT_DIR}}"
         "FAKE_GPU_MODE": gpu_request_mode,
         "SOURCE_TOKEN": "supersecret",
         "CUDA_VISIBLE_DEVICES": "0",
+        "DD_SCRATCH_ROOT": scratch_root.as_posix(),
         "SLURM_ARRAY_JOB_ID": "4101",
         "SLURM_ARRAY_TASK_ID": "0",
+        "SLURM_JOB_ID": "4101",
         "SLURM_JOB_NUM_NODES": "1",
         "SLURM_JOB_NODELIST": "compute-001",
         "SLURM_JOB_GPUS": "0",
@@ -72,6 +81,7 @@ dd_slurm_run_allocation "${{DD_PLAN}}" "${{DD_ATTEMPT_DIR}}"
     )
 
     assert completed.returncode == 0, completed.stderr
+    assert not scratch_root.exists()
     assert not marker_path.exists()
     assert "supersecret" not in completed.stdout + completed.stderr + manifest_path.read_text()
 
@@ -79,11 +89,202 @@ dd_slurm_run_allocation "${{DD_PLAN}}" "${{DD_ATTEMPT_DIR}}"
 def test_staged_shell_modules_parse_as_bash(tmp_path: Path) -> None:
     del tmp_path
     runtime_root = Path(__file__).parents[2] / "src/data_designer/slurm/runtime"
-    scripts = tuple(runtime_root / name for name in ("entrypoint.sh", "plan_reader.sh", "step_runner.sh", "cleanup.sh"))
+    scripts = tuple(
+        runtime_root / name
+        for name in ("scratch.sh", "entrypoint.sh", "plan_reader.sh", "step_runner.sh", "cleanup.sh")
+    )
 
     completed = subprocess.run(("bash", "-n", *(path.as_posix() for path in scripts)), capture_output=True, text=True)
 
     assert completed.returncode == 0, completed.stderr
+
+
+def test_scratch_prefers_slurm_tmpdir_and_cleans_private_tree(tmp_path: Path) -> None:
+    runtime_root = Path(__file__).parents[2] / "src/data_designer/slurm/runtime"
+    slurm_tmp = tmp_path / "slurm-tmp"
+    fallback_tmp = tmp_path / "fallback-tmp"
+    slurm_tmp.mkdir()
+    fallback_tmp.mkdir()
+    expected_root = slurm_tmp / "data-designer-slurm-4101-7"
+    command = f"""
+set -Eeuo pipefail
+source {shlex.quote((runtime_root / "scratch.sh").as_posix())}
+dd_initialize_local_scratch
+[[ $DD_SCRATCH_ROOT == {shlex.quote(expected_root.as_posix())} ]]
+[[ $HOME == "${{DD_SCRATCH_ROOT}}/home" ]]
+[[ $ENROOT_TEMP_PATH == "${{DD_SCRATCH_ROOT}}/enroot/tmp" ]]
+dd_remove_local_scratch "${{DD_SCRATCH_ROOT}}"
+[[ ! -e $DD_SCRATCH_ROOT ]]
+"""
+
+    completed = subprocess.run(
+        ("bash", "-c", command),
+        capture_output=True,
+        text=True,
+        env={
+            **os.environ,
+            "SLURM_ARRAY_TASK_ID": "7",
+            "SLURM_JOB_ID": "4101",
+            "SLURM_TMPDIR": slurm_tmp.as_posix(),
+            "TMPDIR": fallback_tmp.as_posix(),
+        },
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert not expected_root.exists()
+
+
+def test_scratch_falls_back_to_tmpdir_and_rejects_symlink_root(tmp_path: Path) -> None:
+    runtime_root = Path(__file__).parents[2] / "src/data_designer/slurm/runtime"
+    fallback_tmp = tmp_path / "fallback-tmp"
+    outside = tmp_path / "outside"
+    fallback_tmp.mkdir()
+    outside.mkdir()
+    expected_root = fallback_tmp / "data-designer-slurm-4101-0"
+    expected_root.symlink_to(outside, target_is_directory=True)
+    command = f"""
+set -Eeuo pipefail
+source {shlex.quote((runtime_root / "scratch.sh").as_posix())}
+if dd_initialize_local_scratch; then
+    exit 1
+else
+    [[ $? == 73 ]]
+fi
+"""
+
+    completed = subprocess.run(
+        ("bash", "-c", command),
+        capture_output=True,
+        text=True,
+        env={
+            **os.environ,
+            "SLURM_JOB_ID": "4101",
+            "SLURM_TMPDIR": (tmp_path / "missing").as_posix(),
+            "TMPDIR": fallback_tmp.as_posix(),
+        },
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert expected_root.is_symlink()
+    assert not tuple(outside.iterdir())
+
+
+def test_scratch_rejects_inconsistent_allocation_root(tmp_path: Path) -> None:
+    runtime_root = Path(__file__).parents[2] / "src/data_designer/slurm/runtime"
+    scratch_parent = tmp_path / "scratch"
+    scratch_parent.mkdir()
+    expected_root = scratch_parent / "data-designer-slurm-4101-0"
+    command = f"""
+set -Eeuo pipefail
+source {shlex.quote((runtime_root / "scratch.sh").as_posix())}
+if dd_initialize_local_scratch /different/data-designer-slurm-4101-0; then
+    exit 1
+else
+    [[ $? == 73 ]]
+fi
+"""
+
+    completed = subprocess.run(
+        ("bash", "-c", command),
+        capture_output=True,
+        text=True,
+        env={**os.environ, "SLURM_JOB_ID": "4101", "SLURM_TMPDIR": scratch_parent.as_posix()},
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert not expected_root.exists()
+
+
+def test_runtime_bundle_rejects_digest_mismatch_and_existing_target(tmp_path: Path) -> None:
+    runtime_root = Path(__file__).parents[2] / "src/data_designer/slurm/runtime"
+    scratch_parent = tmp_path / "scratch"
+    scratch_parent.mkdir()
+    archive = tmp_path / "runtime.tar.gz"
+    with tarfile.open(archive, mode="w:gz") as bundle:
+        bundle.add(runtime_root / "scratch.sh", arcname="scratch.sh")
+        bundle.add(runtime_root / "entrypoint.sh", arcname="entrypoint.sh")
+    digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+    command = f"""
+set -Eeuo pipefail
+source {shlex.quote((runtime_root / "scratch.sh").as_posix())}
+dd_initialize_local_scratch
+if dd_extract_runtime_bundle {shlex.quote(archive.as_posix())} {"0" * 64}; then
+    exit 1
+else
+    [[ $? == 65 ]]
+fi
+mkdir "${{DD_SCRATCH_ROOT}}/runtime"
+if dd_extract_runtime_bundle {shlex.quote(archive.as_posix())} {digest}; then
+    exit 1
+else
+    [[ $? == 73 ]]
+fi
+dd_remove_local_scratch "${{DD_SCRATCH_ROOT}}"
+"""
+
+    completed = subprocess.run(
+        ("bash", "-c", command),
+        capture_output=True,
+        text=True,
+        env={**os.environ, "SLURM_JOB_ID": "4101", "SLURM_TMPDIR": scratch_parent.as_posix()},
+    )
+
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_scratch_stages_runtime_for_fake_multi_node_allocation(tmp_path: Path) -> None:
+    runtime_root = Path(__file__).parents[2] / "src/data_designer/slurm/runtime"
+    scratch_parent = tmp_path / "scratch"
+    fake_bin = tmp_path / "bin"
+    scratch_parent.mkdir()
+    fake_bin.mkdir()
+    entrypoint = tmp_path / "entrypoint.sh"
+    entrypoint.write_text("true\n")
+    archive = tmp_path / "runtime.tar.gz"
+    with tarfile.open(archive, mode="w:gz") as bundle:
+        bundle.add(runtime_root / "scratch.sh", arcname="scratch.sh")
+        bundle.add(entrypoint, arcname="entrypoint.sh")
+    digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+    srun_log = tmp_path / "srun.log"
+    _write_executable(
+        fake_bin / "srun",
+        "#!/usr/bin/env bash\n"
+        "set -Eeuo pipefail\n"
+        'printf \'%s\\n\' "$*" >> "${FAKE_SRUN_LOG}"\n'
+        "while [[ $# -gt 0 && $1 != -- ]]; do shift; done\n"
+        "shift\n"
+        'exec "$@"\n',
+    )
+    expected_root = scratch_parent / "data-designer-slurm-4101-0"
+    command = f"""
+set -Eeuo pipefail
+source {shlex.quote((runtime_root / "scratch.sh").as_posix())}
+DD_RUNTIME_ARCHIVE={shlex.quote(archive.as_posix())}
+DD_RUNTIME_SHA256={digest}
+dd_initialize_local_scratch
+dd_stage_allocation_runtime
+[[ -f "${{DD_SCRATCH_ROOT}}/runtime/entrypoint.sh" ]]
+dd_cleanup_allocation_scratch
+"""
+
+    completed = subprocess.run(
+        ("bash", "-c", command),
+        capture_output=True,
+        text=True,
+        env={
+            **os.environ,
+            "FAKE_SRUN_LOG": srun_log.as_posix(),
+            "PATH": f"{fake_bin}:{os.environ['PATH']}",
+            "SLURM_JOB_ID": "4101",
+            "SLURM_JOB_NUM_NODES": "2",
+            "SLURM_TMPDIR": scratch_parent.as_posix(),
+        },
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert "--nodes=2 --ntasks=2" in srun_log.read_text()
+    assert "--time=00:01:00 --wait=0" in srun_log.read_text()
+    assert not expected_root.exists()
 
 
 @pytest.mark.parametrize(
@@ -148,6 +349,8 @@ DD_STEP_IMAGE=/images/server.sqsh
 DD_STEP_KILL_ON_BAD_EXIT=true
 DD_GPU_REQUEST_MODE=gres
 DD_CONTAINER_MOUNTS=
+DD_SCRATCH_ROOT=/tmp/data-designer-slurm-4101-0
+DD_SCRATCH_CONTAINER_ROOT=/run/data-designer-slurm
 dd_build_srun_command
 command=${{DD_SRUN_COMMAND[*]}}
 [[ $command == *--nodes=2* ]]
@@ -156,6 +359,7 @@ command=${{DD_SRUN_COMMAND[*]}}
 [[ $command == *--nodelist=compute-001,compute-002* ]]
 [[ $command == *--kill-on-bad-exit=1* ]]
 [[ $command == *--gpus-per-task=2* ]]
+[[ $command == *--container-mounts=/tmp/data-designer-slurm-4101-0:/run/data-designer-slurm* ]]
 """
 
     completed = subprocess.run(("bash", "-c", command), capture_output=True, text=True)
@@ -187,6 +391,28 @@ DD_EXPECTED_NODES=3
         text=True,
         env={**os.environ, "PATH": f"{fake_bin}:{os.environ['PATH']}"},
     )
+
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_plan_reader_rejects_mount_overlapping_allocation_scratch(tmp_path: Path) -> None:
+    runtime_root = Path(__file__).parents[2] / "src/data_designer/slurm/runtime"
+    artifacts = tuple(_artifact(tmp_path, name) for name in ("runtime", "lock", "client", "server"))
+    payload = _plan(tmp_path, tmp_path / "runtime-root", artifacts, "gres")
+    mounts = payload["container_mounts"]
+    assert isinstance(mounts, list)
+    mounts.append({"source": "/source", "target": "/run", "read_only": False})
+    plan_path = tmp_path / "plan.json"
+    plan_path.write_text(json.dumps(payload))
+    command = f"""
+set -Eeuo pipefail
+source {shlex.quote((runtime_root / "plan_reader.sh").as_posix())}
+if dd_read_control_plan {shlex.quote(plan_path.as_posix())}; then
+    exit 1
+fi
+"""
+
+    completed = subprocess.run(("bash", "-c", command), capture_output=True, text=True)
 
     assert completed.returncode == 0, completed.stderr
 

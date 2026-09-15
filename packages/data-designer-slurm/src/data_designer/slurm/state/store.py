@@ -296,7 +296,6 @@ class SlurmStateWriter:
             if existing is not None:
                 if existing != attempt:
                     raise StateConflictError(f"attempt {attempt.attempt_id!r} already contains different state")
-                self._storage.ensure_runtime_directory(attempt.shard_id, attempt.attempt_id)
                 self._storage.sync_attempt_directory(attempt.shard_id, attempt.attempt_id)
                 return existing
             self._finalizer.require_no_winner(run, plan, shard, shard_attempts)
@@ -306,7 +305,6 @@ class SlurmStateWriter:
             self._reader.validate_attempt_against_plan(run, plan, shard, attempt)
             validate_shard_attempt_set(run, shard, shard_attempts + (attempt,))
             self._storage.publish_attempt(attempt)
-            self._storage.ensure_runtime_directory(attempt.shard_id, attempt.attempt_id)
             return attempt
 
     def _update_attempt_with_locks(self, attempt: AttemptManifest) -> AttemptManifest:

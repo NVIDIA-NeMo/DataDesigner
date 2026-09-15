@@ -100,7 +100,8 @@ class RetryStorage:
 
     def get_plan_reference(self, plan: RetryPlan) -> ArtifactReference:
         """Return the exact path and digest bound by retry status."""
-        return ArtifactReference(path=self.get_plan_path(plan.retry_id).as_posix(), sha256=plan.compute_sha256())
+        logical_path = self._state.logical_run_root / _RETRIES_DIRECTORY / plan.retry_id / _PLAN_FILENAME
+        return ArtifactReference(path=logical_path.as_posix(), sha256=plan.compute_sha256())
 
     def publish_plan(self, plan: RetryPlan) -> None:
         self._require_run_id(plan.run_id)
