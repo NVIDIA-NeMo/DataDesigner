@@ -36,7 +36,7 @@ class _RunService:
         *,
         source_root: Path,
         dry_run: bool,
-        force: bool,
+        force: bool = False,
     ) -> SlurmRunExecution:
         self.calls.append((config, source_root, dry_run, force))
         return SlurmRunExecution(
@@ -111,7 +111,7 @@ def test_execute_emits_deterministic_json_and_forwards_actions(
     service = _RunService()
     monkeypatch.setattr(cli_module, "create_slurm_run_service", lambda **_: service)
 
-    result = CliRunner().invoke(cli_module.create_cli(), ["execute", str(run_file), "--dry-run", "--force"])
+    result = CliRunner().invoke(cli_module.create_cli(), ["execute", str(run_file), "--dry-run"])
 
     assert result.exit_code == 0
     assert json.loads(result.stdout) == {
@@ -122,7 +122,7 @@ def test_execute_emits_deterministic_json_and_forwards_actions(
         "shard_count": 1,
         "state": "dry_run",
     }
-    assert service.calls == [(authored_run_single, tmp_path, True, True)]
+    assert service.calls == [(authored_run_single, tmp_path, True, False)]
 
 
 def test_benchmark_cli_forwards_run_and_analysis_actions(

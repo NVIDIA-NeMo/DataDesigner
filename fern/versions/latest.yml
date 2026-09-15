@@ -97,7 +97,7 @@ navigation:
         path: ./latest/pages/slurm/retry-and-collection.mdx
       - page: Benchmarks
         path: ./latest/pages/slurm/benchmarks.mdx
-      - page: Dependencies, Plugins, MCP, and Secrets
+      - page: Dependencies and Tools
         path: ./latest/pages/slurm/dependencies-and-tools.mdx
       - page: Troubleshooting
         path: ./latest/pages/slurm/troubleshooting.mdx

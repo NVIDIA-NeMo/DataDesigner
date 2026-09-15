@@ -32,7 +32,10 @@ PACKAGE_PATHS = (
     "packages/data-designer-slurm",
 )
 EXAMPLE_PATH = REPOSITORY_ROOT / "packages" / "data-designer-slurm" / "examples"
-GETTING_STARTED_PATH = REPOSITORY_ROOT / "fern" / "versions" / "latest" / "pages" / "slurm" / "getting-started.mdx"
+SLURM_DOCS_PATH = REPOSITORY_ROOT / "fern" / "versions" / "latest" / "pages" / "slurm"
+FIRST_PARTY_PACKAGES = frozenset(
+    {"data-designer", "data-designer-config", "data-designer-engine", "data-designer-slurm"}
+)
 CLI_HELP_SAMPLES = 9
 MAX_BASE_CLI_HELP_SECONDS = 1.0
 MAX_EXTENSION_CLI_HELP_OVERHEAD_SECONDS = 0.1
@@ -70,10 +73,16 @@ def audit_public_artifacts(*paths: Path) -> None:
 
 
 def verify_documented_examples() -> None:
-    getting_started = GETTING_STARTED_PATH.read_text()
-    for name in ("builder.yaml", "run.yaml"):
+    documented_examples = {
+        "builder.yaml": "getting-started.mdx",
+        "run.yaml": "getting-started.mdx",
+        "benchmark.yaml": "benchmarks.mdx",
+        "profile-catalog.yaml": "profiles.mdx",
+    }
+    for name, document_name in documented_examples.items():
         example = (EXAMPLE_PATH / name).read_text().rstrip()
-        assert f"```yaml\n{example}\n```" in getting_started
+        document = SLURM_DOCS_PATH.joinpath(document_name).read_text()
+        assert f"```yaml\n{example}\n```" in document
 
 
 def build_wheels(uv: str, wheel_directory: Path) -> dict[str, Path]:
@@ -115,6 +124,7 @@ def install(uv: str, python: Path, wheel_directory: Path, package: str, *, cwd: 
             "--python",
             str(python),
             "--prerelease=allow",
+            "--no-index",
             "--find-links",
             str(wheel_directory),
             package,
@@ -123,14 +133,44 @@ def install(uv: str, python: Path, wheel_directory: Path, package: str, *, cwd: 
     )
 
 
-def create_simple_index(root: Path, wheels: dict[str, Path]) -> None:
-    for name, wheel in wheels.items():
+def download_third_party_wheels(wheel_directory: Path, metadata: dict[str, Message]) -> None:
+    requirements = {
+        str(requirement)
+        for distribution in metadata.values()
+        for value in distribution.get_all("Requires-Dist", [])
+        if canonicalize_name((requirement := Requirement(value)).name) not in FIRST_PARTY_PACKAGES
+        and (requirement.marker is None or requirement.marker.evaluate())
+    }
+    run(
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "download",
+            "--disable-pip-version-check",
+            "--only-binary=:all:",
+            "--pre",
+            "--dest",
+            str(wheel_directory),
+            *sorted(requirements),
+        ],
+        cwd=REPOSITORY_ROOT,
+    )
+
+
+def create_simple_index(root: Path, wheel_directory: Path) -> None:
+    wheels_by_package: dict[str, list[Path]] = {}
+    for wheel in wheel_directory.glob("*.whl"):
+        name = canonicalize_name(wheel_metadata(wheel)["Name"])
+        wheels_by_package.setdefault(name, []).append(wheel)
+    for name, wheels in wheels_by_package.items():
         package_index = root / "simple" / name
         package_index.mkdir(parents=True)
-        digest = hashlib.sha256(wheel.read_bytes()).hexdigest()
-        package_index.joinpath("index.html").write_text(
-            f'<a href="../../wheels/{wheel.name}#sha256={digest}">{wheel.name}</a>\n'
-        )
+        links = []
+        for wheel in sorted(wheels):
+            digest = hashlib.sha256(wheel.read_bytes()).hexdigest()
+            links.append(f'<a href="../../wheels/{wheel.name}#sha256={digest}">{wheel.name}</a>')
+        package_index.joinpath("index.html").write_text("".join(f"{link}\n" for link in links))
 
 
 @contextmanager
@@ -158,8 +198,6 @@ def install_from_index(python: Path, index_url: str, package: str, *, cwd: Path)
             "--pre",
             "--index-url",
             index_url,
-            "--extra-index-url",
-            "https://pypi.org/simple",
             package,
         ],
         cwd=cwd,
@@ -205,7 +243,7 @@ assert all(
 assert "data_designer.slurm.cli" in sys.modules
 assert version("data-designer-slurm") == {version!r}
 from data_designer.slurm.benchmark import BenchmarkCompiler
-from data_designer.slurm.config import load_benchmark_config, load_builder_payload, load_run_config
+from data_designer.slurm.config import load_benchmark_config, load_builder_payload, load_profile_catalog, load_run_config
 from data_designer.slurm.contracts import ArtifactReference as ContractArtifactReference
 from data_designer.slurm.contracts import RecordRange as ContractRecordRange
 from data_designer.slurm.contracts import ResumeWorkspace as ContractResumeWorkspace
@@ -249,6 +287,7 @@ examples = Path("examples")
 assert load_builder_payload(examples / "builder.yaml")["data_designer"]["columns"][0]["name"] == "greeting"
 assert load_run_config(examples / "run.yaml").name == "greeting-run"
 assert load_benchmark_config(examples / "benchmark.yaml").name == "generator-scaling"
+assert load_profile_catalog(examples / "profile-catalog.yaml").default_cluster == "primary"
 profile_help_result = CliRunner().invoke(app, ["slurm", "profile", "--help"])
 assert profile_help_result.exit_code == 0, profile_help_result.output
 with TemporaryDirectory() as temporary_directory:
@@ -309,16 +348,11 @@ def main() -> None:
         wheel_directory = root / "wheels"
         wheel_directory.mkdir()
         wheels = build_wheels(uv, wheel_directory)
-        create_simple_index(root, wheels)
 
-        expected_wheels = {
-            "data-designer",
-            "data-designer-config",
-            "data-designer-engine",
-            "data-designer-slurm",
-        }
-        assert set(wheels) == expected_wheels
+        assert set(wheels) == FIRST_PARTY_PACKAGES
         metadata = {name: wheel_metadata(path) for name, path in wheels.items()}
+        download_third_party_wheels(wheel_directory, metadata)
+        create_simple_index(root, wheel_directory)
         versions = {item["Version"] for item in metadata.values()}
         assert len(versions) == 1
         leaf_wheel = wheels["data-designer-slurm"]

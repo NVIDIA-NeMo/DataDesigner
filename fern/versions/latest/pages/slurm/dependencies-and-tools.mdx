@@ -32,6 +32,8 @@ client:
 
 The lock must target the registered client image inventory and reference available wheel artifacts.
 
+`client.dependencies.index_credentials` reserves named secret references for the allocation runtime. Submit-side inline requirement resolution does not use them and always targets the public index.
+
 Inline requirements resolve from the public Python package index with ambient pip configuration disabled. For private or unpublished plugins, bake the package into the client image, use an immutable HTTPS wheel URL that does not embed credentials, or supply a previously resolved compatible lock and wheel artifacts.
 
 ## Reference secrets
