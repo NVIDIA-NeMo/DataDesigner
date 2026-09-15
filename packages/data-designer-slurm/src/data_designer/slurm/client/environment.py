@@ -9,6 +9,7 @@ import json
 import os
 import posixpath
 import re
+import stat
 import subprocess
 import sys
 from collections.abc import Callable
@@ -34,6 +35,7 @@ class PreparedClientEnvironment:
     shard_id: str
     attempt_id: str
     attempt_dir: Path
+    scratch_root: Path
     overlay_path: Path
     dependency_lock: ArtifactReference
     client_image_sha256: str
@@ -49,6 +51,7 @@ class _BootstrapInputs:
     shard_id: str
     attempt_id: str
     attempt_dir: Path
+    scratch_root: Path
     client_image_sha256: str
     python_abi: str
     installer_path: Path
@@ -64,7 +67,7 @@ class _VerifiedDependencies:
 
 
 class ClientEnvironmentBuilder:
-    """Prepare one immutable attempt-local package environment."""
+    """Prepare one immutable allocation-local package environment."""
 
     def __init__(
         self,
@@ -82,6 +85,7 @@ class ClientEnvironmentBuilder:
         shard_id: str,
         attempt_id: str,
         attempt_dir: Path,
+        scratch_root: Path,
     ) -> PreparedClientEnvironment:
         """Verify the plan and lock subset needed before plugin-aware imports."""
         inputs = self._load_bootstrap_inputs(
@@ -89,6 +93,7 @@ class ClientEnvironmentBuilder:
             shard_id=shard_id,
             attempt_id=attempt_id,
             attempt_dir=attempt_dir,
+            scratch_root=scratch_root,
         )
         dependencies = self._verify_dependency_lock(inputs)
         overlay_path, installer_outcome, installed = self._prepare_overlay(inputs, dependencies)
@@ -97,6 +102,7 @@ class ClientEnvironmentBuilder:
             shard_id=inputs.shard_id,
             attempt_id=inputs.attempt_id,
             attempt_dir=inputs.attempt_dir,
+            scratch_root=inputs.scratch_root,
             overlay_path=overlay_path,
             dependency_lock=inputs.dependency_lock,
             client_image_sha256=inputs.client_image_sha256,
@@ -112,9 +118,11 @@ class ClientEnvironmentBuilder:
         shard_id: str,
         attempt_id: str,
         attempt_dir: Path,
+        scratch_root: Path,
     ) -> _BootstrapInputs:
         _validate_input_path(plan_path, "resolved plan")
         _validate_input_path(attempt_dir, "attempt directory")
+        _validate_scratch_root(scratch_root, attempt_dir)
         if not re.fullmatch(r"shard-[0-9]{5,}", shard_id):
             raise ClientWorkerError(ClientErrorCode.INVALID_INPUT, "shard identifier is invalid")
         if not re.fullmatch(r"attempt-[0-9]{4,}", attempt_id) or int(attempt_id.removeprefix("attempt-")) < 1:
@@ -159,6 +167,7 @@ class ClientEnvironmentBuilder:
             shard_id=shard_id,
             attempt_id=attempt_id,
             attempt_dir=attempt_dir,
+            scratch_root=scratch_root,
             client_image_sha256=image_sha256,
             python_abi=python_abi,
             installer_path=installer_path,
@@ -217,16 +226,7 @@ class ClientEnvironmentBuilder:
             dependencies.image_distributions,
             inputs.plan,
         )
-        logical_overlay = (
-            inputs.logical_run_root
-            / "shards"
-            / inputs.shard_id
-            / "attempts"
-            / inputs.attempt_id
-            / "client-env"
-            / "site-packages"
-        )
-        overlay_path = Path(_get_container_path(inputs.plan, logical_overlay.as_posix(), require_writable=True))
+        overlay_path = inputs.scratch_root / "client-env" / "site-packages"
         outcome = self._install_overlay(inputs.installer_path, wheels, expected_overlay, overlay_path)
         installed = tuple(sorted((*dependencies.image_distributions, *expected_overlay), key=lambda item: item.name))
         return overlay_path, outcome, installed
@@ -296,8 +296,8 @@ def inspect_distributions(path: Path | None) -> tuple[InstalledDistribution, ...
 
 def activate_environment(prepared: PreparedClientEnvironment) -> None:
     """Activate one verified overlay and isolate Data Designer attempt state."""
-    home = prepared.attempt_dir / "data-designer-home"
-    cache = prepared.attempt_dir / "cache"
+    home = prepared.scratch_root / "data-designer-home"
+    cache = prepared.scratch_root / "cache"
     ensure_private_directory(home)
     ensure_private_directory(cache)
     os.environ["DATA_DESIGNER_HOME"] = home.as_posix()
@@ -312,6 +312,24 @@ def activate_environment(prepared: PreparedClientEnvironment) -> None:
 def _validate_input_path(path: Path, label: str) -> None:
     if not path.is_absolute() or path != Path(os.path.normpath(path.as_posix())):
         raise ClientWorkerError(ClientErrorCode.INVALID_INPUT, f"{label} path is not canonical")
+
+
+def _validate_scratch_root(scratch_root: Path, attempt_dir: Path) -> None:
+    _validate_input_path(scratch_root, "allocation scratch")
+    try:
+        status = scratch_root.lstat()
+    except OSError as error:
+        raise ClientWorkerError(ClientErrorCode.INVALID_INPUT, "allocation scratch is unavailable") from error
+    if (
+        not stat.S_ISDIR(status.st_mode)
+        or stat.S_ISLNK(status.st_mode)
+        or status.st_uid != os.geteuid()
+        or scratch_root == attempt_dir
+        or scratch_root.is_relative_to(attempt_dir)
+        or attempt_dir.is_relative_to(scratch_root)
+    ):
+        raise ClientWorkerError(ClientErrorCode.INVALID_INPUT, "allocation scratch is invalid")
+    ensure_private_directory(scratch_root)
 
 
 def _run_installer(command: tuple[str, ...]) -> None:

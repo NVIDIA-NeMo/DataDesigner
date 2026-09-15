@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import importlib
+import os
 import signal
 import sys
 from collections.abc import Sequence
@@ -35,11 +36,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     plugins: tuple[ClientPluginEntryPoint, ...] = ()
     try:
         endpoints = _parse_endpoints(arguments.endpoint)
+        scratch_root = os.environ.get("DATA_DESIGNER_SLURM_SCRATCH_ROOT")
+        if scratch_root is None:
+            raise ClientWorkerError(ClientErrorCode.INVALID_INPUT, "allocation scratch is unavailable")
         prepared = ClientEnvironmentBuilder().prepare(
             arguments.plan,
             shard_id=arguments.shard_id,
             attempt_id=arguments.attempt_id,
             attempt_dir=arguments.attempt_dir,
+            scratch_root=Path(scratch_root),
         )
         activate_environment(prepared)
         plugins_module = importlib.import_module("data_designer.slurm.client.plugins")

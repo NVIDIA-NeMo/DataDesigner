@@ -284,6 +284,7 @@ class OneNodeAllocationController:
                 self._context.attempt_directory,
                 self._environment,
                 self._runtime_proxy_path,
+                self._runtime_root,
             )
         )
         endpoints = tuple(endpoint for _, endpoint in endpoint_steps)

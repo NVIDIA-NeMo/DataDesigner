@@ -115,6 +115,9 @@ def test_client_phase_installs_and_runs_plugin_in_default_worker_process(
     tmp_path: Path,
 ) -> None:
     case = _prepare_plugin_runtime_case(runtime_case, fake_plugin_overlay, tmp_path)
+    scratch_root = tmp_path / "scratch"
+    scratch_root.mkdir()
+    monkeypatch.setenv("DATA_DESIGNER_SLURM_SCRATCH_ROOT", scratch_root.as_posix())
     state = FakeStateStore(case.context.attempt)
     runtime_case.context = case.context
     _patch_runtime_context(monkeypatch, runtime_case, state)

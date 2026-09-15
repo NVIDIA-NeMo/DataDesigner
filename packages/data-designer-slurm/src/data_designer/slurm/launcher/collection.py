@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import posixpath
+from importlib import resources
 from pathlib import PurePosixPath
 
 from data_designer.slurm.launcher.batch import quote_shell_value, render_batch_directives
@@ -55,11 +56,13 @@ def render_collection_script(
         ("DD_STATE_MOUNT", workspace_root, workspace_root),
         ("DD_OUTPUT_MOUNT", destination.mount.source, destination.mount.target),
     )
+    scratch_source = resources.files("data_designer.slurm.runtime").joinpath("scratch.sh").read_text()
     return f"""#!/usr/bin/env bash
 {directives}
 set -Eeuo pipefail
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
+{scratch_source}
 readonly DD_CLIENT_IMAGE={quote_shell_value(resolved_plan.client.image.path)}
 readonly DD_CLIENT_IMAGE_SHA256={quote_shell_value(resolved_plan.client.image.sha256)}
 readonly DD_COLLECTION_PLAN={quote_shell_value(collection_plan_path)}
@@ -78,9 +81,14 @@ verify_sha256() {{
 
 verify_sha256 "${{DD_CLIENT_IMAGE_SHA256}}" "${{DD_CLIENT_IMAGE}}"
 verify_sha256 "${{DD_COLLECTION_PLAN_SHA256}}" "${{DD_COLLECTION_PLAN}}"
+trap 'status=$?; dd_remove_local_scratch "${{DD_SCRATCH_ROOT}}" || true; exit "${{status}}"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+dd_initialize_local_scratch
+export HOME="${{DD_SCRATCH_ROOT}}/home"
 DD_ENROOT_MOUNTS=({mount_arguments})
 readonly DD_ENROOT_MOUNTS
-exec enroot start --root "${{DD_ENROOT_MOUNTS[@]}}" "${{DD_CLIENT_IMAGE}}" \
+enroot start --root "${{DD_ENROOT_MOUNTS[@]}}" "${{DD_CLIENT_IMAGE}}" \
     python -m data_designer.slurm.state.collection_worker \
     --workspace-root "${{DD_WORKSPACE_ROOT}}" --run-id "${{DD_RUN_ID}}" --collection-id "${{DD_COLLECTION_ID}}"
 """
