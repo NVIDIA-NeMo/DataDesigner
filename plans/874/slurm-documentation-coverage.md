@@ -1,6 +1,6 @@
 # Slurm documentation coverage map
 
-This map records the behavioral migration from the legacy Big Iron guides to the public Fern Slurm guide. It tracks user-visible concepts rather than source wording or environment-specific examples.
+This map records the behavioral migration from legacy Slurm guides to the public Fern Slurm guide. It tracks user-visible concepts rather than source wording or environment-specific examples.
 
 | Legacy area | Behavior retained in Fern | Fern destination | Disposition |
 | --- | --- | --- | --- |
