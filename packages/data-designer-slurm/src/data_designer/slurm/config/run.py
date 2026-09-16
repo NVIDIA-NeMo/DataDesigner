@@ -85,7 +85,7 @@ class BuilderInput(AuthoredConfig):
             validate_no_plaintext_secrets(self.inline, field_name="inline builder input")
             retired = {"dependencies", "sandbox_config", "server_configs"}.intersection(self.inline)
             if retired:
-                raise ValueError(f"builder input contains retired Big Iron fields: {', '.join(sorted(retired))}")
+                raise ValueError(f"builder input contains retired fields: {', '.join(sorted(retired))}")
             if "data_designer" in self.inline:
                 unknown = set(self.inline).difference({"data_designer", "library_version"})
                 library_version = self.inline.get("library_version")

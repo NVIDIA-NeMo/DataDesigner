@@ -63,12 +63,11 @@ class SlurmRunBackend(Protocol):
         *,
         source_root: Path,
         dry_run: bool,
-        force: bool,
     ) -> SlurmRunExecution:
         """Render or submit one run."""
 
     def status(self, run_id: Identifier) -> SlurmPersistedRunStatus:
-        """Return the durable M2 status for one run."""
+        """Return the durable status for one run."""
 
     def cancel(self, run_id: Identifier) -> SlurmRunCancellation:
         """Request cancellation of active jobs."""
@@ -177,7 +176,6 @@ class SlurmRunService:
         *,
         source_root: str | Path = ".",
         dry_run: bool = False,
-        force: bool = False,
     ) -> SlurmRunExecution:
         """Render or submit one run through package-owned production wiring."""
         operation = SlurmServiceOperation.EXECUTE_RUN
@@ -185,8 +183,8 @@ class SlurmRunService:
             raise _make_invalid_request_error(operation, "config must be a DataDesignerSlurmConfig")
         if not isinstance(source_root, str | Path):
             raise _make_invalid_request_error(operation, "source_root must be a path")
-        if type(dry_run) is not bool or type(force) is not bool:
-            raise _make_invalid_request_error(operation, "dry_run and force must be booleans")
+        if type(dry_run) is not bool:
+            raise _make_invalid_request_error(operation, "dry_run must be a boolean")
         backend = self._require_backend(operation)
 
         def execute_run() -> SlurmRunExecution:
@@ -194,7 +192,6 @@ class SlurmRunService:
                 config,
                 source_root=Path(source_root).expanduser().resolve(),
                 dry_run=dry_run,
-                force=force,
             )
             if not isinstance(result, SlurmRunExecution):
                 raise TypeError("run backend returned an invalid execution result")
@@ -203,7 +200,7 @@ class SlurmRunService:
         return _invoke_service_backend(operation, execute_run)
 
     def status(self, run_id: Identifier) -> SlurmPersistedRunStatus:
-        """Reconcile scheduler observations and return persisted M2 records."""
+        """Reconcile scheduler observations and return persisted records."""
         operation = SlurmServiceOperation.STATUS_RUN
         normalized_run_id = _validate_run_id(run_id, operation)
         backend = self._require_backend(operation)

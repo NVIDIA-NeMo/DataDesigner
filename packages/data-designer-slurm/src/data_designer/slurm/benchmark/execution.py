@@ -122,7 +122,6 @@ class SystemBenchmarkBackend:
                         case.child_run_config,
                         source_root=child_source_root,
                         dry_run=False,
-                        force=False,
                     )
                     if execution.run_id != case.child_run_id or execution.state != "submitted":
                         raise SlurmServiceError(
