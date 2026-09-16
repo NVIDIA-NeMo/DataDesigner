@@ -8,7 +8,7 @@ The CLI prints canonical JSON to stdout. Errors are canonical JSON on stderr, so
 data-designer slurm execute run.yaml --dry-run
 ```
 
-Dry-run performs profile selection, image verification, builder-envelope loading, dependency resolution, plan compilation, runtime staging, and batch rendering. It does not call `sbatch`. Full builder and plugin validation runs later in the client environment. Because resolution is real, the selected workspace and registered images must already be available.
+Dry-run performs profile selection, image verification, builder-envelope loading, dependency resolution, plan compilation, runtime staging, and batch rendering. It does not call `sbatch`. Full builder and plugin validation runs later in the client environment. Because resolution is real, the selected workspace and registered images must already be available. Preview staging is temporary: dry-run does not create durable managed-run state, so its result cannot be resumed, inspected with `status`, or used as collection input.
 
 ## Submit
 
@@ -48,6 +48,8 @@ Managed files are below `<workspace_root>/runs/<run-id>`:
 - Candidate results, shard winners, collection state, and output
 
 Allocation-local scratch is deliberately absent after cleanup. The stable container path `/run/data-designer-slurm` is not a durable troubleshooting location.
+
+For each shard, `shards/<shard-id>/winner.json` is the canonical pointer. Its `candidate_manifest.path` identifies the winning attempt's `output-manifest.json`, which records the canonical `dataset_path` and output files. Do not identify results by recursively scanning attempt directories: failed and superseded attempts may retain valid-looking data files. The `merge` command validates these winner chains before creating a run-level dataset at the requested destination.
 
 ## Use the Python service API
 

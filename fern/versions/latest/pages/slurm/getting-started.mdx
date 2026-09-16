@@ -65,7 +65,7 @@ data-designer slurm profile init \
   --host-pattern 'login*.example.test'
 ```
 
-The command writes the profile with restrictive permissions and never overwrites an existing file. Before submitting work, review every generated site value. In particular, confirm the account, partitions, hostname pattern, workspace, GPU request mode, `gpus_per_node`, and the image-build CPU, memory, and time limit. The starter image-build time limit is four hours and may exceed site policy. Edit it before `image add` when necessary.
+The command writes the profile with restrictive permissions and never overwrites an existing file. Before submitting work, review every generated site value. In particular, confirm the account, partitions, hostname pattern, workspace, GPU request mode, `gpus_per_node`, and the image-build CPU, memory, and time limit. The starter sets `gpus_per_node: auto`, which requests the GPU count reported by eligible nodes. For this one-GPU walkthrough on a shared GRES cluster, set `gpus_per_node: 1` when your site permits partial-node allocations. If Slurm commands are not on the batch-job `PATH`, also set `scheduler.bin_path` to their absolute directory. The starter image-build time limit is four hours and may exceed site policy. Edit it before `image add` when necessary.
 
 ## 5. Validate the profile
 
@@ -139,11 +139,14 @@ client:
     name: dd-client
 deployments:
   - model_alias: generator
+    served_model_name: example/generator
     model: example/generator
     server:
       type: vllm
       image:
         name: vllm
+      startup_timeout: 15m
+      distributed_init_timeout: 10m
     topology:
       tensor_parallel: 1
 submission:
@@ -153,7 +156,7 @@ output:
   partitions: 1
 ```
 
-The repository also contains these checked examples under `packages/data-designer-slurm/examples`.
+The repository also contains these checked examples under `packages/data-designer-slurm/examples`. `served_model_name` is the name sent by the client to the vLLM-compatible endpoint. It may differ from `model`, which can be an absolute model path visible only to the serving container.
 
 ## 10. Dry-run the submission
 
@@ -161,7 +164,7 @@ The repository also contains these checked examples under `packages/data-designe
 data-designer slurm execute run.yaml --dry-run --cluster primary
 ```
 
-Dry-run resolves the selected profile, verifies registered image contents, loads the builder envelope, resolves client dependencies, and renders the batch script without calling `sbatch`. Full builder and plugin validation runs inside the prepared client environment on the compute node.
+Dry-run resolves the selected profile, verifies registered image contents, loads the builder envelope, resolves client dependencies, and renders the batch script without calling `sbatch`. Full builder and plugin validation runs inside the prepared client environment on the compute node. Preview staging is temporary: dry-run does not initialize durable managed-run state and cannot be resumed or passed to `status`.
 
 ## 11. Submit the run
 
@@ -182,13 +185,15 @@ Status reconciles active queue and accounting evidence with durable run state. C
 
 ## 13. Inspect results
 
-By default, successful output is written beneath:
+Each successful shard publishes a canonical winner at:
 
 ```text
-/workspace/alice/data-designer-slurm/runs/<run-id>/output
+/workspace/alice/data-designer-slurm/runs/<run-id>/shards/<shard-id>/winner.json
 ```
 
-Use `status` to confirm every shard succeeded. For an explicit destination or repartitioned output, submit a managed collection job:
+The winner's `candidate_manifest.path` points to the winning attempt's `output-manifest.json`. That manifest records `dataset_path` and the relative path, size, digest, and record count of every canonical output file. Follow this chain instead of recursively scanning for Parquet files, because failed or superseded attempts can retain non-canonical files.
+
+Use `status` to confirm every shard succeeded. To create one collected dataset at an explicit destination, submit a managed collection job:
 
 ```bash
 data-designer slurm merge \

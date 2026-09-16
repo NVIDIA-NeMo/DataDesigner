@@ -12,11 +12,14 @@ client:
     name: dd-client
 deployments:
   - model_alias: generator
+    served_model_name: example/generator
     model: example/generator
     server:
       type: vllm
       image:
         name: vllm
+      startup_timeout: 15m
+      distributed_init_timeout: 10m
     topology:
       tensor_parallel: 1
 submission:

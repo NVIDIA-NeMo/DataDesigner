@@ -42,6 +42,7 @@ clusters:
       account: research
       partition: gpu
       mem_per_gpu: 80G
+      bin_path: /opt/slurm/bin
     gpus_per_node: 8
     workspace_root: /workspace/alice/data-designer-slurm
     image_build:
@@ -76,6 +77,10 @@ data-designer slurm execute run.yaml --cluster lab
 
 `visible` GPU mode asks Slurm for visible GPUs without GRES memory directives. It cannot be combined with `mem_per_gpu`.
 
+`gpus_per_node` is both the GPU count used for deployment topology and, in `gres` mode, the count requested from Slurm on each job node. `auto` queries eligible nodes and uses their reported count, so an eight-GPU partition produces `--gres=gpu:8`. Set an explicit smaller count, such as `1`, for partial-node allocations when the cluster permits them. Use `auto` only when requesting every GPU on each selected node is intended, and use an explicit count when eligible nodes are heterogeneous.
+
+Set `scheduler.bin_path` when Slurm executables are installed outside the generated batch job's default `PATH`. It must be one absolute directory and is prepended to `PATH`; do not provide a colon-separated list.
+
 ## Add mounts
 
 Use `container_mounts` for absolute compute-visible paths that the client or model needs:
@@ -97,4 +102,4 @@ data-designer slurm profile validate \
   --cluster primary
 ```
 
-Validation creates and removes a probe in `workspace_root`. With `gpus_per_node: auto`, it also queries eligible nodes and requires one consistent positive GPU count. Use an explicit count when heterogeneous nodes share a partition.
+Validation creates and removes a probe in `workspace_root`. With `gpus_per_node: auto`, it also queries eligible nodes and requires one consistent positive GPU count.

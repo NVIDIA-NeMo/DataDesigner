@@ -9,6 +9,7 @@ clusters:
       account: research
       partition: gpu
       mem_per_gpu: 80G
+      bin_path: /opt/slurm/bin
     gpus_per_node: 8
     workspace_root: /workspace/alice/data-designer-slurm
     image_build:

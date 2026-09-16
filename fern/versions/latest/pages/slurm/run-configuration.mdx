@@ -20,6 +20,7 @@ client:
     name: dd-client
 deployments:
   - model_alias: generator
+    served_model_name: example/generator
     model: example/generator
     server:
       type: vllm
@@ -43,7 +44,7 @@ output:
 
 `builder` accepts exactly one complete serialized Data Designer config through `source` or `inline`. Relative source paths resolve from the run file directory. `invocation.run_config` accepts public `RunConfig` fields, while `input_bindings.seed_path` and `managed_assets_path` accept absolute compute-visible paths.
 
-Every `model_alias` in `model_concurrency` and the builder must have one deployment. Deployment aliases must be unique. Output formats are `parquet`, `jsonl`, and `csv`.
+Every `model_alias` in `model_concurrency` and the builder must have one deployment. Deployment aliases must be unique. `model` selects the Hugging Face model ID or absolute model path loaded by the serving container. `served_model_name` is the name exposed to the client and defaults to `model`; set it explicitly when `model` is a container-visible path but the builder uses a stable model name. Output formats are `parquet`, `jsonl`, and `csv`.
 
 ## Configure vLLM
 
@@ -67,7 +68,9 @@ server:
     - bfloat16
 ```
 
-`extra_args` is a list of individual arguments, not a shell command. Options owned by the orchestrator and unsafe shell forms are rejected.
+`distributed_init_timeout` must not exceed `startup_timeout`. Increase both when distributed initialization legitimately needs more time.
+
+`extra_args` is a list of individual arguments, not a shell command. Options owned by the orchestrator and unsafe shell forms are rejected. Configure model identity, topology, networking, and lifecycle through their typed fields instead of passing reserved options such as `--model`, `--served-model-name`, `--host`, `--port`, `--tensor-parallel-size`, `--pipeline-parallel-size`, or distributed-launch flags. In particular, `served_model_name` belongs on the deployment, alongside `model`, not under `server.extra_args`.
 
 ## Scale runs
 

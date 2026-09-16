@@ -34,6 +34,14 @@ data-designer slurm profile validate \
 
 Check that the profile file and workspace are accessible from the submit host, hostname patterns do not overlap, and `default_cluster` names an existing entry. Set `gpus_per_node` explicitly if an eligible partition contains heterogeneous nodes.
 
+## Slurm commands are unavailable in a batch job
+
+Set `scheduler.bin_path` in the selected profile to the absolute directory containing `srun`, `scontrol`, and the other Slurm executables. The generated batch script prepends this directory to its controlled `PATH`.
+
+## A small run requests every GPU on each node
+
+`gpus_per_node: auto` uses the GPU count reported by eligible nodes and requests that count in GRES mode. Set an explicit count such as `gpus_per_node: 1` when the cluster permits partial-node allocations, then keep deployment topology compatible with that count.
+
 ## Image registration fails
 
 - Confirm the image-build partition accepts CPU jobs.
@@ -55,11 +63,11 @@ Run `data-designer slurm status <run-id>`. Completed jobs leave the active queue
 
 ## Model readiness times out
 
-Inspect the attempt readiness record and Slurm stderr under the managed run directory. Confirm model files and mounts are visible, the serving image has the expected vLLM runtime, tensor parallelism matches available GPUs, and multi-node traffic is permitted. Increase `startup_timeout` only after identifying a normal slow startup rather than a failed launch.
+Inspect the attempt readiness record and Slurm stderr under the managed run directory. Confirm model files and mounts are visible, the serving image has the expected vLLM runtime, tensor parallelism matches available GPUs, and multi-node traffic is permitted. Increase `startup_timeout` only after identifying a normal slow startup rather than a failed launch. If increasing `distributed_init_timeout`, keep it less than or equal to `startup_timeout`.
 
 ## A shard failed
 
-Use `status` to find the failed task and attempt. Preview a sparse retry before submission:
+Use `status` to find the failed task and attempt. Batch stderr identifies the allocation runtime phase and exit status; synchronous step failures also report their durable stdout and stderr paths. Preview a sparse retry before submission:
 
 ```bash
 data-designer slurm retry <run-id> --task-id <task-id> --dry-run
@@ -69,7 +77,7 @@ Do not edit persisted manifests. Conflicts preserve scheduler and provenance evi
 
 ## Output is incomplete
 
-Check that every shard has a winner. Retry missing shards, then use `merge` with the original run directory. When `require_exact_record_count` is true, a short result remains a failure rather than being silently accepted.
+Check that every shard has a `winner.json`, then follow its `candidate_manifest.path` to the canonical `output-manifest.json`. Do not count files by recursively scanning attempts. Retry missing shards, then use `merge` with the original run directory. When `require_exact_record_count` is true, a short result remains a failure rather than being silently accepted.
 
 ## Scratch files are gone
 
