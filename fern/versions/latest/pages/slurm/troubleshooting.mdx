@@ -15,11 +15,12 @@ Start with the JSON error on stderr, then inspect the managed run directory and 
 Confirm the optional extra is installed in the active environment:
 
 ```bash
+python -m pip show data-designer
 python -m pip show data-designer-slurm
-data-designer --help
+data-designer slurm --help
 ```
 
-Install `data-designer[slurm]` rather than only `data-designer`. The extension wheel must have the same version as the base wheel.
+Install `data-designer[slurm]` rather than only `data-designer`. The extension wheel must have the same version as the base wheel. If pip warns that the selected `data-designer` release does not provide the `slurm` extra, that package index or version does not contain the extension; select a release that publishes both packages instead of continuing with the base CLI.
 
 ## Profile selection fails
 

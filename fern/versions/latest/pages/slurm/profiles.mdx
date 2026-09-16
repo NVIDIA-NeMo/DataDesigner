@@ -15,7 +15,9 @@ Pass `--cluster NAME` to select an entry explicitly. Without it, hostname patter
 ## Initialize a catalog
 
 ```bash
+mkdir -p /workspace/alice/config
 data-designer slurm profile init \
+  --profile-file /workspace/alice/config/slurm-profiles.yml \
   --workspace-root /workspace/alice/data-designer-slurm \
   --image-build-partition cpu \
   --cluster primary \
@@ -24,7 +26,7 @@ data-designer slurm profile init \
   --host-pattern 'login*.example.test'
 ```
 
-The starter sets `gpus_per_node: auto`, `gpu_request_mode: gres`, and conservative CPU image-build resources. The parent directory of a custom `--profile-file` must already exist.
+The starter sets `gpus_per_node: auto`, `gpu_request_mode: gres`, and CPU image-build resources of 2 CPUs, 8 GiB, and four hours. The parent directory of a custom `--profile-file` must already exist. Review the generated account, partitions, host patterns, workspace, GPU settings, and image-build resources against site policy before validation or image registration.
 
 ## Configure multiple clusters
 

@@ -6,7 +6,7 @@ Start with [Getting Started](/slurm/getting-started). Use [Dependencies and tool
 
 ## Prerequisites
 
-The submit host needs:
+The submit environment needs:
 
 - Python 3.10 or later
 - `sbatch`, `squeue`, `sacct`, `scancel`, `scontrol`, and `sinfo`
@@ -21,10 +21,10 @@ Your Slurm administrator can confirm the account, GPU partition, CPU image-build
 | Persona | Responsibilities |
 | --- | --- |
 | Workstation | Author and version dataset and Slurm configuration. Copy files to a cluster-visible location before submission. |
-| Login or submit host | Install the CLI, select a profile, register images, submit work, inspect status, retry, cancel, and collect output. |
+| Site-approved submit environment | Install the CLI, select a profile, register images, submit work, inspect status, retry, cancel, and collect output. This may be a login host, editor node, or CPU allocation, depending on site policy. |
 | Compute node | Import or inspect images, start vLLM and client containers, generate records, and write managed state and results. |
 
-Run Slurm commands from a login or submit host. A laptop without the cluster CLI and shared filesystem can author configuration, but cannot validate or submit it.
+Run Slurm commands from a site-approved submit environment with the cluster CLI and shared filesystem. Do not install packages or run substantive work on a login node when site policy prohibits it. A laptop without the cluster CLI and shared filesystem can author configuration, but cannot validate or submit it.
 
 ## Storage model
 

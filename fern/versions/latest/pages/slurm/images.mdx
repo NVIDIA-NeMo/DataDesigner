@@ -7,7 +7,23 @@ Data Designer Slurm uses two image roles:
 
 Use separate aliases even if both roles originate from related images. Inspection verifies role-specific contents before an alias becomes available to planning.
 
+## Prepare compatible images
+
+Image construction is an operator prerequisite. Data Designer Slurm imports or inspects images, but does not build a client or serving environment from a Dockerfile.
+
+Obtain a digest-qualified OCI reference or absolute compute-visible SQSH path from your platform administrator, or publish one through your site's container build process. A client image must install the same release used by the submit environment:
+
+```bash
+python -m pip install "data-designer[slurm]==<version>"
+```
+
+For an unpublished build, install the aligned `data-designer`, `data-designer-config`, `data-designer-engine`, and `data-designer-slurm` wheels into the client image. Do not mix versions. A serving image must provide a supported vLLM executable and all runtime dependencies for the selected model.
+
+Before registration, confirm that the image source is accessible from the configured CPU image-build partition and that the model is accessible from the GPU partition. Keep registry credentials in the compute environment or Enroot configuration.
+
 ## Import a digest-pinned OCI image
+
+The digest below demonstrates the required syntax and does not identify a real image. Replace it before running the command.
 
 ```bash
 data-designer slurm image add \
