@@ -498,9 +498,9 @@ class ChatCompletionInferenceParams(BaseInferenceParams):
         top_p: Nucleus sampling probability (0.0-1.0). Can be a fixed value or a distribution for dynamic sampling.
         max_tokens: Maximum number of tokens to generate in the response.
         presence_penalty: Penalty (-2.0 to 2.0) for tokens that already appeared in the output.
-        top_k: Sample only from the k most likely tokens. Sent via `extra_body`.
-        min_p: Minimum token probability (0.0-1.0), relative to the most likely token. Sent via `extra_body`.
-        repetition_penalty: Multiplicative penalty (> 0) for repeated tokens; 1.0 means none. Sent via `extra_body`.
+        top_k: Sample only from the k most likely tokens.
+        min_p: Minimum token probability (0.0-1.0), relative to the most likely token.
+        repetition_penalty: Multiplicative penalty (> 0) for repeated tokens; 1.0 means none.
     """
 
     generation_type: Literal[GenerationType.CHAT_COMPLETION] = GenerationType.CHAT_COMPLETION
@@ -523,14 +523,9 @@ class ChatCompletionInferenceParams(BaseInferenceParams):
             result["top_p"] = self.top_p.sample() if hasattr(self.top_p, "sample") else self.top_p
         if self.max_tokens is not None:
             result["max_tokens"] = self.max_tokens
-        if self.presence_penalty is not None:
-            result["presence_penalty"] = self.presence_penalty
-        # Not OpenAI params; the engine drops unknown top-level kwargs, so send them via extra_body.
-        # Keys the user set in extra_body themselves take precedence.
-        sampling_params = {"top_k": self.top_k, "min_p": self.min_p, "repetition_penalty": self.repetition_penalty}
-        extra_params = {key: value for key, value in sampling_params.items() if value is not None}
-        if extra_params:
-            result["extra_body"] = {**extra_params, **(result.get("extra_body") or {})}
+        for key in ("presence_penalty", "top_k", "min_p", "repetition_penalty"):
+            if (value := getattr(self, key)) is not None:
+                result[key] = value
         return result
 
     @model_validator(mode="after")

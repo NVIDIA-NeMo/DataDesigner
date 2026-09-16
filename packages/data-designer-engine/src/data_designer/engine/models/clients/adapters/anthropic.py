@@ -49,6 +49,8 @@ class AnthropicClient(HttpModelClient):
             "response_format",
             "frequency_penalty",
             "presence_penalty",
+            "min_p",
+            "repetition_penalty",
             "seed",
         }
     )

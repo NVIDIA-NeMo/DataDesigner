@@ -447,22 +447,20 @@ def test_inference_parameters_generate_kwargs():
         ({"presence_penalty": -2.0}, {"presence_penalty": -2.0}),
         (
             {"top_k": 50, "min_p": 0.1, "repetition_penalty": 1.1},
-            {"extra_body": {"top_k": 50, "min_p": 0.1, "repetition_penalty": 1.1}},
+            {"top_k": 50, "min_p": 0.1, "repetition_penalty": 1.1},
         ),
-        ({"top_k": 1, "min_p": 0.0}, {"extra_body": {"top_k": 1, "min_p": 0.0}}),
+        ({"top_k": 1, "min_p": 0.0}, {"top_k": 1, "min_p": 0.0}),
         (
             {"top_k": 50, "extra_body": {"reasoning_effort": "high"}},
-            {"extra_body": {"top_k": 50, "reasoning_effort": "high"}},
+            {"top_k": 50, "extra_body": {"reasoning_effort": "high"}},
         ),
-        ({"top_k": 50, "extra_body": {"top_k": 20}}, {"extra_body": {"top_k": 20}}),
     ],
     ids=[
-        "presence-penalty-top-level",
+        "presence-penalty",
         "presence-penalty-lower-bound",
-        "non-openai-params-in-extra-body",
+        "non-openai-params",
         "falsy-but-set-values-sent",
-        "merged-with-config-extra-body",
-        "config-extra-body-wins",
+        "extra-body-kept-separate",
     ],
 )
 def test_inference_parameters_routes_sampling_params(params: dict, expected: dict) -> None:

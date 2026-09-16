@@ -239,36 +239,42 @@ _ANTHROPIC_TEXT_RESPONSE = {
 }
 
 
-_SAMPLING_PARAM_FIELDS = ("client_cls", "response_json", "provider_extra_body", "expected", "absent")
+_SAMPLING_PARAM_FIELDS = ("client_cls", "response_json", "provider_extra_body", "call_extra_body", "expected", "absent")
+_ALL_SAMPLING_PARAMS = {"presence_penalty": 0.5, "top_k": 40, "min_p": 0.05, "repetition_penalty": 1.1}
 _SAMPLING_PARAM_CASES = [
-    (
-        OpenAICompatibleClient,
-        _OPENAI_TEXT_RESPONSE,
-        None,
-        {"presence_penalty": 0.5, "top_k": 40, "min_p": 0.05, "repetition_penalty": 1.1},
-        {"extra_body"},
-    ),
+    (OpenAICompatibleClient, _OPENAI_TEXT_RESPONSE, None, None, _ALL_SAMPLING_PARAMS, {"extra_body"}),
     (
         OpenAICompatibleClient,
         _OPENAI_TEXT_RESPONSE,
         {"top_k": 20, "presence_penalty": 0.1},
+        None,
         {"presence_penalty": 0.1, "top_k": 20, "min_p": 0.05, "repetition_penalty": 1.1},
         {"extra_body"},
     ),
     (
+        # A per-call extra_body replaces the configured one; the typed params must survive it.
+        OpenAICompatibleClient,
+        _OPENAI_TEXT_RESPONSE,
+        None,
+        {"reasoning_effort": "high"},
+        {**_ALL_SAMPLING_PARAMS, "reasoning_effort": "high"},
+        {"extra_body"},
+    ),
+    (
+        # Messages API has top_k but no presence_penalty, min_p or repetition_penalty.
         AnthropicClient,
         _ANTHROPIC_TEXT_RESPONSE,
         None,
-        # The adapter excludes presence_penalty; min_p and repetition_penalty are not
-        # Messages API parameters but reach the body like any other extra_body key.
-        {"top_k": 40, "min_p": 0.05, "repetition_penalty": 1.1},
-        {"presence_penalty", "extra_body"},
+        None,
+        {"top_k": 40},
+        {"presence_penalty", "min_p", "repetition_penalty", "extra_body"},
     ),
 ]
 _SAMPLING_PARAM_IDS = [
     "openai-compatible",
     "provider-extra-body-wins",
-    "anthropic-forwards-extra-body-minus-presence-penalty",
+    "per-call-extra-body-keeps-params",
+    "anthropic-sends-only-top-k",
 ]
 
 
@@ -283,9 +289,7 @@ def _make_sampling_params_facade(
 ) -> ModelFacade:
     """Facade over a mocked HTTP transport, with all four sampling params set."""
     model_config = stub_model_configs[0]
-    model_config.inference_parameters = ChatCompletionInferenceParams(
-        presence_penalty=0.5, top_k=40, min_p=0.05, repetition_penalty=1.1
-    )
+    model_config.inference_parameters = ChatCompletionInferenceParams(**_ALL_SAMPLING_PARAMS)
     client = client_cls(
         provider_name="stub-model-provider",
         endpoint="https://api.example.com/v1",
@@ -297,6 +301,10 @@ def _make_sampling_params_facade(
     facade = ModelFacade(model_config, stub_model_provider_registry, client=client)
     facade.model_provider.extra_body = provider_extra_body
     return facade
+
+
+def _call_kwargs(call_extra_body: dict[str, Any] | None) -> dict[str, Any]:
+    return {} if call_extra_body is None else {"extra_body": call_extra_body}
 
 
 def _assert_sampling_params_payload(http_client: MagicMock, expected: dict[str, Any], absent: set[str]) -> None:
@@ -312,6 +320,7 @@ def test_generate_sends_sampling_params_in_body(
     client_cls: type[OpenAICompatibleClient] | type[AnthropicClient],
     response_json: dict[str, Any],
     provider_extra_body: dict[str, Any] | None,
+    call_extra_body: dict[str, Any] | None,
     expected: dict[str, Any],
     absent: set[str],
 ) -> None:
@@ -320,7 +329,7 @@ def test_generate_sends_sampling_params_in_body(
         stub_model_configs, stub_model_provider_registry, client_cls, http_client, provider_extra_body
     )
 
-    facade.generate(prompt="does not matter", parser=lambda x: x)
+    facade.generate(prompt="does not matter", parser=lambda x: x, **_call_kwargs(call_extra_body))
 
     _assert_sampling_params_payload(http_client, expected, absent)
 
@@ -333,6 +342,7 @@ async def test_agenerate_sends_sampling_params_in_body(
     client_cls: type[OpenAICompatibleClient] | type[AnthropicClient],
     response_json: dict[str, Any],
     provider_extra_body: dict[str, Any] | None,
+    call_extra_body: dict[str, Any] | None,
     expected: dict[str, Any],
     absent: set[str],
 ) -> None:
@@ -341,7 +351,7 @@ async def test_agenerate_sends_sampling_params_in_body(
         stub_model_configs, stub_model_provider_registry, client_cls, http_client, provider_extra_body, is_async=True
     )
 
-    await facade.agenerate(prompt="does not matter", parser=lambda x: x)
+    await facade.agenerate(prompt="does not matter", parser=lambda x: x, **_call_kwargs(call_extra_body))
 
     _assert_sampling_params_payload(http_client, expected, absent)
 
