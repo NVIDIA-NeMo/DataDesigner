@@ -7,12 +7,12 @@ concurrency_values:
   - 32
   - 64
 deployment_cases:
-  - name: two-independent-replicas
+  - name: single-node-groups
     deployments:
       generator:
         nodes: 2
         nodes_per_replica: 1
-  - name: one-two-node-replica
+  - name: two-node-group
     deployments:
       generator:
         nodes: 2

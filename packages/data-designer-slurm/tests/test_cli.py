@@ -100,6 +100,20 @@ class _BenchmarkService:
         return self.report
 
 
+@pytest.mark.parametrize(
+    ("arguments", "expected"),
+    [
+        (["status", "--help"], "show persisted run status"),
+        (["image", "add", "--help"], "Import or inspect an image and register its alias"),
+    ],
+)
+def test_help_uses_public_terminology(arguments: list[str], expected: str) -> None:
+    result = CliRunner().invoke(cli_module.create_cli(), arguments)
+
+    assert result.exit_code == 0
+    assert expected in result.output
+
+
 def test_execute_emits_deterministic_json_and_forwards_actions(
     tmp_path: Path,
     authored_run_single: DataDesignerSlurmConfig,

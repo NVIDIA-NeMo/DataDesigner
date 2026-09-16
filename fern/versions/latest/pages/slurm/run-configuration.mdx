@@ -88,6 +88,8 @@ output:
 
 `count` cannot exceed `num_records`, and `max_concurrent` cannot exceed `count`. Status, retry, and collection retain shard identities and winners.
 
+Runs with more than one array task require Parquet output. They do not support global processors or profilers; image, plugin, custom, or unknown column types; local-callable validators; shuffled seed input; or authored seed-selection strategies. Seeded array runs must bind the dataset through `invocation.input_bindings.seed_path`.
+
 ### Independent replicas
 
 Allocate multiple nodes and keep one vLLM replica per node:
@@ -108,11 +110,11 @@ Use more than one node for each replica:
 resources:
   nodes: 4
 topology:
-  tensor_parallel: 16
+  tensor_parallel: 8
   nodes_per_replica: 2
 ```
 
-`nodes_per_replica` must divide `resources.nodes`. Multi-node expert parallelism is not supported in v1.
+`tensor_parallel` must divide the GPUs available on each node. With the eight GPUs per node in the profile example, `tensor_parallel: 8` and `nodes_per_replica: 2` use 16 GPUs per replica. `nodes_per_replica` must divide `resources.nodes`. Multi-node expert parallelism is not supported in v1.
 
 ### Multiple models and images
 

@@ -83,7 +83,7 @@ def status_command(
     profile_file: Path | None = typer.Option(None, "--profile-file", dir_okay=False),
     cluster: str | None = typer.Option(None, "--cluster"),
 ) -> None:
-    """Reconcile scheduler observations and show persisted M2 run status."""
+    """Reconcile scheduler observations and show persisted run status."""
     operation = SlurmServiceOperation.STATUS_RUN
     result = _invoke(
         operation,
@@ -239,7 +239,7 @@ def image_add_command(
     profile_file: Path | None = typer.Option(None, "--profile-file", dir_okay=False),
     cluster: str | None = typer.Option(None, "--cluster"),
 ) -> None:
-    """Request image import or inspection; requires IMG lifecycle support."""
+    """Import or inspect an image and register its alias."""
     operation = SlurmServiceOperation.ADD_IMAGE
 
     def add() -> BaseModel:
