@@ -149,6 +149,37 @@ def test_changing_temperature_changes_hash() -> None:
     assert _compute_hash(a) != _compute_hash(b)
 
 
+@pytest.mark.parametrize(
+    "sampling_param",
+    [{"presence_penalty": 0.5}, {"top_k": 40}, {"min_p": 0.05}, {"repetition_penalty": 1.1}],
+    ids=["presence_penalty", "top_k", "min_p", "repetition_penalty"],
+)
+def test_changing_sampling_param_changes_hash(sampling_param: dict[str, float]) -> None:
+    a = _make_minimal_config()
+    b = _make_minimal_config(
+        model_configs=[
+            ModelConfig(
+                alias="m",
+                model="some-model",
+                provider="some-provider",
+                inference_parameters=ChatCompletionInferenceParams(
+                    temperature=0.5, top_p=0.9, max_tokens=128, **sampling_param
+                ),
+            )
+        ],
+    )
+    assert _compute_hash(a) != _compute_hash(b)
+
+
+def test_unset_sampling_params_keep_existing_hash() -> None:
+    """Configs that leave the optional sampling params unset must keep their stored hash so resume still works.
+
+    The literal was computed from this same config before those fields existed; only a literal catches drift.
+    """
+    expected = "sha256:b21a98e06ea3c84c8fac9fe5231e68b0bfcffe03283952b03e807baba17139dc"
+    assert _compute_hash(_make_minimal_config()) == expected
+
+
 def test_changing_column_order_changes_hash() -> None:
     """Column order is part of identity (DAG ordering)."""
     cols_a = [

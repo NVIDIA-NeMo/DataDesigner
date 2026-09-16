@@ -497,12 +497,20 @@ class ChatCompletionInferenceParams(BaseInferenceParams):
         temperature: Sampling temperature (0.0-2.0). Can be a fixed value or a distribution for dynamic sampling.
         top_p: Nucleus sampling probability (0.0-1.0). Can be a fixed value or a distribution for dynamic sampling.
         max_tokens: Maximum number of tokens to generate in the response.
+        presence_penalty: Penalty (-2.0 to 2.0) for tokens that already appeared in the output.
+        top_k: Sample only from the k most likely tokens.
+        min_p: Minimum token probability (0.0-1.0), relative to the most likely token.
+        repetition_penalty: Multiplicative penalty (> 0) for repeated tokens; 1.0 means none.
     """
 
     generation_type: Literal[GenerationType.CHAT_COMPLETION] = GenerationType.CHAT_COMPLETION
     temperature: float | DistributionT | None = None
     top_p: float | DistributionT | None = None
     max_tokens: int | None = Field(default=None, ge=1)
+    presence_penalty: float | None = Field(default=None, ge=-2.0, le=2.0)
+    top_k: int | None = Field(default=None, ge=1)
+    min_p: float | None = Field(default=None, ge=0.0, le=1.0)
+    repetition_penalty: float | None = Field(default=None, gt=0.0)
 
     @property
     def generate_kwargs(self) -> dict[str, Any]:
@@ -515,6 +523,9 @@ class ChatCompletionInferenceParams(BaseInferenceParams):
             result["top_p"] = self.top_p.sample() if hasattr(self.top_p, "sample") else self.top_p
         if self.max_tokens is not None:
             result["max_tokens"] = self.max_tokens
+        for key in ("presence_penalty", "top_k", "min_p", "repetition_penalty"):
+            if (value := getattr(self, key)) is not None:
+                result[key] = value
         return result
 
     @model_validator(mode="after")

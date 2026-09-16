@@ -440,6 +440,54 @@ def test_inference_parameters_generate_kwargs():
     assert inference_parameters_kwargs["top_p"] is not None
 
 
+@pytest.mark.parametrize(
+    ("params", "expected"),
+    [
+        ({"presence_penalty": 0.5}, {"presence_penalty": 0.5}),
+        ({"presence_penalty": -2.0}, {"presence_penalty": -2.0}),
+        (
+            {"top_k": 50, "min_p": 0.1, "repetition_penalty": 1.1},
+            {"top_k": 50, "min_p": 0.1, "repetition_penalty": 1.1},
+        ),
+        ({"top_k": 1, "min_p": 0.0}, {"top_k": 1, "min_p": 0.0}),
+        (
+            {"top_k": 50, "extra_body": {"reasoning_effort": "high"}},
+            {"top_k": 50, "extra_body": {"reasoning_effort": "high"}},
+        ),
+    ],
+    ids=[
+        "presence-penalty",
+        "presence-penalty-lower-bound",
+        "non-openai-params",
+        "falsy-but-set-values-sent",
+        "extra-body-kept-separate",
+    ],
+)
+def test_inference_parameters_routes_sampling_params(params: dict, expected: dict) -> None:
+    caller_extra_body = params.get("extra_body")
+    caller_extra_body_before = dict(caller_extra_body) if caller_extra_body is not None else None
+
+    assert ChatCompletionInferenceParams(**params).generate_kwargs == expected
+    assert caller_extra_body == caller_extra_body_before
+
+
+@pytest.mark.parametrize(
+    "params",
+    [
+        {"presence_penalty": 2.1},
+        {"presence_penalty": -2.1},
+        {"top_k": 0},
+        {"min_p": -0.1},
+        {"min_p": 1.1},
+        {"repetition_penalty": 0},
+        {"repetition_penalty": -1},
+    ],
+)
+def test_inference_parameters_rejects_out_of_range_sampling_params(params: dict) -> None:
+    with pytest.raises(ValidationError):
+        ChatCompletionInferenceParams(**params)
+
+
 def test_uniform_distribution_low_lt_high_validation():
     with pytest.raises(ValueError, match="`low` must be less than `high`"):
         UniformDistribution(params=UniformDistributionParams(low=0.8, high=0.8))
@@ -729,6 +777,7 @@ def test_chat_completion_params_format_for_display_all_params():
         max_tokens=2048,
         max_parallel_requests=4,
         timeout=60,
+        top_k=40,
     )
     result = params.format_for_display()
     assert "generation_type=chat-completion" in result
@@ -737,6 +786,7 @@ def test_chat_completion_params_format_for_display_all_params():
     assert "max_tokens=2048" in result
     assert "max_parallel_requests=4" in result
     assert "timeout=60" in result
+    assert "top_k=40" in result
 
 
 def test_chat_completion_params_format_for_display_partial_params():

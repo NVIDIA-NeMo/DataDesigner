@@ -20,13 +20,24 @@ The `ChatCompletionInferenceParams` class controls how models generate text comp
 | `temperature` | `float` or `Distribution` | No | Controls randomness in generation (0.0 to 2.0). Higher values = more creative/random |
 | `top_p` | `float` or `Distribution` | No | Nucleus sampling parameter (0.0 to 1.0). Controls diversity by filtering low-probability tokens |
 | `max_tokens` | `int` | No | Maximum number of tokens to generate in the response (≥ 1) |
+| `presence_penalty` | `float` | No | Penalizes tokens that already appeared in the output (-2.0 to 2.0) |
+| `top_k` | `int` | No | Samples only from the k most likely tokens (≥ 1) |
+| `min_p` | `float` | No | Drops tokens below this probability, relative to the most likely token (0.0 to 1.0) |
+| `repetition_penalty` | `float` | No | Multiplicative penalty for repeated tokens (> 0; 1.0 means no penalty) |
 | `max_parallel_requests` | `int` | No | Maximum concurrent API requests to this model (default: 4, ≥ 1). See [Concurrency Control](#concurrency-control) below. |
 | `timeout` | `int` | No | API request timeout in seconds (≥ 1) |
 | `extra_body` | `dict[str, Any]` | No | Additional parameters to include in the API request body |
 
 <Note>
 Default Values
-If `temperature`, `top_p`, or `max_tokens` are not provided, the model provider's default values will be used. Different providers and models may have different defaults.
+If `temperature`, `top_p`, `max_tokens`, or any of the sampling parameters above are not provided, the model provider's default values will be used. Different providers and models may have different defaults.
+</Note>
+
+<Note>
+Provider Support for Sampling Parameters
+`top_k`, `min_p`, and `repetition_penalty` are not [OpenAI Chat Completions](https://platform.openai.com/docs/api-reference/chat/create) parameters. They are sent as top-level request fields, so the endpoint must accept them. [vLLM](https://github.com/vllm-project/vllm/blob/main/vllm/sampling_params.py) and [SGLang](https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/sampling/sampling_params.py) accept all three; SGLang also caps `repetition_penalty` at 2.0. A key with the same name in `extra_body` overrides the field.
+
+For Anthropic providers, only `top_k` is sent. The [Anthropic Messages API](https://docs.anthropic.com/en/api/messages) has no `presence_penalty`, `min_p`, or `repetition_penalty`, so the Anthropic adapter drops them.
 </Note>
 
 <Tip>

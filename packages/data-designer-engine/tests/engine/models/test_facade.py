@@ -8,7 +8,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from data_designer.config.models import ChatCompletionInferenceParams
 from data_designer.engine.mcp.errors import MCPConfigurationError, MCPToolError
+from data_designer.engine.models.clients.adapters.anthropic import AnthropicClient
+from data_designer.engine.models.clients.adapters.http_model_client import ClientConcurrencyMode
+from data_designer.engine.models.clients.adapters.openai_compatible import OpenAICompatibleClient
 from data_designer.engine.models.clients.errors import ProviderError, ProviderErrorKind
 from data_designer.engine.models.clients.types import (
     AssistantMessage,
@@ -32,6 +36,7 @@ from data_designer.engine.models.usage import TokenCountSource
 from data_designer.engine.models.usage_events import TokenUsageEvent, subscribe_token_usage
 from data_designer.engine.models.utils import ChatMessage
 from data_designer.engine.testing import StubMCPFacade, StubMCPRegistry, make_stub_completion_response
+from tests.engine.models.clients.conftest import make_mock_async_client, make_mock_sync_client
 
 
 def _make_response(
@@ -221,6 +226,134 @@ def test_generate_drops_configured_extra_body_n_from_single_result_request(
         stub_model_client.completion.call_args.args[0],
         expected_extra_body={"seed": 42, "provider": "kept"},
     )
+
+
+_OPENAI_TEXT_RESPONSE = {
+    "choices": [{"index": 0, "message": {"role": "assistant", "content": "Hello!"}, "finish_reason": "stop"}],
+    "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+}
+_ANTHROPIC_TEXT_RESPONSE = {
+    "content": [{"type": "text", "text": "Hello!"}],
+    "usage": {"input_tokens": 10, "output_tokens": 5},
+    "stop_reason": "end_turn",
+}
+
+
+_SAMPLING_PARAM_FIELDS = ("client_cls", "response_json", "provider_extra_body", "call_extra_body", "expected", "absent")
+_ALL_SAMPLING_PARAMS = {"presence_penalty": 0.5, "top_k": 40, "min_p": 0.05, "repetition_penalty": 1.1}
+_SAMPLING_PARAM_CASES = [
+    (OpenAICompatibleClient, _OPENAI_TEXT_RESPONSE, None, None, _ALL_SAMPLING_PARAMS, {"extra_body"}),
+    (
+        OpenAICompatibleClient,
+        _OPENAI_TEXT_RESPONSE,
+        {"top_k": 20, "presence_penalty": 0.1},
+        None,
+        {"presence_penalty": 0.1, "top_k": 20, "min_p": 0.05, "repetition_penalty": 1.1},
+        {"extra_body"},
+    ),
+    (
+        # A per-call extra_body replaces the configured one; the typed params must survive it.
+        OpenAICompatibleClient,
+        _OPENAI_TEXT_RESPONSE,
+        None,
+        {"reasoning_effort": "high"},
+        {**_ALL_SAMPLING_PARAMS, "reasoning_effort": "high"},
+        {"extra_body"},
+    ),
+    (
+        # Messages API has top_k but no presence_penalty, min_p or repetition_penalty.
+        AnthropicClient,
+        _ANTHROPIC_TEXT_RESPONSE,
+        None,
+        None,
+        {"top_k": 40},
+        {"presence_penalty", "min_p", "repetition_penalty", "extra_body"},
+    ),
+]
+_SAMPLING_PARAM_IDS = [
+    "openai-compatible",
+    "provider-extra-body-wins",
+    "per-call-extra-body-keeps-params",
+    "anthropic-sends-only-top-k",
+]
+
+
+def _make_sampling_params_facade(
+    stub_model_configs: list[Any],
+    stub_model_provider_registry: Any,
+    client_cls: type[OpenAICompatibleClient] | type[AnthropicClient],
+    http_client: MagicMock,
+    provider_extra_body: dict[str, Any] | None,
+    *,
+    is_async: bool = False,
+) -> ModelFacade:
+    """Facade over a mocked HTTP transport, with all four sampling params set."""
+    model_config = stub_model_configs[0]
+    model_config.inference_parameters = ChatCompletionInferenceParams(**_ALL_SAMPLING_PARAMS)
+    client = client_cls(
+        provider_name="stub-model-provider",
+        endpoint="https://api.example.com/v1",
+        api_key="sk-test",
+        concurrency_mode=ClientConcurrencyMode.ASYNC if is_async else ClientConcurrencyMode.SYNC,
+        sync_client=None if is_async else http_client,
+        async_client=http_client if is_async else None,
+    )
+    facade = ModelFacade(model_config, stub_model_provider_registry, client=client)
+    facade.model_provider.extra_body = provider_extra_body
+    return facade
+
+
+def _call_kwargs(call_extra_body: dict[str, Any] | None) -> dict[str, Any]:
+    return {} if call_extra_body is None else {"extra_body": call_extra_body}
+
+
+def _assert_sampling_params_payload(http_client: MagicMock, expected: dict[str, Any], absent: set[str]) -> None:
+    payload = http_client.post.call_args.kwargs["json"]
+    assert {key: payload.get(key) for key in expected} == expected
+    assert absent.isdisjoint(payload)
+
+
+@pytest.mark.parametrize(_SAMPLING_PARAM_FIELDS, _SAMPLING_PARAM_CASES, ids=_SAMPLING_PARAM_IDS)
+def test_generate_sends_sampling_params_in_body(
+    stub_model_configs: list[Any],
+    stub_model_provider_registry: Any,
+    client_cls: type[OpenAICompatibleClient] | type[AnthropicClient],
+    response_json: dict[str, Any],
+    provider_extra_body: dict[str, Any] | None,
+    call_extra_body: dict[str, Any] | None,
+    expected: dict[str, Any],
+    absent: set[str],
+) -> None:
+    http_client = make_mock_sync_client(response_json)
+    facade = _make_sampling_params_facade(
+        stub_model_configs, stub_model_provider_registry, client_cls, http_client, provider_extra_body
+    )
+
+    facade.generate(prompt="does not matter", parser=lambda x: x, **_call_kwargs(call_extra_body))
+
+    _assert_sampling_params_payload(http_client, expected, absent)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(_SAMPLING_PARAM_FIELDS, _SAMPLING_PARAM_CASES, ids=_SAMPLING_PARAM_IDS)
+async def test_agenerate_sends_sampling_params_in_body(
+    stub_model_configs: list[Any],
+    stub_model_provider_registry: Any,
+    client_cls: type[OpenAICompatibleClient] | type[AnthropicClient],
+    response_json: dict[str, Any],
+    provider_extra_body: dict[str, Any] | None,
+    call_extra_body: dict[str, Any] | None,
+    expected: dict[str, Any],
+    absent: set[str],
+) -> None:
+    http_client = make_mock_async_client(response_json)
+    facade = _make_sampling_params_facade(
+        stub_model_configs, stub_model_provider_registry, client_cls, http_client, provider_extra_body, is_async=True
+    )
+
+    await facade.agenerate(prompt="does not matter", parser=lambda x: x, **_call_kwargs(call_extra_body))
+
+    _assert_sampling_params_payload(http_client, expected, absent)
 
 
 @pytest.mark.asyncio

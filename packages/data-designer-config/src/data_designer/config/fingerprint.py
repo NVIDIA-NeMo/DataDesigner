@@ -64,6 +64,10 @@ _TOP_LEVEL_OPTIONAL_COLLECTIONS: frozenset[str] = frozenset(
 )
 _TOOL_CONFIG_OPTIONAL_COLLECTIONS: frozenset[str] = frozenset({"allow_tools"})
 
+# Optional sampling params added without a hash version bump. Dropped while unset,
+# so configs that don't use them keep their stored hash and can still resume.
+_INFERENCE_OPTIONAL_SCALARS: frozenset[str] = frozenset({"presence_penalty", "top_k", "min_p", "repetition_penalty"})
+
 
 # ---------------------------------------------------------------------------
 # Public API
@@ -82,7 +86,8 @@ def fingerprint_config(config: DataDesignerConfig) -> dict[str, str | int]:
       * `columns` - names, types, generator params, processors, validators,
         skip/drop flags. Column order is part of identity (DAG ordering).
       * `model_configs` - alias, model, provider, sampling-relevant inference
-        params (temperature, top_p, max_tokens, extra_body). Sorted by alias.
+        params (temperature, top_p, max_tokens, presence_penalty, top_k, min_p,
+        repetition_penalty, extra_body). Sorted by alias.
       * `tool_configs` - alias, providers, allow_tools, max_tool_call_turns
         (the set of MCP tools shapes generation). Sorted by tool_alias.
       * `seed_config` - source path, sampling strategy, selection strategy.
@@ -133,7 +138,8 @@ def _drop_empty_optional(source: dict[str, Any], keys: Iterable[str]) -> dict[st
     """Drop keys whose value is `None` or an empty list.
 
     `None` and `[]` are user-equivalent for optional collection fields; this
-    collapses both to "absent" before hashing.
+    collapses both to "absent" before hashing. For optional scalars only the
+    `None` case applies.
     """
     keyset = set(keys)
     return {k: v for k, v in source.items() if not (k in keyset and (v is None or v == []))}
@@ -143,7 +149,9 @@ def _normalize_model_config(model_config: dict[str, Any]) -> dict[str, Any]:
     normalized = _drop_keys(model_config, _EXCLUDED_MODEL_KEYS)
     inference_params = normalized.get("inference_parameters")
     if isinstance(inference_params, dict):
-        normalized["inference_parameters"] = _drop_keys(inference_params, _EXCLUDED_INFERENCE_KEYS)
+        normalized["inference_parameters"] = _drop_empty_optional(
+            _drop_keys(inference_params, _EXCLUDED_INFERENCE_KEYS), _INFERENCE_OPTIONAL_SCALARS
+        )
     return normalized
 
 

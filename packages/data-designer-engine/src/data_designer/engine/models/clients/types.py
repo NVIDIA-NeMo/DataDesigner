@@ -70,6 +70,9 @@ class ChatCompletionRequest:
     response_format: dict[str, Any] | None = None
     frequency_penalty: float | None = None
     presence_penalty: float | None = None
+    top_k: int | None = None
+    min_p: float | None = None
+    repetition_penalty: float | None = None
     timeout: float | None = None
     extra_body: dict[str, Any] | None = None
     extra_headers: dict[str, str] | None = None
