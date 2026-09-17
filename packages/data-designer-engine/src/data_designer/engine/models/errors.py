@@ -175,7 +175,7 @@ def _attach_provider_message(
     formatted_message: FormattedLLMErrorMessage,
     exception: ProviderError,
 ) -> FormattedLLMErrorMessage:
-    if exception.status_code != 400:
+    if exception.status_code != 400 and exception.kind != ProviderErrorKind.CLIENT_ERROR:
         return formatted_message
     normalized = _normalize_error_detail(exception.message)
     if normalized is None:
