@@ -49,7 +49,6 @@ stub_purpose = "running generation for column 'test'"
                 kind=ProviderErrorKind.BAD_REQUEST,
                 message="Unexpected field 'foo' in request payload.",
                 status_code=400,
-                provider_message="Unexpected field 'foo' in request payload.",
             ),
             ModelBadRequestError,
             (
@@ -62,9 +61,6 @@ stub_purpose = "running generation for column 'test'"
                 kind=ProviderErrorKind.UNSUPPORTED_PARAMS,
                 message="`temperature` and `top_p` cannot both be specified for this model. Please use only one.",
                 status_code=400,
-                provider_message=(
-                    "`temperature` and `top_p` cannot both be specified for this model. Please use only one."
-                ),
             ),
             ModelUnsupportedParamsError,
             (
@@ -177,28 +173,12 @@ stub_purpose = "running generation for column 'test'"
                 kind=ProviderErrorKind.CLIENT_ERROR,
                 message="Backend returned 404: 404 page not found",
                 status_code=424,
-                provider_message="Backend returned 404: 404 page not found",
             ),
             ModelRequestRejectedError,
             (
                 f"Cause: Model provider '{stub_model_provider_name}' rejected the request for model "
-                f"'{stub_model_name}' with HTTP status 424 while {stub_purpose}.\n  | Solution: Review the model "
-                "name and credentials before retrying. If a provider message is present, it may provide a hint "
-                "towards an actionable configuration issue."
-            ),
-        ),
-        (
-            ProviderError(
-                kind=ProviderErrorKind.TOO_EARLY,
-                message="Too Early",
-                status_code=425,
-                provider_message="Too Early",
-            ),
-            ModelRequestRejectedError,
-            (
-                f"Cause: Model provider '{stub_model_provider_name}' returned HTTP 425 (Too Early) "
-                f"for model '{stub_model_name}' while {stub_purpose}.\n  | Solution: This is usually temporary. Try "
-                "again in a few moments."
+                f"'{stub_model_name}' with HTTP status 424 while {stub_purpose}.\n  | Solution: Verify the model name, "
+                "credentials, and model configuration."
             ),
         ),
         (
@@ -253,7 +233,6 @@ stub_purpose = "running generation for column 'test'"
         "internal_server",
         "unprocessable_entity",
         "client_error",
-        "too_early",
         "api_error",
         "bad_request_multimodal",
         "generation_validation_failure",
@@ -266,50 +245,6 @@ def test_handle_llm_exceptions(
 ) -> None:
     with pytest.raises(expected_exception, match=re.escape(expected_error_msg)):
         handle_llm_exceptions(exception, stub_model_name, stub_model_provider_name, stub_purpose)
-
-
-def test_handle_llm_exceptions_attaches_provider_message_for_server_error() -> None:
-    exception = ProviderError(
-        kind=ProviderErrorKind.INTERNAL_SERVER,
-        message="Gateway temporarily unavailable",
-        status_code=502,
-        provider_message="Gateway temporarily unavailable",
-    )
-
-    with pytest.raises(ModelInternalServerError, match="Provider message: Gateway temporarily unavailable"):
-        handle_llm_exceptions(exception, stub_model_name, stub_model_provider_name, stub_purpose)
-
-
-def test_handle_llm_exceptions_omits_locally_synthesized_message() -> None:
-    exception = ProviderError(
-        kind=ProviderErrorKind.API_CONNECTION,
-        message="Connection refused locally",
-    )
-
-    with pytest.raises(ModelAPIConnectionError) as exc_info:
-        handle_llm_exceptions(exception, stub_model_name, stub_model_provider_name, stub_purpose)
-
-    assert "Provider message:" not in str(exc_info.value)
-
-
-def test_handle_llm_exceptions_sanitizes_and_truncates_provider_message() -> None:
-    provider_message = f"\x1b[31m<html>\n{'gateway failure ' * 60}</html>"
-    exception = ProviderError(
-        kind=ProviderErrorKind.INTERNAL_SERVER,
-        message=provider_message,
-        status_code=502,
-        provider_message=provider_message,
-    )
-
-    with pytest.raises(ModelInternalServerError) as exc_info:
-        handle_llm_exceptions(exception, stub_model_name, stub_model_provider_name, stub_purpose)
-
-    rendered = str(exc_info.value)
-    assert rendered.index("Provider message:") < rendered.index("Cause:") < rendered.index("Solution:")
-    assert "\x1b" not in rendered
-    assert "… (truncated)" in rendered
-    provider_message = rendered.split("Provider message: ", maxsplit=1)[1].split("\n", maxsplit=1)[0]
-    assert len(provider_message) == 500
 
 
 def test_generation_validation_failure_error_stores_truncation_reason() -> None:

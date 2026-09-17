@@ -26,7 +26,6 @@ class ProviderErrorKind(str, Enum):
     RATE_LIMIT = "rate_limit"
     REQUEST_ADMISSION_TIMEOUT = "request_admission_timeout"
     TIMEOUT = "timeout"
-    TOO_EARLY = "too_early"
     UNPROCESSABLE_ENTITY = "unprocessable_entity"
     UNSUPPORTED_CAPABILITY = "unsupported_capability"
 
@@ -44,7 +43,6 @@ class ProviderError(Exception):
         provider_name: str | None = None,
         model_name: str | None = None,
         retry_after: float | None = None,
-        provider_message: str | None = None,
         cause: Exception | None = None,
     ) -> None:
         super().__init__(message)
@@ -54,7 +52,6 @@ class ProviderError(Exception):
         self.provider_name = provider_name
         self.model_name = model_name
         self.retry_after = retry_after
-        self.provider_message = provider_message
         if cause is not None:
             self.__cause__ = cause
 
@@ -97,8 +94,6 @@ def map_http_status_to_provider_error_kind(status_code: int, body_text: str = ""
         return ProviderErrorKind.CONTEXT_WINDOW_EXCEEDED
     if status_code == 422:
         return ProviderErrorKind.UNPROCESSABLE_ENTITY
-    if status_code == 425:
-        return ProviderErrorKind.TOO_EARLY
     if status_code == 429:
         return ProviderErrorKind.RATE_LIMIT
     if status_code == 400:
@@ -138,7 +133,6 @@ def map_http_error_to_provider_error(
         provider_name=provider_name,
         model_name=model_name,
         retry_after=retry_after,
-        provider_message=body_text or None,
     )
 
 

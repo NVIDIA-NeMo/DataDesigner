@@ -44,7 +44,6 @@ class StubHttpResponse:
         (408, "", ProviderErrorKind.TIMEOUT),
         (413, "", ProviderErrorKind.CONTEXT_WINDOW_EXCEEDED),
         (422, "", ProviderErrorKind.UNPROCESSABLE_ENTITY),
-        (425, "", ProviderErrorKind.TOO_EARLY),
         (429, "", ProviderErrorKind.RATE_LIMIT),
         (
             400,
@@ -163,7 +162,6 @@ def test_map_http_error_to_provider_error(
     assert isinstance(error, ProviderError)
     assert error.kind == expected_kind
     assert error.message == expected_message
-    assert error.provider_message == expected_message
     assert error.provider_name == "stub-provider"
 
 
