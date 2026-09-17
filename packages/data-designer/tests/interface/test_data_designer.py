@@ -1357,6 +1357,67 @@ def test_create_profiles_seed_dataset_columns(stub_artifact_path, stub_model_pro
     assert analysis.side_effect_column_names == []
 
 
+@pytest.mark.parametrize("preserve_dropped_columns", [True, False])
+def test_create_excludes_seed_columns_dropped_by_processor(
+    stub_artifact_path, stub_model_providers, stub_managed_assets_path, preserve_dropped_columns
+):
+    """A drop processor targeting a seed column keeps it out of the profile.
+
+    With ``preserve_dropped_columns=True`` the column survives in the dropped-columns
+    parquet and must not be reported as part of the dataset; with ``False`` it is gone
+    entirely and profiling it would raise.
+    """
+    seed = lazy.pd.DataFrame({"diagnosis": ["flu", "cold", "strep"], "patient_summary": ["a", "b", "c"]})
+
+    config_builder = DataDesignerConfigBuilder()
+    config_builder.with_seed_dataset(DataFrameSeedSource(df=seed))
+    config_builder.add_column(SamplerColumnConfig(name="patient_id", sampler_type="uuid", params={}))
+    config_builder.add_processor(DropColumnsProcessorConfig(name="drop_summary", column_names=["patient_summary"]))
+
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+    )
+    data_designer.set_run_config(RunConfig(preserve_dropped_columns=preserve_dropped_columns))
+
+    results = data_designer.create(config_builder, num_records=3, dataset_name=f"seed-drop-{preserve_dropped_columns}")
+    dataset = results.load_dataset()
+    analysis = results.load_analysis()
+
+    assert "patient_summary" not in dataset.columns
+    profiled_columns = [stat.column_name for stat in analysis.column_statistics]
+    assert sorted(profiled_columns) == sorted(dataset.columns)
+    assert "patient_summary" not in profiled_columns
+
+
+def test_preview_excludes_seed_columns_dropped_by_processor(
+    stub_artifact_path, stub_model_providers, stub_managed_assets_path
+):
+    seed = lazy.pd.DataFrame({"diagnosis": ["flu", "cold", "strep"], "patient_summary": ["a", "b", "c"]})
+
+    config_builder = DataDesignerConfigBuilder()
+    config_builder.with_seed_dataset(DataFrameSeedSource(df=seed))
+    config_builder.add_column(SamplerColumnConfig(name="patient_id", sampler_type="uuid", params={}))
+    config_builder.add_processor(DropColumnsProcessorConfig(name="drop_summary", column_names=["patient_summary"]))
+
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+    )
+
+    preview_results = data_designer.preview(config_builder, num_records=3)
+    analysis = preview_results.analysis
+
+    assert "patient_summary" not in preview_results.dataset.columns
+    profiled_columns = [stat.column_name for stat in analysis.column_statistics]
+    assert sorted(profiled_columns) == sorted(preview_results.dataset.columns)
+    assert analysis.side_effect_column_names == ["patient_summary"]
+
+
 @pytest.fixture
 def stub_check_models_model_configs() -> list[ModelConfig]:
     """Model configs whose ``provider`` field matches the local ``stub_model_providers`` fixture.
