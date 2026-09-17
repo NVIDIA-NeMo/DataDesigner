@@ -8,6 +8,7 @@ import pytest
 from data_designer.config.column_configs import ExpressionColumnConfig, SamplerColumnConfig
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.errors import InvalidConfigError
+from data_designer.config.processors import DropColumnsProcessorConfig
 from data_designer.config.sampler_params import CategorySamplerParams, SamplerType, UUIDSamplerParams
 from data_designer.config.seed_source import FileContentsSeedSource, HuggingFaceSeedSource
 from data_designer.engine.compiler import compile_data_designer_config
@@ -174,3 +175,137 @@ def test_does_not_add_id_column_when_seed_dataset_exists(resource_provider: Reso
     assert len(config.columns) == 3
     assert config.columns[0].name == "derived_value"
     assert not any(col.name == "_internal_row_id" for col in config.columns)
+
+
+def test_compile_applies_processor_columns_added(resource_provider: ResourceProvider):
+    """Test that columns declared in columns_added can be referenced by downstream expressions/templates."""
+    builder = DataDesignerConfigBuilder()
+    builder.with_seed_dataset(HuggingFaceSeedSource(path="hf://datasets/test/data.csv"))
+    builder.add_processor(
+        DropColumnsProcessorConfig(
+            name="pre_batch_add",
+            column_names=[],
+            columns_added=["state"],
+        )
+    )
+    builder.add_column(
+        ExpressionColumnConfig(
+            name="derived_value",
+            expr="{{ state }}_processed",
+        )
+    )
+
+    config = compile_data_designer_config(builder.build(), resource_provider)
+
+    column_names = [col.name for col in config.columns]
+    assert "state" in column_names
+    assert "city" in column_names
+    assert "age" in column_names
+    assert "derived_value" in column_names
+
+
+def test_compile_applies_processor_columns_removed(resource_provider: ResourceProvider):
+    """Test that columns declared in columns_removed are removed and cannot be referenced downstream."""
+    builder = DataDesignerConfigBuilder()
+    builder.with_seed_dataset(HuggingFaceSeedSource(path="hf://datasets/test/data.csv"))
+    builder.add_processor(
+        DropColumnsProcessorConfig(
+            name="pre_batch_drop",
+            column_names=[],
+            columns_removed=["city"],
+        )
+    )
+    builder.add_column(
+        ExpressionColumnConfig(
+            name="derived_value",
+            expr="{{ age }}_processed",
+        )
+    )
+
+    config = compile_data_designer_config(builder.build(), resource_provider)
+    column_names = [col.name for col in config.columns]
+    assert "city" not in column_names
+    assert "age" in column_names
+
+    # If downstream references the removed column, compilation/validation should fail
+    builder_invalid = DataDesignerConfigBuilder()
+    builder_invalid.with_seed_dataset(HuggingFaceSeedSource(path="hf://datasets/test/data.csv"))
+    builder_invalid.add_processor(
+        DropColumnsProcessorConfig(
+            name="pre_batch_drop",
+            column_names=[],
+            columns_removed=["city"],
+        )
+    )
+    builder_invalid.add_column(
+        ExpressionColumnConfig(
+            name="derived_value",
+            expr="{{ city }}_processed",
+        )
+    )
+    with pytest.raises(InvalidConfigError, match="validation errors"):
+        compile_data_designer_config(builder_invalid.build(), resource_provider)
+
+
+def test_compile_processor_columns_added_collision(resource_provider: ResourceProvider):
+    """Test that adding an already existing column via columns_added raises InvalidConfigError."""
+    builder = DataDesignerConfigBuilder()
+    builder.with_seed_dataset(HuggingFaceSeedSource(path="hf://datasets/test/data.csv"))
+    builder.add_processor(
+        DropColumnsProcessorConfig(
+            name="pre_batch_add",
+            column_names=[],
+            columns_added=["city"],
+        )
+    )
+
+    with pytest.raises(InvalidConfigError, match="collides with an existing column"):
+        compile_data_designer_config(builder.build(), resource_provider)
+
+
+def test_compile_processor_columns_added_duplicate(resource_provider: ResourceProvider):
+    """Test that specifying duplicate columns in columns_added raises InvalidConfigError."""
+    builder = DataDesignerConfigBuilder()
+    builder.with_seed_dataset(HuggingFaceSeedSource(path="hf://datasets/test/data.csv"))
+    builder.add_processor(
+        DropColumnsProcessorConfig(
+            name="pre_batch_add",
+            column_names=[],
+            columns_added=["state", "state"],
+        )
+    )
+
+    with pytest.raises(InvalidConfigError, match="collides with an existing column"):
+        compile_data_designer_config(builder.build(), resource_provider)
+
+
+def test_compile_processor_columns_removed_nonexistent(resource_provider: ResourceProvider):
+    """Test that removing a non-existent column via columns_removed raises InvalidConfigError."""
+    builder = DataDesignerConfigBuilder()
+    builder.with_seed_dataset(HuggingFaceSeedSource(path="hf://datasets/test/data.csv"))
+    builder.add_processor(
+        DropColumnsProcessorConfig(
+            name="pre_batch_drop",
+            column_names=[],
+            columns_removed=["non_existent"],
+        )
+    )
+
+    with pytest.raises(InvalidConfigError, match="cannot remove column 'non_existent' because it does not exist"):
+        compile_data_designer_config(builder.build(), resource_provider)
+
+
+def test_compile_processor_columns_added_without_seed_dataset(stub_resource_provider: ResourceProvider):
+    """Test that columns_added without a seed dataset raises InvalidConfigError."""
+    builder = DataDesignerConfigBuilder()
+    builder.add_processor(
+        DropColumnsProcessorConfig(
+            name="pre_batch_add",
+            column_names=[],
+            columns_added=["state"],
+        )
+    )
+    stub_resource_provider.seed_reader = None
+
+    with pytest.raises(InvalidConfigError, match="specifies 'columns_added', but no seed dataset is configured"):
+        compile_data_designer_config(builder.build(), stub_resource_provider)

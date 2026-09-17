@@ -106,3 +106,30 @@ def test_get_processor_config_from_kwargs():
         UnknownProcessorType.UNKNOWN, name="unknown_processor", column_names=["col1"]
     )
     assert result is None
+
+
+def test_processor_config_columns_added_and_removed_defaults():
+    config = DropColumnsProcessorConfig(name="drop_proc", column_names=["col1"])
+    assert config.columns_added == []
+    assert config.columns_removed == []
+
+
+def test_processor_config_columns_added_and_removed_custom():
+    class CustomProcessorConfig(ProcessorConfig):
+        processor_type: str = "custom"
+
+    config = CustomProcessorConfig(
+        name="custom_proc",
+        columns_added=["col_new"],
+        columns_removed=["col_old"],
+    )
+    assert config.columns_added == ["col_new"]
+    assert config.columns_removed == ["col_old"]
+
+    data = config.model_dump()
+    assert data["columns_added"] == ["col_new"]
+    assert data["columns_removed"] == ["col_old"]
+
+    restored = CustomProcessorConfig.model_validate(data)
+    assert restored.columns_added == ["col_new"]
+    assert restored.columns_removed == ["col_old"]

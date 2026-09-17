@@ -196,3 +196,11 @@ class ProcessorConfig(ConfigBase, ABC):
         description="The name of the processor, used to identify the processor in the results and to write the artifacts to disk.",
     )
     processor_type: str
+    columns_added: list[str] = Field(
+        default_factory=list,
+        description="List of column names added to the dataset by this processor.",
+    )
+    columns_removed: list[str] = Field(
+        default_factory=list,
+        description="List of column names removed from the dataset by this processor.",
+    )

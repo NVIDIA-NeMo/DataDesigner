@@ -18,9 +18,38 @@ logger = logging.getLogger(__name__)
 
 def compile_data_designer_config(config: DataDesignerConfig, resource_provider: ResourceProvider) -> DataDesignerConfig:
     _resolve_and_add_seed_columns(config, resource_provider.seed_reader)
+    _apply_processor_column_modifications(config)
     _add_internal_row_id_column_if_needed(config)
     _validate(config)
     return config
+
+
+def _apply_processor_column_modifications(config: DataDesignerConfig) -> None:
+    """Adjusts columns according to columns_added and columns_removed declared by processors."""
+    for processor in config.processors or []:
+        if processor.columns_removed:
+            current_columns = {col.name for col in config.columns}
+            for col_name in processor.columns_removed:
+                if col_name not in current_columns:
+                    raise InvalidConfigError(
+                        f"🛑 Processor '{processor.name}' cannot remove column '{col_name}' because it does not exist."
+                    )
+            removed_set = set(processor.columns_removed)
+            config.columns = [col for col in config.columns if col.name not in removed_set]
+
+        if processor.columns_added:
+            if config.seed_config is None:
+                raise InvalidConfigError(
+                    f"🛑 Processor '{processor.name}' specifies 'columns_added', but no seed dataset is configured."
+                )
+            existing_columns = {col.name for col in config.columns}
+            for col_name in processor.columns_added:
+                if col_name in existing_columns:
+                    raise InvalidConfigError(
+                        f"🛑 Processor '{processor.name}' adds column '{col_name}' which collides with an existing column."
+                    )
+                config.columns.append(SeedDatasetColumnConfig(name=col_name))
+                existing_columns.add(col_name)
 
 
 def _resolve_and_add_seed_columns(config: DataDesignerConfig, seed_reader: SeedReader | None) -> None:
