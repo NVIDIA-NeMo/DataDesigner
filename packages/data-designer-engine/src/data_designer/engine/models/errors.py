@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Callable
 from functools import wraps
 from typing import Any, NoReturn
@@ -15,6 +16,9 @@ from data_designer.engine.models.clients.errors import ProviderError, ProviderEr
 from data_designer.engine.models.utils import GenerationTruncationReason
 
 logger = logging.getLogger(__name__)
+
+_ANSI_ESCAPE_PATTERN = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+_MAX_PROVIDER_MESSAGE_CHARS = 500
 
 
 def _normalize_error_detail(detail: str | None) -> str | None:
@@ -175,9 +179,16 @@ def _attach_provider_message(
     formatted_message: FormattedLLMErrorMessage,
     exception: ProviderError,
 ) -> FormattedLLMErrorMessage:
-    normalized = _normalize_error_detail(exception.message)
+    normalized = _normalize_error_detail(exception.provider_message)
     if normalized is None:
         return formatted_message
+    normalized = _ANSI_ESCAPE_PATTERN.sub("", normalized)
+    normalized = _normalize_error_detail("".join(character for character in normalized if character.isprintable()))
+    if normalized is None:
+        return formatted_message
+    if len(normalized) > _MAX_PROVIDER_MESSAGE_CHARS:
+        suffix = "… (truncated)"
+        normalized = f"{normalized[: _MAX_PROVIDER_MESSAGE_CHARS - len(suffix)]}{suffix}"
     return formatted_message.model_copy(update={"provider_message": normalized})
 
 
@@ -322,6 +333,7 @@ def _raise_from_provider_error(
         ProviderErrorKind.PERMISSION_DENIED: ModelPermissionDeniedError,
         ProviderErrorKind.UNSUPPORTED_PARAMS: ModelUnsupportedParamsError,
         ProviderErrorKind.CLIENT_ERROR: ModelRequestRejectedError,
+        ProviderErrorKind.TOO_EARLY: ModelRequestRejectedError,
         ProviderErrorKind.INTERNAL_SERVER: ModelInternalServerError,
         ProviderErrorKind.UNPROCESSABLE_ENTITY: ModelUnprocessableEntityError,
         ProviderErrorKind.API_CONNECTION: ModelAPIConnectionError,
@@ -355,9 +367,12 @@ def _raise_from_provider_error(
         ProviderErrorKind.CLIENT_ERROR: (
             f"Model provider {model_provider_name!r} rejected the request for model {model_name!r} "
             f"with HTTP status {exception.status_code} while {purpose}.",
-            "This is a client-side error and will not resolve by retrying. Verify the model name, that your "
-            "credentials have access to it, and your request parameters. If this provider sits behind a gateway "
-            "or proxy, check its logs for the originating upstream status and message.",
+            "Review the model name and credentials before retrying. "
+            "If a provider message is present, it may provide a hint towards an actionable configuration issue.",
+        ),
+        ProviderErrorKind.TOO_EARLY: (
+            f"Model provider {model_provider_name!r} returned HTTP 425 (Too Early) for model {model_name!r} while {purpose}.",
+            "This is usually temporary. Try again in a few moments.",
         ),
         ProviderErrorKind.INTERNAL_SERVER: (
             f"Model {model_name!r} is currently experiencing internal server issues while {purpose}.",
