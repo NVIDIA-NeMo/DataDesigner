@@ -25,6 +25,7 @@ from data_designer.engine.models.errors import (
     ModelQuotaExceededError,
     ModelRateLimitError,
     ModelRequestAdmissionTimeoutError,
+    ModelRequestRejectedError,
     ModelTimeoutError,
     ModelUnprocessableEntityError,
     ModelUnsupportedCapabilityError,
@@ -169,9 +170,22 @@ stub_purpose = "running generation for column 'test'"
         ),
         (
             ProviderError(
+                kind=ProviderErrorKind.CLIENT_ERROR,
+                message="Backend returned 404: 404 page not found",
+                status_code=424,
+            ),
+            ModelRequestRejectedError,
+            (
+                "Provider message: Backend returned 404: 404 page not found\n  | Cause: Model provider "
+                f"'{stub_model_provider_name}' rejected the request for model '{stub_model_name}' with HTTP status "
+                f"424 while {stub_purpose}.\n  | Solution: This is a client-side error and will not resolve by retrying."
+            ),
+        ),
+        (
+            ProviderError(
                 kind=ProviderErrorKind.API_ERROR,
                 message="Unknown API error",
-                status_code=418,
+                status_code=302,
             ),
             ModelAPIError,
             f"Cause: An unexpected API error occurred with model '{stub_model_name}' while {stub_purpose}.",
@@ -218,6 +232,7 @@ stub_purpose = "running generation for column 'test'"
         "not_found",
         "internal_server",
         "unprocessable_entity",
+        "client_error",
         "api_error",
         "bad_request_multimodal",
         "generation_validation_failure",
@@ -229,6 +244,17 @@ def test_handle_llm_exceptions(
     exception: Exception, expected_exception: type[Exception], expected_error_msg: str
 ) -> None:
     with pytest.raises(expected_exception, match=re.escape(expected_error_msg)):
+        handle_llm_exceptions(exception, stub_model_name, stub_model_provider_name, stub_purpose)
+
+
+def test_handle_llm_exceptions_attaches_provider_message_for_server_error() -> None:
+    exception = ProviderError(
+        kind=ProviderErrorKind.INTERNAL_SERVER,
+        message="Gateway temporarily unavailable",
+        status_code=502,
+    )
+
+    with pytest.raises(ModelInternalServerError, match="Provider message: Gateway temporarily unavailable"):
         handle_llm_exceptions(exception, stub_model_name, stub_model_provider_name, stub_purpose)
 
 
