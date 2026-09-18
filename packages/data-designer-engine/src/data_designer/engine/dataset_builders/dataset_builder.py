@@ -982,6 +982,8 @@ class DatasetBuilder:
             row_groups=row_groups,
             buffer_manager=buffer_manager,
             max_concurrent_row_groups=self._resource_provider.run_config.max_concurrent_row_groups,
+            adaptive_row_group_admission=self._resource_provider.run_config.adaptive_row_group_admission,
+            adaptive_row_group_initial_target=self._resource_provider.run_config.adaptive_row_group_initial_target,
             max_in_flight_tasks=max_in_flight_tasks,
             max_model_task_admission=max_model_task_admission,
             on_finalize_row_group=on_finalize_row_group,

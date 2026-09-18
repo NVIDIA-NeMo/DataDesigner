@@ -405,6 +405,8 @@ def test_prepare_async_run_enables_request_pressure_advisory(monkeypatch: pytest
         model_registry=model_registry,
         run_config=SimpleNamespace(
             max_concurrent_row_groups=8,
+            adaptive_row_group_admission=False,
+            adaptive_row_group_initial_target=1,
             max_in_flight_tasks=64,
             progress_interval=5.0,
             display_tui=False,
@@ -445,6 +447,8 @@ def test_prepare_async_run_uses_compact_plan_for_large_fresh_runs(monkeypatch: p
         model_registry=model_registry,
         run_config=SimpleNamespace(
             max_concurrent_row_groups=3,
+            adaptive_row_group_admission=False,
+            adaptive_row_group_initial_target=1,
             max_in_flight_tasks=64,
             progress_interval=5.0,
             display_tui=False,

@@ -139,6 +139,39 @@ def test_run_config_rejects_invalid_max_concurrent_row_groups() -> None:
         RunConfig(max_concurrent_row_groups=0)
 
 
+def test_run_config_defaults_to_fixed_row_group_admission() -> None:
+    run_config = RunConfig()
+
+    assert run_config.adaptive_row_group_admission is False
+    assert run_config.adaptive_row_group_initial_target == 1
+
+
+@pytest.mark.parametrize(
+    ("max_concurrent_row_groups", "initial_target"),
+    [(3, 1), (3, 2), (2, 10)],
+    ids=["min-target", "below-cap", "above-cap-left-to-scheduler"],
+)
+def test_run_config_accepts_adaptive_row_group_admission(max_concurrent_row_groups: int, initial_target: int) -> None:
+    run_config = RunConfig(
+        max_concurrent_row_groups=max_concurrent_row_groups,
+        adaptive_row_group_admission=True,
+        adaptive_row_group_initial_target=initial_target,
+    )
+
+    assert run_config.adaptive_row_group_admission is True
+    assert run_config.adaptive_row_group_initial_target == initial_target
+
+
+@pytest.mark.parametrize("initial_target", [0, -1])
+def test_run_config_rejects_invalid_adaptive_row_group_initial_target(initial_target: int) -> None:
+    with pytest.raises(ValidationError) as exc_info:
+        RunConfig(adaptive_row_group_initial_target=initial_target)
+
+    [error] = exc_info.value.errors()
+    assert error["loc"] == ("adaptive_row_group_initial_target",)
+    assert error["type"] == "greater_than_equal"
+
+
 def test_run_config_defaults_max_in_flight_tasks_to_1024() -> None:
     assert RunConfig().max_in_flight_tasks == 1024
 

@@ -107,7 +107,7 @@ DatasetBuilder.build()
   → collect TaskTraces, emit telemetry
 ```
 
-Dataset-builder row-group admission is fixed: `RunConfig.max_concurrent_row_groups` (default `3`) is the hard in-flight cap. `buffer_size` controls the records per group, so raising the cap can increase active memory. The scheduler's adaptive row-group mode remains internal and is not wired through the public interface.
+Dataset-builder row-group admission is fixed by default: `RunConfig.max_concurrent_row_groups` (default `3`) is the hard in-flight cap. `buffer_size` controls the records per group, so raising the cap can increase active memory. `RunConfig.adaptive_row_group_admission` (default `False`) switches to the scheduler's adaptive mode, which starts at `adaptive_row_group_initial_target` and only ramps up to that cap; it is additive ramp-up, not AIMD shrink/recovery.
 
 When request admission is available, async scheduling may use request-pressure snapshots as a read-only advisory during fair-queue selection. A request-pressured task can be skipped for an eligible peer without mutating request-admission state; provider/model/domain request limits remain owned by request admission.
 

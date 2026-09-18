@@ -204,7 +204,22 @@ run_config = dd.RunConfig(
 designer.set_run_config(run_config)
 ```
 
-A wider horizon can expose more ready work to high-capacity endpoints, but it retains more row data in memory and may delay checkpoints. It does not adapt during a run or replace `max_parallel_requests`, which remains the per-model request ceiling. Treat this as an expert override: benchmark before and after changing it.
+A wider horizon can expose more ready work to high-capacity endpoints, but it retains more row data in memory and may delay checkpoints. On its own it is a fixed cap and does not replace `max_parallel_requests`, which remains the per-model request ceiling. Treat this as an expert override: benchmark before and after changing it.
+
+### `adaptive_row_group_admission` (RunConfig)
+
+Turns `max_concurrent_row_groups` from a fixed horizon into a ceiling the scheduler ramps toward. An adaptive run starts with `adaptive_row_group_initial_target` active row groups (default `1`, capped at `max_concurrent_row_groups`) and admits one more at a time while model task capacity is free and no retry or task backlog is holding it back. It never lowers the target during a run. Adaptive mode also stops admitting new row groups once about `max(3 × buffer_size, 8192)` rows are active, though one row group is always admitted.
+
+```python
+run_config = dd.RunConfig(
+    max_concurrent_row_groups=8,
+    adaptive_row_group_admission=True,
+    adaptive_row_group_initial_target=2,
+)
+designer.set_run_config(run_config)
+```
+
+The default is `False`, the fixed horizon. Adaptive admission can keep fast endpoints busier on deep or uneven workflows, but as the target grows the run keeps more row data in memory and may delay the first checkpoint. With `write_scheduler_events=True`, a `create()` run's `scheduler_events.jsonl` records the configured mode and starting target in `scheduler_job_started` and each target change as `row_group_admission_target_changed`. Benchmark before and after changing it.
 
 ---
 

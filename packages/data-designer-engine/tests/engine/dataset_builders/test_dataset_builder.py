@@ -8,7 +8,7 @@ import json
 import logging
 import tracemalloc
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from unittest.mock import Mock, patch
 
 import pytest
@@ -1077,6 +1077,7 @@ def _make_sampler_only_builder(
     *,
     resume: ResumeMode = ResumeMode.IF_POSSIBLE,
     write_scheduler_events: bool = False,
+    **run_config_overrides: Any,
 ) -> tuple[DatasetBuilder, ArtifactStorage]:
     """Create a builder that can run end-to-end without model or MCP stubs."""
     storage = ArtifactStorage(artifact_path=tmp_path, resume=resume)
@@ -1084,6 +1085,7 @@ def _make_sampler_only_builder(
     stub_resource_provider.run_config = RunConfig(
         buffer_size=2,
         write_scheduler_events=write_scheduler_events,
+        **run_config_overrides,
     )
 
     config_builder = DataDesignerConfigBuilder()
@@ -1120,6 +1122,61 @@ def test_build_writes_scheduler_events_when_enabled(
         events = [json.loads(line) for line in event_path.read_text(encoding="utf-8").splitlines()]
         assert events[0]["event_kind"] == "scheduler_job_started"
         assert events[-1]["event_kind"] == "scheduler_job_completed"
+
+
+@pytest.mark.parametrize(
+    ("adaptive", "initial_target", "expected_target"),
+    [(False, 1, 4), (False, 2, 4), (True, 2, 2), (True, 10, 4)],
+    ids=["fixed-default", "fixed-ignores-initial-target", "adaptive-initial-target", "adaptive-target-capped"],
+)
+def test_build_applies_row_group_admission_settings_from_run_config(
+    stub_resource_provider: Mock,
+    tmp_path: Path,
+    adaptive: bool,
+    initial_target: int,
+    expected_target: int,
+) -> None:
+    builder, _storage = _make_sampler_only_builder(
+        stub_resource_provider,
+        tmp_path,
+        resume=ResumeMode.NEVER,
+        write_scheduler_events=True,
+        max_concurrent_row_groups=4,
+        adaptive_row_group_admission=adaptive,
+        adaptive_row_group_initial_target=initial_target,
+    )
+
+    final_path = builder.build(num_records=2, resume=ResumeMode.NEVER)
+
+    event_path = final_path.parent / "scheduler_events.jsonl"
+    events = [json.loads(line) for line in event_path.read_text(encoding="utf-8").splitlines()]
+    started = next(event for event in events if event["event_kind"] == "scheduler_job_started")["diagnostics"]
+    assert started["adaptive_row_group_admission"] is adaptive
+    assert started["row_group_initial_target"] == expected_target
+    assert started["row_group_hard_cap"] == 4
+
+
+def test_build_ramps_adaptive_row_group_target_up_to_cap(stub_resource_provider: Mock, tmp_path: Path) -> None:
+    builder, _storage = _make_sampler_only_builder(
+        stub_resource_provider,
+        tmp_path,
+        resume=ResumeMode.NEVER,
+        write_scheduler_events=True,
+        max_concurrent_row_groups=3,
+        adaptive_row_group_admission=True,
+        adaptive_row_group_initial_target=1,
+    )
+
+    final_path = builder.build(num_records=12, resume=ResumeMode.NEVER)
+
+    event_path = final_path.parent / "scheduler_events.jsonl"
+    events = [json.loads(line) for line in event_path.read_text(encoding="utf-8").splitlines()]
+    changes = [
+        (event["diagnostics"]["old_target"], event["diagnostics"]["new_target"])
+        for event in events
+        if event["event_kind"] == "row_group_admission_target_changed"
+    ]
+    assert changes == [(1, 2), (2, 3)]
 
 
 def test_preview_does_not_write_scheduler_events(stub_resource_provider: Mock, tmp_path: Path) -> None:

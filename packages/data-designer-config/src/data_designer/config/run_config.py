@@ -143,6 +143,12 @@ class RunConfig(ConfigBase):
             Must be > 0. Default is 1000.
         max_concurrent_row_groups: Maximum number of row groups the async scheduler may
             keep active at once. Must be >= 1. Default is 3.
+        adaptive_row_group_admission: If True, the async scheduler starts with
+            ``adaptive_row_group_initial_target`` active row groups and ramps toward
+            ``max_concurrent_row_groups`` one row group at a time. Default is False.
+        adaptive_row_group_initial_target: Number of row groups an adaptive run starts with,
+            capped at ``max_concurrent_row_groups``. Ignored unless adaptive admission is on.
+            Must be >= 1. Default is 1.
         max_in_flight_tasks: Maximum number of async scheduler tasks that may hold task
             leases at once. Tasks may be executing, awaiting I/O, or waiting on model
             request admission. Model API request concurrency is controlled separately by
@@ -194,6 +200,22 @@ class RunConfig(ConfigBase):
         default=3,
         ge=1,
         description="Maximum number of row groups the async scheduler may keep active at once.",
+    )
+    adaptive_row_group_admission: bool = Field(
+        default=False,
+        description=(
+            "If True, the async scheduler starts with adaptive_row_group_initial_target active row groups and "
+            "admits one more at a time, up to max_concurrent_row_groups, while the scheduler has spare task "
+            "capacity. If False, max_concurrent_row_groups is a fixed row-group horizon."
+        ),
+    )
+    adaptive_row_group_initial_target: int = Field(
+        default=1,
+        ge=1,
+        description=(
+            "Number of row groups an adaptive run may keep active at the start. Values above "
+            "max_concurrent_row_groups are capped to it. Ignored unless adaptive_row_group_admission is True."
+        ),
     )
     max_in_flight_tasks: int = Field(
         default=1024,
