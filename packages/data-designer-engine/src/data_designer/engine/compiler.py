@@ -11,7 +11,12 @@ from data_designer.config.errors import InvalidConfigError
 from data_designer.config.sampler_params import UUIDSamplerParams
 from data_designer.engine.resources.resource_provider import ResourceProvider
 from data_designer.engine.resources.seed_reader import SeedReader, SeedReaderConfigError
-from data_designer.engine.validation import ViolationLevel, rich_print_violations, validate_data_designer_config
+from data_designer.engine.validation import (
+    ViolationLevel,
+    resolve_processor_dropped_columns,
+    rich_print_violations,
+    validate_data_designer_config,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +48,26 @@ def _resolve_and_add_seed_columns(config: DataDesignerConfig, seed_reader: SeedR
             "Please remove the conflicting columns or use a seed dataset with different column names."
         )
 
-    config.columns.extend([SeedDatasetColumnConfig(name=col_name) for col_name in seed_col_names])
+    seed_columns = [SeedDatasetColumnConfig(name=col_name) for col_name in seed_col_names]
+    config.columns.extend(seed_columns)
+    _mark_processor_dropped_seed_columns(config, seed_columns)
+
+
+def _mark_processor_dropped_seed_columns(
+    config: DataDesignerConfig, seed_columns: list[SeedDatasetColumnConfig]
+) -> None:
+    """Marks seed columns targeted by a drop processor with `drop=True`.
+
+    `DataDesignerConfigBuilder.add_processor` does this for configured columns, but seed
+    columns don't exist yet at that point — they're resolved here. Without this, a
+    processor-dropped seed column is still handed to the dataset profiler, which either
+    reports a column the emitted dataset no longer has or fails outright when
+    `preserve_dropped_columns=False`.
+    """
+    dropped_column_names = resolve_processor_dropped_columns(config.columns, config.processors or [])
+    for column in seed_columns:
+        if column.name in dropped_column_names:
+            column.drop = True
 
 
 def _add_internal_row_id_column_if_needed(config: DataDesignerConfig) -> None:

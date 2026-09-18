@@ -59,7 +59,9 @@ class StubHttpResponse:
         (400, "maximum context length exceeded", ProviderErrorKind.CONTEXT_WINDOW_EXCEEDED),
         (500, "", ProviderErrorKind.INTERNAL_SERVER),
         (503, "", ProviderErrorKind.INTERNAL_SERVER),
-        (418, "", ProviderErrorKind.API_ERROR),
+        (418, "", ProviderErrorKind.CLIENT_ERROR),
+        (424, "", ProviderErrorKind.CLIENT_ERROR),
+        (302, "", ProviderErrorKind.API_ERROR),
     ],
 )
 def test_map_http_status_to_provider_error_kind(

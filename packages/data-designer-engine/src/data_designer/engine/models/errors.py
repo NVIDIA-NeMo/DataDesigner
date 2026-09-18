@@ -98,6 +98,9 @@ class ModelUnsupportedParamsError(DataDesignerError): ...
 class ModelBadRequestError(DataDesignerError): ...
 
 
+class ModelRequestRejectedError(DataDesignerError): ...
+
+
 class ModelInternalServerError(DataDesignerError): ...
 
 
@@ -172,7 +175,7 @@ def _attach_provider_message(
     formatted_message: FormattedLLMErrorMessage,
     exception: ProviderError,
 ) -> FormattedLLMErrorMessage:
-    if exception.status_code != 400:
+    if exception.status_code != 400 and exception.kind != ProviderErrorKind.CLIENT_ERROR:
         return formatted_message
     normalized = _normalize_error_detail(exception.message)
     if normalized is None:
@@ -320,6 +323,7 @@ def _raise_from_provider_error(
         ProviderErrorKind.NOT_FOUND: ModelNotFoundError,
         ProviderErrorKind.PERMISSION_DENIED: ModelPermissionDeniedError,
         ProviderErrorKind.UNSUPPORTED_PARAMS: ModelUnsupportedParamsError,
+        ProviderErrorKind.CLIENT_ERROR: ModelRequestRejectedError,
         ProviderErrorKind.INTERNAL_SERVER: ModelInternalServerError,
         ProviderErrorKind.UNPROCESSABLE_ENTITY: ModelUnprocessableEntityError,
         ProviderErrorKind.API_CONNECTION: ModelAPIConnectionError,
@@ -349,6 +353,12 @@ def _raise_from_provider_error(
         ProviderErrorKind.UNSUPPORTED_PARAMS: (
             f"One or more of the parameters you provided were found to be unsupported by model {model_name!r} while {purpose}.",
             f"Review the documentation for model provider {model_provider_name!r} and adjust your request.",
+        ),
+        ProviderErrorKind.CLIENT_ERROR: (
+            f"Model provider {model_provider_name!r} rejected the request for model {model_name!r} "
+            f"with HTTP status {exception.status_code} while {purpose}.",
+            "Verify the model name, credentials, and model configuration. If the provider is behind a gateway or "
+            "proxy, contact its administrator and provide the HTTP status.",
         ),
         ProviderErrorKind.INTERNAL_SERVER: (
             f"Model {model_name!r} is currently experiencing internal server issues while {purpose}.",
