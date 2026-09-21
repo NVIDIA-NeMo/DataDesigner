@@ -260,7 +260,7 @@ def validate_columns_not_all_dropped(
     processor_configs: list[ProcessorConfigT] | None = None,
 ) -> list[Violation]:
     processor_configs = processor_configs or []
-    processor_dropped_columns = _resolve_processor_dropped_columns(columns, processor_configs)
+    processor_dropped_columns = resolve_processor_dropped_columns(columns, processor_configs)
     remaining_cols = [
         c
         for c in columns
@@ -287,10 +287,11 @@ def validate_columns_not_all_dropped(
     return []
 
 
-def _resolve_processor_dropped_columns(
+def resolve_processor_dropped_columns(
     columns: list[ColumnConfigT],
     processor_configs: list[ProcessorConfigT],
 ) -> set[str]:
+    """Return the column names targeted by drop processors, expanding globs against `columns`."""
     column_names = {c.name for c in columns}
     dropped_columns: set[str] = set()
     for processor_config in processor_configs:
