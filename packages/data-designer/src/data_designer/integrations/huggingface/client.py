@@ -119,7 +119,7 @@ class HuggingFaceHubClient:
             URL to the uploaded dataset
 
         Raises:
-            HuggingFaceUploadError: If validation fails or upload encounters errors
+            HuggingFaceHubClientUploadError: If validation fails or upload encounters errors
         """
         logger.info(f"🤗 Uploading dataset to Hugging Face Hub: {repo_id}")
 
@@ -162,7 +162,7 @@ class HuggingFaceHubClient:
             private: Whether to create private repo
 
         Raises:
-            HuggingFaceUploadError: If repository creation fails
+            HuggingFaceHubClientUploadError: If repository creation fails
         """
         logger.info(f"{LOG_INDENT}{RandomEmoji.working()} Checking if repository exists...")
         try:
@@ -203,7 +203,7 @@ class HuggingFaceHubClient:
             parquet_folder: Path to folder containing parquet files
 
         Raises:
-            HuggingFaceUploadError: If upload fails
+            HuggingFaceHubClientUploadError: If upload fails
         """
         logger.info(f"{LOG_INDENT}{RandomEmoji.loading()} Uploading main dataset files...")
         try:
@@ -225,7 +225,7 @@ class HuggingFaceHubClient:
             images_folder: Path to images folder
 
         Raises:
-            HuggingFaceUploadError: If upload fails
+            HuggingFaceHubClientUploadError: If upload fails
         """
         if not images_folder.exists():
             return
@@ -255,7 +255,7 @@ class HuggingFaceHubClient:
             processors_folder: Path to folder containing processor output directories
 
         Raises:
-            HuggingFaceUploadError: If upload fails
+            HuggingFaceHubClientUploadError: If upload fails
         """
         if not processors_folder.exists():
             return
@@ -290,7 +290,7 @@ class HuggingFaceHubClient:
             builder_config_path: Path to builder_config.json file
 
         Raises:
-            HuggingFaceUploadError: If upload fails
+            HuggingFaceHubClientUploadError: If upload fails
         """
         logger.info(f"{LOG_INDENT}{RandomEmoji.loading()} Uploading configuration files...")
 
@@ -345,7 +345,7 @@ class HuggingFaceHubClient:
             tags: Additional custom tags for the dataset
 
         Raises:
-            HuggingFaceUploadError: If dataset card generation or upload fails
+            HuggingFaceHubClientUploadError: If dataset card generation or upload fails
         """
         try:
             with open(metadata_path) as f:
@@ -455,7 +455,7 @@ class HuggingFaceHubClient:
             base_dataset_path: Path to dataset directory
 
         Raises:
-            HuggingFaceUploadError: If directory structure is invalid
+            HuggingFaceHubClientUploadError: If directory structure is invalid
         """
         if not base_dataset_path.exists():
             raise HuggingFaceHubClientUploadError(f"Dataset path does not exist: {base_dataset_path}")

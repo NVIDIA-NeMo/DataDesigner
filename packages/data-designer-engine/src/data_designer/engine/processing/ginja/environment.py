@@ -180,6 +180,11 @@ class UserTemplateSandboxEnvironment(ImmutableSandboxedEnvironment):
             or may be malicious in nature. If not specified, defaults to
             MAX_AST_DEPTH set by this module.
 
+        prefer_dict_key_access (optional, bool): When enabled, prefer dict key
+            lookup over attribute access so that keys like "items" resolve to
+            dict["items"] instead of dict.items. If not specified, defaults to
+            False.
+
         **kwargs: Additional kwargs passed to ImmutableSandboxedEnvironment.
         """
         super().__init__(autoescape=False, **kwargs)

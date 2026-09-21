@@ -15,6 +15,7 @@ class ProviderErrorKind(str, Enum):
     API_ERROR = "api_error"
     API_CONNECTION = "api_connection"
     AUTHENTICATION = "authentication"
+    CLIENT_ERROR = "client_error"
     CONTEXT_WINDOW_EXCEEDED = "context_window_exceeded"
     QUOTA_EXCEEDED = "quota_exceeded"
     UNSUPPORTED_PARAMS = "unsupported_params"
@@ -101,6 +102,8 @@ def map_http_status_to_provider_error_kind(status_code: int, body_text: str = ""
         return ProviderErrorKind.BAD_REQUEST
     if 500 <= status_code <= 599:
         return ProviderErrorKind.INTERNAL_SERVER
+    if 400 <= status_code <= 499:
+        return ProviderErrorKind.CLIENT_ERROR
     return ProviderErrorKind.API_ERROR
 
 
