@@ -2,6 +2,8 @@
 
 Use a benchmark to compare concurrency and deployment topology while keeping each case as an ordinary Data Designer Slurm run. No benchmark controller stays resident after submission.
 
+Complete [Getting Started](/slurm/getting-started) first so the profile, images, and base run are ready.
+
 Install the Slurm extension:
 
 ```bash
@@ -22,12 +24,12 @@ concurrency_values:
   - 32
   - 64
 deployment_cases:
-  - name: two-independent-replicas
+  - name: single-node-groups
     deployments:
       generator:
         nodes: 2
         nodes_per_replica: 1
-  - name: one-two-node-replica
+  - name: two-node-group
     deployments:
       generator:
         nodes: 2
@@ -42,7 +44,9 @@ analysis:
   target_runtime: 4h
 ```
 
-The compiler expands the authored order deterministically. For this example, the first cases are `two-independent-replicas-c32` and `one-two-node-replica-c32`. An adaptive record policy uses `ceil(concurrency * records_per_concurrency)`, bounded by `base_records` and `max_records`.
+The compiler expands the authored order deterministically. For this example, the first cases are `single-node-groups-c32` and `two-node-group-c32`. An adaptive record policy uses `ceil(concurrency * records_per_concurrency)`, bounded by `base_records` and `max_records`.
+
+`nodes_per_replica` controls the number of nodes in each pipeline-parallel group. The resolved replica count is `(nodes / nodes_per_replica) * (gpus_per_node / tensor_parallel)`, so it also depends on the selected profile and the base run's deployment topology.
 
 ## Run
 
@@ -92,3 +96,5 @@ service = create_slurm_benchmark_service(
 manifest = service.run(config, source_root=benchmark_file.parent)
 report = service.analyze(manifest.benchmark_id, refresh_state=True)
 ```
+
+For child failure recovery and output collection, use [Retry and collection](/slurm/retry-and-collection).

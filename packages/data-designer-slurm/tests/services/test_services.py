@@ -194,7 +194,7 @@ def test_run_service_delegates_execute_actions(
 ) -> None:
     class RunBackend:
         def __init__(self) -> None:
-            self.calls: list[tuple[DataDesignerSlurmConfig, Path, bool, bool]] = []
+            self.calls: list[tuple[DataDesignerSlurmConfig, Path, bool]] = []
 
         def execute(
             self,
@@ -202,9 +202,8 @@ def test_run_service_delegates_execute_actions(
             *,
             source_root: Path,
             dry_run: bool,
-            force: bool,
         ) -> SlurmRunExecution:
-            self.calls.append((config, source_root, dry_run, force))
+            self.calls.append((config, source_root, dry_run))
             return SlurmRunExecution(
                 run_id="run-0001",
                 state="dry_run",
@@ -222,10 +221,10 @@ def test_run_service_delegates_execute_actions(
     backend = RunBackend()
     service = SlurmRunService(FakeRunPlanningBackend(()), FakeBatchScriptRenderer(()), backend)
 
-    result = service.execute(authored_run_single, source_root=tmp_path, dry_run=True, force=True)
+    result = service.execute(authored_run_single, source_root=tmp_path, dry_run=True)
 
     assert result.run_id == "run-0001"
-    assert backend.calls == [(authored_run_single, tmp_path.resolve(), True, True)]
+    assert backend.calls == [(authored_run_single, tmp_path.resolve(), True)]
 
 
 def test_run_service_delegates_retry_with_stable_shard_order() -> None:

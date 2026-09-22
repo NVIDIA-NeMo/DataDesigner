@@ -4,7 +4,7 @@
 """Scan public Slurm artifacts without rendering matched sensitive content.
 
 The default scope covers deployable source, test source and fixtures, package
-metadata, and release scripts. A small path-scoped allowlist masks only exact
+metadata, public documentation and examples, and release scripts. A small path-scoped allowlist masks only exact
 synthetic test sentinels. Generic example.test hosts, loopback addresses, and
 /workspace paths are the only implicit test-data allowances.
 """
@@ -32,9 +32,13 @@ DEFAULT_ARTIFACTS = (
     "packages/data-designer-slurm/README.md",
     "packages/data-designer-slurm/pyproject.toml",
     "packages/data-designer-slurm/LICENSE",
+    "packages/data-designer-slurm/examples",
     "packages/data-designer-slurm/tests",
+    "fern/versions/latest/pages/slurm",
+    "fern/versions/latest.yml",
     "plans/850/data-designer-contract.md",
     "plans/870/slurm-early-security-review.md",
+    "plans/874/slurm-documentation-coverage.md",
     "scripts/publish.sh",
     "scripts/test_slurm_package_install.py",
 )
