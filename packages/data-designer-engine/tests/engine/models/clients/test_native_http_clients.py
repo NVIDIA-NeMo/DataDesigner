@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -364,6 +365,7 @@ def test_sync_pool_limits_forwarded_to_transport(
 
 
 @pytest.mark.parametrize(("client_factory", "model_name", "response_json"), _ASYNC_TRANSPORT_WIRING_CASES)
+@pytest.mark.parametrize(("parallel_requests", "shard_count"), [(1, 1), (4, 4), (16, 16), (300, 16)])
 @patch(_SHARDED_ASYNC_TRANSPORT_PATCH)
 @patch(_ASYNC_CLIENT_PATCH)
 @pytest.mark.asyncio
@@ -373,6 +375,8 @@ async def test_async_pool_limits_forwarded_to_transport(
     client_factory: Callable[..., Any],
     model_name: str,
     response_json: dict[str, Any],
+    parallel_requests: int,
+    shard_count: int,
 ) -> None:
     """Regression for #459: limits must reach AsyncHTTPTransport for async clients.
 
@@ -383,11 +387,47 @@ async def test_async_pool_limits_forwarded_to_transport(
     mock_client_cls.return_value = MagicMock(post=AsyncMock(return_value=mock_httpx_response(response_json)))
     client = client_factory(
         concurrency_mode=ClientConcurrencyMode.ASYNC,
-        max_parallel_requests=300,
+        max_parallel_requests=parallel_requests,
     )
     await client.acompletion(_make_chat_request(model_name))
 
     mock_transport_cls.assert_called_once()
     limits = mock_transport_cls.call_args.kwargs["limits"]
-    assert limits.max_connections == 600
-    assert limits.max_keepalive_connections == 300
+    assert limits.max_connections == max(32, 2 * parallel_requests)
+    assert limits.max_keepalive_connections == max(16, parallel_requests)
+    assert mock_transport_cls.call_args.kwargs["shard_count"] == shard_count
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("client_factory", "model_name"), _CLIENT_FACTORY_CASES)
+@pytest.mark.parametrize("resource_argument", ["async_client", "transport"])
+async def test_async_close_survives_cancellation(
+    client_factory: Callable[..., Any], model_name: str, resource_argument: str
+) -> None:
+    started = asyncio.Event()
+    release = asyncio.Event()
+    finished = asyncio.Event()
+
+    async def close() -> None:
+        started.set()
+        await release.wait()
+        finished.set()
+
+    resource = MagicMock(aclose=AsyncMock(side_effect=close))
+    client = client_factory(concurrency_mode=ClientConcurrencyMode.ASYNC, **{resource_argument: resource})
+    closing = asyncio.create_task(client.aclose())
+    await asyncio.wait_for(started.wait(), timeout=5)
+    closing.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await closing
+    retry = asyncio.create_task(client.aclose())
+    try:
+        await asyncio.sleep(0)
+        assert not retry.done()
+        with pytest.raises(RuntimeError, match="closed"):
+            await client.acompletion(_make_chat_request(model_name))
+    finally:
+        release.set()
+        await asyncio.wait_for(retry, timeout=5)
+    assert finished.is_set()
+    resource.aclose.assert_awaited_once()

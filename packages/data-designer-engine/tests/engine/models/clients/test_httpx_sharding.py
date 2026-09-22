@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable
 from contextlib import suppress
+from unittest.mock import AsyncMock
 
 import httpx
 import pytest
@@ -283,3 +284,36 @@ async def test_shards_handle_keepalive_and_connection_close(close_connections: b
         assert server.connection_count == expected_connections
     finally:
         await server.close()
+
+
+@pytest.mark.asyncio
+async def test_close_survives_cancellation_and_waits_for_every_child() -> None:
+    transports: list[_RecordingTransport] = []
+    transport = ShardedAsyncHTTPTransport(
+        limits=httpx.Limits(max_connections=4, max_keepalive_connections=2),
+        shard_count=2,
+        transport_factory=_recording_factory(transports),
+    )
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def close() -> None:
+        started.set()
+        await release.wait()
+        transports[0].closed = True
+
+    transports[0].aclose = AsyncMock(side_effect=close)
+    closing = asyncio.create_task(transport.aclose())
+    await asyncio.wait_for(started.wait(), timeout=5)
+    closing.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await closing
+    retry = asyncio.create_task(transport.aclose())
+    try:
+        await asyncio.sleep(0)
+        assert not retry.done()
+    finally:
+        release.set()
+        await asyncio.wait_for(retry, timeout=5)
+    assert all(shard.closed for shard in transports)
+    transports[0].aclose.assert_awaited_once()

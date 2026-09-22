@@ -49,6 +49,7 @@ class ShardedAsyncHTTPTransport(httpx.AsyncBaseTransport):
         self._transports = tuple(factory(shard_limits) for shard_limits in self._shard_limits)
         self._next_transport = 0
         self._closed = False
+        self._close_future: asyncio.Future[list[None | BaseException]] | None = None
 
     @property
     def shard_limits(self) -> tuple[httpx.Limits, ...]:
@@ -62,10 +63,14 @@ class ShardedAsyncHTTPTransport(httpx.AsyncBaseTransport):
         return await transport.handle_async_request(request)
 
     async def aclose(self) -> None:
-        if self._closed:
+        if self._close_future is not None and self._close_future.done():
             return
         self._closed = True
-        results = await asyncio.gather(*(transport.aclose() for transport in self._transports), return_exceptions=True)
+        if self._close_future is None:
+            self._close_future = asyncio.gather(
+                *(transport.aclose() for transport in self._transports), return_exceptions=True
+            )
+        results = await asyncio.shield(self._close_future)
         for result in results:
             if isinstance(result, BaseException):
                 raise result

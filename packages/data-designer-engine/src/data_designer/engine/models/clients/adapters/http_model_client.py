@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import threading
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any
@@ -67,6 +68,7 @@ class HttpModelClient(ABC):
         self._timeout_s = timeout_s
         self._retry_config = retry_config
         self._mode: ClientConcurrencyMode = concurrency_mode
+        self._shard_count = min(16, max(1, max_parallel_requests))
 
         pool_max = max(_MIN_MAX_CONNECTIONS, _POOL_MAX_MULTIPLIER * max_parallel_requests)
         pool_keepalive = max(_MIN_KEEPALIVE_CONNECTIONS, max_parallel_requests)
@@ -79,6 +81,7 @@ class HttpModelClient(ABC):
         self._aclient: httpx.AsyncClient | None = async_client
         self._init_lock = threading.Lock()
         self._closed = False
+        self._close_future: asyncio.Future[list[None | BaseException]] | None = None
 
     @property
     def concurrency_mode(self) -> ClientConcurrencyMode:
@@ -121,7 +124,7 @@ class HttpModelClient(ABC):
                 raise RuntimeError("Model client is closed.")
             if self._aclient is None:
                 if self._transport is None:
-                    inner = ShardedAsyncHTTPTransport(limits=self._limits)
+                    inner = ShardedAsyncHTTPTransport(limits=self._limits, shard_count=self._shard_count)
                     self._transport = create_retry_transport(
                         self._retry_config, strip_rate_limit_codes=True, transport=inner
                     )
@@ -153,15 +156,18 @@ class HttpModelClient(ABC):
         if self._mode != ClientConcurrencyMode.ASYNC:
             return
         with self._init_lock:
-            async_client = self._aclient
-            transport = self._transport
             self._closed = True
+            resource = self._aclient if self._aclient is not None else self._transport
+            if self._close_future is None and resource is not None:
+                self._close_future = asyncio.gather(resource.aclose(), return_exceptions=True)
+            elif self._close_future is None or self._close_future.done():
+                return
             self._aclient = None
             self._transport = None
-        if async_client is not None:
-            await async_client.aclose()
-        elif transport is not None:
-            await transport.aclose()
+        results = await asyncio.shield(self._close_future)
+        for result in results:
+            if isinstance(result, BaseException):
+                raise result
 
     # --- HTTP helpers ---
 
