@@ -138,6 +138,10 @@ dd_run_step() {
     wait "${pid}" || status=$?
     unset "DD_MANAGED_PIDS[${index}]"
     DD_MANAGED_PIDS=("${DD_MANAGED_PIDS[@]+"${DD_MANAGED_PIDS[@]}"}")
+    if ((status != 0)); then
+        printf 'runtime step failed: step_id=%q status=%d stdout=%q stderr=%q\n' \
+            "${step_id}" "${status}" "${DD_STEP_STDOUT}" "${DD_STEP_STDERR}" >&2
+    fi
     return "${status}"
 }
 

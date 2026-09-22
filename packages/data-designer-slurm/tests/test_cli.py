@@ -26,7 +26,7 @@ from data_designer.slurm.state import CollectionState
 
 class _RunService:
     def __init__(self) -> None:
-        self.calls: list[tuple[DataDesignerSlurmConfig, Path, bool, bool]] = []
+        self.calls: list[tuple[DataDesignerSlurmConfig, Path, bool]] = []
         self.retry_calls: list[tuple[str, tuple[str, ...] | None, str, bool]] = []
         self.collection_calls: list[tuple[Path, Path, int | None]] = []
 
@@ -36,9 +36,8 @@ class _RunService:
         *,
         source_root: Path,
         dry_run: bool,
-        force: bool,
     ) -> SlurmRunExecution:
-        self.calls.append((config, source_root, dry_run, force))
+        self.calls.append((config, source_root, dry_run))
         return SlurmRunExecution(
             run_id="run-0001",
             state="dry_run",
@@ -101,6 +100,20 @@ class _BenchmarkService:
         return self.report
 
 
+@pytest.mark.parametrize(
+    ("arguments", "expected"),
+    [
+        (["status", "--help"], "show persisted run status"),
+        (["image", "add", "--help"], "Import or inspect an image and register its alias"),
+    ],
+)
+def test_help_uses_public_terminology(arguments: list[str], expected: str) -> None:
+    result = CliRunner().invoke(cli_module.create_cli(), arguments)
+
+    assert result.exit_code == 0
+    assert expected in result.output
+
+
 def test_execute_emits_deterministic_json_and_forwards_actions(
     tmp_path: Path,
     authored_run_single: DataDesignerSlurmConfig,
@@ -111,7 +124,7 @@ def test_execute_emits_deterministic_json_and_forwards_actions(
     service = _RunService()
     monkeypatch.setattr(cli_module, "create_slurm_run_service", lambda **_: service)
 
-    result = CliRunner().invoke(cli_module.create_cli(), ["execute", str(run_file), "--dry-run", "--force"])
+    result = CliRunner().invoke(cli_module.create_cli(), ["execute", str(run_file), "--dry-run"])
 
     assert result.exit_code == 0
     assert json.loads(result.stdout) == {
@@ -122,7 +135,7 @@ def test_execute_emits_deterministic_json_and_forwards_actions(
         "shard_count": 1,
         "state": "dry_run",
     }
-    assert service.calls == [(authored_run_single, tmp_path, True, True)]
+    assert service.calls == [(authored_run_single, tmp_path, True)]
 
 
 def test_benchmark_cli_forwards_run_and_analysis_actions(

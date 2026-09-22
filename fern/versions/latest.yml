@@ -81,8 +81,28 @@ navigation:
         path: ./latest/pages/notebooks/6-editing-images-with-image-context.mdx
   - section: Slurm
     contents:
+      - page: Overview
+        path: ./latest/pages/slurm/overview.mdx
+      - page: Getting Started
+        path: ./latest/pages/slurm/getting-started.mdx
+      - page: Profiles and Clusters
+        path: ./latest/pages/slurm/profiles.mdx
+      - page: Images
+        path: ./latest/pages/slurm/images.mdx
+      - page: Run Configuration
+        path: ./latest/pages/slurm/run-configuration.mdx
+      - page: Run Operations
+        path: ./latest/pages/slurm/operations.mdx
+      - page: Retry and Collection
+        path: ./latest/pages/slurm/retry-and-collection.mdx
       - page: Benchmarks
         path: ./latest/pages/slurm/benchmarks.mdx
+      - page: Dependencies and Tools
+        path: ./latest/pages/slurm/dependencies-and-tools.mdx
+      - page: Troubleshooting
+        path: ./latest/pages/slurm/troubleshooting.mdx
+      - page: CLI Reference
+        path: ./latest/pages/slurm/cli-reference.mdx
   - section: Recipes
     contents:
       - page: Recipe Cards

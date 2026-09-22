@@ -64,9 +64,9 @@ class _RunService:
         self.benchmark_root = benchmark_root
         self.failures = failures
 
-    def execute(self, config, *, source_root, dry_run, force):
+    def execute(self, config, *, source_root, dry_run):
         assert (self.benchmark_root / "benchmark.json").is_file()
-        self.calls.append((self.run_id, config, source_root, dry_run, force))
+        self.calls.append((self.run_id, config, source_root, dry_run))
         self.configs[self.run_id] = config
         if self.run_id in self.failures:
             raise SlurmServiceError(
@@ -89,9 +89,9 @@ class _ConcurrentRunService(_RunService):
         super().__init__(*args)
         self.second_check = second_check
 
-    def execute(self, config, *, source_root, dry_run, force):
+    def execute(self, config, *, source_root, dry_run):
         self.second_check.wait(timeout=1)
-        return super().execute(config, source_root=source_root, dry_run=dry_run, force=force)
+        return super().execute(config, source_root=source_root, dry_run=dry_run)
 
 
 class _ConcurrentSubmissionLoader:
@@ -207,7 +207,6 @@ def test_run_persists_manifest_before_submission_and_is_idempotent(
     assert first == second
     assert len(calls) == len(compiled.cases)
     assert tuple(configs) == tuple(case.child_run_id for case in compiled.cases)
-    assert all(force is False for *_, force in calls)
 
 
 def test_concurrent_runs_submit_each_deterministic_child_once(
