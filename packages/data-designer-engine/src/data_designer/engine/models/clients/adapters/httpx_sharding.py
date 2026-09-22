@@ -7,8 +7,14 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
+from typing import TYPE_CHECKING
 
-import httpx
+from httpx import AsyncBaseTransport
+
+import data_designer.lazy_heavy_imports as lazy
+
+if TYPE_CHECKING:
+    import httpx
 
 _DEFAULT_SHARD_COUNT = 16
 
@@ -18,7 +24,7 @@ def _split_limit(total: int, shard_count: int) -> list[int]:
     return [base + (index < remainder) for index in range(shard_count)]
 
 
-class ShardedAsyncHTTPTransport(httpx.AsyncBaseTransport):
+class ShardedAsyncHTTPTransport(AsyncBaseTransport):
     """Distribute requests round-robin across ordinary HTTPX transports."""
 
     def __init__(
@@ -35,11 +41,11 @@ class ShardedAsyncHTTPTransport(httpx.AsyncBaseTransport):
         if limits.max_connections < shard_count or limits.max_keepalive_connections < shard_count:
             raise ValueError("connection limits must provide at least one connection per shard")
 
-        factory = transport_factory or (lambda shard_limits: httpx.AsyncHTTPTransport(limits=shard_limits))
+        factory = transport_factory or (lambda shard_limits: lazy.httpx.AsyncHTTPTransport(limits=shard_limits))
         maximums = _split_limit(limits.max_connections, shard_count)
         keepalives = _split_limit(limits.max_keepalive_connections, shard_count)
         self._shard_limits = tuple(
-            httpx.Limits(
+            lazy.httpx.Limits(
                 max_connections=maximum,
                 max_keepalive_connections=keepalive,
                 keepalive_expiry=limits.keepalive_expiry,
@@ -63,8 +69,6 @@ class ShardedAsyncHTTPTransport(httpx.AsyncBaseTransport):
         return await transport.handle_async_request(request)
 
     async def aclose(self) -> None:
-        if self._close_future is not None and self._close_future.done():
-            return
         self._closed = True
         if self._close_future is None:
             self._close_future = asyncio.gather(

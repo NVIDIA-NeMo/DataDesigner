@@ -265,7 +265,8 @@ async def test_close_attempts_every_child_and_propagates_error() -> None:
         await transport.aclose()
 
     assert all(shard.closed for shard in transports)
-    await transport.aclose()
+    with pytest.raises(RuntimeError, match="close failed"):
+        await transport.aclose()
 
 
 @pytest.mark.asyncio
@@ -287,7 +288,8 @@ async def test_shards_handle_keepalive_and_connection_close(close_connections: b
 
 
 @pytest.mark.asyncio
-async def test_close_survives_cancellation_and_waits_for_every_child() -> None:
+@pytest.mark.parametrize("fail_before_retry", [False, True])
+async def test_close_survives_cancellation_and_waits_for_every_child(fail_before_retry: bool) -> None:
     transports: list[_RecordingTransport] = []
     transport = ShardedAsyncHTTPTransport(
         limits=httpx.Limits(max_connections=4, max_keepalive_connections=2),
@@ -296,11 +298,15 @@ async def test_close_survives_cancellation_and_waits_for_every_child() -> None:
     )
     started = asyncio.Event()
     release = asyncio.Event()
+    finished = asyncio.Event()
 
     async def close() -> None:
         started.set()
         await release.wait()
         transports[0].closed = True
+        finished.set()
+        if fail_before_retry:
+            raise RuntimeError("close failed")
 
     transports[0].aclose = AsyncMock(side_effect=close)
     closing = asyncio.create_task(transport.aclose())
@@ -308,6 +314,16 @@ async def test_close_survives_cancellation_and_waits_for_every_child() -> None:
     closing.cancel()
     with pytest.raises(asyncio.CancelledError):
         await closing
+    if fail_before_retry:
+        release.set()
+        await asyncio.wait_for(finished.wait(), timeout=5)
+        await asyncio.sleep(0)  # Let the shared gather record the completed close.
+        for _ in range(2):
+            with pytest.raises(RuntimeError, match="close failed"):
+                await transport.aclose()
+        assert all(shard.closed for shard in transports)
+        transports[0].aclose.assert_awaited_once()
+        return
     retry = asyncio.create_task(transport.aclose())
     try:
         await asyncio.sleep(0)

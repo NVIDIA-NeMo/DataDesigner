@@ -160,7 +160,7 @@ class HttpModelClient(ABC):
             resource = self._aclient if self._aclient is not None else self._transport
             if self._close_future is None and resource is not None:
                 self._close_future = asyncio.gather(resource.aclose(), return_exceptions=True)
-            elif self._close_future is None or self._close_future.done():
+            elif self._close_future is None:
                 return
             self._aclient = None
             self._transport = None

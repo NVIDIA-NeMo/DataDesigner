@@ -401,8 +401,9 @@ async def test_async_pool_limits_forwarded_to_transport(
 @pytest.mark.asyncio
 @pytest.mark.parametrize(("client_factory", "model_name"), _CLIENT_FACTORY_CASES)
 @pytest.mark.parametrize("resource_argument", ["async_client", "transport"])
+@pytest.mark.parametrize("fail_before_retry", [False, True])
 async def test_async_close_survives_cancellation(
-    client_factory: Callable[..., Any], model_name: str, resource_argument: str
+    client_factory: Callable[..., Any], model_name: str, resource_argument: str, fail_before_retry: bool
 ) -> None:
     started = asyncio.Event()
     release = asyncio.Event()
@@ -412,6 +413,8 @@ async def test_async_close_survives_cancellation(
         started.set()
         await release.wait()
         finished.set()
+        if fail_before_retry:
+            raise RuntimeError("close failed")
 
     resource = MagicMock(aclose=AsyncMock(side_effect=close))
     client = client_factory(concurrency_mode=ClientConcurrencyMode.ASYNC, **{resource_argument: resource})
@@ -420,6 +423,15 @@ async def test_async_close_survives_cancellation(
     closing.cancel()
     with pytest.raises(asyncio.CancelledError):
         await closing
+    if fail_before_retry:
+        release.set()
+        await asyncio.wait_for(finished.wait(), timeout=5)
+        await asyncio.sleep(0)  # Let the shared gather record the completed close.
+        for _ in range(2):
+            with pytest.raises(RuntimeError, match="close failed"):
+                await client.aclose()
+        resource.aclose.assert_awaited_once()
+        return
     retry = asyncio.create_task(client.aclose())
     try:
         await asyncio.sleep(0)
