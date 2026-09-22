@@ -145,7 +145,9 @@ class RunConfig(ConfigBase):
             keep active at once. Must be >= 1. Default is 3.
         adaptive_row_group_admission: If True, the async scheduler starts with
             ``adaptive_row_group_initial_target`` active row groups and ramps toward
-            ``max_concurrent_row_groups`` one row group at a time. Default is False.
+            ``max_concurrent_row_groups`` one row group at a time. It is also capped at
+            ``min(num_records, max(3 * buffer_size, 8192))`` active rows, so a large
+            ``buffer_size`` limits how far it ramps. Default is False.
         adaptive_row_group_initial_target: Number of row groups an adaptive run starts with,
             capped at ``max_concurrent_row_groups``. Ignored unless adaptive admission is on.
             Must be >= 1. Default is 1.
@@ -206,7 +208,9 @@ class RunConfig(ConfigBase):
         description=(
             "If True, the async scheduler starts with adaptive_row_group_initial_target active row groups and "
             "admits one more at a time, up to max_concurrent_row_groups, while the scheduler has spare task "
-            "capacity. If False, max_concurrent_row_groups is a fixed row-group horizon."
+            "capacity. Adaptive mode is also capped at min(num_records, max(3 * buffer_size, 8192)) active rows, "
+            "so a large buffer_size limits how far it ramps. If False, max_concurrent_row_groups is a fixed "
+            "row-group horizon."
         ),
     )
     adaptive_row_group_initial_target: int = Field(

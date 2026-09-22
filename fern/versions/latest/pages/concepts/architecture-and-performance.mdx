@@ -208,7 +208,7 @@ A wider horizon can expose more ready work to high-capacity endpoints, but it re
 
 ### `adaptive_row_group_admission` (RunConfig)
 
-Turns `max_concurrent_row_groups` from a fixed horizon into a ceiling the scheduler ramps toward. An adaptive run starts with `adaptive_row_group_initial_target` active row groups (default `1`, capped at `max_concurrent_row_groups`) and admits one more at a time while model task capacity is free and no retry or task backlog is holding it back. It never lowers the target during a run. Adaptive mode also stops admitting new row groups once about `max(3 × buffer_size, 8192)` rows are active, though one row group is always admitted.
+Turns `max_concurrent_row_groups` from a fixed horizon into a ceiling the scheduler ramps toward. An adaptive run starts with `adaptive_row_group_initial_target` active row groups (default `1`, capped at `max_concurrent_row_groups`) and admits one more at a time while model task capacity is free and no retry or task backlog is holding it back. It never lowers the target during a run. Adaptive mode also stops admitting new row groups once about `max(3 × buffer_size, 8192)` rows are active, though one row group is always admitted. That row budget means a large `buffer_size` limits how far adaptive mode ramps: with `buffer_size=5_000` and `max_concurrent_row_groups=8` it stops at 3 active row groups, while fixed mode keeps 8.
 
 ```python
 run_config = dd.RunConfig(
