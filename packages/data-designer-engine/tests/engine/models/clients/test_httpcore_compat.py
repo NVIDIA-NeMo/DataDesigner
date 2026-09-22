@@ -163,8 +163,8 @@ def test_http1_assignment_enforces_keepalive_limit() -> None:
 
     closing = _assign_http1_requests(pool)
 
-    assert pool._connections == connections[:1]
-    assert closing == connections[1:]
+    assert pool._connections == connections[-1:]
+    assert closing == connections[:-1]
 
 
 def test_http1_assignment_scales_linearly_for_one_origin() -> None:
@@ -195,12 +195,43 @@ async def test_install_is_scoped_and_idempotent() -> None:
 
 
 @pytest.mark.asyncio
-async def test_install_skips_unvalidated_httpcore_version(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_install_skips_unvalidated_httpcore_version(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
     transport = httpx.AsyncHTTPTransport()
     original_pool_method = transport._pool._assign_requests_to_connections.__func__
     monkeypatch.setattr(httpcore, "__version__", "1.0.10")
     try:
         assert not install_linear_http1_assignment(transport)
+        assert transport._pool._assign_requests_to_connections.__func__ is original_pool_method
+        assert caplog.messages == [
+            "Using default httpcore request assignment: httpcore 1.0.10 is not the validated 1.0.9 release"
+        ]
+    finally:
+        await transport.aclose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "attribute",
+    [
+        "_assign_requests_to_connections",
+        "_connections",
+        "_http1",
+        "_http2",
+        "_max_connections",
+        "_max_keepalive_connections",
+        "_requests",
+        "create_connection",
+    ],
+)
+async def test_install_skips_incompatible_pool_shape(monkeypatch: pytest.MonkeyPatch, attribute: str) -> None:
+    transport = httpx.AsyncHTTPTransport()
+    original_pool_method = transport._pool._assign_requests_to_connections.__func__
+    try:
+        with monkeypatch.context() as context:
+            context.setattr(transport._pool, attribute, None)
+            assert not install_linear_http1_assignment(transport)
         assert transport._pool._assign_requests_to_connections.__func__ is original_pool_method
     finally:
         await transport.aclose()

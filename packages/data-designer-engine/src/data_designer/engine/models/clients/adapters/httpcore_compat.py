@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import importlib
+import logging
 from types import MethodType
 from typing import TYPE_CHECKING, Any
 
@@ -13,8 +14,27 @@ if TYPE_CHECKING:
     import httpx
 
 
+logger = logging.getLogger(__name__)
+
+# Remove when the upstream fix is released and adopted as the minimum version:
+# https://github.com/encode/httpcore/pull/1035
 _LINEAR_ASSIGNMENT_HTTPCORE_VERSION = "1.0.9"
 _LINEAR_ASSIGNMENT_MARKER = "_data_designer_linear_http1_assignment"
+_REQUIRED_POOL_ATTRIBUTES = (
+    "_assign_requests_to_connections",
+    "_connections",
+    "_http1",
+    "_http2",
+    "_max_connections",
+    "_max_keepalive_connections",
+    "_requests",
+    "create_connection",
+)
+
+
+def _use_default_assignment(reason: str) -> bool:
+    logger.warning("Using default httpcore request assignment: %s", reason)
+    return False
 
 
 def install_linear_http1_assignment(transport: httpx.AsyncHTTPTransport) -> bool:
@@ -22,16 +42,38 @@ def install_linear_http1_assignment(transport: httpx.AsyncHTTPTransport) -> bool
     try:
         httpcore = importlib.import_module("httpcore")
     except ImportError:
-        return False
+        return _use_default_assignment("httpcore is unavailable")
 
-    if getattr(httpcore, "__version__", None) != _LINEAR_ASSIGNMENT_HTTPCORE_VERSION:
-        return False
+    version = getattr(httpcore, "__version__", None)
+    if version != _LINEAR_ASSIGNMENT_HTTPCORE_VERSION:
+        return _use_default_assignment(
+            f"httpcore {version or 'unknown'} is not the validated {_LINEAR_ASSIGNMENT_HTTPCORE_VERSION} release"
+        )
 
     pool = getattr(transport, "_pool", None)
     pool_type = getattr(httpcore, "AsyncConnectionPool", None)
     # Proxy pool subclasses have not been validated against this algorithm.
-    if pool_type is None or type(pool) is not pool_type or getattr(pool, "_http2", False):
-        return False
+    if pool_type is None or type(pool) is not pool_type:
+        return _use_default_assignment(f"pool type {type(pool).__name__} is not validated")
+
+    missing_attributes = [attribute for attribute in _REQUIRED_POOL_ATTRIBUTES if not hasattr(pool, attribute)]
+    if missing_attributes:
+        return _use_default_assignment(f"pool is missing private attributes: {', '.join(missing_attributes)}")
+
+    if (
+        not isinstance(pool._connections, list)
+        or not isinstance(pool._requests, list)
+        or not isinstance(pool._max_connections, int)
+        or not isinstance(pool._max_keepalive_connections, int)
+        or not isinstance(pool._http1, bool)
+        or not isinstance(pool._http2, bool)
+        or not callable(pool._assign_requests_to_connections)
+        or not callable(pool.create_connection)
+    ):
+        return _use_default_assignment("pool private attributes have an incompatible shape")
+
+    if not pool._http1 or pool._http2:
+        return _use_default_assignment("pool is not HTTP/1-only")
 
     original_assign = pool._assign_requests_to_connections
     assignment_function = getattr(original_assign, "__func__", original_assign)
@@ -97,16 +139,16 @@ def _assign_http1_requests(pool: Any) -> list[Any]:
             else:
                 break
 
-    if len(available_connections) > pool._max_keepalive_connections:
+    idle_connections_to_close = max(
+        0,
+        sum(connection.is_idle() for connection in available_connections) - pool._max_keepalive_connections,
+    )
+    if idle_connections_to_close:
         kept_connections = []
-        idle_connections_kept = 0
         for connection in available_connections:
-            if connection.is_idle():
-                if idle_connections_kept >= pool._max_keepalive_connections:
-                    closing_connections.append(connection)
-                else:
-                    kept_connections.append(connection)
-                    idle_connections_kept += 1
+            if idle_connections_to_close and connection.is_idle():
+                closing_connections.append(connection)
+                idle_connections_to_close -= 1
             else:
                 kept_connections.append(connection)
         available_connections = kept_connections
