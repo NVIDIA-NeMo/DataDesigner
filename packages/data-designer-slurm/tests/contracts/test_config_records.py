@@ -602,8 +602,10 @@ def test_run_rejects_retired_builder_fields(authored_run: DataDesignerSlurmConfi
     payload = authored_run.model_dump(mode="json")
     payload["builder"]["inline"]["server_configs"] = []
 
-    with pytest.raises(ValidationError, match="retired"):
+    with pytest.raises(ValidationError, match="retired") as caught:
         DataDesignerSlurmConfig.model_validate(payload)
+
+    assert "builder input contains retired fields" in str(caught.value)
 
 
 @pytest.mark.parametrize(
