@@ -11,6 +11,7 @@ source "${DD_RUNTIME_DIR}/cleanup.sh"
 
 DD_RUNTIME_PREPARED=0
 DD_RUNTIME_FINALIZED=0
+DD_RUNTIME_PHASE=initialization
 DD_RUNTIME_RETRY_ARGUMENTS=()
 
 dd_slurm_run_allocation() {
@@ -29,21 +30,28 @@ dd_slurm_run_allocation() {
             --effective-resume-mode "$5"
         )
     fi
+    trap dd_runtime_exit EXIT
+    trap 'exit 130' INT TERM
+    DD_RUNTIME_PHASE=read_control_plan
     dd_read_control_plan "${DD_PLAN_PATH}"
+    DD_RUNTIME_PHASE=read_plan_secrets
     dd_read_plan_secret_names "${DD_PLAN_PATH}"
+    DD_RUNTIME_PHASE=translate_plan_path
     dd_read_container_path "${DD_PLAN_PATH}" "${DD_PLAN_PATH}" false
     DD_PLAN_CONTAINER_PATH=${DD_CONTAINER_PATH}
+    DD_RUNTIME_PHASE=translate_attempt_path
     dd_read_container_path "${DD_PLAN_PATH}" "${DD_ATTEMPT_PATH}" true
     DD_ATTEMPT_CONTAINER_DIR=${DD_CONTAINER_PATH}
     DD_RUNTIME_CONTAINER_ROOT=${DD_SCRATCH_CONTAINER_ROOT}/runtime
+    DD_RUNTIME_PHASE=translate_manifest_path
     dd_read_container_path "${DD_PLAN_PATH}" "${DD_RUNTIME_MANIFEST}" true
     DD_RUNTIME_MANIFEST_CONTAINER_PATH=${DD_CONTAINER_PATH}
     export DD_PLAN_PATH DD_ATTEMPT_PATH DD_RUNTIME_MANIFEST
     export DD_PLAN_CONTAINER_PATH DD_ATTEMPT_CONTAINER_DIR DD_RUNTIME_CONTAINER_ROOT
 
-    trap dd_runtime_exit EXIT
-    trap 'exit 130' INT TERM
+    DD_RUNTIME_PHASE=verify_host_context
     dd_verify_host_context
+    DD_RUNTIME_PHASE=start_runtime_timer
     dd_start_runtime_timer
 
     DD_RUNTIME_PREPARED=1
@@ -52,29 +60,40 @@ dd_slurm_run_allocation() {
     for host in "${DD_ALLOCATION_HOSTS[@]}"; do
         host_arguments+=(--node-host "${host}")
     done
+    DD_RUNTIME_PHASE=prepare
     dd_run_bound_control_phase prepare \
         --runtime-root "${DD_RUNTIME_CONTAINER_ROOT}" \
         --manifest "${DD_RUNTIME_MANIFEST_CONTAINER_PATH}" \
         "${host_arguments[@]}"
+    DD_RUNTIME_PHASE=verify_runtime_manifest
     dd_verify_runtime_manifest \
         "${DD_RUNTIME_MANIFEST}" \
         "${DD_PLAN_SHA256}" \
         "${DD_SHARD_ID}" \
         "attempt-${DD_ATTEMPT_ORDINAL}"
+    DD_RUNTIME_PHASE=require_plan_secrets
     dd_require_plan_secrets
 
+    DD_RUNTIME_PHASE=client_preflight
     dd_read_step_ids "${DD_RUNTIME_MANIFEST}" client_preflight
     ((${#DD_STEP_IDS[@]} == 1))
     dd_run_step "${DD_RUNTIME_MANIFEST}" "${DD_STEP_IDS[0]}"
 
+    DD_RUNTIME_PHASE=server_preflight
     dd_run_role_steps server_preflight
+    DD_RUNTIME_PHASE=start_servers
     dd_start_servers
+    DD_RUNTIME_PHASE=server_readiness
     dd_wait_for_role_readiness server
+    DD_RUNTIME_PHASE=start_endpoints
     dd_start_endpoints
+    DD_RUNTIME_PHASE=endpoint_readiness
     dd_wait_for_role_readiness endpoint
     dd_require_running
+    DD_RUNTIME_PHASE=ready
     dd_run_bound_control_phase ready
 
+    DD_RUNTIME_PHASE=client
     dd_read_step_ids "${DD_RUNTIME_MANIFEST}" client
     ((${#DD_STEP_IDS[@]} == 1))
     dd_start_step "${DD_RUNTIME_MANIFEST}" "${DD_STEP_IDS[0]}"
@@ -83,9 +102,12 @@ dd_slurm_run_allocation() {
     dd_wait_for_client "${client_pid}"
     dd_require_running
 
+    DD_RUNTIME_PHASE=cleanup
     dd_cleanup_steps
+    DD_RUNTIME_PHASE=succeed
     dd_run_bound_control_phase succeed
     DD_RUNTIME_FINALIZED=1
+    DD_RUNTIME_PHASE=completed
 }
 
 dd_run_bound_control_phase() {
@@ -236,6 +258,9 @@ dd_runtime_exit() {
     local status=$?
     trap - EXIT INT TERM
     set +e
+    if ((status != 0)); then
+        printf 'allocation runtime failed: phase=%s status=%d\n' "${DD_RUNTIME_PHASE}" "${status}" >&2
+    fi
     dd_cleanup_steps
     if ((DD_RUNTIME_PREPARED == 1 && DD_RUNTIME_FINALIZED == 0)); then
         dd_run_bound_control_phase fail >/dev/null
