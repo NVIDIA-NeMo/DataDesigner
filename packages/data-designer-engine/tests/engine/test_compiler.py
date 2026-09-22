@@ -8,6 +8,7 @@ import pytest
 from data_designer.config.column_configs import ExpressionColumnConfig, SamplerColumnConfig
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.errors import InvalidConfigError
+from data_designer.config.processors import DropColumnsProcessorConfig
 from data_designer.config.sampler_params import CategorySamplerParams, SamplerType, UUIDSamplerParams
 from data_designer.config.seed_source import FileContentsSeedSource, HuggingFaceSeedSource
 from data_designer.engine.compiler import compile_data_designer_config
@@ -174,3 +175,43 @@ def test_does_not_add_id_column_when_seed_dataset_exists(resource_provider: Reso
     assert len(config.columns) == 3
     assert config.columns[0].name == "derived_value"
     assert not any(col.name == "_internal_row_id" for col in config.columns)
+
+
+def _seed_column(config, name: str):
+    return next(col for col in config.columns if col.name == name)
+
+
+def test_seed_columns_are_not_dropped_without_a_drop_processor(resource_provider: ResourceProvider):
+    builder = DataDesignerConfigBuilder()
+    builder.add_column(SamplerColumnConfig(name="row_id", sampler_type=SamplerType.UUID, params=UUIDSamplerParams()))
+    builder.with_seed_dataset(HuggingFaceSeedSource(path="hf://datasets/test/data.csv"))
+
+    config = compile_data_designer_config(builder.build(), resource_provider)
+
+    assert _seed_column(config, "age").drop is False
+    assert _seed_column(config, "city").drop is False
+
+
+def test_marks_seed_columns_named_by_drop_processor(resource_provider: ResourceProvider):
+    """A drop processor naming a seed column must mark it dropped so the profiler skips it."""
+    builder = DataDesignerConfigBuilder()
+    builder.add_column(SamplerColumnConfig(name="row_id", sampler_type=SamplerType.UUID, params=UUIDSamplerParams()))
+    builder.with_seed_dataset(HuggingFaceSeedSource(path="hf://datasets/test/data.csv"))
+    builder.add_processor(DropColumnsProcessorConfig(name="drop_age", column_names=["age"]))
+
+    config = compile_data_designer_config(builder.build(), resource_provider)
+
+    assert _seed_column(config, "age").drop is True
+    assert _seed_column(config, "city").drop is False
+
+
+def test_marks_seed_columns_matched_by_drop_processor_glob(resource_provider: ResourceProvider):
+    builder = DataDesignerConfigBuilder()
+    builder.add_column(SamplerColumnConfig(name="row_id", sampler_type=SamplerType.UUID, params=UUIDSamplerParams()))
+    builder.with_seed_dataset(HuggingFaceSeedSource(path="hf://datasets/test/data.csv"))
+    builder.add_processor(DropColumnsProcessorConfig(name="drop_c", column_names=["c*"]))
+
+    config = compile_data_designer_config(builder.build(), resource_provider)
+
+    assert _seed_column(config, "city").drop is True
+    assert _seed_column(config, "age").drop is False
