@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any
@@ -14,11 +15,15 @@ from data_designer.engine.models.clients.adapters.http_helpers import (
     resolve_timeout,
     wrap_transport_error,
 )
+from data_designer.engine.models.clients.adapters.httpcore_compat import install_linear_http1_assignment
 from data_designer.engine.models.clients.errors import SyncClientUnavailableError, map_http_error_to_provider_error
 from data_designer.engine.models.clients.retry import RetryConfig, RetryTransport, create_retry_transport
 
 if TYPE_CHECKING:
     import httpx
+
+
+logger = logging.getLogger(__name__)
 
 
 class ClientConcurrencyMode(StrEnum):
@@ -121,6 +126,8 @@ class HttpModelClient(ABC):
             if self._aclient is None:
                 if self._transport is None:
                     inner = lazy.httpx.AsyncHTTPTransport(limits=self._limits)
+                    if not install_linear_http1_assignment(inner):
+                        logger.debug("Using default httpcore request assignment")
                     self._transport = create_retry_transport(
                         self._retry_config, strip_rate_limit_codes=True, transport=inner
                     )
