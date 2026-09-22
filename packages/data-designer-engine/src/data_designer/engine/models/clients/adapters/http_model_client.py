@@ -14,7 +14,7 @@ from data_designer.engine.models.clients.adapters.http_helpers import (
     resolve_timeout,
     wrap_transport_error,
 )
-from data_designer.engine.models.clients.adapters.httpcore_compat import install_linear_http1_assignment
+from data_designer.engine.models.clients.adapters.httpx_sharding import ShardedAsyncHTTPTransport
 from data_designer.engine.models.clients.errors import SyncClientUnavailableError, map_http_error_to_provider_error
 from data_designer.engine.models.clients.retry import RetryConfig, RetryTransport, create_retry_transport
 
@@ -121,8 +121,7 @@ class HttpModelClient(ABC):
                 raise RuntimeError("Model client is closed.")
             if self._aclient is None:
                 if self._transport is None:
-                    inner = lazy.httpx.AsyncHTTPTransport(limits=self._limits)
-                    install_linear_http1_assignment(inner)
+                    inner = ShardedAsyncHTTPTransport(limits=self._limits)
                     self._transport = create_retry_transport(
                         self._retry_config, strip_rate_limit_codes=True, transport=inner
                     )

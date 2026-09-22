@@ -24,11 +24,8 @@ _ANTHROPIC_ENDPOINT = "https://api.anthropic.com/v1"
 _SYNC_CLIENT_PATCH = "data_designer.engine.models.clients.adapters.http_model_client.lazy.httpx.Client"
 _ASYNC_CLIENT_PATCH = "data_designer.engine.models.clients.adapters.http_model_client.lazy.httpx.AsyncClient"
 _HTTP_TRANSPORT_PATCH = "data_designer.engine.models.clients.adapters.http_model_client.lazy.httpx.HTTPTransport"
-_ASYNC_HTTP_TRANSPORT_PATCH = (
-    "data_designer.engine.models.clients.adapters.http_model_client.lazy.httpx.AsyncHTTPTransport"
-)
-_LINEAR_ASSIGNMENT_PATCH = (
-    "data_designer.engine.models.clients.adapters.http_model_client.install_linear_http1_assignment"
+_SHARDED_ASYNC_TRANSPORT_PATCH = (
+    "data_designer.engine.models.clients.adapters.http_model_client.ShardedAsyncHTTPTransport"
 )
 
 
@@ -367,14 +364,12 @@ def test_sync_pool_limits_forwarded_to_transport(
 
 
 @pytest.mark.parametrize(("client_factory", "model_name", "response_json"), _ASYNC_TRANSPORT_WIRING_CASES)
-@patch(_LINEAR_ASSIGNMENT_PATCH)
-@patch(_ASYNC_HTTP_TRANSPORT_PATCH)
+@patch(_SHARDED_ASYNC_TRANSPORT_PATCH)
 @patch(_ASYNC_CLIENT_PATCH)
 @pytest.mark.asyncio
 async def test_async_pool_limits_forwarded_to_transport(
     mock_client_cls: MagicMock,
     mock_transport_cls: MagicMock,
-    mock_install_linear_assignment: MagicMock,
     client_factory: Callable[..., Any],
     model_name: str,
     response_json: dict[str, Any],
@@ -393,7 +388,6 @@ async def test_async_pool_limits_forwarded_to_transport(
     await client.acompletion(_make_chat_request(model_name))
 
     mock_transport_cls.assert_called_once()
-    mock_install_linear_assignment.assert_called_once_with(mock_transport_cls.return_value)
     limits = mock_transport_cls.call_args.kwargs["limits"]
     assert limits.max_connections == 600
     assert limits.max_keepalive_connections == 300
