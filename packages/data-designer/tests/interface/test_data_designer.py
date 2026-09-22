@@ -22,6 +22,7 @@ from data_designer.config.column_configs import (
     LLMTextColumnConfig,
     SamplerColumnConfig,
 )
+from data_designer.config.column_types import DataDesignerColumnType
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.errors import InvalidConfigError
 from data_designer.config.models import ChatCompletionInferenceParams, ModelConfig, ModelProvider
@@ -36,6 +37,7 @@ from data_designer.config.seed_source import (
     FileContentsSeedSource,
     HuggingFaceSeedSource,
 )
+from data_designer.config.seed_source_dataframe import DataFrameSeedSource
 from data_designer.engine.models.clients.adapters.http_model_client import ClientConcurrencyMode
 from data_designer.engine.models.errors import (
     RETRYABLE_MODEL_ERRORS,
@@ -1301,6 +1303,119 @@ def test_preview_with_dropped_columns(
     assert "category" in analysis.side_effect_column_names, (
         "Dropped column 'category' should be tracked in side_effect_column_names"
     )
+
+
+def test_preview_profiles_seed_dataset_columns(stub_artifact_path, stub_model_providers, stub_managed_assets_path):
+    """Seed columns are part of the emitted dataset, so the profile must cover them."""
+    seed = lazy.pd.DataFrame({"diagnosis": ["flu", "cold", "strep"], "patient_summary": ["a", "b", "c"]})
+
+    config_builder = DataDesignerConfigBuilder()
+    config_builder.with_seed_dataset(DataFrameSeedSource(df=seed))
+    config_builder.add_column(SamplerColumnConfig(name="patient_id", sampler_type="uuid", params={}))
+
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+    )
+
+    preview_results = data_designer.preview(config_builder, num_records=3)
+    analysis = preview_results.analysis
+
+    profiled_columns = [stat.column_name for stat in analysis.column_statistics]
+    assert sorted(profiled_columns) == sorted(preview_results.dataset.columns)
+    assert analysis.side_effect_column_names == []
+    assert DataDesignerColumnType.SEED_DATASET in analysis.column_types
+
+    seed_stats = analysis.get_column_statistics_by_type(DataDesignerColumnType.SEED_DATASET)
+    assert sorted(stat.column_name for stat in seed_stats) == ["diagnosis", "patient_summary"]
+
+
+def test_create_profiles_seed_dataset_columns(stub_artifact_path, stub_model_providers, stub_managed_assets_path):
+    """The create path profiles seed columns too, so the reported column count matches the dataset."""
+    seed = lazy.pd.DataFrame({"diagnosis": ["flu", "cold", "strep"], "patient_summary": ["a", "b", "c"]})
+
+    config_builder = DataDesignerConfigBuilder()
+    config_builder.with_seed_dataset(DataFrameSeedSource(df=seed))
+    config_builder.add_column(SamplerColumnConfig(name="patient_id", sampler_type="uuid", params={}))
+
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+    )
+
+    results = data_designer.create(config_builder, num_records=3, dataset_name="seed-profile-test")
+    dataset = results.load_dataset()
+    analysis = results.load_analysis()
+
+    profiled_columns = [stat.column_name for stat in analysis.column_statistics]
+    assert sorted(profiled_columns) == sorted(dataset.columns)
+    assert len(analysis.column_statistics) == dataset.shape[1]
+    assert analysis.side_effect_column_names == []
+
+
+@pytest.mark.parametrize("preserve_dropped_columns", [True, False])
+def test_create_excludes_seed_columns_dropped_by_processor(
+    stub_artifact_path, stub_model_providers, stub_managed_assets_path, preserve_dropped_columns
+):
+    """A drop processor targeting a seed column keeps it out of the profile.
+
+    With ``preserve_dropped_columns=True`` the column survives in the dropped-columns
+    parquet and must not be reported as part of the dataset; with ``False`` it is gone
+    entirely and profiling it would raise.
+    """
+    seed = lazy.pd.DataFrame({"diagnosis": ["flu", "cold", "strep"], "patient_summary": ["a", "b", "c"]})
+
+    config_builder = DataDesignerConfigBuilder()
+    config_builder.with_seed_dataset(DataFrameSeedSource(df=seed))
+    config_builder.add_column(SamplerColumnConfig(name="patient_id", sampler_type="uuid", params={}))
+    config_builder.add_processor(DropColumnsProcessorConfig(name="drop_summary", column_names=["patient_summary"]))
+
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+    )
+    data_designer.set_run_config(RunConfig(preserve_dropped_columns=preserve_dropped_columns))
+
+    results = data_designer.create(config_builder, num_records=3, dataset_name=f"seed-drop-{preserve_dropped_columns}")
+    dataset = results.load_dataset()
+    analysis = results.load_analysis()
+
+    assert "patient_summary" not in dataset.columns
+    profiled_columns = [stat.column_name for stat in analysis.column_statistics]
+    assert sorted(profiled_columns) == sorted(dataset.columns)
+    assert "patient_summary" not in profiled_columns
+
+
+def test_preview_excludes_seed_columns_dropped_by_processor(
+    stub_artifact_path, stub_model_providers, stub_managed_assets_path
+):
+    seed = lazy.pd.DataFrame({"diagnosis": ["flu", "cold", "strep"], "patient_summary": ["a", "b", "c"]})
+
+    config_builder = DataDesignerConfigBuilder()
+    config_builder.with_seed_dataset(DataFrameSeedSource(df=seed))
+    config_builder.add_column(SamplerColumnConfig(name="patient_id", sampler_type="uuid", params={}))
+    config_builder.add_processor(DropColumnsProcessorConfig(name="drop_summary", column_names=["patient_summary"]))
+
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+    )
+
+    preview_results = data_designer.preview(config_builder, num_records=3)
+    analysis = preview_results.analysis
+
+    assert "patient_summary" not in preview_results.dataset.columns
+    profiled_columns = [stat.column_name for stat in analysis.column_statistics]
+    assert sorted(profiled_columns) == sorted(preview_results.dataset.columns)
+    assert analysis.side_effect_column_names == ["patient_summary"]
 
 
 @pytest.fixture

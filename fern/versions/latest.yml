@@ -137,6 +137,10 @@ navigation:
             path: ./latest/pages/recipes/mcp_and_tooluse/pdf_qa.mdx
           - page: Nemotron Super Search Agent
             path: ./latest/pages/recipes/mcp_and_tooluse/search_agent.mdx
+      - section: Chart QA
+        contents:
+          - page: Chart Question Answering
+            path: ./latest/pages/recipes/chart_qa/chart_qa.mdx
       - section: VLM Long-Document Understanding
         contents:
           - page: Seed Dataset Preparation

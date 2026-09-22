@@ -125,7 +125,7 @@ config_builder = dd.DataDesignerConfigBuilder(
     model_configs=[
         dd.ModelConfig(
             alias="trace-writer",
-            model="nvidia/nemotron-3-nano-30b-a3b",
+            model="nvidia/nemotron-3.5-lightning-30b-a3b",
             provider="nvidia",
         )
     ]
@@ -246,7 +246,7 @@ analysis_config = dd.DataDesignerConfigBuilder(
     model_configs=[
         dd.ModelConfig(
             alias="tool-analyst",
-            model="nvidia/nemotron-3-nano-30b-a3b",
+            model="nvidia/nemotron-3.5-lightning-30b-a3b",
             provider="nvidia",
         )
     ]
