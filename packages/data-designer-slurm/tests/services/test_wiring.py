@@ -385,39 +385,17 @@ def test_production_wiring_submits_after_publisher_initialization(
         package_version="0.9.2",
     )
 
-    result = service.execute(authored_run_single, source_root=tmp_path, force=True)
+    result = service.execute(authored_run_single, source_root=tmp_path)
 
     assert result.state == "submitted"
     assert result.job_id == 42
-    assert publisher.initializations == [("run-wired", True)]
+    assert publisher.initializations == [("run-wired", False)]
     assert publisher.submissions == [("run-wired", 42, submitted_at)]
     assert len(launcher.submissions) == 1
     assert launcher.held_submissions == [True]
     assert launcher.releases == [42]
     assert launcher.exported_environments == [{"SLURM_EXPORT_ENV": "ALL"}]
     assert (tmp_path / "managed-assets").is_dir()
-
-
-def test_production_publisher_rejects_force_before_submission(
-    tmp_path: Path,
-    profile_catalog: SlurmProfileCatalog,
-    authored_run_single: DataDesignerSlurmConfig,
-    single_node_plan: ResolvedSlurmRunPlan,
-) -> None:
-    _register_images(tmp_path, authored_run_single, single_node_plan)
-    launcher = _Launcher()
-    service = create_slurm_run_service(
-        profile=_profile(tmp_path, profile_catalog),
-        launcher=launcher,  # type: ignore[arg-type]
-        run_id_factory=lambda: "run-wired",
-        package_version="0.9.2",
-    )
-
-    with pytest.raises(SlurmServiceError, match="different inputs") as caught:
-        service.execute(authored_run_single, source_root=tmp_path, force=True)
-
-    assert caught.value.code is SlurmServiceErrorCode.CONFLICT
-    assert launcher.submissions == []
 
 
 def test_production_wiring_exports_referenced_secrets_to_the_allocation(

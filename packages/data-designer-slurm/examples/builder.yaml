@@ -1,0 +1,10 @@
+data_designer:
+  model_configs:
+    - alias: generator
+      model: example/generator
+      provider: openai
+  columns:
+    - name: greeting
+      column_type: llm-text
+      prompt: Write one short greeting.
+      model_alias: generator
