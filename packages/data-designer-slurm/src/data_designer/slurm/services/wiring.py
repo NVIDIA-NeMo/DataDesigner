@@ -298,7 +298,6 @@ class _SystemRunBackend:
         *,
         source_root: Path,
         dry_run: bool,
-        force: bool,
     ) -> SlurmRunExecution:
         with self._preparer.prepare(
             config,
@@ -321,7 +320,7 @@ class _SystemRunBackend:
                 publisher,
                 config,
                 prepared,
-                force=force,
+                force=False,
             )
             try:
                 receipt = self._launcher.submit_script(

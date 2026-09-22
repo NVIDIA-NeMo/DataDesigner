@@ -83,7 +83,7 @@ class SlurmPersistedShardStatus(ContractValue):
 
 
 class SlurmPersistedRunStatus(ContractValue):
-    """M2 status assembled only from durable run records."""
+    """Status assembled only from durable run records."""
 
     run: RunManifest
     shards: tuple[SlurmPersistedShardStatus, ...]
