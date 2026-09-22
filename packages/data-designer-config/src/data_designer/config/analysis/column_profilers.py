@@ -139,11 +139,12 @@ class JudgeScoreProfilerResults(ColumnProfilerResults):
     def create_report_section(self) -> Panel:
         layout = Table.grid(Column(), expand=True, padding=(2, 0))
 
+        histograms = {} if isinstance(self.score_distributions, MissingValue) else self.score_distributions.histograms
         for score_name in self.summaries.keys():
             layout.add_row(
                 create_judge_score_summary_table(
                     score_name=score_name,
-                    histogram=self.score_distributions.histograms[score_name],
+                    histogram=histograms.get(score_name, MissingValue.CALCULATION_FAILED),
                     summary=self.summaries[score_name].summary,
                 )
             )
