@@ -1,0 +1,105 @@
+# Slurm profiles and clusters
+
+A profile catalog stores site facts separately from portable run intent. It selects one cluster and supplies scheduler defaults, workspace storage, image-build resources, GPU facts, and container mounts.
+
+## Locate the catalog
+
+Commands resolve the catalog in this order:
+
+1. `--profile-file PATH`
+2. `DATA_DESIGNER_SLURM_PROFILE_FILE`
+3. `~/.data-designer-slurm-profile.yml`
+
+Pass `--cluster NAME` to select an entry explicitly. Without it, hostname patterns are considered first, followed by `default_cluster` when there is no match. Duplicate patterns and ambiguous hostname matches are rejected.
+
+## Initialize a catalog
+
+```bash
+mkdir -p /workspace/alice/config
+data-designer slurm profile init \
+  --profile-file /workspace/alice/config/slurm-profiles.yml \
+  --workspace-root /workspace/alice/data-designer-slurm \
+  --image-build-partition cpu \
+  --cluster primary \
+  --account research \
+  --partition gpu \
+  --host-pattern 'login*.example.test'
+```
+
+The starter sets `gpus_per_node: auto`, `gpu_request_mode: gres`, and CPU image-build resources of 2 CPUs, 8 GiB, and four hours. The parent directory of a custom `--profile-file` must already exist. Review the generated account, partitions, host patterns, workspace, GPU settings, and image-build resources against site policy before validation or image registration.
+
+## Configure multiple clusters
+
+```yaml
+schema_version: 1
+default_cluster: primary
+clusters:
+  primary:
+    schema_version: 1
+    host_patterns:
+      - login*.example.test
+    scheduler:
+      account: research
+      partition: gpu
+      mem_per_gpu: 80G
+      bin_path: /opt/slurm/bin
+    gpus_per_node: 8
+    workspace_root: /workspace/alice/data-designer-slurm
+    image_build:
+      partition: cpu
+      cpus_per_task: 2
+      memory: 8G
+      time_limit: "04:00:00"
+    gpu_request_mode: gres
+  lab:
+    schema_version: 1
+    host_patterns:
+      - lab-login*.example.test
+    scheduler:
+      partition: accelerated
+    gpus_per_node: 4
+    workspace_root: /workspace/alice/data-designer-slurm-lab
+    image_build:
+      partition: general
+      cpus_per_task: 2
+      memory: 8G
+      time_limit: "04:00:00"
+    gpu_request_mode: visible
+```
+
+Run a command against a non-default cluster:
+
+```bash
+data-designer slurm profile validate --cluster lab
+data-designer slurm image ls --cluster lab
+data-designer slurm execute run.yaml --cluster lab
+```
+
+`visible` GPU mode asks Slurm for visible GPUs without GRES memory directives. It cannot be combined with `mem_per_gpu`.
+
+`gpus_per_node` is both the GPU count used for deployment topology and, in `gres` mode, the count requested from Slurm on each job node. `auto` queries eligible nodes and uses their reported count, so an eight-GPU partition produces `--gres=gpu:8`. Set an explicit smaller count, such as `1`, for partial-node allocations when the cluster permits them. Use `auto` only when requesting every GPU on each selected node is intended, and use an explicit count when eligible nodes are heterogeneous.
+
+Set `scheduler.bin_path` when Slurm executables are installed outside the generated batch job's default `PATH`. It must be one absolute directory and is prepended to `PATH`; do not provide a colon-separated list.
+
+## Add mounts
+
+Use `container_mounts` for absolute compute-visible paths that the client or model needs:
+
+```yaml
+container_mounts:
+  - source: /workspace/alice/models
+    target: /models
+    read_only: true
+```
+
+Targets must be unique and must not overlap `/run/data-designer-slurm`, which is reserved for allocation-local scratch.
+
+## Validate before submission
+
+```bash
+data-designer slurm profile validate \
+  --profile-file /workspace/alice/config/slurm-profiles.yml \
+  --cluster primary
+```
+
+Validation creates and removes a probe in `workspace_root`. With `gpus_per_node: auto`, it also queries eligible nodes and requires one consistent positive GPU count.

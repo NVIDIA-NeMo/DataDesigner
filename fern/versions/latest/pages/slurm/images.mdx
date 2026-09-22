@@ -1,0 +1,80 @@
+# Slurm images
+
+Data Designer Slurm uses two image roles:
+
+- `client` images run Data Designer and installed plugins.
+- `serving` images run vLLM model servers.
+
+Use separate aliases even if both roles originate from related images. Inspection verifies role-specific contents before an alias becomes available to planning.
+
+## Prepare compatible images
+
+Image construction is an operator prerequisite. Data Designer Slurm imports or inspects images, but does not build a client or serving environment from a Dockerfile.
+
+Obtain a digest-qualified OCI reference or absolute compute-visible SQSH path from your platform administrator, or publish one through your site's container build process. A client image must install the same release used by the submit environment:
+
+```bash
+python -m pip install "data-designer[slurm]==<version>"
+```
+
+For an unpublished build, install the aligned `data-designer`, `data-designer-config`, `data-designer-engine`, and `data-designer-slurm` wheels into the client image. Do not mix versions. A serving image must provide a supported vLLM executable and all runtime dependencies for the selected model.
+
+Before registration, confirm that the image source is accessible from the configured CPU image-build partition and that the model is accessible from the GPU partition. Keep registry credentials in the compute environment or Enroot configuration.
+
+## Import a digest-pinned OCI image
+
+The digest below demonstrates the required syntax and does not identify a real image. Replace it before running the command.
+
+```bash
+data-designer slurm image add \
+  registry.example.test/data-designer/client@sha256:0000000000000000000000000000000000000000000000000000000000000000 \
+  --kind client \
+  --name dd-client
+```
+
+OCI sources must use `repository@sha256:<64 lowercase hex characters>`. Schemes, embedded credentials, tags without a digest, query strings, and fragments are rejected. Registry credentials belong in the compute environment or Enroot configuration, not in the command or profile.
+
+The command stages package-owned inspection code, submits a CPU job using `image_build`, waits for terminal Slurm state, verifies the SQSH and inspection record, then atomically publishes the artifact and alias. The terminal stays attached while the job runs.
+
+## Register an existing SQSH
+
+```bash
+data-designer slurm image add \
+  /workspace/alice/images/client.sqsh \
+  --kind client \
+  --name dd-client
+```
+
+The absolute SQSH path must be visible on the image-build node and all later compute nodes. Existing images are inspected by a CPU job in place.
+
+## Inspect aliases
+
+```bash
+data-designer slurm image ls
+data-designer slurm image info dd-client
+```
+
+Aliases are cluster-profile scoped because each profile has its own workspace. Run configuration can reference an alias with `name` or a registered absolute path with `path`.
+
+## Replace or remove an alias
+
+An alias is immutable unless replacement is explicit:
+
+```bash
+data-designer slurm image add /workspace/alice/images/client-v2.sqsh \
+  --kind client \
+  --name dd-client \
+  --replace
+```
+
+Removing an alias does not delete its SQSH artifact:
+
+```bash
+data-designer slurm image rm dd-client
+```
+
+Published OCI imports are content-addressed. Identical imports can share an artifact, while conflicting bytes or inspection facts fail closed.
+
+## Compatibility rules
+
+The client image inventory must contain the same versions of `data-designer`, `data-designer-config`, `data-designer-engine`, and `data-designer-slurm` used to submit the run. Dependency overlays may add pure Python wheels, but cannot replace these protected distributions. Serving images must expose a supported vLLM executable and version.

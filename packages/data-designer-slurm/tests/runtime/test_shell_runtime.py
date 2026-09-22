@@ -336,6 +336,75 @@ dd_stop_runtime_timer
     assert completed.returncode == 0, completed.stderr
 
 
+def test_allocation_runtime_reports_preparation_phase_and_preserves_status() -> None:
+    runtime_root = Path(__file__).parents[2] / "src/data_designer/slurm/runtime"
+    command = f"""
+set -Eeuo pipefail
+source {shlex.quote((runtime_root / "entrypoint.sh").as_posix())}
+dd_read_control_plan() {{ return 4; }}
+dd_cleanup_allocation_scratch() {{ :; }}
+dd_cleanup_steps() {{ :; }}
+dd_stop_runtime_timer() {{ :; }}
+dd_slurm_run_allocation /workspace/resolved-plan.json /workspace/attempt
+"""
+
+    completed = subprocess.run(("bash", "-c", command), capture_output=True, text=True)
+
+    assert completed.returncode == 4
+    assert completed.stderr == "allocation runtime failed: phase=read_control_plan status=4\n"
+
+
+def test_step_runner_reports_failed_step_log_paths(tmp_path: Path) -> None:
+    runtime_root = Path(__file__).parents[2] / "src/data_designer/slurm/runtime"
+    attempt_directory = tmp_path / "attempt"
+    log_directory = attempt_directory / "logs/execution-00000002"
+    log_directory.mkdir(parents=True)
+    image = tmp_path / "client.sqsh"
+    image.touch()
+    manifest = {
+        "steps": [
+            _step(
+                attempt_directory,
+                "client-preflight",
+                "client_preflight",
+                image.as_posix(),
+                "true",
+            )
+        ]
+    }
+    manifest_path = tmp_path / "runtime-manifest.json"
+    manifest_path.write_text(json.dumps(manifest))
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    _write_executable(fake_bin / "srun", "#!/usr/bin/env bash\nexit 4\n")
+    command = f"""
+set -Eeuo pipefail
+source {shlex.quote((runtime_root / "plan_reader.sh").as_posix())}
+source {shlex.quote((runtime_root / "step_runner.sh").as_posix())}
+DD_GPU_REQUEST_MODE=gres
+DD_CONTAINER_MOUNTS=
+DD_SCRATCH_ROOT=/tmp/data-designer-slurm-4101-0
+DD_SCRATCH_CONTAINER_ROOT=/run/data-designer-slurm
+DD_ALL_SECRET_NAMES=()
+DD_MANAGED_PIDS=()
+status=0
+dd_run_step {shlex.quote(manifest_path.as_posix())} client-preflight || status=$?
+exit "${{status}}"
+"""
+
+    completed = subprocess.run(
+        ("bash", "-c", command),
+        capture_output=True,
+        text=True,
+        env={**os.environ, "PATH": f"{fake_bin}:{os.environ['PATH']}"},
+    )
+
+    assert completed.returncode == 4
+    assert "runtime step failed: step_id=client-preflight status=4" in completed.stderr
+    assert f"stdout={log_directory / 'client-preflight.out'}" in completed.stderr
+    assert f"stderr={log_directory / 'client-preflight.err'}" in completed.stderr
+
+
 def test_step_runner_builds_one_coordinated_srun_across_selected_nodes() -> None:
     runtime_root = Path(__file__).parents[2] / "src/data_designer/slurm/runtime"
     command = f"""

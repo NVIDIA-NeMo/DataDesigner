@@ -1,0 +1,186 @@
+# Slurm run configuration
+
+A run file is portable intent. Cluster-specific accounts, partitions, workspace paths, GPU facts, and image-build resources belong in a [profile](/slurm/profiles-and-clusters).
+
+## Required structure
+
+```yaml
+schema_version: 1
+name: product-descriptions
+builder:
+  source: builder.yaml
+invocation:
+  num_records: 1000
+  dataset_name: product-descriptions
+  model_concurrency:
+    generator: 64
+client:
+  cpus: 32
+  image:
+    name: dd-client
+deployments:
+  - model_alias: generator
+    served_model_name: example/generator
+    model: example/generator
+    server:
+      type: vllm
+      image:
+        name: vllm
+    resources:
+      nodes: 1
+    topology:
+      tensor_parallel: 8
+      nodes_per_replica: 1
+array_tasks:
+  count: 1
+submission:
+  job_name: product-descriptions
+  time_limit: 03:55:00
+output:
+  format: parquet
+  partitions: 1
+  require_exact_record_count: false
+```
+
+`builder` accepts exactly one complete serialized Data Designer config through `source` or `inline`. Relative source paths resolve from the run file directory. `invocation.run_config` accepts public `RunConfig` fields, while `input_bindings.seed_path` and `managed_assets_path` accept absolute compute-visible paths.
+
+Every `model_alias` in `model_concurrency` and the builder must have one deployment. Deployment aliases must be unique. `model` selects the Hugging Face model ID or absolute model path loaded by the serving container. `served_model_name` is the name exposed to the client and defaults to `model`; set it explicitly when `model` is a container-visible path but the builder uses a stable model name. Output formats are `parquet`, `jsonl`, and `csv`.
+
+## Configure vLLM
+
+Each server supports readiness and launch controls:
+
+```yaml
+server:
+  type: vllm
+  image:
+    name: vllm
+  startup_timeout: 20m
+  distributed_init_timeout: 10m
+  lead_boot_standoff: 60s
+  rank_launch_stagger: 5s
+  readiness_path: /health
+  queue_backpressure:
+    max_waiting_requests: 128
+    retry_after_seconds: 1
+  extra_args:
+    - --dtype
+    - bfloat16
+```
+
+`distributed_init_timeout` must not exceed `startup_timeout`. Increase both when distributed initialization legitimately needs more time.
+
+`extra_args` is a list of individual arguments, not a shell command. Options owned by the orchestrator and unsafe shell forms are rejected. Configure model identity, topology, networking, and lifecycle through their typed fields instead of passing reserved options such as `--model`, `--served-model-name`, `--host`, `--port`, `--tensor-parallel-size`, `--pipeline-parallel-size`, or distributed-launch flags. In particular, `served_model_name` belongs on the deployment, alongside `model`, not under `server.extra_args`.
+
+## Scale runs
+
+### Arrays
+
+Split records into independent shards and limit how many allocations run at once:
+
+```yaml
+invocation:
+  num_records: 100000
+  dataset_name: large-run
+array_tasks:
+  count: 20
+  max_concurrent: 4
+output:
+  partitions: 20
+```
+
+`count` cannot exceed `num_records`, and `max_concurrent` cannot exceed `count`. Status, retry, and collection retain shard identities and winners.
+
+Runs with more than one array task require Parquet output. They do not support global processors or profilers; image, plugin, custom, or unknown column types; local-callable validators; shuffled seed input; or authored seed-selection strategies. Seeded array runs must bind the dataset through `invocation.input_bindings.seed_path`.
+
+### Independent replicas
+
+Allocate multiple nodes and keep one vLLM replica per node:
+
+```yaml
+resources:
+  nodes: 4
+topology:
+  tensor_parallel: 8
+  nodes_per_replica: 1
+```
+
+### Multi-node replicas
+
+Use more than one node for each replica:
+
+```yaml
+resources:
+  nodes: 4
+topology:
+  tensor_parallel: 8
+  nodes_per_replica: 2
+```
+
+`tensor_parallel` must divide the GPUs available on each node. With the eight GPUs per node in the profile example, `tensor_parallel: 8` and `nodes_per_replica: 2` use 16 GPUs per replica. `nodes_per_replica` must divide `resources.nodes`. Multi-node expert parallelism is not supported in v1.
+
+### Multiple models and images
+
+Add one deployment per builder model alias. Each deployment may use a different registered serving image:
+
+```yaml
+deployments:
+  - model_alias: writer
+    model: example/writer
+    server:
+      type: vllm
+      image:
+        name: vllm-writer
+  - model_alias: judge
+    model: example/judge
+    server:
+      type: vllm
+      image:
+        name: vllm-judge
+invocation:
+  num_records: 1000
+  dataset_name: judged-output
+  model_concurrency:
+    writer: 64
+    judge: 32
+```
+
+## Build a run in Python
+
+```python
+from data_designer.config import DataDesignerConfigBuilder, LLMTextColumnConfig, ModelConfig
+from data_designer.slurm.config import DataDesignerSlurmConfigBuilder
+
+builder = DataDesignerConfigBuilder(
+    model_configs=[
+        ModelConfig(alias="generator", model="example/generator", provider="openai")
+    ]
+)
+builder.add_column(
+    LLMTextColumnConfig(
+        name="greeting",
+        prompt="Write one short greeting.",
+        model_alias="generator",
+    )
+)
+
+slurm = (
+    DataDesignerSlurmConfigBuilder.from_config_builder(builder, name="generated-run")
+    .with_invocation(
+        num_records=100,
+        dataset_name="generated",
+        model_concurrency={"generator": 16},
+    )
+    .with_client(image={"name": "dd-client"})
+    .with_deployment(
+        {
+            "model_alias": "generator",
+            "model": "example/generator",
+            "server": {"type": "vllm", "image": {"name": "vllm"}},
+        }
+    )
+)
+slurm.write_config("run.yaml")
+```
+
+The Slurm builder validates each orchestration step and writes strict YAML or JSON. Full Data Designer builder and plugin validation runs in the prepared client environment. The CLI rejects duplicate keys, YAML anchors, merge keys, unknown fields, and environment interpolation outside the serialized Data Designer builder payload.

@@ -1,0 +1,71 @@
+# Slurm run operations
+
+The CLI prints canonical JSON to stdout. Errors are canonical JSON on stderr, so automation can consume the same commands as an operator.
+
+## Resolve without submitting
+
+```bash
+data-designer slurm execute run.yaml --dry-run
+```
+
+Dry-run performs profile selection, image verification, builder-envelope loading, dependency resolution, plan compilation, runtime staging, and batch rendering. It does not call `sbatch`. Full builder and plugin validation runs later in the client environment. Because resolution is real, the selected workspace and registered images must already be available. Preview staging is temporary: dry-run does not create durable managed-run state, so its result cannot be resumed, inspected with `status`, or used as collection input.
+
+## Submit
+
+```bash
+data-designer slurm execute run.yaml
+```
+
+A successful response includes `run_id`, `state`, `plan_sha256`, `shard_count`, and `job_id`. The package persists immutable inputs before submission and records scheduler identity after acceptance. Conflicting durable state is never overwritten.
+
+Use `--profile-file` and `--cluster` on any command when the defaults are not appropriate.
+
+## Inspect status
+
+```bash
+data-designer slurm status <run-id>
+```
+
+Status loads the managed run, queries active queue and accounting records for its known jobs, and reconciles those observations with persisted attempts, readiness, and shard winners. Accounting can lag after a job leaves the active queue; rerun status after the cluster accounting service catches up.
+
+The response includes every shard in planned order. Use the attempt lifecycle and readiness details to distinguish queue wait, model startup, active generation, publication, terminal failure, and success.
+
+## Cancel
+
+```bash
+data-designer slurm cancel <run-id>
+```
+
+Cancellation selects only active job IDs recorded for the managed run. It is safe to call again when no managed jobs remain active.
+
+## Durable artifacts
+
+Managed files are below `<workspace_root>/runs/<run-id>`:
+
+- Authored and resolved configuration, dependency lock, runtime bundle reference, and run manifest
+- Slurm stdout and stderr
+- Attempt and readiness records
+- Candidate results, shard winners, collection state, and output
+
+Allocation-local scratch is deliberately absent after cleanup. The stable container path `/run/data-designer-slurm` is not a durable troubleshooting location.
+
+For each shard, `shards/<shard-id>/winner.json` is the canonical pointer. Its `candidate_manifest.path` identifies the winning attempt's `output-manifest.json`, which records the canonical `dataset_path` and output files. Do not identify results by recursively scanning attempt directories: failed and superseded attempts may retain valid-looking data files. The `merge` command validates these winner chains before creating a run-level dataset at the requested destination.
+
+## Use the Python service API
+
+```python
+from pathlib import Path
+
+from data_designer.slurm.config import load_run_config
+from data_designer.slurm.services import create_slurm_run_service
+
+run_file = Path("run.yaml").resolve()
+config = load_run_config(run_file)
+service = create_slurm_run_service(cluster="primary")
+
+preview = service.execute(config, source_root=run_file.parent, dry_run=True)
+submission = service.execute(config, source_root=run_file.parent)
+status = service.status(submission.run_id)
+```
+
+Public service methods apply the same validation, persistence, error model, and output contracts as the CLI.

@@ -1,0 +1,115 @@
+# Dependencies, plugins, MCP, and secrets
+
+The client image provides Data Designer and its base environment. A run may add immutable pure Python wheels as an allocation-local overlay. The overlay is reconstructed for each allocation and is not written back into the image.
+
+## Add package requirements
+
+```yaml
+client:
+  image:
+    name: dd-client
+  dependencies:
+    requirements:
+      - example-plugin==1.2.3
+```
+
+The submit-side resolver accepts package requirements or direct HTTPS wheel URLs with a SHA-256 fragment. It rejects editable installs, source directories, VCS references, markers, duplicate normalized names, and non-wheel URLs. The resolved lock and wheels are persisted with the run.
+
+Do not use the overlay to replace `data-designer`, `data-designer-config`, `data-designer-engine`, or `data-designer-slurm`. Build a new client image when these packages need to change.
+
+## Reuse a dependency lock
+
+Use exactly one of `requirements` or `lock_file`:
+
+```yaml
+client:
+  image:
+    name: dd-client
+  dependencies:
+    requirements: null
+    lock_file: inputs/dependency-lock.json
+```
+
+The lock must target the registered client image inventory and reference available wheel artifacts.
+
+`client.dependencies.index_credentials` reserves named secret references for the allocation runtime. Submit-side inline requirement resolution does not use them and always targets the public index.
+
+Inline requirements resolve from the public Python package index with ambient pip configuration disabled. For private or unpublished plugins, bake the package into the client image, use an immutable HTTPS wheel URL that does not embed credentials, or supply a previously resolved compatible lock and wheel artifacts.
+
+## Reference secrets
+
+Secrets are environment references, never literal values in persisted YAML:
+
+```yaml
+deployments:
+  - model_alias: generator
+    model: example/generator
+    server:
+      type: vllm
+      image:
+        name: vllm
+      environment:
+        MODEL_ACCESS_TOKEN:
+          type: secret
+          environment: MODEL_ACCESS_TOKEN
+```
+
+Literal non-secret settings use an explicit literal binding:
+
+```yaml
+      environment:
+        VLLM_LOGGING_LEVEL:
+          type: literal
+          value: INFO
+        MODEL_ACCESS_TOKEN:
+          type: secret
+          environment: MODEL_ACCESS_TOKEN
+```
+
+Export referenced variables in the trusted submit environment before running `execute`. Values are forwarded only at the required runtime boundary and are not serialized into run contracts or logs. Secret-shaped environment names cannot use literal bindings.
+
+## Use plugins
+
+Install plugin packages into the client image or declare a compatible pure-wheel dependency. The serialized builder config can then reference the plugin column, seed reader, or processor. See the [plugin overview](/plugins/overview) for Data Designer plugin contracts.
+
+## Configure MCP providers
+
+Remote providers support SSE and streamable HTTP:
+
+```yaml
+invocation:
+  num_records: 100
+  dataset_name: tool-use
+  mcp_providers:
+    - provider_type: streamable_http
+      name: search
+      endpoint: https://tools.example.test/mcp
+      api_key:
+        type: secret
+        environment: MCP_API_KEY
+```
+
+Endpoints cannot contain credentials, query parameters, or fragments.
+
+Local stdio providers run inside the client allocation:
+
+```yaml
+invocation:
+  num_records: 100
+  dataset_name: tool-use
+  mcp_providers:
+    - provider_type: stdio
+      name: local-tool
+      command: example-mcp-server
+      args:
+        - --mode
+        - read-only
+      environment:
+        TOOL_API_KEY:
+          type: secret
+          environment: TOOL_API_KEY
+```
+
+The command is one executable token and arguments are passed without a shell. The client image or dependency overlay must provide the executable. See [Tool Use and MCP](/concepts/tool-use-mcp/overview) for builder-side tool configuration.
+
+Code-sandbox sidecars are not supported by the v1 Slurm extension. Use an MCP service with an appropriate isolation boundary or run the workload through a separately managed sandbox system.
