@@ -3,9 +3,14 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
+from typing import Any
 from unittest.mock import MagicMock
 
+import httpx
 import pytest
+from pytest_httpx import HTTPXMock
 
 from data_designer.config.models import (
     ChatCompletionInferenceParams,
@@ -20,6 +25,7 @@ from data_designer.engine.models.clients.adapters.openai_compatible import OpenA
 from data_designer.engine.models.clients.factory import create_model_client
 from data_designer.engine.models.clients.model_request_executor import ModelRequestExecutor
 from data_designer.engine.models.clients.retry import RetryConfig
+from data_designer.engine.models.clients.types import ChatCompletionRequest
 from data_designer.engine.models.request_admission.controller import AdaptiveRequestAdmissionController
 from data_designer.engine.secret_resolver import SecretResolver
 from data_designer.engine.testing import InMemoryAdmissionEventSink
@@ -247,3 +253,80 @@ def test_no_request_admission_returns_inner_client_directly(
     client = create_model_client(openai_model_config, secret_resolver, openai_registry)
     assert isinstance(client, OpenAICompatibleClient)
     assert not isinstance(client, ModelRequestExecutor)
+
+
+# --- HTTP event hooks ---
+
+
+@pytest.mark.parametrize(
+    ("model_config_fixture", "registry_fixture", "response_json", "expected_url"),
+    [
+        pytest.param(
+            "openai_model_config",
+            "openai_registry",
+            {
+                "choices": [{"index": 0, "message": {"role": "assistant", "content": "ok"}}],
+                "usage": {"total_tokens": 3},
+            },
+            "https://api.openai.com/v1/chat/completions",
+            id="openai",
+        ),
+        pytest.param(
+            "anthropic_model_config",
+            "anthropic_registry",
+            {"content": [{"type": "text", "text": "ok"}], "usage": {"input_tokens": 2, "output_tokens": 1}},
+            "https://api.anthropic.com/v1/messages",
+            id="anthropic",
+        ),
+    ],
+)
+@pytest.mark.parametrize("mode", [ClientConcurrencyMode.SYNC, ClientConcurrencyMode.ASYNC])
+def test_event_hooks_observe_model_request_and_response(
+    request: pytest.FixtureRequest,
+    httpx_mock: HTTPXMock,
+    secret_resolver: SecretResolver,
+    model_config_fixture: str,
+    registry_fixture: str,
+    response_json: dict[str, Any],
+    expected_url: str,
+    mode: ClientConcurrencyMode,
+) -> None:
+    model_config: ModelConfig = request.getfixturevalue(model_config_fixture)
+    httpx_mock.add_response(url=expected_url, json=response_json)
+    seen: list[tuple[str, Any]] = []
+
+    def on_request(req: httpx.Request) -> None:
+        seen.append(("request", (str(req.url), json.loads(req.content)["model"])))
+
+    def on_response(resp: httpx.Response) -> None:
+        resp.read()
+        seen.append(("response", (resp.status_code, resp.json())))
+
+    async def aon_request(req: httpx.Request) -> None:
+        on_request(req)
+
+    async def aon_response(resp: httpx.Response) -> None:
+        await resp.aread()
+        seen.append(("response", (resp.status_code, resp.json())))
+
+    hooks = (
+        {"request": [on_request], "response": [on_response]}
+        if mode == ClientConcurrencyMode.SYNC
+        else {"request": [aon_request], "response": [aon_response]}
+    )
+    client = create_model_client(
+        model_config,
+        secret_resolver,
+        request.getfixturevalue(registry_fixture),
+        client_concurrency_mode=mode,
+        event_hooks=hooks,
+    )
+    chat = ChatCompletionRequest(model=model_config.model, messages=[{"role": "user", "content": "Hi"}])
+
+    if mode == ClientConcurrencyMode.SYNC:
+        result = client.completion(chat)
+    else:
+        result = asyncio.run(client.acompletion(chat))
+
+    assert result.message.content == "ok"
+    assert seen == [("request", (expected_url, model_config.model)), ("response", (200, response_json))]
