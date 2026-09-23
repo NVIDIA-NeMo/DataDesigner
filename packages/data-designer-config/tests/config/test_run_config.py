@@ -3,6 +3,9 @@
 
 from __future__ import annotations
 
+import pickle
+from unittest.mock import patch
+
 import pytest
 from pydantic import ValidationError
 
@@ -154,6 +157,21 @@ def test_run_config_rejects_invalid_max_in_flight_tasks() -> None:
         RunConfig(max_in_flight_tasks=0)
 
 
+@pytest.mark.parametrize(
+    ("disable", "rate", "expected_effective"),
+    [(False, 0.2, 0.2), (True, 0.2, 1.0), (True, 0.0, 1.0), (False, 1.0, 1.0)],
+    ids=["enabled-keeps-rate", "disabled-overrides-rate", "disabled-overrides-zero-rate", "enabled-max-rate"],
+)
+def test_run_config_keeps_rate_and_derives_effective_rate(
+    disable: bool, rate: float, expected_effective: float
+) -> None:
+    run_config = RunConfig(disable_early_shutdown=disable, shutdown_error_rate=rate)
+
+    assert run_config.shutdown_error_rate == rate
+    assert run_config.effective_shutdown_error_rate == expected_effective
+    assert RunConfig.model_validate(run_config.model_dump()) == run_config
+
+
 def test_run_config_throttle_shim_rejects_unknown_legacy_fields() -> None:
     with pytest.raises(ValidationError, match="max_concurrent_requests"):
         RunConfig(throttle={"max_concurrent_requests": 1})
@@ -257,6 +275,17 @@ def test_deprecated_throttle_config_is_exported_from_config_package() -> None:
     namespace: dict[str, object] = {}
     exec("from data_designer.config import ThrottleConfig", namespace)
     assert namespace["ThrottleConfig"] is ThrottleConfig
+
+
+def test_deprecated_throttle_config_unpickles_from_pre_move_module_path() -> None:
+    # Pickles written before ThrottleConfig moved to run_config_deprecated record
+    # data_designer.config.run_config; patching __module__ reproduces those bytes. Unpickling
+    # resolves them through the module-level re-import in run_config.
+    with patch.object(ThrottleConfig, "__module__", "data_designer.config.run_config"):
+        legacy_payload = pickle.dumps(ThrottleConfig(reduce_factor=0.5))
+
+    assert b"data_designer.config.run_config_deprecated" not in legacy_payload
+    assert pickle.loads(legacy_payload) == ThrottleConfig(reduce_factor=0.5)
 
 
 def test_throttle_config_accepts_rampup_seconds() -> None:
