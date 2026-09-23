@@ -253,16 +253,40 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           REPO: ${{ github.repository }}
         run: |
-          STATE=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json state --jq '.state')
+          # The opened event can contain an older body if the author edited the
+          # PR while this run was queued. Read current PR data before closing.
+          PR=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json state,labels,body)
+          STATE=$(printf '%s' "$PR" | jq -r '.state')
           if [ "$STATE" != "OPEN" ]; then
             echo "PR is already ${STATE}; no close needed"
             exit 0
           fi
 
-          LABELS=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json labels --jq '.labels[].name')
+          LABELS=$(printf '%s' "$PR" | jq -r '.labels[].name')
           if printf '%s\n' "$LABELS" | grep -qx 'keep-open'; then
             echo "Skipping close: keep-open label present"
             exit 0
+          fi
+
+          printf '%s' "$PR" | jq -r '.body // ""' > /tmp/current-pr-body.txt
+          CURRENT_ISSUE=$(grep -ioE '(fixes|closes|resolves)[[:space:]]+#[0-9]+' /tmp/current-pr-body.txt | head -1 | sed -E 's/.*#//' || true)
+          if [ -n "$CURRENT_ISSUE" ]; then
+            CURRENT_RESPONSE=$(gh api "repos/${REPO}/issues/${CURRENT_ISSUE}" 2>/tmp/current-issue-api-error) || {
+              if grep -q 'HTTP 404' /tmp/current-issue-api-error; then
+                CURRENT_RESPONSE=""
+              else
+                cat /tmp/current-issue-api-error >&2
+                exit 1
+              fi
+            }
+            if [ -n "$CURRENT_RESPONSE" ]; then
+              CURRENT_VALID=$(printf '%s' "$CURRENT_RESPONSE" | jq -r \
+                '(has("pull_request") | not) and (.state == "open") and (([.labels[].name] | index("triaged")) != null)')
+              if [ "$CURRENT_VALID" = "true" ]; then
+                echo "PR now links to open, triaged issue #${CURRENT_ISSUE}; skipping close"
+                exit 0
+              fi
+            fi
           fi
 
           gh pr close "$PR_NUMBER" --repo "$REPO"

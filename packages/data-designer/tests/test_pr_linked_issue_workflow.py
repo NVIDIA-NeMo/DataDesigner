@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 from pathlib import Path
@@ -54,7 +55,7 @@ def test_issue_validation_only_closes_for_definite_policy_failures() -> None:
             assert expected_output in output.read_text()
 
 
-def test_invalid_issue_closes_only_open_nonexempt_pull_requests() -> None:
+def test_close_step_rechecks_current_pr_before_closing() -> None:
     step, script = _step("Close new or reopened PR without an open, triaged issue")
     condition = step["if"]
     assert "steps.comment.outputs.status == 'fail'" in condition
@@ -66,31 +67,50 @@ def test_invalid_issue_closes_only_open_nonexempt_pull_requests() -> None:
         path = Path(directory)
         gh = path / "gh"
         gh.write_text(
-            "#!/bin/sh\n"
-            'if [ "$2" = "view" ]; then\n'
-            '  if [ "$7" = "state" ]; then echo "$PR_STATE"; else printf "%s\\n" "$PR_LABELS"; fi\n'
-            'elif [ "$2" = "close" ]; then\n'
-            '  printf "%s\\n" "$*" > "$CALL_LOG"\n'
-            "fi\n"
+            r"""#!/bin/sh
+if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
+  printf "%s\n" "$PR_JSON"
+elif [ "$1" = "api" ]; then
+  case "$ISSUE_SCENARIO" in
+    triaged) printf '%s\n' '{"state":"open","labels":[{"name":"triaged"}]}' ;;
+    untriaged) printf '%s\n' '{"state":"open","labels":[]}' ;;
+    unavailable) echo "gh: Service Unavailable (HTTP 503)" >&2; exit 1 ;;
+  esac
+elif [ "$1" = "pr" ] && [ "$2" = "close" ]; then
+  printf "%s\n" "$*" > "$CALL_LOG"
+fi
+"""
         )
         gh.chmod(0o755)
         call_log = path / "call.log"
-        for state, labels, should_close in (
-            ("OPEN", "", True),
-            ("OPEN", "keep-open", False),
-            ("CLOSED", "", False),
+        for state, labels, body, issue_scenario, expected_exit, should_close in (
+            ("OPEN", [], "", "", 0, True),
+            ("OPEN", [], "Fixes #123", "untriaged", 0, True),
+            # The opened event was invalid, but the current body now links a triaged issue.
+            ("OPEN", [], "Fixes #123", "triaged", 0, False),
+            ("OPEN", ["keep-open"], "", "", 0, False),
+            ("CLOSED", [], "", "", 0, False),
+            ("OPEN", [], "Fixes #123", "unavailable", 1, False),
         ):
             call_log.unlink(missing_ok=True)
             env = os.environ | {
                 "PATH": f"{path}:{os.environ['PATH']}",
                 "PR_NUMBER": "42",
                 "REPO": "NVIDIA-NeMo/DataDesigner",
-                "PR_STATE": state,
-                "PR_LABELS": labels,
+                "PR_JSON": json.dumps({"state": state, "labels": [{"name": label} for label in labels], "body": body}),
+                "ISSUE_SCENARIO": issue_scenario,
                 "CALL_LOG": str(call_log),
             }
-            subprocess.run(["bash", "-e", "-c", script], env=env, check=True)
-            assert call_log.exists() == should_close
+            result = subprocess.run(["bash", "-e", "-c", script], env=env, capture_output=True, text=True)
+            assert result.returncode == expected_exit, result.stderr
+            assert call_log.exists() == should_close, (
+                state,
+                labels,
+                body,
+                issue_scenario,
+                result.stdout,
+                result.stderr,
+            )
             if should_close:
                 assert call_log.read_text().strip() == "pr close 42 --repo NVIDIA-NeMo/DataDesigner"
 
