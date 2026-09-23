@@ -186,7 +186,7 @@ jobs:
           - `Resolves #<issue-number>`
 
           If no issue exists yet, [open one](https://github.com/NVIDIA-NeMo/DataDesigner/issues/new/choose)
-          and wait for a maintainer to triage it. You may then reopen this PR.
+          and check the issue for the `triaged` label. You may then reopen this PR.
 
           See [CONTRIBUTING.md](https://github.com/NVIDIA-NeMo/DataDesigner/blob/main/CONTRIBUTING.md)
           for details.
@@ -218,7 +218,9 @@ jobs:
           Issue #${ISSUE_NUM} has not been triaged yet. A maintainer needs to review
           the issue and add the \`triaged\` label.
 
-          This PR will be closed. You may reopen it after the issue is triaged.
+          New or reopened PRs without a triaged issue are closed. Check the
+          issue for the \`triaged\` label; you may reopen this PR after a
+          maintainer adds it.
           MSG
           else
             STATUS="pass"
@@ -239,13 +241,29 @@ jobs:
             gh api -X DELETE "repos/${REPO}/issues/comments/${COMMENT_ID}" || true
           fi
 
-      - name: Close PR without an open, triaged issue
-        if: steps.comment.outputs.status == 'fail'
+      - name: Close new or reopened PR without an open, triaged issue
+        if: >-
+          steps.comment.outputs.status == 'fail'
+          && github.run_attempt == '1'
+          && (github.event.action == 'opened' || github.event.action == 'reopened')
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           REPO: ${{ github.repository }}
-        run: gh pr close "$PR_NUMBER" --repo "$REPO"
+        run: |
+          STATE=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json state --jq '.state')
+          if [ "$STATE" != "OPEN" ]; then
+            echo "PR is already ${STATE}; no close needed"
+            exit 0
+          fi
+
+          LABELS=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json labels --jq '.labels[].name')
+          if printf '%s\n' "$LABELS" | grep -qx 'keep-open'; then
+            echo "Skipping close: keep-open label present"
+            exit 0
+          fi
+
+          gh pr close "$PR_NUMBER" --repo "$REPO"
 
       - name: Set check result
         if: steps.comment.outputs.status == 'fail'

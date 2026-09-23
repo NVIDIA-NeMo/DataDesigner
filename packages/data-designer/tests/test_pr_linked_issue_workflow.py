@@ -7,23 +7,17 @@ import os
 import subprocess
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import Any
+
+import yaml
 
 WORKFLOW = Path(__file__).parents[3] / ".github/workflows/pr-linked-issue.yml"
 
 
-def _step(name: str) -> tuple[str, str]:
-    lines = WORKFLOW.read_text().splitlines()
-    start = lines.index(f"      - name: {name}")
-    end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("      - name: ")), len(lines))
-    step = "\n".join(lines[start:end])
-    if "        run: |\n" in step:
-        run = step.split("        run: |\n", 1)[1]
-        script = "\n".join(line[10:] if line.startswith("          ") else line for line in run.splitlines())
-    else:
-        script = next(
-            line.removeprefix("        run: ") for line in step.splitlines() if line.startswith("        run: ")
-        )
-    return step, script.replace("${{ github.repository }}", "NVIDIA-NeMo/DataDesigner")
+def _step(name: str) -> tuple[dict[str, Any], str]:
+    workflow = yaml.safe_load(WORKFLOW.read_text())
+    step = next(step for step in workflow["jobs"]["check"]["steps"] if step["name"] == name)
+    return step, step["run"].replace("${{ github.repository }}", "NVIDIA-NeMo/DataDesigner")
 
 
 def test_issue_validation_only_closes_for_definite_policy_failures() -> None:
@@ -60,23 +54,44 @@ def test_issue_validation_only_closes_for_definite_policy_failures() -> None:
             assert expected_output in output.read_text()
 
 
-def test_invalid_issue_closes_pull_request() -> None:
-    step, script = _step("Close PR without an open, triaged issue")
-    assert "if: steps.comment.outputs.status == 'fail'" in step
+def test_invalid_issue_closes_only_open_nonexempt_pull_requests() -> None:
+    step, script = _step("Close new or reopened PR without an open, triaged issue")
+    condition = step["if"]
+    assert "steps.comment.outputs.status == 'fail'" in condition
+    assert "github.run_attempt == '1'" in condition
+    assert "github.event.action == 'opened'" in condition
+    assert "github.event.action == 'reopened'" in condition
     with TemporaryDirectory() as directory:
         path = Path(directory)
         gh = path / "gh"
-        gh.write_text('#!/bin/sh\nprintf "%s\n" "$*" > "$CALL_LOG"\n')
+        gh.write_text(
+            "#!/bin/sh\n"
+            'if [ "$2" = "view" ]; then\n'
+            '  if [ "$7" = "state" ]; then echo "$PR_STATE"; else printf "%s\\n" "$PR_LABELS"; fi\n'
+            'elif [ "$2" = "close" ]; then\n'
+            '  printf "%s\\n" "$*" > "$CALL_LOG"\n'
+            "fi\n"
+        )
         gh.chmod(0o755)
         call_log = path / "call.log"
-        env = os.environ | {
-            "PATH": f"{path}:{os.environ['PATH']}",
-            "PR_NUMBER": "42",
-            "REPO": "NVIDIA-NeMo/DataDesigner",
-            "CALL_LOG": str(call_log),
-        }
-        subprocess.run(["bash", "-e", "-c", script], env=env, check=True)
-        assert call_log.read_text().strip() == "pr close 42 --repo NVIDIA-NeMo/DataDesigner"
+        for state, labels, should_close in (
+            ("OPEN", "", True),
+            ("OPEN", "keep-open", False),
+            ("CLOSED", "", False),
+        ):
+            call_log.unlink(missing_ok=True)
+            env = os.environ | {
+                "PATH": f"{path}:{os.environ['PATH']}",
+                "PR_NUMBER": "42",
+                "REPO": "NVIDIA-NeMo/DataDesigner",
+                "PR_STATE": state,
+                "PR_LABELS": labels,
+                "CALL_LOG": str(call_log),
+            }
+            subprocess.run(["bash", "-e", "-c", script], env=env, check=True)
+            assert call_log.exists() == should_close
+            if should_close:
+                assert call_log.read_text().strip() == "pr close 42 --repo NVIDIA-NeMo/DataDesigner"
 
 
 def test_contributor_permission_lookup_fails_on_api_outage() -> None:

@@ -50,7 +50,7 @@ The repository includes skills for common development tasks. These are located i
 
 ## Pull Requests
 
-- External contributions are accepted only when they address an existing, open issue that a maintainer has reviewed and labeled `triaged`. Open an issue and wait for triage before submitting a PR. Include `Fixes #NNN`, `Closes #NNN`, or `Resolves #NNN` in the PR description. PRs from external contributors without an open, triaged issue are automatically closed. Once the issue is triaged, you may reopen the PR. Repository collaborators and the exempt automation bots are not subject to this requirement.
+- External contributions are accepted only when they address an existing, open issue that a maintainer has reviewed and labeled `triaged`. Open an issue and wait for triage before submitting a PR. Include `Fixes #NNN`, `Closes #NNN`, or `Resolves #NNN` in the PR description. PRs from external contributors without an open, triaged issue are automatically closed. Check the issue for the `triaged` label; you may reopen the PR after a maintainer adds it. Later issue changes re-run the linked-issue check but do not automatically close an open PR. Maintainers can add `keep-open` to exempt a PR from automatic closure. Repository collaborators and the exempt automation bots are not subject to this requirement.
 - PRs with failing checks that remain inactive are automatically reminded after 7 days and closed after 14 days (collaborators: 14/28 days). Push an update or leave a comment to reset the timer. If you need more time, ask a maintainer to add the `keep-open` label.
 - Use the `create-pr` skill for well-formatted PR descriptions, or follow the PR template
 - Ensure all checks pass before requesting review:
