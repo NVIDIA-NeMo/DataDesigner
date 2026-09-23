@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -11,7 +12,7 @@ import pytest
 from data_designer.config.mcp import LocalStdioMCPProvider, ToolConfig
 from data_designer.engine.mcp import io as mcp_io
 from data_designer.engine.mcp.errors import DuplicateToolNameError, MCPConfigurationError, MCPToolError
-from data_designer.engine.mcp.facade import DEFAULT_TOOL_REFUSAL_MESSAGE, MCPFacade
+from data_designer.engine.mcp.facade import DEFAULT_TOOL_REFUSAL_MESSAGE, DEFAULT_UNKNOWN_TOOL_MESSAGE, MCPFacade
 from data_designer.engine.mcp.registry import MCPToolDefinition, MCPToolResult
 from data_designer.engine.model_provider import MCPProviderRegistry
 from data_designer.engine.models.clients.types import AssistantMessage, ChatCompletionResponse, ToolCall
@@ -281,6 +282,132 @@ def test_process_completion_empty_content(
     assert len(messages) == 2
     assert messages[0].role == "assistant"
     assert messages[0].content == ""
+
+
+# =============================================================================
+# Unknown tool fallback tests
+# =============================================================================
+
+
+@pytest.mark.parametrize(
+    ("tool_names", "unknown_tool_message", "expected_contents", "expected_executed"),
+    [
+        pytest.param(["ghost"], None, [DEFAULT_UNKNOWN_TOOL_MESSAGE], [], id="default-message"),
+        pytest.param(["ghost"], "No such tool.", ["No such tool."], [], id="custom-message"),
+        pytest.param(
+            ["lookup", "ghost", "search"],
+            None,
+            ["Result from lookup", DEFAULT_UNKNOWN_TOOL_MESSAGE, "Result from search"],
+            ["lookup", "search"],
+            id="good-bad-good-keeps-order",
+        ),
+        pytest.param(
+            ["ghost", "phantom"],
+            None,
+            [DEFAULT_UNKNOWN_TOOL_MESSAGE, DEFAULT_UNKNOWN_TOOL_MESSAGE],
+            [],
+            id="all-unknown",
+        ),
+    ],
+)
+def test_process_completion_unknown_tool_returns_message_to_model(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    stub_secret_resolver: MagicMock,
+    stub_mcp_provider_registry: MCPProviderRegistry,
+    tool_names: list[str],
+    unknown_tool_message: str | None,
+    expected_contents: list[str],
+    expected_executed: list[str],
+) -> None:
+    """With unknown_tool_fallback on, a hallucinated tool name gets a tool message instead of dropping the row."""
+
+    def mock_list_tools(provider: Any, timeout_sec: float | None = None) -> tuple[MCPToolDefinition, ...]:
+        return (
+            MCPToolDefinition(name="lookup", description="Lookup", input_schema={"type": "object"}),
+            MCPToolDefinition(name="search", description="Search", input_schema={"type": "object"}),
+        )
+
+    executed: list[str] = []
+
+    def mock_call_tools(
+        calls: list[tuple[Any, str, dict[str, Any]]],
+        *,
+        timeout_sec: float | None = None,
+    ) -> list[MCPToolResult]:
+        executed.extend(name for _, name, _ in calls)
+        return [MCPToolResult(content=f"Result from {name}") for _, name, _ in calls]
+
+    monkeypatch.setattr(mcp_io, "list_tools", mock_list_tools)
+    monkeypatch.setattr(mcp_io, "call_tools", mock_call_tools)
+
+    facade = MCPFacade(
+        tool_config=ToolConfig(
+            tool_alias="test-tools",
+            providers=["tools"],
+            unknown_tool_fallback=True,
+            unknown_tool_message=unknown_tool_message,
+        ),
+        secret_resolver=stub_secret_resolver,
+        mcp_provider_registry=stub_mcp_provider_registry,
+    )
+    response = _make_response(
+        tool_calls=[ToolCall(id=f"call-{i}", name=name, arguments_json="{}") for i, name in enumerate(tool_names)],
+    )
+
+    with caplog.at_level(logging.WARNING):
+        messages = facade.process_completion_response(response)
+
+    assert [m.tool_call_id for m in messages[1:]] == [f"call-{i}" for i in range(len(tool_names))]
+    assert [m.content for m in messages[1:]] == expected_contents
+    assert executed == expected_executed
+    warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert all(any(name in w for w in warnings) for name in tool_names if name not in {"lookup", "search"})
+
+
+@pytest.mark.parametrize(
+    ("tool_config_kwargs", "tool_name", "expected_error", "match"),
+    [
+        pytest.param(
+            {}, "ghost", MCPConfigurationError, "not found on any configured provider", id="fallback-off-unknown-raises"
+        ),
+        pytest.param(
+            {"unknown_tool_fallback": True, "allow_tools": ["lookup"]},
+            "search",
+            MCPToolError,
+            "not permitted",
+            id="fallback-on-allowlist-miss-still-raises",
+        ),
+    ],
+)
+def test_process_completion_unknown_tool_still_raises(
+    monkeypatch: pytest.MonkeyPatch,
+    stub_secret_resolver: MagicMock,
+    stub_mcp_provider_registry: MCPProviderRegistry,
+    tool_config_kwargs: dict[str, Any],
+    tool_name: str,
+    expected_error: type[Exception],
+    match: str,
+) -> None:
+    """Default config keeps today's error; the fallback never covers allow_tools policy misses."""
+
+    def mock_list_tools(provider: Any, timeout_sec: float | None = None) -> tuple[MCPToolDefinition, ...]:
+        return (
+            MCPToolDefinition(name="lookup", description="Lookup", input_schema={"type": "object"}),
+            MCPToolDefinition(name="search", description="Search", input_schema={"type": "object"}),
+        )
+
+    monkeypatch.setattr(mcp_io, "list_tools", mock_list_tools)
+
+    facade = MCPFacade(
+        tool_config=ToolConfig(tool_alias="test-tools", providers=["tools"], **tool_config_kwargs),
+        secret_resolver=stub_secret_resolver,
+        mcp_provider_registry=stub_mcp_provider_registry,
+    )
+    response = _make_response(tool_calls=[ToolCall(id="call-0", name=tool_name, arguments_json="{}")])
+
+    with pytest.raises(expected_error, match=match):
+        facade.process_completion_response(response)
 
 
 # =============================================================================

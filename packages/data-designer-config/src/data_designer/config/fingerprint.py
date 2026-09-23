@@ -83,7 +83,8 @@ def fingerprint_config(config: DataDesignerConfig) -> dict[str, str | int]:
         skip/drop flags. Column order is part of identity (DAG ordering).
       * `model_configs` - alias, model, provider, sampling-relevant inference
         params (temperature, top_p, max_tokens, extra_body). Sorted by alias.
-      * `tool_configs` - alias, providers, allow_tools, max_tool_call_turns
+      * `tool_configs` - alias, providers, allow_tools, max_tool_call_turns, and
+        unknown_tool_fallback/unknown_tool_message when the fallback is enabled
         (the set of MCP tools shapes generation). Sorted by tool_alias.
       * `seed_config` - source path, sampling strategy, selection strategy.
       * `constraints`, top-level `processors`.
@@ -149,6 +150,9 @@ def _normalize_model_config(model_config: dict[str, Any]) -> dict[str, Any]:
 
 def _normalize_tool_config(tool_config: dict[str, Any]) -> dict[str, Any]:
     normalized = _drop_keys(tool_config, _EXCLUDED_TOOL_CONFIG_KEYS)
+    # The default-off fallback is identity-neutral, which keeps pre-existing hashes stable for resume.
+    if not normalized.get("unknown_tool_fallback"):
+        normalized = _drop_keys(normalized, ("unknown_tool_fallback", "unknown_tool_message"))
     return _drop_empty_optional(normalized, _TOOL_CONFIG_OPTIONAL_COLLECTIONS)
 
 

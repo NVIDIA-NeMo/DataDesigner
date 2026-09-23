@@ -20,6 +20,8 @@ The `ToolConfig` class has the following fields:
 | `allow_tools` | `list[str]` | No | Restrict to specific tools (`None` = allow all tools from providers) |
 | `max_tool_call_turns` | `int` | No | Maximum tool-calling iterations (default: 5) |
 | `timeout_sec` | `float` | No | Per-call timeout in seconds (default: 60.0) |
+| `unknown_tool_fallback` | `bool` | No | Reply to calls for tools no provider offers with a tool message instead of failing the record (default: `False`) |
+| `unknown_tool_message` | `str` | No | Text of that reply when `unknown_tool_fallback` is on (default: built-in message) |
 
 ## Examples
 

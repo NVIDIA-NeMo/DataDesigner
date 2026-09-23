@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 
 from data_designer.config.mcp import MCPProviderT, ToolConfig
@@ -19,6 +20,12 @@ DEFAULT_TOOL_REFUSAL_MESSAGE = (
     "Tool call refused: You have reached the maximum number of tool-calling turns. "
     "Please provide your final response without requesting additional tool calls."
 )
+DEFAULT_UNKNOWN_TOOL_MESSAGE = (
+    "Tool call failed: the requested tool does not exist. "
+    "Use only the tools you were given, or provide your final response."
+)
+
+logger = logging.getLogger(__name__)
 
 
 class MCPFacade:
@@ -151,7 +158,8 @@ class MCPFacade:
         Raises:
             MCPToolError: If a requested tool is not in the allowed tools list.
             MCPToolError: If tool execution fails or times out.
-            MCPConfigurationError: If a requested tool is not found on any configured provider.
+            MCPConfigurationError: If a requested tool is not found on any configured provider and
+                unknown_tool_fallback is False.
         """
         message = completion_response.message
 
@@ -265,6 +273,8 @@ class MCPFacade:
         allowed_tools = set(self._tool_config.allow_tools) if self._tool_config.allow_tools else None
 
         calls_to_execute: list[tuple[MCPProviderT, str, dict[str, Any], str]] = []
+        # One slot per requested call: a fallback message, or None for a call that gets executed.
+        slots: list[ChatMessage | None] = []
         for tc in tool_calls:
             if allowed_tools is not None and tc.name not in allowed_tools:
                 providers_str = ", ".join(repr(p) for p in self._tool_config.providers)
@@ -275,8 +285,17 @@ class MCPFacade:
             except json.JSONDecodeError as exc:
                 raise MCPToolError(f"Invalid tool arguments for {tc.name!r}: {tc.arguments_json}") from exc
             arguments = arguments_raw if isinstance(arguments_raw, dict) else {}
-            resolved_provider = self._find_resolved_provider_for_tool(tc.name)
+            try:
+                resolved_provider = self._find_resolved_provider_for_tool(tc.name)
+            except MCPConfigurationError:
+                if not self._tool_config.unknown_tool_fallback:
+                    raise
+                logger.warning("Model called unknown MCP tool %r; returning a fallback message to the model.", tc.name)
+                content = self._tool_config.unknown_tool_message or DEFAULT_UNKNOWN_TOOL_MESSAGE
+                slots.append(ChatMessage.as_tool(content=content, tool_call_id=tc.id))
+                continue
             calls_to_execute.append((resolved_provider, tc.name, arguments, tc.id))
+            slots.append(None)
 
         # Execute all calls in parallel
         results = mcp_io.call_tools(
@@ -284,10 +303,13 @@ class MCPFacade:
             timeout_sec=self._tool_config.timeout_sec,
         )
 
-        return [
+        # call_tools returns results only for executed calls; fill the None slots in order so the
+        # model's original call order (and id pairing) is preserved.
+        executed = (
             ChatMessage.as_tool(content=result.content, tool_call_id=call[3])
             for result, call in zip(results, calls_to_execute)
-        ]
+        )
+        return [slot if slot is not None else next(executed) for slot in slots]
 
     def _find_resolved_provider_for_tool(self, tool_name: str) -> MCPProviderT:
         """Find the provider that has the given tool and return it with resolved api_key."""

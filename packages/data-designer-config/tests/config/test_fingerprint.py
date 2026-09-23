@@ -356,6 +356,28 @@ def test_tool_config_timeout_sec_does_not_change_hash() -> None:
     assert _compute_hash(a) == _compute_hash(b)
 
 
+@pytest.mark.parametrize(
+    ("base_kwargs", "kwargs", "same_hash"),
+    [
+        pytest.param({}, {"unknown_tool_fallback": False}, True, id="flag-off-explicit"),
+        pytest.param({}, {"unknown_tool_message": "x"}, True, id="flag-off-message-ignored"),
+        pytest.param({}, {"unknown_tool_fallback": True}, False, id="flag-on"),
+        pytest.param(
+            {"unknown_tool_fallback": True},
+            {"unknown_tool_fallback": True, "unknown_tool_message": "x"},
+            False,
+            id="flag-on-message-counts",
+        ),
+    ],
+)
+def test_tool_config_unknown_tool_fallback_hash(
+    base_kwargs: dict[str, Any], kwargs: dict[str, Any], same_hash: bool
+) -> None:
+    a = _make_minimal_config(tool_configs=[ToolConfig(tool_alias="t", providers=["p"], **base_kwargs)])
+    b = _make_minimal_config(tool_configs=[ToolConfig(tool_alias="t", providers=["p"], **kwargs)])
+    assert (_compute_hash(a) == _compute_hash(b)) is same_hash
+
+
 def test_profilers_do_not_change_hash() -> None:
     a = _make_minimal_config()
     b = _make_minimal_config(profilers=[JudgeScoreProfilerConfig(model_alias="m")])
