@@ -9,6 +9,8 @@ import asyncio
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
+# RetryTransport requires concrete AsyncBaseTransport inheritance.
+# This module is loaded only when constructing an async transport.
 from httpx import AsyncBaseTransport
 
 import data_designer.lazy_heavy_imports as lazy
