@@ -4,17 +4,20 @@
 from __future__ import annotations
 
 import asyncio
+import functools
 import subprocess
 import sys
 from collections.abc import Callable
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 
 from data_designer.engine.models.clients.adapters.anthropic import AnthropicClient
 from data_designer.engine.models.clients.adapters.http_model_client import ClientConcurrencyMode
 from data_designer.engine.models.clients.adapters.openai_compatible import OpenAICompatibleClient
+from data_designer.engine.models.clients.retry import create_retry_transport
 from data_designer.engine.models.clients.types import ChatCompletionRequest
 from tests.engine.models.clients.conftest import mock_httpx_response
 
@@ -285,6 +288,77 @@ def test_sync_mode_rejects_async_client_injection(client_factory: Callable[..., 
 def test_async_mode_rejects_sync_client_injection(client_factory: Callable[..., Any], model_name: str) -> None:
     with pytest.raises(ValueError, match="sync_client must not be provided"):
         client_factory(concurrency_mode=ClientConcurrencyMode.ASYNC, sync_client=MagicMock())
+
+
+def _sync_hook(r: Any) -> None:
+    pass
+
+
+async def _async_hook(r: Any) -> None:
+    pass
+
+
+class _AsyncCallable:
+    async def __call__(self, r: Any) -> None:
+        pass
+
+
+_SYNC = ClientConcurrencyMode.SYNC
+_ASYNC = ClientConcurrencyMode.ASYNC
+_MUST_BE_SYNC = "must be sync callables"
+_MUST_BE_ASYNC = "must be async callables"
+_INJECTED_CLIENT = "injected sync_client/async_client"
+
+_EVENT_HOOKS_VALIDATION_CASES = [
+    pytest.param(_SYNC, {"request": [_async_hook]}, None, _MUST_BE_SYNC, id="sync-rejects-async-def"),
+    pytest.param(_SYNC, {"response": [_AsyncCallable()]}, None, _MUST_BE_SYNC, id="sync-rejects-async-callable-object"),
+    pytest.param(_ASYNC, {"request": [_sync_hook]}, None, _MUST_BE_ASYNC, id="async-rejects-sync-def"),
+    pytest.param(
+        _ASYNC,
+        {"request": [lambda r: _async_hook(r)]},
+        None,
+        _MUST_BE_ASYNC,
+        id="async-rejects-sync-lambda-returning-awaitable",
+    ),
+    pytest.param(_SYNC, {"request": [_sync_hook]}, "sync_client", _INJECTED_CLIENT, id="sync-rejects-injected-client"),
+    pytest.param(
+        _ASYNC, {"request": [_async_hook]}, "async_client", _INJECTED_CLIENT, id="async-rejects-injected-client"
+    ),
+    pytest.param(_SYNC, {"request": [_sync_hook], "response": [_sync_hook]}, None, None, id="sync-accepts-sync-def"),
+    pytest.param(_ASYNC, {"request": [_async_hook]}, None, None, id="async-accepts-async-def"),
+    pytest.param(_ASYNC, {"response": [_AsyncCallable()]}, None, None, id="async-accepts-async-callable-object"),
+    pytest.param(
+        _ASYNC, {"request": [functools.partial(_async_hook)]}, None, None, id="async-accepts-partial-of-async-def"
+    ),
+    pytest.param(_SYNC, {"request": [_sync_hook]}, "transport", None, id="sync-accepts-injected-transport"),
+    pytest.param(_SYNC, {}, "sync_client", None, id="accepts-empty-mapping"),
+    pytest.param(_ASYNC, None, None, None, id="accepts-none"),
+]
+
+
+@pytest.mark.parametrize(("mode", "hooks", "inject", "expected_error"), _EVENT_HOOKS_VALIDATION_CASES)
+@pytest.mark.parametrize(("client_factory", "model_name"), _CLIENT_FACTORY_CASES)
+def test_event_hooks_validated_at_construction(
+    client_factory: Callable[..., Any],
+    model_name: str,
+    mode: ClientConcurrencyMode,
+    hooks: dict[str, list[Callable[..., Any]]] | None,
+    inject: str | None,
+    expected_error: str | None,
+) -> None:
+    kwargs: dict[str, Any] = {}
+    if inject in ("sync_client", "async_client"):
+        kwargs[inject] = MagicMock()
+    elif inject == "transport":
+        kwargs["transport"] = create_retry_transport(
+            None, strip_rate_limit_codes=False, transport=httpx.MockTransport(lambda r: httpx.Response(200))
+        )
+
+    if expected_error is None:
+        client_factory(concurrency_mode=mode, event_hooks=hooks, **kwargs)
+    else:
+        with pytest.raises(ValueError, match=expected_error):
+            client_factory(concurrency_mode=mode, event_hooks=hooks, **kwargs)
 
 
 # ---------------------------------------------------------------------------
