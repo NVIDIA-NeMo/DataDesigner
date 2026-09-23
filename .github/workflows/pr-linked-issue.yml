@@ -81,9 +81,12 @@ jobs:
         if: steps.author.outputs.is_collaborator != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
         run: |
-          if [ -z "$PR_BODY" ] || [ "$PR_BODY" = "null" ]; then
+          # Read the current body; the event body may be stale after an edit.
+          PR_BODY=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json body --jq '.body // ""')
+          if [ -z "$PR_BODY" ]; then
             echo "issue_num=" >> "$GITHUB_OUTPUT"
             echo "No PR body found"
             exit 0
@@ -91,7 +94,7 @@ jobs:
 
           # Case-insensitive match for Fixes #N, Closes #N, Resolves #N.
           printf '%s' "$PR_BODY" > /tmp/pr-body-raw.txt
-          ISSUE_NUM=$(grep -ioP '(?:fixes|closes|resolves)\s+#\K\d+' /tmp/pr-body-raw.txt | head -1 || true)
+          ISSUE_NUM=$(grep -ioE '(fixes|closes|resolves)[[:space:]]+#[0-9]+' /tmp/pr-body-raw.txt | head -1 | sed -E 's/.*#//' || true)
           echo "issue_num=${ISSUE_NUM}" >> "$GITHUB_OUTPUT"
           echo "Parsed issue number: ${ISSUE_NUM:-<none>}"
 
@@ -234,9 +237,10 @@ jobs:
               gh api -X PATCH "repos/${REPO}/issues/comments/${COMMENT_ID}" \
                 -f body="$(cat /tmp/comment-body.md)"
             else
-              gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" \
-                -f body="$(cat /tmp/comment-body.md)"
+              COMMENT_ID=$(gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" \
+                -f body="$(cat /tmp/comment-body.md)" --jq '.id')
             fi
+            echo "comment_id=${COMMENT_ID}" >> "$GITHUB_OUTPUT"
           elif [ -n "$COMMENT_ID" ]; then
             gh api -X DELETE "repos/${REPO}/issues/comments/${COMMENT_ID}" || true
           fi
@@ -244,6 +248,7 @@ jobs:
       # Issue-change reruns come from github-actions[bot] and only update the check.
       # A human rerun after a transient API failure may close a definitively invalid PR.
       - name: Close new or reopened PR without an open, triaged issue
+        id: close
         if: >-
           steps.comment.outputs.status == 'fail'
           && (github.run_attempt == '1' || github.triggering_actor != 'github-actions[bot]')
@@ -252,6 +257,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           REPO: ${{ github.repository }}
+          COMMENT_ID: ${{ steps.comment.outputs.comment_id }}
         run: |
           # The opened event can contain an older body if the author edited the
           # PR while this run was queued. Read current PR data before closing.
@@ -284,6 +290,12 @@ jobs:
                 '(has("pull_request") | not) and (.state == "open") and (([.labels[].name] | index("triaged")) != null)')
               if [ "$CURRENT_VALID" = "true" ]; then
                 echo "PR now links to open, triaged issue #${CURRENT_ISSUE}; skipping close"
+                # The earlier comment step may have used a stale body. Remove
+                # its failure comment and let this run pass.
+                if [ -n "$COMMENT_ID" ]; then
+                  gh api -X DELETE "repos/${REPO}/issues/comments/${COMMENT_ID}"
+                fi
+                echo "current_valid=true" >> "$GITHUB_OUTPUT"
                 exit 0
               fi
             fi
@@ -292,7 +304,7 @@ jobs:
           gh pr close "$PR_NUMBER" --repo "$REPO"
 
       - name: Set check result
-        if: steps.comment.outputs.status == 'fail'
+        if: steps.comment.outputs.status == 'fail' && steps.close.outputs.current_valid != 'true'
         run: |
           echo "::error::Linked issue check failed. See the PR comment for details."
           exit 1
