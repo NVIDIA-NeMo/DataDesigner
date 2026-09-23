@@ -4989,7 +4989,6 @@ async def test_scheduler_request_resource_admission_avoids_creating_waiters() ->
     request_admission = AdaptiveRequestAdmissionController(
         RequestAdmissionConfig(
             initial_limits={resource: 4},
-            default_queue_wait_timeout_seconds=0.02,
         ),
         event_sink=sink,
     )
