@@ -93,7 +93,7 @@ The key constraint is that golden passages must be *findable but not obvious*. I
 
 ## **Step 3: The Data Designer Pipeline**
 
-With the retriever server and corpus ready, the Data Designer pipeline ties everything together. We configure a teacher model, point it at the MCP retriever, and let it research each question from scratch. For this demo we hosted our own inference server, but anyone can try this pipeline using [Nemotron Nano 3 on build.nvidia.com](https://build.nvidia.com/nvidia/nemotron-3-nano-30b-a3b) with a free API key using the model configuration shown below.
+With the retriever server and corpus ready, the Data Designer pipeline ties everything together. We configure a teacher model, point it at the MCP retriever, and let it research each question from scratch. For this demo we hosted our own inference server, but anyone can try this pipeline using [Nemotron 3.5 Lightning on build.nvidia.com](https://build.nvidia.com/nvidia/nemotron-3.5-lightning-30b-a3b) with a free API key using the model configuration shown below.
 
 ```python
 import data_designer.config as dd
@@ -104,7 +104,7 @@ config = dd.DataDesignerConfigBuilder()
 config.add_model_config(
     dd.ModelConfig(
         alias="search_rollout_model",
-        model="nvidia/nemotron-3-nano-30b-a3b",
+        model="nvidia/nemotron-3.5-lightning-30b-a3b",
         provider="nvidia",
         inference_parameters=dd.ChatCompletionInferenceParams(
             temperature=1.0,
@@ -186,7 +186,7 @@ Not every trajectory leads to a correct answer. OpenResearcher's approach is str
 config.add_model_config(
     dd.ModelConfig(
         alias="judge",
-        model="nvidia/nemotron-3-nano-30b-a3b",
+        model="nvidia/nemotron-3.5-lightning-30b-a3b",
         provider="nvidia",
     )
 )
@@ -344,7 +344,7 @@ config = dd.DataDesignerConfigBuilder()
 config.add_model_config(
     dd.ModelConfig(
         alias="search_rollout_model",
-        model="nvidia/nemotron-3-nano-30b-a3b",
+        model="nvidia/nemotron-3.5-lightning-30b-a3b",
         provider="nvidia",
         inference_parameters=dd.ChatCompletionInferenceParams(
             temperature=1.0,
@@ -356,7 +356,7 @@ config.add_model_config(
 config.add_model_config(
     dd.ModelConfig(
         alias="judge",
-        model="nvidia/nemotron-3-nano-30b-a3b",
+        model="nvidia/nemotron-3.5-lightning-30b-a3b",
         provider="nvidia",
     )
 )

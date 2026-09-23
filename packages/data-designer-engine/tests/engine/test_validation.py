@@ -236,6 +236,141 @@ def test_validate_detect_f_string_syntax():
     assert violations[0].level == ViolationLevel.WARNING
 
 
+def test_validate_prompt_templates_with_literal_braces() -> None:
+    """Literal braces that are valid Jinja text must not crash the f-string advisory check."""
+    columns = [
+        SamplerColumnConfig(
+            name="random_number",
+            sampler_type="uniform",
+            params={"low": 0, "high": 10},
+        ),
+        LLMTextColumnConfig(
+            name="literal_close_brace",
+            prompt="Why is {{ random_number }} your favorite number? End with a literal } brace.",
+            model_alias=STUB_MODEL_ALIAS,
+        ),
+        LLMTextColumnConfig(
+            name="literal_open_brace",
+            system_prompt="Prefix every answer with an opening brace { like this.",
+            prompt="Describe {{ random_number }}.",
+            model_alias=STUB_MODEL_ALIAS,
+        ),
+    ]
+    violations = validate_prompt_templates(columns, [c.name for c in columns])
+    assert len(violations) == 0
+
+
+def test_validate_detect_f_string_syntax_with_literal_braces() -> None:
+    """f-string references are still detected when the prompt also contains literal braces."""
+    columns = [
+        SamplerColumnConfig(
+            name="random_number",
+            sampler_type="uniform",
+            params={"low": 0, "high": 10},
+        ),
+        LLMTextColumnConfig(
+            name="f_string_ref_after_literal_brace",
+            prompt="End with a literal } brace. Why is {random_number} and {{ random_number }} your favorite number?",
+            model_alias=STUB_MODEL_ALIAS,
+        ),
+    ]
+    violations = validate_prompt_templates(columns, [c.name for c in columns])
+    assert len(violations) == 1
+    assert violations[0].type == ViolationType.F_STRING_SYNTAX
+    assert violations[0].column == "f_string_ref_after_literal_brace"
+    assert violations[0].level == ViolationLevel.WARNING
+
+
+def test_validate_detect_nested_format_spec_ref_with_literal_braces() -> None:
+    """Fallback also detects references whose format spec nests another field."""
+    columns = [
+        SamplerColumnConfig(
+            name="random_number",
+            sampler_type="uniform",
+            params={"low": 0, "high": 10},
+        ),
+        LLMTextColumnConfig(
+            name="nested_spec_ref_after_literal_brace",
+            prompt="Literal } value {random_number:{width}} jinja {{ random_number }}.",
+            model_alias=STUB_MODEL_ALIAS,
+        ),
+    ]
+    violations = validate_prompt_templates(columns, [c.name for c in columns])
+    assert len(violations) == 1
+    assert violations[0].type == ViolationType.F_STRING_SYNTAX
+    assert violations[0].column == "nested_spec_ref_after_literal_brace"
+
+
+def test_validate_detect_formatted_f_string_refs_with_literal_braces() -> None:
+    """Fallback also catches references carrying a conversion or format spec."""
+    columns = [
+        SamplerColumnConfig(
+            name="random_number",
+            sampler_type="uniform",
+            params={"low": 0, "high": 10},
+        ),
+        LLMTextColumnConfig(
+            name="formatted_ref_after_literal_brace",
+            prompt="End with a literal } brace. Padded {random_number:03d}, repr {random_number!r}, jinja {{ random_number }}.",
+            model_alias=STUB_MODEL_ALIAS,
+        ),
+    ]
+    violations = validate_prompt_templates(columns, [c.name for c in columns])
+    assert len(violations) == 1
+    assert violations[0].type == ViolationType.F_STRING_SYNTAX
+    assert violations[0].column == "formatted_ref_after_literal_brace"
+
+
+def test_validate_detect_non_word_column_ref_with_literal_braces() -> None:
+    """Fallback preserves detection for supported column names with non-word characters."""
+    columns = [
+        SamplerColumnConfig(
+            name="customer-id",
+            sampler_type="uniform",
+            params={"low": 0, "high": 10},
+        ),
+        SamplerColumnConfig(
+            name="valid_ref",
+            sampler_type="uniform",
+            params={"low": 0, "high": 10},
+        ),
+        LLMTextColumnConfig(
+            name="non_word_ref_after_literal_brace",
+            prompt="Literal } value {customer-id} jinja {{ valid_ref }}.",
+            model_alias=STUB_MODEL_ALIAS,
+        ),
+    ]
+    violations = validate_prompt_templates(columns, [c.name for c in columns])
+    assert len(violations) == 1
+    assert violations[0].type == ViolationType.F_STRING_SYNTAX
+    assert violations[0].column == "non_word_ref_after_literal_brace"
+
+
+def test_validate_detect_f_string_syntax_with_adjacent_literal_closing_brace() -> None:
+    """Fallback preserves detection when an accidental format field is followed by an adjacent literal close brace."""
+    columns = [
+        SamplerColumnConfig(
+            name="random_number",
+            sampler_type="uniform",
+            params={"low": 0, "high": 10},
+        ),
+        SamplerColumnConfig(
+            name="valid_reference",
+            sampler_type="uniform",
+            params={"low": 0, "high": 10},
+        ),
+        LLMTextColumnConfig(
+            name="adjacent_brace_prompt",
+            prompt="Value {random_number}} and {{ valid_reference }}",
+            model_alias=STUB_MODEL_ALIAS,
+        ),
+    ]
+    violations = validate_prompt_templates(columns, [c.name for c in columns])
+    assert len(violations) == 1
+    assert violations[0].type == ViolationType.F_STRING_SYNTAX
+    assert violations[0].column == "adjacent_brace_prompt"
+
+
 def test_validate_column_config_with_multi_modal_context():
     column = LLMTextColumnConfig(
         name="image_description",

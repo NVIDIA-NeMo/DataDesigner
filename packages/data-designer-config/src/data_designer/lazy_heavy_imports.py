@@ -34,6 +34,7 @@ _LAZY_IMPORTS = {
     "faker": "faker",
     "sqlfluff": "sqlfluff",
     "httpx": "httpx",
+    "httpx_retries": "httpx_retries",
     "duckdb": "duckdb",
     "nx": "networkx",
     "scipy": "scipy",

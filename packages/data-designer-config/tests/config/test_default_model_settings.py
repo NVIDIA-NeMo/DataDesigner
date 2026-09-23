@@ -56,8 +56,13 @@ def test_get_builtin_model_configs():
     builtin_model_configs = get_builtin_model_configs()
     assert len(builtin_model_configs) == 12
     assert builtin_model_configs[0].alias == "nvidia-text"
-    assert builtin_model_configs[0].model == "nvidia/nemotron-3-nano-30b-a3b"
+    assert builtin_model_configs[0].model == "nvidia/nemotron-3.5-lightning-30b-a3b"
     assert builtin_model_configs[0].provider == "nvidia"
+    assert builtin_model_configs[0].inference_parameters == ChatCompletionInferenceParams(
+        temperature=1.0,
+        top_p=0.95,
+        extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+    )
     assert builtin_model_configs[1].alias == "nvidia-reasoning"
     assert builtin_model_configs[1].model == "nvidia/nemotron-3-super-120b-a12b"
     assert builtin_model_configs[1].provider == "nvidia"
@@ -65,7 +70,7 @@ def test_get_builtin_model_configs():
     assert builtin_model_configs[2].model == "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
     assert builtin_model_configs[2].provider == "nvidia"
     assert builtin_model_configs[3].alias == "nvidia-embedding"
-    assert builtin_model_configs[3].model == "nvidia/llama-nemotron-embed-1b-v2"
+    assert builtin_model_configs[3].model == "nvidia/nemotron-3-embed-1b"
     assert builtin_model_configs[3].provider == "nvidia"
     assert builtin_model_configs[4].alias == "openai-text"
     assert builtin_model_configs[4].model == "gpt-4.1"

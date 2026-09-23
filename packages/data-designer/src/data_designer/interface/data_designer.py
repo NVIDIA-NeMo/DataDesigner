@@ -354,11 +354,10 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             )
 
         try:
-            profiler_column_configs = config_builder.get_column_configs() or builder.data_designer_config.columns
             profiler = self._create_dataset_profiler(
                 config_builder,
                 resource_provider,
-                column_configs=profiler_column_configs,
+                column_configs=builder.data_designer_config.columns,
             )
             analysis = profiler.profile_dataset(num_records, dataset_for_profiler)
         except Exception as e:
@@ -457,7 +456,11 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             dataset_for_profiler = processed_dataset
 
         try:
-            profiler = self._create_dataset_profiler(config_builder, resource_provider)
+            profiler = self._create_dataset_profiler(
+                config_builder,
+                resource_provider,
+                column_configs=builder.data_designer_config.columns,
+            )
             analysis = profiler.profile_dataset(num_records, dataset_for_profiler)
         except Exception as e:
             raise DataDesignerProfilingError(f"🛑 Error profiling preview dataset: {e}") from e
