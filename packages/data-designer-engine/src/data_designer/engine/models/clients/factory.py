@@ -3,6 +3,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping
+from typing import Any
+
 from data_designer.config.models import ModelConfig
 from data_designer.engine.errors import DataDesignerError
 from data_designer.engine.model_provider import ModelProviderRegistry
@@ -30,6 +33,7 @@ def create_model_client(
     client_concurrency_mode: ClientConcurrencyMode = ClientConcurrencyMode.SYNC,
     request_admission: RequestAdmissionController | None = None,
     request_event_sink: RequestAdmissionEventSink | None = None,
+    event_hooks: Mapping[str, list[Callable[..., Any]]] | None = None,
 ) -> ModelClient:
     """Create a ``ModelClient`` for the given model configuration.
 
@@ -55,6 +59,15 @@ def create_model_client(
             Direct callers of this factory must ensure registration happens
             before use.
         request_event_sink: Optional direct sink for model-request events.
+        event_hooks: Optional httpx event hooks (``{"request": [...], "response": [...]}``)
+            installed on the adapter's httpx client. Hooks must be async callables when
+            ``client_concurrency_mode`` is ``"async"`` and sync callables otherwise. Call
+            ``response.read()`` / ``await response.aread()`` before reading the body. With
+            ``request_admission`` every retry attempt is observed; without it, transport-level
+            retries happen below the client and only the final response is seen. Requests
+            carry the resolved credentials (``Authorization`` / ``x-api-key`` headers), so
+            redact them before logging. Exceptions raised by a hook propagate as a
+            provider error for that request.
 
     Returns:
         A ``ModelClient`` instance routed by provider type.
@@ -84,6 +97,7 @@ def create_model_client(
             max_parallel_requests=max_parallel,
             timeout_s=timeout_s,
             concurrency_mode=client_concurrency_mode,
+            event_hooks=event_hooks,
         )
     elif provider.provider_type == "anthropic":
         client = AnthropicClient(
@@ -94,6 +108,7 @@ def create_model_client(
             max_parallel_requests=max_parallel,
             timeout_s=timeout_s,
             concurrency_mode=client_concurrency_mode,
+            event_hooks=event_hooks,
         )
     else:
         raise DataDesignerError(

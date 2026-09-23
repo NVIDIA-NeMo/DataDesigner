@@ -5,8 +5,10 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+import inspect
 import threading
 from abc import ABC, abstractmethod
+from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, Any
 
 import data_designer.lazy_heavy_imports as lazy
@@ -57,11 +59,24 @@ class HttpModelClient(ABC):
         transport: RetryTransport | None = None,
         sync_client: httpx.Client | None = None,
         async_client: httpx.AsyncClient | None = None,
+        event_hooks: Mapping[str, list[Callable[..., Any]]] | None = None,
     ) -> None:
         if concurrency_mode == ClientConcurrencyMode.SYNC and async_client is not None:
             raise ValueError("async_client must not be provided for a sync-mode HttpModelClient")
         if concurrency_mode == ClientConcurrencyMode.ASYNC and sync_client is not None:
             raise ValueError("sync_client must not be provided for an async-mode HttpModelClient")
+        if event_hooks and (sync_client is not None or async_client is not None):
+            raise ValueError(
+                "event_hooks must not be combined with an injected sync_client/async_client; set them on that client"
+            )
+        is_async = concurrency_mode == ClientConcurrencyMode.ASYNC
+        for hooks in (event_hooks or {}).values():
+            for hook in hooks:
+                if _is_async_callable(hook) != is_async:
+                    raise ValueError(
+                        f"event_hooks for a {concurrency_mode.value}-mode HttpModelClient must be "
+                        f"{'async' if is_async else 'sync'} callables; got {hook!r}"
+                    )
 
         self.provider_name = provider_name
         self._endpoint = endpoint.rstrip("/")
@@ -80,6 +95,7 @@ class HttpModelClient(ABC):
         self._transport: RetryTransport | None = transport
         self._client: httpx.Client | None = sync_client
         self._aclient: httpx.AsyncClient | None = async_client
+        self._event_hooks = event_hooks
         self._init_lock = threading.Lock()
         self._closed = False
         self._close_future: asyncio.Future[list[None | BaseException]] | None = None
@@ -114,6 +130,7 @@ class HttpModelClient(ABC):
                 self._client = lazy.httpx.Client(
                     transport=self._transport,
                     timeout=lazy.httpx.Timeout(self._timeout_s),
+                    event_hooks=self._event_hooks,
                 )
             return self._client
 
@@ -133,6 +150,7 @@ class HttpModelClient(ABC):
                 self._aclient = lazy.httpx.AsyncClient(
                     transport=self._transport,
                     timeout=lazy.httpx.Timeout(self._timeout_s),
+                    event_hooks=self._event_hooks,
                 )
             return self._aclient
 
@@ -224,3 +242,7 @@ class HttpModelClient(ABC):
                 response=response, provider_name=self.provider_name, model_name=model_name
             )
         return parse_json_body(response, self.provider_name, model_name)
+
+
+def _is_async_callable(obj: Any) -> bool:
+    return inspect.iscoroutinefunction(obj) or inspect.iscoroutinefunction(getattr(obj, "__call__", None))
