@@ -4,7 +4,7 @@
 name: "Linked Issue Check"
 
 on:
-  # Re-check when PR is opened or body is edited (author adds Fixes #N).
+  # Close external PRs without an open, triaged issue on each PR update.
   pull_request_target:
     types: [opened, edited, synchronize, reopened]
     branches: [main]
@@ -61,7 +61,13 @@ jobs:
           fi
 
           PERMISSION=$(gh api "repos/${{ github.repository }}/collaborators/${USER}/permission" \
-            --jq '.permission' 2>/dev/null || echo "none")
+            --jq '.permission' 2>/tmp/permission-api-error) || {
+            if ! grep -q 'HTTP 404' /tmp/permission-api-error; then
+              cat /tmp/permission-api-error >&2
+              exit 1
+            fi
+            PERMISSION="none"
+          }
           echo "permission=${PERMISSION}"
 
           if [ "$PERMISSION" = "admin" ] || [ "$PERMISSION" = "write" ]; then
@@ -96,7 +102,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           ISSUE_NUM: ${{ steps.parse.outputs.issue_num }}
         run: |
-          RESPONSE=$(gh api "repos/${{ github.repository }}/issues/${ISSUE_NUM}" 2>/dev/null) || {
+          RESPONSE=$(gh api "repos/${{ github.repository }}/issues/${ISSUE_NUM}" 2>/tmp/issue-api-error) || {
+            # Only a definite 404 means the issue does not exist. Other API
+            # failures must not cause a PR to be closed.
+            if ! grep -q 'HTTP 404' /tmp/issue-api-error; then
+              cat /tmp/issue-api-error >&2
+              exit 1
+            fi
             echo "issue_exists=false" >> "$GITHUB_OUTPUT"
             echo "is_open=false" >> "$GITHUB_OUTPUT"
             echo "is_triaged=false" >> "$GITHUB_OUTPUT"
@@ -166,7 +178,7 @@ jobs:
           ### Linked Issue Check
 
           This PR does not reference an issue. External contributions must link to
-          an open, triaged issue for this check to pass.
+          an open, triaged issue before the PR is submitted.
 
           Add one of the following to your PR description:
           - `Fixes #<issue-number>`
@@ -174,7 +186,7 @@ jobs:
           - `Resolves #<issue-number>`
 
           If no issue exists yet, [open one](https://github.com/NVIDIA-NeMo/DataDesigner/issues/new/choose)
-          and a maintainer will triage it.
+          and wait for a maintainer to triage it. You may then reopen this PR.
 
           See [CONTRIBUTING.md](https://github.com/NVIDIA-NeMo/DataDesigner/blob/main/CONTRIBUTING.md)
           for details.
@@ -186,7 +198,7 @@ jobs:
           ### Linked Issue Check
 
           The referenced issue #${ISSUE_NUM} was not found. Please check the issue
-          number in your PR description.
+          number. You may reopen this PR after linking an open, triaged issue.
           MSG
           elif [ "$ISSUE_OPEN" != "true" ]; then
             STATUS="fail"
@@ -194,8 +206,8 @@ jobs:
           <!-- linked-issue-check -->
           ### Linked Issue Check
 
-          Issue #${ISSUE_NUM} is closed. Please link an open, triaged issue in your
-          PR description.
+          Issue #${ISSUE_NUM} is closed. Please link an open, triaged issue and
+          then reopen this PR.
           MSG
           elif [ "$IS_TRIAGED" != "true" ]; then
             STATUS="fail"
@@ -204,10 +216,9 @@ jobs:
           ### Linked Issue Check
 
           Issue #${ISSUE_NUM} has not been triaged yet. A maintainer needs to review
-          the issue and add the \`triaged\` label for this check to pass.
+          the issue and add the \`triaged\` label.
 
-          You can continue working on the PR in the meantime. The check will
-          re-run automatically once the issue is triaged.
+          This PR will be closed. You may reopen it after the issue is triaged.
           MSG
           else
             STATUS="pass"
@@ -227,6 +238,14 @@ jobs:
           elif [ -n "$COMMENT_ID" ]; then
             gh api -X DELETE "repos/${REPO}/issues/comments/${COMMENT_ID}" || true
           fi
+
+      - name: Close PR without an open, triaged issue
+        if: steps.comment.outputs.status == 'fail'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: gh pr close "$PR_NUMBER" --repo "$REPO"
 
       - name: Set check result
         if: steps.comment.outputs.status == 'fail'
