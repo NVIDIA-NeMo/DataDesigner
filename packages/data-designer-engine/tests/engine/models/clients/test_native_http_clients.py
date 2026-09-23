@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import asyncio
+import subprocess
+import sys
 from collections.abc import Callable
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -25,9 +27,34 @@ _ANTHROPIC_ENDPOINT = "https://api.anthropic.com/v1"
 _SYNC_CLIENT_PATCH = "data_designer.engine.models.clients.adapters.http_model_client.lazy.httpx.Client"
 _ASYNC_CLIENT_PATCH = "data_designer.engine.models.clients.adapters.http_model_client.lazy.httpx.AsyncClient"
 _HTTP_TRANSPORT_PATCH = "data_designer.engine.models.clients.adapters.http_model_client.lazy.httpx.HTTPTransport"
-_SHARDED_ASYNC_TRANSPORT_PATCH = (
-    "data_designer.engine.models.clients.adapters.http_model_client.ShardedAsyncHTTPTransport"
+_SHARDED_ASYNC_TRANSPORT_PATCH = "data_designer.engine.models.clients.adapters.httpx_sharding.ShardedAsyncHTTPTransport"
+
+
+@pytest.mark.parametrize(
+    "module_name",
+    [
+        "data_designer.engine.models.clients",
+        "data_designer.engine.models.clients.retry",
+        "data_designer.engine.models.clients.adapters.http_model_client",
+    ],
 )
+def test_client_imports_defer_http_dependencies(module_name: str) -> None:
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import importlib, sys\n"
+            "importlib.import_module(sys.argv[1])\n"
+            "assert 'httpx' not in sys.modules\n"
+            "assert 'httpx_retries' not in sys.modules\n"
+            "assert 'data_designer.engine.models.clients.adapters.httpx_sharding' not in sys.modules\n",
+            module_name,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 def _make_openai_client(

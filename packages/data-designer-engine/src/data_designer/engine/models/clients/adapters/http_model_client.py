@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import importlib
 import threading
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any
@@ -15,12 +16,12 @@ from data_designer.engine.models.clients.adapters.http_helpers import (
     resolve_timeout,
     wrap_transport_error,
 )
-from data_designer.engine.models.clients.adapters.httpx_sharding import ShardedAsyncHTTPTransport
 from data_designer.engine.models.clients.errors import SyncClientUnavailableError, map_http_error_to_provider_error
-from data_designer.engine.models.clients.retry import RetryConfig, RetryTransport, create_retry_transport
+from data_designer.engine.models.clients.retry import RetryConfig, create_retry_transport
 
 if TYPE_CHECKING:
     import httpx
+    from httpx_retries import RetryTransport
 
 
 class ClientConcurrencyMode(StrEnum):
@@ -124,7 +125,8 @@ class HttpModelClient(ABC):
                 raise RuntimeError("Model client is closed.")
             if self._aclient is None:
                 if self._transport is None:
-                    inner = ShardedAsyncHTTPTransport(limits=self._limits, shard_count=self._shard_count)
+                    sharding = importlib.import_module("data_designer.engine.models.clients.adapters.httpx_sharding")
+                    inner = sharding.ShardedAsyncHTTPTransport(limits=self._limits, shard_count=self._shard_count)
                     self._transport = create_retry_transport(
                         self._retry_config, strip_rate_limit_codes=True, transport=inner
                     )
