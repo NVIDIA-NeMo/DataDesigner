@@ -241,10 +241,12 @@ jobs:
             gh api -X DELETE "repos/${REPO}/issues/comments/${COMMENT_ID}" || true
           fi
 
+      # Issue-change reruns come from github-actions[bot] and only update the check.
+      # A human rerun after a transient API failure may close a definitively invalid PR.
       - name: Close new or reopened PR without an open, triaged issue
         if: >-
           steps.comment.outputs.status == 'fail'
-          && github.run_attempt == '1'
+          && (github.run_attempt == '1' || github.triggering_actor != 'github-actions[bot]')
           && (github.event.action == 'opened' || github.event.action == 'reopened')
         env:
           GH_TOKEN: ${{ github.token }}

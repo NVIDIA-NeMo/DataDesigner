@@ -59,6 +59,7 @@ def test_invalid_issue_closes_only_open_nonexempt_pull_requests() -> None:
     condition = step["if"]
     assert "steps.comment.outputs.status == 'fail'" in condition
     assert "github.run_attempt == '1'" in condition
+    assert "github.triggering_actor != 'github-actions[bot]'" in condition
     assert "github.event.action == 'opened'" in condition
     assert "github.event.action == 'reopened'" in condition
     with TemporaryDirectory() as directory:
