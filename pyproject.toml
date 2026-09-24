@@ -103,6 +103,10 @@ ignore = [
 
 [tool.ruff.lint.isort]
 known-first-party = ["data_designer", "data_designer_e2e_tests"]
+required-imports = ["from __future__ import annotations"]
+
+[tool.ruff.lint.per-file-ignores]
+"!packages/*/src/**" = ["I002"]
 
 [tool.ruff.lint.flake8-tidy-imports]
 ban-relative-imports = "all"
