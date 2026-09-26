@@ -41,7 +41,7 @@ The model translates the whole document in one call, an LLM judge scores it agai
 
 <img
   src="/assets/nemotron-bharat-translation/path1-direct-translation.svg"
-  alt="Path 1: English document translated in one call, then scored by an LLM judge. If the score is at least 75, it becomes the translated document. If not, and the rewrite budget is not exhausted, the document is rewritten and sent back to the same LLM judge; once the score passes 75 or the rewrite budget runs out, the result becomes the translated document."
+  alt="Path 1: English document translated in one call, then scored by an LLM judge. If the score is at least the configured threshold, it becomes the translated document. If not, and the rewrite budget is not exhausted, the document is rewritten and sent back to the same LLM judge; once the score passes the threshold or the rewrite budget runs out, the result becomes the translated document. The threshold and rewrite budget are configured per language."
 />
 
 ### Path 2: Overlapping Windowed Translation and Restitching
