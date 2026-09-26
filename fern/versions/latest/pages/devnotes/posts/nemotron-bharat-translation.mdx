@@ -1,0 +1,231 @@
+---
+title: "Creating Data Similar to the Nemotron Bharat Corpus: Pretraining Data Using Translations Across 22 Indian Languages"
+description: "A Data Designer plugin that translates, evaluates, and self-corrects text documents across all 22 constitutionally scheduled Indic languages."
+---
+
+import { Authors } from "@/components/Authors";
+
+<Authors ids={["kipraveen", "sniverty", "ravirajj", "uvaidya", "niketa"]} />
+
+When we set out to improve Indic language capabilities for Nemotron models, we started by collecting natural, human-authored sources across all 22 languages of India's Eighth Schedule. That gave us a decent amount of data for more popular languages like Hindi, but far less for the rest. For most of these languages, open native-language text simply does not exist at the scale we needed for pretraining -- and even where it does, it doesn't carry the same breadth of knowledge, register, and structure that years of curation have already put into English pretraining corpora. So we took an English corpus that had already gone through that curation, Nemotron-CC v2, and translated it. In addition to native scripts, we wanted our models to be knowledgeable in the Latin script variants of the languages as well whenever feasible.
+
+We put together the [`data-designer-nemotron-bharat-translation`](https://github.com/NVIDIA-NeMo/DataDesignerPlugins/tree/main/plugins/data-designer-nemotron-bharat-translation) plugin to showcase and reproduce the pipeline we built for creating the Indic corpus. It translates documents into any of the 22 languages, scores every translation for quality against the source (accuracy, fluency, terminology, style, and formatting, each error tagged by severity), and self-corrects the ones that fail. For languages that are lower-resource and harder to generate, we employ targeted approaches to boost generation quality. For the Latin script translations, we use a two-stage approach where the text is translated first into native script and then into Latin script.
+
+{/* more */}
+
+## Why 22 Languages Is Not "the Same Problem, 22 Times"
+
+The 22 languages that we target from India's Eighth Schedule span Devanagari, Bengali, Tamil, Telugu, Kannada, Malayalam, Gujarati, Gurmukhi, Odia, Arabic, and Ol Chiki scripts. Building pretraining data across all of them sounds like it should be one translation prompt and just a repeat for all language codes. We find this to be inefficient and not practical for the following reasons:
+
+- **No single model is best everywhere.** While a model like [`google/gemma-4-31B-it`](https://huggingface.co/google/gemma-4-31B-it) does a good job for many Indian languages, for lower-resource languages like Bodo, Santali, Manipuri, etc., the translations are of lower quality. Therefore, we turn to other Indic models like [`bodhan-ai/indic-translate`](https://huggingface.co/bodhan-ai/indic-translate) for some of the lower-resource languages.
+- **Not every script is reachable.** Manipuri is conventionally written in Meitei Mayek, but neither [`google/gemma-4-31B-it`](https://huggingface.co/google/gemma-4-31B-it) nor [`bodhan-ai/indic-translate`](https://huggingface.co/bodhan-ai/indic-translate) reliably generates it directly. However, we realized that the models *can* translate into Manipuri written in Bengali script, which is a script Manipuri is also legitimately written in -- so the pipeline uses a deterministic bridge from there to Meitei Mayek.
+- **Long documents degrade quality.** When translating to Santali for documents longer than about 2,048 tokens, we find heavy degradation in quality and models getting stuck in generation loops. We address this issue by introducing a windowing approach to the translations.
+
+This post covers the reasoning behind the design choices we made for our pipeline and how the plugin's single `document-translation` column handles all of it through simple configuration changes.
+
+---
+
+## The Models We Used
+
+Two models do all of the translation work in this pipeline: [`google/gemma-4-31B-it`](https://huggingface.co/google/gemma-4-31B-it), a general-purpose instruction-tuned model, and [`bodhan-ai/indic-translate`](https://huggingface.co/bodhan-ai/indic-translate), a narrow translation specialist. At the time of writing, these were the most reliable models we found for Indic translation tasks -- [`google/gemma-4-31B-it`](https://huggingface.co/google/gemma-4-31B-it) for its document-level strength (long, structured, and code-mixed documents survive intact), and [`bodhan-ai/indic-translate`](https://huggingface.co/bodhan-ai/indic-translate) for languages where [`google/gemma-4-31B-it`](https://huggingface.co/google/gemma-4-31B-it)'s own translation quality drops off. Neither model is universally best; which one a language uses, and how, is what the rest of this post covers.
+
+---
+
+## The Three Paths We Choose Between
+
+Not every language goes through the pipeline the same way. Which of three paths a language takes depends on how well a single model can handle it end to end.
+
+### Path 1: Direct LLM Translation
+
+The model translates the whole document in one call, an LLM judge scores it against the source, and (where rewriting is used) anything below threshold gets rewritten and re-scored. This is the path for 20 of the 22 languages: the top 12 higher-resource languages (Bengali, Gujarati, Hindi, Kannada, Malayalam, Marathi, Nepali, Odia, Punjabi, Tamil, Telugu, Urdu) are translated by a general-purpose instruction-tuned model, [`google/gemma-4-31B-it`](https://huggingface.co/google/gemma-4-31B-it), with the full judge-and-rewrite loop; 8 of the remaining 10 lower-resource languages (Assamese, Bodo, Dogri, Kashmiri, Konkani, Maithili, Sanskrit, Sindhi) are translated by a narrower specialist, [`bodhan-ai/indic-translate`](https://huggingface.co/bodhan-ai/indic-translate), judged with the same rubric at a lower per-language threshold, and never rewritten -- rewriting these languages tends to make the translator fall into repetition loops rather than improve.
+
+<img
+  src="/assets/nemotron-bharat-translation/path1-direct-translation.svg"
+  alt="Path 1: English document translated in one call, then scored by an LLM judge. If the score is at least 75, it becomes the translated document. If not, and the rewrite budget is not exhausted, the document is rewritten and sent back to the same LLM judge; once the score passes 75 or the rewrite budget runs out, the result becomes the translated document."
+/>
+
+### Path 2: Overlapping Windowed Translation and Restitching
+
+When the model degrades in quality beyond a certain number of tokens, like in the case of Santali, where the model cannot translate a single document past a couple thousand tokens without the quality collapsing, we use a windowing approach. To do this, using newline as the delimiter, we create overlapping windows from the source document, with each window close to the maximum tokens per window specified. This is done so that the translation model gets context beyond the targeted translation region. A specialist translator (`bodhan-ai/indic-translate` in our case) translates all the windows, and a general-purpose LLM (`google/gemma-4-31B-it` in our case) is asked to extract each window's own non-overlapping segment, removing the overlap. These extracted segments are stitched back together to get the final translation of the full document.
+
+<img
+  src="/assets/nemotron-bharat-translation/path2-windowed-translation.svg"
+  alt="Path 2: The full English document is split into 4 overlapping windows, stacked with staggered horizontal span to show the overlap between consecutive windows. All 4 pass through a shared specialist translator, then a shared general-purpose LLM that removes the overlap, producing 4 aligned non-overlapping segments, which are stacked back together into the final Santali document"
+/>
+
+### Path 3: LLM Translation to a Different Script, Then Remapping
+
+For Manipuri, the script we were targeting, Meitei Mayek, had a lot of issues when we tried to generate it directly with `google/gemma-4-31B-it` or `bodhan-ai/indic-translate`. The specialist translator instead translates it into a script it does handle well, and the result is deterministically remapped into the target script -- a character-level substitution. The intermediate script used in the case of Manipuri is Bengali, which is then remapped to Meitei Mayek in a rule-based approach. This is possible since both scripts are phonetic and a mostly many-to-one mapping exists from Bengali to Meitei Mayek. The judgment is again carried out by `google/gemma-4-31B-it`.
+
+<img
+  src="/assets/nemotron-bharat-translation/path3-script-remap.svg"
+  alt="Path 3: English document translated by a specialist translator into Bengali-script Manipuri, then deterministically remapped character-by-character from Bengali script to Meitei Mayek to produce the final Manipuri document"
+/>
+
+---
+
+## Romanization: Producing Latin Script
+
+For the 12 priority languages, we also produce a romanized (Latin-script) version of the data, since code-mixed and transliterated text of this kind is common in everyday Indic-language communication online. We compared two ways of getting there: translating directly from English into romanized text in one step, and translating into native script first, then transliterating that native translation into Latin script as a second step.
+
+The two-step route won by a wide margin. The one-step route hallucinated more and mixed in more stray English; the two-step route was cleaner across the board, with the largest gains on languages like Malayalam. We accepted the roughly 1.5x extra token cost of the second call because the quality difference was large enough to matter for pretraining data.
+
+Romanized documents are transliterated from the already-accepted native translation, not the English source, and are judged again with an added script-compliance check -- so a romanized document is independently verified, not just a fixed function of its native counterpart. Romanized coverage exists only for the 12 priority languages; the 10 lower-resource languages are released in native script alone.
+
+---
+
+## Native-Numeral Prose
+
+Per-row, `native_numeral_probability` draws a chance of writing numbers in prose using the target language's native numeral script (e.g. Hindi's ०-९) instead of ASCII digits. The model is provided with documentation of each language's native numeral mapping, to help it in case it is unaware or confused about certain rare scripts. The prompt asks the model to keep digits inside code, formulas, URLs, and LaTeX in ASCII regardless of the style used in prose. Which style a row got is recorded in `<name>_numeral_style` (`"native"` or `"none"`), so it is auditable after the fact rather than only visible in the prompt.
+
+Evaluation always uses the same `evaluation_prompt` regardless of which numeral style was drawn for translation -- there is no separate native-numeral evaluation rubric to keep in sync. This makes the LLM judge's scores comparable between generations that specifically ask for native scripts and those where no preference is specified.
+
+---
+
+The rest of this post walks through how each of these three paths is expressed as configuration on the same `document-translation` column, starting with the routing table.
+
+---
+
+## One Column, One Procedure, Config-Driven Routing
+
+The plugin registers a single Data Designer column generator, `document-translation`. Every row runs the same translate -> LLM-evaluate -> (optionally) self-correct procedure:
+
+1. Render `translation_prompt` with the source text and language descriptions, and translate.
+2. Score the translation with an LLM judge, using a standard translation-quality rubric: Faithfulness, Fluency, Terminology, Style, Format Preservation, each error tagged Minor/Major/Critical, rolled up into a 0-100 score.
+3. While the score is below `rewrite_threshold` and rewrite attempts remain, rewrite and re-score. Every superseded attempt is kept in `<name>_translation_history`/`<name>_evaluation_history`.
+
+What changes per language is entirely configuration: `translation_mode` (`generic` vs. `bodhan`) picks the default prompt and language-description table, `model_alias`/`evaluator_model_alias` pick the models, and a couple of language-specific fields turn on windowing or script remapping. There is no per-language branch in the generator itself.
+
+```python
+from data_designer.config.config_builder import DataDesignerConfigBuilder
+from data_designer_nemotron_bharat_translation.config import DocumentTranslationConfig
+
+builder = DataDesignerConfigBuilder()
+builder.add_column(
+    DocumentTranslationConfig(
+        name="translation",
+        text_column="text",
+        source_language="en-Latn-IN",
+        target_language="hi-Deva-IN",
+        translation_mode="generic",
+        model_alias="gemma",
+        evaluator_model_alias="gemma",
+    )
+)
+```
+
+---
+
+## Model Routing, By Language
+
+Here is the routing that was used for the Nemotron Bharat Indic corpus:
+
+| Languages | Translator | Evaluator | Notes |
+| --- | --- | --- | --- |
+| Bengali, Gujarati, Hindi, Kannada, Malayalam, Marathi, Nepali, Odia, Punjabi, Tamil, Telugu, Urdu | `google/gemma-4-31B-it` | `google/gemma-4-31B-it` | `translation_mode="generic"` |
+| Assamese, Kashmiri, Sanskrit, Sindhi, Bodo, Dogri, Konkani, Maithili | `bodhan-ai/indic-translate` | `google/gemma-4-31B-it` | `translation_mode="bodhan"` |
+| Santali | `bodhan-ai/indic-translate` | `google/gemma-4-31B-it` | `translation_mode="bodhan"`, `enable_windowing=True`, `window_tokens=2048` |
+| Manipuri | `bodhan-ai/indic-translate` -> deterministic remap | `google/gemma-4-31B-it` | `translation_mode="bodhan"`, translates to Bengali script, then `target_language_script="Mtei"` remaps to Meitei Mayek |
+
+[`bodhan-ai/indic-translate`](https://huggingface.co/bodhan-ai/indic-translate) is a narrow translation specialist: its model card calls for a single terse user turn, no system message, no source-language mention. This also meant that a rewrite for the generated translations wouldn't be possible with it. Therefore, whenever we set `translation_mode="bodhan"`, the plugin swaps in that minimal prompt and a matching language-description table along with forcing `max_rewrites` to zero.
+
+```python
+builder.add_column(
+    DocumentTranslationConfig(
+        name="translation",
+        text_column="text",
+        source_language="en-Latn-IN",
+        target_language="as-Beng-IN",
+        translation_mode="bodhan",
+        model_alias="bodhan",
+        evaluator_model_alias="gemma",
+    )
+)
+```
+
+---
+
+## Santali: Windowing for Long Documents
+
+`enable_windowing` splits the source into overlapping, token-bounded windows, translates each independently, then extracts each window's own non-overlapping segment (with its neighbors shown only for context) and stacks the segments back into one document. Evaluation always runs on the merged whole document -- only the initial translation step is windowed.
+
+```python
+builder.add_column(
+    DocumentTranslationConfig(
+        name="translation",
+        text_column="text",
+        source_language="en-Latn-IN",
+        target_language="sat-Olck-IN",
+        translation_mode="bodhan",
+        model_alias="bodhan",
+        evaluator_model_alias="gemma",
+        enable_windowing=True,
+        window_tokens=2048,
+        window_merge_model_alias="gemma",
+    )
+)
+```
+
+The rewrite loop is incompatible with windowing -- rewriting would mean re-translating the whole merged document in one shot, exactly the failure mode windowing exists to avoid -- so `enable_windowing=True` alongside nonzero `max_rewrites` also forces it to zero, with a warning.
+
+---
+
+## Manipuri: When No Model Can Write the Target Script Reliably
+
+Manipuri is the one language in this pipeline that cannot go straight from source to target script through a model call. [`bodhan-ai/indic-translate`](https://huggingface.co/bodhan-ai/indic-translate) translates Manipuri reliably -- into Bengali script. Meitei Mayek, the script Manipuri is conventionally written in today, is not something either available model produces directly.
+
+Since Bengali-script Manipuri and Meitei-Mayek-script Manipuri are the same language, the mapping between them is a deterministic character substitution, not a translation. So `target_language_script="Mtei"` runs a plain function over the finished, evaluated translation instead of another model call:
+
+```python
+builder.add_column(
+    DocumentTranslationConfig(
+        name="translation",
+        text_column="text",
+        source_language="en-Latn-IN",
+        target_language="mni-Beng-IN",
+        translation_mode="bodhan",
+        model_alias="bodhan",
+        evaluator_model_alias="gemma",
+        target_language_script="Mtei",
+    )
+)
+```
+
+The pre-remap translation and evaluation are pushed onto `<name>_translation_history`/`<name>_evaluation_history` (the same place a superseded rewrite attempt would go), the text is remapped, and a fresh evaluation scores the remapped result against the original source -- so `<name>_evaluation` always reflects the script that actually ships, not the intermediate Bengali-script draft.
+
+The remapper is character-level, which means it has no notion of code versus prose. By default it leaves fenced code blocks, inline code, and URLs untouched during remapping, so a Bengali string literal inside a code sample does not get silently transliterated along with the surrounding text -- the translation step already promised to preserve those spans byte-for-byte, and the remap step honors that promise too.
+
+---
+
+## Try It Yourself
+
+```bash
+uv add data-designer data-designer-nemotron-bharat-translation
+```
+
+```python
+from data_designer.interface import DataDesigner
+from data_designer.config.config_builder import DataDesignerConfigBuilder
+from data_designer_nemotron_bharat_translation.config import DocumentTranslationConfig
+
+builder = DataDesignerConfigBuilder()
+builder.with_seed_dataset(...)
+builder.add_column(
+    DocumentTranslationConfig(
+        name="translation",
+        text_column="text",
+        source_language="en-Latn-IN",
+        target_language="hi-Deva-IN",
+        model_alias="gemma",
+        evaluator_model_alias="gemma",
+    )
+)
+
+preview = DataDesigner().preview(builder, num_records=5)
+print(preview.display_sample_record())
+```
+
+Start here:
+
+- [`data-designer-nemotron-bharat-translation` on GitHub](https://github.com/NVIDIA-NeMo/DataDesignerPlugins/tree/main/plugins/data-designer-nemotron-bharat-translation)
+- [DataDesignerPlugins catalog](https://github.com/NVIDIA-NeMo/DataDesignerPlugins)

@@ -175,6 +175,8 @@ navigation:
     contents:
       - page: Overview
         path: ./latest/pages/devnotes/index.mdx
+      - page: "Creating Data Similar to the Nemotron Bharat Corpus: Pretraining Data Using Translations Across 22 Indian Languages"
+        path: ./latest/pages/devnotes/posts/nemotron-bharat-translation.mdx
       - page: Pause, Inspect, Resume
         path: ./latest/pages/devnotes/posts/annotate-hard-pages-review-gates.mdx
       - page: Image Generation for Multimodal Data Pipelines
