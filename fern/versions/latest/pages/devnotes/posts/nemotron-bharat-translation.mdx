@@ -205,10 +205,22 @@ uv add data-designer data-designer-nemotron-bharat-translation
 
 ```python
 from data_designer.interface import DataDesigner
+from data_designer.config import ChatCompletionInferenceParams, ModelConfig
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer_nemotron_bharat_translation.config import DocumentTranslationConfig
 
-builder = DataDesignerConfigBuilder()
+# "nvidia" is the default model provider (build.nvidia.com); see
+# https://docs.nvidia.com/nemo/datadesigner/concepts/models/default-model-settings
+model_configs = [
+    ModelConfig(
+        alias="gemma",
+        model="google/gemma-4-31B-it",
+        provider="nvidia",
+        inference_parameters=ChatCompletionInferenceParams(temperature=1.0, max_tokens=12288),
+    )
+]
+
+builder = DataDesignerConfigBuilder(model_configs=model_configs)
 builder.with_seed_dataset(...)
 builder.add_column(
     DocumentTranslationConfig(
