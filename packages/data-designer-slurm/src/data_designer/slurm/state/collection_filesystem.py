@@ -398,7 +398,7 @@ def _rename_over_private_reservation(
             raise OSError(f"collection destination reservation {destination_name!r} is not private")
         os.fsync(destination_directory)
         # An unmarked directory is ambiguous after a crash and must never be removed by recovery.
-        marker_bytes = _reservation_marker_bytes(source_name, destination_name, _identity(reservation))
+        marker_bytes = _reservation_marker_bytes(source_name, destination_name, _reservation_identity(reservation))
         _create_reservation_marker(destination_directory, marker_name, marker_bytes)
         remove_marker = True
         current = os.stat(destination_name, dir_fd=destination_directory, follow_symlinks=False)
@@ -425,8 +425,8 @@ def _reservation_marker_name(source_name: str, destination_name: str) -> str:
     return f".dd-collection-reservation-{identity}"
 
 
-def _reservation_marker_bytes(source_name: str, destination_name: str, identity: tuple[int, int]) -> bytes:
-    return f"{source_name}\n{destination_name}\n{identity[0]}\n{identity[1]}\n".encode("utf-8")
+def _reservation_marker_bytes(source_name: str, destination_name: str, identity: tuple[int, int, int]) -> bytes:
+    return f"{source_name}\n{destination_name}\n{identity[0]}\n{identity[1]}\n{identity[2]}\n".encode("utf-8")
 
 
 def _create_reservation_marker(directory: int, name: str, content: bytes) -> None:
@@ -469,9 +469,9 @@ def _recover_private_reservation(directory: int, source_name: str, destination_n
     if not marker_content.startswith(marker_prefix):
         raise OSError(f"collection reservation marker {marker_name!r} is invalid")
     identity_parts = marker_content[len(marker_prefix) :].split(b"\n")
-    if len(identity_parts) != 3 or identity_parts[2] or not all(part.isdigit() for part in identity_parts[:2]):
+    if len(identity_parts) != 4 or identity_parts[3] or not all(part.isdigit() for part in identity_parts[:3]):
         raise OSError(f"collection reservation marker {marker_name!r} is invalid")
-    marker_identity = int(identity_parts[0]), int(identity_parts[1])
+    marker_identity = int(identity_parts[0]), int(identity_parts[1]), int(identity_parts[2])
     try:
         reservation = os.stat(destination_name, dir_fd=directory, follow_symlinks=False)
     except FileNotFoundError:
@@ -480,7 +480,7 @@ def _recover_private_reservation(directory: int, source_name: str, destination_n
         reservation is not None
         and stat.S_ISDIR(reservation.st_mode)
         and not reservation.st_mode & 0o077
-        and _identity(reservation) == marker_identity
+        and _reservation_identity(reservation) == marker_identity
     ):
         opened = os.open(
             destination_name, os.O_RDONLY | os.O_DIRECTORY | getattr(os, "O_NOFOLLOW", 0), dir_fd=directory
@@ -511,6 +511,10 @@ def _remove_unchanged_reservation(
 
 def _identity(status: os.stat_result) -> tuple[int, int]:
     return status.st_dev, status.st_ino
+
+
+def _reservation_identity(status: os.stat_result) -> tuple[int, int, int]:
+    return status.st_dev, status.st_ino, status.st_ctime_ns
 
 
 __all__ = [

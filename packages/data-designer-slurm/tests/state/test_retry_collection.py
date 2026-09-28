@@ -1533,7 +1533,7 @@ def test_collection_worker_recovers_interrupted_private_reservation(
         marker_bytes = collection_filesystem._reservation_marker_bytes(
             submitted.staging_directory,
             destination.name,
-            (reservation.st_dev, reservation.st_ino),
+            (reservation.st_dev, reservation.st_ino, reservation.st_ctime_ns),
         )
         collection_filesystem._create_reservation_marker(descriptor, marker_name, marker_bytes)
     finally:
@@ -1613,7 +1613,7 @@ def test_collection_recovery_preserves_unrelated_empty_destination(
     marker_bytes = collection_filesystem._reservation_marker_bytes(
         submitted.staging_directory,
         destination.name,
-        (unrelated_stat.st_dev, unrelated_stat.st_ino),
+        (unrelated_stat.st_dev, unrelated_stat.st_ino, unrelated_stat.st_ctime_ns),
     )
     descriptor = os.open(destination.parent, os.O_RDONLY | os.O_DIRECTORY)
     try:
@@ -1633,6 +1633,33 @@ def test_collection_recovery_preserves_unrelated_empty_destination(
     assert not list(destination.iterdir())
     assert unrelated.is_dir()
     assert not (destination.parent / marker_name).exists()
+
+
+def test_collection_recovery_rejects_reused_inode_with_changed_timestamp(tmp_path: Path) -> None:
+    parent = tmp_path / "publication"
+    parent.mkdir(mode=0o700)
+    source = parent / "staged"
+    source.mkdir(mode=0o700)
+    destination = parent / "collected"
+    destination.mkdir(mode=0o700)
+    current = destination.stat()
+    marker_name = collection_filesystem._reservation_marker_name(source.name, destination.name)
+    marker_bytes = collection_filesystem._reservation_marker_bytes(
+        source.name,
+        destination.name,
+        (current.st_dev, current.st_ino, current.st_ctime_ns + 1),
+    )
+    descriptor = os.open(parent, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        collection_filesystem._create_reservation_marker(descriptor, marker_name, marker_bytes)
+    finally:
+        os.close(descriptor)
+
+    collection_filesystem.remove_collection_stage(destination, source.name, parent)
+
+    assert destination.is_dir()
+    assert not source.exists()
+    assert not (parent / marker_name).exists()
 
 
 def test_collection_detects_destination_parent_replacement_before_success(
