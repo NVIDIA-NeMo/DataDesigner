@@ -4,9 +4,12 @@
 from __future__ import annotations
 
 import csv
+import errno
 import hashlib
 import json
+import os
 import shutil
+import sys
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -750,7 +753,15 @@ def test_collection_submits_cpu_job_and_publishes_ordered_winners_atomically(
     with pytest.raises(StateConflictError, match="requested destination"):
         coordinator.submit(destination=Path(case.plan.output.root).parent / "other")
     script = cast(str, runner.inputs[-1])
+    collection_plan = CollectionStorage(StateStorage(case.workspace, case.plan.run_id)).read_plan(
+        submitted.collection_id
+    )
+    expected_python = Path(sys.executable).absolute().as_posix()
+    assert collection_plan.python_executable == expected_python
+    assert f'readonly DD_COLLECTION_PYTHON="{expected_python}"' in script
     assert "data_designer.slurm.state.collection_worker" in script
+    assert "enroot start" not in script
+    assert "DD_CLIENT_IMAGE" not in script
     assert "--gpus" not in script
     assert "#SBATCH --gres" not in script
     stale_stage = Path(case.plan.output.root).parent / submitted.staging_directory
@@ -1443,6 +1454,58 @@ def test_collection_refuses_atomic_publication_collision_without_replacement(
 
     assert (destination / "existing.txt").read_text() == "preserve"
     assert not (destination.parent / submitted.staging_directory).exists()
+
+
+def test_collection_publication_falls_back_when_atomic_no_replace_is_unsupported(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    parent = tmp_path / "publication"
+    parent.mkdir(mode=0o700)
+    source = parent / "staged"
+    source.mkdir(mode=0o700)
+    (source / "part-00000.parquet").write_text("complete")
+
+    def unsupported(*args: object) -> None:
+        raise OSError(errno.EINVAL, "unsupported by filesystem")
+
+    monkeypatch.setattr(collection_filesystem, "_atomic_rename_without_overwrite", unsupported)
+    descriptor = os.open(parent, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        collection_filesystem._rename_without_overwrite(descriptor, source.name, descriptor, "collected")
+    finally:
+        os.close(descriptor)
+
+    assert not source.exists()
+    assert (parent / "collected" / "part-00000.parquet").read_text() == "complete"
+
+
+def test_collection_publication_fallback_preserves_existing_destination(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    parent = tmp_path / "publication"
+    parent.mkdir(mode=0o700)
+    source = parent / "staged"
+    source.mkdir(mode=0o700)
+    destination = parent / "collected"
+    destination.mkdir(mode=0o700)
+    marker = destination / "existing.txt"
+    marker.write_text("preserve")
+
+    def unsupported(*args: object) -> None:
+        raise OSError(errno.EOPNOTSUPP, "unsupported by filesystem")
+
+    monkeypatch.setattr(collection_filesystem, "_atomic_rename_without_overwrite", unsupported)
+    descriptor = os.open(parent, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        with pytest.raises(StateConflictError, match="already exists"):
+            collection_filesystem._rename_without_overwrite(descriptor, source.name, descriptor, destination.name)
+    finally:
+        os.close(descriptor)
+
+    assert source.is_dir()
+    assert marker.read_text() == "preserve"
 
 
 def test_collection_detects_destination_parent_replacement_before_success(

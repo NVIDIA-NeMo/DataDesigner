@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Protocol
@@ -80,6 +81,7 @@ class SlurmCollectionCoordinator:
         self._destinations = CollectionDestinationResolver()
         self._collector = SchedulerObservationCollector(self._scheduler)
         self._run_id = normalized_run_id
+        self._python_executable = _resolve_python_executable()
 
     def submit(
         self,
@@ -107,7 +109,7 @@ class SlurmCollectionCoordinator:
                     remove_collection_stage(
                         Path(current_plan.host_destination),
                         current.staging_directory,
-                        Path(resolved_destination.mount.source),
+                        Path(resolved_destination.authorized_root),
                     )
                 run, resolved_plan, _ = self._reader.load_context()
                 resolved_destination = self._destinations.resolve(resolved_plan, destination)
@@ -118,14 +120,14 @@ class SlurmCollectionCoordinator:
                     created_at=timestamp,
                     resolved_plan=run.resolved_plan,
                     planned_shards=self._inputs.get_winner_shards(),
+                    python_executable=self._python_executable,
                     host_destination=resolved_destination.host_path,
-                    container_destination=resolved_destination.container_path,
                     num_partitions=resolved_plan.output.partitions,
                 )
                 self._inputs.resolve(collection_plan)
                 prepare_collection_destination(
                     Path(collection_plan.host_destination),
-                    Path(resolved_destination.mount.source),
+                    Path(resolved_destination.authorized_root),
                 )
                 self._collections.ensure_collection(collection_plan.collection_id)
                 self._collections.publish_plan(collection_plan)
@@ -173,7 +175,7 @@ class SlurmCollectionCoordinator:
                     remove_collection_stage(
                         Path(plan.host_destination),
                         previous.staging_directory,
-                        Path(destination.mount.source),
+                        Path(destination.authorized_root),
                     )
                     return previous
                 if previous.state is CollectionState.PREPARED:
@@ -182,7 +184,7 @@ class SlurmCollectionCoordinator:
                         remove_collection_stage(
                             Path(plan.host_destination),
                             previous.staging_directory,
-                            Path(destination.mount.source),
+                            Path(destination.authorized_root),
                         )
                         return previous
                 assert previous.scheduler is not None
@@ -208,7 +210,7 @@ class SlurmCollectionCoordinator:
                     remove_collection_stage(
                         Path(plan.host_destination),
                         current.staging_directory,
-                        Path(destination.mount.source),
+                        Path(destination.authorized_root),
                     )
                 return current
         except (StateConflictError, StateCorruptionError, SlurmStateError):
@@ -298,7 +300,7 @@ class SlurmCollectionCoordinator:
         requested = self._destinations.resolve(resolved_plan, requested_destination)
         if requested != resolved:
             raise StateConflictError("persisted collection destination does not match the requested destination")
-        if plan.host_destination != resolved.host_path or plan.container_destination != resolved.container_path:
+        if plan.host_destination != resolved.host_path:
             raise StateCorruptionError("persisted collection destination does not match the resolved plan")
         if status.state is CollectionState.SUCCEEDED:
             self._load_valid_result(plan, status)
@@ -334,12 +336,7 @@ class SlurmCollectionCoordinator:
         )
         if status is not None and status.result != self._collections.get_result_reference(plan, validated):
             raise StateCorruptionError("collection status does not bind its published result")
-        self._collections.verify_result_files(
-            plan,
-            validated,
-            Path(plan.host_destination),
-            verify_digests=False,
-        )
+        self._collections.verify_result_files(plan, validated, verify_digests=False)
         return validated
 
     def _publish_succeeded(
@@ -367,6 +364,14 @@ class SlurmCollectionCoordinator:
         if status.staging_directory != derive_collection_staging_directory(plan):
             raise StateCorruptionError("collection status does not bind its exact staging directory")
         return plan
+
+
+def _resolve_python_executable() -> str:
+    raw = Path(sys.executable).absolute().as_posix()
+    try:
+        return validate_absolute_path(raw)
+    except ValueError as error:
+        raise SlurmStateError("collection Python executable must be a normalized absolute path") from error
 
 
 def _validate_location(workspace_root: str | Path, run_id: Identifier) -> tuple[Path, Identifier]:

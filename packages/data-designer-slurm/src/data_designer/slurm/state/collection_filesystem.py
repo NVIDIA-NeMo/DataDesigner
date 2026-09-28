@@ -23,6 +23,14 @@ from data_designer.slurm.state.outputs import CollectionPlan
 
 _RENAME_NOREPLACE = 1
 _RENAME_EXCL = 0x00000004
+_UNSUPPORTED_NO_REPLACE_ERRORS = frozenset(
+    {
+        errno.EINVAL,
+        errno.ENOSYS,
+        errno.ENOTSUP,
+        errno.EOPNOTSUPP,
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -314,6 +322,30 @@ def _rename_without_overwrite(
     destination_directory: int,
     destination_name: str,
 ) -> None:
+    try:
+        _atomic_rename_without_overwrite(
+            source_directory,
+            source_name,
+            destination_directory,
+            destination_name,
+        )
+    except OSError as error:
+        if error.errno not in _UNSUPPORTED_NO_REPLACE_ERRORS:
+            raise
+        _rename_over_private_reservation(
+            source_directory,
+            source_name,
+            destination_directory,
+            destination_name,
+        )
+
+
+def _atomic_rename_without_overwrite(
+    source_directory: int,
+    source_name: str,
+    destination_directory: int,
+    destination_name: str,
+) -> None:
     library = ctypes.CDLL(None, use_errno=True)
     source = os.fsencode(source_name)
     destination = os.fsencode(destination_name)
@@ -341,6 +373,51 @@ def _rename_without_overwrite(
     if error_number in {errno.EEXIST, errno.ENOTEMPTY}:
         raise StateConflictError(f"collection destination {destination_name!r} already exists")
     raise OSError(error_number, os.strerror(error_number), destination_name)
+
+
+def _rename_over_private_reservation(
+    source_directory: int,
+    source_name: str,
+    destination_directory: int,
+    destination_name: str,
+) -> None:
+    """Publish through an exclusive empty directory on filesystems without no-replace rename."""
+    try:
+        os.mkdir(destination_name, PRIVATE_DIRECTORY_MODE, dir_fd=destination_directory)
+    except FileExistsError:
+        raise StateConflictError(f"collection destination {destination_name!r} already exists") from None
+    reservation = os.stat(destination_name, dir_fd=destination_directory, follow_symlinks=False)
+    try:
+        if not stat.S_ISDIR(reservation.st_mode) or reservation.st_mode & 0o077:
+            raise OSError(f"collection destination reservation {destination_name!r} is not private")
+        os.fsync(destination_directory)
+        current = os.stat(destination_name, dir_fd=destination_directory, follow_symlinks=False)
+        if _identity(current) != _identity(reservation):
+            raise OSError(f"collection destination reservation {destination_name!r} changed")
+        os.rename(
+            source_name,
+            destination_name,
+            src_dir_fd=source_directory,
+            dst_dir_fd=destination_directory,
+        )
+    except BaseException:
+        _remove_unchanged_reservation(destination_directory, destination_name, reservation)
+        raise
+
+
+def _remove_unchanged_reservation(
+    destination_directory: int,
+    destination_name: str,
+    reservation: os.stat_result,
+) -> None:
+    try:
+        current = os.stat(destination_name, dir_fd=destination_directory, follow_symlinks=False)
+    except FileNotFoundError:
+        return
+    if not stat.S_ISDIR(current.st_mode) or _identity(current) != _identity(reservation):
+        return
+    os.rmdir(destination_name, dir_fd=destination_directory)
+    os.fsync(destination_directory)
 
 
 def _identity(status: os.stat_result) -> tuple[int, int]:
