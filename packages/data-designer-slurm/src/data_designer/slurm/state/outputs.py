@@ -162,13 +162,13 @@ class CollectionPlan(StateRecord):
     created_at: datetime
     resolved_plan: ArtifactReference
     planned_shards: tuple[CollectionShard, ...] = Field(min_length=1)
+    python_executable: str
     host_destination: str
-    container_destination: str
     num_partitions: PositiveInt
     overwrite: Literal[False] = False
 
     _created_at_is_utc = field_validator("created_at")(validate_utc_timestamp)
-    _destinations_are_safe = field_validator("host_destination", "container_destination")(validate_absolute_path)
+    _paths_are_safe = field_validator("python_executable", "host_destination")(validate_absolute_path)
 
     @property
     def submission_job_name(self) -> Identifier:
