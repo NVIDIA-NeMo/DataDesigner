@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import ctypes
 import errno
+import hashlib
 import os
 import stat
 import sys
@@ -126,6 +127,7 @@ def remove_collection_stage(destination: Path, staging_directory: str, authorize
     try:
         with _open_authorized_parent(destination, authorized_root) as parent_descriptor:
             _require_restrictive_parent(parent_descriptor)
+            _recover_private_reservation(parent_descriptor, staging_directory, destination.name)
             _remove_existing_stage(parent_descriptor, destination.parent, staging_directory)
     except _MissingDestinationParent:
         return
@@ -149,6 +151,7 @@ def stage_collection(
         raise StateConflictError("collection destination cannot be the filesystem root")
     with _open_authorized_parent(destination, authorized_root) as parent_descriptor:
         parent_status = _require_restrictive_parent(parent_descriptor)
+        _recover_private_reservation(parent_descriptor, staging_directory, destination.name)
         _require_absent(parent_descriptor, destination.name, destination)
         _remove_existing_stage(parent_descriptor, destination.parent, staging_directory)
         stage_name = _create_stage_directory(parent_descriptor, staging_directory)
@@ -382,12 +385,18 @@ def _rename_over_private_reservation(
     destination_name: str,
 ) -> None:
     """Publish through an exclusive empty directory on filesystems without no-replace rename."""
+    marker_name = _reservation_marker_name(source_name, destination_name)
+    marker_bytes = _reservation_marker_bytes(source_name, destination_name)
+    _create_reservation_marker(destination_directory, marker_name, marker_bytes)
+    reservation: os.stat_result | None = None
+    remove_marker = False
     try:
-        os.mkdir(destination_name, PRIVATE_DIRECTORY_MODE, dir_fd=destination_directory)
-    except FileExistsError:
-        raise StateConflictError(f"collection destination {destination_name!r} already exists") from None
-    reservation = os.stat(destination_name, dir_fd=destination_directory, follow_symlinks=False)
-    try:
+        try:
+            os.mkdir(destination_name, PRIVATE_DIRECTORY_MODE, dir_fd=destination_directory)
+        except FileExistsError:
+            remove_marker = True
+            raise StateConflictError(f"collection destination {destination_name!r} already exists") from None
+        reservation = os.stat(destination_name, dir_fd=destination_directory, follow_symlinks=False)
         if not stat.S_ISDIR(reservation.st_mode) or reservation.st_mode & 0o077:
             raise OSError(f"collection destination reservation {destination_name!r} is not private")
         os.fsync(destination_directory)
@@ -400,9 +409,79 @@ def _rename_over_private_reservation(
             src_dir_fd=source_directory,
             dst_dir_fd=destination_directory,
         )
+        remove_marker = True
     except BaseException:
-        _remove_unchanged_reservation(destination_directory, destination_name, reservation)
+        if reservation is not None:
+            _remove_unchanged_reservation(destination_directory, destination_name, reservation)
+            remove_marker = True
         raise
+    finally:
+        if remove_marker:
+            os.unlink(marker_name, dir_fd=destination_directory)
+            os.fsync(destination_directory)
+
+
+def _reservation_marker_name(source_name: str, destination_name: str) -> str:
+    identity = hashlib.sha256(_reservation_marker_bytes(source_name, destination_name)).hexdigest()[:32]
+    return f".dd-collection-reservation-{identity}"
+
+
+def _reservation_marker_bytes(source_name: str, destination_name: str) -> bytes:
+    return f"{source_name}\n{destination_name}\n".encode("utf-8")
+
+
+def _create_reservation_marker(directory: int, name: str, content: bytes) -> None:
+    descriptor = os.open(
+        name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600, dir_fd=directory
+    )
+    try:
+        if os.write(descriptor, content) != len(content):
+            raise OSError("collection reservation marker write was incomplete")
+        os.fsync(descriptor)
+    except BaseException:
+        os.unlink(name, dir_fd=directory)
+        raise
+    finally:
+        os.close(descriptor)
+    os.fsync(directory)
+
+
+def _recover_private_reservation(directory: int, source_name: str, destination_name: str) -> None:
+    marker_name = _reservation_marker_name(source_name, destination_name)
+    try:
+        marker = os.stat(marker_name, dir_fd=directory, follow_symlinks=False)
+    except FileNotFoundError:
+        return
+    if (
+        not stat.S_ISREG(marker.st_mode)
+        or marker.st_mode & 0o077
+        or marker.st_nlink != 1
+        or marker.st_uid != os.getuid()
+    ):
+        raise OSError(f"collection reservation marker {marker_name!r} is unsafe")
+    descriptor = os.open(marker_name, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0), dir_fd=directory)
+    try:
+        if _identity(os.fstat(descriptor)) != _identity(marker):
+            raise OSError(f"collection reservation marker {marker_name!r} changed")
+        if os.read(descriptor, 1024) != _reservation_marker_bytes(source_name, destination_name):
+            raise OSError(f"collection reservation marker {marker_name!r} is invalid")
+    finally:
+        os.close(descriptor)
+    try:
+        reservation = os.stat(destination_name, dir_fd=directory, follow_symlinks=False)
+    except FileNotFoundError:
+        reservation = None
+    if reservation is not None and stat.S_ISDIR(reservation.st_mode) and not reservation.st_mode & 0o077:
+        opened = os.open(
+            destination_name, os.O_RDONLY | os.O_DIRECTORY | getattr(os, "O_NOFOLLOW", 0), dir_fd=directory
+        )
+        try:
+            if _identity(os.fstat(opened)) == _identity(reservation) and not os.listdir(opened):
+                _remove_unchanged_reservation(directory, destination_name, reservation)
+        finally:
+            os.close(opened)
+    os.unlink(marker_name, dir_fd=directory)
+    os.fsync(directory)
 
 
 def _remove_unchanged_reservation(

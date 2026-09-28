@@ -1478,6 +1478,7 @@ def test_collection_publication_falls_back_when_atomic_no_replace_is_unsupported
 
     assert not source.exists()
     assert (parent / "collected" / "part-00000.parquet").read_text() == "complete"
+    assert not any(name.startswith(".dd-collection-reservation-") for name in os.listdir(parent))
 
 
 def test_collection_publication_fallback_preserves_existing_destination(
@@ -1506,6 +1507,83 @@ def test_collection_publication_fallback_preserves_existing_destination(
 
     assert source.is_dir()
     assert marker.read_text() == "preserve"
+    assert not any(name.startswith(".dd-collection-reservation-") for name in os.listdir(parent))
+
+
+def test_collection_worker_recovers_interrupted_private_reservation(
+    tmp_path: Path,
+    authored_run: DataDesignerSlurmConfig,
+    multi_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    case = _initialize_run(tmp_path, authored_run, multi_node_plan)
+    _publish_all_winners(case)
+    runner = FakeSlurmRunner(jobs=(FakeSlurmJob(5101),))
+    submitted = SlurmCollectionCoordinator(
+        case.workspace,
+        case.plan.run_id,
+        SlurmCommandClient(runner),
+    ).submit(submitted_at=case.created_at + timedelta(minutes=10))
+    destination = Path(case.plan.output.root)
+    marker_name = collection_filesystem._reservation_marker_name(submitted.staging_directory, destination.name)
+    marker_bytes = collection_filesystem._reservation_marker_bytes(submitted.staging_directory, destination.name)
+    descriptor = os.open(destination.parent, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        collection_filesystem._create_reservation_marker(descriptor, marker_name, marker_bytes)
+        os.mkdir(destination.name, 0o700, dir_fd=descriptor)
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+    result = SlurmCollectionWorker(
+        case.workspace,
+        case.plan.run_id,
+        submitted.collection_id,
+        environment={"SLURM_JOB_ID": "5101"},
+    ).run(completed_at=case.created_at + timedelta(minutes=11))
+
+    assert result.actual_records == case.plan.invocation.authored.num_records
+    collections = CollectionStorage(StateStorage(case.workspace, case.plan.run_id))
+    assert collections.get_result_path(collections.read_plan(submitted.collection_id)).is_file()
+    assert not (destination.parent / marker_name).exists()
+
+
+def test_collection_reservation_stays_recoverable_after_metadata_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    parent = tmp_path / "publication"
+    parent.mkdir(mode=0o700)
+    source = parent / "staged"
+    source.mkdir(mode=0o700)
+    destination = parent / "collected"
+    marker_name = collection_filesystem._reservation_marker_name(source.name, destination.name)
+
+    def unsupported(*args: object) -> None:
+        raise OSError(errno.EINVAL, "unsupported by filesystem")
+
+    original_stat = os.stat
+    descriptor = os.open(parent, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        with monkeypatch.context() as patcher:
+            patcher.setattr(collection_filesystem, "_atomic_rename_without_overwrite", unsupported)
+
+            def fail_reservation_stat(path: object, *args: object, **kwargs: object) -> os.stat_result:
+                if path == destination.name and kwargs.get("dir_fd") == descriptor:
+                    raise OSError(errno.EIO, "reservation metadata unavailable")
+                return original_stat(path, *args, **kwargs)
+
+            patcher.setattr(os, "stat", fail_reservation_stat)
+            with pytest.raises(OSError, match="reservation metadata unavailable"):
+                collection_filesystem._rename_without_overwrite(descriptor, source.name, descriptor, destination.name)
+    finally:
+        os.close(descriptor)
+
+    assert destination.is_dir()
+    assert (parent / marker_name).is_file()
+    collection_filesystem.remove_collection_stage(destination, source.name, parent)
+    assert not destination.exists()
+    assert not source.exists()
+    assert not (parent / marker_name).exists()
 
 
 def test_collection_detects_destination_parent_replacement_before_success(

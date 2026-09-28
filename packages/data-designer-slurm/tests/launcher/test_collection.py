@@ -46,7 +46,7 @@ def test_collection_renderer_uses_plan_bound_native_python_and_no_gpu_directives
     )
     destination = CollectionDestinationResolver().resolve(plan)
     collection = CollectionPlan(
-        schema_version=1,
+        schema_version=2,
         collection_id="collection-0001",
         run_id=plan.run_id,
         created_at=datetime(2026, 9, 2, tzinfo=timezone.utc),
@@ -188,7 +188,7 @@ def test_destination_reauthorizes_explicit_path_through_workspace_mapping(
     resolver = CollectionDestinationResolver()
     destination = resolver.resolve(plan, requested)
     collection = CollectionPlan(
-        schema_version=1,
+        schema_version=2,
         collection_id="collection-0001",
         run_id=plan.run_id,
         created_at=datetime(2026, 9, 2, tzinfo=timezone.utc),

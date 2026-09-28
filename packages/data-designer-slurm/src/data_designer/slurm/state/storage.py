@@ -32,7 +32,7 @@ from data_designer.slurm.state.filesystem import (
     replace_text,
     sync_directory,
 )
-from data_designer.slurm.state.outputs import CandidateOutputManifest, ShardWinner
+from data_designer.slurm.state.outputs import CandidateOutputManifest, CollectionPlan, ShardWinner
 from data_designer.slurm.state.readiness import AttemptReadiness
 from data_designer.slurm.state.scheduler import SchedulerObservation
 
@@ -453,11 +453,11 @@ class StateStorage:
                 display_path,
                 maximum_size=_MAXIMUM_RECORD_SIZE,
             )
-            _validate_supported_record_version(content, display_path)
+            _validate_supported_record_version(content, display_path, record_type)
             record = record_type.model_validate_json(content)
             if record.serialize_json() != content:
                 raise StateCorruptionError(
-                    f"persisted state record {display_path.name!r} is not canonical for schema_version 1; "
+                    f"persisted state record {display_path.name!r} is not canonical for its schema_version; "
                     "persisted schema migrations are not supported"
                 )
             return record
@@ -611,7 +611,12 @@ class StateStorage:
         raise TypeError(f"unsupported persisted record type: {type(record).__name__}")
 
 
-def _validate_supported_record_version(content: str, display_path: Path) -> None:
+def _validate_supported_record_version(
+    content: str,
+    display_path: Path,
+    record_type: type[ContractRecord],
+) -> None:
     payload = json.loads(content)
-    if not isinstance(payload, dict) or payload.get("schema_version") != 1:
+    supported_versions = (1, 2) if record_type is CollectionPlan else (1,)
+    if not isinstance(payload, dict) or payload.get("schema_version") not in supported_versions:
         raise StateCorruptionError(f"persisted state record {display_path.name!r} uses an unsupported schema_version")

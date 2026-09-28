@@ -114,7 +114,7 @@ class SlurmCollectionCoordinator:
                 run, resolved_plan, _ = self._reader.load_context()
                 resolved_destination = self._destinations.resolve(resolved_plan, destination)
                 collection_plan = CollectionPlan(
-                    schema_version=1,
+                    schema_version=2,
                     collection_id=self._collections.get_next_collection_id(),
                     run_id=run.run_id,
                     created_at=timestamp,
