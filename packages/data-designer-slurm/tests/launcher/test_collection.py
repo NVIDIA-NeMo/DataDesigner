@@ -20,7 +20,7 @@ from data_designer.slurm.state.destinations import CollectionDestinationResolver
 from data_designer.slurm.state.errors import StateConflictError
 
 
-def test_collection_renderer_uses_authorized_mounts_and_no_gpu_directives(
+def test_collection_renderer_uses_plan_bound_native_python_and_no_gpu_directives(
     multi_node_plan: ResolvedSlurmRunPlan,
 ) -> None:
     workspace_mount = ContainerMount(source="/workspace", target="/workspace", read_only=False)
@@ -63,8 +63,8 @@ def test_collection_renderer_uses_authorized_mounts_and_no_gpu_directives(
                 ),
             ),
         ),
+        python_executable="/shared/data-designer/bin/python",
         host_destination=destination.host_path,
-        container_destination=destination.container_path,
         num_partitions=plan.output.partitions,
     )
 
@@ -74,12 +74,19 @@ def test_collection_renderer_uses_authorized_mounts_and_no_gpu_directives(
     assert "#SBATCH --partition=cpu" in script
     assert "#SBATCH --partition=batch" not in script
     assert f"dd-collect-{plan.run_id}" not in script
-    assert 'readonly DD_STATE_MOUNT="/workspace/primary:/workspace/primary"' in script
-    assert 'readonly DD_OUTPUT_MOUNT="/workspace/primary/runs/run-001:/exports"' in script
     assert (
         'readonly DD_COLLECTION_PLAN="/workspace/primary/runs/run-001/collections/collection-0001/plan.json"' in script
     )
+    assert 'readonly DD_COLLECTION_PYTHON="/shared/data-designer/bin/python"' in script
+    assert 'readonly DD_PACKAGE_VERSION="0.9.2"' in script
+    assert f'readonly DD_RUNTIME_ARCHIVE="{plan.runtime_bundle.path}"' in script
+    assert f'readonly DD_RUNTIME_SHA256="{plan.runtime_bundle.sha256}"' in script
+    assert 'export PYTHONPATH="${DD_SCRATCH_ROOT}/runtime"' in script
     assert "data_designer.slurm.state.collection_worker" in script
+    assert '"${DD_COLLECTION_PYTHON}" -m data_designer.slurm.state.collection_worker' in script
+    assert "enroot start" not in script
+    assert "DD_CLIENT_IMAGE" not in script
+    assert "DD_ENROOT_MOUNTS" not in script
     assert "#SBATCH --gres=" not in script
     assert "#SBATCH --gpus=" not in script
     assert script.index("trap 'exit 143' TERM") < script.index("\ndd_initialize_local_scratch\n")
@@ -198,12 +205,12 @@ def test_destination_reauthorizes_explicit_path_through_workspace_mapping(
                 ),
             ),
         ),
+        python_executable="/shared/data-designer/bin/python",
         host_destination=requested,
-        container_destination=requested,
         num_partitions=plan.output.partitions,
     )
 
-    assert destination.mount == ContainerMount(source=workspace_root, target=workspace_root, read_only=False)
+    assert destination.authorized_root == workspace_root
     assert resolver.validate_persisted(plan, collection) == destination
 
 
@@ -237,7 +244,7 @@ def test_destination_allows_current_run_output_subtree(multi_node_plan: Resolved
     assert CollectionDestinationResolver().resolve(multi_node_plan, requested).host_path == requested
 
 
-def test_destination_requires_one_unique_most_specific_mapping(
+def test_destination_ignores_duplicate_container_targets_for_one_host_root(
     multi_node_plan: ResolvedSlurmRunPlan,
 ) -> None:
     requested = "/host/exports/run-001"
@@ -247,5 +254,4 @@ def test_destination_requires_one_unique_most_specific_mapping(
     )
     plan = multi_node_plan.model_copy(update={"container_mounts": mounts})
 
-    with pytest.raises(StateConflictError, match="ambiguous writable mount"):
-        CollectionDestinationResolver().resolve(plan, requested)
+    assert CollectionDestinationResolver().resolve(plan, requested).authorized_root == "/host/exports"
