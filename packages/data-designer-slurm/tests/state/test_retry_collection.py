@@ -1662,6 +1662,24 @@ def test_collection_recovery_rejects_reused_inode_with_changed_timestamp(tmp_pat
     assert not (parent / marker_name).exists()
 
 
+def test_collection_failed_publication_preserves_changed_reservation(tmp_path: Path) -> None:
+    parent = tmp_path / "publication"
+    parent.mkdir(mode=0o700)
+    destination = parent / "collected"
+    destination.mkdir(mode=0o700)
+    reservation = destination.stat()
+    destination.chmod(0o500)
+    assert destination.stat().st_ctime_ns != reservation.st_ctime_ns
+
+    descriptor = os.open(parent, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        collection_filesystem._remove_unchanged_reservation(descriptor, destination.name, reservation)
+    finally:
+        os.close(descriptor)
+
+    assert destination.is_dir()
+
+
 def test_collection_detects_destination_parent_replacement_before_success(
     tmp_path: Path,
     authored_run: DataDesignerSlurmConfig,

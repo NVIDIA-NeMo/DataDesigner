@@ -503,7 +503,7 @@ def _remove_unchanged_reservation(
         current = os.stat(destination_name, dir_fd=destination_directory, follow_symlinks=False)
     except FileNotFoundError:
         return
-    if not stat.S_ISDIR(current.st_mode) or _identity(current) != _identity(reservation):
+    if not stat.S_ISDIR(current.st_mode) or _reservation_identity(current) != _reservation_identity(reservation):
         return
     os.rmdir(destination_name, dir_fd=destination_directory)
     os.fsync(destination_directory)
