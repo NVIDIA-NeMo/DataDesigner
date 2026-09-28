@@ -157,7 +157,7 @@ class RetryPlan(StateRecord):
 
 
 class CollectionPlan(StateRecord):
-    """Immutable inputs and destinations for deterministic collection."""
+    """Immutable collection intent with v1 container and v2 native Python execution."""
 
     schema_version: Literal[1, 2]
     collection_id: Identifier
@@ -189,11 +189,13 @@ class CollectionPlan(StateRecord):
 
     def serialize_canonical_json(self) -> bytes:
         """Preserve exact v1 bytes while omitting the unused version-specific path."""
-        return canonical_json(self.model_dump(mode="json", exclude_none=True))
+        excluded = "python_executable" if self.schema_version == 1 else "container_destination"
+        return canonical_json(self.model_dump(mode="json", exclude={excluded}))
 
     def serialize_json(self) -> str:
         """Serialize each collection plan in its original versioned shape."""
-        return pretty_json(self.model_dump(mode="json", exclude_none=True))
+        excluded = "python_executable" if self.schema_version == 1 else "container_destination"
+        return pretty_json(self.model_dump(mode="json", exclude={excluded}))
 
     @property
     def submission_job_name(self) -> Identifier:
