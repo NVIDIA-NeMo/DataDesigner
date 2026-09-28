@@ -1,6 +1,5 @@
 {
   "collection_id": "collection-0001",
-  "container_destination": "/mnt/data/run-0001.parquet",
   "created_at": "2026-08-18T12:06:00Z",
   "host_destination": "/workspace/runs/run-0001/collection/run-0001.parquet",
   "num_partitions": 1,
@@ -14,6 +13,7 @@
       }
     }
   ],
+  "python_executable": "/shared/data-designer/bin/python",
   "resolved_plan": {
     "path": "/workspace/runs/run-0001/resolved-plan.json",
     "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
