@@ -97,9 +97,9 @@ class SlurmCollectionWorker:
         try:
             destination = self._destinations.validate_persisted(resolved_plan, plan)
             with stage_collection(
-                Path(plan.container_destination),
+                Path(plan.host_destination),
                 derive_collection_staging_directory(plan),
-                Path(destination.mount.target),
+                Path(destination.authorized_root),
             ) as staged:
                 merger = CollectionMerger(resolved_plan.output.format, completed_at=completed_at)
                 result = merger.merge(
@@ -138,7 +138,7 @@ class SlurmCollectionWorker:
         plan: CollectionPlan,
         status: CollectionStatus | None = None,
     ) -> CollectionResult:
-        result = self._collections.read_result_from(plan, Path(plan.container_destination))
+        result = self._collections.read_result(plan)
         resolved_plan = self._reader.load_resolved_plan()
         validated = validate_collection_result(
             plan,
@@ -148,7 +148,7 @@ class SlurmCollectionWorker:
         )
         if status is not None and status.result != self._collections.get_result_reference(plan, validated):
             raise StateCorruptionError("collection status does not bind its published result")
-        self._collections.verify_result_files(plan, validated, Path(plan.container_destination))
+        self._collections.verify_result_files(plan, validated)
         return validated
 
     def _publish_success_status(

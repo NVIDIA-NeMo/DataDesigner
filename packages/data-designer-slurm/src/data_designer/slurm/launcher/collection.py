@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import posixpath
 from importlib import resources
-from pathlib import PurePosixPath
 
 from data_designer.slurm.launcher.batch import quote_shell_value, render_batch_directives
 from data_designer.slurm.launcher.errors import SlurmBatchRenderError
@@ -26,8 +25,6 @@ def render_collection_script(
         raise SlurmBatchRenderError("collection run identity does not match the resolved plan")
     if collection_plan.host_destination != destination.host_path:
         raise SlurmBatchRenderError("collection host destination does not match its resolved mount")
-    if collection_plan.container_destination != destination.container_path:
-        raise SlurmBatchRenderError("collection container destination does not match its resolved mount")
 
     collection_root = posixpath.join(
         posixpath.dirname(resolved_plan.authored_config.path),
@@ -49,29 +46,23 @@ def render_collection_script(
             ("error", f"{collection_root}/slurm-%j.err"),
         )
     )
-    workspace_root = resolved_plan.selected_profile.profile.workspace_root
-    state_mount = f"{workspace_root}:{workspace_root}"
-    output_mount = f"{destination.mount.source}:{destination.mount.target}"
-    mount_arguments = _render_mount_arguments(
-        ("DD_STATE_MOUNT", workspace_root, workspace_root),
-        ("DD_OUTPUT_MOUNT", destination.mount.source, destination.mount.target),
-    )
     scratch_source = resources.files("data_designer.slurm.runtime").joinpath("scratch.sh").read_text()
     return f"""#!/usr/bin/env bash
 {directives}
 set -Eeuo pipefail
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+export PYTHONNOUSERSITE=1
 
 {scratch_source}
-readonly DD_CLIENT_IMAGE={quote_shell_value(resolved_plan.client.image.path)}
-readonly DD_CLIENT_IMAGE_SHA256={quote_shell_value(resolved_plan.client.image.sha256)}
 readonly DD_COLLECTION_PLAN={quote_shell_value(collection_plan_path)}
 readonly DD_COLLECTION_PLAN_SHA256={quote_shell_value(collection_plan.compute_sha256())}
+readonly DD_COLLECTION_PYTHON={quote_shell_value(collection_plan.python_executable)}
+readonly DD_PACKAGE_VERSION={quote_shell_value(resolved_plan.package_version)}
+readonly DD_RUNTIME_ARCHIVE={quote_shell_value(resolved_plan.runtime_bundle.path)}
+readonly DD_RUNTIME_SHA256={quote_shell_value(resolved_plan.runtime_bundle.sha256)}
 readonly DD_WORKSPACE_ROOT={quote_shell_value(resolved_plan.selected_profile.profile.workspace_root)}
 readonly DD_RUN_ID={quote_shell_value(resolved_plan.run_id)}
 readonly DD_COLLECTION_ID={quote_shell_value(collection_plan.collection_id)}
-readonly DD_STATE_MOUNT={quote_shell_value(state_mount)}
-readonly DD_OUTPUT_MOUNT={quote_shell_value(output_mount)}
 
 verify_sha256() {{
     local actual_sha256
@@ -79,33 +70,20 @@ verify_sha256() {{
     [[ "${{actual_sha256%% *}}" == "$1" ]]
 }}
 
-verify_sha256 "${{DD_CLIENT_IMAGE_SHA256}}" "${{DD_CLIENT_IMAGE}}"
 verify_sha256 "${{DD_COLLECTION_PLAN_SHA256}}" "${{DD_COLLECTION_PLAN}}"
+[[ -x "${{DD_COLLECTION_PYTHON}}" ]]
+actual_package_version="$("${{DD_COLLECTION_PYTHON}}" -c \
+    'from importlib.metadata import version; print(version("data-designer-slurm"))')"
+[[ "${{actual_package_version}}" == "${{DD_PACKAGE_VERSION}}" ]]
 trap 'status=$?; dd_remove_local_scratch "${{DD_SCRATCH_ROOT}}" || true; exit "${{status}}"' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 dd_initialize_local_scratch
-export HOME="${{DD_SCRATCH_ROOT}}/home"
-DD_ENROOT_MOUNTS=({mount_arguments})
-readonly DD_ENROOT_MOUNTS
-enroot start --root "${{DD_ENROOT_MOUNTS[@]}}" "${{DD_CLIENT_IMAGE}}" \
-    python -m data_designer.slurm.state.collection_worker \
+dd_extract_runtime_bundle "${{DD_RUNTIME_ARCHIVE}}" "${{DD_RUNTIME_SHA256}}"
+export PYTHONPATH="${{DD_SCRATCH_ROOT}}/runtime"
+"${{DD_COLLECTION_PYTHON}}" -m data_designer.slurm.state.collection_worker \
     --workspace-root "${{DD_WORKSPACE_ROOT}}" --run-id "${{DD_RUN_ID}}" --collection-id "${{DD_COLLECTION_ID}}"
 """
-
-
-def _render_mount_arguments(*mounts: tuple[str, str, str]) -> str:
-    unique: dict[str, tuple[str, str, str]] = {}
-    targets: dict[str, str] = {}
-    for variable, source, target in mounts:
-        mount = f"{source}:{target}"
-        existing_source = targets.get(target)
-        if existing_source is not None and existing_source != source:
-            raise SlurmBatchRenderError("collection state and output mounts cannot share a target")
-        targets[target] = source
-        unique.setdefault(mount, (variable, source, target))
-    ordered = sorted(unique.values(), key=lambda item: len(PurePosixPath(item[2]).parts))
-    return " ".join(f'--mount "${{{variable}}}"' for variable, _, _ in ordered)
 
 
 __all__ = ["render_collection_script"]
