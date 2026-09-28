@@ -4,9 +4,12 @@
 from __future__ import annotations
 
 import csv
+import errno
 import hashlib
 import json
+import os
 import shutil
+import sys
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -750,7 +753,15 @@ def test_collection_submits_cpu_job_and_publishes_ordered_winners_atomically(
     with pytest.raises(StateConflictError, match="requested destination"):
         coordinator.submit(destination=Path(case.plan.output.root).parent / "other")
     script = cast(str, runner.inputs[-1])
+    collection_plan = CollectionStorage(StateStorage(case.workspace, case.plan.run_id)).read_plan(
+        submitted.collection_id
+    )
+    expected_python = Path(sys.executable).absolute().as_posix()
+    assert collection_plan.python_executable == expected_python
+    assert f'readonly DD_COLLECTION_PYTHON="{expected_python}"' in script
     assert "data_designer.slurm.state.collection_worker" in script
+    assert "enroot start" not in script
+    assert "DD_CLIENT_IMAGE" not in script
     assert "--gpus" not in script
     assert "#SBATCH --gres" not in script
     stale_stage = Path(case.plan.output.root).parent / submitted.staging_directory
@@ -1443,6 +1454,230 @@ def test_collection_refuses_atomic_publication_collision_without_replacement(
 
     assert (destination / "existing.txt").read_text() == "preserve"
     assert not (destination.parent / submitted.staging_directory).exists()
+
+
+def test_collection_publication_falls_back_when_atomic_no_replace_is_unsupported(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    parent = tmp_path / "publication"
+    parent.mkdir(mode=0o700)
+    source = parent / "staged"
+    source.mkdir(mode=0o700)
+    (source / "part-00000.parquet").write_text("complete")
+
+    def unsupported(*args: object) -> None:
+        raise OSError(errno.EINVAL, "unsupported by filesystem")
+
+    monkeypatch.setattr(collection_filesystem, "_atomic_rename_without_overwrite", unsupported)
+    descriptor = os.open(parent, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        collection_filesystem._rename_without_overwrite(descriptor, source.name, descriptor, "collected")
+    finally:
+        os.close(descriptor)
+
+    assert not source.exists()
+    assert (parent / "collected" / "part-00000.parquet").read_text() == "complete"
+    assert not any(name.startswith(".dd-collection-reservation-") for name in os.listdir(parent))
+
+
+def test_collection_publication_fallback_preserves_existing_destination(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    parent = tmp_path / "publication"
+    parent.mkdir(mode=0o700)
+    source = parent / "staged"
+    source.mkdir(mode=0o700)
+    destination = parent / "collected"
+    destination.mkdir(mode=0o700)
+    marker = destination / "existing.txt"
+    marker.write_text("preserve")
+
+    def unsupported(*args: object) -> None:
+        raise OSError(errno.EOPNOTSUPP, "unsupported by filesystem")
+
+    monkeypatch.setattr(collection_filesystem, "_atomic_rename_without_overwrite", unsupported)
+    descriptor = os.open(parent, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        with pytest.raises(StateConflictError, match="already exists"):
+            collection_filesystem._rename_without_overwrite(descriptor, source.name, descriptor, destination.name)
+    finally:
+        os.close(descriptor)
+
+    assert source.is_dir()
+    assert marker.read_text() == "preserve"
+    assert not any(name.startswith(".dd-collection-reservation-") for name in os.listdir(parent))
+
+
+def test_collection_worker_recovers_interrupted_private_reservation(
+    tmp_path: Path,
+    authored_run: DataDesignerSlurmConfig,
+    multi_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    case = _initialize_run(tmp_path, authored_run, multi_node_plan)
+    _publish_all_winners(case)
+    runner = FakeSlurmRunner(jobs=(FakeSlurmJob(5101),))
+    submitted = SlurmCollectionCoordinator(
+        case.workspace,
+        case.plan.run_id,
+        SlurmCommandClient(runner),
+    ).submit(submitted_at=case.created_at + timedelta(minutes=10))
+    destination = Path(case.plan.output.root)
+    marker_name = collection_filesystem._reservation_marker_name(submitted.staging_directory, destination.name)
+    descriptor = os.open(destination.parent, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.mkdir(destination.name, 0o700, dir_fd=descriptor)
+        os.fsync(descriptor)
+        reservation = os.stat(destination.name, dir_fd=descriptor, follow_symlinks=False)
+        marker_bytes = collection_filesystem._reservation_marker_bytes(
+            submitted.staging_directory,
+            destination.name,
+            (reservation.st_dev, reservation.st_ino, reservation.st_ctime_ns),
+        )
+        collection_filesystem._create_reservation_marker(descriptor, marker_name, marker_bytes)
+    finally:
+        os.close(descriptor)
+
+    result = SlurmCollectionWorker(
+        case.workspace,
+        case.plan.run_id,
+        submitted.collection_id,
+        environment={"SLURM_JOB_ID": "5101"},
+    ).run(completed_at=case.created_at + timedelta(minutes=11))
+
+    assert result.actual_records == case.plan.invocation.authored.num_records
+    collections = CollectionStorage(StateStorage(case.workspace, case.plan.run_id))
+    assert collections.get_result_path(collections.read_plan(submitted.collection_id)).is_file()
+    assert not (destination.parent / marker_name).exists()
+
+
+def test_collection_reservation_metadata_failure_preserves_unmarked_destination(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    parent = tmp_path / "publication"
+    parent.mkdir(mode=0o700)
+    source = parent / "staged"
+    source.mkdir(mode=0o700)
+    destination = parent / "collected"
+    marker_name = collection_filesystem._reservation_marker_name(source.name, destination.name)
+
+    def unsupported(*args: object) -> None:
+        raise OSError(errno.EINVAL, "unsupported by filesystem")
+
+    original_stat = os.stat
+    descriptor = os.open(parent, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        with monkeypatch.context() as patcher:
+            patcher.setattr(collection_filesystem, "_atomic_rename_without_overwrite", unsupported)
+
+            def fail_reservation_stat(path: object, *args: object, **kwargs: object) -> os.stat_result:
+                if path == destination.name and kwargs.get("dir_fd") == descriptor:
+                    raise OSError(errno.EIO, "reservation metadata unavailable")
+                return original_stat(path, *args, **kwargs)
+
+            patcher.setattr(os, "stat", fail_reservation_stat)
+            with pytest.raises(OSError, match="reservation metadata unavailable"):
+                collection_filesystem._rename_without_overwrite(descriptor, source.name, descriptor, destination.name)
+    finally:
+        os.close(descriptor)
+
+    assert destination.is_dir()
+    assert not (parent / marker_name).exists()
+    collection_filesystem.remove_collection_stage(destination, source.name, parent)
+    assert destination.is_dir()
+    assert not source.exists()
+    assert not (parent / marker_name).exists()
+
+
+def test_collection_recovery_preserves_unrelated_empty_destination(
+    tmp_path: Path,
+    authored_run: DataDesignerSlurmConfig,
+    multi_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    case = _initialize_run(tmp_path, authored_run, multi_node_plan)
+    _publish_all_winners(case)
+    runner = FakeSlurmRunner(jobs=(FakeSlurmJob(5101),))
+    submitted = SlurmCollectionCoordinator(
+        case.workspace,
+        case.plan.run_id,
+        SlurmCommandClient(runner),
+    ).submit(submitted_at=case.created_at + timedelta(minutes=10))
+    destination = Path(case.plan.output.root)
+    unrelated = destination.parent / "unrelated-reservation"
+    unrelated.mkdir(mode=0o700)
+    destination.mkdir(mode=0o700)
+    marker_name = collection_filesystem._reservation_marker_name(submitted.staging_directory, destination.name)
+    unrelated_stat = unrelated.stat()
+    marker_bytes = collection_filesystem._reservation_marker_bytes(
+        submitted.staging_directory,
+        destination.name,
+        (unrelated_stat.st_dev, unrelated_stat.st_ino, unrelated_stat.st_ctime_ns),
+    )
+    descriptor = os.open(destination.parent, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        collection_filesystem._create_reservation_marker(descriptor, marker_name, marker_bytes)
+    finally:
+        os.close(descriptor)
+
+    with pytest.raises(StateConflictError, match="already exists"):
+        SlurmCollectionWorker(
+            case.workspace,
+            case.plan.run_id,
+            submitted.collection_id,
+            environment={"SLURM_JOB_ID": "5101"},
+        ).run(completed_at=case.created_at + timedelta(minutes=11))
+
+    assert destination.is_dir()
+    assert not list(destination.iterdir())
+    assert unrelated.is_dir()
+    assert not (destination.parent / marker_name).exists()
+
+
+def test_collection_recovery_rejects_reused_inode_with_changed_timestamp(tmp_path: Path) -> None:
+    parent = tmp_path / "publication"
+    parent.mkdir(mode=0o700)
+    source = parent / "staged"
+    source.mkdir(mode=0o700)
+    destination = parent / "collected"
+    destination.mkdir(mode=0o700)
+    current = destination.stat()
+    marker_name = collection_filesystem._reservation_marker_name(source.name, destination.name)
+    marker_bytes = collection_filesystem._reservation_marker_bytes(
+        source.name,
+        destination.name,
+        (current.st_dev, current.st_ino, current.st_ctime_ns + 1),
+    )
+    descriptor = os.open(parent, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        collection_filesystem._create_reservation_marker(descriptor, marker_name, marker_bytes)
+    finally:
+        os.close(descriptor)
+
+    collection_filesystem.remove_collection_stage(destination, source.name, parent)
+
+    assert destination.is_dir()
+    assert not source.exists()
+    assert not (parent / marker_name).exists()
+
+
+def test_collection_failed_publication_preserves_changed_reservation(tmp_path: Path) -> None:
+    parent = tmp_path / "publication"
+    parent.mkdir(mode=0o700)
+    destination = parent / "collected"
+    destination.mkdir(mode=0o700)
+    reservation = destination.stat()
+    destination.chmod(0o500)
+    assert destination.stat().st_ctime_ns != reservation.st_ctime_ns
+
+    descriptor = os.open(parent, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        collection_filesystem._remove_unchanged_reservation(descriptor, destination.name, reservation)
+    finally:
+        os.close(descriptor)
+
+    assert destination.is_dir()
 
 
 def test_collection_detects_destination_parent_replacement_before_success(
