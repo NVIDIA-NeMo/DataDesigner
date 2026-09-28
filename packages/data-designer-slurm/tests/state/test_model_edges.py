@@ -151,6 +151,14 @@ def test_collection_plan_rejects_duplicate_shards_and_winner_paths() -> None:
         CollectionPlan.model_validate_json(json.dumps(payload))
 
 
+def test_collection_plan_requires_absolute_python_executable() -> None:
+    payload = _golden_payload("collection_plan.json")
+    payload["python_executable"] = ".venv/bin/python"
+
+    with pytest.raises(ValidationError, match="path must be absolute"):
+        CollectionPlan.model_validate_json(json.dumps(payload))
+
+
 @pytest.mark.parametrize(
     ("attempt_state", "deployment_updates", "message"),
     (

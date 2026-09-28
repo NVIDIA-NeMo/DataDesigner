@@ -198,12 +198,8 @@ class CollectionStorage:
         return status
 
     def read_result(self, plan: CollectionPlan) -> CollectionResult:
-        return self.read_result_from(plan, Path(plan.host_destination))
-
-    def read_result_from(self, plan: CollectionPlan, destination: Path) -> CollectionResult:
-        """Read a result through an explicitly selected host or container view."""
-        if destination.as_posix() not in {plan.host_destination, plan.container_destination}:
-            raise OSError("collection result destination does not match its immutable plan")
+        """Read a result through the immutable host destination."""
+        destination = Path(plan.host_destination)
         with open_verified_directory(destination, require_private=True) as descriptor:
             return self._state.read_record(
                 descriptor,
@@ -216,13 +212,11 @@ class CollectionStorage:
         self,
         plan: CollectionPlan,
         result: CollectionResult,
-        destination: Path,
         *,
         verify_digests: bool = True,
     ) -> None:
         """Verify exact inventory with bounded metadata or full output digests."""
-        if destination.as_posix() not in {plan.host_destination, plan.container_destination}:
-            raise OSError("collection result destination does not match its immutable plan")
+        destination = Path(plan.host_destination)
         expected_names = tuple(output.relative_path for output in result.files) + (_RESULT_FILENAME,)
         if any("/" in name for name in expected_names):
             raise OSError("collection result inventory must contain only direct child files")
