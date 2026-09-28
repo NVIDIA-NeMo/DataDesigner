@@ -160,20 +160,6 @@ def test_collection_plan_requires_absolute_python_executable() -> None:
 
 
 @pytest.mark.parametrize(
-    ("filename", "extra_field", "message"),
-    (
-        ("collection_plan_v1.json", "python_executable", "v1 collection plans"),
-        ("collection_plan.json", "container_destination", "v2 collection plans"),
-    ),
-)
-def test_collection_plan_rejects_mixed_version_paths(filename: str, extra_field: str, message: str) -> None:
-    payload = _golden_payload(filename)
-    payload[extra_field] = "/shared/conflicting-path"
-    with pytest.raises(ValidationError, match=message):
-        CollectionPlan.model_validate_json(json.dumps(payload))
-
-
-@pytest.mark.parametrize(
     ("attempt_state", "deployment_updates", "message"),
     (
         ("ready", {"ready_backends": 2}, "must not exceed"),

@@ -15,8 +15,6 @@ from data_designer.slurm.contracts import (
     Identifier,
     Sha256Digest,
     ShardId,
-    canonical_json,
-    pretty_json,
     validate_absolute_path,
     validate_relative_path,
 )
@@ -157,45 +155,20 @@ class RetryPlan(StateRecord):
 
 
 class CollectionPlan(StateRecord):
-    """Immutable collection intent with v1 container and v2 native Python execution."""
+    """Immutable inputs and destinations for deterministic collection."""
 
-    schema_version: Literal[1, 2]
     collection_id: Identifier
     run_id: Identifier
     created_at: datetime
     resolved_plan: ArtifactReference
     planned_shards: tuple[CollectionShard, ...] = Field(min_length=1)
-    python_executable: str | None = None
+    python_executable: str
     host_destination: str
-    container_destination: str | None = None
     num_partitions: PositiveInt
     overwrite: Literal[False] = False
 
     _created_at_is_utc = field_validator("created_at")(validate_utc_timestamp)
-    _host_destination_is_safe = field_validator("host_destination")(validate_absolute_path)
-
-    @field_validator("python_executable", "container_destination")
-    @classmethod
-    def validate_optional_path(cls, value: str | None) -> str | None:
-        return None if value is None else validate_absolute_path(value)
-
-    @model_validator(mode="after")
-    def validate_versioned_paths(self) -> CollectionPlan:
-        if self.schema_version == 1 and (self.container_destination is None or self.python_executable is not None):
-            raise ValueError("v1 collection plans require only a container destination")
-        if self.schema_version == 2 and (self.python_executable is None or self.container_destination is not None):
-            raise ValueError("v2 collection plans require only a Python executable")
-        return self
-
-    def serialize_canonical_json(self) -> bytes:
-        """Preserve exact v1 bytes while omitting the unused version-specific path."""
-        excluded = "python_executable" if self.schema_version == 1 else "container_destination"
-        return canonical_json(self.model_dump(mode="json", exclude={excluded}))
-
-    def serialize_json(self) -> str:
-        """Serialize each collection plan in its original versioned shape."""
-        excluded = "python_executable" if self.schema_version == 1 else "container_destination"
-        return pretty_json(self.model_dump(mode="json", exclude={excluded}))
+    _paths_are_safe = field_validator("python_executable", "host_destination")(validate_absolute_path)
 
     @property
     def submission_job_name(self) -> Identifier:

@@ -1525,12 +1525,17 @@ def test_collection_worker_recovers_interrupted_private_reservation(
     ).submit(submitted_at=case.created_at + timedelta(minutes=10))
     destination = Path(case.plan.output.root)
     marker_name = collection_filesystem._reservation_marker_name(submitted.staging_directory, destination.name)
-    marker_bytes = collection_filesystem._reservation_marker_bytes(submitted.staging_directory, destination.name)
     descriptor = os.open(destination.parent, os.O_RDONLY | os.O_DIRECTORY)
     try:
-        collection_filesystem._create_reservation_marker(descriptor, marker_name, marker_bytes)
         os.mkdir(destination.name, 0o700, dir_fd=descriptor)
         os.fsync(descriptor)
+        reservation = os.stat(destination.name, dir_fd=descriptor, follow_symlinks=False)
+        marker_bytes = collection_filesystem._reservation_marker_bytes(
+            submitted.staging_directory,
+            destination.name,
+            (reservation.st_dev, reservation.st_ino),
+        )
+        collection_filesystem._create_reservation_marker(descriptor, marker_name, marker_bytes)
     finally:
         os.close(descriptor)
 
@@ -1547,7 +1552,7 @@ def test_collection_worker_recovers_interrupted_private_reservation(
     assert not (destination.parent / marker_name).exists()
 
 
-def test_collection_reservation_stays_recoverable_after_metadata_failure(
+def test_collection_reservation_metadata_failure_preserves_unmarked_destination(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1579,11 +1584,55 @@ def test_collection_reservation_stays_recoverable_after_metadata_failure(
         os.close(descriptor)
 
     assert destination.is_dir()
-    assert (parent / marker_name).is_file()
+    assert not (parent / marker_name).exists()
     collection_filesystem.remove_collection_stage(destination, source.name, parent)
-    assert not destination.exists()
+    assert destination.is_dir()
     assert not source.exists()
     assert not (parent / marker_name).exists()
+
+
+def test_collection_recovery_preserves_unrelated_empty_destination(
+    tmp_path: Path,
+    authored_run: DataDesignerSlurmConfig,
+    multi_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    case = _initialize_run(tmp_path, authored_run, multi_node_plan)
+    _publish_all_winners(case)
+    runner = FakeSlurmRunner(jobs=(FakeSlurmJob(5101),))
+    submitted = SlurmCollectionCoordinator(
+        case.workspace,
+        case.plan.run_id,
+        SlurmCommandClient(runner),
+    ).submit(submitted_at=case.created_at + timedelta(minutes=10))
+    destination = Path(case.plan.output.root)
+    unrelated = destination.parent / "unrelated-reservation"
+    unrelated.mkdir(mode=0o700)
+    destination.mkdir(mode=0o700)
+    marker_name = collection_filesystem._reservation_marker_name(submitted.staging_directory, destination.name)
+    unrelated_stat = unrelated.stat()
+    marker_bytes = collection_filesystem._reservation_marker_bytes(
+        submitted.staging_directory,
+        destination.name,
+        (unrelated_stat.st_dev, unrelated_stat.st_ino),
+    )
+    descriptor = os.open(destination.parent, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        collection_filesystem._create_reservation_marker(descriptor, marker_name, marker_bytes)
+    finally:
+        os.close(descriptor)
+
+    with pytest.raises(StateConflictError, match="already exists"):
+        SlurmCollectionWorker(
+            case.workspace,
+            case.plan.run_id,
+            submitted.collection_id,
+            environment={"SLURM_JOB_ID": "5101"},
+        ).run(completed_at=case.created_at + timedelta(minutes=11))
+
+    assert destination.is_dir()
+    assert not list(destination.iterdir())
+    assert unrelated.is_dir()
+    assert not (destination.parent / marker_name).exists()
 
 
 def test_collection_detects_destination_parent_replacement_before_success(

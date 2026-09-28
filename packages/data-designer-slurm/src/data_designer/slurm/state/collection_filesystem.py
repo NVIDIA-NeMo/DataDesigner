@@ -386,20 +386,21 @@ def _rename_over_private_reservation(
 ) -> None:
     """Publish through an exclusive empty directory on filesystems without no-replace rename."""
     marker_name = _reservation_marker_name(source_name, destination_name)
-    marker_bytes = _reservation_marker_bytes(source_name, destination_name)
-    _create_reservation_marker(destination_directory, marker_name, marker_bytes)
     reservation: os.stat_result | None = None
     remove_marker = False
     try:
         try:
             os.mkdir(destination_name, PRIVATE_DIRECTORY_MODE, dir_fd=destination_directory)
         except FileExistsError:
-            remove_marker = True
             raise StateConflictError(f"collection destination {destination_name!r} already exists") from None
         reservation = os.stat(destination_name, dir_fd=destination_directory, follow_symlinks=False)
         if not stat.S_ISDIR(reservation.st_mode) or reservation.st_mode & 0o077:
             raise OSError(f"collection destination reservation {destination_name!r} is not private")
         os.fsync(destination_directory)
+        # An unmarked directory is ambiguous after a crash and must never be removed by recovery.
+        marker_bytes = _reservation_marker_bytes(source_name, destination_name, _identity(reservation))
+        _create_reservation_marker(destination_directory, marker_name, marker_bytes)
+        remove_marker = True
         current = os.stat(destination_name, dir_fd=destination_directory, follow_symlinks=False)
         if _identity(current) != _identity(reservation):
             raise OSError(f"collection destination reservation {destination_name!r} changed")
@@ -409,11 +410,9 @@ def _rename_over_private_reservation(
             src_dir_fd=source_directory,
             dst_dir_fd=destination_directory,
         )
-        remove_marker = True
     except BaseException:
         if reservation is not None:
             _remove_unchanged_reservation(destination_directory, destination_name, reservation)
-            remove_marker = True
         raise
     finally:
         if remove_marker:
@@ -422,12 +421,12 @@ def _rename_over_private_reservation(
 
 
 def _reservation_marker_name(source_name: str, destination_name: str) -> str:
-    identity = hashlib.sha256(_reservation_marker_bytes(source_name, destination_name)).hexdigest()[:32]
+    identity = hashlib.sha256(f"{source_name}\n{destination_name}\n".encode("utf-8")).hexdigest()[:32]
     return f".dd-collection-reservation-{identity}"
 
 
-def _reservation_marker_bytes(source_name: str, destination_name: str) -> bytes:
-    return f"{source_name}\n{destination_name}\n".encode("utf-8")
+def _reservation_marker_bytes(source_name: str, destination_name: str, identity: tuple[int, int]) -> bytes:
+    return f"{source_name}\n{destination_name}\n{identity[0]}\n{identity[1]}\n".encode("utf-8")
 
 
 def _create_reservation_marker(directory: int, name: str, content: bytes) -> None:
@@ -463,15 +462,26 @@ def _recover_private_reservation(directory: int, source_name: str, destination_n
     try:
         if _identity(os.fstat(descriptor)) != _identity(marker):
             raise OSError(f"collection reservation marker {marker_name!r} changed")
-        if os.read(descriptor, 1024) != _reservation_marker_bytes(source_name, destination_name):
-            raise OSError(f"collection reservation marker {marker_name!r} is invalid")
+        marker_content = os.read(descriptor, 1024)
     finally:
         os.close(descriptor)
+    marker_prefix = f"{source_name}\n{destination_name}\n".encode("utf-8")
+    if not marker_content.startswith(marker_prefix):
+        raise OSError(f"collection reservation marker {marker_name!r} is invalid")
+    identity_parts = marker_content[len(marker_prefix) :].split(b"\n")
+    if len(identity_parts) != 3 or identity_parts[2] or not all(part.isdigit() for part in identity_parts[:2]):
+        raise OSError(f"collection reservation marker {marker_name!r} is invalid")
+    marker_identity = int(identity_parts[0]), int(identity_parts[1])
     try:
         reservation = os.stat(destination_name, dir_fd=directory, follow_symlinks=False)
     except FileNotFoundError:
         reservation = None
-    if reservation is not None and stat.S_ISDIR(reservation.st_mode) and not reservation.st_mode & 0o077:
+    if (
+        reservation is not None
+        and stat.S_ISDIR(reservation.st_mode)
+        and not reservation.st_mode & 0o077
+        and _identity(reservation) == marker_identity
+    ):
         opened = os.open(
             destination_name, os.O_RDONLY | os.O_DIRECTORY | getattr(os, "O_NOFOLLOW", 0), dir_fd=directory
         )

@@ -25,8 +25,6 @@ def render_collection_script(
         raise SlurmBatchRenderError("collection run identity does not match the resolved plan")
     if collection_plan.host_destination != destination.host_path:
         raise SlurmBatchRenderError("collection host destination does not match its resolved mount")
-    if collection_plan.python_executable is None:
-        raise SlurmBatchRenderError("native collection requires a v2 plan with a Python executable")
 
     collection_root = posixpath.join(
         posixpath.dirname(resolved_plan.authored_config.path),

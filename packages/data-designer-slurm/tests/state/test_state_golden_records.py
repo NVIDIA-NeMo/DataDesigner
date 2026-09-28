@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import hashlib
-import os
 from pathlib import Path
 
 import pytest
@@ -20,7 +19,6 @@ from data_designer.slurm.state import (
     ShardWinner,
     StateRecord,
 )
-from data_designer.slurm.state.storage import StateStorage
 
 GOLDEN_DIRECTORY = Path(__file__).parent / "golden"
 CONTRACT_GOLDEN_DIRECTORY = Path(__file__).parents[1] / "contracts" / "golden"
@@ -41,13 +39,12 @@ GOLDEN_MODELS: tuple[tuple[str, type[StateRecord]], ...] = (
     ("candidate_output.json", CandidateOutputManifest),
     ("shard_winner.json", ShardWinner),
     ("collection_plan.json", CollectionPlan),
-    ("collection_plan_v1.json", CollectionPlan),
 )
 PERSISTED_INTENT_FIXTURES = (
     CONTRACT_GOLDEN_DIRECTORY / "authored_run_single.json",
     CONTRACT_GOLDEN_DIRECTORY / "single_node_plan.json",
 )
-_COMPATIBILITY_FIXTURE_DIGEST = "222f3f38e5a4c33508fa51469780faef8f0dc817024bad676dc7866f67bbd284"
+_COMPATIBILITY_FIXTURE_DIGEST = "922a14db7134472ac63f5929e74afdc00b611b522c4ac15d087a12139fb5e8f1"
 
 
 @pytest.mark.parametrize(("filename", "model"), GOLDEN_MODELS)
@@ -77,21 +74,8 @@ def test_golden_artifact_references_hash_exact_persisted_bytes() -> None:
     assert collection.planned_shards[0].winner_manifest.sha256 == hashlib.sha256(winner_bytes).hexdigest()
 
 
-@pytest.mark.parametrize("filename", ("collection_plan_v1.json", "collection_plan.json"))
-def test_collection_storage_reads_both_plan_versions(tmp_path: Path, filename: str) -> None:
-    plan_path = tmp_path / "plan.json"
-    plan_path.write_bytes((GOLDEN_DIRECTORY / filename).read_bytes())
-    plan_path.chmod(0o600)
-    descriptor = os.open(tmp_path, os.O_RDONLY | os.O_DIRECTORY)
-    try:
-        plan = StateStorage(tmp_path, "run-0001").read_record(descriptor, plan_path.name, plan_path, CollectionPlan)
-    finally:
-        os.close(descriptor)
-    assert plan.compute_sha256() == hashlib.sha256(plan_path.read_bytes()).hexdigest()
-
-
 def test_persisted_state_compatibility_fixtures_are_frozen() -> None:
-    """Make persisted record byte changes an explicit compatibility decision."""
+    """Make persisted v1 byte changes an explicit compatibility decision."""
     fixture_bytes = b"".join(
         path.name.encode("utf-8") + b"\0" + path.read_bytes() for path in PERSISTED_INTENT_FIXTURES
     )
