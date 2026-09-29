@@ -147,7 +147,8 @@ class RunConfig(ConfigBase):
     preserve_dropped_columns: bool = Field(
         default=True,
         description=(
-            "Whether columns removed by drop processors are preserved in separate dropped-column parquet files."
+            "Whether columns removed by drop processors are preserved in separate dropped-column parquet files. "
+            "Set to False to omit those artifacts while still removing dropped columns from the final dataset."
         ),
     )
 
@@ -156,7 +157,8 @@ class RunConfig(ConfigBase):
         default=JinjaRenderingEngine.SECURE,
         description=(
             "Template renderer used for engine-side Jinja evaluation. "
-            "`native` uses Jinja2's built-in sandbox; `secure` uses Data Designer's hardened sandbox."
+            "`native` uses Jinja2's built-in sandbox with the standard filter set and fewer Data Designer-specific "
+            "restrictions; `secure` uses Data Designer's hardened sandbox with additional AST, filter, and output guards."
         ),
     )
 
