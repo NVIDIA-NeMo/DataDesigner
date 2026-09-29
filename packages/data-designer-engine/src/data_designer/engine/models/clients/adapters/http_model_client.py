@@ -72,6 +72,9 @@ class HttpModelClient(ABC):
             )
         # Copy so later mutation of the caller's mapping can't bypass the check below before the lazy client exists.
         event_hooks = {name: list(hooks) for name, hooks in event_hooks.items()} if event_hooks else None
+        # httpx silently drops keys other than "request"/"response", so a typo would disable the hook.
+        if unknown := set(event_hooks or {}) - {"request", "response"}:
+            raise ValueError(f"event_hooks keys must be 'request' or 'response'; got {sorted(unknown)}")
         is_async = concurrency_mode == ClientConcurrencyMode.ASYNC
         for hooks in (event_hooks or {}).values():
             for hook in hooks:

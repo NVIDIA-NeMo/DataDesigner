@@ -308,6 +308,7 @@ _ASYNC = ClientConcurrencyMode.ASYNC
 _MUST_BE_SYNC = "must be sync callables"
 _MUST_BE_ASYNC = "must be async callables"
 _INJECTED_CLIENT = "injected sync_client/async_client"
+_UNKNOWN_HOOK_KEY = "event_hooks keys must be"
 
 _EVENT_HOOKS_VALIDATION_CASES = [
     pytest.param(_SYNC, {"request": [_async_hook]}, None, _MUST_BE_SYNC, id="sync-rejects-async-def"),
@@ -320,6 +321,7 @@ _EVENT_HOOKS_VALIDATION_CASES = [
         _MUST_BE_ASYNC,
         id="async-rejects-sync-lambda-returning-awaitable",
     ),
+    pytest.param(_SYNC, {"responses": [_sync_hook]}, None, _UNKNOWN_HOOK_KEY, id="rejects-unknown-hook-key"),
     pytest.param(_SYNC, {"request": [_sync_hook]}, "sync_client", _INJECTED_CLIENT, id="sync-rejects-injected-client"),
     pytest.param(
         _ASYNC, {"request": [_async_hook]}, "async_client", _INJECTED_CLIENT, id="async-rejects-injected-client"
