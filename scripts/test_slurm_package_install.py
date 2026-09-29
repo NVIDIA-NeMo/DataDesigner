@@ -263,6 +263,7 @@ from data_designer.slurm.images.registry import ImageRegistryStore
 from data_designer.slurm.planning import ArtifactReference as PlanningArtifactReference
 from data_designer.slurm.planning import RecordRange as PlanningRecordRange
 from data_designer.slurm.planning import ResumeWorkspace as PlanningResumeWorkspace
+from data_designer.slurm.runtime import proxy as runtime_proxy
 from data_designer.slurm.state import ArtifactReference as StateArtifactReference
 from data_designer.slurm.state import RecordRange as StateRecordRange
 from data_designer.slurm.state import ResumeWorkspace as StateResumeWorkspace
@@ -278,6 +279,7 @@ from data_designer.slurm.state import (
 )
 from data_designer.slurm.services import create_slurm_benchmark_service
 assert BenchmarkCompiler.__name__ == "BenchmarkCompiler"
+assert callable(runtime_proxy.main)
 assert callable(create_slurm_benchmark_service)
 assert CollectionResult.__name__ == "CollectionResult"
 assert RetryPlan.__name__ == "RetryPlan"

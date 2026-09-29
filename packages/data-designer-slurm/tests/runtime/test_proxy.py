@@ -167,6 +167,25 @@ async def test_proxy_retries_connection_failure_on_another_backend() -> None:
 
 
 @pytest.mark.asyncio
+async def test_proxy_preserves_overload_after_final_backend_connection_failure() -> None:
+    unavailable = socket.socket()
+    unavailable.bind(("127.0.0.1", 0))
+    unavailable_port = unavailable.getsockname()[1]
+    unavailable.close()
+
+    async def overloaded(request: web.Request) -> web.Response:
+        del request
+        return web.Response(status=429, headers={"Retry-After": "17"})
+
+    async with _serve(_application(overloaded)) as server:
+        proxy = _ProxyApplication((_backend(server), _Backend("127.0.0.1", unavailable_port)), 1)
+        async with _serve(proxy.create()) as endpoint, ClientSession() as client:
+            async with client.post(endpoint.make_url("/v1/chat/completions"), json={}) as response:
+                assert response.status == 429
+                assert response.headers["Retry-After"] == "17"
+
+
+@pytest.mark.asyncio
 async def test_proxy_streams_response_without_waiting_for_completion() -> None:
     release_tail = asyncio.Event()
 
@@ -210,6 +229,60 @@ async def test_proxy_reuses_upstream_connections_and_reports_pool_metrics() -> N
     assert metrics["connections"]["opened"] == 1
     assert metrics["connections"]["reused"] == 1
     assert metrics["connections"]["idle"] == 1
+
+
+@pytest.mark.asyncio
+async def test_proxy_waits_for_a_pooled_connection_without_timing_out(monkeypatch: pytest.MonkeyPatch) -> None:
+    first_started = asyncio.Event()
+    release_first = asyncio.Event()
+    requests = 0
+
+    async def available(request: web.Request) -> web.Response:
+        del request
+        nonlocal requests
+        requests += 1
+        if requests == 1:
+            first_started.set()
+            await release_first.wait()
+        return web.Response(text="complete")
+
+    monkeypatch.setattr(runtime_proxy, "_MAXIMUM_CONNECTIONS", 1)
+    monkeypatch.setattr(runtime_proxy, "_CONNECT_TIMEOUT_SECONDS", 0.05)
+    async with _serve(_application(available)) as backend:
+        proxy = _ProxyApplication((_backend(backend),), 1)
+        async with _serve(proxy.create()) as endpoint, ClientSession() as client:
+            first = asyncio.create_task(client.get(endpoint.make_url("/first")))
+            await first_started.wait()
+            second = asyncio.create_task(client.get(endpoint.make_url("/second")))
+            await asyncio.sleep(0.1)
+            release_first.set()
+            async with await first as response:
+                assert response.status == 200
+                assert await response.text() == "complete"
+            async with await second as response:
+                assert response.status == 200
+                assert await response.text() == "complete"
+
+    assert requests == 2
+
+
+@pytest.mark.asyncio
+async def test_proxy_releases_backend_when_upstream_request_is_cancelled(monkeypatch: pytest.MonkeyPatch) -> None:
+    proxy = _ProxyApplication((_Backend("127.0.0.1", 8001),), 1)
+
+    class _Request:
+        async def read(self) -> bytes:
+            return b""
+
+    async def cancelled(*args: object) -> None:
+        del args
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(proxy, "_request_backend", cancelled)
+    with pytest.raises(asyncio.CancelledError):
+        await proxy._forward(_Request())  # type: ignore[arg-type]
+
+    assert proxy.pool.active_counts() == (0,)
 
 
 @pytest.mark.asyncio

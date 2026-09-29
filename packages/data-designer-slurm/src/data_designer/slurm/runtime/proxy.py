@@ -164,14 +164,12 @@ class _ProxyApplication:
             limit_per_host=per_backend_limit,
             keepalive_timeout=_KEEPALIVE_TIMEOUT_SECONDS,
             force_close=False,
-            enable_cleanup_closed=True,
             socket_factory=_create_socket,
         )
         self.session = ClientSession(
             connector=self.connector,
             timeout=ClientTimeout(
                 total=_READ_TIMEOUT_SECONDS,
-                connect=_CONNECT_TIMEOUT_SECONDS,
                 sock_connect=_CONNECT_TIMEOUT_SECONDS,
                 sock_read=_READ_TIMEOUT_SECONDS,
             ),
@@ -243,6 +241,8 @@ class _ProxyApplication:
         attempt_limit = min(_MAXIMUM_UPSTREAM_ATTEMPTS, len(self.pool.backends))
         final_response: ClientResponse | None = None
         final_index: int | None = None
+        overload_seen = False
+        overload_retry_after: str | None = None
 
         for attempt in range(attempt_limit):
             index = self.pool.acquire(frozenset(excluded))
@@ -260,15 +260,31 @@ class _ProxyApplication:
                 if attempt + 1 < attempt_limit:
                     self.metrics.retries[reason] += 1
                     continue
+                if overload_seen:
+                    headers = {}
+                    retry_after = (
+                        overload_retry_after if overload_retry_after is not None else self.pool.retry_after_seconds
+                    )
+                    if retry_after is not None:
+                        headers["Retry-After"] = str(retry_after)
+                    result = web.json_response({"error": "backend overloaded"}, status=429, headers=headers)
+                    self._record_final(429, outcomes, started_at)
+                    return result
                 result = web.json_response({"error": "backend unavailable"}, status=502)
                 self._record_final(502, outcomes, started_at)
                 return result
+            except BaseException:
+                self.pool.release(index)
+                raise
 
             outcomes.append(str(response.status))
             should_retry = response.status in _RETRYABLE_STATUS_CODES and attempt + 1 < attempt_limit
             if should_retry:
                 reason = f"http_{response.status}"
                 self.metrics.retries[reason] += 1
+                if response.status == 429:
+                    overload_seen = True
+                    overload_retry_after = response.headers.get("Retry-After")
                 await _discard_response(response)
                 self.pool.release(index)
                 excluded.add(index)
