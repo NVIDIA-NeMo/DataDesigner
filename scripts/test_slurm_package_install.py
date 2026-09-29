@@ -263,6 +263,7 @@ from data_designer.slurm.images.registry import ImageRegistryStore
 from data_designer.slurm.planning import ArtifactReference as PlanningArtifactReference
 from data_designer.slurm.planning import RecordRange as PlanningRecordRange
 from data_designer.slurm.planning import ResumeWorkspace as PlanningResumeWorkspace
+from data_designer.slurm.runtime import proxy as runtime_proxy
 from data_designer.slurm.state import ArtifactReference as StateArtifactReference
 from data_designer.slurm.state import RecordRange as StateRecordRange
 from data_designer.slurm.state import ResumeWorkspace as StateResumeWorkspace
@@ -278,6 +279,7 @@ from data_designer.slurm.state import (
 )
 from data_designer.slurm.services import create_slurm_benchmark_service
 assert BenchmarkCompiler.__name__ == "BenchmarkCompiler"
+assert callable(runtime_proxy.main)
 assert callable(create_slurm_benchmark_service)
 assert CollectionResult.__name__ == "CollectionResult"
 assert RetryPlan.__name__ == "RetryPlan"
@@ -387,6 +389,7 @@ def main() -> None:
         leaf_pip_requirement = requirement(leaf_metadata, "pip")
         leaf_pydantic_requirement = requirement(leaf_metadata, "pydantic")
         leaf_pyyaml_requirement = requirement(leaf_metadata, "pyyaml")
+        leaf_aiohttp_requirement = requirement(leaf_metadata, "aiohttp")
         assert str(base_config_requirement.specifier) == f"=={version}"
         assert str(base_engine_requirement.specifier) == f"=={version}"
         assert str(engine_config_requirement.specifier) == f"=={version}"
@@ -396,6 +399,7 @@ def main() -> None:
         assert leaf_pip_requirement.specifier == Requirement("pip>=25,<27").specifier
         assert leaf_pydantic_requirement.specifier == Requirement("pydantic>=2.12,<3").specifier
         assert leaf_pyyaml_requirement.specifier == Requirement("pyyaml>=6.0.1,<7").specifier
+        assert leaf_aiohttp_requirement.specifier == Requirement("aiohttp>=3.14.3,<4").specifier
         assert base_leaf_requirement.marker is not None
         assert base_leaf_requirement.marker.evaluate({"extra": "slurm"})
         assert not base_leaf_requirement.marker.evaluate({"extra": ""})

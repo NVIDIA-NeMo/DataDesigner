@@ -24,6 +24,7 @@ from data_designer.slurm.images.resources import inspect_image as resource_inspe
 
 def _get_client_distributions() -> tuple[InstalledDistribution, ...]:
     return (
+        InstalledDistribution(name="aiohttp", version="3.14.3"),
         InstalledDistribution(name="data-designer", version="0.9.2"),
         InstalledDistribution(name="data-designer-config", version="0.9.2"),
         InstalledDistribution(name="data-designer-engine", version="0.9.2"),
