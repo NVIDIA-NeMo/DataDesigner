@@ -4,12 +4,12 @@
     "attempt_ordinal": 1,
     "candidate_output": {
       "path": "/workspace/primary/runs/run-single/shards/shard-00000/attempts/attempt-0001/output-manifest.json",
-      "sha256": "ff5ff7cc468c22e2d91302b5f400b2275cf045b4d1366ff23e237e363f55d7b0"
+      "sha256": "e1eb191572ad51ddfc1e14306d5efaed56bd56e7ad61cd77bb8351c85d593b0b"
     },
     "created_at": "2026-08-19T12:00:02Z",
     "resolved_plan": {
       "path": "/workspace/primary/runs/run-single/resolved-plan.json",
-      "sha256": "b3f09f41e45348794055bd3c006c0dbc2c1c741f433b957676f99be24d38b7e3"
+      "sha256": "7db47928d64daf85b6fd28b510cfd3b1bebcc1672a1ea1163ecb2d86051dc3ac"
     },
     "run_id": "run-single",
     "scheduler": {
@@ -38,7 +38,7 @@
       }
     ],
     "outcome": "complete",
-    "provenance_digest": "b3f09f41e45348794055bd3c006c0dbc2c1c741f433b957676f99be24d38b7e3",
+    "provenance_digest": "7db47928d64daf85b6fd28b510cfd3b1bebcc1672a1ea1163ecb2d86051dc3ac",
     "requested_records": 8,
     "run_id": "run-single",
     "schema_version": 1,
@@ -49,7 +49,7 @@
     "attempt_id": "attempt-0001",
     "candidate_output_manifest": {
       "path": "/workspace/primary/runs/run-single/shards/shard-00000/attempts/attempt-0001/output-manifest.json",
-      "sha256": "ff5ff7cc468c22e2d91302b5f400b2275cf045b4d1366ff23e237e363f55d7b0"
+      "sha256": "e1eb191572ad51ddfc1e14306d5efaed56bd56e7ad61cd77bb8351c85d593b0b"
     },
     "completed_at": "2026-08-19T12:05:01Z",
     "dataset_path": "/workspace/primary/runs/run-single/shards/shard-00000/attempts/attempt-0001/dataset",
@@ -90,7 +90,7 @@
     "created_at": "2026-08-19T12:00:00Z",
     "resolved_plan": {
       "path": "/workspace/primary/runs/run-single/resolved-plan.json",
-      "sha256": "b3f09f41e45348794055bd3c006c0dbc2c1c741f433b957676f99be24d38b7e3"
+      "sha256": "7db47928d64daf85b6fd28b510cfd3b1bebcc1672a1ea1163ecb2d86051dc3ac"
     },
     "run_id": "run-single",
     "schema_version": 1,
@@ -118,7 +118,7 @@
     "attempt_ordinal": 1,
     "candidate_manifest": {
       "path": "/workspace/primary/runs/run-single/shards/shard-00000/attempts/attempt-0001/output-manifest.json",
-      "sha256": "ff5ff7cc468c22e2d91302b5f400b2275cf045b4d1366ff23e237e363f55d7b0"
+      "sha256": "e1eb191572ad51ddfc1e14306d5efaed56bd56e7ad61cd77bb8351c85d593b0b"
     },
     "published_at": "2026-08-19T12:05:03Z",
     "run_id": "run-single",
