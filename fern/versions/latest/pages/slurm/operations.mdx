@@ -30,6 +30,12 @@ Status loads the managed run, queries active queue and accounting records for it
 
 The response includes every shard in planned order. Use the attempt lifecycle and readiness details to distinguish queue wait, model startup, active generation, publication, terminal failure, and success.
 
+## Inspect the inference proxy
+
+While an allocation is active, each model deployment has a client-local proxy at the logical endpoint port in `resolved-plan.json`. From the client allocation's network namespace, `GET /health` returns `200` only when every serving replica passes its configured readiness path; otherwise it returns `503`. `GET /metrics` reports request, retry, final-status, backend, and connection-pool counters. These counters are held in the proxy process and disappear when the allocation ends, so capture them during the run if needed for diagnosis.
+
+The proxy step is named `<deployment-id>-endpoint`. Its stdout and stderr are stored under the affected attempt's `logs/execution-<revision>/` directory. Use those durable files for startup errors after an allocation has ended.
+
 ## Cancel
 
 ```bash

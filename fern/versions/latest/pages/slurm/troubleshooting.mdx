@@ -57,6 +57,10 @@ An interrupted or unknown submission can retain a temporary lifecycle job for in
 
 Run `data-designer slurm image ls` against the same profile and cluster. Aliases are profile-workspace scoped. If the file changed after registration, add and inspect it again; planning rehashes registered SQSH content.
 
+## Planning rejects a client image for missing aiohttp
+
+The inference proxy runs inside the selected client image. If planning reports that it needs `aiohttp>=3.14.3,<4`, rebuild the client image with the aligned `data-designer[slurm]` installation, then [replace the registered alias](/slurm/images#replace-or-remove-an-alias). An overlay cannot repair the recorded image inventory used by planning.
+
 ## A run is absent from `squeue`
 
 Run `data-designer slurm status <run-id>`. Completed jobs leave the active queue and may appear in `sacct` after a delay. Status reports accounting lag without inventing a terminal result.
@@ -64,6 +68,10 @@ Run `data-designer slurm status <run-id>`. Completed jobs leave the active queue
 ## Model readiness times out
 
 Inspect the attempt readiness record and Slurm stderr under the managed run directory. Confirm model files and mounts are visible, the serving image has the expected vLLM runtime, tensor parallelism matches available GPUs, and multi-node traffic is permitted. Increase `startup_timeout` only after identifying a normal slow startup rather than a failed launch. If increasing `distributed_init_timeout`, keep it less than or equal to `startup_timeout`.
+
+If the endpoint step fails to start, inspect its `*-endpoint.err` file under the attempt's `logs/execution-<revision>/` directory. A running proxy's `/health` response distinguishes an unready serving replica from a proxy startup failure. During the allocation, `/metrics` shows whether requests are reaching replicas, whether connections fail, and how often failover occurs. See [Inspect the inference proxy](/slurm/run-operations#inspect-the-inference-proxy).
+
+An inference response of `429` means a serving replica requested backpressure; the proxy preserves its `Retry-After` value through failover. A `502` means no attempted replica produced a usable response and no earlier `429` was available. Check proxy metrics and the serving steps before changing client concurrency or timeouts.
 
 ## A shard failed
 
