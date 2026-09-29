@@ -27,7 +27,7 @@ def test_launch_policy_rejects_invalid_readiness_or_deadlines(update: dict[str, 
         "rank_launch_stagger_seconds": 5,
         "readiness_path": "/health",
         "enable_expert_parallel": False,
-        "queue_backpressure": {"max_waiting_requests": 128, "retry_after_seconds": 1},
+        "queue_backpressure": {"max_waiting_requests": 1, "retry_after_seconds": 1},
         **update,
     }
     with pytest.raises(ValidationError, match=message):

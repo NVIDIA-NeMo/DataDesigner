@@ -101,7 +101,7 @@ def test_all_processes_use_structured_srun_steps_and_sanitized_environment(runti
     assert all("CUDA_VISIBLE_DEVICES" not in argument for argument in server.command)
     assert "--middleware" in server.command
     assert "data_designer.slurm.runtime.backpressure.QueueDepthBackpressureMiddleware" in server.command
-    assert server.environment[MAX_WAITING_REQUESTS_ENVIRONMENT] == "128"
+    assert server.environment[MAX_WAITING_REQUESTS_ENVIRONMENT] == "1"
     assert server.environment[RETRY_AFTER_SECONDS_ENVIRONMENT] == "1"
     assert server.environment["PYTHONPATH"].endswith("/runtime")
     assert any(
@@ -115,6 +115,8 @@ def test_all_processes_use_structured_srun_steps_and_sanitized_environment(runti
     assert all("--gpus-per-task=" not in argument for step in client_steps for argument in step.command)
     assert all("--gres=none" in step.command for step in client_steps)
     assert all("CUDA_VISIBLE_DEVICES" not in step.environment for step in client_steps)
+    endpoint_command = tuple(step for step, _ in endpoint_steps)[0].command
+    assert endpoint_command[endpoint_command.index("--health-path") + 1] == deployment.launch_policy.readiness_path
 
 
 def test_vllm_command_maps_absolute_model_path(runtime_case: RuntimeCase) -> None:

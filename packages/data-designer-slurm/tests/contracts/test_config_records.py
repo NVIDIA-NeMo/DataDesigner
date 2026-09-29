@@ -214,7 +214,7 @@ def test_vllm_defaults_and_backpressure_override() -> None:
 
     assert server.lead_boot_standoff == "60s"
     assert server.rank_launch_stagger == "5s"
-    assert server.queue_backpressure.model_dump() == {"max_waiting_requests": 128, "retry_after_seconds": 1}
+    assert server.queue_backpressure.model_dump() == {"max_waiting_requests": 1, "retry_after_seconds": 1}
     assert overridden.lead_boot_standoff == "0s"
     assert overridden.rank_launch_stagger == "12s"
     assert overridden.queue_backpressure.model_dump() == {"max_waiting_requests": 0, "retry_after_seconds": None}

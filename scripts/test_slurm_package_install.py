@@ -387,6 +387,7 @@ def main() -> None:
         leaf_pip_requirement = requirement(leaf_metadata, "pip")
         leaf_pydantic_requirement = requirement(leaf_metadata, "pydantic")
         leaf_pyyaml_requirement = requirement(leaf_metadata, "pyyaml")
+        leaf_aiohttp_requirement = requirement(leaf_metadata, "aiohttp")
         assert str(base_config_requirement.specifier) == f"=={version}"
         assert str(base_engine_requirement.specifier) == f"=={version}"
         assert str(engine_config_requirement.specifier) == f"=={version}"
@@ -396,6 +397,7 @@ def main() -> None:
         assert leaf_pip_requirement.specifier == Requirement("pip>=25,<27").specifier
         assert leaf_pydantic_requirement.specifier == Requirement("pydantic>=2.12,<3").specifier
         assert leaf_pyyaml_requirement.specifier == Requirement("pyyaml>=6.0.1,<7").specifier
+        assert leaf_aiohttp_requirement.specifier == Requirement("aiohttp>=3.14.3,<4").specifier
         assert base_leaf_requirement.marker is not None
         assert base_leaf_requirement.marker.evaluate({"extra": "slurm"})
         assert not base_leaf_requirement.marker.evaluate({"extra": ""})
