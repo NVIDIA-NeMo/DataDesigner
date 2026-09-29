@@ -3,14 +3,10 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 from pydantic import Field
 
 from data_designer.config.base import ConfigBase
-
-if TYPE_CHECKING:
-    from data_designer.config.run_config import RequestAdmissionTuningConfig
+from data_designer.config.request_admission import RequestAdmissionTuningConfig
 
 _THROTTLE_DEPRECATION_MESSAGE = (
     "RunConfig.throttle and ThrottleConfig are deprecated. Use RunConfig.request_admission with "
@@ -60,9 +56,6 @@ class ThrottleConfig(ConfigBase):
 
     def to_request_admission_tuning(self) -> RequestAdmissionTuningConfig:
         """Translate legacy throttle tuning into the request-admission DTO."""
-        # Runtime import: module-level would cause circular import
-        from data_designer.config.run_config import RequestAdmissionTuningConfig
-
         return RequestAdmissionTuningConfig(
             multiplicative_decrease_factor=self.reduce_factor,
             additive_increase_step=self.additive_increase,

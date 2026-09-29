@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import pickle
+import typing
 from unittest.mock import patch
 
 import pytest
@@ -277,15 +278,29 @@ def test_deprecated_throttle_config_is_exported_from_config_package() -> None:
     assert namespace["ThrottleConfig"] is ThrottleConfig
 
 
-def test_deprecated_throttle_config_unpickles_from_pre_move_module_path() -> None:
-    # Pickles written before ThrottleConfig moved to run_config_deprecated record
+@pytest.mark.parametrize(
+    "config",
+    [ThrottleConfig(reduce_factor=0.5), RequestAdmissionTuningConfig(multiplicative_decrease_factor=0.5)],
+    ids=["throttle", "request-admission"],
+)
+def test_moved_config_unpickles_from_pre_move_module_path(
+    config: ThrottleConfig | RequestAdmissionTuningConfig,
+) -> None:
+    # Pickles written before these classes moved out of run_config record
     # data_designer.config.run_config; patching __module__ reproduces those bytes. Unpickling
-    # resolves them through the module-level re-import in run_config.
-    with patch.object(ThrottleConfig, "__module__", "data_designer.config.run_config"):
-        legacy_payload = pickle.dumps(ThrottleConfig(reduce_factor=0.5))
+    # resolves them through the module-level re-imports in run_config.
+    new_module = type(config).__module__
+    with patch.object(type(config), "__module__", "data_designer.config.run_config"):
+        legacy_payload = pickle.dumps(config)
 
-    assert b"data_designer.config.run_config_deprecated" not in legacy_payload
-    assert pickle.loads(legacy_payload) == ThrottleConfig(reduce_factor=0.5)
+    assert new_module.encode() not in legacy_payload
+    assert pickle.loads(legacy_payload) == config
+
+
+def test_deprecated_throttle_config_return_annotation_resolves_at_runtime() -> None:
+    hints = typing.get_type_hints(dd.ThrottleConfig.to_request_admission_tuning)
+
+    assert hints["return"] is dd.RequestAdmissionTuningConfig
 
 
 def test_throttle_config_accepts_rampup_seconds() -> None:
