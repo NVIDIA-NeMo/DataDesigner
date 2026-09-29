@@ -34,7 +34,7 @@ class QueueBackpressureConfig(AuthoredConfig):
         retry_after_seconds: Retry delay returned to callers, or ``None`` to omit it.
     """
 
-    max_waiting_requests: NonNegativeInt = 1
+    max_waiting_requests: NonNegativeInt = 128
     retry_after_seconds: PositiveInt | None = 1
 
 

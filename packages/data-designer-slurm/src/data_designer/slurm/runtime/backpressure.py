@@ -59,7 +59,7 @@ class QueueBackpressureSettings:
     def from_environment(cls, environment: Mapping[str, str] | None = None) -> QueueBackpressureSettings:
         """Load the policy transported by the structured runtime step."""
         source = os.environ if environment is None else environment
-        maximum = _parse_non_negative_integer(source.get(MAX_WAITING_REQUESTS_ENVIRONMENT), default=1)
+        maximum = _parse_non_negative_integer(source.get(MAX_WAITING_REQUESTS_ENVIRONMENT), default=128)
         retry_value = source.get(RETRY_AFTER_SECONDS_ENVIRONMENT)
         retry_after = None if retry_value == "" else _parse_positive_integer(retry_value, default=1)
         return cls(maximum, retry_after)

@@ -100,7 +100,7 @@
         },
         "lead_boot_standoff": "60s",
         "queue_backpressure": {
-          "max_waiting_requests": 1,
+          "max_waiting_requests": 128,
           "retry_after_seconds": 1
         },
         "rank_launch_stagger": "5s",

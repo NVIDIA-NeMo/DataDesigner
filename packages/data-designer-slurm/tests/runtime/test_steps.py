@@ -101,7 +101,7 @@ def test_all_processes_use_structured_srun_steps_and_sanitized_environment(runti
     assert all("CUDA_VISIBLE_DEVICES" not in argument for argument in server.command)
     assert "--middleware" in server.command
     assert "data_designer.slurm.runtime.backpressure.QueueDepthBackpressureMiddleware" in server.command
-    assert server.environment[MAX_WAITING_REQUESTS_ENVIRONMENT] == "1"
+    assert server.environment[MAX_WAITING_REQUESTS_ENVIRONMENT] == "128"
     assert server.environment[RETRY_AFTER_SECONDS_ENVIRONMENT] == "1"
     assert server.environment["PYTHONPATH"].endswith("/runtime")
     assert any(
