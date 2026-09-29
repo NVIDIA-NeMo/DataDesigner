@@ -337,6 +337,8 @@ def build_endpoint_command(
         container_proxy_path,
         "--listen-port",
         str(port),
+        "--health-path",
+        deployment.launch_policy.readiness_path,
         *retry_arguments,
         *allowed_host_arguments,
         *(argument for backend in backends for argument in ("--backend", backend)),
