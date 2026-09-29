@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import functools
 import importlib
 import inspect
 import threading
@@ -69,6 +70,8 @@ class HttpModelClient(ABC):
             raise ValueError(
                 "event_hooks must not be combined with an injected sync_client/async_client; set them on that client"
             )
+        # Copy so later mutation of the caller's mapping can't bypass the check below before the lazy client exists.
+        event_hooks = {name: list(hooks) for name, hooks in event_hooks.items()} if event_hooks else None
         is_async = concurrency_mode == ClientConcurrencyMode.ASYNC
         for hooks in (event_hooks or {}).values():
             for hook in hooks:
@@ -245,4 +248,6 @@ class HttpModelClient(ABC):
 
 
 def _is_async_callable(obj: Any) -> bool:
+    while isinstance(obj, functools.partial):
+        obj = obj.func
     return inspect.iscoroutinefunction(obj) or inspect.iscoroutinefunction(getattr(obj, "__call__", None))

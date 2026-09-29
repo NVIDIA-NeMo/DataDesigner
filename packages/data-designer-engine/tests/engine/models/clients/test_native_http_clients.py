@@ -330,6 +330,13 @@ _EVENT_HOOKS_VALIDATION_CASES = [
     pytest.param(
         _ASYNC, {"request": [functools.partial(_async_hook)]}, None, None, id="async-accepts-partial-of-async-def"
     ),
+    pytest.param(
+        _ASYNC,
+        {"request": [functools.partial(_AsyncCallable())]},
+        None,
+        None,
+        id="async-accepts-partial-of-async-callable-object",
+    ),
     pytest.param(_SYNC, {"request": [_sync_hook]}, "transport", None, id="sync-accepts-injected-transport"),
     pytest.param(_SYNC, {}, "sync_client", None, id="accepts-empty-mapping"),
     pytest.param(_ASYNC, None, None, None, id="accepts-none"),
@@ -359,6 +366,28 @@ def test_event_hooks_validated_at_construction(
     else:
         with pytest.raises(ValueError, match=expected_error):
             client_factory(concurrency_mode=mode, event_hooks=hooks, **kwargs)
+
+
+@pytest.mark.parametrize(("client_factory", "model_name", "response_json"), _SYNC_LAZY_INIT_CASES)
+def test_event_hooks_added_after_construction_are_not_installed(
+    client_factory: Callable[..., Any],
+    model_name: str,
+    response_json: dict[str, Any],
+) -> None:
+    seen: list[str] = []
+    hooks: dict[str, list[Callable[..., Any]]] = {"request": [lambda r: seen.append("registered")]}
+    transport = create_retry_transport(
+        None,
+        strip_rate_limit_codes=False,
+        transport=httpx.MockTransport(lambda r: httpx.Response(200, json=response_json)),
+    )
+    client = client_factory(concurrency_mode=ClientConcurrencyMode.SYNC, event_hooks=hooks, transport=transport)
+
+    hooks["request"].append(lambda r: seen.append("late"))
+    hooks["response"] = [lambda r: seen.append("late")]
+    client.completion(_make_chat_request(model_name))
+
+    assert seen == ["registered"]
 
 
 # ---------------------------------------------------------------------------
