@@ -71,7 +71,7 @@ Inspect the attempt readiness record and Slurm stderr under the managed run dire
 
 If the endpoint step fails to start, inspect its `*-endpoint.err` file under the attempt's `logs/execution-<revision>/` directory. A running proxy's `/health` response distinguishes an unready serving replica from a proxy startup failure. During the allocation, `/metrics` shows whether requests are reaching replicas, whether connections fail, and how often failover occurs. See [Inspect the inference proxy](/slurm/run-operations#inspect-the-inference-proxy).
 
-An inference response of `429` means a serving replica requested backpressure; the proxy preserves its `Retry-After` value through failover. A `502` means no attempted replica produced a usable response and no earlier `429` was available. Check proxy metrics and the serving steps before changing client concurrency or timeouts.
+An inference response of `429` means the final replica requested backpressure, or the proxy retained an earlier `429` after the final connection failed. The proxy forwards the selected `Retry-After` value when available. A `502` can be the final replica's response even if an earlier replica returned `429`; the proxy also generates `502` after a final connection failure when no earlier `429` was seen. Check proxy metrics and the serving steps before changing client concurrency or timeouts.
 
 ## A shard failed
 
