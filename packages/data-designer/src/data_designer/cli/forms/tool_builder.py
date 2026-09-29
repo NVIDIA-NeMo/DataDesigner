@@ -90,7 +90,7 @@ class ToolFormBuilder:
                 continue  # Go back to start
 
             try:
-                config = self._build_config(tool_alias, selected_providers, optional_result)
+                config = self._build_config(tool_alias, selected_providers, optional_result, initial_data)
                 return config
             except Exception as e:
                 print_error(f"Configuration error: {e}")
@@ -178,8 +178,15 @@ class ToolFormBuilder:
         tool_alias: str,
         providers: list[str],
         optional_data: dict[str, Any],
+        initial_data: dict[str, Any] | None = None,
     ) -> ToolConfig:
-        """Build ToolConfig from collected data."""
+        """Build ToolConfig from collected data.
+
+        The form does not prompt for unknown_tool_fallback or unknown_tool_message,
+        so they are carried over from initial_data to keep them on update.
+        """
+        initial_data = initial_data or {}
+
         # Parse allow_tools from comma-separated string
         allow_tools = None
         if optional_data.get("allow_tools"):
@@ -201,4 +208,6 @@ class ToolFormBuilder:
             allow_tools=allow_tools if allow_tools else None,
             max_tool_call_turns=max_tool_call_turns,
             timeout_sec=timeout_sec,
+            unknown_tool_fallback=initial_data.get("unknown_tool_fallback", False),
+            unknown_tool_message=initial_data.get("unknown_tool_message"),
         )

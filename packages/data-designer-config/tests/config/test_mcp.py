@@ -60,6 +60,9 @@ def test_tool_config_defaults() -> None:
     with pytest.raises(ValidationError):
         ToolConfig(tool_alias="search", providers=["tools"], max_tool_call_turns=0)
 
+    with pytest.raises(ValidationError):
+        ToolConfig(tool_alias="search", providers=["tools"], unknown_tool_message="")
+
 
 def test_tool_config_with_options() -> None:
     tool_config = ToolConfig(

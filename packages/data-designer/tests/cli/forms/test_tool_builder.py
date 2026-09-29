@@ -518,6 +518,38 @@ def test_run_uses_initial_data_for_providers(
     assert call_kwargs["default_keys"] == ["provider-2"]
 
 
+@patch("data_designer.cli.forms.tool_builder.select_multiple_with_arrows", return_value=["provider-1"])
+@patch("data_designer.cli.forms.tool_builder.print_header")
+@patch("data_designer.cli.forms.tool_builder.print_info")
+@patch("data_designer.cli.forms.tool_builder.console")
+def test_run_update_keeps_unknown_tool_fallback(
+    mock_console: MagicMock,
+    mock_print_info: MagicMock,
+    mock_print_header: MagicMock,
+    mock_select_multiple: MagicMock,
+) -> None:
+    """Test editing a tool keeps unknown_tool_fallback settings the form does not prompt for."""
+    builder = ToolFormBuilder(available_providers=["provider-1"])
+    initial_data = ToolConfig(
+        tool_alias="existing-tool",
+        providers=["provider-1"],
+        unknown_tool_fallback=True,
+        unknown_tool_message="No such tool.",
+    ).model_dump(mode="json")
+
+    mock_alias_form = MagicMock()
+    mock_alias_form.prompt_all.return_value = {"tool_alias": "existing-tool"}
+    mock_optional_form = MagicMock()
+    mock_optional_form.prompt_all.return_value = {"allow_tools": "", "max_tool_call_turns": "5", "timeout_sec": ""}
+
+    with patch("data_designer.cli.forms.tool_builder.Form", side_effect=[mock_alias_form, mock_optional_form]):
+        result = builder.run(initial_data)
+
+    assert result is not None
+    assert result.unknown_tool_fallback is True
+    assert result.unknown_tool_message == "No such tool."
+
+
 @patch("data_designer.cli.forms.tool_builder.confirm_action")
 @patch("data_designer.cli.forms.tool_builder.print_error")
 @patch("data_designer.cli.forms.tool_builder.select_multiple_with_arrows")

@@ -123,4 +123,4 @@ class ToolConfig(ConfigBase):
     max_tool_call_turns: int = Field(default=5, ge=1)
     timeout_sec: float | None = Field(default=None, gt=0)
     unknown_tool_fallback: bool = False
-    unknown_tool_message: str | None = None
+    unknown_tool_message: str | None = Field(default=None, min_length=1)
