@@ -37,6 +37,7 @@ bump = true
 
 [tool.hatch.metadata.hooks.uv-dynamic-versioning]
 dependencies = [
+    "aiohttp>=3.14.3,<4",
     "data-designer=={{ version }}",
     "packaging>=25,<27",
     "pip>=25,<27",

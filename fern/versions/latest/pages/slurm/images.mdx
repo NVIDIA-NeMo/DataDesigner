@@ -77,4 +77,4 @@ Published OCI imports are content-addressed. Identical imports can share an arti
 
 ## Compatibility rules
 
-The client image inventory must contain the same versions of `data-designer`, `data-designer-config`, `data-designer-engine`, and `data-designer-slurm` used to submit the run. Dependency overlays may add pure Python wheels, but cannot replace these protected distributions. Serving images must expose a supported vLLM executable and version.
+The client image inventory must contain the same versions of `data-designer`, `data-designer-config`, `data-designer-engine`, and `data-designer-slurm` used to submit the run. It must also contain `aiohttp>=3.14.3,<4` for the inference proxy; planning rejects an image without a compatible version. Rebuild and replace an existing client image if it lacks that dependency. Dependency overlays may add pure Python wheels, but cannot replace these protected distributions. Serving images must expose a supported vLLM executable and version.

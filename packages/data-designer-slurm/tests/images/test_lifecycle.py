@@ -1569,15 +1569,19 @@ def _write_completed_inspection(
 
 
 def _get_client_inspection(content: bytes) -> ImageInspectionRecord:
-    distributions = tuple(
-        InstalledDistribution(name=name, version="0.9.2")
-        for name in (
-            "data-designer",
-            "data-designer-config",
-            "data-designer-engine",
-            "data-designer-slurm",
+    distributions = (
+        (InstalledDistribution(name="aiohttp", version="3.14.3"),)
+        + tuple(
+            InstalledDistribution(name=name, version="0.9.2")
+            for name in (
+                "data-designer",
+                "data-designer-config",
+                "data-designer-engine",
+                "data-designer-slurm",
+            )
         )
-    ) + (InstalledDistribution(name="pip", version="26.1"),)
+        + (InstalledDistribution(name="pip", version="26.1"),)
+    )
     return ImageInspectionRecord(
         schema_version=1,
         inspector_version="inspector-1",

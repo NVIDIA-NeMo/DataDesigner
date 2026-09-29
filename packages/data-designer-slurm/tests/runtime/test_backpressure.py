@@ -16,6 +16,7 @@ from data_designer.slurm.runtime.backpressure import (
 
 
 def test_backpressure_settings_are_strict_and_support_absent_retry_header() -> None:
+    assert QueueBackpressureSettings.from_environment({}).max_waiting_requests == 128
     settings = QueueBackpressureSettings.from_environment(
         {
             MAX_WAITING_REQUESTS_ENVIRONMENT: "7",
