@@ -55,7 +55,7 @@
     },
     "dependency_lock": {
       "path": "/workspace/primary/runs/run-001/dependency-lock.json",
-      "sha256": "fb536259ea0c206eca90ee8a4ad0a95345f97eb869e349732d1d19db857ecbc3"
+      "sha256": "f2eea2f07a52e23a60b7d5de317fbc6c6762456a8467401d620d430fe8fe6344"
     },
     "gpu_count": 0,
     "host_node_index": 0,
@@ -67,6 +67,10 @@
       "inspection": {
         "inspection": {
           "distributions": [
+            {
+              "name": "aiohttp",
+              "version": "3.14.3"
+            },
             {
               "name": "data-designer",
               "version": "0.9.2"

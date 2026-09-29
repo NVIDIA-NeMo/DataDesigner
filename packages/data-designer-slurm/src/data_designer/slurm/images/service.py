@@ -13,7 +13,16 @@ from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
-from data_designer.slurm.config import ImageBuildRequest, ImageInspectionRecord, ImageKind, ImageRef
+from packaging.specifiers import SpecifierSet
+from packaging.version import InvalidVersion
+
+from data_designer.slurm.config import (
+    ClientImageInspection,
+    ImageBuildRequest,
+    ImageInspectionRecord,
+    ImageKind,
+    ImageRef,
+)
 from data_designer.slurm.contracts import Sha256Digest
 from data_designer.slurm.images.errors import ImageConflictError, ImageVerificationError
 from data_designer.slurm.images.filesystem import ensure_private_directory, open_verified_directory
@@ -25,6 +34,7 @@ from data_designer.slurm.planning import ResolvedImage
 _HASH_BLOCK_SIZE = 1024 * 1024
 _ARTIFACT_DIRECTORY_NAME = "artifacts"
 _TEMPORARY_DIRECTORY_NAME = ".tmp"
+_PROXY_HTTP_REQUIREMENT = SpecifierSet(">=3.14.3,<4")
 
 
 class VerifiedImageRegistry:
@@ -200,6 +210,8 @@ class VerifiedImageRegistry:
             expected_kind=expected_kind,
             expected_sha256=image.sqsh_sha256,
         )
+        if expected_kind is ImageKind.CLIENT:
+            _validate_client_proxy_dependency(image.inspection)
         return ResolvedImage(
             authored_ref=reference,
             path=image.path,
@@ -231,6 +243,20 @@ def _validate_inspection(
     if inspection.inspection.kind is not expected_kind:
         raise ImageVerificationError(
             f"image inspection kind {inspection.inspection.kind.value!r} does not match {expected_kind.value!r}"
+        )
+
+
+def _validate_client_proxy_dependency(inspection: ImageInspectionRecord) -> None:
+    client = inspection.inspection
+    assert isinstance(client, ClientImageInspection)
+    version = next((item.version for item in client.distributions if item.name == "aiohttp"), None)
+    try:
+        compatible = version is not None and version in _PROXY_HTTP_REQUIREMENT
+    except InvalidVersion:
+        compatible = False
+    if not compatible:
+        raise ImageVerificationError(
+            "client image must install aiohttp>=3.14.3,<4 for the inference proxy; rebuild and replace the image"
         )
 
 

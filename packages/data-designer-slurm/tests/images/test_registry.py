@@ -66,6 +66,21 @@ def test_register_and_resolve_existing_sqsh_by_alias_and_path(tmp_path: Path) ->
     assert _get_registry_path(workspace) == workspace / "images" / "registry.yaml"
 
 
+@pytest.mark.parametrize("aiohttp_version", (None, "3.14.2", "4.0.0", "invalid"))
+def test_client_image_without_compatible_proxy_dependency_cannot_be_planned(
+    tmp_path: Path, aiohttp_version: str | None
+) -> None:
+    image_path = _write_sqsh(tmp_path / "client.sqsh", b"client-image")
+    service = _create_registry(tmp_path / "workspace")
+    service.register_existing(
+        ImageBuildRequest(name="client", kind="client", source=image_path.as_posix()),
+        _inspect_client(image_path, aiohttp_version=aiohttp_version),
+    )
+
+    with pytest.raises(ImageVerificationError, match="client image must install aiohttp"):
+        service.resolve_for_planning(ImageRef(name="client"), expected_kind=ImageKind.CLIENT)
+
+
 def test_registry_lists_aliases_deterministically(tmp_path: Path) -> None:
     service = _create_registry(tmp_path / "workspace")
     for name in ("zeta", "alpha"):
@@ -304,9 +319,10 @@ def _write_sqsh(path: Path, content: bytes) -> Path:
     return path
 
 
-def _get_client_environment() -> FakeInspectionEnvironment:
+def _get_client_environment(aiohttp_version: str | None = "3.14.3") -> FakeInspectionEnvironment:
     return FakeInspectionEnvironment(
         distributions=(
+            *((InstalledDistribution(name="aiohttp", version=aiohttp_version),) if aiohttp_version is not None else ()),
             InstalledDistribution(name="data-designer", version="0.9.2"),
             InstalledDistribution(name="data-designer-config", version="0.9.2"),
             InstalledDistribution(name="data-designer-engine", version="0.9.2"),
@@ -318,8 +334,8 @@ def _get_client_environment() -> FakeInspectionEnvironment:
     )
 
 
-def _inspect_client(path: Path) -> ImageInspectionRecord:
-    return ClientImageInspector(_get_client_environment()).inspect(compute_sqsh_file_sha256(path))
+def _inspect_client(path: Path, *, aiohttp_version: str | None = "3.14.3") -> ImageInspectionRecord:
+    return ClientImageInspector(_get_client_environment(aiohttp_version)).inspect(compute_sqsh_file_sha256(path))
 
 
 def _inspect_serving(path: Path) -> ImageInspectionRecord:
