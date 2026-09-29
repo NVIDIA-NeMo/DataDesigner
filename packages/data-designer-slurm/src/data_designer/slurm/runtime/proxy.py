@@ -284,7 +284,7 @@ class _ProxyApplication:
                 self.metrics.retries[reason] += 1
                 if response.status == 429:
                     overload_seen = True
-                    overload_retry_after = response.headers.get("Retry-After")
+                    overload_retry_after = response.headers.get("Retry-After", overload_retry_after)
                 await _discard_response(response)
                 self.pool.release(index)
                 excluded.add(index)

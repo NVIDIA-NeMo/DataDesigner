@@ -186,6 +186,29 @@ async def test_proxy_preserves_overload_after_final_backend_connection_failure()
 
 
 @pytest.mark.asyncio
+async def test_proxy_keeps_earlier_retry_after_when_later_overload_omits_it() -> None:
+    unavailable = socket.socket()
+    unavailable.bind(("127.0.0.1", 0))
+    unavailable_port = unavailable.getsockname()[1]
+    unavailable.close()
+
+    async def first_overload(request: web.Request) -> web.Response:
+        del request
+        return web.Response(status=429, headers={"Retry-After": "17"})
+
+    async def second_overload(request: web.Request) -> web.Response:
+        del request
+        return web.Response(status=429)
+
+    async with _serve(_application(first_overload)) as first, _serve(_application(second_overload)) as second:
+        proxy = _ProxyApplication((_backend(first), _backend(second), _Backend("127.0.0.1", unavailable_port)), 1)
+        async with _serve(proxy.create()) as endpoint, ClientSession() as client:
+            async with client.post(endpoint.make_url("/v1/chat/completions"), json={}) as response:
+                assert response.status == 429
+                assert response.headers["Retry-After"] == "17"
+
+
+@pytest.mark.asyncio
 async def test_proxy_streams_response_without_waiting_for_completion() -> None:
     release_tail = asyncio.Event()
 
