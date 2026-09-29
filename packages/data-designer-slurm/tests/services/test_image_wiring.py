@@ -390,7 +390,10 @@ def _write_inspection(workspace: Path, content: bytes) -> None:
                     "data-designer-slurm",
                 )
             )
-            + (InstalledDistribution(name="pip", version="26.1"),),
+            + (
+                InstalledDistribution(name="aiohttp", version="3.14.3"),
+                InstalledDistribution(name="pip", version="26.1"),
+            ),
             installer_path="/usr/bin/pip",
             installer_version="26.1",
         ),

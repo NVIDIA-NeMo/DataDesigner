@@ -115,6 +115,8 @@ def test_all_processes_use_structured_srun_steps_and_sanitized_environment(runti
     assert all("--gpus-per-task=" not in argument for step in client_steps for argument in step.command)
     assert all("--gres=none" in step.command for step in client_steps)
     assert all("CUDA_VISIBLE_DEVICES" not in step.environment for step in client_steps)
+    endpoint_command = tuple(step for step, _ in endpoint_steps)[0].command
+    assert endpoint_command[endpoint_command.index("--health-path") + 1] == deployment.launch_policy.readiness_path
 
 
 def test_vllm_command_maps_absolute_model_path(runtime_case: RuntimeCase) -> None:
