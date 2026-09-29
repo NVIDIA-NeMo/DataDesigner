@@ -102,14 +102,11 @@ This directly affects startup time, which has a 3-second budget tested by
 ### 3. Future annotations compliance
 
 AGENTS.md requires `from __future__ import annotations` in every Python
-source file:
+source file. Ruff enforces this for `packages/*/src` via `I002`
+(required-imports), so `make lint` catches violations:
 
 ```bash
-find packages/*/src/ -name '*.py' -not -name '__init__.py' | while read f; do
-  if ! grep -q "from __future__ import annotations" "$f"; then
-    echo "$f"
-  fi
-done
+uv run ruff check --select I002 packages/*/src
 ```
 
 This enables modern type syntax (`list[str]` instead of `List[str]`,
