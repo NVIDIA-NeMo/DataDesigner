@@ -15,7 +15,6 @@ from pydantic import BaseModel, ValidationError
 from data_designer.config import DataDesignerConfigBuilder
 from data_designer.slurm._errors import format_validation_error
 from data_designer.slurm.config.errors import SlurmConfigBuilderError
-from data_designer.slurm.config.images import ImageRef
 from data_designer.slurm.config.run import (
     ArrayTasksConfig,
     BuilderInput,
@@ -98,7 +97,6 @@ class DataDesignerSlurmConfigBuilder:
     def with_client(
         self,
         *,
-        image: ImageRef | Mapping[str, object],
         cpus: int = 32,
         dependencies: ClientDependencies | Mapping[str, object] | None = None,
     ) -> DataDesignerSlurmConfigBuilder:
@@ -107,7 +105,6 @@ class DataDesignerSlurmConfigBuilder:
             ClientConfig,
             {
                 "cpus": cpus,
-                "image": image,
                 "dependencies": {} if dependencies is None else dependencies,
             },
         )
@@ -149,14 +146,11 @@ class DataDesignerSlurmConfigBuilder:
         missing = []
         if self._invocation is None:
             missing.append("invocation")
-        if self._client is None:
-            missing.append("client")
         if not self._deployments:
             missing.append("deployment")
         if missing:
             raise SlurmConfigBuilderError(f"Slurm config builder requires: {', '.join(missing)}")
         assert self._invocation is not None
-        assert self._client is not None
         return _validate_model(
             DataDesignerSlurmConfig,
             {
@@ -164,7 +158,7 @@ class DataDesignerSlurmConfigBuilder:
                 "name": self._name,
                 "builder": self._builder,
                 "invocation": self._invocation,
-                "client": self._client,
+                "client": self._client or ClientConfig(),
                 "deployments": self._deployments,
                 "array_tasks": self._array_tasks,
                 "submission": self._submission,

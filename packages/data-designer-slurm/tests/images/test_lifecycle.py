@@ -610,6 +610,50 @@ def test_publish_completed_lifecycle_registers_digest_bound_image_in_fresh_proce
     assert resolved.sha256 == hashlib.sha256(content).hexdigest()
 
 
+def test_publish_versioned_vllm_rejects_inspected_version_mismatch(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    content = b"unexpected vllm version"
+    source = f"vllm/vllm-openai:v0.22.0@sha256:{'a' * 64}"
+    prepared = prepare_image_lifecycle_job(
+        ImageBuildRequest(name="vllm-v0-22-0", kind="serving", source=source),
+        _get_selected_profile(workspace),
+        lifecycle_id="version-mismatch",
+    )
+    candidate = Path(prepared.plan.sqsh_path)
+    candidate.parent.mkdir(parents=True, exist_ok=True)
+    candidate.write_bytes(content)
+    _write_completed_inspection(prepared, _get_serving_inspection(content, "0.21.0"))
+
+    with pytest.raises(ImageVerificationError, match="does not match the requested image version"):
+        publish_completed_image_lifecycle(prepared)
+
+    assert VerifiedImageRegistry(workspace).list_images() == ()
+    assert not (workspace / "images" / "artifacts").exists()
+
+
+def test_publish_versioned_vllm_records_digest_and_verified_version(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    content = b"expected vllm version"
+    source_digest = "a" * 64
+    prepared = prepare_image_lifecycle_job(
+        ImageBuildRequest(
+            name="vllm-v0-22-0", kind="serving", source=f"vllm/vllm-openai:v0.22.0@sha256:{source_digest}"
+        ),
+        _get_selected_profile(workspace),
+        lifecycle_id="version-match",
+    )
+    candidate = Path(prepared.plan.sqsh_path)
+    candidate.parent.mkdir(parents=True, exist_ok=True)
+    candidate.write_bytes(content)
+    _write_completed_inspection(prepared, _get_serving_inspection(content, "0.22.0"))
+
+    image = publish_completed_image_lifecycle(prepared)
+
+    assert image.source_oci_digest == source_digest
+    assert isinstance(image.inspection.inspection, ServingImageInspection)
+    assert image.inspection.inspection.runtime_version == "0.22.0"
+
+
 def test_publish_rejects_recreated_job_directory_with_substituted_result(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     prepared = _prepare_completed_oci_lifecycle(

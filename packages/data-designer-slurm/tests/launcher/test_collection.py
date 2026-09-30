@@ -129,17 +129,14 @@ def test_retry_renderer_waits_for_persisted_attempt_before_starting_runtime(
     assert script.index("DD_ATTEMPT_MANIFEST") < script.index("DD_RUNTIME_ROOT")
     assert "data_designer.slurm.state.attempt_identity" in script
     assert "enroot start" not in script
-    assert '--container-image="${DD_VERIFIED_CLIENT_IMAGE}"' in script
-    assert "readonly DD_CLIENT_IMAGE=" not in script
-    assert (
-        '--container-mounts="${DD_WORKSPACE_ROOT}:${DD_WORKSPACE_ROOT},${DD_SCRATCH_ROOT}:${DD_SCRATCH_CONTAINER_ROOT}"'
-        in script
-    )
-    assert 'export PYTHONPATH="${DD_SCRATCH_CONTAINER_ROOT}/runtime"' in script
-    assert "--container-env=PYTHONPATH" in script
+    assert "--container-image=" not in script
+    assert "--container-mounts=" not in script
+    assert "--container-env=" not in script
+    assert f'readonly DD_CLIENT_PYTHON="{multi_node_plan.client.runtime.python_executable}"' in script
+    assert 'export PYTHONPATH="${DD_RUNTIME_ROOT}"' in script
     assert "--gres=none" in script
     assert "--export=ALL" in script
-    assert "python3 -m data_designer.slurm.state.attempt_identity" in script
+    assert '"${DD_CLIENT_PYTHON}" -m data_designer.slurm.state.attempt_identity' in script
     assert '--array-job-id "${DD_ARRAY_JOB_ID}" --array-task-id "${DD_ARRAY_TASK_ID}"' in script
     assert script.index("dd_stage_allocation_runtime") < script.index("data_designer.slurm.state.attempt_identity")
     assert script.index("trap 'exit 143' TERM") < script.index("\ndd_initialize_local_scratch\n")

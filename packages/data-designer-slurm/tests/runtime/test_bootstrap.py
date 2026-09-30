@@ -11,12 +11,11 @@ from conftest import RuntimeCase, relocate_plan
 
 from data_designer.slurm.contracts import ArtifactReference
 from data_designer.slurm.planning import ResolvedSlurmRunPlan
-from data_designer.slurm.runtime.bootstrap import RuntimeBootstrapManifest, build_runtime_manifest
+from data_designer.slurm.runtime.bootstrap import RuntimeBootstrapManifest, RuntimeStepSpec, build_runtime_manifest
 from data_designer.slurm.runtime.distributed import build_vllm_process_command
 from data_designer.slurm.runtime.errors import SlurmRuntimeError
 from data_designer.slurm.runtime.models import AllocationContext, RuntimeStepRole
 from data_designer.slurm.runtime.node_spec import decode_node_worker_spec
-from data_designer.slurm.runtime.paths import ALLOCATION_SCRATCH_CONTAINER_ROOT
 from data_designer.slurm.runtime.ports import resolve_allocation_deployments
 from data_designer.slurm.runtime.preflight import AllocationLayout
 from data_designer.slurm.serving.vllm import ResolvedVllmProcess
@@ -25,7 +24,7 @@ from data_designer.slurm.state import RetryPlan, RetryShard
 
 def test_bootstrap_manifest_builds_typed_one_node_steps_without_secret_values(runtime_case: RuntimeCase) -> None:
     context = runtime_case.context
-    runtime_root = Path(ALLOCATION_SCRATCH_CONTAINER_ROOT) / "runtime"
+    runtime_root = Path("/tmp/data-designer-slurm-4101-0/runtime")
     log_directory = context.attempt_directory / "logs/execution-00000002"
 
     manifest = build_runtime_manifest(
@@ -47,7 +46,7 @@ def test_bootstrap_manifest_builds_typed_one_node_steps_without_secret_values(ru
     assert all(step.command[0] != "srun" for step in manifest.steps)
     assert all(step.stdout_path.startswith(context.attempt_directory.as_posix()) for step in manifest.steps)
     assert manifest.steps[-1].command[:4] == (
-        "python3",
+        context.plan.client.runtime.python_executable,
         "-m",
         "data_designer.slurm.runtime.entrypoint",
         "client",
@@ -60,15 +59,38 @@ def test_bootstrap_manifest_builds_typed_one_node_steps_without_secret_values(ru
     assert all(step.role is not RuntimeStepRole.SERVER_PREFLIGHT for step in manifest.steps)
     endpoint = next(step for step in manifest.steps if step.role is RuntimeStepRole.ENDPOINT)
     assert endpoint.literal_environment["PYTHONPATH"] == runtime_root.as_posix()
-    assert endpoint.container_environment == ("PYTHONPATH",)
+    assert endpoint.container_environment == ()
     client_steps = tuple(
         step for step in manifest.steps if step.role in {RuntimeStepRole.CLIENT_PREFLIGHT, RuntimeStepRole.CLIENT}
     )
     assert all(
-        step.literal_environment["DATA_DESIGNER_SLURM_SCRATCH_ROOT"] == ALLOCATION_SCRATCH_CONTAINER_ROOT
+        step.literal_environment["DATA_DESIGNER_SLURM_SCRATCH_ROOT"] == runtime_root.parent.as_posix()
         for step in client_steps
     )
     assert "SLURM_TMPDIR" not in manifest.serialize_json()
+
+
+@pytest.mark.parametrize("role", (RuntimeStepRole.CLIENT_PREFLIGHT, RuntimeStepRole.SERVER))
+def test_runtime_step_rejects_execution_mode_that_conflicts_with_role(
+    runtime_case: RuntimeCase, role: RuntimeStepRole
+) -> None:
+    context = runtime_case.context
+    manifest = build_runtime_manifest(
+        context,
+        {"SLURM_JOB_GPUS": "0"},
+        runtime_root=Path("/tmp/data-designer-slurm-4101-0/runtime"),
+        log_directory=context.attempt_directory / "logs/execution-00000002",
+        layout=AllocationLayout(("compute-001",)),
+    )
+    step = next(item for item in manifest.steps if item.role is role)
+    payload = step.model_dump(mode="python")
+    payload["execution"] = "native" if step.execution == "container" else "container"
+    payload["image_path"] = None if payload["execution"] == "native" else "/workspace/client.sqsh"
+    if payload["execution"] == "native":
+        payload["container_environment"] = ()
+
+    with pytest.raises(ValueError, match="execution does not match its role"):
+        RuntimeStepSpec.model_validate(payload)
 
 
 def test_bootstrap_manifest_rejects_runtime_outside_allocation_scratch(runtime_case: RuntimeCase) -> None:
@@ -105,7 +127,7 @@ def test_bootstrap_manifest_binds_retry_plan_to_control_and_client_workers(runti
     manifest = build_runtime_manifest(
         retry_context,
         {"SLURM_JOB_GPUS": "0"},
-        runtime_root=Path(ALLOCATION_SCRATCH_CONTAINER_ROOT) / "runtime",
+        runtime_root=Path("/tmp/data-designer-slurm-4101-0/runtime"),
         log_directory=context.attempt_directory / "logs/execution-00000002",
         layout=AllocationLayout(("compute-001",)),
     )
@@ -143,7 +165,7 @@ def test_bootstrap_manifest_composes_multi_node_workers_and_remote_endpoints(
     manifest = build_runtime_manifest(
         context,
         {"SLURM_JOB_GPUS": "0,1,2,3,4,5,6,7"},
-        runtime_root=Path(ALLOCATION_SCRATCH_CONTAINER_ROOT) / "runtime",
+        runtime_root=Path("/tmp/data-designer-slurm-4101-0/runtime"),
         log_directory=context.attempt_directory / "logs/execution-00000002",
         layout=layout,
     )
@@ -167,8 +189,8 @@ def test_bootstrap_manifest_composes_multi_node_workers_and_remote_endpoints(
     assert tuple(probe.host for probe in distributed.readiness) == ("compute-001",)
     assert "http://compute-001:" in " ".join(endpoint.command)
     assert endpoint.node_hosts == ("compute-001",)
-    assert endpoint.literal_environment["PYTHONPATH"] == f"{ALLOCATION_SCRATCH_CONTAINER_ROOT}/runtime"
-    assert endpoint.container_environment == ("PYTHONPATH",)
+    assert endpoint.literal_environment["PYTHONPATH"] == "/tmp/data-designer-slurm-4101-0/runtime"
+    assert endpoint.container_environment == ()
     assert remote_preflight.node_hosts == ("compute-003",)
     remote_worker_spec = decode_node_worker_spec(remote_preflight.command[-1])
     assert remote_worker_spec.required_model_path == "/workspace/primary/models/model-1"

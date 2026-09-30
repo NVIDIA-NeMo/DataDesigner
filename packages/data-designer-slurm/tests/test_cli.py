@@ -12,7 +12,7 @@ from click.testing import CliRunner
 import data_designer.slurm.cli as cli_module
 import data_designer.slurm.cli_benchmark as benchmark_cli_module
 from data_designer.slurm.benchmark import BenchmarkManifest, BenchmarkReport
-from data_designer.slurm.config import DataDesignerSlurmBenchmarkConfig, DataDesignerSlurmConfig
+from data_designer.slurm.config import DataDesignerSlurmBenchmarkConfig, DataDesignerSlurmConfig, ImageBuildRequest
 from data_designer.slurm.services import (
     SlurmCollectionExecution,
     SlurmRetryExecution,
@@ -354,6 +354,38 @@ def test_image_add_rejects_mutable_oci_source(source: str) -> None:
             "operation": "add_image",
         }
     }
+
+
+def test_image_add_resolves_versioned_vllm_before_import(monkeypatch: pytest.MonkeyPatch) -> None:
+    source = "vllm/vllm-openai:v0.22.0"
+    pinned = f"{source}@sha256:{'a' * 64}"
+    requests: list[ImageBuildRequest] = []
+
+    class ImageService:
+        def add(self, request: ImageBuildRequest, *, replace: bool) -> ImageBuildRequest:
+            assert not replace
+            requests.append(request)
+            return request
+
+    monkeypatch.setattr(cli_module, "resolve_versioned_vllm_source", lambda _source: pinned)
+    monkeypatch.setattr(cli_module, "create_slurm_image_service", lambda **_kwargs: ImageService())
+
+    result = CliRunner().invoke(cli_module.create_cli(), ["image", "add", source])
+
+    assert result.exit_code == 0, result.output
+    assert len(requests) == 1
+    assert requests[0].kind == "serving"
+    assert requests[0].source == pinned
+    assert requests[0].name == "vllm-openai-v0.22.0"
+
+
+def test_image_add_rejects_versioned_vllm_as_client() -> None:
+    result = CliRunner().invoke(
+        cli_module.create_cli(), ["image", "add", "vllm/vllm-openai:v0.22.0", "--kind", "client"]
+    )
+
+    assert result.exit_code == 2
+    assert json.loads(result.stderr)["error"]["message"] == "versioned vLLM images require --kind serving"
 
 
 def test_profile_init_creates_starter_and_emits_validation_command(tmp_path: Path) -> None:

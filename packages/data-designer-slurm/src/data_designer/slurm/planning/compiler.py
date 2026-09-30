@@ -187,7 +187,7 @@ def _compile_client(
     )
     return ResolvedClient(
         authored=effective.authored.client,
-        image=effective.client_image,
+        runtime=effective.client_runtime,
         dependency_lock=ArtifactReference(
             path=posixpath.join(_run_root(effective), "dependency-lock.json"),
             sha256=effective.dependency_lock.compute_sha256(),

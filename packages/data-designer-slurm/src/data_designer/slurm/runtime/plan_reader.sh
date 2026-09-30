@@ -27,7 +27,7 @@ dd_read_control_plan() {
             and (. as $target | ("/run/data-designer-slurm" | startswith($target + "/") | not))
         ))
     ' "${plan}" >/dev/null || return 65
-    DD_CLIENT_IMAGE=$(jq -er '.client.image.path' "${plan}")
+    DD_CLIENT_PYTHON=$(jq -er '.client.runtime.python_executable' "${plan}")
     DD_CLIENT_CPUS=$(jq -er '.client.authored.cpus | tostring' "${plan}")
     DD_EXPECTED_GPUS=$(jq -er '.resolved_gpus_per_node | tostring' "${plan}")
     DD_EXPECTED_NODES=$(jq -er '[.deployments[].node_indices[]] | max + 1 | tostring' "${plan}")
@@ -72,7 +72,6 @@ dd_read_artifacts() {
             [
                 .runtime_bundle,
                 .client.dependency_lock,
-                {path: .client.image.path, sha256: .client.image.sha256},
                 (.deployments[] | {path: .image.path, sha256: .image.sha256}),
                 .builder.source,
                 (.shards[] | select(.array_task_index == $task_id) | .input_partition)
@@ -142,7 +141,8 @@ dd_read_step() {
         jq -j --arg step_id "${step_id}" '
             .steps[]
             | select(.step_id == $step_id)
-            | .image_path, "\u0000",
+            | .execution, "\u0000",
+              (.image_path // ""), "\u0000",
               (.cpus | tostring), "\u0000",
               .stdout_path, "\u0000",
               .stderr_path, "\u0000",
@@ -150,12 +150,13 @@ dd_read_step() {
               (.kill_on_bad_exit | tostring), "\u0000"
         ' "${manifest}"
     )
-    DD_STEP_IMAGE=${DD_STEP_FIELDS[0]}
-    DD_STEP_CPUS=${DD_STEP_FIELDS[1]}
-    DD_STEP_STDOUT=${DD_STEP_FIELDS[2]}
-    DD_STEP_STDERR=${DD_STEP_FIELDS[3]}
-    DD_STEP_DELAY=${DD_STEP_FIELDS[4]}
-    DD_STEP_KILL_ON_BAD_EXIT=${DD_STEP_FIELDS[5]}
+    DD_STEP_EXECUTION=${DD_STEP_FIELDS[0]}
+    DD_STEP_IMAGE=${DD_STEP_FIELDS[1]}
+    DD_STEP_CPUS=${DD_STEP_FIELDS[2]}
+    DD_STEP_STDOUT=${DD_STEP_FIELDS[3]}
+    DD_STEP_STDERR=${DD_STEP_FIELDS[4]}
+    DD_STEP_DELAY=${DD_STEP_FIELDS[5]}
+    DD_STEP_KILL_ON_BAD_EXIT=${DD_STEP_FIELDS[6]}
     dd_read_null_values DD_STEP_COMMAND < <(
         jq -j --arg step_id "${step_id}" '.steps[] | select(.step_id == $step_id) | .command[] | ., "\u0000"' \
             "${manifest}"
