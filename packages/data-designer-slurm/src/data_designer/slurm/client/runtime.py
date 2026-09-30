@@ -90,8 +90,10 @@ class ClientRuntimeInspector:
             )
         except ClientRuntimeInspectionError:
             raise
-        except (ClientWorkerError, OSError, ValueError) as error:
-            raise ClientRuntimeInspectionError("client Python runtime cannot be inspected") from error
+        except ClientWorkerError as error:
+            raise ClientRuntimeInspectionError(error.redacted_message) from None
+        except (OSError, ValueError):
+            raise ClientRuntimeInspectionError("client Python runtime cannot be inspected") from None
 
 
 __all__ = ["ClientRuntimeInspectionError", "ClientRuntimeInspector"]

@@ -288,7 +288,8 @@ def inspect_distributions(path: Path | None) -> tuple[InstalledDistribution, ...
         direct_url = distribution.read_text("direct_url.json")
         if direct_url is not None and _is_mutable_direct_url(direct_url):
             raise ClientWorkerError(
-                ClientErrorCode.DEPENDENCY_CONFLICT, "mutable installed distributions are forbidden"
+                ClientErrorCode.DEPENDENCY_CONFLICT,
+                f"mutable installed distribution {name!r} is forbidden",
             )
         names.add(name)
         installed.append(

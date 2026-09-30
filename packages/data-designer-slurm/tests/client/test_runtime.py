@@ -4,10 +4,13 @@
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 
 import pytest
 
 from data_designer.slurm.client import runtime as runtime_module
+from data_designer.slurm.client.errors import ClientWorkerError
+from data_designer.slurm.client.records import ClientErrorCode
 from data_designer.slurm.client.runtime import ClientRuntimeInspectionError, ClientRuntimeInspector
 from data_designer.slurm.contracts import InstalledDistribution, compute_canonical_json_sha256
 
@@ -49,6 +52,19 @@ def test_runtime_inspector_rejects_missing_required_distribution(monkeypatch: py
     )
 
     with pytest.raises(ClientRuntimeInspectionError, match="required client distributions"):
+        ClientRuntimeInspector().inspect()
+
+
+def test_runtime_inspector_preserves_sanitized_inventory_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fail_inventory(_path: Path | None) -> tuple[InstalledDistribution, ...]:
+        raise ClientWorkerError(
+            ClientErrorCode.DEPENDENCY_CONFLICT,
+            "mutable installed distribution 'example-plugin' is forbidden",
+        )
+
+    monkeypatch.setattr(runtime_module, "inspect_distributions", fail_inventory)
+
+    with pytest.raises(ClientRuntimeInspectionError, match="example-plugin"):
         ClientRuntimeInspector().inspect()
 
 
