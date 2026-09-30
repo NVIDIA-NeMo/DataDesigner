@@ -8,6 +8,7 @@ import importlib.metadata
 import json
 import os
 import re
+import site
 import stat
 import subprocess
 import sys
@@ -275,9 +276,8 @@ def inspect_distributions(path: Path | None) -> tuple[InstalledDistribution, ...
     """Return an exact immutable distribution inventory."""
     if path is not None:
         importlib.invalidate_caches()
-    distributions = (
-        importlib.metadata.distributions() if path is None else importlib.metadata.distributions(path=[path.as_posix()])
-    )
+    search_paths = _active_distribution_search_paths() if path is None else [path.as_posix()]
+    distributions = importlib.metadata.distributions(path=search_paths)
     installed: list[InstalledDistribution] = []
     names: set[str] = set()
     for distribution in distributions:
@@ -300,6 +300,35 @@ def inspect_distributions(path: Path | None) -> tuple[InstalledDistribution, ...
             )
         )
     return tuple(sorted(installed, key=lambda item: item.name))
+
+
+def _active_distribution_search_paths() -> list[str]:
+    """Exclude submit-only ``PYTHONPATH`` entries from the client runtime inventory."""
+    configured_paths = {
+        _normalize_import_path(entry) for entry in os.environ.get("PYTHONPATH", "").split(os.pathsep) if entry
+    }
+    if not configured_paths:
+        return sys.path.copy()
+
+    site_paths = site.getsitepackages()
+    if site.ENABLE_USER_SITE:
+        user_site_path = site.getusersitepackages()
+        if isinstance(user_site_path, str):
+            site_paths.append(user_site_path)
+        else:
+            site_paths.extend(user_site_path)
+    standard_site_paths = {_normalize_import_path(entry) for entry in site_paths}
+    search_paths: list[str] = []
+    for entry in sys.path:
+        normalized_entry = _normalize_import_path(entry)
+        if normalized_entry in configured_paths and normalized_entry not in standard_site_paths:
+            continue
+        search_paths.append(entry)
+    return search_paths
+
+
+def _normalize_import_path(path: str) -> str:
+    return os.path.normcase(os.path.realpath(path or os.curdir))
 
 
 def activate_environment(prepared: PreparedClientEnvironment) -> None:

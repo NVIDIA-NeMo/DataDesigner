@@ -177,17 +177,31 @@ def test_native_environment_rejects_container_only_plan_path(
     assert error.value.code is ClientErrorCode.INVALID_INPUT
 
 
-def test_inspect_distributions_omits_path_for_active_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("user_site_enabled", (False, True))
+def test_inspect_distributions_uses_active_environment_paths(
+    monkeypatch: pytest.MonkeyPatch,
+    user_site_enabled: bool,
+) -> None:
     calls: list[dict[str, object]] = []
 
     def distributions(**kwargs: object) -> tuple[()]:
         calls.append(kwargs)
         return ()
 
+    submit_path = "/submit/venv/site-packages"
+    interpreter_path = "/control/venv/site-packages"
+    user_site_path = "/users/alice/.local/site-packages"
+    pth_path = "/installed/editable-source"
+    monkeypatch.setattr(sys, "path", [submit_path, interpreter_path, user_site_path, pth_path])
+    monkeypatch.setattr(environment_module.site, "getsitepackages", lambda: [interpreter_path])
+    monkeypatch.setattr(environment_module.site, "getusersitepackages", lambda: user_site_path)
+    monkeypatch.setattr(environment_module.site, "ENABLE_USER_SITE", user_site_enabled)
+    monkeypatch.setenv("PYTHONPATH", os.pathsep.join((submit_path, user_site_path)))
     monkeypatch.setattr("data_designer.slurm.client.environment.importlib.metadata.distributions", distributions)
 
     assert inspect_distributions(None) == ()
-    assert calls == [{}]
+    expected_paths = [interpreter_path, *([user_site_path] if user_site_enabled else []), pth_path]
+    assert calls == [{"path": expected_paths}]
 
 
 def test_inspect_distributions_refreshes_overlay_with_unchanged_directory_mtime(tmp_path: Path) -> None:
@@ -212,7 +226,7 @@ def test_inspect_distributions_rejects_unhashed_direct_url(monkeypatch: pytest.M
     distribution.read_text.return_value = '{"url":"https://example.test/example.whl"}'
     monkeypatch.setattr(
         "data_designer.slurm.client.environment.importlib.metadata.distributions",
-        lambda: (distribution,),
+        lambda **kwargs: (distribution,),
     )
 
     with pytest.raises(ClientWorkerError) as error:
@@ -234,7 +248,7 @@ def test_inspect_distributions_accepts_immutable_git_provenance(monkeypatch: pyt
     distribution.read_text.return_value = json.dumps(direct_url)
     monkeypatch.setattr(
         "data_designer.slurm.client.environment.importlib.metadata.distributions",
-        lambda: (distribution,),
+        lambda **kwargs: (distribution,),
     )
 
     installed = inspect_distributions(None)
@@ -266,7 +280,7 @@ def test_inspect_distributions_rejects_mutable_install_provenance(
     distribution.read_text.return_value = json.dumps(direct_url)
     monkeypatch.setattr(
         "data_designer.slurm.client.environment.importlib.metadata.distributions",
-        lambda: (distribution,),
+        lambda **kwargs: (distribution,),
     )
 
     with pytest.raises(ClientWorkerError) as error:
