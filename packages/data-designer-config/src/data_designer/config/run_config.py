@@ -224,6 +224,11 @@ class RunConfig(ConfigBase):
         )
         self.display_tui = value
 
+    @property
+    def effective_shutdown_error_rate(self) -> float:
+        """Error rate handed to early-shutdown checks: 1.0 when early shutdown is disabled."""
+        return 1.0 if self.disable_early_shutdown else self.shutdown_error_rate
+
     def model_copy(self, *, update: Mapping[str, Any] | None = None, deep: bool = False) -> Self:
         if update is not None and "progress_bar" in update:
             normalized_update = dict(update)
@@ -236,8 +241,3 @@ class RunConfig(ConfigBase):
             )
             update = normalized_update
         return super().model_copy(update=update, deep=deep)
-
-    @property
-    def effective_shutdown_error_rate(self) -> float:
-        """Error rate handed to early-shutdown checks: 1.0 when early shutdown is disabled."""
-        return 1.0 if self.disable_early_shutdown else self.shutdown_error_rate
