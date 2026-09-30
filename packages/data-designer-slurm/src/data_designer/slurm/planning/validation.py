@@ -8,7 +8,6 @@ import posixpath
 from pydantic import JsonValue
 
 from data_designer.config import RunConfig
-from data_designer.slurm.config.images import ClientImageInspection
 from data_designer.slurm.config.run import DataDesignerSlurmConfig
 from data_designer.slurm.contracts import derive_managed_assets_path
 from data_designer.slurm.planning.builder_identity import get_persisted_builder_identity
@@ -107,17 +106,16 @@ def validate_resolved_plan(
         "dependency lock digest does not match the resolved plan",
     )
     _require(
-        dependency_lock.client_image_sha256 == plan.client.image.sha256,
-        "dependency lock client image digest does not match the resolved client image",
-    )
-    inspection = plan.client.image.inspection.inspection
-    _require(isinstance(inspection, ClientImageInspection), "resolved client image lacks client inspection facts")
-    _require(
-        dependency_lock.python_abi == inspection.python_abi, "dependency lock Python ABI does not match client image"
+        dependency_lock.client_runtime_sha256 == plan.client.runtime.runtime_sha256,
+        "dependency lock runtime fingerprint does not match the resolved client runtime",
     )
     _require(
-        dependency_lock.image_distributions == inspection.distributions,
-        "dependency lock image inventory does not match client image inspection",
+        dependency_lock.python_abi == plan.client.runtime.python_abi,
+        "dependency lock Python ABI does not match client runtime",
+    )
+    _require(
+        dependency_lock.base_distributions == plan.client.runtime.distributions,
+        "dependency lock inventory does not match client runtime inspection",
     )
     authored_requirements = authored.client.dependencies.requirements
     if authored_requirements is not None:

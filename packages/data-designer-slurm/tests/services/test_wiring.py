@@ -14,6 +14,7 @@ import pytest
 import data_designer.slurm.services.retry_collection as retry_collection_module
 from data_designer.slurm.benchmark.compiler import BenchmarkCompiler
 from data_designer.slurm.client.dependencies import ResolvedClientDependencies
+from data_designer.slurm.client.runtime import ClientRuntimeInspectionError, ClientRuntimeInspector
 from data_designer.slurm.config import (
     BenchmarkBaseRun,
     BuilderInput,
@@ -57,6 +58,14 @@ from data_designer.slurm.state import (
     StateConflictError,
     StateNotFoundError,
 )
+
+
+@pytest.fixture(autouse=True)
+def _use_persisted_client_runtime(
+    monkeypatch: pytest.MonkeyPatch,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    monkeypatch.setattr(ClientRuntimeInspector, "inspect", lambda self: single_node_plan.client.runtime)
 
 
 class _Launcher:
@@ -187,7 +196,7 @@ def _register_images(
     plan: ResolvedSlurmRunPlan,
 ) -> None:
     store = ImageRegistryStore(tmp_path)
-    pairs = ((authored.client.image, plan.client.image),) + tuple(
+    pairs = tuple(
         (deployment.server.image, resolved.image)
         for deployment, resolved in zip(authored.deployments, plan.deployments, strict=True)
     )
@@ -229,6 +238,30 @@ def test_production_wiring_dry_run_resolves_and_renders_without_submission(
     assert result.batch_script is not None
     assert "#SBATCH --array=0" in result.batch_script
     assert launcher.submissions == []
+
+
+def test_dry_run_reports_missing_native_runtime_dependency(
+    tmp_path: Path,
+    profile_catalog: SlurmProfileCatalog,
+    authored_run_single: DataDesignerSlurmConfig,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_inspection(_inspector: ClientRuntimeInspector) -> None:
+        raise ClientRuntimeInspectionError("client Python requires aiohttp>=3.14.3,<4 for the inference proxy")
+
+    monkeypatch.setattr(ClientRuntimeInspector, "inspect", fail_inspection)
+    service = create_slurm_run_service(
+        profile=_profile(tmp_path, profile_catalog),
+        launcher=_Launcher(),  # type: ignore[arg-type]
+        run_id_factory=lambda: "run-missing-runtime-dependency",
+        package_version="0.9.2",
+    )
+
+    with pytest.raises(SlurmServiceError) as caught:
+        service.execute(authored_run_single, source_root=tmp_path, dry_run=True)
+
+    assert caught.value.code is SlurmServiceErrorCode.INVALID_REQUEST
+    assert str(caught.value) == "client Python requires aiohttp>=3.14.3,<4 for the inference proxy"
 
 
 def test_production_benchmark_wiring_submits_each_case_as_an_ordinary_run(
@@ -1246,4 +1279,4 @@ def test_production_image_registry_operations(
     removed = service.remove(images[0].name)
 
     assert selected == removed == images[0]
-    assert len(service.list()) == 1
+    assert service.list() == ()

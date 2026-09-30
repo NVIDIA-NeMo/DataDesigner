@@ -7,7 +7,6 @@ import hashlib
 import importlib.metadata
 import json
 import os
-import posixpath
 import re
 import stat
 import subprocess
@@ -23,7 +22,7 @@ from packaging.utils import canonicalize_name, parse_wheel_filename
 from data_designer.slurm.client.errors import ClientWorkerError
 from data_designer.slurm.client.filesystem import compute_file_sha256, ensure_private_directory, read_regular_bytes
 from data_designer.slurm.client.records import ClientErrorCode, ClientInstallerOutcome
-from data_designer.slurm.contracts import ArtifactReference, InstalledDistribution
+from data_designer.slurm.contracts import ArtifactReference, InstalledDistribution, canonical_json
 
 DistributionInventory = Callable[[Path | None], tuple[InstalledDistribution, ...]]
 CommandRunner = Callable[[tuple[str, ...]], None]
@@ -38,7 +37,7 @@ class PreparedClientEnvironment:
     scratch_root: Path
     overlay_path: Path
     dependency_lock: ArtifactReference
-    client_image_sha256: str
+    client_runtime_sha256: str
     python_abi: str
     installer_outcome: ClientInstallerOutcome
     installed_distributions: tuple[InstalledDistribution, ...]
@@ -52,17 +51,16 @@ class _BootstrapInputs:
     attempt_id: str
     attempt_dir: Path
     scratch_root: Path
-    client_image_sha256: str
+    client_runtime_sha256: str
     python_abi: str
-    installer_path: Path
-    inspection: dict[str, object]
+    python_executable: Path
+    runtime: dict[str, object]
     dependency_lock: ArtifactReference
-    plan: dict[str, object]
 
 
 @dataclass(frozen=True)
 class _VerifiedDependencies:
-    image_distributions: tuple[InstalledDistribution, ...]
+    base_distributions: tuple[InstalledDistribution, ...]
     overlay_packages: tuple[dict[str, object], ...]
 
 
@@ -105,7 +103,7 @@ class ClientEnvironmentBuilder:
             scratch_root=inputs.scratch_root,
             overlay_path=overlay_path,
             dependency_lock=inputs.dependency_lock,
-            client_image_sha256=inputs.client_image_sha256,
+            client_runtime_sha256=inputs.client_runtime_sha256,
             python_abi=inputs.python_abi,
             installer_outcome=installer_outcome,
             installed_distributions=installed,
@@ -135,28 +133,30 @@ class ClientEnvironmentBuilder:
             plan_path.name != "resolved-plan.json"
             or logical_run_root.name != run_id
             or logical_run_root.parent.name != "runs"
-            or _get_container_path(plan_payload, (logical_run_root / plan_path.name).as_posix()) != plan_path.as_posix()
+            or (logical_run_root / plan_path.name).as_posix() != plan_path.as_posix()
         ):
             raise ClientWorkerError(ClientErrorCode.INVALID_INPUT, "resolved plan path is not canonical")
         logical_attempt = logical_run_root / "shards" / shard_id / "attempts" / attempt_id
-        expected_attempt = Path(_get_container_path(plan_payload, logical_attempt.as_posix(), require_writable=True))
+        expected_attempt = logical_attempt
         if attempt_dir.as_posix() != expected_attempt.as_posix():
             raise ClientWorkerError(ClientErrorCode.INVALID_INPUT, "attempt directory does not match the plan")
         ensure_private_directory(attempt_dir)
 
         client = _require_object(plan_payload, "client")
-        image = _require_object(client, "image")
-        image_sha256 = _require_digest(image, "sha256")
-        inspection_record = _require_object(image, "inspection")
-        inspection = _require_object(inspection_record, "inspection")
-        if inspection.get("kind") != "client":
-            raise ClientWorkerError(ClientErrorCode.INVALID_INPUT, "resolved client image inspection is invalid")
-        python_abi = _require_string(inspection, "python_abi")
+        runtime = _require_object(client, "runtime")
+        runtime_sha256 = _require_digest(runtime, "runtime_sha256")
+        runtime_identity = dict(runtime)
+        runtime_identity.pop("runtime_sha256")
+        if hashlib.sha256(canonical_json(runtime_identity)).hexdigest() != runtime_sha256:
+            raise ClientWorkerError(ClientErrorCode.INVALID_INPUT, "client runtime fingerprint is invalid")
+        python_abi = _require_string(runtime, "python_abi")
         if python_abi != f"{interpreter_name()}{interpreter_version()}":
             raise ClientWorkerError(ClientErrorCode.DEPENDENCY_CONFLICT, "client Python ABI differs from the plan")
-        installer_path = Path(_require_string(inspection, "installer_path"))
-        if not installer_path.is_absolute() or installer_path.as_posix() == "/":
-            raise ClientWorkerError(ClientErrorCode.INVALID_INPUT, "client installer path is invalid")
+        python_executable = Path(_require_string(runtime, "python_executable"))
+        if python_executable.as_posix() != sys.executable:
+            raise ClientWorkerError(
+                ClientErrorCode.DEPENDENCY_CONFLICT, "client Python executable differs from the plan"
+            )
 
         lock_reference = _artifact_reference(_require_object(client, "dependency_lock"))
         if Path(lock_reference.path).as_posix() != (logical_run_root / "dependency-lock.json").as_posix():
@@ -168,39 +168,40 @@ class ClientEnvironmentBuilder:
             attempt_id=attempt_id,
             attempt_dir=attempt_dir,
             scratch_root=scratch_root,
-            client_image_sha256=image_sha256,
+            client_runtime_sha256=runtime_sha256,
             python_abi=python_abi,
-            installer_path=installer_path,
-            inspection=inspection,
+            python_executable=python_executable,
+            runtime=runtime,
             dependency_lock=lock_reference,
-            plan=plan_payload,
         )
 
     def _verify_dependency_lock(self, inputs: _BootstrapInputs) -> _VerifiedDependencies:
         lock_bytes = read_regular_bytes(
-            Path(_get_container_path(inputs.plan, inputs.dependency_lock.path)),
+            Path(inputs.dependency_lock.path),
             missing_code=ClientErrorCode.DEPENDENCY_ARTIFACT_MISSING,
         )
         if _sha256_bytes(lock_bytes) != inputs.dependency_lock.sha256:
             raise ClientWorkerError(ClientErrorCode.DEPENDENCY_DIGEST_MISMATCH, "dependency lock digest differs")
         lock = _parse_json_bytes(lock_bytes, ClientErrorCode.DEPENDENCY_CONFLICT)
-        if _require_digest(lock, "client_image_sha256") != inputs.client_image_sha256:
-            raise ClientWorkerError(ClientErrorCode.DEPENDENCY_CONFLICT, "dependency lock targets another image")
+        if _require_digest(lock, "client_runtime_sha256") != inputs.client_runtime_sha256:
+            raise ClientWorkerError(ClientErrorCode.DEPENDENCY_CONFLICT, "dependency lock targets another runtime")
         if _require_string(lock, "python_abi") != inputs.python_abi:
             raise ClientWorkerError(ClientErrorCode.DEPENDENCY_CONFLICT, "dependency lock targets another Python ABI")
 
-        expected_image = _parse_distributions(lock.get("image_distributions"))
-        inspected_image = _parse_distributions(inputs.inspection.get("distributions"))
+        expected_base = _parse_distributions(lock.get("base_distributions"))
+        inspected_base = _parse_distributions(inputs.runtime.get("distributions"))
         try:
-            actual_image = self._inventory(None)
+            actual_base = self._inventory(None)
         except ClientWorkerError:
             raise
         except Exception as error:
             raise ClientWorkerError(
-                ClientErrorCode.DEPENDENCY_CONFLICT, "client image inventory cannot be verified"
+                ClientErrorCode.DEPENDENCY_CONFLICT, "client runtime inventory cannot be verified"
             ) from error
-        if expected_image != inspected_image or actual_image != expected_image:
-            raise ClientWorkerError(ClientErrorCode.DEPENDENCY_CONFLICT, "client image inventory differs from the lock")
+        if expected_base != inspected_base or actual_base != expected_base:
+            raise ClientWorkerError(
+                ClientErrorCode.DEPENDENCY_CONFLICT, "client runtime inventory differs from the lock"
+            )
 
         source = lock.get("source")
         if source is not None:
@@ -208,10 +209,9 @@ class ClientEnvironmentBuilder:
             _verify_input_artifact(
                 source_reference,
                 inputs.logical_run_root / "inputs",
-                inputs.plan,
             )
         return _VerifiedDependencies(
-            image_distributions=expected_image,
+            base_distributions=expected_base,
             overlay_packages=tuple(_as_object_list(lock.get("overlay_packages"))),
         )
 
@@ -223,17 +223,16 @@ class ClientEnvironmentBuilder:
         expected_overlay, wheels = _verify_wheels(
             dependencies.overlay_packages,
             inputs.logical_run_root / "dependencies",
-            dependencies.image_distributions,
-            inputs.plan,
+            dependencies.base_distributions,
         )
         overlay_path = inputs.scratch_root / "client-env" / "site-packages"
-        outcome = self._install_overlay(inputs.installer_path, wheels, expected_overlay, overlay_path)
-        installed = tuple(sorted((*dependencies.image_distributions, *expected_overlay), key=lambda item: item.name))
+        outcome = self._install_overlay(inputs.python_executable, wheels, expected_overlay, overlay_path)
+        installed = tuple(sorted((*dependencies.base_distributions, *expected_overlay), key=lambda item: item.name))
         return overlay_path, outcome, installed
 
     def _install_overlay(
         self,
-        installer_path: Path,
+        python_executable: Path,
         wheels: tuple[Path, ...],
         expected: tuple[InstalledDistribution, ...],
         target: Path,
@@ -249,7 +248,9 @@ class ClientEnvironmentBuilder:
         try:
             self._command_runner(
                 (
-                    installer_path.as_posix(),
+                    python_executable.as_posix(),
+                    "-m",
+                    "pip",
                     "install",
                     "--disable-pip-version-check",
                     "--no-deps",
@@ -290,7 +291,13 @@ def inspect_distributions(path: Path | None) -> tuple[InstalledDistribution, ...
                 ClientErrorCode.DEPENDENCY_CONFLICT, "mutable installed distributions are forbidden"
             )
         names.add(name)
-        installed.append(InstalledDistribution(name=name, version=version))
+        installed.append(
+            InstalledDistribution(
+                name=name,
+                version=version,
+                provenance_sha256=(None if path is not None or direct_url is None else _direct_url_sha256(direct_url)),
+            )
+        )
     return tuple(sorted(installed, key=lambda item: item.name))
 
 
@@ -339,22 +346,21 @@ def _run_installer(command: tuple[str, ...]) -> None:
 def _verify_wheels(
     packages: tuple[dict[str, object], ...],
     logical_dependencies_root: Path,
-    image_distributions: tuple[InstalledDistribution, ...],
-    plan: dict[str, object],
+    base_distributions: tuple[InstalledDistribution, ...],
 ) -> tuple[tuple[InstalledDistribution, ...], tuple[Path, ...]]:
     expected: list[InstalledDistribution] = []
     wheels: list[Path] = []
-    image_names = {item.name for item in image_distributions}
+    base_names = {item.name for item in base_distributions}
     for package in packages:
         name = canonicalize_name(_require_string(package, "name"))
         version = _require_string(package, "version")
-        if name in image_names or name in {item.name for item in expected}:
+        if name in base_names or name in {item.name for item in expected}:
             raise ClientWorkerError(ClientErrorCode.DEPENDENCY_CONFLICT, "dependency distributions overlap")
         artifact = _artifact_reference(_require_object(package, "artifact"))
         logical_wheel = Path(artifact.path)
         if logical_wheel.parent != logical_dependencies_root or logical_wheel.suffix != ".whl":
             raise ClientWorkerError(ClientErrorCode.INVALID_INPUT, "dependency wheel path is not canonical")
-        wheel = Path(_get_container_path(plan, logical_wheel.as_posix()))
+        wheel = logical_wheel
         if compute_file_sha256(wheel, missing_code=ClientErrorCode.DEPENDENCY_ARTIFACT_MISSING) != artifact.sha256:
             raise ClientWorkerError(ClientErrorCode.DEPENDENCY_DIGEST_MISMATCH, "dependency wheel digest differs")
         try:
@@ -375,11 +381,11 @@ def _verify_wheels(
     return tuple(pair[0] for pair in sorted_pairs), tuple(pair[1] for pair in sorted_pairs)
 
 
-def _verify_input_artifact(reference: ArtifactReference, logical_root: Path, plan: dict[str, object]) -> None:
+def _verify_input_artifact(reference: ArtifactReference, logical_root: Path) -> None:
     logical_path = Path(reference.path)
     if logical_path.parent != logical_root or logical_path.suffix != ".json":
         raise ClientWorkerError(ClientErrorCode.INVALID_INPUT, "dependency source path is not canonical")
-    path = Path(_get_container_path(plan, logical_path.as_posix()))
+    path = logical_path
     if compute_file_sha256(path, missing_code=ClientErrorCode.DEPENDENCY_ARTIFACT_MISSING) != reference.sha256:
         raise ClientWorkerError(ClientErrorCode.DEPENDENCY_DIGEST_MISMATCH, "dependency source digest differs")
 
@@ -387,7 +393,11 @@ def _verify_input_artifact(reference: ArtifactReference, logical_root: Path, pla
 def _parse_distributions(value: object) -> tuple[InstalledDistribution, ...]:
     parsed = tuple(
         InstalledDistribution(
-            name=canonicalize_name(_require_string(item, "name")), version=_require_string(item, "version")
+            name=canonicalize_name(_require_string(item, "name")),
+            version=_require_string(item, "version"),
+            provenance_sha256=(
+                None if item.get("provenance_sha256") is None else _require_digest(item, "provenance_sha256")
+            ),
         )
         for item in _as_object_list(value)
     )
@@ -448,37 +458,6 @@ def _artifact_reference(value: dict[str, object]) -> ArtifactReference:
         raise ClientWorkerError(ClientErrorCode.INVALID_INPUT, "client artifact reference is invalid") from error
 
 
-def _get_container_path(plan: dict[str, object], host_path: str, *, require_writable: bool = False) -> str:
-    if not host_path.startswith("/") or posixpath.normpath(host_path) != host_path:
-        raise ClientWorkerError(ClientErrorCode.INVALID_INPUT, "client plan path is invalid")
-    values = plan.get("container_mounts")
-    if not isinstance(values, list):
-        raise ClientWorkerError(ClientErrorCode.INVALID_INPUT, "client plan mounts are invalid")
-    candidates: list[tuple[str, str, bool]] = []
-    for value in values:
-        mount = _as_object(value)
-        source = _require_string(mount, "source")
-        target = _require_string(mount, "target")
-        read_only = mount.get("read_only")
-        if (
-            not source.startswith("/")
-            or posixpath.normpath(source) != source
-            or not target.startswith("/")
-            or posixpath.normpath(target) != target
-            or type(read_only) is not bool
-        ):
-            raise ClientWorkerError(ClientErrorCode.INVALID_INPUT, "client plan mounts are invalid")
-        if host_path == source or host_path.startswith(f"{source}/"):
-            candidates.append((source, target, read_only))
-    if not candidates:
-        raise ClientWorkerError(ClientErrorCode.INVALID_INPUT, "client plan path is not mounted")
-    source, target, read_only = max(candidates, key=lambda item: len(item[0]))
-    if require_writable and read_only:
-        raise ClientWorkerError(ClientErrorCode.INVALID_INPUT, "client plan path is not writable")
-    relative_path = posixpath.relpath(host_path, source)
-    return target if relative_path == "." else posixpath.join(target, relative_path)
-
-
 def _sha256_bytes(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
 
@@ -488,12 +467,27 @@ def _is_mutable_direct_url(value: str) -> bool:
         direct_url = _as_object(json.loads(value))
     except (json.JSONDecodeError, TypeError):
         return True
-    if "dir_info" in direct_url or "vcs_info" in direct_url:
+    if "dir_info" in direct_url:
         return True
+    vcs_info = direct_url.get("vcs_info")
+    if vcs_info is not None:
+        if not isinstance(vcs_info, dict) or vcs_info.get("vcs") != "git":
+            return True
+        commit_id = vcs_info.get("commit_id")
+        return not isinstance(commit_id, str) or re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", commit_id) is None
     archive_info = direct_url.get("archive_info")
     if archive_info is None:
         return True
     if not isinstance(archive_info, dict):
         return True
     hashes = archive_info.get("hashes")
-    return not isinstance(hashes, dict) or not isinstance(hashes.get("sha256"), str)
+    digest = None if not isinstance(hashes, dict) else hashes.get("sha256")
+    return not isinstance(digest, str) or re.fullmatch(r"[0-9a-f]{64}", digest) is None
+
+
+def _direct_url_sha256(value: str) -> str:
+    try:
+        payload = _as_object(json.loads(value))
+    except (json.JSONDecodeError, TypeError) as error:  # pragma: no cover - guarded by mutability validation
+        raise ClientWorkerError(ClientErrorCode.DEPENDENCY_CONFLICT, "installed provenance is invalid") from error
+    return hashlib.sha256(canonical_json(payload)).hexdigest()

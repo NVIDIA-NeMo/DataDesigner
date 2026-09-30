@@ -1,12 +1,14 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Typed allocation step manifest produced inside the sealed client image."""
+"""Typed allocation step manifest produced by the native client runtime."""
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from pathlib import Path
+from typing import Literal
 
 from data_designer.slurm.config.environment import (
     SecretRef,
@@ -34,12 +36,16 @@ def build_runtime_manifest(
     """Build the secret-free command handoff for the Bash controller."""
     plan = context.plan
     validate_allocation_layout(plan, layout)
-    runtime_container_root = Path(ALLOCATION_SCRATCH_CONTAINER_ROOT) / "runtime"
-    if runtime_root != runtime_container_root:
+    if (
+        not runtime_root.is_absolute()
+        or runtime_root.name != "runtime"
+        or re.fullmatch(r"data-designer-slurm-[1-9][0-9]*-[0-9]+", runtime_root.parent.name) is None
+    ):
         raise SlurmRuntimeError(
             SlurmRuntimeErrorCode.INVALID_CONTEXT,
             "runtime root is outside allocation-local scratch",
         )
+    runtime_container_root = Path(ALLOCATION_SCRATCH_CONTAINER_ROOT) / "runtime"
     deployments = resolve_allocation_deployments(context, environment)
     endpoints = tuple(
         RuntimeEndpoint(
@@ -58,7 +64,7 @@ def build_runtime_manifest(
             context,
             environment,
             endpoints,
-            runtime_container_root.as_posix(),
+            runtime_root,
             log_directory,
             layout,
         )
@@ -75,7 +81,7 @@ def build_runtime_manifest(
             context,
             environment,
             endpoints,
-            runtime_container_root.as_posix(),
+            runtime_root,
             log_directory,
             layout,
         )
@@ -105,7 +111,7 @@ def _build_client_step(
     context: AllocationContext,
     environment: Mapping[str, str],
     endpoints: tuple[RuntimeEndpoint, ...],
-    runtime_container_root: str,
+    runtime_host_root: Path,
     log_directory: Path,
     layout: AllocationLayout,
 ) -> RuntimeStepSpec:
@@ -139,7 +145,7 @@ def _build_client_step(
             )
         )
         command = (
-            "python3",
+            plan.client.runtime.python_executable,
             "-m",
             "data_designer.slurm.runtime.entrypoint",
             "client",
@@ -159,21 +165,20 @@ def _build_client_step(
     return _step(
         step_id=step_id,
         role=role,
-        image_path=plan.client.image.path,
+        execution="native",
+        image_path=None,
         command=command,
         cpus=plan.client.authored.cpus,
         gpu_indices=(),
         literal_environment={
-            "DATA_DESIGNER_SLURM_SCRATCH_ROOT": ALLOCATION_SCRATCH_CONTAINER_ROOT,
+            "DATA_DESIGNER_SLURM_SCRATCH_ROOT": runtime_host_root.parent.as_posix(),
             "LC_ALL": "C",
-            "PYTHONPATH": runtime_container_root,
+            "PYTHONPATH": runtime_host_root.as_posix(),
             **allocation_environment,
         },
         secret_environment={name: name for name in secret_names},
         environment_prefixes={},
-        container_environment=tuple(
-            sorted((*secret_names, *allocation_environment, "DATA_DESIGNER_SLURM_SCRATCH_ROOT", "PYTHONPATH"))
-        ),
+        container_environment=(),
         log_directory=log_directory,
         node_hosts=(layout.get_host(plan.client.host_node_index),),
     )
@@ -198,19 +203,19 @@ def _build_endpoint_step(
         proxy_path,
         deployment.logical_endpoint.port,
         backend_hosts=backend_hosts,
-        runtime_proxy_is_container_path=True,
     )
     return _step(
         step_id=f"{deployment.deployment_id}-endpoint",
         role=RuntimeStepRole.ENDPOINT,
-        image_path=context.plan.client.image.path,
+        execution="native",
+        image_path=None,
         command=command,
         cpus=context.plan.client.authored.cpus,
         gpu_indices=(),
         literal_environment={"LC_ALL": "C", "PYTHONPATH": runtime_root.as_posix()},
         secret_environment={},
         environment_prefixes={},
-        container_environment=("PYTHONPATH",),
+        container_environment=(),
         log_directory=log_directory,
         node_hosts=(layout.get_host(context.plan.client.host_node_index),),
         readiness=(
@@ -228,7 +233,8 @@ def _step(
     *,
     step_id: str,
     role: RuntimeStepRole,
-    image_path: str,
+    execution: Literal["native", "container"],
+    image_path: str | None,
     command: tuple[str, ...],
     cpus: int,
     gpu_indices: tuple[int, ...],
@@ -245,6 +251,7 @@ def _step(
     return RuntimeStepSpec(
         step_id=step_id,
         role=role,
+        execution=execution,
         image_path=image_path,
         command=command,
         cpus=cpus,

@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field, NonNegativeInt, PositiveInt, field_validator, model_validator
 
@@ -37,11 +38,12 @@ class RuntimeProbeSpec(ContractValue):
 
 
 class RuntimeStepSpec(ContractValue):
-    """Container command and placement consumed by the Bash step runner."""
+    """Native or container command and placement consumed by the Bash step runner."""
 
     step_id: Identifier
     role: RuntimeStepRole
-    image_path: str
+    execution: Literal["native", "container"]
+    image_path: str | None = None
     command: tuple[str, ...] = Field(min_length=1)
     cpus: PositiveInt
     gpu_indices: tuple[NonNegativeInt, ...] = ()
@@ -56,7 +58,11 @@ class RuntimeStepSpec(ContractValue):
     launch_delay_seconds: NonNegativeInt = 0
     readiness: tuple[RuntimeProbeSpec, ...] = ()
 
-    _image_path_is_absolute = field_validator("image_path")(validate_absolute_path)
+    @field_validator("image_path")
+    @classmethod
+    def validate_image_path(cls, value: str | None) -> str | None:
+        return None if value is None else validate_absolute_path(value)
+
     _stdout_path_is_absolute = field_validator("stdout_path")(validate_absolute_path)
     _stderr_path_is_absolute = field_validator("stderr_path")(validate_absolute_path)
 
@@ -77,12 +83,19 @@ class RuntimeStepSpec(ContractValue):
         container_names = set(self.container_environment)
         if container_names - (set(self.literal_environment) | set(self.secret_environment)):
             raise ValueError("container environment contains an unavailable variable")
+        if self.execution == "container" and self.image_path is None:
+            raise ValueError("container runtime steps require an image")
+        if self.execution == "native" and (self.image_path is not None or self.container_environment):
+            raise ValueError("native runtime steps cannot contain container settings")
         self._validate_placement()
         self._validate_readiness()
         return self
 
     def _validate_placement(self) -> None:
         server_roles = {RuntimeStepRole.SERVER_PREFLIGHT, RuntimeStepRole.SERVER}
+        expected_execution = "container" if self.role in server_roles else "native"
+        if self.execution != expected_execution:
+            raise ValueError("runtime step execution does not match its role")
         if self.role in server_roles and not self.gpu_indices:
             raise ValueError("server runtime steps require GPUs")
         if self.role not in server_roles and self.gpu_indices:

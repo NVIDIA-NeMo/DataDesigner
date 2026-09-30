@@ -153,19 +153,14 @@ class DefaultClientStepBuilder:
             endpoints,
             retry_resume_mode,
         )
-        secret_names, environment = _build_client_environment(plan, source_environment)
-        allocation_environment = ("SLURM_JOB_GPUS",) if plan.selected_profile.profile.gpu_request_mode == "gres" else ()
+        _, environment = _build_client_environment(plan, source_environment)
         return _build_srun_step(
             step_id=step_id,
             role=role,
-            image_path=plan.client.image.path,
+            image_path=None,
             command=command,
             environment=environment,
-            container_environment=(
-                *secret_names,
-                *allocation_environment,
-                "DATA_DESIGNER_SLURM_SCRATCH_ROOT",
-            ),
+            container_environment=(),
             plan=plan,
             attempt_directory=attempt_directory,
         )
@@ -186,18 +181,18 @@ def build_client_command(
         for argument in ("--endpoint", f"{endpoint.model_alias}=http://{endpoint.host}:{endpoint.port}/v1")
     )
     return (
-        "python3",
+        plan.client.runtime.python_executable,
         "-m",
         "data_designer.slurm.client.worker",
         operation,
         "--plan",
-        get_container_path(plan, plan_path(plan)),
+        plan_path(plan),
         "--shard-id",
         shard.shard_id,
         "--attempt-id",
         attempt.attempt_id,
         "--attempt-dir",
-        get_container_path(plan, attempt_directory.as_posix(), require_writable=True),
+        attempt_directory.as_posix(),
         *(() if retry_resume_mode is None else ("--resume-mode", retry_resume_mode)),
         *endpoint_arguments,
     )
@@ -225,7 +220,7 @@ def _build_client_environment(
             "allocation scratch is unavailable",
         ) from None
     environment["DD_SCRATCH_ROOT"] = scratch_root
-    environment["DATA_DESIGNER_SLURM_SCRATCH_ROOT"] = ALLOCATION_SCRATCH_CONTAINER_ROOT
+    environment["DATA_DESIGNER_SLURM_SCRATCH_ROOT"] = scratch_root
     return secret_names, environment
 
 
@@ -284,14 +279,14 @@ def _build_endpoint_step(
     )
     command = build_endpoint_command(deployment, plan, runtime_proxy_path, endpoint.port)
     environment = _base_environment(source_environment)
-    environment["PYTHONPATH"] = get_container_path(plan, runtime_root.as_posix())
+    environment["PYTHONPATH"] = runtime_root.as_posix()
     step = _build_srun_step(
         step_id=f"{deployment.deployment_id}-endpoint",
         role=RuntimeStepRole.ENDPOINT,
-        image_path=plan.client.image.path,
+        image_path=None,
         command=command,
         environment=environment,
-        container_environment=("PYTHONPATH",),
+        container_environment=(),
         plan=plan,
         attempt_directory=attempt_directory,
     )
@@ -305,7 +300,6 @@ def build_endpoint_command(
     port: int,
     *,
     backend_hosts: tuple[str, ...] | None = None,
-    runtime_proxy_is_container_path: bool = False,
 ) -> tuple[str, ...]:
     selected_hosts = backend_hosts or ("127.0.0.1",) * len(deployment.backend_endpoints)
     if len(selected_hosts) != len(deployment.backend_endpoints):
@@ -325,16 +319,12 @@ def build_endpoint_command(
     retry_after_seconds = deployment.launch_policy.queue_backpressure.retry_after_seconds
     retry_arguments = ("--retry-after-seconds", str(retry_after_seconds)) if retry_after_seconds is not None else ()
     try:
-        container_proxy_path = (
-            validate_absolute_path(runtime_proxy_path.as_posix())
-            if runtime_proxy_is_container_path
-            else get_container_path(plan, runtime_proxy_path.as_posix())
-        )
+        host_proxy_path = validate_absolute_path(runtime_proxy_path.as_posix())
     except ValueError as error:
         raise SlurmRuntimeError(SlurmRuntimeErrorCode.INVALID_CONTEXT, "runtime proxy path is invalid") from error
     return (
-        "python3",
-        container_proxy_path,
+        plan.client.runtime.python_executable,
+        host_proxy_path,
         "--listen-port",
         str(port),
         "--health-path",
@@ -455,7 +445,7 @@ def _build_srun_step(
     *,
     step_id: str,
     role: RuntimeStepRole,
-    image_path: str,
+    image_path: str | None,
     command: tuple[str, ...],
     environment: Mapping[str, str],
     container_environment: tuple[str, ...],
@@ -465,7 +455,8 @@ def _build_srun_step(
 ) -> RuntimeStep:
     srun_command = _build_srun_prefix(plan, image_path)
     _add_srun_resources(srun_command, gpu_indices)
-    _add_srun_container_options(srun_command, plan, container_environment, environment)
+    if image_path is not None:
+        _add_srun_container_options(srun_command, plan, container_environment, environment)
     srun_command.extend(("--", *command))
     log_root = attempt_directory / "logs"
     return RuntimeStep(
@@ -478,8 +469,8 @@ def _build_srun_step(
     )
 
 
-def _build_srun_prefix(plan: ResolvedSlurmRunPlan, image_path: str) -> list[str]:
-    return [
+def _build_srun_prefix(plan: ResolvedSlurmRunPlan, image_path: str | None) -> list[str]:
+    command = [
         "srun",
         "--nodes=1",
         "--ntasks=1",
@@ -488,8 +479,10 @@ def _build_srun_prefix(plan: ResolvedSlurmRunPlan, image_path: str) -> list[str]
         "--unbuffered",
         "--export=ALL",
         f"--cpus-per-task={plan.client.authored.cpus}",
-        f"--container-image={image_path}",
     ]
+    if image_path is not None:
+        command.append(f"--container-image={image_path}")
+    return command
 
 
 def _add_srun_resources(srun_command: list[str], gpu_indices: tuple[int, ...]) -> None:

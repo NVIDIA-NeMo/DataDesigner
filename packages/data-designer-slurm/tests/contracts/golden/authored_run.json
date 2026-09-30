@@ -36,10 +36,6 @@
       "requirements": [
         "data-designer-speech==0.2.0"
       ]
-    },
-    "image": {
-      "name": "dd-client-0.9",
-      "path": null
     }
   },
   "deployments": [

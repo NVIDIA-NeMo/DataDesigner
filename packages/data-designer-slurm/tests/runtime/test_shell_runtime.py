@@ -32,7 +32,9 @@ def test_bash_controller_scopes_secrets_cleans_steps_and_never_runs_host_python(
     artifacts = tuple(_artifact(tmp_path, name) for name in ("runtime", "lock", "client", "server"))
     plan_path = tmp_path / "runs/run-shell/resolved-plan.json"
     plan_path.parent.mkdir(parents=True, exist_ok=True)
-    plan = _plan(tmp_path, runtime_copy, artifacts, gpu_request_mode)
+    plan = _plan(
+        tmp_path, runtime_copy, artifacts, gpu_request_mode, python_executable=(fake_bin / "python3").as_posix()
+    )
     plan_path.write_text(json.dumps(plan))
     manifest_path = tmp_path / "manifest-source.json"
     manifest_path.write_text(json.dumps(_manifest(attempt_directory, artifacts, "a" * 64)))
@@ -51,6 +53,7 @@ DD_RUNTIME_ARCHIVE={shlex.quote(artifacts[0][0])}
 DD_RUNTIME_SHA256={artifacts[0][1]}
 readonly DD_PLAN={shlex.quote(plan_path.as_posix())}
 readonly DD_ATTEMPT_DIR={shlex.quote(attempt_directory.as_posix())}
+readonly DD_RUNTIME_ROOT={shlex.quote(runtime_copy.as_posix())}
 source {shlex.quote((runtime_copy / "entrypoint.sh").as_posix())}
 dd_slurm_run_allocation "${{DD_PLAN}}" "${{DD_ATTEMPT_DIR}}"
 """
@@ -413,6 +416,7 @@ source {shlex.quote((runtime_root / "step_runner.sh").as_posix())}
 DD_STEP_NODE_HOSTS=(compute-001 compute-002)
 DD_STEP_GPU_INDICES=(0 1)
 DD_STEP_CONTAINER_ENV=()
+DD_STEP_EXECUTION=container
 DD_STEP_CPUS=4
 DD_STEP_IMAGE=/images/server.sqsh
 DD_STEP_KILL_ON_BAD_EXIT=true
@@ -498,6 +502,8 @@ def _plan(
     runtime_root: Path,
     artifacts: tuple[tuple[str, str], ...],
     gpu_request_mode: str,
+    *,
+    python_executable: str = "/bin/true",
 ) -> dict[str, object]:
     runtime, lock, client, server = artifacts
     mounts = [
@@ -511,7 +517,7 @@ def _plan(
             "host_node_index": 0,
             "authored": {"cpus": 1},
             "dependency_lock": {"path": lock[0], "sha256": lock[1]},
-            "image": {"path": client[0], "sha256": client[1]},
+            "runtime": {"python_executable": python_executable},
         },
         "resolved_gpus_per_node": 1,
         "selected_profile": {"profile": {"gpu_request_mode": gpu_request_mode}},
@@ -535,7 +541,7 @@ def _manifest(
     artifacts: tuple[tuple[str, str], ...],
     plan_sha256: str,
 ) -> dict[str, object]:
-    _, _, client, server = artifacts
+    _, _, _, server = artifacts
     return {
         "schema_version": 1,
         "run_id": "run-shell",
@@ -544,7 +550,7 @@ def _manifest(
         "plan_sha256": plan_sha256,
         "all_secret_environment_names": ["SERVER_TOKEN", "SOURCE_TOKEN"],
         "steps": [
-            _step(attempt_directory, "client-preflight", "client_preflight", client[0], "fake-preflight"),
+            _step(attempt_directory, "client-preflight", "client_preflight", None, "fake-preflight"),
             _step(
                 attempt_directory,
                 "deployment-00000-replica-00000-rank-00000",
@@ -560,7 +566,7 @@ def _manifest(
                 attempt_directory,
                 "deployment-00000-endpoint",
                 "endpoint",
-                client[0],
+                None,
                 "fake-endpoint",
                 readiness={"host": "127.0.0.1", "port": 17000, "path": "/health", "deadline_seconds": 2},
             ),
@@ -568,10 +574,9 @@ def _manifest(
                 attempt_directory,
                 "client-generation",
                 "client",
-                client[0],
+                None,
                 "fake-client",
                 secret_environment={"SOURCE_TOKEN": "SOURCE_TOKEN"},
-                container_environment=["SOURCE_TOKEN"],
             ),
         ],
     }
@@ -581,7 +586,7 @@ def _step(
     attempt_directory: Path,
     step_id: str,
     role: str,
-    image_path: str,
+    image_path: str | None,
     command: str,
     *,
     gpu_indices: list[int] | None = None,
@@ -593,6 +598,7 @@ def _step(
     return {
         "step_id": step_id,
         "role": role,
+        "execution": "container" if image_path is not None else "native",
         "image_path": image_path,
         "command": [command],
         "cpus": 1,
@@ -623,10 +629,10 @@ for ((index = 0; index < ${#arguments[@]}; index++)); do
     [[ ${arguments[index]} == -- ]] && break
 done
 command=${arguments[index + 1]}
-if [[ ${command} == python3 ]]; then
+if [[ ${command} == */python3 ]]; then
     operation=${arguments[index + 4]}
     [[ ! ${SOURCE_TOKEN+x} && ! ${SERVER_TOKEN+x} && ! ${CUDA_VISIBLE_DEVICES+x} ]]
-    [[ ${arguments[*]} == *--container-env=PYTHONPATH,SLURM_JOB_GPUS* ]]
+    [[ ${arguments[*]} != *--container-* ]]
     if [[ ${operation} == prepare ]]; then
         for ((position = index + 5; position < ${#arguments[@]}; position++)); do
             if [[ ${arguments[position]} == --manifest ]]; then
