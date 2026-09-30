@@ -103,7 +103,9 @@ class ToolConfig(ConfigBase):
             tool calling, a single turn may execute multiple tools simultaneously. Defaults to 5.
         timeout_sec (float | None): Timeout in seconds for MCP tool calls. Defaults to None (no timeout).
         unknown_tool_fallback (bool): If True, a tool call naming a tool that no configured provider offers
-            is answered with a tool message instead of failing the generation. Defaults to False.
+            is answered with a tool message instead of failing the generation. This applies even when the name
+            is outside allow_tools or its arguments are malformed; a tool that exists but is outside allow_tools
+            still fails the generation. Defaults to False.
         unknown_tool_message (str | None): Content of that tool message. Used only when unknown_tool_fallback
             is True. Defaults to None (built-in message).
 

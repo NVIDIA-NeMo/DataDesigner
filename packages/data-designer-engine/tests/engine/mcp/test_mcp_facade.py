@@ -366,6 +366,61 @@ def test_process_completion_unknown_tool_returns_message_to_model(
 
 
 @pytest.mark.parametrize(
+    ("tool_config_kwargs", "arguments_json", "expected_contents"),
+    [
+        pytest.param(
+            {"allow_tools": ["lookup"]},
+            "{}",
+            ["Result from lookup", DEFAULT_UNKNOWN_TOOL_MESSAGE],
+            id="unknown-tool-outside-allowlist",
+        ),
+        pytest.param({}, "not json", ["Result from lookup", DEFAULT_UNKNOWN_TOOL_MESSAGE], id="unknown-tool-bad-args"),
+    ],
+)
+def test_process_completion_unknown_tool_fallback_runs_before_other_checks(
+    monkeypatch: pytest.MonkeyPatch,
+    stub_secret_resolver: MagicMock,
+    stub_mcp_provider_registry: MCPProviderRegistry,
+    tool_config_kwargs: dict[str, Any],
+    arguments_json: str,
+    expected_contents: list[str],
+) -> None:
+    """A tool no provider offers gets the fallback even when it is outside allow_tools or has bad arguments."""
+
+    def mock_list_tools(provider: Any, timeout_sec: float | None = None) -> tuple[MCPToolDefinition, ...]:
+        return (MCPToolDefinition(name="lookup", description="Lookup", input_schema={"type": "object"}),)
+
+    def mock_call_tools(
+        calls: list[tuple[Any, str, dict[str, Any]]],
+        *,
+        timeout_sec: float | None = None,
+    ) -> list[MCPToolResult]:
+        return [MCPToolResult(content=f"Result from {name}") for _, name, _ in calls]
+
+    monkeypatch.setattr(mcp_io, "list_tools", mock_list_tools)
+    monkeypatch.setattr(mcp_io, "call_tools", mock_call_tools)
+
+    facade = MCPFacade(
+        tool_config=ToolConfig(
+            tool_alias="test-tools", providers=["tools"], unknown_tool_fallback=True, **tool_config_kwargs
+        ),
+        secret_resolver=stub_secret_resolver,
+        mcp_provider_registry=stub_mcp_provider_registry,
+    )
+    response = _make_response(
+        tool_calls=[
+            ToolCall(id="call-0", name="lookup", arguments_json="{}"),
+            ToolCall(id="call-1", name="ghost", arguments_json=arguments_json),
+        ]
+    )
+
+    messages = facade.process_completion_response(response)
+
+    assert [m.tool_call_id for m in messages[1:]] == ["call-0", "call-1"]
+    assert [m.content for m in messages[1:]] == expected_contents
+
+
+@pytest.mark.parametrize(
     ("tool_config_kwargs", "tool_name", "expected_error", "match"),
     [
         pytest.param(

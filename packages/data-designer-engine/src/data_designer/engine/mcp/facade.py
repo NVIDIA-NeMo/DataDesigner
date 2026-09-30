@@ -276,6 +276,20 @@ class MCPFacade:
         # One slot per requested call: a fallback message, or None for a call that gets executed.
         slots: list[ChatMessage | None] = []
         for tc in tool_calls:
+            resolved_provider: MCPProviderT | None = None
+            if self._tool_config.unknown_tool_fallback:
+                # Look the tool up first so a name no provider offers gets the fallback even when it is
+                # outside allow_tools or its arguments are malformed.
+                try:
+                    resolved_provider = self._find_resolved_provider_for_tool(tc.name)
+                except MCPConfigurationError:
+                    logger.warning(
+                        "Model called unknown MCP tool %r; returning a fallback message to the model.", tc.name
+                    )
+                    content = self._tool_config.unknown_tool_message or DEFAULT_UNKNOWN_TOOL_MESSAGE
+                    slots.append(ChatMessage.as_tool(content=content, tool_call_id=tc.id))
+                    continue
+
             if allowed_tools is not None and tc.name not in allowed_tools:
                 providers_str = ", ".join(repr(p) for p in self._tool_config.providers)
                 raise MCPToolError(f"Tool {tc.name!r} is not permitted for providers: {providers_str}.")
@@ -285,15 +299,8 @@ class MCPFacade:
             except json.JSONDecodeError as exc:
                 raise MCPToolError(f"Invalid tool arguments for {tc.name!r}: {tc.arguments_json}") from exc
             arguments = arguments_raw if isinstance(arguments_raw, dict) else {}
-            try:
+            if resolved_provider is None:
                 resolved_provider = self._find_resolved_provider_for_tool(tc.name)
-            except MCPConfigurationError:
-                if not self._tool_config.unknown_tool_fallback:
-                    raise
-                logger.warning("Model called unknown MCP tool %r; returning a fallback message to the model.", tc.name)
-                content = self._tool_config.unknown_tool_message or DEFAULT_UNKNOWN_TOOL_MESSAGE
-                slots.append(ChatMessage.as_tool(content=content, tool_call_id=tc.id))
-                continue
             calls_to_execute.append((resolved_provider, tc.name, arguments, tc.id))
             slots.append(None)
 
