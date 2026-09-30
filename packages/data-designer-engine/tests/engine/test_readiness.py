@@ -4,15 +4,17 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import Literal
 from unittest.mock import Mock, patch
 
 import pytest
 
+from data_designer.config.base import SingleColumnConfig
 from data_designer.config.column_configs import LLMTextColumnConfig, SamplerColumnConfig
 from data_designer.config.column_types import ColumnConfigT
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.custom_column import custom_column_generator
-from data_designer.config.models import ModelConfig
+from data_designer.config.models import AudioContext, ImageContext, ModelConfig, MultiModalContextT
 from data_designer.config.sampler_params import SamplerType, UUIDSamplerParams
 from data_designer.engine.dataset_builders.errors import DatasetGenerationError
 from data_designer.engine.mcp.registry import MCPRegistry
@@ -317,7 +319,116 @@ def test_run_readiness_check_passes_skip_flagged_aliases_to_registry(
 
     run_readiness_check(columns, stub_resource_provider)
 
-    stub_resource_provider.model_registry.arun_health_check.assert_called_once_with(["stub-text"])
+    stub_resource_provider.model_registry.arun_health_check.assert_called_once_with(
+        ["stub-text"], image_context_aliases=set()
+    )
+
+
+class _VisionJudgeColumnConfig(SingleColumnConfig):
+    """Plugin-shaped config: image context and a judge alias, but no ``model_alias`` attribute."""
+
+    column_type: Literal["vision-judge-test"] = "vision-judge-test"
+    judge_model_alias: str
+    multi_modal_context: list[MultiModalContextT] | None = None
+
+    @property
+    def required_columns(self) -> list[str]:
+        return []
+
+    @property
+    def side_effect_columns(self) -> list[str]:
+        return []
+
+    def get_model_aliases(self) -> list[str]:
+        return [self.judge_model_alias]
+
+
+class _PairwiseVisionJudgeColumnConfig(_VisionJudgeColumnConfig):
+    """Plugin-shaped config with a primary ``model_alias`` and a secondary judge alias."""
+
+    model_alias: str
+
+    def get_model_aliases(self) -> list[str]:
+        return [self.model_alias, self.judge_model_alias]
+
+
+_IMAGE = [ImageContext(column_name="img")]
+
+
+@pytest.mark.parametrize(
+    ("columns", "expected_aliases", "expected_image_aliases"),
+    [
+        pytest.param(
+            [LLMTextColumnConfig(name="c", prompt="x", model_alias="vlm", multi_modal_context=_IMAGE)],
+            {"vlm"},
+            {"vlm"},
+            id="image-context",
+        ),
+        pytest.param(
+            [LLMTextColumnConfig(name="c", prompt="x", model_alias="txt")],
+            {"txt"},
+            set(),
+            id="text-only",
+        ),
+        pytest.param(
+            [
+                LLMTextColumnConfig(name="a", prompt="x", model_alias="vlm", multi_modal_context=_IMAGE),
+                LLMTextColumnConfig(name="b", prompt="x", model_alias="vlm"),
+                LLMTextColumnConfig(name="c", prompt="x", model_alias="txt"),
+            ],
+            {"vlm", "txt"},
+            {"vlm"},
+            id="mixed-same-alias",
+        ),
+        pytest.param(
+            [
+                LLMTextColumnConfig(
+                    name="c",
+                    prompt="x",
+                    model_alias="txt",
+                    multi_modal_context=[AudioContext(column_name="clip", data_type="url")],
+                )
+            ],
+            {"txt"},
+            set(),
+            id="audio-context-not-flagged",
+        ),
+        pytest.param(
+            [_VisionJudgeColumnConfig(name="c", judge_model_alias="judge", multi_modal_context=_IMAGE)],
+            {"judge"},
+            set(),
+            id="plugin-without-model-alias",
+        ),
+        pytest.param(
+            [
+                _PairwiseVisionJudgeColumnConfig(
+                    name="c", model_alias="vlm", judge_model_alias="judge", multi_modal_context=_IMAGE
+                )
+            ],
+            {"vlm", "judge"},
+            {"vlm"},
+            id="plugin-secondary-alias-text-only",
+        ),
+    ],
+)
+def test_run_readiness_check_flags_aliases_whose_columns_take_image_context(
+    columns,
+    expected_aliases,
+    expected_image_aliases,
+    stub_resource_provider,
+) -> None:
+    """Only the ``model_alias`` of a column that carries ``ImageContext`` gets an image probe."""
+    stub_resource_provider.model_registry.arun_health_check = Mock()
+    stub_resource_provider.mcp_registry = None
+
+    # The test plugin's column type is not registered with the plugin manager, so keep the
+    # MCP tool pass (which classifies column types) out of this model-probe test.
+    with patch("data_designer.engine.readiness.column_type_is_model_generated", return_value=False):
+        run_readiness_check(columns, stub_resource_provider)
+
+    (called_aliases,), kwargs = stub_resource_provider.model_registry.arun_health_check.call_args
+    assert set(called_aliases) == expected_aliases
+    assert set(kwargs["image_context_aliases"]) == expected_image_aliases
 
 
 # ---------------------------------------------------------------------------
@@ -343,7 +454,9 @@ def test_run_readiness_check_dispatches_to_async_registry(
     run_readiness_check(columns, stub_resource_provider)
 
     # The async coroutine was created from arun_health_check and submitted to the loop.
-    stub_resource_provider.model_registry.arun_health_check.assert_called_once_with(["stub-text"])
+    stub_resource_provider.model_registry.arun_health_check.assert_called_once_with(
+        ["stub-text"], image_context_aliases=set()
+    )
     mock_submit.assert_called_once()
     sentinel_future.result.assert_called_once_with(timeout=180)
 

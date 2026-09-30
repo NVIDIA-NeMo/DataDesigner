@@ -110,8 +110,8 @@ def build_config(
             alias=model_alias,
             model=NEMOTRON_PARSE_MODEL,
             provider=VLLM_PROVIDER_NAME,
-            # Health check sends a text-only probe; this model requires image
-            # input, so the check would fail. Skip it.
+            # The health check sends this alias a placeholder image, but that
+            # probe has not been verified against Nemotron-Parse. Skip it.
             skip_health_check=True,
             inference_parameters=dd.ChatCompletionInferenceParams(
                 temperature=0,

@@ -27,6 +27,7 @@ import os
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
+from data_designer.config.models import ImageContext
 from data_designer.engine.column_generators.utils.generator_classification import column_type_is_model_generated
 from data_designer.engine.dataset_builders.errors import DatasetGenerationError
 from data_designer.engine.dataset_builders.utils.async_concurrency import ensure_async_engine_loop
@@ -49,7 +50,8 @@ def run_readiness_check(
     """Probe every model and MCP tool referenced by ``column_configs``.
 
     For each unique model alias collected from the column configs,
-    ``ModelRegistry.arun_health_check`` sends a tiny ``"Hello!"`` generation.
+    ``ModelRegistry.arun_health_check`` sends a tiny ``"Hello!"`` generation;
+    aliases used by a column with ``ImageContext`` also get a placeholder image.
     Models whose ``ModelConfig`` has ``skip_health_check=True`` are skipped by
     the registry. After the model pass, every unique MCP tool alias is probed
     via ``MCPRegistry.run_health_check``.
@@ -83,13 +85,23 @@ def _run_model_health_check(
     model_aliases: set[str] = set()
     for config in column_configs:
         model_aliases.update(config.get_model_aliases())
+    # Generation sends a column's multi_modal_context to its model_alias only, so only that alias
+    # gets an image in its probe; configs without a model_alias (plugins) keep the text probe.
+    image_context_aliases = {
+        config.model_alias
+        for config in column_configs
+        if getattr(config, "model_alias", None)
+        and any(isinstance(ctx, ImageContext) for ctx in getattr(config, "multi_modal_context", None) or ())
+    }
 
     if not model_aliases:
         return
 
     loop = ensure_async_engine_loop()
     future = asyncio.run_coroutine_threadsafe(
-        resource_provider.model_registry.arun_health_check(list(model_aliases)),
+        resource_provider.model_registry.arun_health_check(
+            list(model_aliases), image_context_aliases=image_context_aliases
+        ),
         loop,
     )
     try:
