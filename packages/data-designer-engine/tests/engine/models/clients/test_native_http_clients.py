@@ -309,6 +309,8 @@ _MUST_BE_SYNC = "must be sync callables"
 _MUST_BE_ASYNC = "must be async callables"
 _INJECTED_CLIENT = "injected sync_client/async_client"
 _UNKNOWN_HOOK_KEY = "event_hooks keys must be"
+_NOT_A_LIST = "must be a list of callables"
+_NOT_CALLABLE = "must be callable"
 
 _EVENT_HOOKS_VALIDATION_CASES = [
     pytest.param(_SYNC, {"request": [_async_hook]}, None, _MUST_BE_SYNC, id="sync-rejects-async-def"),
@@ -326,7 +328,13 @@ _EVENT_HOOKS_VALIDATION_CASES = [
     pytest.param(
         _ASYNC, {"request": [_async_hook]}, "async_client", _INJECTED_CLIENT, id="async-rejects-injected-client"
     ),
+    pytest.param(_SYNC, {"request": [None]}, None, _NOT_CALLABLE, id="sync-rejects-none-hook"),
+    pytest.param(_SYNC, {"response": [1]}, None, _NOT_CALLABLE, id="sync-rejects-non-callable-hook"),
+    pytest.param(_ASYNC, {"request": [None]}, None, _NOT_CALLABLE, id="async-rejects-none-hook"),
+    pytest.param(_SYNC, {"request": "abc"}, None, _NOT_A_LIST, id="rejects-string-value"),
+    pytest.param(_SYNC, {"request": _sync_hook}, None, _NOT_A_LIST, id="rejects-bare-callable-value"),
     pytest.param(_SYNC, {"request": [_sync_hook], "response": [_sync_hook]}, None, None, id="sync-accepts-sync-def"),
+    pytest.param(_SYNC, {"request": (_sync_hook,)}, None, None, id="sync-accepts-tuple"),
     pytest.param(_ASYNC, {"request": [_async_hook]}, None, None, id="async-accepts-async-def"),
     pytest.param(_ASYNC, {"response": [_AsyncCallable()]}, None, None, id="async-accepts-async-callable-object"),
     pytest.param(

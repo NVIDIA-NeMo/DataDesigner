@@ -22,6 +22,7 @@ from data_designer.engine.model_provider import ModelProviderRegistry
 from data_designer.engine.models.clients.adapters.anthropic import AnthropicClient
 from data_designer.engine.models.clients.adapters.http_model_client import ClientConcurrencyMode
 from data_designer.engine.models.clients.adapters.openai_compatible import OpenAICompatibleClient
+from data_designer.engine.models.clients.errors import ProviderError, ProviderErrorKind
 from data_designer.engine.models.clients.factory import create_model_client
 from data_designer.engine.models.clients.model_request_executor import ModelRequestExecutor
 from data_designer.engine.models.clients.retry import RetryConfig
@@ -330,3 +331,65 @@ def test_event_hooks_observe_model_request_and_response(
 
     assert result.message.content == "ok"
     assert seen == [("request", (expected_url, model_config.model)), ("response", (200, response_json))]
+
+
+class _AuthHookError(Exception):
+    pass
+
+
+@pytest.mark.parametrize(
+    "hook_exc",
+    [
+        pytest.param(ConnectionError("log sink unreachable"), id="connection-error"),
+        pytest.param(TimeoutError("log sink slow"), id="timeout-error"),
+        pytest.param(_AuthHookError("bad log token"), id="auth-named-error"),
+        pytest.param(RuntimeError("logging bug"), id="runtime-error"),
+    ],
+)
+@pytest.mark.parametrize("mode", [ClientConcurrencyMode.SYNC, ClientConcurrencyMode.ASYNC])
+def test_failing_event_hook_is_not_retried_or_misclassified(
+    httpx_mock: HTTPXMock,
+    secret_resolver: SecretResolver,
+    openai_model_config: ModelConfig,
+    openai_registry: ModelProviderRegistry,
+    hook_exc: Exception,
+    mode: ClientConcurrencyMode,
+) -> None:
+    httpx_mock.add_response(
+        url="https://api.openai.com/v1/chat/completions",
+        json={"choices": [{"index": 0, "message": {"role": "assistant", "content": "ok"}}]},
+        is_optional=True,
+        is_reusable=True,
+    )
+
+    def boom(resp: httpx.Response) -> None:
+        raise hook_exc
+
+    async def aboom(resp: httpx.Response) -> None:
+        raise hook_exc
+
+    controller = AdaptiveRequestAdmissionController()
+    controller.register(provider_name="openai-prod", model_id="gpt-test", alias="test-model", max_parallel_requests=4)
+    client = create_model_client(
+        openai_model_config,
+        secret_resolver,
+        openai_registry,
+        client_concurrency_mode=mode,
+        retry_config=RetryConfig(max_retries=3, backoff_factor=0.01),
+        request_admission=controller,
+        event_hooks={"response": [boom if mode == ClientConcurrencyMode.SYNC else aboom]},
+    )
+    chat = ChatCompletionRequest(model="gpt-test", messages=[{"role": "user", "content": "Hi"}])
+
+    with pytest.raises(ProviderError) as exc_info:
+        if mode == ClientConcurrencyMode.SYNC:
+            client.completion(chat)
+        else:
+            asyncio.run(client.acompletion(chat))
+
+    assert len(httpx_mock.get_requests()) == 1
+    assert exc_info.value.kind == ProviderErrorKind.API_ERROR
+    cause: BaseException | None = exc_info.value
+    while cause is not None and cause is not hook_exc:
+        cause = cause.__cause__
+    assert cause is hook_exc

@@ -66,8 +66,8 @@ def create_model_client(
             ``request_admission`` every retry attempt is observed; without it, transport-level
             retries happen below the client and only the final response is seen. Requests
             carry the resolved credentials (``Authorization`` / ``x-api-key`` headers), so
-            redact them before logging. Exceptions raised by a hook propagate as a
-            provider error for that request.
+            redact them before logging. An exception raised by a hook fails that request
+            with a non-retryable ``ProviderError`` (kind ``api_error``) chained to the original.
 
     Returns:
         A ``ModelClient`` instance routed by provider type.
