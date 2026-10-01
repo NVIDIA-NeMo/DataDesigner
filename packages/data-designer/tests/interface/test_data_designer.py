@@ -9,7 +9,7 @@ import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, PropertyMock, call, patch
+from unittest.mock import AsyncMock, MagicMock, PropertyMock, call, patch
 
 import pytest
 from pydantic import ValidationError
@@ -25,6 +25,7 @@ from data_designer.config.column_configs import (
 from data_designer.config.column_types import DataDesignerColumnType
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.errors import InvalidConfigError
+from data_designer.config.model_usage import ModelUsageSummary
 from data_designer.config.models import ChatCompletionInferenceParams, ModelConfig, ModelProvider
 from data_designer.config.processors import DropColumnsProcessorConfig
 from data_designer.config.run_config import JinjaRenderingEngine, RequestAdmissionTuningConfig, RunConfig
@@ -39,6 +40,8 @@ from data_designer.config.seed_source import (
 )
 from data_designer.config.seed_source_dataframe import DataFrameSeedSource
 from data_designer.engine.models.clients.adapters.http_model_client import ClientConcurrencyMode
+from data_designer.engine.models.clients.base import ModelClient
+from data_designer.engine.models.clients.types import AssistantMessage, ChatCompletionResponse, Usage
 from data_designer.engine.models.errors import (
     RETRYABLE_MODEL_ERRORS,
     ModelAPIConnectionError,
@@ -2424,3 +2427,84 @@ def test_create_raises_error_when_all_trace_files_are_skipped(
 
     with pytest.raises(DataDesignerGenerationError, match="did not produce any rows"):
         data_designer.create(builder, num_records=1, dataset_name="invalid-trace-seed")
+
+
+def _fake_model_client(usage: Usage | None) -> MagicMock:
+    response = ChatCompletionResponse(message=AssistantMessage(content="ok"), usage=usage)
+    client = MagicMock(spec=ModelClient)
+    client.completion.return_value = response
+    client.acompletion = AsyncMock(return_value=response)
+    return client
+
+
+def _usage_model_config(alias: str, model: str) -> ModelConfig:
+    return ModelConfig(
+        alias=alias,
+        model=model,
+        provider="stub-model-provider",
+        inference_parameters=ChatCompletionInferenceParams(max_parallel_requests=1),
+        skip_health_check=True,
+    )
+
+
+@pytest.mark.parametrize(
+    "case,model_configs,llm_columns,usage,expected",
+    [
+        (
+            "single_alias_success",
+            [("a", "m1")],
+            [("c1", "a")],
+            Usage(input_tokens=7, output_tokens=3),
+            [("a", "m1", 21, 9, 3, 0)],
+        ),
+        (
+            "two_aliases_same_model_name_stay_separate",
+            [("b-alias", "shared"), ("a-alias", "shared")],
+            [("c1", "b-alias"), ("c2", "a-alias")],
+            Usage(input_tokens=7, output_tokens=3),
+            [("a-alias", "shared", 21, 9, 3, 0), ("b-alias", "shared", 21, 9, 3, 0)],
+        ),
+        (
+            "provider_omits_usage",
+            [("a", "m1")],
+            [("c1", "a")],
+            None,
+            [("a", "m1", 0, 0, 3, 0)],
+        ),
+        ("no_llm_columns", [("a", "m1")], [], Usage(input_tokens=7, output_tokens=3), []),
+    ],
+)
+def test_create_exposes_per_alias_model_usage(
+    stub_artifact_path,
+    stub_model_providers,
+    stub_managed_assets_path,
+    case,
+    model_configs,
+    llm_columns,
+    usage,
+    expected,
+):
+    builder = DataDesignerConfigBuilder(model_configs=[_usage_model_config(a, m) for a, m in model_configs])
+    _add_irrelevant_sampler_column(builder)
+    for name, alias in llm_columns:
+        builder.add_column(LLMTextColumnConfig(name=name, prompt="Say hi", model_alias=alias))
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+    )
+
+    with patch(
+        "data_designer.engine.models.clients.factory.create_model_client",
+        return_value=_fake_model_client(usage),
+    ):
+        result = data_designer.create(builder, num_records=3)
+
+    assert all(isinstance(entry, ModelUsageSummary) for entry in result.model_usage)
+    actual = [
+        (e.model_alias, e.model_name, e.input_tokens, e.output_tokens, e.successful_requests, e.failed_requests)
+        for e in result.model_usage
+    ]
+    assert actual == expected
+    assert all(e.cost is None and e.currency is None for e in result.model_usage)

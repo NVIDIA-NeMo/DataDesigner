@@ -6,6 +6,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
+from data_designer.config.model_usage import ModelUsageSummary
 from data_designer.config.models import GenerationType, ModelConfig
 from data_designer.engine.model_provider import ModelProvider, ModelProviderRegistry
 from data_designer.engine.models.errors import ModelGenerationValidationFailureError
@@ -124,6 +125,22 @@ class ModelRegistry:
             for model in self._models.values()
             if model.usage_stats.has_usage
         }
+
+    def get_model_usage_summaries(self) -> list[ModelUsageSummary]:
+        """Per-alias usage summaries, sorted by alias (get_model_usage_stats merges aliases sharing a model_name)."""
+        return [
+            ModelUsageSummary(
+                model_alias=alias,
+                model_name=model.model_name,
+                input_tokens=model.usage_stats.token_usage.input_tokens,
+                output_tokens=model.usage_stats.token_usage.output_tokens,
+                reasoning_tokens=model.usage_stats.token_usage.reasoning_tokens,
+                successful_requests=model.usage_stats.request_usage.successful_requests,
+                failed_requests=model.usage_stats.request_usage.failed_requests,
+            )
+            for alias, model in sorted(self._models.items())
+            if model.usage_stats.has_usage
+        ]
 
     def log_model_usage(self, total_time_elapsed: float) -> None:
         """Log a formatted summary of model usage statistics."""

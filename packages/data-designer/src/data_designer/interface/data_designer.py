@@ -377,6 +377,9 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             config_builder=config_builder,
             dataset_metadata=dataset_metadata,
             task_traces=task_traces,
+            model_usage=(
+                resource_provider.model_registry.get_model_usage_summaries() if resource_provider.model_registry else []
+            ),
         )
 
     async def acreate(

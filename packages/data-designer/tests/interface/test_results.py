@@ -14,6 +14,7 @@ from data_designer.config.analysis.dataset_profiler import DatasetProfilerResult
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.dataset_metadata import DatasetMetadata
 from data_designer.config.errors import InvalidFileFormatError
+from data_designer.config.model_usage import ModelUsageSummary
 from data_designer.config.preview_results import PreviewResults
 from data_designer.config.utils.errors import DatasetSampleDisplayError
 from data_designer.config.utils.visualization import display_sample_record as display_fn
@@ -61,6 +62,33 @@ def test_init(stub_artifact_storage, stub_dataset_profiler_results, stub_complet
     assert results._analysis == stub_dataset_profiler_results
     assert results._config_builder == stub_complete_builder
     assert results.dataset_metadata == stub_dataset_metadata
+
+
+_SUMMARY = ModelUsageSummary(
+    model_alias="a", model_name="m", input_tokens=1, output_tokens=2, successful_requests=1, failed_requests=0
+)
+
+
+@pytest.mark.parametrize(
+    "kwargs,expected",
+    [({}, []), ({"model_usage": None}, []), ({"model_usage": []}, []), ({"model_usage": [_SUMMARY]}, [_SUMMARY])],
+)
+def test_model_usage_defaults_to_empty_list(
+    stub_artifact_storage,
+    stub_dataset_profiler_results,
+    stub_complete_builder,
+    stub_dataset_metadata,
+    kwargs,
+    expected,
+):
+    results = DatasetCreationResults(
+        artifact_storage=stub_artifact_storage,
+        analysis=stub_dataset_profiler_results,
+        config_builder=stub_complete_builder,
+        dataset_metadata=stub_dataset_metadata,
+        **kwargs,
+    )
+    assert results.model_usage == expected
 
 
 def test_load_dataset(stub_dataset_creation_results, stub_artifact_storage, stub_dataframe):

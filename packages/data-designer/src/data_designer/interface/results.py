@@ -20,6 +20,7 @@ from data_designer.integrations.huggingface.client import HuggingFaceHubClient
 if TYPE_CHECKING:
     import pandas as pd
 
+    from data_designer.config.model_usage import ModelUsageSummary
     from data_designer.engine.dataset_builders.scheduling.task_model import TaskTrace
 
 ExportFormat = Literal["jsonl", "csv", "parquet"]
@@ -50,6 +51,7 @@ class DatasetCreationResults(WithRecordSamplerMixin):
         config_builder: DataDesignerConfigBuilder,
         dataset_metadata: DatasetMetadata,
         task_traces: list[TaskTrace] | None = None,
+        model_usage: list[ModelUsageSummary] | None = None,
     ):
         """Creates a new instance with results based on a dataset creation run.
 
@@ -62,12 +64,15 @@ class DatasetCreationResults(WithRecordSamplerMixin):
                 Resume note: only contains traces for the current invocation; traces
                 from earlier ``create()`` calls that this run resumed are not
                 retained.
+            model_usage: Optional per-alias model usage summaries for the current
+                invocation only. Counts are per logical request; ``cost`` is unavailable (None).
         """
         self.artifact_storage = artifact_storage
         self._analysis = analysis
         self._config_builder = config_builder
         self.dataset_metadata = dataset_metadata
         self.task_traces: list[TaskTrace] = task_traces or []
+        self.model_usage: list[ModelUsageSummary] = model_usage or []
 
     def load_analysis(self) -> DatasetProfilerResults:
         """Load the profiling analysis results for the generated dataset.

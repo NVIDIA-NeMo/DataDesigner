@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from data_designer.config.model_usage import ModelUsageSummary
 from data_designer.config.models import ChatCompletionInferenceParams, ModelConfig
 from data_designer.config.run_config import RequestAdmissionTuningConfig, RunConfig
 from data_designer.engine.models.clients.model_request_executor import ModelRequestExecutor
@@ -721,3 +722,71 @@ def test_log_model_usage_models_without_usage_excluded(stub_model_registry: Mode
         assert calls[0] == "📊 Model usage summary:"
         assert calls[1] == f"{LOG_INDENT}model: stub-model-reasoning"
         assert "stub-model-text" not in str(calls)
+
+
+@pytest.mark.parametrize(
+    "case,used,expected",
+    [
+        ("no_usage", {}, []),
+        (
+            "same_model_name_distinct_aliases_sorted",
+            {
+                "zeta": (TokenUsageStats(input_tokens=1, output_tokens=2), RequestUsageStats(successful_requests=1)),
+                "alpha": (TokenUsageStats(input_tokens=10, output_tokens=20), RequestUsageStats(successful_requests=2)),
+            },
+            [
+                ModelUsageSummary(
+                    model_alias="alpha",
+                    model_name="shared-model",
+                    input_tokens=10,
+                    output_tokens=20,
+                    successful_requests=2,
+                    failed_requests=0,
+                ),
+                ModelUsageSummary(
+                    model_alias="zeta",
+                    model_name="shared-model",
+                    input_tokens=1,
+                    output_tokens=2,
+                    successful_requests=1,
+                    failed_requests=0,
+                ),
+            ],
+        ),
+        (
+            "failed_only_is_included",
+            {"alpha": (TokenUsageStats(), RequestUsageStats(failed_requests=1))},
+            [
+                ModelUsageSummary(
+                    model_alias="alpha",
+                    model_name="shared-model",
+                    input_tokens=0,
+                    output_tokens=0,
+                    successful_requests=0,
+                    failed_requests=1,
+                )
+            ],
+        ),
+    ],
+)
+def test_get_model_usage_summaries(stub_secrets_resolver, stub_model_provider_registry, case, used, expected):
+    configs = [
+        ModelConfig(
+            alias=alias,
+            model="shared-model",
+            provider="stub-model-provider",
+            inference_parameters=ChatCompletionInferenceParams(),
+        )
+        for alias in ("zeta", "alpha", "unused")
+    ]
+    registry = create_model_registry(
+        model_configs=configs,
+        secret_resolver=stub_secrets_resolver,
+        model_provider_registry=stub_model_provider_registry,
+    )
+    for alias in ("zeta", "alpha", "unused"):
+        registry.get_model(model_alias=alias)
+    for alias, (tokens, requests) in used.items():
+        registry.get_model(model_alias=alias).usage_stats.extend(token_usage=tokens, request_usage=requests)
+
+    assert registry.get_model_usage_summaries() == expected
