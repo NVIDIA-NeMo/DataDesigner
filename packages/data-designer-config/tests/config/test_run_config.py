@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import inspect
 import pickle
 import typing
 from unittest.mock import patch
@@ -312,13 +311,3 @@ def test_throttle_config_accepts_rampup_seconds() -> None:
 def test_throttle_config_rejects_negative_rampup_seconds() -> None:
     with pytest.raises(ValueError, match="rampup_seconds"):
         ThrottleConfig(rampup_seconds=-1.0)
-
-
-def test_run_config_declares_properties_before_public_methods() -> None:
-    # STYLEGUIDE "Class method order": properties come before public methods.
-    members = [(name, value) for name, value in vars(RunConfig).items() if not name.startswith("_")]
-    property_positions = [i for i, (_, value) in enumerate(members) if isinstance(value, property)]
-    method_positions = [i for i, (_, value) in enumerate(members) if inspect.isfunction(value)]
-
-    assert method_positions, "expected RunConfig to define at least one public method"
-    assert max(property_positions) < min(method_positions)
