@@ -127,7 +127,7 @@ class CodexAgentRolloutFormatHandler(AgentRolloutFormatHandler):
                     )
                 )
             elif item_type == "reasoning":
-                pending_reasoning.extend(extract_codex_reasoning_summaries(payload))
+                pending_reasoning.extend(extract_codex_reasoning(payload))
             else:
                 logger.warning("Skipping unrecognized Codex response_item type %r in %s", item_type, file_path)
 
@@ -164,12 +164,17 @@ class CodexAgentRolloutFormatHandler(AgentRolloutFormatHandler):
         ]
 
 
-def extract_codex_reasoning_summaries(payload: dict[str, Any]) -> list[str]:
-    summaries = payload.get("summary")
-    if not isinstance(summaries, list):
+def extract_codex_reasoning(payload: dict[str, Any]) -> list[str]:
+    """Prefer raw reasoning content, which open-model servers return, over the summary."""
+    raw_reasoning = extract_codex_reasoning_parts(payload.get("content"))
+    return raw_reasoning or extract_codex_reasoning_parts(payload.get("summary"))
+
+
+def extract_codex_reasoning_parts(parts: Any) -> list[str]:
+    if not isinstance(parts, list):
         return []
     reasoning_parts: list[str] = []
-    for summary in summaries:
-        if isinstance(summary, dict) and (text := coerce_optional_str(summary.get("text"))):
+    for part in parts:
+        if isinstance(part, dict) and (text := coerce_optional_str(part.get("text"))):
             reasoning_parts.append(text)
     return reasoning_parts
