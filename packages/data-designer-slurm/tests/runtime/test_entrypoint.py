@@ -9,7 +9,6 @@ import io
 import json
 import os
 import sys
-import venv
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -71,7 +70,7 @@ def test_entrypoint_rejects_relative_paths_without_traceback(capsys: pytest.Capt
     assert "Traceback" not in captured.err
 
 
-def test_container_phases_use_the_container_attempt_directory(
+def test_native_phases_use_the_supplied_host_attempt_directory(
     monkeypatch: pytest.MonkeyPatch,
     runtime_case: RuntimeCase,
 ) -> None:
@@ -263,7 +262,7 @@ def _patch_runtime_context(
     state: FakeStateStore,
 ) -> None:
     monkeypatch.setattr(entrypoint, "load_allocation_context", lambda *args, **kwargs: (runtime_case.context, state))
-    monkeypatch.setattr(entrypoint, "get_container_path", lambda plan, path, **kwargs: path)
+    monkeypatch.setattr(entrypoint.SystemAllocationPreflight, "verify_client_runtime", lambda context: None)
     monkeypatch.setenv("SLURM_JOB_GPUS", "0")
 
 
@@ -272,7 +271,7 @@ def _prepare_plugin_runtime_case(
     fake_plugin_overlay: Path,
     tmp_path: Path,
 ) -> _PluginRuntimeCase:
-    image_distributions = runtime_case.context.plan.client.image.inspection_facts.distributions
+    runtime_distributions = runtime_case.context.plan.client.runtime.distributions
     wheel_path = Path(runtime_case.context.plan.authored_config.path).parent / (
         "dependencies/fake_data_designer_plugin-1.0.0-py3-none-any.whl"
     )
@@ -281,8 +280,8 @@ def _prepare_plugin_runtime_case(
     _configure_identity_mount(payload, runtime_case.workspace)
     _configure_plugin_builder(payload)
     client = cast(dict[str, object], payload["client"])
-    _configure_client_inspection(client, image_distributions, _write_test_installer(tmp_path))
-    lock = _plugin_dependency_lock(client, image_distributions, wheel_path)
+    _configure_client_runtime(client, runtime_distributions)
+    lock = _plugin_dependency_lock(client, runtime_distributions, wheel_path)
     _write_dependency_lock(client, lock)
 
     plan = ResolvedSlurmRunPlan.model_validate_json(json.dumps(payload))
@@ -296,7 +295,7 @@ def _prepare_plugin_runtime_case(
         }
     )
     context = AllocationContext(plan, plan.shards[0], attempt, runtime_case.context.attempt_directory)
-    image_metadata_directory = _write_inventory_bootstrap(image_distributions, tmp_path)
+    image_metadata_directory = _write_inventory_bootstrap(runtime_distributions, tmp_path)
     return _PluginRuntimeCase(context, plan_path, image_metadata_directory)
 
 
@@ -319,42 +318,43 @@ def _configure_plugin_builder(payload: dict[str, object]) -> None:
     resolved_builder["content_sha256"] = compute_serialized_json_sha256(builder)
 
 
-def _configure_client_inspection(
+def _configure_client_runtime(
     client: dict[str, object],
-    image_distributions: tuple[InstalledDistribution, ...],
-    installer: Path,
+    runtime_distributions: tuple[InstalledDistribution, ...],
 ) -> None:
-    inspection = cast(
-        dict[str, object],
-        cast(dict[str, object], cast(dict[str, object], client["image"])["inspection"])["inspection"],
+    runtime = cast(dict[str, object], client["runtime"])
+    runtime.update(
+        {
+            "python_abi": f"{interpreter_name()}{interpreter_version()}",
+            "python_executable": sys.executable,
+            "python_implementation": sys.implementation.name,
+            "python_version": sys.version.split()[0],
+            "distributions": [item.model_dump(mode="json") for item in runtime_distributions],
+        }
     )
-    inspection["python_abi"] = f"{interpreter_name()}{interpreter_version()}"
-    inspection["python_version"] = sys.version.split()[0]
-    inspection["installer_path"] = installer.as_posix()
-    inspection["distributions"] = [item.model_dump(mode="json") for item in image_distributions]
+    runtime["runtime_sha256"] = compute_canonical_json_sha256(
+        {key: value for key, value in runtime.items() if key != "runtime_sha256"}
+    )
     dependencies = cast(dict[str, object], cast(dict[str, object], client["authored"])["dependencies"])
     dependencies["requirements"] = ["fake-data-designer-plugin==1.0.0"]
 
 
 def _plugin_dependency_lock(
     client: dict[str, object],
-    image_distributions: tuple[InstalledDistribution, ...],
+    runtime_distributions: tuple[InstalledDistribution, ...],
     wheel_path: Path,
 ) -> ResolvedDependencyLock:
-    inspection = cast(
-        dict[str, object],
-        cast(dict[str, object], cast(dict[str, object], client["image"])["inspection"])["inspection"],
-    )
+    runtime = cast(dict[str, object], client["runtime"])
     return ResolvedDependencyLock.model_validate(
         {
             "schema_version": 1,
             "resolver_version": "resolver-1",
-            "python_abi": inspection["python_abi"],
-            "client_image_sha256": cast(dict[str, object], client["image"])["sha256"],
+            "python_abi": runtime["python_abi"],
+            "client_runtime_sha256": runtime["runtime_sha256"],
             "authored_requirements": ("fake-data-designer-plugin==1.0.0",),
             "authored_source": None,
             "source": None,
-            "image_distributions": image_distributions,
+            "base_distributions": runtime_distributions,
             "overlay_packages": (
                 {
                     "name": "fake-data-designer-plugin",
@@ -399,18 +399,11 @@ def _build_plugin_wheel(source: Path, destination: Path) -> None:
             archive.writestr(name, content)
 
 
-def _write_test_installer(tmp_path: Path) -> Path:
-    """Create an offline pip executable without changing the test checkout."""
-    environment = tmp_path / "installer-environment"
-    venv.EnvBuilder(with_pip=True, symlinks=True).create(environment)
-    return environment / "bin/pip"
-
-
 def _write_inventory_bootstrap(
     distributions: tuple[InstalledDistribution, ...],
     tmp_path: Path,
 ) -> Path:
-    """Present plan-recorded image metadata while imports use the editable checkout."""
+    """Present plan-recorded runtime metadata while imports use the editable checkout."""
     bootstrap_directory = tmp_path / "client-bootstrap"
     image_metadata_directory = bootstrap_directory / "image-metadata"
     image_metadata_directory.mkdir(parents=True)
@@ -445,7 +438,7 @@ importlib.metadata.distributions = _controlled_distributions
 
 
 def _use_controlled_image_inventory(monkeypatch: pytest.MonkeyPatch, image_metadata_directory: Path) -> None:
-    """Limit child-process inventory discovery to the plan image and installed overlay."""
+    """Limit child-process inventory discovery to the plan runtime and installed overlay."""
     bootstrap_directory = image_metadata_directory.parent
     python_path = os.environ.get("PYTHONPATH")
     paths = (bootstrap_directory.as_posix(),) if python_path is None else (bootstrap_directory.as_posix(), python_path)

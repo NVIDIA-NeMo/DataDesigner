@@ -82,7 +82,7 @@ def test_runtime_retry_binding_rejects_tampered_arguments(
         )
 
 
-def test_allocation_context_reads_and_updates_state_through_remapped_workspace(
+def test_allocation_context_rejects_container_remapped_workspace(
     tmp_path: Path,
     authored_run_single: DataDesignerSlurmConfig,
     single_node_plan: ResolvedSlurmRunPlan,
@@ -164,14 +164,9 @@ def test_allocation_context_reads_and_updates_state_through_remapped_workspace(
     attempt_directory = fast_attempts / attempt.attempt_id
     attempt_directory.mkdir(parents=True, mode=0o700)
 
-    context, runtime_writer = load_allocation_context(
-        plan_path,
-        attempt_directory,
-        {"SLURM_ARRAY_TASK_ID": "0", "SLURM_ARRAY_JOB_ID": "4101"},
-    )
-    runtime_writer.update_attempt(context.attempt.model_copy(update={"state": AttemptLifecycleState.RUNNING}))
-    with runtime_writer.acquire_dataset_workspace(shard.shard_id, attempt.attempt_id, "never") as dataset_path:
-        assert dataset_path == attempt_directory / "dataset"
-
-    assert context.attempt_directory.as_posix().startswith(logical_workspace)
-    assert host_writer.load_attempt(shard.shard_id, attempt.attempt_id).state is AttemptLifecycleState.RUNNING
+    with pytest.raises(SlurmRuntimeError, match="resolved plan path is invalid"):
+        load_allocation_context(
+            plan_path,
+            attempt_directory,
+            {"SLURM_ARRAY_TASK_ID": "0", "SLURM_ARRAY_JOB_ID": "4101"},
+        )

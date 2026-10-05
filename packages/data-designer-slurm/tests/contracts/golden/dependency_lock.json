@@ -3,8 +3,7 @@
     "data-designer-speech==0.2.0"
   ],
   "authored_source": null,
-  "client_image_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-  "image_distributions": [
+  "base_distributions": [
     {
       "name": "aiohttp",
       "version": "3.14.3"
@@ -30,6 +29,7 @@
       "version": "26.1"
     }
   ],
+  "client_runtime_sha256": "d18ec68ea21778533f769192b6bd0d4a735b3ad782dd6b53900a12ef7fd05be1",
   "overlay_packages": [
     {
       "artifact": {

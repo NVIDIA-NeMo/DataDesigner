@@ -7,9 +7,6 @@ invocation:
   dataset_name: greetings
   model_concurrency:
     generator: 8
-client:
-  image:
-    name: dd-client
 deployments:
   - model_alias: generator
     served_model_name: example/generator

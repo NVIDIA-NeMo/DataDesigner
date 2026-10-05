@@ -16,8 +16,6 @@ invocation:
     generator: 64
 client:
   cpus: 32
-  image:
-    name: dd-client
 deployments:
   - model_alias: generator
     served_model_name: example/generator
@@ -45,6 +43,8 @@ output:
 `builder` accepts exactly one complete serialized Data Designer config through `source` or `inline`. Relative source paths resolve from the run file directory. `invocation.run_config` accepts public `RunConfig` fields, while `input_bindings.seed_path` and `managed_assets_path` accept absolute compute-visible paths.
 
 Every `model_alias` in `model_concurrency` and the builder must have one deployment. Deployment aliases must be unique. `model` selects the Hugging Face model ID or absolute model path loaded by the serving container. `served_model_name` is the name exposed to the client and defaults to `model`; set it explicitly when `model` is a container-visible path but the builder uses a stable model name. Output formats are `parquet`, `jsonl`, and `csv`.
+
+The client runs from the same shared Python environment as the CLI on the first allocated GPU node. Its step requests no GPUs; the serving steps use the GPUs and their registered images. The `client` block is optional; `client.cpus` defaults to 32 and controls the client's CPU allocation, not its execution image.
 
 ## Configure vLLM
 
@@ -171,7 +171,7 @@ slurm = (
         dataset_name="generated",
         model_concurrency={"generator": 16},
     )
-    .with_client(image={"name": "dd-client"})
+    .with_client(cpus=32)
     .with_deployment(
         {
             "model_alias": "generator",

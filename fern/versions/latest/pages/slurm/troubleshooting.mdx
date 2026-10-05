@@ -47,7 +47,8 @@ Set `scheduler.bin_path` in the selected profile to the absolute directory conta
 - Confirm the image-build partition accepts CPU jobs.
 - Confirm Enroot is available on the allocated node.
 - Use Enroot 4.0 or later for OCI import and 3.5 or later for existing SQSH inspection.
-- Use a digest-qualified, credential-free OCI reference.
+- Use a supported official `vllm/vllm-openai:vX.Y.Z` tag, a digest-qualified credential-free custom OCI reference, or an existing absolute SQSH path. The official tag path also needs Docker Hub access from the submit host.
+- If version verification fails, check that the imported image contains the requested vLLM release; no alias is published on a mismatch.
 - Confirm the workspace path contains no whitespace, colon, comma, or backslash that Enroot mount syntax cannot represent.
 - While a lifecycle job is active, inspect it under `<workspace_root>/images/.tmp/jobs` and read its Slurm log.
 

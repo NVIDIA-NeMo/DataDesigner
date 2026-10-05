@@ -8,6 +8,7 @@ import json
 import pytest
 from pydantic import ValidationError
 
+from data_designer.slurm.config import ImageInspectionRecord
 from data_designer.slurm.planning import ResolvedSlurmRunPlan
 from data_designer.slurm.serving.deployment import ResolvedVllmServerDeployment
 from data_designer.slurm.serving.endpoints import ResolvedLogicalEndpoint
@@ -96,12 +97,15 @@ def test_process_specs_reject_one_field_topology_drift(
 def test_resolved_server_rejects_one_field_join_drift(
     multi_node_plan: ResolvedSlurmRunPlan,
     resolved_multi_replica_server: ResolvedVllmServerDeployment,
+    client_image_inspection: ImageInspectionRecord,
     mutation: str,
     message: str,
 ) -> None:
     payload = resolved_multi_replica_server.model_dump(mode="json")
     if mutation == "image_kind":
-        payload["image"] = multi_node_plan.client.image.model_dump(mode="json")
+        payload["image"]["inspection"] = client_image_inspection.model_copy(
+            update={"sqsh_sha256": payload["image"]["sha256"]}
+        ).model_dump(mode="json")
     elif mutation == "executable":
         payload["executable_path"] = "/usr/local/bin/other"
     elif mutation == "nodes":

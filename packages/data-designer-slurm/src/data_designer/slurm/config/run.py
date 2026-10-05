@@ -30,7 +30,6 @@ from data_designer.slurm.config.environment import (
     validate_environment_bindings,
     validate_no_plaintext_secrets,
 )
-from data_designer.slurm.config.images import ImageRef
 from data_designer.slurm.config.vllm import QueueBackpressureConfig, VllmServerConfig
 from data_designer.slurm.contracts import (
     AuthoredConfig,
@@ -259,7 +258,6 @@ class ClientDependencies(AuthoredConfig):
 
 class ClientConfig(AuthoredConfig):
     cpus: PositiveInt = 32
-    image: ImageRef
     dependencies: ClientDependencies = Field(default_factory=ClientDependencies)
 
 
@@ -356,7 +354,7 @@ class DataDesignerSlurmConfig(AuthoredConfig):
     name: Identifier
     builder: BuilderInput
     invocation: InvocationConfig
-    client: ClientConfig
+    client: ClientConfig = Field(default_factory=ClientConfig)
     deployments: list[ServerDeploymentConfig] = Field(min_length=1)
     array_tasks: ArrayTasksConfig = Field(default_factory=ArrayTasksConfig)
     submission: SubmissionConfig = Field(default_factory=SubmissionConfig)

@@ -47,7 +47,7 @@ def _resolve_fixture(
 ) -> EffectiveDataDesignerSlurmConfig:
     values = {
         "selected_profile": expected.selected_profile,
-        "client_image": expected.client.image,
+        "client_runtime": expected.client.runtime,
         "deployment_images": tuple(deployment.image for deployment in expected.deployments),
         "dependency_lock": dependency_lock,
         "runtime_bundle": expected.runtime_bundle,
@@ -462,14 +462,6 @@ def test_compiler_rejects_resolved_image_identity_drift(
     single_node_plan: ResolvedSlurmRunPlan,
 ) -> None:
     effective = _resolve_fixture(authored_run_single, dependency_lock_single, single_node_plan)
-    client_image = effective.client_image.model_copy(update={"sha256": "a" * 64})
-    dependency_lock = effective.dependency_lock.model_copy(update={"client_image_sha256": "a" * 64})
-
-    with pytest.raises(SlurmPlanCompilationError, match="inspection record"):
-        SlurmRunCompiler.compile(
-            effective.model_copy(update={"client_image": client_image, "dependency_lock": dependency_lock})
-        )
-
     deployment_images = (
         effective.deployment_images[0].model_copy(update={"sha256": "a" * 64}),
         *effective.deployment_images[1:],
@@ -478,7 +470,7 @@ def test_compiler_rejects_resolved_image_identity_drift(
         SlurmRunCompiler.compile(effective.model_copy(update={"deployment_images": deployment_images}))
 
 
-@pytest.mark.parametrize("invalid_field", ["client_image", "runtime_bundle"])
+@pytest.mark.parametrize("invalid_field", ["client_runtime", "runtime_bundle"])
 def test_compiler_revalidates_nested_effective_contracts(
     authored_run_single: DataDesignerSlurmConfig,
     dependency_lock_single: ResolvedDependencyLock,
@@ -486,8 +478,8 @@ def test_compiler_revalidates_nested_effective_contracts(
     invalid_field: str,
 ) -> None:
     effective = _resolve_fixture(authored_run_single, dependency_lock_single, single_node_plan)
-    if invalid_field == "client_image":
-        invalid_value = effective.client_image.model_copy(update={"path": "/workspace/images/client.txt"})
+    if invalid_field == "client_runtime":
+        invalid_value = effective.client_runtime.model_copy(update={"python_executable": "relative/python"})
     else:
         invalid_value = effective.runtime_bundle.model_copy(
             update={"path": f"/workspace/primary/runtime/../{effective.runtime_bundle.sha256}.tar.gz"}
@@ -860,9 +852,9 @@ def test_resolution_rejects_dependency_identity_mismatch(
     dependency_lock_single: ResolvedDependencyLock,
     single_node_plan: ResolvedSlurmRunPlan,
 ) -> None:
-    wrong_lock = dependency_lock_single.model_copy(update={"client_image_sha256": "a" * 64})
+    wrong_lock = dependency_lock_single.model_copy(update={"client_runtime_sha256": "a" * 64})
 
-    with pytest.raises(SlurmConfigResolutionError, match="client image"):
+    with pytest.raises(SlurmConfigResolutionError, match="client runtime"):
         _resolve_fixture(authored_run_single, wrong_lock, single_node_plan)
 
 

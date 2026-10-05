@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import platform
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -118,11 +119,21 @@ def client_worker_case(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Clien
         (GOLDEN_DIRECTORY / "single_node_plan.json").read_text().replace("/workspace/primary", workspace.as_posix())
     )
     python_abi = f"{interpreter_name()}{interpreter_version()}"
-    payload["client"]["image"]["inspection"]["inspection"].update(
-        {"python_abi": python_abi, "python_version": platform.python_version()}
+    runtime = payload["client"]["runtime"]
+    runtime.update(
+        {
+            "python_abi": python_abi,
+            "python_executable": sys.executable,
+            "python_implementation": platform.python_implementation().lower(),
+            "python_version": platform.python_version(),
+        }
+    )
+    runtime["runtime_sha256"] = compute_canonical_json_sha256(
+        {key: value for key, value in runtime.items() if key != "runtime_sha256"}
     )
     lock_payload = json.loads((GOLDEN_DIRECTORY / "dependency_lock_single.json").read_text())
     lock_payload["python_abi"] = python_abi
+    lock_payload["client_runtime_sha256"] = runtime["runtime_sha256"]
     lock = ResolvedDependencyLock.model_validate_json(json.dumps(lock_payload))
     payload["client"]["dependency_lock"]["sha256"] = lock.compute_sha256()
     mount = {"source": workspace.as_posix(), "target": workspace.as_posix(), "read_only": False}
@@ -153,12 +164,12 @@ def client_worker_case(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Clien
         scratch_root=scratch_root,
         overlay_path=overlay_path,
         dependency_lock=plan.client.dependency_lock,
-        client_image_sha256=plan.client.image.sha256,
+        client_runtime_sha256=plan.client.runtime.runtime_sha256,
         python_abi=lock.python_abi,
         installer_outcome=ClientInstallerOutcome.NOT_REQUIRED,
         installed_distributions=tuple(
             InstalledDistribution(name=distribution.name, version=distribution.version)
-            for distribution in lock.image_distributions
+            for distribution in lock.base_distributions
         ),
     )
     allocation_plan = resolve_allocation_plan(plan, {"SLURM_JOB_GPUS": "0"})
