@@ -5,7 +5,7 @@
   },
   "authored_config": {
     "path": "/workspace/primary/runs/run-single/authored-config.json",
-    "sha256": "5b7614af448e9c647a2244257da37923784c3897e221a15f0a050b3e5f0c0324"
+    "sha256": "7eb39d9f28b7c073bc520c6596bdf7f6e2afc5e7fa7881945c5bcb34b19f9920"
   },
   "builder": {
     "authored_source": null,
@@ -34,65 +34,14 @@
         "index_credentials": {},
         "lock_file": null,
         "requirements": []
-      },
-      "image": {
-        "name": "dd-client-0.9",
-        "path": null
       }
     },
     "dependency_lock": {
       "path": "/workspace/primary/runs/run-single/dependency-lock.json",
-      "sha256": "abd08d979eaf61f088680847887c8c0def48f6210b532cb1c08b445120f57742"
+      "sha256": "df1cf487016d89f1ab4d0d2df5551d0d899fd695804cab0cd3d99a7a936e2f3f"
     },
     "gpu_count": 0,
     "host_node_index": 0,
-    "image": {
-      "authored_ref": {
-        "name": "dd-client-0.9",
-        "path": null
-      },
-      "inspection": {
-        "inspection": {
-          "distributions": [
-            {
-              "name": "aiohttp",
-              "version": "3.14.3"
-            },
-            {
-              "name": "data-designer",
-              "version": "0.9.2"
-            },
-            {
-              "name": "data-designer-config",
-              "version": "0.9.2"
-            },
-            {
-              "name": "data-designer-engine",
-              "version": "0.9.2"
-            },
-            {
-              "name": "data-designer-slurm",
-              "version": "0.9.2"
-            },
-            {
-              "name": "pip",
-              "version": "26.1"
-            }
-          ],
-          "installer_path": "/usr/bin/pip",
-          "installer_version": "26.1",
-          "kind": "client",
-          "python_abi": "cp312",
-          "python_implementation": "cpython",
-          "python_version": "3.12.12"
-        },
-        "inspector_version": "inspector-1",
-        "schema_version": 1,
-        "sqsh_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
-      },
-      "path": "/images/dd-client-0.9.sqsh",
-      "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
-    },
     "ports": [
       {
         "name": "deployment-00000-logical-endpoint",
@@ -100,7 +49,40 @@
         "port": 17000,
         "role": "logical_endpoint"
       }
-    ]
+    ],
+    "runtime": {
+      "distributions": [
+        {
+          "name": "aiohttp",
+          "version": "3.14.3"
+        },
+        {
+          "name": "data-designer",
+          "version": "0.9.2"
+        },
+        {
+          "name": "data-designer-config",
+          "version": "0.9.2"
+        },
+        {
+          "name": "data-designer-engine",
+          "version": "0.9.2"
+        },
+        {
+          "name": "data-designer-slurm",
+          "version": "0.9.2"
+        },
+        {
+          "name": "pip",
+          "version": "26.1"
+        }
+      ],
+      "python_abi": "cp312",
+      "python_executable": "/opt/data-designer/bin/python",
+      "python_implementation": "cpython",
+      "python_version": "3.12.12",
+      "runtime_sha256": "d18ec68ea21778533f769192b6bd0d4a735b3ad782dd6b53900a12ef7fd05be1"
+    }
   },
   "container_mounts": [
     {

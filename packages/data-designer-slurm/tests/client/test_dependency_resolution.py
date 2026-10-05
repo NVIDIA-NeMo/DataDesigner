@@ -30,13 +30,13 @@ def test_empty_requirements_resolve_without_invoking_pip(
 
     with resolver.resolve(
         dependencies,
-        single_node_plan.client.image,
+        single_node_plan.client.runtime,
         run_root=tmp_path / "workspace/runs/run-001",
         source_root=tmp_path,
     ) as resolved:
         assert resolved.lock.authored_requirements == ()
         assert resolved.lock.overlay_packages == ()
-        assert resolved.lock.client_image_sha256 == single_node_plan.client.image.sha256
+        assert resolved.lock.client_runtime_sha256 == single_node_plan.client.runtime.runtime_sha256
         assert resolved.wheel_sources == ()
         assert resolved.lock_source is None
 
@@ -75,7 +75,7 @@ def test_inline_requirements_resolve_pure_wheels_and_omit_image_packages(
 
     with resolver.resolve(
         dependencies,
-        single_node_plan.client.image,
+        single_node_plan.client.runtime,
         run_root=run_root,
         source_root=tmp_path,
     ) as resolved:
@@ -105,7 +105,7 @@ def test_inline_resolution_rejects_platform_specific_wheels(
         pytest.raises(ClientDependencyResolutionError, match="platform-independent"),
         resolver.resolve(
             ClientDependencies(requirements=["example-plugin==1.2.0"]),
-            single_node_plan.client.image,
+            single_node_plan.client.runtime,
             run_root=tmp_path / "workspace/runs/run-001",
             source_root=tmp_path,
         ),
@@ -119,14 +119,14 @@ def test_supplied_lock_is_verified_and_rebound_to_run_inputs(
 ) -> None:
     wheel = tmp_path / "example_plugin-1.2.0-py3-none-any.whl"
     wheel.write_bytes(b"plugin")
-    image = single_node_plan.client.image.inspection_facts
+    runtime = single_node_plan.client.runtime
     supplied = ResolvedDependencyLock(
         schema_version=1,
         resolver_version="external-1",
-        python_abi=image.python_abi,
-        client_image_sha256=single_node_plan.client.image.sha256,
+        python_abi=runtime.python_abi,
+        client_runtime_sha256=runtime.runtime_sha256,
         authored_requirements=("example-plugin==1.2.0",),
-        image_distributions=tuple(sorted(image.distributions, key=lambda item: item.name)),
+        base_distributions=tuple(sorted(runtime.distributions, key=lambda item: item.name)),
         overlay_packages=(
             LockedPackage(
                 name="example-plugin",
@@ -144,7 +144,7 @@ def test_supplied_lock_is_verified_and_rebound_to_run_inputs(
 
     with ClientDependencyResolver().resolve(
         ClientDependencies(requirements=None, lock_file="lock.json"),
-        single_node_plan.client.image,
+        single_node_plan.client.runtime,
         run_root=run_root,
         source_root=tmp_path,
     ) as resolved:
@@ -167,14 +167,14 @@ def test_supplied_lock_rejects_platform_specific_wheels(
 ) -> None:
     wheel = tmp_path / "example_plugin-1.2.0-cp312-cp312-manylinux_2_28_x86_64.whl"
     wheel.write_bytes(b"plugin")
-    image = single_node_plan.client.image.inspection_facts
+    runtime = single_node_plan.client.runtime
     supplied = ResolvedDependencyLock(
         schema_version=1,
         resolver_version="external-1",
-        python_abi=image.python_abi,
-        client_image_sha256=single_node_plan.client.image.sha256,
+        python_abi=runtime.python_abi,
+        client_runtime_sha256=runtime.runtime_sha256,
         authored_requirements=("example-plugin==1.2.0",),
-        image_distributions=tuple(sorted(image.distributions, key=lambda item: item.name)),
+        base_distributions=tuple(sorted(runtime.distributions, key=lambda item: item.name)),
         overlay_packages=(
             LockedPackage(
                 name="example-plugin",
@@ -193,7 +193,7 @@ def test_supplied_lock_rejects_platform_specific_wheels(
         pytest.raises(ClientDependencyResolutionError, match="artifact differs"),
         ClientDependencyResolver().resolve(
             ClientDependencies(requirements=None, lock_file="lock.json"),
-            single_node_plan.client.image,
+            single_node_plan.client.runtime,
             run_root=tmp_path / "workspace/runs/run-001",
             source_root=tmp_path,
         ),
@@ -213,7 +213,7 @@ def test_resolution_redacts_runner_failure_and_missing_credentials(
     with pytest.raises(ClientDependencyResolutionError, match="resolution failed") as captured:
         with resolver.resolve(
             dependencies,
-            single_node_plan.client.image,
+            single_node_plan.client.runtime,
             run_root=tmp_path / "workspace/runs/run-001",
             source_root=tmp_path,
         ):
@@ -227,7 +227,7 @@ def test_resolution_redacts_runner_failure_and_missing_credentials(
     with pytest.raises(ClientDependencyResolutionError, match="credential is unavailable"):
         with resolver.resolve(
             credentialed,
-            single_node_plan.client.image,
+            single_node_plan.client.runtime,
             run_root=tmp_path / "workspace/runs/run-002",
             source_root=tmp_path,
         ):

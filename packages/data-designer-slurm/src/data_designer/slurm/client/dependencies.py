@@ -20,9 +20,9 @@ from packaging.utils import canonicalize_name, parse_wheel_filename
 
 from data_designer.slurm.client.filesystem import compute_file_sha256, read_regular_bytes
 from data_designer.slurm.client.records import ClientErrorCode
-from data_designer.slurm.config import ClientDependencies, ClientImageInspection
+from data_designer.slurm.config import ClientDependencies
 from data_designer.slurm.contracts import ArtifactReference, InstalledDistribution, validate_absolute_path
-from data_designer.slurm.planning import LockedPackage, ResolvedDependencyLock, ResolvedImage
+from data_designer.slurm.planning import LockedPackage, ResolvedClientRuntime, ResolvedDependencyLock
 
 _RESOLVER_VERSION = "pip-pure-wheel-1"
 _DEFAULT_INDEX_URL = "https://pypi.org/simple"
@@ -46,7 +46,7 @@ class ResolvedClientDependencies:
 
 
 class ClientDependencyResolver:
-    """Resolve pure wheels against the immutable client-image inventory."""
+    """Resolve pure wheels against the immutable native client inventory."""
 
     def __init__(
         self,
@@ -63,7 +63,7 @@ class ClientDependencyResolver:
     def resolve(
         self,
         dependencies: ClientDependencies,
-        client_image: ResolvedImage,
+        client_runtime: ResolvedClientRuntime,
         *,
         run_root: str | Path,
         source_root: str | Path,
@@ -71,9 +71,6 @@ class ClientDependencyResolver:
         """Yield one verified resolution while temporary wheel sources remain live."""
         if not isinstance(dependencies, ClientDependencies):
             raise ClientDependencyResolutionError("client dependencies are invalid")
-        inspection = client_image.inspection_facts
-        if not isinstance(inspection, ClientImageInspection):
-            raise ClientDependencyResolutionError("client image lacks dependency inspection facts")
         try:
             normalized_run_root = Path(validate_absolute_path(Path(run_root).as_posix()))
             normalized_source_root = Path(validate_absolute_path(Path(source_root).as_posix()))
@@ -86,14 +83,14 @@ class ClientDependencyResolver:
                 if dependencies.requirements is None:
                     result = self._load_lock(
                         dependencies,
-                        client_image,
+                        client_runtime,
                         normalized_run_root,
                         normalized_source_root,
                     )
                 else:
                     result = self._resolve_requirements(
                         dependencies,
-                        client_image,
+                        client_runtime,
                         normalized_run_root,
                         temporary_root,
                     )
@@ -106,20 +103,17 @@ class ClientDependencyResolver:
     def _resolve_requirements(
         self,
         dependencies: ClientDependencies,
-        client_image: ResolvedImage,
+        client_runtime: ResolvedClientRuntime,
         run_root: Path,
         temporary_root: Path,
     ) -> ResolvedClientDependencies:
         requirements = dependencies.requirements
         if requirements is None:
             raise ClientDependencyResolutionError("client dependency requirements are unavailable")
-        inspection = client_image.inspection_facts
-        if not isinstance(inspection, ClientImageInspection):
-            raise ClientDependencyResolutionError("client image lacks dependency inspection facts")
-        image_distributions = tuple(sorted(inspection.distributions, key=lambda item: item.name))
+        base_distributions = tuple(sorted(client_runtime.distributions, key=lambda item: item.name))
         if not requirements:
             return ResolvedClientDependencies(
-                lock=_build_lock(client_image, image_distributions=image_distributions, authored_requirements=()),
+                lock=_build_lock(client_runtime, base_distributions=base_distributions, authored_requirements=()),
                 wheel_sources=(),
             )
 
@@ -129,7 +123,7 @@ class ClientDependencyResolver:
         wheelhouse.mkdir(mode=0o700)
         requirements_path.write_text("".join(f"{item}\n" for item in requirements), encoding="utf-8")
         constraints_path.write_text(
-            "".join(f"{item.name}=={item.version}\n" for item in image_distributions),
+            "".join(f"{item.name}=={item.version}\n" for item in base_distributions),
             encoding="utf-8",
         )
         command = (
@@ -144,7 +138,7 @@ class ClientDependencyResolver:
             "--platform=any",
             "--implementation=py",
             "--abi=none",
-            f"--python-version={inspection.python_version.rsplit('.', maxsplit=1)[0]}",
+            f"--python-version={client_runtime.python_version.rsplit('.', maxsplit=1)[0]}",
             f"--dest={wheelhouse.as_posix()}",
             f"--requirement={requirements_path.as_posix()}",
             f"--constraint={constraints_path.as_posix()}",
@@ -157,11 +151,11 @@ class ClientDependencyResolver:
         except Exception as error:
             raise ClientDependencyResolutionError("client dependency resolution failed") from error
 
-        packages, sources = _load_downloaded_wheels(wheelhouse, run_root, image_distributions)
+        packages, sources = _load_downloaded_wheels(wheelhouse, run_root, base_distributions)
         try:
             lock = _build_lock(
-                client_image,
-                image_distributions=image_distributions,
+                client_runtime,
+                base_distributions=base_distributions,
                 authored_requirements=tuple(requirements),
                 overlay_packages=packages,
             )
@@ -172,7 +166,7 @@ class ClientDependencyResolver:
     def _load_lock(
         self,
         dependencies: ClientDependencies,
-        client_image: ResolvedImage,
+        client_runtime: ResolvedClientRuntime,
         run_root: Path,
         source_root: Path,
     ) -> ResolvedClientDependencies:
@@ -185,15 +179,12 @@ class ClientDependencyResolver:
             supplied = ResolvedDependencyLock.model_validate_json(content, strict=True)
         except Exception as error:
             raise ClientDependencyResolutionError("client dependency lock is invalid") from error
-        inspection = client_image.inspection_facts
-        if not isinstance(inspection, ClientImageInspection):
-            raise ClientDependencyResolutionError("client image lacks dependency inspection facts")
         if (
-            supplied.client_image_sha256 != client_image.sha256
-            or supplied.python_abi != inspection.python_abi
-            or supplied.image_distributions != tuple(sorted(inspection.distributions, key=lambda item: item.name))
+            supplied.client_runtime_sha256 != client_runtime.runtime_sha256
+            or supplied.python_abi != client_runtime.python_abi
+            or supplied.base_distributions != tuple(sorted(client_runtime.distributions, key=lambda item: item.name))
         ):
-            raise ClientDependencyResolutionError("client dependency lock targets another image")
+            raise ClientDependencyResolutionError("client dependency lock targets another runtime")
 
         packages: list[LockedPackage] = []
         sources: list[Path] = []
@@ -220,11 +211,11 @@ class ClientDependencyResolver:
                 schema_version=1,
                 resolver_version=supplied.resolver_version,
                 python_abi=supplied.python_abi,
-                client_image_sha256=supplied.client_image_sha256,
+                client_runtime_sha256=supplied.client_runtime_sha256,
                 authored_requirements=supplied.authored_requirements,
                 authored_source=lock_file,
                 source=source_reference,
-                image_distributions=supplied.image_distributions,
+                base_distributions=supplied.base_distributions,
                 overlay_packages=tuple(packages),
             )
         except ValueError as error:
@@ -248,22 +239,19 @@ class ClientDependencyResolver:
 
 
 def _build_lock(
-    client_image: ResolvedImage,
+    client_runtime: ResolvedClientRuntime,
     *,
-    image_distributions: tuple[InstalledDistribution, ...],
+    base_distributions: tuple[InstalledDistribution, ...],
     authored_requirements: tuple[str, ...],
     overlay_packages: tuple[LockedPackage, ...] = (),
 ) -> ResolvedDependencyLock:
-    inspection = client_image.inspection_facts
-    if not isinstance(inspection, ClientImageInspection):
-        raise ClientDependencyResolutionError("client image lacks dependency inspection facts")
     return ResolvedDependencyLock(
         schema_version=1,
         resolver_version=_RESOLVER_VERSION,
-        python_abi=inspection.python_abi,
-        client_image_sha256=client_image.sha256,
+        python_abi=client_runtime.python_abi,
+        client_runtime_sha256=client_runtime.runtime_sha256,
         authored_requirements=authored_requirements,
-        image_distributions=image_distributions,
+        base_distributions=base_distributions,
         overlay_packages=overlay_packages,
     )
 
@@ -271,9 +259,9 @@ def _build_lock(
 def _load_downloaded_wheels(
     wheelhouse: Path,
     run_root: Path,
-    image_distributions: tuple[InstalledDistribution, ...],
+    base_distributions: tuple[InstalledDistribution, ...],
 ) -> tuple[tuple[LockedPackage, ...], tuple[Path, ...]]:
-    image = {item.name: item.version for item in image_distributions}
+    base = {item.name: item.version for item in base_distributions}
     packages: list[tuple[LockedPackage, Path]] = []
     names: set[str] = set()
     for wheel in sorted(wheelhouse.iterdir(), key=lambda path: path.name):
@@ -288,9 +276,9 @@ def _load_downloaded_wheels(
         normalized_version = str(version)
         if not tags or any(tag.abi != "none" or tag.platform != "any" for tag in tags):
             raise ClientDependencyResolutionError("client dependencies must resolve to platform-independent wheels")
-        if normalized_name in image:
-            if image[normalized_name] != normalized_version:
-                raise ClientDependencyResolutionError("client dependency conflicts with the selected image")
+        if normalized_name in base:
+            if base[normalized_name] != normalized_version:
+                raise ClientDependencyResolutionError("client dependency conflicts with the base runtime")
             continue
         if normalized_name in names:
             raise ClientDependencyResolutionError("dependency resolver produced duplicate packages")

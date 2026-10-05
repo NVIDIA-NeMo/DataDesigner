@@ -15,6 +15,7 @@ from urllib.parse import urlsplit
 from pydantic import (
     BaseModel,
     ConfigDict,
+    Field,
     NonNegativeInt,
     PositiveInt,
     StringConstraints,
@@ -121,6 +122,7 @@ DistributionName = Annotated[
 class InstalledDistribution(ContractValue):
     name: DistributionName
     version: Annotated[str, StringConstraints(min_length=1, max_length=128)]
+    provenance_sha256: Sha256Digest | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
 class AuthoredConfig(ContractValue):

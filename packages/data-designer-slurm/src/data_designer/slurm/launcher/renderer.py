@@ -37,6 +37,7 @@ def render_generation_attempt_script(plan: ResolvedSlurmRunPlan, *, attempt_ordi
 {directive_text}
 set -Eeuo pipefail
 export PATH={quote_shell_value(_get_command_path(plan))}
+export PYTHONNOUSERSITE=1
 
 readonly DD_RUNTIME_ARCHIVE={quote_shell_value(plan.runtime_bundle.path)}
 readonly DD_RUNTIME_SHA256={quote_shell_value(plan.runtime_bundle.sha256)}
@@ -113,6 +114,7 @@ def render_generation_retry_script(plan: ResolvedSlurmRunPlan, retry: RetryPlan)
 {directives}
 set -Eeuo pipefail
 export PATH={quote_shell_value(_get_command_path(plan))}
+export PYTHONNOUSERSITE=1
 
 readonly DD_RUNTIME_ARCHIVE={quote_shell_value(plan.runtime_bundle.path)}
 readonly DD_RUNTIME_SHA256={quote_shell_value(plan.runtime_bundle.sha256)}
@@ -121,8 +123,7 @@ readonly DD_PLAN_SHA256={quote_shell_value(plan.compute_sha256())}
 readonly DD_RUN_ROOT={quote_shell_value(run_root)}
 readonly DD_WORKSPACE_ROOT={quote_shell_value(plan.selected_profile.profile.workspace_root)}
 readonly DD_RUN_ID={quote_shell_value(plan.run_id)}
-readonly DD_VERIFIED_CLIENT_IMAGE={quote_shell_value(plan.client.image.path)}
-readonly DD_VERIFIED_CLIENT_IMAGE_SHA256={quote_shell_value(plan.client.image.sha256)}
+readonly DD_CLIENT_PYTHON={quote_shell_value(plan.client.runtime.python_executable)}
 readonly DD_RETRY_ID={quote_shell_value(retry.retry_id)}
 readonly DD_RETRY_PLAN_SHA256={quote_shell_value(retry.compute_sha256())}
 readonly DD_EFFECTIVE_RESUME_MODE={quote_shell_value(retry.effective_resume_mode)}
@@ -135,7 +136,6 @@ verify_sha256() {{
 
 verify_sha256 "${{DD_RUNTIME_SHA256}}" "${{DD_RUNTIME_ARCHIVE}}"
 verify_sha256 "${{DD_PLAN_SHA256}}" "${{DD_PLAN}}"
-verify_sha256 "${{DD_VERIFIED_CLIENT_IMAGE_SHA256}}" "${{DD_VERIFIED_CLIENT_IMAGE}}"
 if [[ ! ${{SLURM_ARRAY_TASK_ID:-}} =~ ^[0-9]+$ ]]; then
     printf '%s\\n' 'SLURM_ARRAY_TASK_ID must be a non-negative integer' >&2
     exit 64
@@ -171,7 +171,7 @@ trap 'exit 143' TERM
 dd_initialize_local_scratch
 dd_stage_allocation_runtime
 readonly DD_RUNTIME_ROOT="${{DD_SCRATCH_ROOT}}/runtime"
-export PYTHONPATH="${{DD_SCRATCH_CONTAINER_ROOT}}/runtime"
+export PYTHONPATH="${{DD_RUNTIME_ROOT}}"
 srun \\
     --nodes=1 \\
     --ntasks=1 \\
@@ -181,11 +181,8 @@ srun \\
     --unbuffered \\
     --gres=none \\
     --export=ALL \\
-    --container-image="${{DD_VERIFIED_CLIENT_IMAGE}}" \\
-    --container-mounts="${{DD_WORKSPACE_ROOT}}:${{DD_WORKSPACE_ROOT}},${{DD_SCRATCH_ROOT}}:${{DD_SCRATCH_CONTAINER_ROOT}}" \\
-    --container-env=PYTHONPATH \\
     -- \\
-    python3 -m data_designer.slurm.state.attempt_identity \\
+    "${{DD_CLIENT_PYTHON}}" -m data_designer.slurm.state.attempt_identity \\
     --workspace-root "${{DD_WORKSPACE_ROOT}}" --run-id "${{DD_RUN_ID}}" \\
     --shard-id "${{DD_SHARD_ID}}" --attempt-id "${{DD_ATTEMPT_ID}}" \\
     --array-job-id "${{DD_ARRAY_JOB_ID}}" --array-task-id "${{DD_ARRAY_TASK_ID}}"

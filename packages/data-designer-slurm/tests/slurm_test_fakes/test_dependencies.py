@@ -47,7 +47,7 @@ def test_fake_dependency_installer_scripts_success_and_digest_mismatch(
 ) -> None:
     first_target = tmp_path / "compatible"
     second_target = tmp_path / "digest-mismatch"
-    mismatched_lock = dependency_lock.model_copy(update={"client_image_sha256": "a" * 64})
+    mismatched_lock = dependency_lock.model_copy(update={"client_runtime_sha256": "a" * 64})
     installer = FakeDependencyInstaller[ResolvedDependencyLock, tuple[object, ...]](
         (
             ((dependency_lock, first_target), dependency_lock.overlay_packages),
