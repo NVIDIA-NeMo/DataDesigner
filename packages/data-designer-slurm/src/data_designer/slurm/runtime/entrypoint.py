@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Typed control phases executed only inside the sealed client image."""
+"""Typed control phases executed with the resolved native client runtime."""
 
 from __future__ import annotations
 
@@ -19,7 +19,6 @@ from data_designer.slurm.runtime.context import load_allocation_context
 from data_designer.slurm.runtime.errors import SlurmRuntimeError, SlurmRuntimeErrorCode
 from data_designer.slurm.runtime.logs import execution_log_directory
 from data_designer.slurm.runtime.models import AllocationContext
-from data_designer.slurm.runtime.paths import get_container_path
 from data_designer.slurm.runtime.ports import resolve_allocation_deployments
 from data_designer.slurm.runtime.preflight import (
     AllocationLayout,
@@ -44,7 +43,7 @@ from data_designer.slurm.state import (
 
 
 def main(arguments: Sequence[str] | None = None) -> int:
-    """Execute one container-only allocation control phase."""
+    """Execute one native allocation control phase."""
     parsed = _parse_arguments(arguments)
     try:
         if parsed.operation == "prepare":
@@ -101,11 +100,11 @@ def _prepare(arguments: argparse.Namespace, environment: Mapping[str, str]) -> N
     layout = AllocationLayout(tuple(arguments.node_host))
     validate_allocation_layout(context.plan, layout)
     SystemAllocationPreflight.verify_attempt_directory(arguments.attempt_dir)
+    SystemAllocationPreflight.verify_client_runtime(context)
     SystemAllocationPreflight.verify_ports(context, environment)
     readiness = _begin_attempt(context, writer, environment)
     log_directory = execution_log_directory(context.attempt_directory, readiness.revision)
-    container_log_directory = Path(get_container_path(context.plan, log_directory.as_posix(), require_writable=True))
-    ensure_private_directory(container_log_directory)
+    ensure_private_directory(log_directory)
     manifest = build_runtime_manifest(
         context,
         environment,
@@ -114,11 +113,7 @@ def _prepare(arguments: argparse.Namespace, environment: Mapping[str, str]) -> N
         layout=layout,
     )
     expected_manifest = context.attempt_directory / "runtime-manifest.json"
-    if arguments.manifest.as_posix() != get_container_path(
-        context.plan,
-        expected_manifest.as_posix(),
-        require_writable=True,
-    ):
+    if arguments.manifest != expected_manifest:
         raise SlurmRuntimeError(SlurmRuntimeErrorCode.INVALID_CONTEXT, "runtime manifest path is invalid")
     replace_private_text(arguments.manifest, manifest.serialize_json())
 

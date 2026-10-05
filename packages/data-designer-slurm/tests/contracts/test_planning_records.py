@@ -350,7 +350,7 @@ def test_resolved_submission_preserves_authored_validation(update: dict[str, obj
 
 def test_resolved_image_rejects_digest_mismatch(multi_node_plan: ResolvedSlurmRunPlan) -> None:
     payload = multi_node_plan.model_dump(mode="json")
-    payload["client"]["image"]["inspection"]["sqsh_sha256"] = "a" * 64
+    payload["deployments"][0]["image"]["inspection"]["sqsh_sha256"] = "a" * 64
 
     with pytest.raises(ValidationError, match="digest"):
         ResolvedSlurmRunPlan.model_validate_json(json.dumps(payload))
@@ -366,7 +366,7 @@ def test_resolved_image_rejects_digest_mismatch(multi_node_plan: ResolvedSlurmRu
                 "artifact": {"path": "/wheels/data_designer.whl", "sha256": "a" * 64},
             }
         ),
-        lambda payload: payload.update(image_distributions=list(reversed(payload["image_distributions"]))),
+        lambda payload: payload.update(base_distributions=list(reversed(payload["base_distributions"]))),
         lambda payload: payload["overlay_packages"][0]["artifact"].update(path="/wheels/plugin.tar.gz"),
         lambda payload: payload.update(authored_source="lock.json"),
         lambda payload: payload.update(
@@ -526,12 +526,12 @@ def test_cross_record_validation_rejects_python_abi(
         validate_resolved_plan(authored_run, invalid_lock, invalid_plan)
 
 
-def test_cross_record_validation_rejects_image_inventory(
+def test_cross_record_validation_rejects_runtime_inventory(
     authored_run: DataDesignerSlurmConfig,
     dependency_lock: ResolvedDependencyLock,
     multi_node_plan: ResolvedSlurmRunPlan,
 ) -> None:
-    invalid_lock = dependency_lock.model_copy(update={"image_distributions": ()})
+    invalid_lock = dependency_lock.model_copy(update={"base_distributions": ()})
     client = multi_node_plan.client.model_copy(
         update={
             "dependency_lock": multi_node_plan.client.dependency_lock.model_copy(
@@ -541,7 +541,7 @@ def test_cross_record_validation_rejects_image_inventory(
     )
     invalid_plan = multi_node_plan.model_copy(update={"client": client})
 
-    with pytest.raises(SlurmPlanContractError, match="image inventory"):
+    with pytest.raises(SlurmPlanContractError, match="runtime inspection"):
         validate_resolved_plan(authored_run, invalid_lock, invalid_plan)
 
 

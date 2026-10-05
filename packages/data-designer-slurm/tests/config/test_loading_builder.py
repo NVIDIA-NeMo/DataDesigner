@@ -41,7 +41,7 @@ def _config_builder(*, prompt: str | None = None) -> DataDesignerSlurmConfigBuil
             dataset_name="generated",
             model_concurrency={"generator": 8},
         )
-        .with_client(image={"name": "dd-client"})
+        .with_client()
         .with_deployment(
             {
                 "model_alias": "generator",
@@ -67,7 +67,7 @@ def test_builder_builds_without_file_discovery_or_serialization(tmp_path: Path) 
 def test_builder_requires_complete_authored_intent() -> None:
     builder = DataDesignerSlurmConfigBuilder.from_builder_source("builder.json")
 
-    with pytest.raises(SlurmConfigBuilderError, match="invocation, client, deployment"):
+    with pytest.raises(SlurmConfigBuilderError, match="invocation, deployment"):
         builder.build()
 
 
@@ -122,7 +122,7 @@ def test_builder_validation_errors_hide_secret_inputs() -> None:
     secret = "super-secret-token"
 
     with pytest.raises(SlurmConfigBuilderError) as error:
-        _config_builder().with_client(image={"name": "dd-client", "api_key": secret})
+        _config_builder().with_client(cpus=secret)  # type: ignore[arg-type]
 
     assert secret not in str(error.value)
     assert error.value.__cause__ is None
@@ -167,7 +167,6 @@ def test_builder_custom_validation_errors_hide_secret_values() -> None:
 
     with pytest.raises(SlurmConfigBuilderError) as error:
         _config_builder().with_client(
-            image={"name": "dd-client"},
             dependencies={"requirements": [f"pkg=={secret}"]},
         )
 

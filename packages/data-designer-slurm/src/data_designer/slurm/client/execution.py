@@ -51,7 +51,6 @@ from data_designer.slurm.config.images import InstalledDistribution
 from data_designer.slurm.config.run import LocalStdioMCPProviderConfig, RemoteMCPProviderConfig
 from data_designer.slurm.contracts import ArtifactReference
 from data_designer.slurm.planning import PlannedShard, ResolvedDependencyLock, ResolvedSlurmRunPlan
-from data_designer.slurm.runtime.paths import get_container_path, get_host_path
 from data_designer.slurm.runtime.ports import resolve_allocation_plan
 from data_designer.slurm.state import CandidateOutcome, CandidateOutputFile, CandidateOutputManifest
 
@@ -268,7 +267,7 @@ class ClientWorker:
             self._validate_prepared(plan, shard, prepared)
             lock = ResolvedDependencyLock.model_validate_json(
                 read_regular_bytes(
-                    Path(get_container_path(plan, plan.client.dependency_lock.path)),
+                    Path(plan.client.dependency_lock.path),
                     missing_code=ClientErrorCode.DEPENDENCY_ARTIFACT_MISSING,
                 )
             )
@@ -277,7 +276,7 @@ class ClientWorker:
             expected_distributions = tuple(
                 sorted(
                     (
-                        *lock.image_distributions,
+                        *lock.base_distributions,
                         *(
                             InstalledDistribution(name=package.name, version=package.version)
                             for package in lock.overlay_packages
@@ -326,14 +325,13 @@ class ClientWorker:
         prepared: PreparedClientEnvironment,
     ) -> None:
         logical_attempt = Path(shard.resume_workspace.path).parent / "attempts" / prepared.attempt_id
-        expected_attempt = Path(get_container_path(plan, logical_attempt.as_posix(), require_writable=True))
-        inspection = plan.client.image.inspection_facts
+        expected_attempt = logical_attempt
         if (
             plan.run_id != prepared.run_id
             or prepared.attempt_dir != expected_attempt
             or plan.client.dependency_lock != prepared.dependency_lock
-            or plan.client.image.sha256 != prepared.client_image_sha256
-            or inspection.python_abi != prepared.python_abi
+            or plan.client.runtime.runtime_sha256 != prepared.client_runtime_sha256
+            or plan.client.runtime.python_abi != prepared.python_abi
         ):
             raise ClientWorkerError(ClientErrorCode.INVALID_INPUT, "prepared client environment differs from the plan")
 
@@ -343,7 +341,7 @@ class ClientWorker:
             return cast(dict[str, object], plan.builder.inline)
         assert plan.builder.source is not None
         payload = read_regular_bytes(
-            Path(get_container_path(plan, plan.builder.source.path)),
+            Path(plan.builder.source.path),
             missing_code=ClientErrorCode.INVALID_INPUT,
         )
         if hashlib.sha256(payload).hexdigest() != plan.builder.source.sha256:
@@ -421,13 +419,13 @@ class ClientWorker:
         seed = builder.get_seed_config()
         if seed is None or "path" not in type(seed.source).model_fields:
             raise ClientWorkerError(ClientErrorCode.CONFIG_INVALID, "seed binding does not match the builder")
-        path = Path(get_container_path(plan, seed_path))
+        path = Path(seed_path)
         if not path.exists() or not os.access(path, os.R_OK):
             raise ClientWorkerError(ClientErrorCode.CONFIG_INVALID, "seed input is unavailable")
         if shard.input_partition is None:
             raise ClientWorkerError(ClientErrorCode.CONFIG_INVALID, "seed partition artifact is missing")
         payload = read_regular_bytes(
-            Path(get_container_path(plan, shard.input_partition.path)),
+            Path(shard.input_partition.path),
             missing_code=ClientErrorCode.INVALID_INPUT,
         )
         if hashlib.sha256(payload).hexdigest() != shard.input_partition.sha256:
@@ -474,7 +472,7 @@ class ClientWorker:
     def _validate_assets(plan: ResolvedSlurmRunPlan) -> Path:
         value = plan.invocation.effective_input_bindings.managed_assets_path
         assert value is not None
-        path = Path(get_container_path(plan, value))
+        path = Path(value)
         if not path.is_dir() or not os.access(path, os.R_OK | os.X_OK):
             raise ClientWorkerError(ClientErrorCode.CONFIG_INVALID, "managed assets are unavailable")
         return path
@@ -486,7 +484,7 @@ class ClientWorker:
         prepared: PreparedClientEnvironment,
         resume: ResumeMode,
     ) -> Path:
-        resume_path = Path(get_container_path(plan, shard.resume_workspace.path, require_writable=True))
+        resume_path = Path(shard.resume_workspace.path)
         if resume_path.is_symlink():
             raise ClientWorkerError(ClientErrorCode.CONFIG_INVALID, "resume workspace is invalid")
         if resume is ResumeMode.ALWAYS and (not resume_path.is_dir() or not any(resume_path.iterdir())):
@@ -570,7 +568,7 @@ class ClientWorker:
             raise ClientWorkerError(
                 ClientErrorCode.OUTPUT_INVALID, "Data Designer effective resume mode differs from retry intent"
             )
-        shared_path = Path(get_container_path(context.plan, context.shard.resume_workspace.path, require_writable=True))
+        shared_path = Path(context.shard.resume_workspace.path)
         expected_path = shared_path if effective_resume is ResumeMode.ALWAYS else prepared.attempt_dir / "dataset"
         if (
             not dataset_path.is_absolute()
@@ -650,7 +648,7 @@ class ClientWorker:
             attempt_id=prepared.attempt_id,
             attempt_ordinal=int(prepared.attempt_id.removeprefix("attempt-")),
             created_at=created_at,
-            dataset_path=get_host_path(context.plan, dataset_path.as_posix(), require_writable=True),
+            dataset_path=dataset_path.as_posix(),
             requested_records=creation.requested_records,
             actual_records=creation.actual_records,
             outcome=(
@@ -692,7 +690,7 @@ class ClientWorker:
             requested_resume_mode=context.requested_resume.value,
             effective_resume_mode=creation.effective_resume.value,
             candidate_output_manifest=ArtifactReference(
-                path=get_host_path(context.plan, candidate_path.as_posix(), require_writable=True),
+                path=candidate_path.as_posix(),
                 sha256=candidate.compute_sha256(),
             ),
         )
@@ -720,7 +718,7 @@ class ClientWorker:
             or manifest.shard_id != context.shard.shard_id
             or manifest.attempt_id != prepared.attempt_id
             or manifest.dependency_lock != prepared.dependency_lock
-            or manifest.client_image_sha256 != prepared.client_image_sha256
+            or manifest.client_runtime_sha256 != prepared.client_runtime_sha256
             or manifest.python_abi != prepared.python_abi
             or manifest.overlay_path != prepared.overlay_path.as_posix()
             or manifest.installed_distributions != prepared.installed_distributions

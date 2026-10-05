@@ -26,6 +26,7 @@ from data_designer.slurm.client.dependencies import (
 )
 from data_designer.slurm.client.errors import ClientWorkerError
 from data_designer.slurm.client.filesystem import ensure_private_directory
+from data_designer.slurm.client.runtime import ClientRuntimeInspectionError, ClientRuntimeInspector
 from data_designer.slurm.config import (
     DataDesignerSlurmConfig,
     ImageBuildRequest,
@@ -145,6 +146,7 @@ class _RunPreparer:
         launcher: SlurmCommandClient,
         run_id_factory: RunIdFactory,
         package_version: str,
+        runtime_inspector: ClientRuntimeInspector | None = None,
     ) -> None:
         self._profile = selected_profile
         self._images = image_registry
@@ -152,6 +154,7 @@ class _RunPreparer:
         self._launcher = launcher
         self._run_id_factory = run_id_factory
         self._package_version = package_version
+        self._runtime_inspector = runtime_inspector or ClientRuntimeInspector()
 
     @contextmanager
     def prepare(
@@ -184,7 +187,7 @@ class _RunPreparer:
             run_id = self._run_id_factory()
             workspace_root = self._profile.profile.workspace_root
             run_root = Path(workspace_root) / "runs" / run_id
-            client_image = self._images.resolve_for_planning(authored.client.image, expected_kind=ImageKind.CLIENT)
+            client_runtime = self._runtime_inspector.inspect()
             deployment_images = tuple(
                 self._images.resolve_for_planning(deployment.server.image, expected_kind=ImageKind.SERVING)
                 for deployment in authored.deployments
@@ -193,7 +196,7 @@ class _RunPreparer:
             dependencies = stack.enter_context(
                 self._dependencies.resolve(
                     authored.client.dependencies,
-                    client_image,
+                    client_runtime,
                     run_root=run_root,
                     source_root=source_root,
                 )
@@ -202,7 +205,7 @@ class _RunPreparer:
             effective = resolve_slurm_config(
                 authored,
                 selected_profile=self._profile,
-                client_image=client_image,
+                client_runtime=client_runtime,
                 deployment_images=deployment_images,
                 dependency_lock=dependencies.lock,
                 runtime_bundle=runtime_bundle,
@@ -230,6 +233,8 @@ class _RunPreparer:
             raise SlurmServiceError(
                 SlurmServiceErrorCode.CONFLICT, operation, "required image cannot be verified"
             ) from None
+        except ClientRuntimeInspectionError as error:
+            raise SlurmServiceError(SlurmServiceErrorCode.INVALID_REQUEST, operation, str(error)) from None
         except (ClientDependencyResolutionError, SlurmConfigLoadError, ValueError):
             raise SlurmServiceError(
                 SlurmServiceErrorCode.INVALID_REQUEST, operation, "run configuration cannot be prepared"

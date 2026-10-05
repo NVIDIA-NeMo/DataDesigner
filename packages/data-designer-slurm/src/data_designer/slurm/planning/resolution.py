@@ -12,7 +12,7 @@ from pydantic import JsonValue, PositiveInt, StringConstraints, TypeAdapter, Val
 
 from data_designer.config import RunConfig
 from data_designer.slurm._errors import format_validation_error
-from data_designer.slurm.config.images import ClientImageInspection, ImageKind
+from data_designer.slurm.config.images import ImageKind
 from data_designer.slurm.config.profiles import SelectedSlurmProfile
 from data_designer.slurm.config.run import BuilderInput, DataDesignerSlurmConfig, InputBindings
 from data_designer.slurm.contracts import (
@@ -31,6 +31,7 @@ from data_designer.slurm.planning.builder_identity import (
 from data_designer.slurm.planning.errors import SlurmConfigResolutionError
 from data_designer.slurm.planning.models import (
     ResolvedBuilderInput,
+    ResolvedClientRuntime,
     ResolvedDependencyLock,
     ResolvedImage,
     ResolvedInvocation,
@@ -88,7 +89,7 @@ class EffectiveDataDesignerSlurmConfig(ContractValue):
     builder: ResolvedBuilderInput
     builder_payload: dict[str, JsonValue] | None = None
     invocation: ResolvedInvocation
-    client_image: ResolvedImage
+    client_runtime: ResolvedClientRuntime
     deployment_images: tuple[ResolvedImage, ...]
     dependency_lock: ResolvedDependencyLock
     submission: ResolvedSubmission
@@ -100,7 +101,7 @@ def resolve_slurm_config(
     authored: DataDesignerSlurmConfig,
     *,
     selected_profile: SelectedSlurmProfile,
-    client_image: ResolvedImage,
+    client_runtime: ResolvedClientRuntime,
     deployment_images: tuple[ResolvedImage, ...],
     dependency_lock: ResolvedDependencyLock,
     runtime_bundle: ArtifactReference,
@@ -130,7 +131,7 @@ def resolve_slurm_config(
             builder=builder,
             builder_payload=resolved_builder_payload,
             invocation=_materialize_invocation(authored, workspace_root),
-            client_image=client_image,
+            client_runtime=client_runtime,
             deployment_images=deployment_images,
             dependency_lock=dependency_lock,
             submission=_materialize_submission(authored, selected_profile),
@@ -181,8 +182,8 @@ def validate_effective_slurm_config(
     if effective.output != expected_output:
         raise SlurmConfigResolutionError("resolved output does not match the authored output")
 
-    _validate_dependency_resolution(authored, effective.client_image, effective.dependency_lock)
-    _validate_resolved_images(authored, effective.client_image, effective.deployment_images)
+    _validate_dependency_resolution(authored, effective.client_runtime, effective.dependency_lock)
+    _validate_resolved_images(authored, effective.deployment_images)
     _validate_sharding_constraints(authored, builder_payload=effective.builder_payload)
     managed_assets_path = effective.invocation.effective_input_bindings.managed_assets_path
     assert managed_assets_path is not None
@@ -349,18 +350,15 @@ def _validate_sharding_constraints(
 
 def _validate_dependency_resolution(
     authored: DataDesignerSlurmConfig,
-    client_image: ResolvedImage,
+    client_runtime: ResolvedClientRuntime,
     dependency_lock: ResolvedDependencyLock,
 ) -> None:
-    inspection = client_image.inspection.inspection
-    if not isinstance(inspection, ClientImageInspection):
-        raise SlurmConfigResolutionError("resolved client image lacks dependency inspection facts")
-    if dependency_lock.client_image_sha256 != client_image.sha256:
-        raise SlurmConfigResolutionError("dependency lock does not match the resolved client image")
-    if dependency_lock.python_abi != inspection.python_abi:
-        raise SlurmConfigResolutionError("dependency lock Python ABI does not match the client image")
-    if dependency_lock.image_distributions != inspection.distributions:
-        raise SlurmConfigResolutionError("dependency lock inventory does not match the client image")
+    if dependency_lock.client_runtime_sha256 != client_runtime.runtime_sha256:
+        raise SlurmConfigResolutionError("dependency lock does not match the resolved client runtime")
+    if dependency_lock.python_abi != client_runtime.python_abi:
+        raise SlurmConfigResolutionError("dependency lock Python ABI does not match the client runtime")
+    if dependency_lock.base_distributions != client_runtime.distributions:
+        raise SlurmConfigResolutionError("dependency lock inventory does not match the client runtime")
     requirements = authored.client.dependencies.requirements
     if requirements is not None:
         if dependency_lock.authored_source is not None or dependency_lock.source is not None:
@@ -373,14 +371,8 @@ def _validate_dependency_resolution(
 
 def _validate_resolved_images(
     authored: DataDesignerSlurmConfig,
-    client_image: ResolvedImage,
     deployment_images: tuple[ResolvedImage, ...],
 ) -> None:
-    _validate_resolved_image_identity(client_image)
-    if client_image.kind is not ImageKind.CLIENT:
-        raise SlurmConfigResolutionError("resolved client image must contain client inspection facts")
-    if client_image.authored_ref != authored.client.image:
-        raise SlurmConfigResolutionError("resolved client image does not match the authored reference")
     if len(deployment_images) != len(authored.deployments):
         raise SlurmConfigResolutionError("resolved serving images must match the authored deployment count")
     for deployment, image in zip(authored.deployments, deployment_images, strict=True):

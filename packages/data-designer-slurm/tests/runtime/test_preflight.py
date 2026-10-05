@@ -187,16 +187,37 @@ def test_attempt_directory_must_be_restrictive(runtime_case: RuntimeCase) -> Non
         SystemAllocationPreflight.verify_attempt_directory(runtime_case.context.attempt_directory)
 
 
-def test_preflight_translates_host_paths_into_container(
+def test_client_runtime_preflight_accepts_exact_resolved_runtime(
+    runtime_case: RuntimeCase,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        runtime_preflight.ClientRuntimeInspector,
+        "inspect",
+        lambda self: runtime_case.context.plan.client.runtime,
+    )
+
+    SystemAllocationPreflight.verify_client_runtime(runtime_case.context)
+
+
+def test_client_runtime_preflight_rejects_compute_node_drift(
+    runtime_case: RuntimeCase,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime = runtime_case.context.plan.client.runtime.model_copy(update={"python_version": "3.12.1"})
+    monkeypatch.setattr(runtime_preflight.ClientRuntimeInspector, "inspect", lambda self: runtime)
+
+    with pytest.raises(SlurmRuntimeError, match="differs from the resolved plan"):
+        SystemAllocationPreflight.verify_client_runtime(runtime_case.context)
+
+
+def test_preflight_uses_host_paths_without_container_translation(
     runtime_case: RuntimeCase,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     logical_attempt = runtime_case.context.attempt_directory
     container_workspace = tmp_path / "container-workspace"
-    container_attempt = container_workspace / logical_attempt.relative_to(runtime_case.workspace)
-    logical_attempt.rmdir()
-    container_attempt.mkdir(parents=True, mode=0o700)
     plan = runtime_case.context.plan.model_copy(
         update={
             "container_mounts": (
@@ -215,11 +236,12 @@ def test_preflight_translates_host_paths_into_container(
     )
     verified_paths: list[str] = []
     monkeypatch.setattr(SystemAllocationPreflight, "_verify_scheduler", lambda *args: None)
+    monkeypatch.setattr(SystemAllocationPreflight, "verify_client_runtime", lambda *args: None)
     monkeypatch.setattr(SystemAllocationPreflight, "verify_ports", lambda *args: None)
     monkeypatch.setattr(runtime_preflight, "_verify_artifact", lambda reference: verified_paths.append(reference.path))
 
     SystemAllocationPreflight().verify(context, {})
 
     assert verified_paths
-    assert any(path.startswith(container_workspace.as_posix()) for path in verified_paths)
-    assert not any(path.startswith(runtime_case.workspace.as_posix()) for path in verified_paths)
+    assert any(path.startswith(runtime_case.workspace.as_posix()) for path in verified_paths)
+    assert not any(path.startswith(container_workspace.as_posix()) for path in verified_paths)

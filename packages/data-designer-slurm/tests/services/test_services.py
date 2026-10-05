@@ -22,6 +22,7 @@ from data_designer.slurm.benchmark import BenchmarkManifest, BenchmarkReport
 from data_designer.slurm.config import (
     DataDesignerSlurmBenchmarkConfig,
     DataDesignerSlurmConfig,
+    ImageInspectionRecord,
     ImageKind,
     ImageRef,
 )
@@ -473,28 +474,28 @@ def test_service_boundary_does_not_swallow_cancellation_signals(
 def test_image_service_returns_correlated_resolution(
     single_node_plan: ResolvedSlurmRunPlan,
 ) -> None:
-    reference = single_node_plan.client.image.authored_ref
-    image = single_node_plan.client.image
-    resolver = FakeImageResolver((((reference, ImageKind.CLIENT), image),))
+    image = single_node_plan.deployments[0].image
+    reference = image.authored_ref
+    resolver = FakeImageResolver((((reference, ImageKind.SERVING), image),))
 
-    result = SlurmImageService(resolver).resolve(reference, expected_kind=ImageKind.CLIENT)
+    result = SlurmImageService(resolver).resolve(reference, expected_kind=ImageKind.SERVING)
 
     assert result is image
-    assert resolver.calls == [(reference, ImageKind.CLIENT)]
+    assert resolver.calls == [(reference, ImageKind.SERVING)]
     resolver.assert_complete()
 
 
 def test_image_service_rejects_invalid_resolution(single_node_plan: ResolvedSlurmRunPlan) -> None:
-    reference = single_node_plan.client.image.authored_ref
-    resolver = FakeImageResolver((((reference, ImageKind.CLIENT), object()),))  # type: ignore[arg-type]
+    reference = single_node_plan.deployments[0].image.authored_ref
+    resolver = FakeImageResolver((((reference, ImageKind.SERVING), object()),))  # type: ignore[arg-type]
 
     with pytest.raises(SlurmServiceError) as caught:
-        SlurmImageService(resolver).resolve(reference, expected_kind=ImageKind.CLIENT)
+        SlurmImageService(resolver).resolve(reference, expected_kind=ImageKind.SERVING)
 
     assert caught.value.code is SlurmServiceErrorCode.INTERNAL
     assert caught.value.operation is SlurmServiceOperation.RESOLVE_IMAGE
     assert str(caught.value) == "resolve image failed"
-    assert resolver.calls == [(reference, ImageKind.CLIENT)]
+    assert resolver.calls == [(reference, ImageKind.SERVING)]
     resolver.assert_complete()
 
 
@@ -502,7 +503,7 @@ def test_image_service_rejects_untyped_image_kind(single_node_plan: ResolvedSlur
     service = SlurmImageService(FakeImageResolver(()))
 
     with pytest.raises(SlurmServiceError) as caught:
-        service.resolve(single_node_plan.client.image.authored_ref, expected_kind="client")  # type: ignore[arg-type]
+        service.resolve(single_node_plan.deployments[0].image.authored_ref, expected_kind="serving")  # type: ignore[arg-type]
 
     assert caught.value.code is SlurmServiceErrorCode.INVALID_REQUEST
     assert caught.value.operation is SlurmServiceOperation.RESOLVE_IMAGE
@@ -512,7 +513,7 @@ def test_image_service_rejects_untyped_reference() -> None:
     service = SlurmImageService(FakeImageResolver(()))
 
     with pytest.raises(SlurmServiceError) as caught:
-        service.resolve(object(), expected_kind=ImageKind.CLIENT)  # type: ignore[arg-type]
+        service.resolve(object(), expected_kind=ImageKind.SERVING)  # type: ignore[arg-type]
 
     assert caught.value.code is SlurmServiceErrorCode.INVALID_REQUEST
     assert caught.value.operation is SlurmServiceOperation.RESOLVE_IMAGE
@@ -531,23 +532,23 @@ def test_image_service_requires_package_owned_manager() -> None:
 @pytest.mark.parametrize("mismatch", ["reference", "kind"])
 def test_image_service_rejects_uncorrelated_results(
     single_node_plan: ResolvedSlurmRunPlan,
+    client_image_inspection: ImageInspectionRecord,
     mismatch: str,
 ) -> None:
-    reference = single_node_plan.client.image.authored_ref
+    source = single_node_plan.deployments[0].image
+    reference = source.authored_ref
     if mismatch == "reference":
-        source = single_node_plan.client.image
-        image = source.model_copy(update={"authored_ref": ImageRef(name="other-client")})
+        image = source.model_copy(update={"authored_ref": ImageRef(name="other-serving")})
     else:
-        source = single_node_plan.deployments[0].image
-        image = source.model_copy(update={"authored_ref": reference})
-    resolver = FakeImageResolver((((reference, ImageKind.CLIENT), image),))
+        image = source.model_copy(update={"inspection": client_image_inspection})
+    resolver = FakeImageResolver((((reference, ImageKind.SERVING), image),))
 
     with pytest.raises(SlurmServiceError) as caught:
-        SlurmImageService(resolver).resolve(reference, expected_kind=ImageKind.CLIENT)
+        SlurmImageService(resolver).resolve(reference, expected_kind=ImageKind.SERVING)
 
     assert caught.value.code is SlurmServiceErrorCode.INTERNAL
     assert caught.value.operation is SlurmServiceOperation.RESOLVE_IMAGE
-    assert resolver.calls == [(reference, ImageKind.CLIENT)]
+    assert resolver.calls == [(reference, ImageKind.SERVING)]
     resolver.assert_complete()
 
 
