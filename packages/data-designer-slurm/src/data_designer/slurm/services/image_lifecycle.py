@@ -70,6 +70,7 @@ class _JobLogFollower:
         self._offsets = {"stdout": 0, "stderr": 0}
         self._decoders = {stream: codecs.getincrementaldecoder("utf-8")(errors="replace") for stream in self._offsets}
         self._pending_lines = {"stdout": "", "stderr": ""}
+        self._skip_next_lf = {"stdout": False, "stderr": False}
         self._source_bytes = 0
         self._displayed_bytes = 0
         self._unavailable_reported = False
@@ -117,13 +118,20 @@ class _JobLogFollower:
                 self._emit_limit()
 
     def _append(self, stream: str, content: bytes, *, final: bool = False) -> None:
-        text = self._pending_lines[stream] + self._decoders[stream].decode(content, final=final)
-        lines = text.split("\n")
-        self._pending_lines[stream] = lines.pop()
-        for line in lines:
-            self._emit_line(stream, line.removesuffix("\r"))
+        text = self._decoders[stream].decode(content, final=final)
+        if self._skip_next_lf[stream]:
+            if text.startswith("\n"):
+                text = text[1:]
+            self._skip_next_lf[stream] = False
+        parts = re.split(r"(\r\n|\r|\n)", text)
+        pending = self._pending_lines[stream]
+        for index in range(0, len(parts) - 1, 2):
+            self._emit_line(stream, pending + parts[index])
+            pending = ""
             if self._limit_reported:
                 return
+        self._pending_lines[stream] = pending + parts[-1]
+        self._skip_next_lf[stream] = len(parts) > 1 and parts[-2] == "\r" and not parts[-1]
 
     def _emit_line(self, stream: str, line: str) -> None:
         self._emit(f"[image {stream}] {_UNSAFE_TERMINAL_CHARACTERS.sub('?', line)}")
@@ -304,16 +312,17 @@ class SlurmImageLifecycleManager:
         prepared: PreparedImageLifecycleJob,
         follower: _JobLogFollower | None = None,
     ) -> None:
+        terminated = False
         try:
             self._report_progress("Cancelling image inspection job...")
             self._launcher.cancel(job_id)
-            if not self._wait_for_termination(job_id):
-                return
+            terminated = self._wait_for_termination(job_id)
         except (SlurmLauncherError, SlurmStateError, OSError, ValueError):
-            return
+            pass
         if follower is not None:
             follower.drain(final=True)
-        _cleanup_failed_lifecycle(prepared)
+        if terminated:
+            _cleanup_failed_lifecycle(prepared)
 
     def _wait_for_termination(self, job_id: int) -> bool:
         client = _RecordingObservationClient(self._launcher)

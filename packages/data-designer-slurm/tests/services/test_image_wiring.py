@@ -329,6 +329,50 @@ def test_image_add_follows_only_new_bytes_across_status_checks(tmp_path: Path) -
     assert logs == ["[image stdout] first", "[image stdout] second part € done"]
 
 
+def test_image_add_shows_carriage_return_progress_while_running(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    source = tmp_path / "client.sqsh"
+    content = b"client image"
+    source.write_bytes(content)
+    log_path = _job_directory(workspace) / f"slurm-{_JOB_ID}.err"
+
+    def on_submit() -> None:
+        _write_inspection(workspace, content)
+        log_path.write_bytes(b"10%\r")
+
+    class AppendingLauncher(_TransitionLauncher):
+        def query_queue(self, selectors: object) -> tuple[SlurmQueueEntry, ...]:
+            entries = super().query_queue(selectors)
+            if self.queue_queries == 2:
+                with log_path.open("ab") as log:
+                    log.write(b"\n20%\r")
+            elif self.queue_queries == 3:
+                with log_path.open("ab") as log:
+                    log.write(b"done\n")
+            return entries
+
+    logs: list[str] = []
+    sleep_calls = 0
+
+    def sleep(_: float) -> None:
+        nonlocal sleep_calls
+        sleep_calls += 1
+        if sleep_calls == 1:
+            assert logs == ["[image stderr] 10%"]
+
+    service = create_slurm_image_service(
+        profile=_profile(workspace),
+        launcher=AppendingLauncher(on_submit=on_submit),  # type: ignore[arg-type]
+        lifecycle_id_factory=lambda: _LIFECYCLE_ID,
+        sleep=sleep,
+        logs=logs.append,
+    )
+
+    service.add(ImageBuildRequest(name="client", kind="client", source=source.as_posix()))
+
+    assert logs == ["[image stderr] 10%", "[image stderr] 20%", "[image stderr] done"]
+
+
 def test_image_add_follows_failure_logs_before_cleanup(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     source = tmp_path / "client.sqsh"
@@ -558,6 +602,32 @@ def test_default_image_add_retains_completed_job_without_accounting_exit_evidenc
     assert caught.value.code is SlurmServiceErrorCode.UNAVAILABLE
     assert launcher.cancellations == [_JOB_ID]
     assert clock.sleep_calls == [30.0] * 21
+    assert _job_directory(workspace).is_dir()
+
+
+def test_image_add_displays_partial_log_when_cancellation_is_unconfirmed(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    source = tmp_path / "client.sqsh"
+    source.write_bytes(b"client")
+
+    def on_submit() -> None:
+        (_job_directory(workspace) / f"slurm-{_JOB_ID}.err").write_bytes(b"partial diagnostic")
+
+    logs: list[str] = []
+    clock = FakeClock(datetime(2026, 9, 10, tzinfo=timezone.utc))
+    service = create_slurm_image_service(
+        profile=_profile(workspace),
+        launcher=_Launcher(accounting_state=None, on_submit=on_submit),  # type: ignore[arg-type]
+        lifecycle_id_factory=lambda: _LIFECYCLE_ID,
+        clock=clock.now,
+        sleep=clock.sleep,
+        logs=logs.append,
+    )
+
+    with pytest.raises(SlurmServiceError):
+        service.add(ImageBuildRequest(name="client", kind="client", source=source.as_posix()))
+
+    assert logs == ["[image stderr] partial diagnostic"]
     assert _job_directory(workspace).is_dir()
 
 
