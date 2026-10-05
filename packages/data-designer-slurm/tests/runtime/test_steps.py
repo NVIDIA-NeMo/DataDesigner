@@ -89,8 +89,10 @@ def test_all_processes_use_structured_srun_steps_and_sanitized_environment(runti
             for argument in step.command
             if argument.startswith("--container-mounts=")
         )
-        for step in all_steps
+        for step in server_steps
     )
+    native_steps = tuple(step for step, _ in endpoint_steps) + client_steps
+    assert all(not any(argument.startswith("--container-") for argument in step.command) for step in native_steps)
 
     server = server_steps[0]
     assert server.role is RuntimeStepRole.SERVER
@@ -163,7 +165,7 @@ def test_client_worker_receives_only_persisted_identity_and_logical_endpoint(run
     separator = step.command.index("--")
     worker = step.command[separator + 1 :]
     assert worker[:5] == (
-        "python3",
+        context.plan.client.runtime.python_executable,
         "-m",
         "data_designer.slurm.client.worker",
         "run",
@@ -213,7 +215,8 @@ def test_endpoint_step_uses_resolved_retry_policy_and_backends(runtime_case: Run
     ]
     assert "--max-waiting-requests" not in step.command
     assert step.environment["PYTHONPATH"].endswith("/runtime")
-    assert "--container-env=PYTHONPATH" in step.command
+    assert "--container-env=PYTHONPATH" not in step.command
+    assert (context.attempt_directory / "runtime/proxy.py").as_posix() in step.command
     for backend in deployment.backend_endpoints:
         assert f"http://127.0.0.1:{backend.port}" in step.command
 
@@ -282,7 +285,7 @@ def test_client_receives_client_secrets_without_server_only_secrets(
 
     assert step.environment["PACKAGE_INDEX_TOKEN"] == "client-secret"
     assert "HF_TOKEN" not in step.environment
-    assert "--container-env=DATA_DESIGNER_SLURM_SCRATCH_ROOT,PACKAGE_INDEX_TOKEN,SLURM_JOB_GPUS" in step.command
+    assert not any(argument.startswith("--container-") for argument in step.command)
 
     with pytest.raises(SlurmRuntimeError, match="PACKAGE_INDEX_TOKEN"):
         DefaultClientStepBuilder().build_preflight_step(

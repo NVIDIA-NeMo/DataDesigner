@@ -81,7 +81,7 @@ class ClientEnvironmentManifest(ContractRecord):
     created_at: datetime
     outcome: ClientEnvironmentOutcome
     dependency_lock: ArtifactReference
-    client_image_sha256: Sha256Digest
+    client_runtime_sha256: Sha256Digest
     python_abi: Identifier
     overlay_path: str
     installer_outcome: ClientInstallerOutcome
@@ -111,7 +111,7 @@ class ClientEnvironmentManifest(ContractRecord):
             created_at=created_at,
             outcome=outcome,
             dependency_lock=prepared.dependency_lock,
-            client_image_sha256=prepared.client_image_sha256,
+            client_runtime_sha256=prepared.client_runtime_sha256,
             python_abi=prepared.python_abi,
             overlay_path=prepared.overlay_path.as_posix(),
             installer_outcome=prepared.installer_outcome,

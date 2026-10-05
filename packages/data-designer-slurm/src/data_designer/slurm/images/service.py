@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from packaging.specifiers import SpecifierSet
-from packaging.version import InvalidVersion
+from packaging.version import InvalidVersion, Version
 
 from data_designer.slurm.config import (
     ClientImageInspection,
@@ -22,6 +22,7 @@ from data_designer.slurm.config import (
     ImageInspectionRecord,
     ImageKind,
     ImageRef,
+    ServingImageInspection,
 )
 from data_designer.slurm.contracts import Sha256Digest
 from data_designer.slurm.images.errors import ImageConflictError, ImageVerificationError
@@ -29,6 +30,7 @@ from data_designer.slurm.images.filesystem import ensure_private_directory, open
 from data_designer.slurm.images.inspection import INSPECTOR_VERSION
 from data_designer.slurm.images.records import RegisteredImage
 from data_designer.slurm.images.registry import ImageRegistryStore
+from data_designer.slurm.images.vllm_source import pinned_vllm_version
 from data_designer.slurm.planning import ResolvedImage
 
 _HASH_BLOCK_SIZE = 1024 * 1024
@@ -123,6 +125,17 @@ class VerifiedImageRegistry:
                 "imported SQSH candidate must belong to lifecycle temporary storage"
             ) from error
         _validate_inspection(inspection, expected_kind=ImageKind(request.kind))
+        requested_vllm_version = pinned_vllm_version(request.source)
+        if requested_vllm_version is not None:
+            inspected = inspection.inspection
+            if not isinstance(inspected, ServingImageInspection):
+                raise ImageVerificationError("versioned vLLM source requires a serving image inspection")
+            try:
+                version_matches = Version(inspected.runtime_version) == Version(requested_vllm_version)
+            except InvalidVersion:
+                version_matches = False
+            if not version_matches:
+                raise ImageVerificationError("inspected vLLM version does not match the requested image version")
         artifact_directory = self._registry.image_root / _ARTIFACT_DIRECTORY_NAME
         artifact_path = artifact_directory / f"{request.name}-{inspection.sqsh_sha256}.sqsh"
         image = RegisteredImage(
