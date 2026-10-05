@@ -545,7 +545,7 @@ lock = json.loads(Path(plan["client"]["dependency_lock"]["path"]).read_text())
 installed = tuple(
     sorted(
         (
-            *(InstalledDistribution(**item) for item in lock["image_distributions"]),
+            *(InstalledDistribution(**item) for item in lock["base_distributions"]),
             *(InstalledDistribution(name=item["name"], version=item["version"]) for item in lock["overlay_packages"]),
         ),
         key=lambda item: item.name,
@@ -556,10 +556,10 @@ prepared = PreparedClientEnvironment(
     shard_id=plan["shards"][0]["shard_id"],
     attempt_id="attempt-0001",
     attempt_dir=attempt_dir,
-    scratch_root=Path(sys.argv[3]).parent,
+    scratch_root=Path(sys.argv[4]),
     overlay_path=Path(sys.argv[3]),
     dependency_lock=ArtifactReference(**plan["client"]["dependency_lock"]),
-    client_image_sha256=plan["client"]["image"]["sha256"],
+    client_runtime_sha256=plan["client"]["runtime"]["runtime_sha256"],
     python_abi=lock["python_abi"],
     installer_outcome=ClientInstallerOutcome.REUSED,
     installed_distributions=installed,
@@ -585,6 +585,8 @@ except ClientWorkerError as error:
 else:
     raise AssertionError("preflight accepted a missing secondary model alias")
 """
+    scratch_root = client_worker_case.attempt_dir.parent / "scratch"
+    scratch_root.mkdir()
     result = subprocess.run(
         [
             sys.executable,
@@ -593,6 +595,7 @@ else:
             client_worker_case.plan_path.as_posix(),
             client_worker_case.attempt_dir.as_posix(),
             fake_plugin_overlay.as_posix(),
+            scratch_root.as_posix(),
         ],
         check=False,
         capture_output=True,
