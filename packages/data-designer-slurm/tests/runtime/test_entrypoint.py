@@ -424,7 +424,8 @@ _distributions = importlib.metadata.distributions
 
 
 def _controlled_distributions(**kwargs):
-    if kwargs.get("path") is not None:
+    paths = kwargs.get("path")
+    if paths is not None and len(paths) == 1 and paths[0].endswith("/client-env/site-packages"):
         return _distributions(**kwargs)
     paths = [os.environ["DATA_DESIGNER_TEST_IMAGE_METADATA"]]
     paths.extend(path for path in sys.path if path.endswith("/client-env/site-packages"))
