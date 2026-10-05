@@ -88,7 +88,7 @@ def test_json_recipe_validates_bare_json(
 def test_json_recipe_rejects_malformed_or_embedded_bare_json(
     json_recipe: PydanticResponseRecipe | StructuredResponseRecipe, response: str
 ) -> None:
-    with pytest.raises(ParserException, match="No parsable JSON structure"):
+    with pytest.raises(ParserException, match="No parsable JSON found"):
         json_recipe.parse(response)
 
 
