@@ -14,14 +14,7 @@ from pydantic import Field, JsonValue, NonNegativeInt, PositiveInt, StringConstr
 
 from data_designer.config import RunConfig
 from data_designer.slurm.config.environment import validate_no_plaintext_secrets
-from data_designer.slurm.config.images import (
-    ClientImageInspection,
-    ImageInspectionRecord,
-    ImageKind,
-    ImageRef,
-    InstalledDistribution,
-    ServingImageInspection,
-)
+from data_designer.slurm.config.images import ImageInspection, ImageInspectionRecord, ImageKind, ImageRef
 from data_designer.slurm.config.profiles import ContainerMount, SelectedSlurmProfile
 from data_designer.slurm.config.run import (
     ArrayTasksConfig,
@@ -38,11 +31,13 @@ from data_designer.slurm.contracts import (
     ContractValue,
     DistributionName,
     Identifier,
+    InstalledDistribution,
     ModelAlias,
     RecordRange,
     ResumeWorkspace,
     Sha256Digest,
     ShardId,
+    compute_canonical_json_sha256,
     compute_serialized_json_sha256,
     derive_managed_assets_path,
     is_path_below,
@@ -84,9 +79,32 @@ class ResolvedImage(ContractValue):
         return self.inspection.inspection.kind
 
     @property
-    def inspection_facts(self) -> ClientImageInspection | ServingImageInspection:
+    def inspection_facts(self) -> ImageInspection:
         """Return factual image inspection data without exposing record nesting to consumers."""
         return self.inspection.inspection
+
+
+class ResolvedClientRuntime(ContractValue):
+    """Exact native Python runtime used by allocation client processes."""
+
+    python_executable: str
+    python_implementation: Identifier
+    python_version: Annotated[str, StringConstraints(pattern=r"^[0-9]+\.[0-9]+\.[0-9]+$")]
+    python_abi: Identifier
+    distributions: tuple[InstalledDistribution, ...]
+    runtime_sha256: Sha256Digest
+
+    _python_executable_is_absolute = field_validator("python_executable")(validate_absolute_path)
+
+    @model_validator(mode="after")
+    def validate_runtime(self) -> ResolvedClientRuntime:
+        names = tuple(distribution.name for distribution in self.distributions)
+        if names != tuple(sorted(names)) or len(names) != len(set(names)):
+            raise ValueError("client runtime distributions must be sorted and unique")
+        identity = self.model_dump(mode="json", exclude={"runtime_sha256"})
+        if self.runtime_sha256 != compute_canonical_json_sha256(identity):
+            raise ValueError("client runtime fingerprint does not match its facts")
+        return self
 
 
 class LockedPackage(ContractValue):
@@ -102,15 +120,15 @@ class LockedPackage(ContractValue):
 
 
 class ResolvedDependencyLock(ContractRecord):
-    """Immutable client dependency resolution against one fixed image inventory."""
+    """Immutable client dependency resolution against one fixed Python runtime."""
 
     resolver_version: Identifier
     python_abi: Identifier
-    client_image_sha256: Sha256Digest
+    client_runtime_sha256: Sha256Digest
     authored_requirements: tuple[str, ...]
     authored_source: str | None = None
     source: ArtifactReference | None = None
-    image_distributions: tuple[InstalledDistribution, ...]
+    base_distributions: tuple[InstalledDistribution, ...]
     overlay_packages: tuple[LockedPackage, ...]
 
     @field_validator("authored_source")
@@ -128,16 +146,16 @@ class ResolvedDependencyLock(ContractRecord):
         if (self.authored_source is None) != (self.source is None):
             raise ValueError("dependency lock authored and resolved sources must be provided together")
         ClientDependencies(requirements=list(self.authored_requirements))
-        image_names = tuple(distribution.name for distribution in self.image_distributions)
+        base_names = tuple(distribution.name for distribution in self.base_distributions)
         overlay_names = tuple(package.name for package in self.overlay_packages)
-        if image_names != tuple(sorted(image_names)) or overlay_names != tuple(sorted(overlay_names)):
+        if base_names != tuple(sorted(base_names)) or overlay_names != tuple(sorted(overlay_names)):
             raise ValueError("dependency lock distributions must be sorted by normalized name")
-        if len(image_names) != len(set(image_names)) or len(overlay_names) != len(set(overlay_names)):
+        if len(base_names) != len(set(base_names)) or len(overlay_names) != len(set(overlay_names)):
             raise ValueError("dependency lock distribution names must be unique")
-        overlap = set(image_names).intersection(overlay_names)
+        overlap = set(base_names).intersection(overlay_names)
         if overlap:
-            raise ValueError(f"overlay packages overlap image-owned distributions: {', '.join(sorted(overlap))}")
-        image_packages = {distribution.name: distribution for distribution in self.image_distributions}
+            raise ValueError(f"overlay packages overlap base runtime distributions: {', '.join(sorted(overlap))}")
+        base_packages = {distribution.name: distribution for distribution in self.base_distributions}
         overlay_packages = {package.name: package for package in self.overlay_packages}
         for value in self.authored_requirements:
             requirement = Requirement(value)
@@ -148,7 +166,7 @@ class ResolvedDependencyLock(ContractRecord):
                 if package is None or package.artifact.sha256 != digest:
                     raise ValueError(f"direct requirement {name!r} must match one locked overlay artifact")
                 continue
-            package = overlay_packages.get(name) or image_packages.get(name)
+            package = overlay_packages.get(name) or base_packages.get(name)
             if package is None:
                 raise ValueError(f"authored requirement {name!r} is missing from the dependency lock")
             try:
@@ -322,7 +340,7 @@ class ResolvedDeployment(ContractValue):
 
 class ResolvedClient(ContractValue):
     authored: ClientConfig
-    image: ResolvedImage
+    runtime: ResolvedClientRuntime
     dependency_lock: ArtifactReference
     host_node_index: NonNegativeInt
     gpu_count: Literal[0]
@@ -330,10 +348,6 @@ class ResolvedClient(ContractValue):
 
     @model_validator(mode="after")
     def validate_client(self) -> ResolvedClient:
-        if self.image.kind is not ImageKind.CLIENT:
-            raise ValueError("Data Designer client requires a client image")
-        if self.image.authored_ref != self.authored.image:
-            raise ValueError("resolved client image does not match the authored image reference")
         if any(port.role != "logical_endpoint" for port in self.ports):
             raise ValueError("resolved client ports must be logical endpoints")
         if any(port.node_index != self.host_node_index for port in self.ports):

@@ -24,10 +24,6 @@
       "index_credentials": {},
       "lock_file": null,
       "requirements": []
-    },
-    "image": {
-      "name": "dd-client-0.9",
-      "path": null
     }
   },
   "deployments": [

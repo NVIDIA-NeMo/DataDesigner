@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 import data_designer.slurm.serving.resolver as resolver_module
-from data_designer.slurm.config import QueueBackpressureConfig
+from data_designer.slurm.config import ImageInspectionRecord, QueueBackpressureConfig
 from data_designer.slurm.contracts import compute_serialized_json_sha256, pretty_json
 from data_designer.slurm.planning import ResolvedDeployment, ResolvedSlurmRunPlan
 from data_designer.slurm.serving.deployment import ResolvedVllmServerDeployment
@@ -138,8 +138,12 @@ def test_resolution_rejects_unsupported_runtime_versions(
         _resolve(plan, placement.deployment_id)
 
 
-def test_resolution_rejects_image_inspection_mismatch(single_node_plan: ResolvedSlurmRunPlan) -> None:
-    placement = single_node_plan.deployments[0].model_copy(update={"image": single_node_plan.client.image})
+def test_resolution_rejects_image_inspection_mismatch(
+    single_node_plan: ResolvedSlurmRunPlan,
+    client_image_inspection: ImageInspectionRecord,
+) -> None:
+    image = single_node_plan.deployments[0].image.model_copy(update={"inspection": client_image_inspection})
+    placement = single_node_plan.deployments[0].model_copy(update={"image": image})
     invalid_plan = single_node_plan.model_copy(update={"deployments": (placement,)})
 
     with pytest.raises(VllmServerResolutionError, match="serving image"):

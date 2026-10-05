@@ -8,7 +8,7 @@ All commands accept `--profile-file PATH` and `--cluster NAME` where cluster sel
 | --- | --- |
 | `profile init` | Create a restrictive starter profile catalog without overwriting. |
 | `profile validate` | Validate catalog selection, shared workspace access, and scheduler facts. |
-| `image add` | Import or inspect an image through a CPU Slurm job and publish an alias. |
+| `image add` | Resolve an official versioned vLLM tag, or import/inspect a pinned OCI or SQSH image through a CPU Slurm job, then publish a verified alias. |
 | `image ls` | List aliases in the selected profile workspace. |
 | `image info NAME` | Show one registered alias and immutable image facts. |
 | `image rm NAME` | Remove an alias without deleting its SQSH artifact. |

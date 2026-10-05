@@ -15,12 +15,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
+from data_designer.slurm.client.runtime import ClientRuntimeInspectionError, ClientRuntimeInspector
 from data_designer.slurm.contracts import ArtifactReference
 from data_designer.slurm.planning import ResolvedSlurmRunPlan
 from data_designer.slurm.runtime.errors import SlurmRuntimeError, SlurmRuntimeErrorCode
 from data_designer.slurm.runtime.models import AllocationContext
 from data_designer.slurm.runtime.network import validate_host_name
-from data_designer.slurm.runtime.paths import get_container_path
 from data_designer.slurm.runtime.ports import resolve_allocation_plan
 
 _DIGEST_CHUNK_SIZE = 1024 * 1024
@@ -90,10 +90,9 @@ class SystemAllocationPreflight:
         """Verify every launch-critical fact before model services start."""
         try:
             self._verify_scheduler(context, environment)
-            attempt_directory = Path(
-                get_container_path(context.plan, context.attempt_directory.as_posix(), require_writable=True)
-            )
+            attempt_directory = context.attempt_directory
             self.verify_attempt_directory(attempt_directory)
+            self.verify_client_runtime(context)
             self._verify_artifacts(context)
             self.verify_ports(context, environment)
         except SlurmRuntimeError:
@@ -136,6 +135,22 @@ class SystemAllocationPreflight:
             )
 
     @staticmethod
+    def verify_client_runtime(context: AllocationContext) -> None:
+        """Require the compute-node interpreter to match the submitted runtime."""
+        try:
+            runtime = ClientRuntimeInspector().inspect()
+        except ClientRuntimeInspectionError as error:
+            raise SlurmRuntimeError(
+                SlurmRuntimeErrorCode.PREFLIGHT_FAILED,
+                "client Python runtime is unavailable on the compute node",
+            ) from error
+        if runtime != context.plan.client.runtime:
+            raise SlurmRuntimeError(
+                SlurmRuntimeErrorCode.PREFLIGHT_FAILED,
+                "client Python runtime differs from the resolved plan",
+            )
+
+    @staticmethod
     def verify_attempt_directory(attempt_directory: Path) -> None:
         """Require an attempt workspace accessible only to its owner."""
         status = attempt_directory.lstat()
@@ -155,7 +170,6 @@ class SystemAllocationPreflight:
             ),
             plan.runtime_bundle,
             plan.client.dependency_lock,
-            ArtifactReference(path=plan.client.image.path, sha256=plan.client.image.sha256),
             *(
                 ArtifactReference(path=deployment.image.path, sha256=deployment.image.sha256)
                 for deployment in plan.deployments
@@ -168,11 +182,6 @@ class SystemAllocationPreflight:
         references.extend(reference for reference in optional_references if reference is not None)
         unique_references = {(reference.path, reference.sha256): reference for reference in references}
         for reference in unique_references.values():
-            if any(
-                reference.path == mount.source or reference.path.startswith(f"{mount.source}/")
-                for mount in plan.container_mounts
-            ):
-                reference = reference.model_copy(update={"path": get_container_path(plan, reference.path)})
             _verify_artifact(reference)
 
     @staticmethod

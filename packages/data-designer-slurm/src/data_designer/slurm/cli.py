@@ -18,6 +18,12 @@ from data_designer.slurm.cli_benchmark import create_benchmark_app
 from data_designer.slurm.config import ImageBuildRequest, SlurmConfigLoadError, load_run_config
 from data_designer.slurm.contracts import canonical_json
 from data_designer.slurm.images.records import validate_oci_source_for_lifecycle
+from data_designer.slurm.images.vllm_source import (
+    VllmSourceResolutionError,
+    VllmTagNotFoundError,
+    is_versioned_vllm_tag,
+    resolve_versioned_vllm_source,
+)
 from data_designer.slurm.services import (
     SlurmServiceError,
     SlurmServiceErrorCode,
@@ -232,8 +238,8 @@ def profile_validate_command(
 
 @image_app.command("add")
 def image_add_command(
-    source: str = typer.Argument(...),
-    kind: str = typer.Option(..., "--kind", help="Image role: client or serving"),
+    source: str = typer.Argument(..., help="Digest-pinned OCI, versioned official vLLM image, or SQSH"),
+    kind: str = typer.Option("serving", "--kind", help="Image role (defaults to serving)"),
     name: str | None = typer.Option(None, "--name"),
     replace: bool = typer.Option(False, "--replace"),
     profile_file: Path | None = typer.Option(None, "--profile-file", dir_okay=False),
@@ -243,21 +249,38 @@ def image_add_command(
     operation = SlurmServiceOperation.ADD_IMAGE
 
     def add() -> BaseModel:
-        if not source.endswith(".sqsh") and re.fullmatch(r"[^\s]+@sha256:[0-9a-f]{64}", source) is None:
+        resolved_source = source
+        if is_versioned_vllm_tag(source):
+            if kind != "serving":
+                raise SlurmServiceError(
+                    SlurmServiceErrorCode.INVALID_REQUEST,
+                    operation,
+                    "versioned vLLM images require --kind serving",
+                )
+            try:
+                resolved_source = resolve_versioned_vllm_source(source)
+            except VllmTagNotFoundError as error:
+                raise SlurmServiceError(SlurmServiceErrorCode.NOT_FOUND, operation, str(error)) from None
+            except VllmSourceResolutionError as error:
+                raise SlurmServiceError(SlurmServiceErrorCode.UNAVAILABLE, operation, str(error)) from None
+        if (
+            not resolved_source.endswith(".sqsh")
+            and re.fullmatch(r"[^\s]+@sha256:[0-9a-f]{64}", resolved_source) is None
+        ):
             raise SlurmServiceError(
                 SlurmServiceErrorCode.INVALID_REQUEST,
                 operation,
                 "OCI image source must be digest-qualified as name@sha256:<digest>",
             )
         try:
-            validate_oci_source_for_lifecycle(source)
+            validate_oci_source_for_lifecycle(resolved_source)
         except ValueError:
             raise SlurmServiceError(
                 SlurmServiceErrorCode.INVALID_REQUEST,
                 operation,
                 "OCI image source must be a credential-free registry reference without a scheme",
             ) from None
-        request = ImageBuildRequest(name=name or _derive_image_name(source), kind=kind, source=source)
+        request = ImageBuildRequest(name=name or _derive_image_name(resolved_source), kind=kind, source=resolved_source)
         return create_slurm_image_service(profile_file=profile_file, cluster=cluster).add(request, replace=replace)
 
     _emit_result(_invoke(operation, add))
@@ -353,7 +376,7 @@ def _derive_image_name(source: str) -> str:
     if source.endswith(".sqsh"):
         candidate = Path(source).stem
     else:
-        candidate = source.rpartition("@sha256:")[0].rsplit("/", maxsplit=1)[-1].split(":", maxsplit=1)[0]
+        candidate = source.rpartition("@sha256:")[0].rsplit("/", maxsplit=1)[-1].replace(":", "-")
     return re.sub(r"[^A-Za-z0-9._-]+", "-", candidate).strip("-._") or "image"
 
 

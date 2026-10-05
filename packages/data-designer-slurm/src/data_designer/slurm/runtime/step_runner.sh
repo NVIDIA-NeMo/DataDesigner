@@ -23,7 +23,7 @@ dd_scope_control_environment() {
     done
     unset CUDA_VISIBLE_DEVICES
     export LC_ALL=C
-    export PYTHONPATH=${DD_RUNTIME_CONTAINER_ROOT}
+    export PYTHONPATH=${DD_RUNTIME_ROOT}
 }
 
 dd_materialize_step_environment() {
@@ -83,7 +83,6 @@ dd_build_srun_command() {
         --unbuffered
         --export=ALL
         "--cpus-per-task=${DD_STEP_CPUS}"
-        "--container-image=${DD_STEP_IMAGE}"
     )
     if [[ ${DD_STEP_KILL_ON_BAD_EXIT} == true ]]; then
         DD_SRUN_COMMAND+=(--kill-on-bad-exit=1)
@@ -107,11 +106,17 @@ dd_build_srun_command() {
     else
         DD_SRUN_COMMAND+=(--gres=none)
     fi
-    [[ -z ${DD_CONTAINER_MOUNTS} ]] || container_mounts="${DD_CONTAINER_MOUNTS},${container_mounts}"
-    DD_SRUN_COMMAND+=("--container-mounts=${container_mounts}")
-    if ((${#DD_STEP_CONTAINER_ENV[@]})); then
-        printf -v container_names '%s,' "${DD_STEP_CONTAINER_ENV[@]}"
-        DD_SRUN_COMMAND+=("--container-env=${container_names%,}")
+    if [[ ${DD_STEP_EXECUTION} == container ]]; then
+        [[ -n ${DD_STEP_IMAGE} ]] || return 64
+        DD_SRUN_COMMAND+=("--container-image=${DD_STEP_IMAGE}")
+        [[ -z ${DD_CONTAINER_MOUNTS} ]] || container_mounts="${DD_CONTAINER_MOUNTS},${container_mounts}"
+        DD_SRUN_COMMAND+=("--container-mounts=${container_mounts}")
+        if ((${#DD_STEP_CONTAINER_ENV[@]})); then
+            printf -v container_names '%s,' "${DD_STEP_CONTAINER_ENV[@]}"
+            DD_SRUN_COMMAND+=("--container-env=${container_names%,}")
+        fi
+    elif [[ ${DD_STEP_EXECUTION} != native || -n ${DD_STEP_IMAGE} || ${#DD_STEP_CONTAINER_ENV[@]} -ne 0 ]]; then
+        return 64
     fi
 }
 
@@ -148,7 +153,6 @@ dd_run_step() {
 dd_run_control_phase() {
     local operation=$1
     shift
-    local container_mounts="${DD_SCRATCH_ROOT}:${DD_SCRATCH_CONTAINER_ROOT}"
     local -a command=(
         srun
         --nodes=1
@@ -159,22 +163,16 @@ dd_run_control_phase() {
         --unbuffered
         --export=ALL
         "--cpus-per-task=${DD_CLIENT_CPUS}"
-        "--container-image=${DD_CLIENT_IMAGE}"
         --gres=none
-    )
-    [[ -z ${DD_CONTAINER_MOUNTS} ]] || container_mounts="${DD_CONTAINER_MOUNTS},${container_mounts}"
-    command+=("--container-mounts=${container_mounts}")
-    command+=(
-        --container-env=PYTHONPATH,SLURM_JOB_GPUS
         --
-        python3
+        "${DD_CLIENT_PYTHON}"
         -m
         data_designer.slurm.runtime.entrypoint
         "${operation}"
         --plan
-        "${DD_PLAN_CONTAINER_PATH}"
+        "${DD_PLAN_PATH}"
         --attempt-dir
-        "${DD_ATTEMPT_CONTAINER_DIR}"
+        "${DD_ATTEMPT_PATH}"
         "$@"
     )
     (
