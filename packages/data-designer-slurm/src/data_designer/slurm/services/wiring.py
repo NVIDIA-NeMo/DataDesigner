@@ -797,6 +797,7 @@ def create_slurm_image_service(
     clock: Clock | None = None,
     sleep: Callable[[float], None] | None = None,
     progress: Callable[[str], None] | None = None,
+    logs: Callable[[str], None] | None = None,
 ) -> SlurmImageService:
     """Create the production image service for one selected cluster profile."""
     selected = resolve_profile(profile=profile, catalog=catalog, profile_file=profile_file, cluster=cluster)
@@ -808,6 +809,7 @@ def create_slurm_image_service(
         clock=clock,
         sleep=sleep,
         progress=progress,
+        logs=logs,
     )
     backend = _RegistryImageBackend(selected.profile.workspace_root, lifecycle)
     return SlurmImageService(backend, backend)

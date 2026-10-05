@@ -263,6 +263,143 @@ def test_image_add_reports_pending_running_and_completed(tmp_path: Path) -> None
     assert "Image inspection job: completed." in progress
 
 
+def test_image_add_follows_bounded_job_logs_before_success_cleanup(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    source = tmp_path / "client.sqsh"
+    content = b"client image"
+    source.write_bytes(content)
+
+    def on_submit() -> None:
+        _write_inspection(workspace, content)
+        (_job_directory(workspace) / f"slurm-{_JOB_ID}.out").write_bytes(b"importing\nready\n")
+        (_job_directory(workspace) / f"slurm-{_JOB_ID}.err").write_bytes(b"warning\x1b[31m\n")
+
+    logs: list[str] = []
+    service = create_slurm_image_service(
+        profile=_profile(workspace),
+        launcher=_Launcher(on_submit=on_submit),  # type: ignore[arg-type]
+        lifecycle_id_factory=lambda: _LIFECYCLE_ID,
+        logs=logs.append,
+    )
+
+    service.add(ImageBuildRequest(name="client", kind="client", source=source.as_posix()))
+
+    assert logs == [
+        "[image stdout] importing",
+        "[image stdout] ready",
+        "[image stderr] warning?[31m",
+    ]
+    assert not _job_directory(workspace).exists()
+
+
+def test_image_add_follows_only_new_bytes_across_status_checks(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    source = tmp_path / "client.sqsh"
+    content = b"client image"
+    source.write_bytes(content)
+    log_path = _job_directory(workspace) / f"slurm-{_JOB_ID}.out"
+
+    def on_submit() -> None:
+        _write_inspection(workspace, content)
+        log_path.write_text("first\n")
+
+    class AppendingLauncher(_TransitionLauncher):
+        def query_queue(self, selectors: object) -> tuple[SlurmQueueEntry, ...]:
+            entries = super().query_queue(selectors)
+            if self.queue_queries == 2:
+                with log_path.open("a") as log:
+                    log.write("second\n")
+            return entries
+
+    logs: list[str] = []
+    service = create_slurm_image_service(
+        profile=_profile(workspace),
+        launcher=AppendingLauncher(on_submit=on_submit),  # type: ignore[arg-type]
+        lifecycle_id_factory=lambda: _LIFECYCLE_ID,
+        clock=FakeClock(datetime(2026, 9, 10, tzinfo=timezone.utc)).now,
+        sleep=lambda _: None,
+        logs=logs.append,
+    )
+
+    service.add(ImageBuildRequest(name="client", kind="client", source=source.as_posix()))
+
+    assert logs == ["[image stdout] first", "[image stdout] second"]
+
+
+def test_image_add_follows_failure_logs_before_cleanup(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    source = tmp_path / "client.sqsh"
+    source.write_bytes(b"client")
+
+    def on_submit() -> None:
+        (_job_directory(workspace) / f"slurm-{_JOB_ID}.err").write_text("import failed\n")
+
+    logs: list[str] = []
+    service = create_slurm_image_service(
+        profile=_profile(workspace),
+        launcher=_Launcher(accounting_state=SchedulerState.FAILED, on_submit=on_submit),  # type: ignore[arg-type]
+        lifecycle_id_factory=lambda: _LIFECYCLE_ID,
+        logs=logs.append,
+    )
+
+    with pytest.raises(SlurmServiceError):
+        service.add(ImageBuildRequest(name="client", kind="client", source=source.as_posix()))
+
+    assert logs == ["[image stderr] import failed"]
+    assert not _job_directory(workspace).exists()
+
+
+def test_image_add_ignores_symlinked_logs_without_changing_job_outcome(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    source = tmp_path / "client.sqsh"
+    content = b"client image"
+    source.write_bytes(content)
+    outside = tmp_path / "outside.txt"
+    outside.write_text("private content")
+
+    def on_submit() -> None:
+        _write_inspection(workspace, content)
+        (_job_directory(workspace) / f"slurm-{_JOB_ID}.out").symlink_to(outside)
+
+    logs: list[str] = []
+    service = create_slurm_image_service(
+        profile=_profile(workspace),
+        launcher=_Launcher(on_submit=on_submit),  # type: ignore[arg-type]
+        lifecycle_id_factory=lambda: _LIFECYCLE_ID,
+        logs=logs.append,
+    )
+
+    registered = service.add(ImageBuildRequest(name="client", kind="client", source=source.as_posix()))
+
+    assert registered.name == "client"
+    assert logs == ["Image job logs are unavailable."]
+    assert "private content" not in "".join(logs)
+
+
+def test_image_add_caps_followed_log_output(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    source = tmp_path / "client.sqsh"
+    content = b"client image"
+    source.write_bytes(content)
+
+    def on_submit() -> None:
+        _write_inspection(workspace, content)
+        (_job_directory(workspace) / f"slurm-{_JOB_ID}.out").write_bytes(b"x" * (1024 * 1024 + 1))
+
+    logs: list[str] = []
+    service = create_slurm_image_service(
+        profile=_profile(workspace),
+        launcher=_Launcher(on_submit=on_submit),  # type: ignore[arg-type]
+        lifecycle_id_factory=lambda: _LIFECYCLE_ID,
+        logs=logs.append,
+    )
+
+    service.add(ImageBuildRequest(name="client", kind="client", source=source.as_posix()))
+
+    assert logs[-1] == "Image job log display reached its 1 MiB limit; further output is hidden."
+    assert sum(len(line) for line in logs) < 2 * 1024 * 1024
+
+
 def test_progress_output_failure_cannot_cancel_image_job(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     source = tmp_path / "client.sqsh"

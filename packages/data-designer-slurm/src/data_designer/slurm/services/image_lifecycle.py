@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import re
 import time
 from collections.abc import Callable, Sequence
 from datetime import datetime, timedelta, timezone
@@ -23,6 +24,7 @@ from data_designer.slurm.images.lifecycle import (
     cleanup_prepared_image_lifecycle,
     prepare_image_lifecycle_job,
     publish_completed_image_lifecycle,
+    read_image_lifecycle_log,
     submit_prepared_image_lifecycle,
 )
 from data_designer.slurm.images.records import RegisteredImage
@@ -43,13 +45,70 @@ LifecycleIdFactory = Callable[[], str]
 Clock = Callable[[], datetime]
 Sleeper = Callable[[float], None]
 ProgressReporter = Callable[[str], None]
+LogReporter = Callable[[str], None]
 
 _POLL_INTERVAL_SECONDS = 30.0
 _ACCOUNTING_EXIT_LAG = timedelta(minutes=5)
+_LOG_READ_BYTES = 64 * 1024
+_LOG_TOTAL_BYTES = 1024 * 1024
+_UNSAFE_TERMINAL_CHARACTERS = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
 
 
 class _TerminalLifecycleError(RuntimeError):
     pass
+
+
+class _JobLogFollower:
+    """Best-effort, bounded local output for the exact submitted lifecycle job."""
+
+    def __init__(self, prepared: PreparedImageLifecycleJob, job_id: int, report: LogReporter) -> None:
+        self._prepared = prepared
+        self._job_id = job_id
+        self._report = report
+        self._offsets = {"stdout": 0, "stderr": 0}
+        self._emitted_bytes = 0
+        self._unavailable_reported = False
+        self._limit_reported = False
+
+    def drain(self, *, final: bool = False) -> None:
+        """Print newly appended bytes; after termination, drain the bounded remainder."""
+        while self._emitted_bytes < _LOG_TOTAL_BYTES:
+            received = False
+            for stream in ("stdout", "stderr"):
+                allowance = min(_LOG_READ_BYTES, _LOG_TOTAL_BYTES - self._emitted_bytes)
+                if allowance == 0:
+                    break
+                try:
+                    content, offset = read_image_lifecycle_log(
+                        self._prepared,
+                        self._job_id,
+                        stream,
+                        offset=self._offsets[stream],
+                        maximum_bytes=allowance,
+                    )
+                except (ImageLifecycleError, OSError, ValueError):
+                    if not self._unavailable_reported:
+                        self._emit("Image job logs are unavailable.")
+                        self._unavailable_reported = True
+                    return
+                self._offsets[stream] = offset
+                self._emitted_bytes += len(content)
+                if content:
+                    received = True
+                    for line in content.decode("utf-8", errors="replace").splitlines():
+                        self._emit(f"[image {stream}] {_UNSAFE_TERMINAL_CHARACTERS.sub('?', line)}")
+            if not final or not received:
+                break
+        if self._emitted_bytes >= _LOG_TOTAL_BYTES and not self._limit_reported:
+            self._emit("Image job log display reached its 1 MiB limit; further output is hidden.")
+            self._limit_reported = True
+
+    def _emit(self, message: str) -> None:
+        try:
+            self._report(message)
+        except Exception:
+            # Log display must never change a submitted job's outcome.
+            pass
 
 
 class _RecordingObservationClient:
@@ -77,6 +136,7 @@ class SlurmImageLifecycleManager:
         clock: Clock | None = None,
         sleep: Sleeper | None = None,
         progress: ProgressReporter | None = None,
+        logs: LogReporter | None = None,
     ) -> None:
         self._profile = selected_profile
         self._launcher = launcher
@@ -84,6 +144,7 @@ class SlurmImageLifecycleManager:
         self._clock = clock or _utc_now
         self._sleep = sleep or time.sleep
         self._progress = progress
+        self._logs = logs
 
     def add(self, request: ImageBuildRequest, *, replace: bool) -> RegisteredImage:
         """Run one lifecycle job and publish only a successful verified result."""
@@ -111,9 +172,10 @@ class SlurmImageLifecycleManager:
             _cleanup_failed_lifecycle(prepared)
             raise _unavailable("image lifecycle job cannot be submitted") from None
 
+        follower = _JobLogFollower(prepared, receipt.job_id, self._logs) if self._logs is not None else None
         try:
             self._report_progress("Image inspection job submitted; checking every 30 seconds.")
-            self._wait_for_success(receipt.job_id)
+            self._wait_for_success(receipt.job_id, follower)
             self._report_progress("Inspection complete; verifying and registering image...")
             return publish_completed_image_lifecycle(prepared, replace=replace)
         except (ImageConflictError, ImageVerificationError):
@@ -134,13 +196,13 @@ class SlurmImageLifecycleManager:
             _cleanup_failed_lifecycle(prepared)
             raise _unavailable(f"image lifecycle job {receipt.job_id} did not complete successfully") from None
         except (SlurmLauncherError, SlurmStateError, OSError, ValueError):
-            self._cancel_and_cleanup(receipt.job_id, prepared)
+            self._cancel_and_cleanup(receipt.job_id, prepared, follower)
             raise _unavailable(f"image lifecycle job {receipt.job_id} did not complete successfully") from None
         except BaseException:
-            self._cancel_and_cleanup(receipt.job_id, prepared)
+            self._cancel_and_cleanup(receipt.job_id, prepared, follower)
             raise
 
-    def _wait_for_success(self, job_id: int) -> None:
+    def _wait_for_success(self, job_id: int, follower: _JobLogFollower | None) -> None:
         client = _RecordingObservationClient(self._launcher)
         observations = SchedulerObservationCollector(client)
         previous: SchedulerObservation | None = None
@@ -153,6 +215,8 @@ class SlurmImageLifecycleManager:
                 previous={job_id: previous},
             )[0]
             self._report_progress(f"Image inspection job: {observation.state.value.replace('_', ' ')}.")
+            if follower is not None:
+                follower.drain(final=is_scheduler_terminal_state(observation.state))
             if observation.state is SchedulerState.COMPLETED:
                 accounting = next((entry for entry in client.accounting if entry.job_identity == job_id), None)
                 if accounting is None or accounting.state is not SchedulerState.COMPLETED:
@@ -185,7 +249,12 @@ class SlurmImageLifecycleManager:
                 # A closed progress stream must not cancel an already submitted job.
                 pass
 
-    def _cancel_and_cleanup(self, job_id: int, prepared: PreparedImageLifecycleJob) -> None:
+    def _cancel_and_cleanup(
+        self,
+        job_id: int,
+        prepared: PreparedImageLifecycleJob,
+        follower: _JobLogFollower | None = None,
+    ) -> None:
         try:
             self._report_progress("Cancelling image inspection job...")
             self._launcher.cancel(job_id)
@@ -193,6 +262,8 @@ class SlurmImageLifecycleManager:
                 return
         except (SlurmLauncherError, SlurmStateError, OSError, ValueError):
             return
+        if follower is not None:
+            follower.drain(final=True)
         _cleanup_failed_lifecycle(prepared)
 
     def _wait_for_termination(self, job_id: int) -> bool:

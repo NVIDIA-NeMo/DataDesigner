@@ -471,6 +471,30 @@ def test_image_add_resolves_versioned_vllm_before_import(
     )
 
 
+def test_image_add_follow_logs_is_explicit_and_keeps_json_on_stdout(monkeypatch: pytest.MonkeyPatch) -> None:
+    source = f"vllm/vllm-openai@sha256:{'a' * 64}"
+
+    class ImageService:
+        def add(self, request: ImageBuildRequest, *, replace: bool) -> ImageBuildRequest:
+            assert not replace
+            return request
+
+    def create_service(**kwargs: object) -> ImageService:
+        logs = kwargs["logs"]
+        assert callable(logs)
+        logs("[image stderr] inspection started")
+        return ImageService()
+
+    monkeypatch.setattr(cli_module, "create_slurm_image_service", create_service)
+    monkeypatch.setattr(cli_module, "_progress_enabled", lambda: False)
+
+    result = CliRunner().invoke(cli_module.create_cli(), ["image", "add", source, "--follow-logs"])
+
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.stdout)["source"] == source
+    assert result.stderr == "[image stderr] inspection started\n"
+
+
 def test_image_add_rejects_versioned_vllm_as_client() -> None:
     result = CliRunner().invoke(
         cli_module.create_cli(), ["image", "add", "vllm/vllm-openai:v0.22.0", "--kind", "client"]

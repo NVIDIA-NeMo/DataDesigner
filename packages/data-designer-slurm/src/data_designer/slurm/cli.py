@@ -247,6 +247,7 @@ def image_add_command(
     kind: str = typer.Option("serving", "--kind", help="Image role (defaults to serving)"),
     name: str | None = typer.Option(None, "--name"),
     replace: bool = typer.Option(False, "--replace"),
+    follow_logs: bool = typer.Option(False, "--follow-logs", help="Show bounded image-job logs on stderr"),
     profile_file: Path | None = typer.Option(None, "--profile-file", dir_okay=False),
     cluster: str | None = typer.Option(None, "--cluster"),
 ) -> None:
@@ -292,6 +293,7 @@ def image_add_command(
             profile_file=profile_file,
             cluster=cluster,
             progress=_emit_progress,
+            logs=_emit_image_log if follow_logs else None,
         ).add(request, replace=replace)
 
     _emit_result(_invoke(operation, add))
@@ -389,6 +391,14 @@ def _emit_progress(message: str) -> None:
             typer.echo(message, err=True)
     except Exception:
         # Progress is optional and must not change the submission outcome.
+        pass
+
+
+def _emit_image_log(message: str) -> None:
+    try:
+        typer.echo(message, err=True)
+    except Exception:
+        # Log display is optional and must not change the submission outcome.
         pass
 
 
