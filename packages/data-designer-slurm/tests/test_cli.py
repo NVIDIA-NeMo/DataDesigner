@@ -157,6 +157,43 @@ def test_execute_reports_submission_in_interactive_terminal(
     assert result.stderr == "Preparing and submitting run...\n"
 
 
+def test_progress_stream_failure_does_not_stop_submissions(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_file = tmp_path / "run.json"
+    run_file.write_text(authored_run_single.serialize_json())
+    service = _RunService()
+    monkeypatch.setattr(cli_module, "create_slurm_run_service", lambda **_: service)
+    monkeypatch.setattr(cli_module, "_progress_enabled", lambda: True)
+    original_echo = cli_module.typer.echo
+
+    def echo_with_broken_progress(message: str, *, err: bool = False) -> None:
+        if message.startswith("Preparing and submitting"):
+            raise BrokenPipeError("progress stream closed")
+        original_echo(message, err=err)
+
+    monkeypatch.setattr(cli_module.typer, "echo", echo_with_broken_progress)
+
+    execute = CliRunner().invoke(cli_module.create_cli(), ["execute", str(run_file)])
+    retry = CliRunner().invoke(cli_module.create_cli(), ["retry", "42", "--force"])
+    merge = CliRunner().invoke(
+        cli_module.create_cli(),
+        ["merge", "--input-path", str(tmp_path), "--output-path", str(tmp_path / "collected")],
+    )
+
+    assert [result.exit_code for result in (execute, retry, merge)] == [0, 0, 0]
+    assert [json.loads(result.stdout)["state"] for result in (execute, retry, merge)] == [
+        "submitted",
+        "submitted",
+        "submitted",
+    ]
+    assert len(service.calls) == 1
+    assert len(service.retry_calls) == 1
+    assert len(service.collection_calls) == 1
+
+
 def test_benchmark_cli_forwards_run_and_analysis_actions(
     tmp_path: Path,
     benchmark_config: DataDesignerSlurmBenchmarkConfig,

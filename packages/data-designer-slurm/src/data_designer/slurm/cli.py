@@ -384,8 +384,12 @@ def _emit_json(value: object, *, err: bool = False) -> None:
 
 
 def _emit_progress(message: str) -> None:
-    if _progress_enabled():
-        typer.echo(message, err=True)
+    try:
+        if _progress_enabled():
+            typer.echo(message, err=True)
+    except Exception:
+        # Progress is optional and must not change the submission outcome.
+        pass
 
 
 def _progress_enabled() -> bool:
