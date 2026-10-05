@@ -91,6 +91,7 @@ def build_distributed_server_step(
     return RuntimeStepSpec(
         step_id=step_id,
         role=RuntimeStepRole.SERVER if operation == "serve" else RuntimeStepRole.SERVER_PREFLIGHT,
+        execution="container",
         image_path=deployment.image.path,
         command=(
             "python3",
@@ -171,6 +172,7 @@ def _build_local_server_step(
     return RuntimeStepSpec(
         step_id=process.process_id,
         role=RuntimeStepRole.SERVER,
+        execution="container",
         image_path=deployment.image.path,
         command=command,
         cpus=context.plan.client.authored.cpus,

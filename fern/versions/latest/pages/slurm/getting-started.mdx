@@ -8,15 +8,14 @@ Obtain these site-specific values from your Slurm or platform administrator befo
 
 - A Python 3.10 or later executable
 - An account, GPU partition, CPU image-build partition, and shared workspace path
-- A digest-qualified client OCI image or absolute SQSH path containing the same Data Designer package versions as the submit environment
-- A digest-qualified serving OCI image or absolute SQSH path containing a supported vLLM installation
+- A supported official vLLM release tag, a digest-qualified custom serving OCI image, or an absolute SQSH path containing a supported vLLM installation
 - A model available to the serving image and compute nodes
 
-The image references and `example/generator` model below are syntax examples. They are intentionally not runnable values.
+The site values and `example/generator` model below are placeholders. The official vLLM tag is a real image reference; select a supported release your site can access.
 
 ## 1. Create and activate an environment
 
-Use a shared path instead of `$HOME` when required by site policy. If software installation is not allowed on login nodes, run these steps from a dedicated editor node or a short CPU allocation approved by your administrator.
+Create the environment on a shared filesystem at the same absolute path seen by submit and compute nodes. If software installation is not allowed on login nodes, run these steps from a dedicated editor node or a short CPU allocation approved by your administrator.
 
 ```bash
 export DD_SLURM_WORKSPACE=/workspace/alice/data-designer-slurm
@@ -40,6 +39,8 @@ python -m pip show data-designer-slurm
 ```
 
 The base `data-designer` wheel does not install or import Slurm support. The extra installs the same-version `data-designer-slurm` wheel and exposes the lazy `data-designer slurm` command group. Do not continue if `pip show` cannot find the extension.
+
+The active environment is also the client runtime for submitted jobs. Planning records its exact Python executable, ABI, package inventory, and available install provenance; compute-node preflight verifies those facts before generation starts. Keep the environment at the same absolute shared path for the lifetime of submitted runs, and do not modify it while runs are active.
 
 ## 3. Discover the CLI
 
@@ -75,33 +76,19 @@ data-designer slurm profile validate --cluster primary
 
 Validation checks strict profile loading, cluster selection, workspace access, and scheduler facts. Keep `--cluster primary` explicit when running from a compute host whose hostname does not match the login-host pattern. See [Profiles and clusters](/slurm/profiles-and-clusters) for non-default files and multiple clusters.
 
-## 6. Register a client image
-
-Use a digest-qualified OCI reference:
+## 6. Register a serving image
 
 ```bash
 data-designer slurm image add \
-  registry.example.test/data-designer/client@sha256:0000000000000000000000000000000000000000000000000000000000000000 \
-  --kind client \
-  --name dd-client \
-  --cluster primary
-```
-
-Replace the entire source with the digest-qualified OCI reference or absolute SQSH path supplied for your site. See [Prepare compatible images](/slurm/images#prepare-compatible-images) before registering a client image.
-
-## 7. Register a serving image
-
-```bash
-data-designer slurm image add \
-  registry.example.test/inference/vllm@sha256:1111111111111111111111111111111111111111111111111111111111111111 \
+  vllm/vllm-openai:v0.22.0 \
   --kind serving \
   --name vllm \
   --cluster primary
 ```
 
-Each `image add` command submits a CPU Slurm job, waits for it to finish, inspects the result, and only then publishes the alias. Keep the terminal open. You can also register an existing absolute `.sqsh` path. See [Images](/slurm/images).
+Replace the tag with a supported release available to your site. The CLI pins the tag to a registry digest before submission, then submits a CPU Slurm job, waits for it to finish, checks the installed vLLM version, and only then publishes the alias. Keep the terminal open. You can instead import a custom digest-pinned OCI image or register an existing absolute `.sqsh` path. No Data Designer client image is needed. See [Images](/slurm/images).
 
-## 8. Create a Data Designer builder config
+## 7. Create a Data Designer builder config
 
 Create `builder.yaml`:
 
@@ -120,7 +107,7 @@ data_designer:
 
 The model alias in this file must match a deployment in the Slurm run config.
 
-## 9. Create a Slurm run config
+## 8. Create a Slurm run config
 
 Create `run.yaml` next to `builder.yaml`:
 
@@ -134,9 +121,6 @@ invocation:
   dataset_name: greetings
   model_concurrency:
     generator: 8
-client:
-  image:
-    name: dd-client
 deployments:
   - model_alias: generator
     served_model_name: example/generator
@@ -158,15 +142,15 @@ output:
 
 The repository also contains these checked examples under `packages/data-designer-slurm/examples`. `served_model_name` is the name sent by the client to the vLLM-compatible endpoint. It may differ from `model`, which can be an absolute model path visible only to the serving container.
 
-## 10. Dry-run the submission
+## 9. Dry-run the submission
 
 ```bash
 data-designer slurm execute run.yaml --dry-run --cluster primary
 ```
 
-Dry-run resolves the selected profile, verifies registered image contents, loads the builder envelope, resolves client dependencies, and renders the batch script without calling `sbatch`. Full builder and plugin validation runs inside the prepared client environment on the compute node. Preview staging is temporary: dry-run does not initialize durable managed-run state and cannot be resumed or passed to `status`.
+Dry-run resolves the selected profile, records the active shared Python runtime, verifies registered serving-image contents, loads the builder envelope, resolves client dependencies, and renders the batch script without calling `sbatch`. Full builder and plugin validation runs with that Python environment on the compute node. Preview staging is temporary: dry-run does not initialize durable managed-run state and cannot be resumed or passed to `status`.
 
-## 11. Submit the run
+## 10. Submit the run
 
 ```bash
 data-designer slurm execute run.yaml --cluster primary
@@ -174,7 +158,7 @@ data-designer slurm execute run.yaml --cluster primary
 
 The command prints one JSON object. Save its `run_id`; all lifecycle commands use the managed run ID rather than a raw Slurm job ID.
 
-## 12. Inspect or cancel the run
+## 11. Inspect or cancel the run
 
 ```bash
 data-designer slurm status <run-id> --cluster primary
@@ -183,7 +167,7 @@ data-designer slurm cancel <run-id> --cluster primary
 
 Status reconciles active queue and accounting evidence with durable run state. Cancellation targets only jobs recorded for the managed run.
 
-## 13. Inspect results
+## 12. Inspect results
 
 Each successful shard publishes a canonical winner at:
 

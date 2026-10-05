@@ -36,18 +36,9 @@ dd_slurm_run_allocation() {
     dd_read_control_plan "${DD_PLAN_PATH}"
     DD_RUNTIME_PHASE=read_plan_secrets
     dd_read_plan_secret_names "${DD_PLAN_PATH}"
-    DD_RUNTIME_PHASE=translate_plan_path
-    dd_read_container_path "${DD_PLAN_PATH}" "${DD_PLAN_PATH}" false
-    DD_PLAN_CONTAINER_PATH=${DD_CONTAINER_PATH}
-    DD_RUNTIME_PHASE=translate_attempt_path
-    dd_read_container_path "${DD_PLAN_PATH}" "${DD_ATTEMPT_PATH}" true
-    DD_ATTEMPT_CONTAINER_DIR=${DD_CONTAINER_PATH}
     DD_RUNTIME_CONTAINER_ROOT=${DD_SCRATCH_CONTAINER_ROOT}/runtime
-    DD_RUNTIME_PHASE=translate_manifest_path
-    dd_read_container_path "${DD_PLAN_PATH}" "${DD_RUNTIME_MANIFEST}" true
-    DD_RUNTIME_MANIFEST_CONTAINER_PATH=${DD_CONTAINER_PATH}
     export DD_PLAN_PATH DD_ATTEMPT_PATH DD_RUNTIME_MANIFEST
-    export DD_PLAN_CONTAINER_PATH DD_ATTEMPT_CONTAINER_DIR DD_RUNTIME_CONTAINER_ROOT
+    export DD_RUNTIME_ROOT DD_RUNTIME_CONTAINER_ROOT
 
     DD_RUNTIME_PHASE=verify_host_context
     dd_verify_host_context
@@ -62,8 +53,8 @@ dd_slurm_run_allocation() {
     done
     DD_RUNTIME_PHASE=prepare
     dd_run_bound_control_phase prepare \
-        --runtime-root "${DD_RUNTIME_CONTAINER_ROOT}" \
-        --manifest "${DD_RUNTIME_MANIFEST_CONTAINER_PATH}" \
+        --runtime-root "${DD_RUNTIME_ROOT}" \
+        --manifest "${DD_RUNTIME_MANIFEST}" \
         "${host_arguments[@]}"
     DD_RUNTIME_PHASE=verify_runtime_manifest
     dd_verify_runtime_manifest \
@@ -131,6 +122,7 @@ dd_verify_host_context() {
     [[ -d ${DD_SCRATCH_ROOT} && ! -L ${DD_SCRATCH_ROOT} && -O ${DD_SCRATCH_ROOT} ]]
     [[ -d ${DD_RUNTIME_DIR} && ! -L ${DD_RUNTIME_DIR} && -O ${DD_RUNTIME_DIR} ]]
     [[ -d ${DD_ATTEMPT_PATH} && ! -L ${DD_ATTEMPT_PATH} ]]
+    [[ -x ${DD_CLIENT_PYTHON} ]]
     [[ ${SLURM_ARRAY_TASK_ID:-} =~ ^[0-9]+$ ]]
     [[ ${DD_EXPECTED_NODES} =~ ^[1-9][0-9]*$ ]]
     [[ ${DD_CLIENT_NODE_INDEX} =~ ^[0-9]+$ && ${DD_CLIENT_NODE_INDEX} -lt ${DD_EXPECTED_NODES} ]]
