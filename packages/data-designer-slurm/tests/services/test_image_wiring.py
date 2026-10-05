@@ -301,14 +301,17 @@ def test_image_add_follows_only_new_bytes_across_status_checks(tmp_path: Path) -
 
     def on_submit() -> None:
         _write_inspection(workspace, content)
-        log_path.write_text("first\n")
+        log_path.write_bytes(b"first\nsecond part \xe2")
 
     class AppendingLauncher(_TransitionLauncher):
         def query_queue(self, selectors: object) -> tuple[SlurmQueueEntry, ...]:
             entries = super().query_queue(selectors)
             if self.queue_queries == 2:
-                with log_path.open("a") as log:
-                    log.write("second\n")
+                with log_path.open("ab") as log:
+                    log.write(b"\x82")
+            elif self.queue_queries == 3:
+                with log_path.open("ab") as log:
+                    log.write(b"\xac done\n")
             return entries
 
     logs: list[str] = []
@@ -323,7 +326,7 @@ def test_image_add_follows_only_new_bytes_across_status_checks(tmp_path: Path) -
 
     service.add(ImageBuildRequest(name="client", kind="client", source=source.as_posix()))
 
-    assert logs == ["[image stdout] first", "[image stdout] second"]
+    assert logs == ["[image stdout] first", "[image stdout] second part € done"]
 
 
 def test_image_add_follows_failure_logs_before_cleanup(tmp_path: Path) -> None:
@@ -384,7 +387,7 @@ def test_image_add_caps_followed_log_output(tmp_path: Path) -> None:
 
     def on_submit() -> None:
         _write_inspection(workspace, content)
-        (_job_directory(workspace) / f"slurm-{_JOB_ID}.out").write_bytes(b"x" * (1024 * 1024 + 1))
+        (_job_directory(workspace) / f"slurm-{_JOB_ID}.out").write_bytes(b"x\n" * 200_000)
 
     logs: list[str] = []
     service = create_slurm_image_service(
@@ -397,7 +400,7 @@ def test_image_add_caps_followed_log_output(tmp_path: Path) -> None:
     service.add(ImageBuildRequest(name="client", kind="client", source=source.as_posix()))
 
     assert logs[-1] == "Image job log display reached its 1 MiB limit; further output is hidden."
-    assert sum(len(line) for line in logs) < 2 * 1024 * 1024
+    assert sum(len(line.encode("utf-8")) + 1 for line in logs) <= 1024 * 1024
 
 
 def test_progress_output_failure_cannot_cancel_image_job(tmp_path: Path) -> None:

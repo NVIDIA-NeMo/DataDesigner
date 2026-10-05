@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import codecs
 import re
 import time
 from collections.abc import Callable, Sequence
@@ -51,6 +52,7 @@ _POLL_INTERVAL_SECONDS = 30.0
 _ACCOUNTING_EXIT_LAG = timedelta(minutes=5)
 _LOG_READ_BYTES = 64 * 1024
 _LOG_TOTAL_BYTES = 1024 * 1024
+_LOG_LIMIT_NOTICE = "Image job log display reached its 1 MiB limit; further output is hidden."
 _UNSAFE_TERMINAL_CHARACTERS = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
 
 
@@ -66,16 +68,21 @@ class _JobLogFollower:
         self._job_id = job_id
         self._report = report
         self._offsets = {"stdout": 0, "stderr": 0}
-        self._emitted_bytes = 0
+        self._decoders = {stream: codecs.getincrementaldecoder("utf-8")(errors="replace") for stream in self._offsets}
+        self._pending_lines = {"stdout": "", "stderr": ""}
+        self._source_bytes = 0
+        self._displayed_bytes = 0
         self._unavailable_reported = False
         self._limit_reported = False
 
     def drain(self, *, final: bool = False) -> None:
         """Print newly appended bytes; after termination, drain the bounded remainder."""
-        while self._emitted_bytes < _LOG_TOTAL_BYTES:
+        if self._limit_reported:
+            return
+        while self._source_bytes < _LOG_TOTAL_BYTES:
             received = False
             for stream in ("stdout", "stderr"):
-                allowance = min(_LOG_READ_BYTES, _LOG_TOTAL_BYTES - self._emitted_bytes)
+                allowance = min(_LOG_READ_BYTES, _LOG_TOTAL_BYTES - self._source_bytes)
                 if allowance == 0:
                     break
                 try:
@@ -92,23 +99,59 @@ class _JobLogFollower:
                         self._unavailable_reported = True
                     return
                 self._offsets[stream] = offset
-                self._emitted_bytes += len(content)
+                self._source_bytes += len(content)
                 if content:
                     received = True
-                    for line in content.decode("utf-8", errors="replace").splitlines():
-                        self._emit(f"[image {stream}] {_UNSAFE_TERMINAL_CHARACTERS.sub('?', line)}")
+                    self._append(stream, content)
+                    if self._limit_reported:
+                        return
             if not final or not received:
                 break
-        if self._emitted_bytes >= _LOG_TOTAL_BYTES and not self._limit_reported:
-            self._emit("Image job log display reached its 1 MiB limit; further output is hidden.")
-            self._limit_reported = True
+        if final or self._source_bytes >= _LOG_TOTAL_BYTES:
+            for stream in ("stdout", "stderr"):
+                self._append(stream, b"", final=True)
+                if self._pending_lines[stream]:
+                    self._emit_line(stream, self._pending_lines[stream])
+                    self._pending_lines[stream] = ""
+            if self._source_bytes >= _LOG_TOTAL_BYTES:
+                self._emit_limit()
+
+    def _append(self, stream: str, content: bytes, *, final: bool = False) -> None:
+        text = self._pending_lines[stream] + self._decoders[stream].decode(content, final=final)
+        lines = text.split("\n")
+        self._pending_lines[stream] = lines.pop()
+        for line in lines:
+            self._emit_line(stream, line.removesuffix("\r"))
+            if self._limit_reported:
+                return
+
+    def _emit_line(self, stream: str, line: str) -> None:
+        self._emit(f"[image {stream}] {_UNSAFE_TERMINAL_CHARACTERS.sub('?', line)}")
 
     def _emit(self, message: str) -> None:
+        if self._limit_reported:
+            return
+        available = _LOG_TOTAL_BYTES - len(_LOG_LIMIT_NOTICE.encode()) - 1 - self._displayed_bytes
+        encoded = message.encode("utf-8")
+        if len(encoded) + 1 > available:
+            if available > 1:
+                self._send(encoded[: available - 1].decode("utf-8", errors="ignore"))
+            self._emit_limit()
+            return
+        self._send(message)
+
+    def _send(self, message: str) -> None:
+        self._displayed_bytes += len(message.encode("utf-8")) + 1
         try:
             self._report(message)
         except Exception:
             # Log display must never change a submitted job's outcome.
             pass
+
+    def _emit_limit(self) -> None:
+        if not self._limit_reported:
+            self._limit_reported = True
+            self._send(_LOG_LIMIT_NOTICE)
 
 
 class _RecordingObservationClient:
@@ -216,7 +259,7 @@ class SlurmImageLifecycleManager:
             )[0]
             self._report_progress(f"Image inspection job: {observation.state.value.replace('_', ' ')}.")
             if follower is not None:
-                follower.drain(final=is_scheduler_terminal_state(observation.state))
+                follower.drain()
             if observation.state is SchedulerState.COMPLETED:
                 accounting = next((entry for entry in client.accounting if entry.job_identity == job_id), None)
                 if accounting is None or accounting.state is not SchedulerState.COMPLETED:
@@ -232,9 +275,15 @@ class SlurmImageLifecycleManager:
                     accounting.process_exit_code.exit_status != 0
                     or accounting.process_exit_code.termination_signal != 0
                 ):
+                    if follower is not None:
+                        follower.drain(final=True)
                     raise _TerminalLifecycleError("completed image lifecycle job has no successful exit evidence")
+                if follower is not None:
+                    follower.drain(final=True)
                 return
             if is_scheduler_failure_state(observation.state):
+                if follower is not None:
+                    follower.drain(final=True)
                 raise _TerminalLifecycleError("image lifecycle job did not complete successfully")
             if observation.state is SchedulerState.UNKNOWN:
                 raise SlurmStateError("image lifecycle job has unknown scheduler state")
