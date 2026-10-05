@@ -190,7 +190,7 @@ def test_inspect_distributions_uses_active_environment_paths(
 
     submit_path = "/submit/venv/site-packages"
     interpreter_path = "/control/venv/site-packages"
-    user_site_path = "/users/alice/.local/site-packages"
+    user_site_path = "/workspace/alice/.local/site-packages"
     pth_path = "/installed/editable-source"
     monkeypatch.setattr(sys, "path", [submit_path, interpreter_path, user_site_path, pth_path])
     monkeypatch.setattr(environment_module.site, "getsitepackages", lambda: [interpreter_path])
