@@ -42,8 +42,9 @@ from data_designer.slurm.state.scheduler import is_scheduler_failure_state, is_s
 LifecycleIdFactory = Callable[[], str]
 Clock = Callable[[], datetime]
 Sleeper = Callable[[float], None]
+ProgressReporter = Callable[[str], None]
 
-_POLL_INTERVAL_SECONDS = 300.0
+_POLL_INTERVAL_SECONDS = 30.0
 _ACCOUNTING_EXIT_LAG = timedelta(minutes=5)
 
 
@@ -75,12 +76,14 @@ class SlurmImageLifecycleManager:
         lifecycle_id_factory: LifecycleIdFactory | None = None,
         clock: Clock | None = None,
         sleep: Sleeper | None = None,
+        progress: ProgressReporter | None = None,
     ) -> None:
         self._profile = selected_profile
         self._launcher = launcher
         self._lifecycle_id_factory = lifecycle_id_factory or _new_lifecycle_id
         self._clock = clock or _utc_now
         self._sleep = sleep or time.sleep
+        self._progress = progress
 
     def add(self, request: ImageBuildRequest, *, replace: bool) -> RegisteredImage:
         """Run one lifecycle job and publish only a successful verified result."""
@@ -95,6 +98,7 @@ class SlurmImageLifecycleManager:
             raise _unavailable("image lifecycle job cannot be prepared") from None
 
         try:
+            self._report_progress("Submitting image inspection job...")
             receipt = submit_prepared_image_lifecycle(prepared, self._launcher)
         except SlurmSubmissionError as error:
             if not error.may_have_succeeded:
@@ -108,7 +112,9 @@ class SlurmImageLifecycleManager:
             raise _unavailable("image lifecycle job cannot be submitted") from None
 
         try:
+            self._report_progress("Image inspection job submitted; checking every 30 seconds.")
             self._wait_for_success(receipt.job_id)
+            self._report_progress("Inspection complete; verifying and registering image...")
             return publish_completed_image_lifecycle(prepared, replace=replace)
         except (ImageConflictError, ImageVerificationError):
             raise SlurmServiceError(
@@ -146,9 +152,11 @@ class SlurmImageLifecycleManager:
                 observed_at=observed_at,
                 previous={job_id: previous},
             )[0]
+            self._report_progress(f"Image inspection job: {observation.state.value.replace('_', ' ')}.")
             if observation.state is SchedulerState.COMPLETED:
                 accounting = next((entry for entry in client.accounting if entry.job_identity == job_id), None)
                 if accounting is None or accounting.state is not SchedulerState.COMPLETED:
+                    self._report_progress("Waiting for successful job exit evidence...")
                     if completed_without_accounting_deadline is None:
                         completed_without_accounting_deadline = observed_at + _ACCOUNTING_EXIT_LAG
                     elif observed_at > completed_without_accounting_deadline:
@@ -169,8 +177,17 @@ class SlurmImageLifecycleManager:
             previous = observation
             self._sleep(_POLL_INTERVAL_SECONDS)
 
+    def _report_progress(self, message: str) -> None:
+        if self._progress is not None:
+            try:
+                self._progress(message)
+            except Exception:
+                # A closed progress stream must not cancel an already submitted job.
+                pass
+
     def _cancel_and_cleanup(self, job_id: int, prepared: PreparedImageLifecycleJob) -> None:
         try:
+            self._report_progress("Cancelling image inspection job...")
             self._launcher.cancel(job_id)
             if not self._wait_for_termination(job_id):
                 return
@@ -190,6 +207,7 @@ class SlurmImageLifecycleManager:
                 observed_at=observed_at,
                 previous={job_id: previous},
             )[0]
+            self._report_progress("Waiting for image inspection job to terminate...")
             accounting = next((entry for entry in client.accounting if entry.job_identity == job_id), None)
             if accounting is not None and is_scheduler_terminal_state(accounting.state):
                 return True

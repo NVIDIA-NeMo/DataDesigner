@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import re
+import sys
 from collections.abc import Callable
 from enum import Enum
 from functools import partial
@@ -76,6 +77,7 @@ def execute_command(
     operation = SlurmServiceOperation.EXECUTE_RUN
 
     def execute() -> BaseModel:
+        _emit_progress("Validating and rendering run..." if dry_run else "Preparing and submitting run...")
         config = load_run_config(run_file)
         service = create_slurm_run_service(profile_file=profile_file, cluster=cluster)
         return service.execute(config, source_root=run_file.resolve().parent, dry_run=dry_run)
@@ -162,6 +164,8 @@ def retry_command(
             return
         shard_ids = planned.shard_ids
         resume = _RetryResumeMode(planned.effective_resume_mode)
+    if not dry_run:
+        _emit_progress("Preparing and submitting retry...")
     result = _invoke(
         operation,
         partial(
@@ -185,6 +189,7 @@ def merge_command(
 ) -> None:
     """Submit winner-driven collection as a zero-GPU Slurm job."""
     operation = SlurmServiceOperation.COLLECT_RUN
+    _emit_progress("Preparing and submitting collection job...")
     result = _invoke(
         operation,
         lambda: create_slurm_run_service(profile_file=profile_file, cluster=cluster).collect(
@@ -245,7 +250,7 @@ def image_add_command(
     profile_file: Path | None = typer.Option(None, "--profile-file", dir_okay=False),
     cluster: str | None = typer.Option(None, "--cluster"),
 ) -> None:
-    """Import or inspect an image and register its alias."""
+    """Import or inspect an image and register its alias, reporting progress in terminals."""
     operation = SlurmServiceOperation.ADD_IMAGE
 
     def add() -> BaseModel:
@@ -257,6 +262,7 @@ def image_add_command(
                     operation,
                     "versioned vLLM images require --kind serving",
                 )
+            _emit_progress("Resolving vLLM image tag...")
             try:
                 resolved_source = resolve_versioned_vllm_source(source)
             except VllmTagNotFoundError as error:
@@ -281,7 +287,12 @@ def image_add_command(
                 "OCI image source must be a credential-free registry reference without a scheme",
             ) from None
         request = ImageBuildRequest(name=name or _derive_image_name(resolved_source), kind=kind, source=resolved_source)
-        return create_slurm_image_service(profile_file=profile_file, cluster=cluster).add(request, replace=replace)
+        _emit_progress("Preparing image registration...")
+        return create_slurm_image_service(
+            profile_file=profile_file,
+            cluster=cluster,
+            progress=_emit_progress,
+        ).add(request, replace=replace)
 
     _emit_result(_invoke(operation, add))
 
@@ -372,6 +383,15 @@ def _emit_json(value: object, *, err: bool = False) -> None:
     typer.echo(canonical_json(value).decode("utf-8"), err=err)
 
 
+def _emit_progress(message: str) -> None:
+    if _progress_enabled():
+        typer.echo(message, err=True)
+
+
+def _progress_enabled() -> bool:
+    return sys.stderr.isatty()
+
+
 def _derive_image_name(source: str) -> str:
     if source.endswith(".sqsh"):
         candidate = Path(source).stem
@@ -387,7 +407,7 @@ def _bounded_error_message(message: str, *, fallback: str) -> str:
     return sanitized if len(sanitized) <= 512 else f"{sanitized[:509]}..."
 
 
-app.add_typer(create_benchmark_app(_invoke, _emit_result), name="benchmark")
+app.add_typer(create_benchmark_app(_invoke, _emit_result, _emit_progress), name="benchmark")
 
 
 def create_cli() -> click.Command:

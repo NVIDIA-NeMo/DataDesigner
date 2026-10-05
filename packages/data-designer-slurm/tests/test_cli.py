@@ -40,10 +40,11 @@ class _RunService:
         self.calls.append((config, source_root, dry_run))
         return SlurmRunExecution(
             run_id="run-0001",
-            state="dry_run",
+            state="dry_run" if dry_run else "submitted",
             plan_sha256="1" * 64,
             shard_count=1,
-            batch_script="#!/bin/bash\n",
+            batch_script="#!/bin/bash\n" if dry_run else None,
+            job_id=None if dry_run else 43,
         )
 
     def retry(
@@ -136,6 +137,24 @@ def test_execute_emits_deterministic_json_and_forwards_actions(
         "state": "dry_run",
     }
     assert service.calls == [(authored_run_single, tmp_path, True)]
+    assert result.stderr == ""
+
+
+def test_execute_reports_submission_in_interactive_terminal(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_file = tmp_path / "run.json"
+    run_file.write_text(authored_run_single.serialize_json())
+    monkeypatch.setattr(cli_module, "create_slurm_run_service", lambda **_: _RunService())
+    monkeypatch.setattr(cli_module, "_progress_enabled", lambda: True)
+
+    result = CliRunner().invoke(cli_module.create_cli(), ["execute", str(run_file)])
+
+    assert result.exit_code == 0
+    assert json.loads(result.stdout)["state"] == "submitted"
+    assert result.stderr == "Preparing and submitting run...\n"
 
 
 def test_benchmark_cli_forwards_run_and_analysis_actions(
@@ -148,7 +167,16 @@ def test_benchmark_cli_forwards_run_and_analysis_actions(
     benchmark_file = tmp_path / "benchmark.json"
     benchmark_file.write_text(benchmark_config.serialize_json())
     service = _BenchmarkService(benchmark_manifest, benchmark_report)
-    monkeypatch.setattr(benchmark_cli_module, "create_slurm_benchmark_service", lambda **_: service)
+
+    def create_benchmark_service(**kwargs: object) -> _BenchmarkService:
+        if "progress" in kwargs:
+            progress = kwargs["progress"]
+            assert callable(progress)
+            progress("Benchmark case 1/1: submitted.")
+        return service
+
+    monkeypatch.setattr(benchmark_cli_module, "create_slurm_benchmark_service", create_benchmark_service)
+    monkeypatch.setattr(cli_module, "_progress_enabled", lambda: True)
 
     run_result = CliRunner().invoke(
         cli_module.create_cli(),
@@ -165,6 +193,7 @@ def test_benchmark_cli_forwards_run_and_analysis_actions(
     assert json.loads(analyze_result.stdout)["analysis_id"] == benchmark_report.analysis_id
     assert service.run_calls == [(benchmark_config, tmp_path, True)]
     assert service.analysis_calls == [("benchmark-001", True, True)]
+    assert run_result.stderr == "Preparing benchmark launch...\nBenchmark case 1/1: submitted.\n"
 
 
 def test_retry_emits_deterministic_json_and_maps_task_ids(monkeypatch) -> None:
@@ -216,11 +245,13 @@ def test_retry_auto_selects_tasks_and_confirms_submission(monkeypatch) -> None:
 def test_retry_force_skips_confirmation(monkeypatch) -> None:
     service = _RunService()
     monkeypatch.setattr(cli_module, "create_slurm_run_service", lambda **_: service)
+    monkeypatch.setattr(cli_module, "_progress_enabled", lambda: True)
 
     result = CliRunner().invoke(cli_module.create_cli(), ["retry", "42", "--force"])
 
     assert result.exit_code == 0
     assert service.retry_calls == [("42", None, "if_possible", False)]
+    assert result.stderr == "Preparing and submitting retry...\n"
 
 
 def test_retry_decline_emits_stable_result(monkeypatch) -> None:
@@ -254,6 +285,7 @@ def test_retry_noninteractive_confirmation_is_invalid_request(monkeypatch) -> No
 def test_merge_emits_collection_job_and_forwards_paths(tmp_path: Path, monkeypatch) -> None:
     service = _RunService()
     monkeypatch.setattr(cli_module, "create_slurm_run_service", lambda **_: service)
+    monkeypatch.setattr(cli_module, "_progress_enabled", lambda: True)
     input_path = tmp_path / "runs/run-0001"
     output_path = tmp_path / "collected"
 
@@ -280,6 +312,7 @@ def test_merge_emits_collection_job_and_forwards_paths(tmp_path: Path, monkeypat
         "state": "submitted",
     }
     assert service.collection_calls == [(input_path, output_path, 2)]
+    assert result.stderr == "Preparing and submitting collection job...\n"
 
 
 @pytest.mark.parametrize(
@@ -356,7 +389,11 @@ def test_image_add_rejects_mutable_oci_source(source: str) -> None:
     }
 
 
-def test_image_add_resolves_versioned_vllm_before_import(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("interactive", (False, True))
+def test_image_add_resolves_versioned_vllm_before_import(
+    monkeypatch: pytest.MonkeyPatch,
+    interactive: bool,
+) -> None:
     source = "vllm/vllm-openai:v0.22.0"
     pinned = f"{source}@sha256:{'a' * 64}"
     requests: list[ImageBuildRequest] = []
@@ -368,7 +405,15 @@ def test_image_add_resolves_versioned_vllm_before_import(monkeypatch: pytest.Mon
             return request
 
     monkeypatch.setattr(cli_module, "resolve_versioned_vllm_source", lambda _source: pinned)
-    monkeypatch.setattr(cli_module, "create_slurm_image_service", lambda **_kwargs: ImageService())
+    monkeypatch.setattr(cli_module, "_progress_enabled", lambda: interactive)
+
+    def create_service(**kwargs: object) -> ImageService:
+        progress = kwargs["progress"]
+        assert callable(progress)
+        progress("Image inspection job: pending.")
+        return ImageService()
+
+    monkeypatch.setattr(cli_module, "create_slurm_image_service", create_service)
 
     result = CliRunner().invoke(cli_module.create_cli(), ["image", "add", source])
 
@@ -377,6 +422,16 @@ def test_image_add_resolves_versioned_vllm_before_import(monkeypatch: pytest.Mon
     assert requests[0].kind == "serving"
     assert requests[0].source == pinned
     assert requests[0].name == "vllm-openai-v0.22.0"
+    assert json.loads(result.stdout)["name"] == "vllm-openai-v0.22.0"
+    assert result.stderr.splitlines() == (
+        [
+            "Resolving vLLM image tag...",
+            "Preparing image registration...",
+            "Image inspection job: pending.",
+        ]
+        if interactive
+        else []
+    )
 
 
 def test_image_add_rejects_versioned_vllm_as_client() -> None:

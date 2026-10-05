@@ -796,6 +796,7 @@ def create_slurm_image_service(
     lifecycle_id_factory: Callable[[], str] | None = None,
     clock: Clock | None = None,
     sleep: Callable[[float], None] | None = None,
+    progress: Callable[[str], None] | None = None,
 ) -> SlurmImageService:
     """Create the production image service for one selected cluster profile."""
     selected = resolve_profile(profile=profile, catalog=catalog, profile_file=profile_file, cluster=cluster)
@@ -806,6 +807,7 @@ def create_slurm_image_service(
         lifecycle_id_factory=lifecycle_id_factory,
         clock=clock,
         sleep=sleep,
+        progress=progress,
     )
     backend = _RegistryImageBackend(selected.profile.workspace_root, lifecycle)
     return SlurmImageService(backend, backend)
@@ -823,6 +825,7 @@ def create_slurm_benchmark_service(
     clock: Clock | None = None,
     package_version: str | None = None,
     source_environment: Mapping[str, str] | None = None,
+    progress: Callable[[str], None] | None = None,
 ) -> SlurmBenchmarkService:
     """Create the production benchmark service for one selected cluster profile."""
     selected = resolve_profile(profile=profile, catalog=catalog, profile_file=profile_file, cluster=cluster)
@@ -855,6 +858,7 @@ def create_slurm_benchmark_service(
         create_child_service,
         observer,
         selected_clock,
+        progress=progress,
     )
     return SlurmBenchmarkService(backend)
 
