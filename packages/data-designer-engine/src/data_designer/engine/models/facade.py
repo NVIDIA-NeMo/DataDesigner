@@ -189,6 +189,12 @@ class ModelFacade:
         return self._usage_stats
 
     def consolidate_kwargs(self, **kwargs: Any) -> dict[str, Any]:
+        """Combine the model's inference parameters, the call's kwargs, and the provider's extras.
+
+        Call kwargs override inference parameters. ``extra_body`` is merged key by key in the order
+        model config, call, provider, so a later source wins only for the keys it sets; nested values
+        are replaced, not merged. Provider ``extra_headers`` override the call's.
+        """
         # Remove purpose from kwargs to avoid passing it to the model
         kwargs.pop("purpose", None)
         inference_kwargs = self._model_config.inference_parameters.generate_kwargs
@@ -345,7 +351,10 @@ class ModelFacade:
             skip_usage_tracking (bool): Whether to skip usage tracking. Default: `False`.
             purpose (str): The purpose of the model usage to show as context in the error message.
                 It is expected to be used by the @catch_llm_exceptions decorator.
-            **kwargs: Additional arguments to pass to the model.
+            **kwargs: Request arguments sent with every completion, such as ``temperature``,
+                ``tool_choice``, or ``extra_body`` (merged as described in ``consolidate_kwargs``).
+                With ``tool_alias``, ``tool_choice`` applies only until the first tool call; a
+                ``tool_choice`` inside ``extra_body`` is sent unchanged on every round.
 
         Returns:
             A tuple containing:
