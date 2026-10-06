@@ -132,6 +132,7 @@ def test_completion_posts_to_chat_completions_route() -> None:
     assert payload["temperature"] == 0.7
     assert payload["seed"] == 42
     assert "timeout" not in payload
+    assert "tool_choice" not in payload
     assert call_args.kwargs["headers"]["X-Trace"] == "1"
 
 
@@ -155,6 +156,22 @@ def test_completion_forwards_tool_choice_unchanged(tool_choice: str | dict[str, 
     client.completion(request)
 
     assert sync_mock.post.call_args.kwargs["json"]["tool_choice"] == tool_choice
+
+
+@pytest.mark.asyncio
+async def test_acompletion_forwards_tool_choice_unchanged() -> None:
+    async_mock = make_mock_async_client(_chat_response())
+    client = _make_client(async_client=async_mock)
+
+    request = ChatCompletionRequest(
+        model=MODEL,
+        messages=[{"role": "user", "content": "Hi"}],
+        tools=[{"type": "function", "function": {"name": "search"}}],
+        tool_choice="required",
+    )
+    await client.acompletion(request)
+
+    assert async_mock.post.call_args.kwargs["json"]["tool_choice"] == "required"
 
 
 def test_completion_extra_body_tool_choice_overrides_request_field() -> None:

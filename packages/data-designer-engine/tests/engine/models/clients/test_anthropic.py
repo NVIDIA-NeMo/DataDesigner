@@ -267,6 +267,7 @@ def test_completion_translates_openai_tool_schema_to_anthropic() -> None:
             "input_schema": {"type": "object", "properties": {"query": {"type": "string"}}},
         }
     ]
+    assert "tool_choice" not in payload
 
 
 def test_completion_translates_tool_choice_to_anthropic() -> None:
@@ -714,6 +715,30 @@ def test_http_error_maps_to_provider_error(status_code: int, expected_kind: Prov
         client.completion(request)
 
     assert exc_info.value.kind == expected_kind
+
+
+def test_http_400_tool_choice_rejection_maps_to_unsupported_params() -> None:
+    error_json = {
+        "error": {
+            "type": "invalid_request_error",
+            "message": 'tool_choice: type "tool" and "any" are not supported for this model.',
+        }
+    }
+    sync_mock = make_mock_sync_client(error_json, status_code=400)
+    client = _make_client(sync_client=sync_mock)
+
+    request = ChatCompletionRequest(
+        model=MODEL,
+        messages=[{"role": "user", "content": "Hi"}],
+        tools=[{"type": "function", "function": {"name": "search"}}],
+        tool_choice="required",
+    )
+    with pytest.raises(ProviderError) as exc_info:
+        client.completion(request)
+
+    assert exc_info.value.kind == ProviderErrorKind.UNSUPPORTED_PARAMS
+    assert "not supported for this model" in exc_info.value.message
+    sync_mock.post.assert_called_once()
 
 
 def test_transport_timeout_raises_provider_error() -> None:
