@@ -866,7 +866,7 @@ def test_run_create_applies_run_config_precedence(
         }
     )
     mock_dd = MagicMock()
-    mock_dd.run_config = RunConfig(buffer_size=64, progress_interval=11.0, display_tui=True)
+    mock_dd.run_config = RunConfig(buffer_size=64, progress_interval=11.0, display_tui=True, shutdown_error_rate=0.3)
     mock_dd.create.return_value = _make_mock_create_results()
     mock_dd_cls.return_value = mock_dd
 
@@ -886,7 +886,8 @@ def test_run_create_applies_run_config_precedence(
     assert effective.buffer_size == 1000
     assert effective.progress_interval == 11.0
     assert effective.preserve_dropped_columns is False
-    assert effective.shutdown_error_rate == 1.0
+    assert effective.shutdown_error_rate == 0.3
+    assert effective.effective_shutdown_error_rate == 1.0
     assert effective.display_tui is False
     assert [item[0] for item in mock_dd.method_calls] == ["set_run_config", "create"]
     assert "Run config: run.yaml" in capsys.readouterr().out

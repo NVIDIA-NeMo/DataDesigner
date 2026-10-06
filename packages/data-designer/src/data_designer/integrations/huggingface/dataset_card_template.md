@@ -86,15 +86,17 @@ Generated with {{ num_columns_configured }} column configuration(s):
 
 ## 📚 Citation
 
-If you use Data Designer in your work, please cite the project as follows:
+If you use NeMo Data Designer in your research, please cite our [technical report](https://arxiv.org/abs/2609.17699):
 
 ```bibtex
-@misc{nemo-data-designer,
-  author = {The NeMo Data Designer Team, NVIDIA},
-  title = {NeMo Data Designer: A framework for generating synthetic data from scratch or based on your own seed data},
-  howpublished = {\url{https://github.com/NVIDIA-NeMo/DataDesigner}},
-  year = {{ current_year }},
-  note = {GitHub Repository},
+@misc{greco2026nemodatadesignerextensible,
+  title = {NeMo Data Designer: An Extensible Framework for Multimodal Synthetic Data Generation},
+  author = {Johnny Greco and Nabin Mulepati and Andre Manoel and Eric Tramel and Kirit Thadaka and Mike Knepper and Dhruv Nathawani and Dane Corneil and Yev Meyer and Alex Watson and Maarten Van Segbroeck},
+  year = {2026},
+  eprint = {2609.17699},
+  archivePrefix = {arXiv},
+  primaryClass = {cs.AI},
+  url = {https://arxiv.org/abs/2609.17699},
 }
 ```
 
