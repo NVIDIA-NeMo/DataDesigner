@@ -130,7 +130,7 @@ def test_image_lifecycle_renderer_uses_explicit_cpu_profile_and_safe_mounts(tmp_
     assert "#SBATCH --mem=8G" in script
     assert "#SBATCH --time=03:55:00" in script
     assert "#SBATCH --gres=" not in script
-    expected_uri = f"docker://registry.example.test#team/image:release@sha256:{'b' * 64}"
+    expected_uri = f"docker://registry.example.test#team/image:sha256:{'b' * 64}"
     assert f'readonly DD_OCI_SOURCE="{expected_uri}"' in script
     assert 'enroot import -o "${DD_IMAGE_SQSH}" "${DD_OCI_SOURCE}"' in script
     assert "inspect_image.py:x-create=file,bind,ro" in script
@@ -139,9 +139,9 @@ def test_image_lifecycle_renderer_uses_explicit_cpu_profile_and_safe_mounts(tmp_
     assert script.index("trap 'exit 143' TERM") < script.index("\ndd_initialize_local_scratch\n")
     assert 'export ENROOT_CONFIG_PATH="${root}/enroot/config"' in script
     assert 'export ENROOT_MAX_PROCESSORS="${SLURM_CPUS_PER_TASK}"' in script
-    assert script.index('export HOME="${DD_SCRATCH_ROOT}/home"') < script.rindex("\nverify_enroot_compatibility 4 0")
+    assert script.index('export HOME="${DD_SCRATCH_ROOT}/home"') < script.rindex("\nverify_enroot_compatibility 3 5")
     assert 'version="$(enroot version)"' in script
-    assert 'verify_enroot_compatibility 4 0 "digest-pinned OCI imports"' in script
+    assert 'verify_enroot_compatibility 3 5 "digest-pinned OCI imports"' in script
     assert f'--mount "{prepared.plan.job_directory}:' not in script
     completed = subprocess.run(("bash", "-n"), input=script, capture_output=True, text=True, check=False)
     assert completed.returncode == 0, completed.stderr
@@ -149,8 +149,8 @@ def test_image_lifecycle_renderer_uses_explicit_cpu_profile_and_safe_mounts(tmp_
 
 @pytest.mark.parametrize(
     ("source_kind", "enroot_version"),
-    (("oci", "4.0.0"), ("existing", "3.5.0")),
-    ids=("oci-import-enroot-4", "existing-sqsh-enroot-3.5"),
+    (("oci", "3.5.0"), ("oci", "4.0.0"), ("existing", "3.5.0")),
+    ids=("oci-import-enroot-3.5", "oci-import-enroot-4", "existing-sqsh-enroot-3.5"),
 )
 def test_rendered_image_lifecycle_job_computes_digest_and_runs_inspection(
     tmp_path: Path,
@@ -180,6 +180,8 @@ def test_rendered_image_lifecycle_job_computes_digest_and_runs_inspection(
         'if [[ "$1" == "version" ]]; then\n'
         f"    printf '%s\\n' '{enroot_version}'\n"
         'elif [[ "$1" == "import" ]]; then\n'
+        '    [[ "$4" == docker://*":sha256:"* ]]\n'
+        '    [[ "$4" != *"@sha256:"* ]]\n'
         "    printf '%s\\n' 'imported image' > \"$3\"\n"
         'elif [[ "$1" == "start" ]]; then\n'
         '    [[ " $* " == *" --root "* ]]\n'
@@ -227,8 +229,8 @@ def test_rendered_image_lifecycle_job_computes_digest_and_runs_inspection(
 
 @pytest.mark.parametrize(
     ("source_kind", "enroot_version", "required_version"),
-    (("oci", "3.5.0", "4.0"), ("existing", "3.4.1", "3.5")),
-    ids=("digest-import-before-4", "existing-sqsh-before-3.5"),
+    (("oci", "3.4.1", "3.5"), ("existing", "3.4.1", "3.5")),
+    ids=("digest-import-before-3.5", "existing-sqsh-before-3.5"),
 )
 def test_rendered_image_lifecycle_rejects_unsupported_enroot_before_image_operations(
     tmp_path: Path,
@@ -311,18 +313,37 @@ def test_prepare_rejects_oci_sources_that_could_persist_credentials(tmp_path: Pa
     (
         (
             f"vllm/vllm-openai@sha256:{'a' * 64}",
-            f"docker://docker.io#vllm/vllm-openai@sha256:{'a' * 64}",
+            f"docker://registry-1.docker.io#vllm/vllm-openai:sha256:{'a' * 64}",
         ),
         (
             f"example@sha256:{'a' * 64}",
-            f"docker://docker.io#library/example@sha256:{'a' * 64}",
+            f"docker://registry-1.docker.io#library/example:sha256:{'a' * 64}",
+        ),
+        (
+            f"docker.io/vllm/vllm-openai:v0.22.0@sha256:{'a' * 64}",
+            f"docker://registry-1.docker.io#vllm/vllm-openai:sha256:{'a' * 64}",
+        ),
+        (
+            f"vllm/vllm-openai:v0.22.0@sha256:{'a' * 64}",
+            f"docker://registry-1.docker.io#vllm/vllm-openai:sha256:{'a' * 64}",
         ),
         (
             f"registry.example.test:5000/team/image@sha256:{'a' * 64}",
-            f"docker://registry.example.test:5000#team/image@sha256:{'a' * 64}",
+            f"docker://registry.example.test:5000#team/image:sha256:{'a' * 64}",
+        ),
+        (
+            f"registry.example.test:5000/team/image:release@sha256:{'a' * 64}",
+            f"docker://registry.example.test:5000#team/image:sha256:{'a' * 64}",
         ),
     ),
-    ids=("docker-hub-namespace", "docker-hub-library", "explicit-registry"),
+    ids=(
+        "docker-hub-namespace",
+        "docker-hub-library",
+        "explicit-docker-hub",
+        "versioned-vllm",
+        "explicit-registry",
+        "tagged-source",
+    ),
 )
 def test_renderer_normalizes_digest_qualified_sources_for_enroot(
     tmp_path: Path,

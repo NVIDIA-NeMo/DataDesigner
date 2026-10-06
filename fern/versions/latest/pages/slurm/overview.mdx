@@ -12,7 +12,7 @@ The submit environment needs:
 - `sbatch`, `squeue`, `sacct`, `scancel`, `scontrol`, and `sinfo`
 - Access to a shared workspace that is visible from the submit host and every eligible compute node
 
-Compute nodes need access to the same shared Python environment at the exact path used by the submit command. They also need Enroot 3.5 or later for existing SQSH images; digest-pinned OCI imports need Enroot 4.0 or later. Serving images must contain vLLM.
+Compute nodes need access to the same shared Python environment at the exact path used by the submit command. Enroot 3.5 or later is required for both digest-pinned OCI imports and existing SQSH inspection. Serving images must contain vLLM.
 
 Your Slurm administrator can confirm the account, GPU partition, CPU image-build partition, GPU request mode, and shared filesystem paths for your cluster.
 
