@@ -18,6 +18,7 @@ from data_designer.slurm.services.errors import SlurmServiceOperation
 
 _Invoke = Callable[[SlurmServiceOperation, Callable[[], BaseModel]], BaseModel]
 _Emit = Callable[[BaseModel], None]
+_Progress = Callable[[str], None]
 
 
 def _run_benchmark(
@@ -26,9 +27,11 @@ def _run_benchmark(
     profile_file: Path | None,
     cluster: str | None,
     force: bool,
+    progress: _Progress,
 ) -> BaseModel:
+    progress("Preparing benchmark launch...")
     config = load_benchmark_config(benchmark_file)
-    service = create_slurm_benchmark_service(profile_file=profile_file, cluster=cluster)
+    service = create_slurm_benchmark_service(profile_file=profile_file, cluster=cluster, progress=progress)
     return service.run(config, source_root=benchmark_file.resolve().parent, force=force)
 
 
@@ -49,7 +52,7 @@ def _analyze_benchmark(
     )
 
 
-def create_benchmark_app(invoke: _Invoke, emit: _Emit) -> typer.Typer:
+def create_benchmark_app(invoke: _Invoke, emit: _Emit, progress: _Progress) -> typer.Typer:
     """Create benchmark commands using the root CLI error and output policy."""
     benchmark_app = typer.Typer(help="Run and analyze Slurm benchmarks", no_args_is_help=True)
 
@@ -70,6 +73,7 @@ def create_benchmark_app(invoke: _Invoke, emit: _Emit) -> typer.Typer:
                     profile_file=profile_file,
                     cluster=cluster,
                     force=force,
+                    progress=progress,
                 ),
             )
         )
