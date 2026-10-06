@@ -120,6 +120,21 @@ class _DelayedAccountingLauncher(_Launcher):
         return super().query_accounting(selectors)
 
 
+class _TransitionLauncher(_Launcher):
+    def __init__(self, *, on_submit: Callable[[], None]) -> None:
+        super().__init__(queue_state=SchedulerState.PENDING, accounting_state=None, on_submit=on_submit)
+        self.queue_queries = 0
+
+    def query_queue(self, selectors: object) -> tuple[SlurmQueueEntry, ...]:
+        self.queue_queries += 1
+        if self.queue_queries == 2:
+            self.queue_state = SchedulerState.RUNNING
+        elif self.queue_queries == 3:
+            self.queue_state = SchedulerState.COMPLETED
+            self.accounting_state = SchedulerState.COMPLETED
+        return super().query_queue(selectors)
+
+
 class _DelayedCancellationLauncher(_Launcher):
     def __init__(self) -> None:
         super().__init__(accounting_state=None)
@@ -187,8 +202,272 @@ def test_default_image_add_waits_for_completed_job_accounting_evidence(tmp_path:
     assert registered.path == source.as_posix()
     assert launcher.queue_queries == 3
     assert launcher.accounting_queries == 3
-    assert clock.sleep_calls == [300.0, 300.0]
+    assert clock.sleep_calls == [30.0, 30.0]
     assert not _job_directory(workspace).exists()
+
+
+def test_image_add_reports_progress_on_each_thirty_second_check(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    source = tmp_path / "client.sqsh"
+    content = b"client image"
+    source.write_bytes(content)
+    launcher = _DelayedAccountingLauncher(on_submit=lambda: _write_inspection(workspace, content))
+    clock = FakeClock(datetime(2026, 9, 10, tzinfo=timezone.utc))
+    progress: list[str] = []
+    service = create_slurm_image_service(
+        profile=_profile(workspace),
+        launcher=launcher,  # type: ignore[arg-type]
+        lifecycle_id_factory=lambda: _LIFECYCLE_ID,
+        clock=clock.now,
+        sleep=clock.sleep,
+        progress=progress.append,
+    )
+
+    service.add(ImageBuildRequest(name="client", kind="client", source=source.as_posix()))
+
+    assert clock.sleep_calls == [30.0, 30.0]
+    assert progress == [
+        "Submitting image inspection job...",
+        "Image inspection job submitted; checking every 30 seconds.",
+        "Image inspection job: completed.",
+        "Waiting for successful job exit evidence...",
+        "Image inspection job: completed.",
+        "Waiting for successful job exit evidence...",
+        "Image inspection job: completed.",
+        "Inspection complete; verifying and registering image...",
+    ]
+
+
+def test_image_add_reports_pending_running_and_completed(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    source = tmp_path / "client.sqsh"
+    content = b"client image"
+    source.write_bytes(content)
+    launcher = _TransitionLauncher(on_submit=lambda: _write_inspection(workspace, content))
+    clock = FakeClock(datetime(2026, 9, 10, tzinfo=timezone.utc))
+    progress: list[str] = []
+    service = create_slurm_image_service(
+        profile=_profile(workspace),
+        launcher=launcher,  # type: ignore[arg-type]
+        lifecycle_id_factory=lambda: _LIFECYCLE_ID,
+        clock=clock.now,
+        sleep=clock.sleep,
+        progress=progress.append,
+    )
+
+    service.add(ImageBuildRequest(name="client", kind="client", source=source.as_posix()))
+
+    assert clock.sleep_calls == [30.0, 30.0]
+    assert "Image inspection job: pending." in progress
+    assert "Image inspection job: running." in progress
+    assert "Image inspection job: completed." in progress
+
+
+def test_image_add_follows_bounded_job_logs_before_success_cleanup(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    source = tmp_path / "client.sqsh"
+    content = b"client image"
+    source.write_bytes(content)
+
+    def on_submit() -> None:
+        _write_inspection(workspace, content)
+        (_job_directory(workspace) / f"slurm-{_JOB_ID}.out").write_bytes(b"importing\nready\n")
+        (_job_directory(workspace) / f"slurm-{_JOB_ID}.err").write_bytes(b"warning\x1b[31m\n")
+
+    logs: list[str] = []
+    service = create_slurm_image_service(
+        profile=_profile(workspace),
+        launcher=_Launcher(on_submit=on_submit),  # type: ignore[arg-type]
+        lifecycle_id_factory=lambda: _LIFECYCLE_ID,
+        logs=logs.append,
+    )
+
+    service.add(ImageBuildRequest(name="client", kind="client", source=source.as_posix()))
+
+    assert logs == [
+        "[image stdout] importing",
+        "[image stdout] ready",
+        "[image stderr] warning?[31m",
+    ]
+    assert not _job_directory(workspace).exists()
+
+
+def test_image_add_follows_only_new_bytes_across_status_checks(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    source = tmp_path / "client.sqsh"
+    content = b"client image"
+    source.write_bytes(content)
+    log_path = _job_directory(workspace) / f"slurm-{_JOB_ID}.out"
+
+    def on_submit() -> None:
+        _write_inspection(workspace, content)
+        log_path.write_bytes(b"first\nsecond part \xe2")
+
+    class AppendingLauncher(_TransitionLauncher):
+        def query_queue(self, selectors: object) -> tuple[SlurmQueueEntry, ...]:
+            entries = super().query_queue(selectors)
+            if self.queue_queries == 2:
+                with log_path.open("ab") as log:
+                    log.write(b"\x82")
+            elif self.queue_queries == 3:
+                with log_path.open("ab") as log:
+                    log.write(b"\xac done\n")
+            return entries
+
+    logs: list[str] = []
+    service = create_slurm_image_service(
+        profile=_profile(workspace),
+        launcher=AppendingLauncher(on_submit=on_submit),  # type: ignore[arg-type]
+        lifecycle_id_factory=lambda: _LIFECYCLE_ID,
+        clock=FakeClock(datetime(2026, 9, 10, tzinfo=timezone.utc)).now,
+        sleep=lambda _: None,
+        logs=logs.append,
+    )
+
+    service.add(ImageBuildRequest(name="client", kind="client", source=source.as_posix()))
+
+    assert logs == ["[image stdout] first", "[image stdout] second part € done"]
+
+
+def test_image_add_shows_carriage_return_progress_while_running(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    source = tmp_path / "client.sqsh"
+    content = b"client image"
+    source.write_bytes(content)
+    log_path = _job_directory(workspace) / f"slurm-{_JOB_ID}.err"
+
+    def on_submit() -> None:
+        _write_inspection(workspace, content)
+        log_path.write_bytes(b"10%\r")
+
+    class AppendingLauncher(_TransitionLauncher):
+        def query_queue(self, selectors: object) -> tuple[SlurmQueueEntry, ...]:
+            entries = super().query_queue(selectors)
+            if self.queue_queries == 2:
+                with log_path.open("ab") as log:
+                    log.write(b"\n20%\r")
+            elif self.queue_queries == 3:
+                with log_path.open("ab") as log:
+                    log.write(b"done\n")
+            return entries
+
+    logs: list[str] = []
+    sleep_calls = 0
+
+    def sleep(_: float) -> None:
+        nonlocal sleep_calls
+        sleep_calls += 1
+        if sleep_calls == 1:
+            assert logs == ["[image stderr] 10%"]
+
+    service = create_slurm_image_service(
+        profile=_profile(workspace),
+        launcher=AppendingLauncher(on_submit=on_submit),  # type: ignore[arg-type]
+        lifecycle_id_factory=lambda: _LIFECYCLE_ID,
+        sleep=sleep,
+        logs=logs.append,
+    )
+
+    service.add(ImageBuildRequest(name="client", kind="client", source=source.as_posix()))
+
+    assert logs == ["[image stderr] 10%", "[image stderr] 20%", "[image stderr] done"]
+
+
+def test_image_add_follows_failure_logs_before_cleanup(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    source = tmp_path / "client.sqsh"
+    source.write_bytes(b"client")
+
+    def on_submit() -> None:
+        (_job_directory(workspace) / f"slurm-{_JOB_ID}.err").write_text("import failed\n")
+
+    logs: list[str] = []
+    service = create_slurm_image_service(
+        profile=_profile(workspace),
+        launcher=_Launcher(accounting_state=SchedulerState.FAILED, on_submit=on_submit),  # type: ignore[arg-type]
+        lifecycle_id_factory=lambda: _LIFECYCLE_ID,
+        logs=logs.append,
+    )
+
+    with pytest.raises(SlurmServiceError):
+        service.add(ImageBuildRequest(name="client", kind="client", source=source.as_posix()))
+
+    assert logs == ["[image stderr] import failed"]
+    assert not _job_directory(workspace).exists()
+
+
+def test_image_add_ignores_symlinked_logs_without_changing_job_outcome(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    source = tmp_path / "client.sqsh"
+    content = b"client image"
+    source.write_bytes(content)
+    outside = tmp_path / "outside.txt"
+    outside.write_text("private content")
+
+    def on_submit() -> None:
+        _write_inspection(workspace, content)
+        (_job_directory(workspace) / f"slurm-{_JOB_ID}.out").symlink_to(outside)
+
+    logs: list[str] = []
+    service = create_slurm_image_service(
+        profile=_profile(workspace),
+        launcher=_Launcher(on_submit=on_submit),  # type: ignore[arg-type]
+        lifecycle_id_factory=lambda: _LIFECYCLE_ID,
+        logs=logs.append,
+    )
+
+    registered = service.add(ImageBuildRequest(name="client", kind="client", source=source.as_posix()))
+
+    assert registered.name == "client"
+    assert logs == ["Image job logs are unavailable."]
+    assert "private content" not in "".join(logs)
+
+
+def test_image_add_caps_followed_log_output(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    source = tmp_path / "client.sqsh"
+    content = b"client image"
+    source.write_bytes(content)
+
+    def on_submit() -> None:
+        _write_inspection(workspace, content)
+        (_job_directory(workspace) / f"slurm-{_JOB_ID}.out").write_bytes(b"x\n" * 200_000)
+
+    logs: list[str] = []
+    service = create_slurm_image_service(
+        profile=_profile(workspace),
+        launcher=_Launcher(on_submit=on_submit),  # type: ignore[arg-type]
+        lifecycle_id_factory=lambda: _LIFECYCLE_ID,
+        logs=logs.append,
+    )
+
+    service.add(ImageBuildRequest(name="client", kind="client", source=source.as_posix()))
+
+    assert logs[-1] == "Image job log display reached its 1 MiB limit; further output is hidden."
+    assert sum(len(line.encode("utf-8")) + 1 for line in logs) <= 1024 * 1024
+
+
+def test_progress_output_failure_cannot_cancel_image_job(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    source = tmp_path / "client.sqsh"
+    content = b"client image"
+    source.write_bytes(content)
+    launcher = _Launcher(on_submit=lambda: _write_inspection(workspace, content))
+
+    def broken_progress(_: str) -> None:
+        raise RuntimeError("progress stream failed")
+
+    service = create_slurm_image_service(
+        profile=_profile(workspace),
+        launcher=launcher,  # type: ignore[arg-type]
+        lifecycle_id_factory=lambda: _LIFECYCLE_ID,
+        progress=broken_progress,
+    )
+
+    registered = service.add(ImageBuildRequest(name="client", kind="client", source=source.as_posix()))
+
+    assert registered.name == "client"
+    assert launcher.cancellations == []
 
 
 def test_default_image_add_preserves_collision_then_replaces_explicitly(tmp_path: Path) -> None:
@@ -287,7 +566,7 @@ def test_default_image_add_waits_for_cancelled_job_before_cleanup(tmp_path: Path
 
     assert caught.value.code is SlurmServiceErrorCode.UNAVAILABLE
     assert launcher.cancellations == [_JOB_ID]
-    assert clock.sleep_calls == [300.0, 300.0, 300.0]
+    assert clock.sleep_calls == [30.0] * 12
     assert not _job_directory(workspace).exists()
 
 
@@ -304,7 +583,7 @@ def test_default_image_add_retains_state_without_terminal_cancellation_evidence(
         )
 
     assert launcher.cancellations == [_JOB_ID]
-    assert clock.sleep_calls == [300.0, 300.0, 300.0]
+    assert clock.sleep_calls == [30.0] * 21
     assert _job_directory(workspace).is_dir()
 
 
@@ -322,7 +601,33 @@ def test_default_image_add_retains_completed_job_without_accounting_exit_evidenc
 
     assert caught.value.code is SlurmServiceErrorCode.UNAVAILABLE
     assert launcher.cancellations == [_JOB_ID]
-    assert clock.sleep_calls == [300.0, 300.0, 300.0]
+    assert clock.sleep_calls == [30.0] * 21
+    assert _job_directory(workspace).is_dir()
+
+
+def test_image_add_displays_partial_log_when_cancellation_is_unconfirmed(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    source = tmp_path / "client.sqsh"
+    source.write_bytes(b"client")
+
+    def on_submit() -> None:
+        (_job_directory(workspace) / f"slurm-{_JOB_ID}.err").write_bytes(b"partial diagnostic")
+
+    logs: list[str] = []
+    clock = FakeClock(datetime(2026, 9, 10, tzinfo=timezone.utc))
+    service = create_slurm_image_service(
+        profile=_profile(workspace),
+        launcher=_Launcher(accounting_state=None, on_submit=on_submit),  # type: ignore[arg-type]
+        lifecycle_id_factory=lambda: _LIFECYCLE_ID,
+        clock=clock.now,
+        sleep=clock.sleep,
+        logs=logs.append,
+    )
+
+    with pytest.raises(SlurmServiceError):
+        service.add(ImageBuildRequest(name="client", kind="client", source=source.as_posix()))
+
+    assert logs == ["[image stderr] partial diagnostic"]
     assert _job_directory(workspace).is_dir()
 
 
