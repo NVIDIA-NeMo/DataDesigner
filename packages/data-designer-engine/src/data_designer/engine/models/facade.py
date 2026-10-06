@@ -388,6 +388,10 @@ class ModelFacade:
             completion_kwargs.pop("allow_multiple_choices", None)
             if tool_schemas is not None:
                 completion_kwargs["tools"] = tool_schemas
+            if tool_call_turns > 0:
+                # A forced tool_choice holds only until the first tool call. Repeating it would make every
+                # response a tool call, so the tool loop could never end.
+                completion_kwargs.pop("tool_choice", None)
 
             completion_response = self.completion(
                 messages,
@@ -505,6 +509,10 @@ class ModelFacade:
             completion_kwargs.pop("allow_multiple_choices", None)
             if tool_schemas is not None:
                 completion_kwargs["tools"] = tool_schemas
+            if tool_call_turns > 0:
+                # A forced tool_choice holds only until the first tool call. Repeating it would make every
+                # response a tool call, so the tool loop could never end.
+                completion_kwargs.pop("tool_choice", None)
 
             completion_response = await self.acompletion(
                 messages,

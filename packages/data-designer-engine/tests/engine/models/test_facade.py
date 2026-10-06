@@ -922,9 +922,15 @@ def test_completion_warns_about_dropped_kwargs(
             stub_completion_messages, tool_choice="auto", reasoning_effort="high", parallel_tool_calls=False
         )
 
-    warnings = [record.getMessage() for record in caplog.records if record.levelno == logging.WARNING]
+    warnings = [
+        record.getMessage()
+        for record in caplog.records
+        if record.name == "data_designer.engine.models.facade" and record.levelno == logging.WARNING
+    ]
     assert len(warnings) == 1
-    assert "['parallel_tool_calls', 'reasoning_effort']" in warnings[0]
+    assert "parallel_tool_calls" in warnings[0]
+    assert "reasoning_effort" in warnings[0]
+    assert "tool_choice" not in warnings[0]
     request = stub_model_client.completion.call_args.args[0]
     assert request.tool_choice == "auto"
 
@@ -1021,6 +1027,71 @@ def test_generate_with_mcp_tools(
     assert captured_calls[0][1]["tools"][0]["function"]["name"] == "lookup"
     assert any(message.role == "tool" for message in captured_calls[1][0])
     assert registry_calls == [("tools", "lookup", {"query": "foo"}, None)]
+
+
+def test_generate_applies_tool_choice_until_the_first_tool_call(
+    stub_model_configs: Any,
+    stub_model_client: MagicMock,
+    stub_model_provider_registry: Any,
+) -> None:
+    tool_call = ToolCall(id="call-1", name="lookup", arguments_json="{}")
+    responses = [_make_response(content=None, tool_calls=[tool_call]), _make_response("final result")]
+    captured_kwargs: list[dict[str, Any]] = []
+
+    def _completion(self: Any, messages: list[ChatMessage], **kwargs: Any) -> ChatCompletionResponse:
+        captured_kwargs.append(kwargs)
+        return responses.pop(0)
+
+    mcp_facade = StubMCPFacade(
+        tool_schemas=[{"type": "function", "function": {"name": "lookup", "parameters": {"type": "object"}}}]
+    )
+    model = ModelFacade(
+        model_config=stub_model_configs[0],
+        model_provider_registry=stub_model_provider_registry,
+        client=stub_model_client,
+        mcp_registry=StubMCPRegistry(mcp_facade),
+    )
+
+    with patch.object(ModelFacade, "completion", new=_completion):
+        result, _ = model.generate(prompt="question", parser=lambda x: x, tool_alias="tools", tool_choice="required")
+
+    assert result == "final result"
+    assert captured_kwargs[0]["tool_choice"] == "required"
+    assert "tool_choice" not in captured_kwargs[1]
+
+
+@pytest.mark.asyncio
+async def test_agenerate_applies_tool_choice_until_the_first_tool_call(
+    stub_model_configs: Any,
+    stub_model_client: MagicMock,
+    stub_model_provider_registry: Any,
+) -> None:
+    tool_call = ToolCall(id="call-1", name="lookup", arguments_json="{}")
+    responses = [_make_response(content=None, tool_calls=[tool_call]), _make_response("final result")]
+    captured_kwargs: list[dict[str, Any]] = []
+
+    async def _acompletion(self: Any, messages: list[ChatMessage], **kwargs: Any) -> ChatCompletionResponse:
+        captured_kwargs.append(kwargs)
+        return responses.pop(0)
+
+    mcp_facade = StubMCPFacade(
+        tool_schemas=[{"type": "function", "function": {"name": "lookup", "parameters": {"type": "object"}}}]
+    )
+    model = ModelFacade(
+        model_config=stub_model_configs[0],
+        model_provider_registry=stub_model_provider_registry,
+        client=stub_model_client,
+        mcp_registry=StubMCPRegistry(mcp_facade),
+    )
+
+    with patch.object(ModelFacade, "acompletion", new=_acompletion):
+        result, _ = await model.agenerate(
+            prompt="question", parser=lambda x: x, tool_alias="tools", tool_choice="required"
+        )
+
+    assert result == "final result"
+    assert captured_kwargs[0]["tool_choice"] == "required"
+    assert "tool_choice" not in captured_kwargs[1]
 
 
 def test_generate_preserves_multimodal_mcp_tool_results_between_turns(

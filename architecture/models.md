@@ -48,7 +48,7 @@ The primary interface for generators. Holds a `ModelConfig`, `ModelClient`, opti
 - **`completion` / `acompletion`** — consolidates kwargs from inference params, the call, and provider extras (`extra_body` is merged key by key in that order), forwards known request fields such as `tools` and `tool_choice` (adapters translate them per provider), warns about dropped kwargs, calls the client, tracks usage
 - **`embeddings` / `aembeddings`** — embedding generation
 - **`image_generation` / `aimage_generation`** — image generation
-- **MCP tool loops** — when a tool config is active, processes tool calls from completions via `MCPFacade`, feeds results back, and tracks tool usage stats
+- **MCP tool loops** — when a tool config is active, processes tool calls from completions via `MCPFacade`, feeds results back, and tracks tool usage stats. A caller's `tool_choice` applies only until the first tool call, so a forced choice cannot keep the loop from ending
 
 ### ModelRegistry
 
