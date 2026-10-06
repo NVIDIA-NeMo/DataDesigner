@@ -13,6 +13,7 @@ from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, field
 from importlib import resources
 from pathlib import Path
+from typing import Literal
 
 from pydantic import TypeAdapter, ValidationError
 
@@ -453,6 +454,41 @@ def cleanup_prepared_image_lifecycle(prepared: PreparedImageLifecycleJob) -> Non
         return
     except OSError as error:
         raise ImageLifecycleError(f"cannot clean image lifecycle job {prepared.plan.lifecycle_id!r}") from error
+
+
+def read_image_lifecycle_log(
+    prepared: PreparedImageLifecycleJob,
+    job_id: int,
+    stream: Literal["stdout", "stderr"],
+    *,
+    offset: int,
+    maximum_bytes: int,
+) -> tuple[bytes, int]:
+    """Read a bounded chunk from this job's regular, non-symlink Slurm log."""
+    if job_id <= 0 or offset < 0 or maximum_bytes <= 0 or stream not in ("stdout", "stderr"):
+        raise ValueError("invalid image lifecycle log read")
+    extension = "out" if stream == "stdout" else "err"
+    filename = f"slurm-{job_id}.{extension}"
+    with _open_prepared_job_directory(prepared) as directory_descriptor:
+        try:
+            descriptor = os.open(
+                filename,
+                os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0),
+                dir_fd=directory_descriptor,
+            )
+        except FileNotFoundError:
+            # The files are only created once Slurm starts the batch job.
+            return b"", offset
+        try:
+            status = os.fstat(descriptor)
+            if not stat.S_ISREG(status.st_mode):
+                raise ImageLifecycleError("image lifecycle log is not a regular file")
+            if status.st_size < offset:
+                offset = 0
+            content = os.pread(descriptor, maximum_bytes, offset)
+            return content, offset + len(content)
+        finally:
+            os.close(descriptor)
 
 
 def _verify_prepared_lifecycle(
