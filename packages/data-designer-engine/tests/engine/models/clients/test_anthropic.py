@@ -269,6 +269,56 @@ def test_completion_translates_openai_tool_schema_to_anthropic() -> None:
     ]
 
 
+def test_completion_translates_tool_choice_to_anthropic() -> None:
+    sync_mock = make_mock_sync_client(_text_response())
+    client = _make_client(sync_client=sync_mock)
+
+    request = ChatCompletionRequest(
+        model=MODEL,
+        messages=[{"role": "user", "content": "Hi"}],
+        tools=[{"type": "function", "function": {"name": "search"}}],
+        tool_choice={"type": "function", "function": {"name": "search"}},
+    )
+    client.completion(request)
+
+    payload = sync_mock.post.call_args.kwargs["json"]
+    assert payload["tool_choice"] == {"type": "tool", "name": "search"}
+
+
+@pytest.mark.asyncio
+async def test_acompletion_translates_tool_choice_to_anthropic() -> None:
+    async_mock = make_mock_async_client(_text_response())
+    client = _make_client(async_client=async_mock)
+
+    request = ChatCompletionRequest(
+        model=MODEL,
+        messages=[{"role": "user", "content": "Hi"}],
+        tools=[{"type": "function", "function": {"name": "search"}}],
+        tool_choice="required",
+    )
+    await client.acompletion(request)
+
+    payload = async_mock.post.call_args.kwargs["json"]
+    assert payload["tool_choice"] == {"type": "any"}
+
+
+def test_completion_extra_body_tool_choice_overrides_translated_value() -> None:
+    sync_mock = make_mock_sync_client(_text_response())
+    client = _make_client(sync_client=sync_mock)
+
+    request = ChatCompletionRequest(
+        model=MODEL,
+        messages=[{"role": "user", "content": "Hi"}],
+        tools=[{"type": "function", "function": {"name": "search"}}],
+        tool_choice="required",
+        extra_body={"tool_choice": {"type": "auto", "disable_parallel_tool_use": True}},
+    )
+    client.completion(request)
+
+    payload = sync_mock.post.call_args.kwargs["json"]
+    assert payload["tool_choice"] == {"type": "auto", "disable_parallel_tool_use": True}
+
+
 def test_completion_translates_tool_turns_from_chat_messages() -> None:
     sync_mock = make_mock_sync_client(_text_response())
     client = _make_client(sync_client=sync_mock)
@@ -719,6 +769,21 @@ def test_completion_wraps_invalid_tool_schema_as_bad_request() -> None:
 
     assert exc_info.value.kind == ProviderErrorKind.BAD_REQUEST
     assert "missing a function name" in exc_info.value.message
+
+
+def test_completion_wraps_unsupported_tool_choice_as_bad_request() -> None:
+    client = _make_client()
+    request = ChatCompletionRequest(
+        model=MODEL,
+        messages=[{"role": "user", "content": "Hi"}],
+        tool_choice="always",
+    )
+
+    with pytest.raises(ProviderError) as exc_info:
+        client.completion(request)
+
+    assert exc_info.value.kind == ProviderErrorKind.BAD_REQUEST
+    assert "tool_choice" in exc_info.value.message
 
 
 # --- Unsupported capabilities ---

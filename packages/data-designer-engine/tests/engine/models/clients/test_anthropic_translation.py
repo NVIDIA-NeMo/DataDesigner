@@ -24,6 +24,7 @@ from data_designer.engine.models.clients.adapters.anthropic_translation import (
     translate_request_messages,
     translate_tool_call,
     translate_tool_calls,
+    translate_tool_choice,
     translate_tool_definition,
     translate_tool_result_content,
     translate_tool_result_message,
@@ -343,6 +344,51 @@ def test_translate_tool_definition_normalizes_supported_shapes(
     expected: dict[str, object],
 ) -> None:
     assert translate_tool_definition(tool) == expected
+
+
+@pytest.mark.parametrize(
+    ("tool_choice", "expected"),
+    [
+        pytest.param("auto", {"type": "auto"}, id="openai-auto"),
+        pytest.param("required", {"type": "any"}, id="openai-required"),
+        pytest.param("none", {"type": "none"}, id="openai-none"),
+        pytest.param(
+            {"type": "function", "function": {"name": "search"}},
+            {"type": "tool", "name": "search"},
+            id="openai-named-function",
+        ),
+        pytest.param(
+            {"type": "tool", "name": "search"},
+            {"type": "tool", "name": "search"},
+            id="anthropic-named-tool",
+        ),
+        pytest.param(
+            {"type": "any", "disable_parallel_tool_use": True},
+            {"type": "any", "disable_parallel_tool_use": True},
+            id="anthropic-any",
+        ),
+    ],
+)
+def test_translate_tool_choice_normalizes_supported_shapes(
+    tool_choice: object,
+    expected: dict[str, object],
+) -> None:
+    assert translate_tool_choice(tool_choice) == expected
+
+
+@pytest.mark.parametrize(
+    ("tool_choice", "match"),
+    [
+        pytest.param("always", "must be 'auto', 'required', 'none', or a named function", id="unknown-string"),
+        pytest.param({"type": "function", "function": {}}, "missing a function name", id="function-without-name"),
+        pytest.param({"type": "tool"}, "missing a tool name", id="tool-without-name"),
+        pytest.param({"type": "bogus"}, "unsupported type", id="unknown-type"),
+        pytest.param(1, "must be a string or an object", id="wrong-type"),
+    ],
+)
+def test_translate_tool_choice_rejects_unsupported_values(tool_choice: object, match: str) -> None:
+    with pytest.raises(ValueError, match=match):
+        translate_tool_choice(tool_choice)
 
 
 def test_translate_content_blocks_converts_images_and_preserves_other_blocks() -> None:
