@@ -216,3 +216,19 @@ make perf-import CLEAN=1
 ```
 
 There is also a CI test (`test_import_performance` in `packages/data-designer/tests/test_import_perf.py`) that runs 5 import cycles (1 cold + 4 warm) and fails if the average exceeds **3 seconds**. If your dependency causes a regression, add it to `lazy_heavy_imports.py` — see [STYLEGUIDE.md](STYLEGUIDE.md) for the lazy loading pattern.
+
+---
+
+## Security
+
+### Transitive dependencies
+
+Don't add transitive dependencies to `packages/*/pyproject.toml` just to set a security floor.
+Instead, bump transitive dependencies in the `uv.lock` file only via:
+
+```bash
+uv lock --upgrade-package <pkg>
+```
+
+If a constraint impacts this such that a new security floor for a package does not survive re-resolution,
+add a `[tool.uv] constraint-dependencies` section to the workspace root `pyproject.toml`.
