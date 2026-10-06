@@ -47,7 +47,8 @@ jobs:
         run: uv python install 3.11
 
       - name: Install docs dependencies
-        run: uv sync --all-packages --group docs --group notebooks
+        # Fern preview converts notebook sources with jupytext; it does not execute notebooks.
+        run: uv sync --all-packages --group docs
 
       - name: Verify published Fern archive exists
         run: |
