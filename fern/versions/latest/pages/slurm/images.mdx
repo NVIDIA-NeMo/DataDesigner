@@ -12,7 +12,7 @@ data-designer slurm image add vllm/vllm-openai:v0.22.0 \
   --name vllm
 ```
 
-Replace `v0.22.0` with a supported release that is available to your site. The CLI resolves that tag to an immutable registry digest before submitting the import job. The imported image is inspected, and registration fails if its installed vLLM version does not match the requested release. The alias records the inspected version and source digest. A later change to the tag cannot silently change the submitted import.
+Replace `v0.22.0` with a supported release that is available to your site. The CLI resolves that tag to an immutable registry digest before submitting the import job, then imports by digest on Enroot 3.5 or later. The imported image is inspected, and registration fails if its installed vLLM version does not match the requested release. The alias records the inspected version and source digest. A later change to the tag cannot silently change the submitted import.
 
 If your site requires a customized serving environment, obtain a digest-qualified OCI reference or absolute compute-visible SQSH path from your platform administrator, or publish one through your site's container build process. `image add` imports or inspects that image; it does not build a serving environment from a Dockerfile. The image must provide a supported vLLM executable and all runtime dependencies for the selected model.
 
