@@ -319,7 +319,7 @@ def translate_tool_choice(tool_choice: Any) -> dict[str, Any]:
         name = tool_choice.get("name")
         if not isinstance(name, str) or not name:
             raise ValueError(f"Anthropic tool_choice is missing a tool name, got: {tool_choice!r}")
-    return tool_choice
+    return dict(tool_choice)
 
 
 def translate_tool_calls(tool_calls: Any) -> list[dict[str, Any]]:

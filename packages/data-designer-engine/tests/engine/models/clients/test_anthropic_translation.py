@@ -373,7 +373,10 @@ def test_translate_tool_choice_normalizes_supported_shapes(
     tool_choice: object,
     expected: dict[str, object],
 ) -> None:
-    assert translate_tool_choice(tool_choice) == expected
+    translated = translate_tool_choice(tool_choice)
+
+    assert translated == expected
+    assert translated is not tool_choice
 
 
 @pytest.mark.parametrize(
