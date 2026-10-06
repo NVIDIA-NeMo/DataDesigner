@@ -44,7 +44,7 @@ _SCRIPT_FILENAME = "image-lifecycle.sbatch"
 _RESOURCE_PACKAGE = "data_designer.slurm.images.resources"
 _SCRATCH_RESOURCE_PACKAGE = "data_designer.slurm.runtime"
 _IDENTIFIER_ADAPTER = TypeAdapter(Identifier)
-_MINIMUM_ENROOT_OCI_VERSION = (4, 0)
+_MINIMUM_ENROOT_OCI_VERSION = (3, 5)
 _MINIMUM_ENROOT_SQSH_VERSION = (3, 5)
 _MAXIMUM_INSPECTION_SIZE = 1024 * 1024
 
@@ -557,12 +557,20 @@ def _stage_resource(job_directory: Path, filename: str) -> ArtifactReference:
 
 
 def _format_enroot_oci_uri(source: str) -> str:
-    registry_or_namespace, separator, remainder = source.partition("/")
+    repository, _, digest = source.rpartition("@sha256:")
+    # Enroot 3.5 passes the value after the last colon to the registry's
+    # /manifests/<reference> endpoint. A digest there pins the import without
+    # using the tag@digest URI syntax introduced in Enroot 4.0.
+    tag_separator = repository.rfind(":")
+    if tag_separator > repository.rfind("/"):
+        repository = repository[:tag_separator]
+    registry_or_namespace, separator, remainder = repository.partition("/")
     if not separator:
-        return f"docker://docker.io#library/{source}"
+        return f"docker://registry-1.docker.io#library/{repository}:sha256:{digest}"
     if "." in registry_or_namespace or ":" in registry_or_namespace or registry_or_namespace == "localhost":
-        return f"docker://{registry_or_namespace}#{remainder}"
-    return f"docker://docker.io#{source}"
+        registry = "registry-1.docker.io" if registry_or_namespace == "docker.io" else registry_or_namespace
+        return f"docker://{registry}#{remainder}:sha256:{digest}"
+    return f"docker://registry-1.docker.io#{repository}:sha256:{digest}"
 
 
 def _write_file(path: Path, content: bytes, *, mode: int) -> ArtifactReference:
