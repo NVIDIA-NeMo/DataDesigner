@@ -968,6 +968,20 @@ def test_generate_text_embeddings_with_kwargs(
     assert stub_model_client.embeddings.call_count == 1
 
 
+def test_generate_text_embeddings_merges_configured_and_per_call_extra_body(
+    stub_model_configs: list[Any],
+    stub_model_facade: ModelFacade,
+    stub_model_client: MagicMock,
+) -> None:
+    stub_model_configs[0].inference_parameters.extra_body = {"input_type": "query"}
+    stub_model_client.embeddings.return_value = EmbeddingResponse(vectors=[[0.1, 0.2]])
+
+    stub_model_facade.generate_text_embeddings(["test"], extra_body={"truncate": "END"})
+
+    request = stub_model_client.embeddings.call_args.args[0]
+    assert request.extra_body == {"input_type": "query", "truncate": "END"}
+
+
 def test_generate_with_mcp_tools(
     stub_model_configs: Any,
     stub_model_client: MagicMock,
@@ -1894,6 +1908,21 @@ def test_generate_image_chat_completion_tracks_image_usage(
     assert images == ["image1", "image2"]
     assert stub_model_facade.usage_stats.image_usage.total_images == 2
     assert stub_model_facade.usage_stats.image_usage.has_usage is True
+
+
+def test_generate_image_merges_configured_and_per_call_extra_body(
+    stub_model_configs: list[Any],
+    stub_model_facade: ModelFacade,
+    stub_model_client: MagicMock,
+) -> None:
+    stub_model_configs[0].inference_parameters.extra_body = {"quality": "hd"}
+    stub_model_client.generate_image.return_value = ImageGenerationResponse(images=[ImagePayload(b64_data="image")])
+
+    with patch("data_designer.engine.models.facade.is_image_diffusion_model", return_value=True):
+        stub_model_facade.generate_image(prompt="test prompt", extra_body={"size": "1024x1024"})
+
+    request = stub_model_client.generate_image.call_args.args[0]
+    assert request.extra_body == {"quality": "hd", "size": "1024x1024"}
 
 
 def test_generate_image_skip_usage_tracking(
