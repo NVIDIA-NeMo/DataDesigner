@@ -191,6 +191,7 @@ def test_run_persists_manifest_before_submission_and_is_idempotent(
     submissions = set()
     calls = []
     failures = set()
+    progress: list[str] = []
     benchmark_root = tmp_path / "benchmarks" / compiled.benchmark_id
     backend = SystemBenchmarkBackend(
         tmp_path,
@@ -199,6 +200,7 @@ def test_run_persists_manifest_before_submission_and_is_idempotent(
         lambda: NOW,
         child_config_loader=configs.get,
         child_submission_loader=submissions.__contains__,
+        progress=progress.append,
     )
 
     first = backend.run(config, source_root=tmp_path, force=False)
@@ -207,6 +209,48 @@ def test_run_persists_manifest_before_submission_and_is_idempotent(
     assert first == second
     assert len(calls) == len(compiled.cases)
     assert tuple(configs) == tuple(case.child_run_id for case in compiled.cases)
+    assert progress == [
+        "Benchmark manifest saved; checking 2 child runs.",
+        "Benchmark case 1/2: submitted.",
+        "Benchmark case 2/2: submitted.",
+        "Benchmark launch: 2 submitted, 0 already submitted, 0 failed.",
+        "Benchmark manifest saved; checking 2 child runs.",
+        "Benchmark case 1/2: already submitted.",
+        "Benchmark case 2/2: already submitted.",
+        "Benchmark launch: 0 submitted, 2 already submitted, 0 failed.",
+    ]
+
+
+def test_progress_output_failure_cannot_change_benchmark_submissions(
+    tmp_path: Path,
+    benchmark_config: DataDesignerSlurmBenchmarkConfig,
+    authored_run: DataDesignerSlurmConfig,
+) -> None:
+    config = _inline_config(benchmark_config, authored_run)
+    compiled = BenchmarkCompiler.compile(config, authored_run)
+    configs = {}
+    submissions = set()
+    calls = []
+    failures = set()
+    benchmark_root = tmp_path / "benchmarks" / compiled.benchmark_id
+
+    def broken_progress(_: str) -> None:
+        raise RuntimeError("progress stream failed")
+
+    backend = SystemBenchmarkBackend(
+        tmp_path,
+        lambda run_id: _RunService(run_id, configs, submissions, calls, benchmark_root, failures),
+        _Observer(),
+        lambda: NOW,
+        child_config_loader=configs.get,
+        child_submission_loader=submissions.__contains__,
+        progress=broken_progress,
+    )
+
+    backend.run(config, source_root=tmp_path, force=False)
+
+    assert len(calls) == len(compiled.cases)
+    assert submissions == {case.child_run_id for case in compiled.cases}
 
 
 def test_concurrent_runs_submit_each_deterministic_child_once(
@@ -295,6 +339,7 @@ def test_partial_submission_attempts_all_children_and_resumes_only_missing(
     submissions = set()
     calls = []
     failures = {missing_id}
+    progress: list[str] = []
     benchmark_root = tmp_path / "benchmarks" / compiled.benchmark_id
     backend = SystemBenchmarkBackend(
         tmp_path,
@@ -303,11 +348,14 @@ def test_partial_submission_attempts_all_children_and_resumes_only_missing(
         lambda: NOW,
         child_config_loader=configs.get,
         child_submission_loader=submissions.__contains__,
+        progress=progress.append,
     )
 
     with pytest.raises(SlurmServiceError, match="1 of 2"):
         backend.run(config, source_root=tmp_path, force=True)
     assert len(calls) == 2
+    assert "Benchmark case 1/2: submission failed; continuing." in progress
+    assert "Benchmark launch: 1 submitted, 0 already submitted, 1 failed." in progress
 
     failures.clear()
     backend.run(config, source_root=tmp_path, force=True)

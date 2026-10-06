@@ -47,6 +47,7 @@ from data_designer.slurm.state.storage import StateStorage
 ChildRunServiceFactory = Callable[[Identifier], SlurmRunService]
 ChildConfigLoader = Callable[[Identifier], DataDesignerSlurmConfig | None]
 ChildSubmissionLoader = Callable[[Identifier], bool]
+ProgressReporter = Callable[[str], None]
 
 
 class SystemBenchmarkBackend:
@@ -60,6 +61,7 @@ class SystemBenchmarkBackend:
         clock: Callable[[], datetime],
         child_config_loader: ChildConfigLoader | None = None,
         child_submission_loader: ChildSubmissionLoader | None = None,
+        progress: ProgressReporter | None = None,
     ) -> None:
         self._workspace_root = Path(workspace_root)
         self._run_service_factory = run_service_factory
@@ -67,6 +69,7 @@ class SystemBenchmarkBackend:
         self._clock = clock
         self._child_config_loader = child_config_loader or self._load_child_config
         self._child_submission_loader = child_submission_loader or self._load_child_submission
+        self._progress = progress
 
     def run(
         self,
@@ -113,10 +116,16 @@ class SystemBenchmarkBackend:
             ) from None
 
         failures: list[SlurmServiceErrorCode] = []
-        for case in compiled.cases:
+        submitted = 0
+        reused = 0
+        total = len(compiled.cases)
+        self._report_progress(f"Benchmark manifest saved; checking {total} child runs.")
+        for index, case in enumerate(compiled.cases, start=1):
             try:
                 with StateStorage(self._workspace_root, case.child_run_id).acquire_submission_lock():
                     if self._child_exists(case.child_run_id, case.child_run_config, force=force):
+                        reused += 1
+                        self._report_progress(f"Benchmark case {index}/{total}: already submitted.")
                         continue
                     execution = self._run_service_factory(case.child_run_id).execute(
                         case.child_run_config,
@@ -129,10 +138,17 @@ class SystemBenchmarkBackend:
                             SlurmServiceOperation.RUN_BENCHMARK,
                             "ordinary run service returned an invalid benchmark child",
                         )
+                    submitted += 1
+                    self._report_progress(f"Benchmark case {index}/{total}: submitted.")
             except SlurmServiceError as error:
                 failures.append(error.code)
+                self._report_progress(f"Benchmark case {index}/{total}: submission failed; continuing.")
             except Exception:
                 failures.append(SlurmServiceErrorCode.INTERNAL)
+                self._report_progress(f"Benchmark case {index}/{total}: submission failed; continuing.")
+        self._report_progress(
+            f"Benchmark launch: {submitted} submitted, {reused} already submitted, {len(failures)} failed."
+        )
         if failures:
             code = _partial_failure_code(failures)
             raise SlurmServiceError(
@@ -141,6 +157,14 @@ class SystemBenchmarkBackend:
                 f"{len(failures)} of {len(compiled.cases)} benchmark child runs could not be submitted",
             )
         return manifest
+
+    def _report_progress(self, message: str) -> None:
+        if self._progress is not None:
+            try:
+                self._progress(message)
+            except Exception:
+                # A closed progress stream must not change persisted submission state.
+                pass
 
     def analyze(
         self,
