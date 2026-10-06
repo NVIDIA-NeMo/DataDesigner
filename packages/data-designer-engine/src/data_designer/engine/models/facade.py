@@ -91,10 +91,11 @@ def _build_generation_validation_error(
 
 # Known keyword arguments extracted into request fields for each modality.
 # Note: `extra_body` and `extra_headers` appear in every set but receive special
-# treatment in `consolidate_kwargs` (merged with provider-level overrides) and in
-# `TransportKwargs` (extra_body is either flattened into the request body or
-# preserved as a nested dict depending on the adapter; extra_headers are
-# forwarded as HTTP headers).  They are NOT regular model parameters.
+# treatment in `consolidate_kwargs` (`extra_body` is merged key by key: model
+# config, then the call, then the provider) and in `TransportKwargs`
+# (extra_body keys are merged into the request body and take precedence over
+# same-named request fields; extra_headers are forwarded as HTTP headers).
+# They are NOT regular model parameters.
 _COMPLETION_REQUEST_FIELDS = frozenset(
     {
         "temperature",
@@ -108,6 +109,7 @@ _COMPLETION_REQUEST_FIELDS = frozenset(
         "presence_penalty",
         "timeout",
         "tools",
+        "tool_choice",
         "extra_body",
         "extra_headers",
     }
@@ -189,9 +191,15 @@ class ModelFacade:
     def consolidate_kwargs(self, **kwargs: Any) -> dict[str, Any]:
         # Remove purpose from kwargs to avoid passing it to the model
         kwargs.pop("purpose", None)
-        kwargs = {**self._model_config.inference_parameters.generate_kwargs, **kwargs}
-        if self.model_provider.extra_body:
-            kwargs["extra_body"] = {**kwargs.get("extra_body", {}), **self.model_provider.extra_body}
+        inference_kwargs = self._model_config.inference_parameters.generate_kwargs
+        extra_body = {
+            **(inference_kwargs.get("extra_body") or {}),
+            **(kwargs.get("extra_body") or {}),
+            **(self.model_provider.extra_body or {}),
+        }
+        kwargs = {**inference_kwargs, **kwargs}
+        if extra_body:
+            kwargs["extra_body"] = extra_body
         if self.model_provider.extra_headers:
             kwargs["extra_headers"] = {**(kwargs.get("extra_headers") or {}), **self.model_provider.extra_headers}
         # Inject framework-level attribution header when telemetry is enabled.
@@ -814,10 +822,10 @@ class ModelFacade:
                 metadata[key] = value
 
         if metadata:
-            logger.debug(
+            logger.warning(
                 "Unknown kwargs %s dropped (not forwarded as model parameters). "
                 "Use 'extra_body' to pass non-standard parameters to the model.",
-                metadata.keys(),
+                sorted(metadata),
             )
 
         return ChatCompletionRequest(**request_fields)

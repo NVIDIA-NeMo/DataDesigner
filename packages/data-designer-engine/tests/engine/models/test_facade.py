@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -773,6 +774,46 @@ def test_consolidate_kwargs_non_openrouter_no_openrouter_headers(
 
 
 @pytest.mark.parametrize(
+    ("configured", "per_call", "provider", "expected"),
+    [
+        pytest.param({"reasoning_effort": "high"}, None, None, {"reasoning_effort": "high"}, id="configured-only"),
+        pytest.param(None, {"tool_choice": "required"}, None, {"tool_choice": "required"}, id="per-call-only"),
+        pytest.param(
+            {"reasoning_effort": "high", "seed": 1},
+            {"tool_choice": "required", "seed": 2},
+            None,
+            {"reasoning_effort": "high", "tool_choice": "required", "seed": 2},
+            id="per-call-adds-and-overrides-configured",
+        ),
+        pytest.param(
+            {"reasoning_effort": "high", "seed": 1},
+            {"seed": 2},
+            {"seed": 3, "route": "fast"},
+            {"reasoning_effort": "high", "seed": 3, "route": "fast"},
+            id="provider-overrides-configured-and-per-call",
+        ),
+        pytest.param(None, None, None, None, id="none-set"),
+    ],
+)
+def test_consolidate_kwargs_merges_extra_body_key_by_key(
+    stub_model_configs: list[Any],
+    stub_model_facade: ModelFacade,
+    configured: dict[str, Any] | None,
+    per_call: dict[str, Any] | None,
+    provider: dict[str, Any] | None,
+    expected: dict[str, Any] | None,
+) -> None:
+    stub_model_configs[0].inference_parameters.extra_body = configured
+    stub_model_facade.model_provider.extra_body = provider
+    kwargs = {} if per_call is None else {"extra_body": per_call}
+
+    result = stub_model_facade.consolidate_kwargs(**kwargs)
+
+    assert result.get("extra_body") == expected
+    assert stub_model_configs[0].inference_parameters.extra_body == configured
+
+
+@pytest.mark.parametrize(
     "skip_usage_tracking",
     [
         False,
@@ -833,6 +874,59 @@ def test_completion_forwards_n_to_request(
     request = stub_model_client.completion.call_args.args[0]
     assert isinstance(request, ChatCompletionRequest)
     assert request.n == 4
+
+
+def test_completion_forwards_tool_choice_and_keeps_configured_extra_body(
+    stub_completion_messages: list[ChatMessage],
+    stub_model_configs: list[Any],
+    stub_model_facade: ModelFacade,
+    stub_model_client: MagicMock,
+) -> None:
+    stub_model_configs[0].inference_parameters.extra_body = {"reasoning_effort": "high"}
+    stub_model_client.completion.return_value = _make_response("Test response")
+
+    stub_model_facade.completion(stub_completion_messages, tool_choice="required", extra_body={"seed": 7})
+
+    request = stub_model_client.completion.call_args.args[0]
+    assert request.tool_choice == "required"
+    assert request.extra_body == {"reasoning_effort": "high", "seed": 7}
+
+
+@pytest.mark.asyncio
+async def test_acompletion_forwards_tool_choice_and_keeps_configured_extra_body(
+    stub_completion_messages: list[ChatMessage],
+    stub_model_configs: list[Any],
+    stub_model_facade: ModelFacade,
+    stub_model_client: MagicMock,
+) -> None:
+    stub_model_configs[0].inference_parameters.extra_body = {"reasoning_effort": "high"}
+    stub_model_client.acompletion = AsyncMock(return_value=_make_response("Test response"))
+
+    await stub_model_facade.acompletion(stub_completion_messages, tool_choice="required", extra_body={"seed": 7})
+
+    request = stub_model_client.acompletion.call_args.args[0]
+    assert request.tool_choice == "required"
+    assert request.extra_body == {"reasoning_effort": "high", "seed": 7}
+
+
+def test_completion_warns_about_dropped_kwargs(
+    stub_completion_messages: list[ChatMessage],
+    stub_model_facade: ModelFacade,
+    stub_model_client: MagicMock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    stub_model_client.completion.return_value = _make_response("Test response")
+
+    with caplog.at_level(logging.WARNING):
+        stub_model_facade.completion(
+            stub_completion_messages, tool_choice="auto", reasoning_effort="high", parallel_tool_calls=False
+        )
+
+    warnings = [record.getMessage() for record in caplog.records if record.levelno == logging.WARNING]
+    assert len(warnings) == 1
+    assert "['parallel_tool_calls', 'reasoning_effort']" in warnings[0]
+    request = stub_model_client.completion.call_args.args[0]
+    assert request.tool_choice == "auto"
 
 
 def test_generate_text_embeddings_success(
