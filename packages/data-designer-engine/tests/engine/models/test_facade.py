@@ -935,6 +935,27 @@ def test_completion_warns_about_dropped_kwargs(
     assert request.tool_choice == "auto"
 
 
+def test_completion_warns_once_per_set_of_dropped_kwargs(
+    stub_completion_messages: list[ChatMessage],
+    stub_model_facade: ModelFacade,
+    stub_model_client: MagicMock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    stub_model_client.completion.return_value = _make_response("Test response")
+
+    with caplog.at_level(logging.DEBUG, logger="data_designer.engine.models.facade"):
+        stub_model_facade.completion(stub_completion_messages, reasoning_effort="high")
+        stub_model_facade.completion(stub_completion_messages, reasoning_effort="low")
+        stub_model_facade.completion(stub_completion_messages, reasoning_effort="high", parallel_tool_calls=False)
+
+    dropped_records = [
+        record
+        for record in caplog.records
+        if record.name == "data_designer.engine.models.facade" and "Unknown kwargs" in record.getMessage()
+    ]
+    assert [record.levelno for record in dropped_records] == [logging.WARNING, logging.DEBUG, logging.WARNING]
+
+
 def test_generate_text_embeddings_success(
     stub_model_facade: ModelFacade,
     stub_model_client: MagicMock,
@@ -1106,6 +1127,59 @@ async def test_agenerate_applies_tool_choice_until_the_first_tool_call(
     assert result == "final result"
     assert captured_kwargs[0]["tool_choice"] == "required"
     assert "tool_choice" not in captured_kwargs[1]
+
+
+@pytest.mark.parametrize(
+    ("replies", "expect_tool_choice_after_restart"),
+    [
+        pytest.param(["tool call", "unparseable", "final result"], False, id="restart-after-tool-call"),
+        pytest.param(["unparseable", "final result"], True, id="restart-before-any-tool-call"),
+    ],
+)
+def test_generate_restart_restores_tool_choice_state_from_checkpoint(
+    stub_model_configs: Any,
+    stub_model_client: MagicMock,
+    stub_model_provider_registry: Any,
+    replies: list[str],
+    expect_tool_choice_after_restart: bool,
+) -> None:
+    tool_call = ToolCall(id="call-1", name="lookup", arguments_json="{}")
+    responses = [
+        _make_response(content=None, tool_calls=[tool_call]) if reply == "tool call" else _make_response(reply)
+        for reply in replies
+    ]
+    captured_kwargs: list[dict[str, Any]] = []
+
+    def _completion(self: Any, messages: list[ChatMessage], **kwargs: Any) -> ChatCompletionResponse:
+        captured_kwargs.append(kwargs)
+        return responses.pop(0)
+
+    def _parser(response: str) -> str:
+        if response == "unparseable":
+            raise ParserException("unparseable")
+        return response
+
+    mcp_facade = StubMCPFacade(
+        tool_schemas=[{"type": "function", "function": {"name": "lookup", "parameters": {"type": "object"}}}]
+    )
+    model = ModelFacade(
+        model_config=stub_model_configs[0],
+        model_provider_registry=stub_model_provider_registry,
+        client=stub_model_client,
+        mcp_registry=StubMCPRegistry(mcp_facade),
+    )
+
+    with patch.object(ModelFacade, "completion", new=_completion):
+        result, _ = model.generate(
+            prompt="question",
+            parser=_parser,
+            tool_alias="tools",
+            tool_choice="required",
+            max_conversation_restarts=1,
+        )
+
+    assert result == "final result"
+    assert ("tool_choice" in captured_kwargs[-1]) is expect_tool_choice_after_restart
 
 
 def test_generate_preserves_multimodal_mcp_tool_results_between_turns(

@@ -148,6 +148,7 @@ class ModelFacade:
         self._client = client
         self._mcp_registry = mcp_registry
         self._usage_stats = ModelUsageStats()
+        self._warned_dropped_kwargs: set[frozenset[str]] = set()
 
     @property
     def model_name(self) -> str:
@@ -839,10 +840,15 @@ class ModelFacade:
                 metadata[key] = value
 
         if metadata:
-            logger.warning(
-                "Unknown kwargs %s dropped (not forwarded as model parameters). "
+            # Warn once per set of names; repeats go to DEBUG so a per-record call can't flood the log.
+            dropped = frozenset(metadata)
+            log = logger.debug if dropped in self._warned_dropped_kwargs else logger.warning
+            self._warned_dropped_kwargs.add(dropped)
+            log(
+                "Unknown kwargs %s dropped for model %r (not forwarded as model parameters). "
                 "Use 'extra_body' to pass non-standard parameters to the model.",
-                sorted(metadata),
+                sorted(dropped),
+                self.model_alias,
             )
 
         return ChatCompletionRequest(**request_fields)
