@@ -232,3 +232,7 @@ uv lock --upgrade-package <pkg>
 
 If a constraint impacts this such that a new security floor for a package does not survive re-resolution,
 add a `[tool.uv] constraint-dependencies` section to the workspace root `pyproject.toml`.
+
+Both approaches only protect installs from this workspace (development and CI). Neither `uv.lock` nor `[tool.uv]` settings are part of the published package metadata, so users who `pip install` the packages can still resolve a transitive dependency below the floor.
+This is intentional: security floors for transitive dependencies belong in each application's lockfile.
+List recommended minimum versions in the release notes so users can apply them.
