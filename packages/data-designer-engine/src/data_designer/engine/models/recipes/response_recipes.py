@@ -139,7 +139,7 @@ class StructuredResponseRecipe(ResponseRecipe[dict]):
                 return validate(obj, **self._validate_args)
             except IndexError:
                 raise ParserException(
-                    "No parsable JSON structure within ```json markdown fence.",
+                    "No parsable JSON found: expected a ```json markdown fence or a complete bare JSON response.",
                     source=response,
                 ) from None
             except JSONSchemaValidationError as exc:
@@ -219,7 +219,7 @@ class PydanticResponseRecipe(ResponseRecipe[BaseModel]):
                 return self.data_type.model_validate(obj)
             except IndexError:
                 raise ParserException(
-                    "No parsable JSON structure within ```json markdown fence.",
+                    "No parsable JSON found: expected a ```json markdown fence or a complete bare JSON response.",
                     source=response,
                 ) from None
             except Exception as exc:
