@@ -79,7 +79,7 @@ HTTP transport pools may be larger than the static provider cap. They are transp
 
 `buffer_size` defines the record-window shape used by the dataset builder. Row groups are the concrete execution partitions produced from that windowing behavior.
 
-Row-group admission remains scheduler-owned and is separate from the V1 task-admission lease boundary. The normal dataset-builder wiring uses fixed row-group admission: `max_concurrent_row_groups` is the hard in-flight cap, and task admission leases then control ready task dispatch inside admitted row groups.
+Row-group admission remains scheduler-owned and is separate from the V1 task-admission lease boundary. The normal dataset-builder wiring uses fixed row-group admission by default: `max_concurrent_row_groups` is the hard in-flight cap, and task admission leases then control ready task dispatch inside admitted row groups.
 
 The scheduler also has an adaptive row-group admission mode. That mode is additive-only: it starts from an initial target and can raise the soft in-flight row-group target up to the semaphore hard cap when no local scheduler-pressure reason blocks growth. It does not decrease the target, so docs and telemetry must not describe it as AIMD. It remains off by default; `RunConfig.adaptive_row_group_admission` now exposes it, together with `adaptive_row_group_initial_target`. The max-admitted-row guardrail stays hard-coded.
 
