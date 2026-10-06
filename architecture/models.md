@@ -45,7 +45,7 @@ When `rampup_seconds` is configured, `ThrottleManager` starts new domains at one
 
 The primary interface for generators. Holds a `ModelConfig`, `ModelClient`, optional `MCPRegistry`, and `ModelUsageStats`.
 
-- **`completion` / `acompletion`** — consolidates kwargs from inference params + provider extras, calls the client, tracks usage
+- **`completion` / `acompletion`** — consolidates kwargs from inference params, the call, and provider extras (`extra_body` is merged key by key in that order), forwards known request fields such as `tools` and `tool_choice` (adapters translate them per provider), warns about dropped kwargs, calls the client, tracks usage
 - **`embeddings` / `aembeddings`** — embedding generation
 - **`image_generation` / `aimage_generation`** — image generation
 - **MCP tool loops** — when a tool config is active, processes tool calls from completions via `MCPFacade`, feeds results back, and tracks tool usage stats

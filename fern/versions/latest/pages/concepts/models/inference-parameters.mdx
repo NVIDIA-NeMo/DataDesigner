@@ -53,6 +53,18 @@ inference_parameters = dd.ChatCompletionInferenceParams(
 ```
 </Tip>
 
+### Extra Body Precedence
+
+A request can receive `extra_body` from three places, merged key by key in this order:
+
+1. The model config's `inference_parameters.extra_body`
+2. The call itself, for example keyword arguments passed to a model's `generate()` in a [custom column generator](/concepts/custom-columns)
+3. The [model provider's](/concepts/models/model-providers) `extra_body`
+
+A later source wins only for the keys it sets, so a call can add a parameter without losing the configured ones. Nested values are replaced rather than merged: a per-call `chat_template_kwargs` replaces the configured one as a whole.
+
+`extra_body` keys are sent as they are and take precedence over request fields of the same name, such as `top_p` or `tool_choice`.
+
 ### Temperature and Top P Guidelines
 
 - **Temperature**:
