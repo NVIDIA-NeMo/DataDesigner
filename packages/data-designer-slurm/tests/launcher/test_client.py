@@ -251,11 +251,22 @@ def test_client_queries_partition_scoped_gpu_inventory() -> None:
     assert runner.calls == [command]
 
 
-def test_client_rejects_invalid_gpu_partition_without_running_command(fake_slurm_runner: FakeSlurmRunner) -> None:
+def test_client_queries_multiple_partition_gpu_inventory() -> None:
+    command = ("sinfo", "--noheader", "--format=%G", "--partition=batch,other")
+    runner = FakeSlurmRunner(sinfo_responses={command: FakeCommandResponse(stdout="gpu:a100:8\ngpu:h100:8\n")})
+
+    assert SlurmCommandClient(runner).query_gpu_counts(partition="batch,other") == (8, 8)
+    assert runner.calls == [command]
+
+
+@pytest.mark.parametrize("selection", ["batch,,other", "batch,other;echo", "batch,batch"])
+def test_client_rejects_invalid_gpu_partition_without_running_command(
+    fake_slurm_runner: FakeSlurmRunner, selection: str
+) -> None:
     client = SlurmCommandClient(fake_slurm_runner)
 
-    with pytest.raises(ValueError, match="valid identifier"):
-        client.query_gpu_counts(partition="batch,other")
+    with pytest.raises(ValueError, match="comma-separated list"):
+        client.query_gpu_counts(partition=selection)
 
     assert fake_slurm_runner.calls == []
 
