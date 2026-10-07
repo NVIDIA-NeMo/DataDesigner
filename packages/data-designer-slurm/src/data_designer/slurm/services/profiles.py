@@ -9,7 +9,8 @@ import json
 import os
 import shlex
 import socket
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import ExitStack, contextmanager
 from fnmatch import fnmatchcase
 from pathlib import Path
 
@@ -30,6 +31,7 @@ from data_designer.slurm.contracts import ContractValue, Identifier, compute_can
 from data_designer.slurm.filesystem import (
     PRIVATE_DIRECTORY_MODE,
     create_restrictive_temporary_file,
+    open_verified_child_directory,
     open_verified_directory,
 )
 from data_designer.slurm.images.registry import ImageRegistryStore
@@ -287,8 +289,7 @@ def _serialize_catalog(payload: dict[str, object], *, suffix: str) -> bytes:
 
 
 def _create_profile_file(path: Path, content: bytes) -> None:
-    _create_profile_parent(path.parent)
-    with open_verified_directory(path.parent, resource_name="profile") as parent_descriptor:
+    with _open_or_create_profile_parent(path.parent) as parent_descriptor:
         descriptor, temporary_name = create_restrictive_temporary_file(
             parent_descriptor,
             prefix=f".{path.name}.",
@@ -318,18 +319,34 @@ def _create_profile_file(path: Path, content: bytes) -> None:
                 pass
 
 
-def _create_profile_parent(parent: Path) -> None:
+@contextmanager
+def _open_or_create_profile_parent(parent: Path) -> Iterator[int]:
     missing: list[Path] = []
     directory = parent
     while not directory.exists():
         missing.append(directory)
         directory = directory.parent
-    for directory in reversed(missing):
-        try:
-            directory.mkdir(mode=PRIVATE_DIRECTORY_MODE)
-        except FileExistsError:
-            with open_verified_directory(directory, resource_name="profile"):
+    with ExitStack() as stack:
+        descriptor = stack.enter_context(open_verified_directory(directory, resource_name="profile"))
+        for child in reversed(missing):
+            created = False
+            try:
+                os.mkdir(child.name, PRIVATE_DIRECTORY_MODE, dir_fd=descriptor)
+                created = True
+            except FileExistsError:
                 pass
+            if created:
+                os.chmod(child.name, PRIVATE_DIRECTORY_MODE, dir_fd=descriptor, follow_symlinks=False)
+            descriptor = stack.enter_context(
+                open_verified_child_directory(
+                    descriptor,
+                    child.name,
+                    child,
+                    resource_name="profile",
+                    require_private=created,
+                )
+            )
+        yield descriptor
 
 
 def _validate_workspace(path: Path) -> None:

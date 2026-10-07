@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import os
 import stat
 from pathlib import Path
 
@@ -105,6 +106,23 @@ def test_profile_init_creates_missing_parent_directories(tmp_path: Path) -> None
     for directory in (profile_file.parent, profile_file.parent.parent):
         assert stat.S_IMODE(directory.stat().st_mode) == 0o700
     assert stat.S_IMODE(profile_file.stat().st_mode) == 0o600
+
+
+def test_profile_init_creates_usable_private_directories_with_restrictive_umask(tmp_path: Path) -> None:
+    profile_file = tmp_path / "nested" / "config" / "profile.yml"
+    previous_umask = os.umask(0o777)
+    try:
+        create_slurm_profile_service(profile_file=profile_file).initialize(
+            workspace_root=tmp_path / "workspace",
+            image_build_partition="cpu",
+            host_patterns=("login",),
+        )
+    finally:
+        os.umask(previous_umask)
+
+    assert load_profile_catalog(profile_file).default_cluster == "default"
+    for directory in (profile_file.parent, profile_file.parent.parent):
+        assert stat.S_IMODE(directory.stat().st_mode) == 0o700
 
 
 def test_profile_init_and_auto_gpu_resolution_accept_multiple_partitions(tmp_path: Path) -> None:
