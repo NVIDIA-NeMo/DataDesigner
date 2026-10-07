@@ -272,7 +272,7 @@ def test_image_add_follows_bounded_job_logs_before_success_cleanup(tmp_path: Pat
     def on_submit() -> None:
         _write_inspection(workspace, content)
         (_job_directory(workspace) / f"slurm-{_JOB_ID}.out").write_bytes(b"importing\nready\n")
-        (_job_directory(workspace) / f"slurm-{_JOB_ID}.err").write_bytes(b"warning\x1b[31m\n")
+        (_job_directory(workspace) / f"slurm-{_JOB_ID}.err").write_bytes(b"warning\x1b[31m\ntoken=secretvalue\n")
 
     logs: list[str] = []
     service = create_slurm_image_service(
@@ -287,7 +287,8 @@ def test_image_add_follows_bounded_job_logs_before_success_cleanup(tmp_path: Pat
     assert logs == [
         "[image stdout] importing",
         "[image stdout] ready",
-        "[image stderr] warning?[31m",
+        "[image stderr] warning [31m",
+        "[image stderr] token=<redacted>",
     ]
     assert not _job_directory(workspace).exists()
 
