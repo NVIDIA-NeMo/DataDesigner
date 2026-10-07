@@ -19,6 +19,7 @@ from data_designer.slurm.contracts import (
     validate_absolute_path,
     validate_plain_text,
 )
+from data_designer.slurm.types import PartitionSelection
 
 _ALLOCATION_SCRATCH_CONTAINER_ROOT = "/run/data-designer-slurm"
 
@@ -30,7 +31,7 @@ class GpuRequestMode(str, Enum):
 
 class SchedulerProfile(AuthoredConfig):
     account: Identifier | None = None
-    partition: Identifier | None = None
+    partition: PartitionSelection | None = None
     mem_per_gpu: Annotated[str, StringConstraints(pattern=r"^[1-9][0-9]*(?:K|M|G|T)$")] | None = None
     bin_path: str | None = None
 

@@ -91,6 +91,30 @@ def test_profile_init_creates_deterministic_private_starter_without_side_effects
     assert "container_mounts" not in profile_file.read_text()
 
 
+def test_profile_init_and_auto_gpu_resolution_accept_multiple_partitions(tmp_path: Path) -> None:
+    profile_file = tmp_path / "profile.yml"
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    launcher = _Launcher((8, 8))
+    service = create_slurm_profile_service(
+        profile_file=profile_file,
+        launcher=launcher,  # type: ignore[arg-type]
+        hostname_resolver=lambda: ("login.example.test",),
+    )
+
+    service.initialize(
+        workspace_root=workspace,
+        image_build_partition="cpu",
+        partition="gpu-a,gpu-b",
+    )
+    assert load_profile_catalog(profile_file).clusters["default"].scheduler.partition == "gpu-a,gpu-b"
+
+    result = service.validate()
+
+    assert result.gpus_per_node == 8
+    assert launcher.partitions == ["gpu-a,gpu-b"]
+
+
 def test_profile_init_uses_explicit_environment_then_home_path_precedence(tmp_path: Path) -> None:
     environment_file = tmp_path / "environment.yml"
     explicit_file = tmp_path / "explicit.json"

@@ -46,6 +46,15 @@ Every `model_alias` in `model_concurrency` and the builder must have one deploym
 
 The client runs from the same shared Python environment as the CLI on the first allocated GPU node. Its step requests no GPUs; the serving steps use the GPUs and their registered images. The `client` block is optional; `client.cpus` defaults to 32 and controls the client's CPU allocation, not its execution image.
 
+Use `submission.partition` to override the profile's GPU partition selection for one run. It accepts a comma-separated value or a YAML list, such as:
+
+```yaml
+submission:
+  partition: [gpu-a, gpu-b]
+```
+
+Slurm schedules the job in one of the selected partitions. With `gpus_per_node: auto`, every selected partition must report GPU resources with one consistent count.
+
 ## Configure vLLM
 
 Each server supports readiness and launch controls:
