@@ -42,7 +42,6 @@ clusters:
       account: research
       partition: gpu
       mem_per_gpu: 80G
-      bin_path: /opt/slurm/bin
     gpus_per_node: 8
     workspace_root: /workspace/alice/data-designer-slurm
     image_build:
@@ -79,7 +78,7 @@ data-designer slurm execute run.yaml --cluster lab
 
 `gpus_per_node` is both the GPU count used for deployment topology and, in `gres` mode, the count requested from Slurm on each job node. `auto` queries eligible nodes and uses their reported count, so an eight-GPU partition produces `--gres=gpu:8`. Set an explicit smaller count, such as `1`, for partial-node allocations when the cluster permits them. Use `auto` only when requesting every GPU on each selected node is intended, and use an explicit count when eligible nodes are heterogeneous.
 
-Set `scheduler.bin_path` when Slurm executables are installed outside the generated batch job's default `PATH`. It must be one absolute directory and is prepended to `PATH`; do not provide a colon-separated list.
+Generation automatically discovers the directory containing `srun` on the submit host and records it in the immutable run plan, then prepends it to the batch job's controlled `PATH`. Load your site's Slurm environment before submitting; no profile setting is normally needed. If the submit-host path is not available on compute nodes, set `scheduler.bin_path` as an override. It must be one absolute directory containing runnable `srun` and `scontrol`, visible from compute nodes; do not provide a colon-separated list.
 
 ## Add mounts
 

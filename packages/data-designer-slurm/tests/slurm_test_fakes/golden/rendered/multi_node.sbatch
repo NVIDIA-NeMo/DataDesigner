@@ -3,7 +3,7 @@
 #SBATCH --account=research
 #SBATCH --partition=batch
 #SBATCH --nodes=3
-#SBATCH --cpus-per-task=32
+#SBATCH --cpus-per-gpu=4
 #SBATCH --time=03:55:00
 #SBATCH --array=0-1%2
 #SBATCH --chdir="/workspace/primary/runs/run-001"

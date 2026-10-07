@@ -9,6 +9,7 @@ from data_designer.slurm.planning import ResolvedSlurmRunPlan
 from data_designer.slurm.runtime.node_spec import NodeProcessSpec, NodeSpec, NodeWorkerSpec
 from data_designer.slurm.runtime.paths import get_container_path
 from data_designer.slurm.runtime.preflight import AllocationLayout
+from data_designer.slurm.runtime.steps import build_vllm_command
 from data_designer.slurm.serving.deployment import ResolvedVllmServerDeployment
 from data_designer.slurm.serving.vllm import ResolvedVllmProcess
 
@@ -28,7 +29,11 @@ def build_node_worker_spec(
             processes=tuple(
                 NodeProcessSpec(
                     process_id=process.process_id,
-                    command=build_vllm_process_command(deployment, process, plan, layout),
+                    command=(
+                        build_vllm_command(deployment, process, plan)
+                        if len(layout.node_hosts) == 1
+                        else build_vllm_process_command(deployment, process, plan, layout)
+                    ),
                     gpu_indices=tuple(process.gpu_indices),
                     launch_delay_seconds=process.launch_delay_seconds,
                 )
