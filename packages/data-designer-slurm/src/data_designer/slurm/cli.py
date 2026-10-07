@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import re
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from enum import Enum
 from functools import partial
 from pathlib import Path
@@ -25,6 +25,7 @@ from data_designer.slurm.images.vllm_source import (
     is_versioned_vllm_tag,
     resolve_versioned_vllm_source,
 )
+from data_designer.slurm.security import redact_sensitive_diagnostic
 from data_designer.slurm.services import (
     SlurmServiceError,
     SlurmServiceErrorCode,
@@ -50,6 +51,11 @@ class _RetryResumeMode(str, Enum):
     IF_POSSIBLE = "if_possible"
 
 
+class _OutputFormat(str, Enum):
+    HUMAN = "human"
+    JSON = "json"
+
+
 app = typer.Typer(
     name="slurm",
     help="Run Data Designer workloads on Slurm",
@@ -62,8 +68,17 @@ app.add_typer(profile_app, name="profile")
 
 
 @app.callback()
-def slurm_callback() -> None:
-    pass
+def slurm_callback(
+    ctx: typer.Context,
+    output: _OutputFormat = typer.Option(
+        _OutputFormat.HUMAN,
+        "--output",
+        envvar="DATA_DESIGNER_SLURM_OUTPUT",
+        help="Output format: human or json",
+    ),
+) -> None:
+    """Choose readable output by default or stable JSON for automation."""
+    ctx.obj = output
 
 
 @app.command("execute")
@@ -79,7 +94,7 @@ def execute_command(
     def execute() -> BaseModel:
         _emit_progress("Validating and rendering run..." if dry_run else "Preparing and submitting run...")
         config = load_run_config(run_file)
-        service = create_slurm_run_service(profile_file=profile_file, cluster=cluster)
+        service = create_slurm_run_service(profile_file=profile_file, cluster=cluster, progress=_emit_progress)
         return service.execute(config, source_root=run_file.resolve().parent, dry_run=dry_run)
 
     _emit_result(_invoke(operation, execute))
@@ -160,7 +175,7 @@ def retry_command(
                 )
             )
         if not confirmed:
-            _emit_json({"operation": operation.value, "state": "declined"})
+            _emit_value({"operation": operation.value, "state": "declined"})
             return
         shard_ids = planned.shard_ids
         resume = _RetryResumeMode(planned.effective_resume_mode)
@@ -247,7 +262,11 @@ def image_add_command(
     kind: str = typer.Option("serving", "--kind", help="Image role (defaults to serving)"),
     name: str | None = typer.Option(None, "--name"),
     replace: bool = typer.Option(False, "--replace"),
-    follow_logs: bool = typer.Option(False, "--follow-logs", help="Show bounded image-job logs on stderr"),
+    follow_logs: bool | None = typer.Option(
+        None,
+        "--follow-logs/--no-follow-logs",
+        help="Show bounded image-job logs on stderr (default in an interactive terminal)",
+    ),
     profile_file: Path | None = typer.Option(None, "--profile-file", dir_okay=False),
     cluster: str | None = typer.Option(None, "--cluster"),
 ) -> None:
@@ -293,7 +312,7 @@ def image_add_command(
             profile_file=profile_file,
             cluster=cluster,
             progress=_emit_progress,
-            logs=_emit_image_log if follow_logs else None,
+            logs=_emit_image_log if (follow_logs if follow_logs is not None else _progress_enabled()) else None,
         ).add(request, replace=replace)
 
     _emit_result(_invoke(operation, add))
@@ -310,7 +329,7 @@ def image_list_command(
         operation,
         lambda: create_slurm_image_service(profile_file=profile_file, cluster=cluster).list(),
     )
-    _emit_json([image.model_dump(mode="json") for image in images])
+    _emit_value([image.model_dump(mode="json") for image in images])
 
 
 @image_app.command("info")
@@ -364,21 +383,79 @@ def _invoke(operation: SlurmServiceOperation, call: Callable[[], _ResultT]) -> _
 
 
 def _fail(error: SlurmServiceError) -> NoReturn:
-    _emit_json(
-        {
-            "error": {
-                "code": error.code.value,
-                "message": str(error),
-                "operation": error.operation.value,
-            }
-        },
-        err=True,
-    )
+    if _output_format() is _OutputFormat.JSON:
+        _emit_json(
+            {
+                "error": {
+                    "code": error.code.value,
+                    "message": str(error),
+                    "operation": error.operation.value,
+                }
+            },
+            err=True,
+        )
+    else:
+        typer.echo(f"Error: {error}", err=True)
+        typer.echo(f"Operation: {error.operation.value.replace('_', ' ')}", err=True)
     raise typer.Exit(_EXIT_CODES[error.code])
 
 
 def _emit_result(result: BaseModel) -> None:
-    _emit_json(result.model_dump(mode="json"))
+    _emit_value(result.model_dump(mode="json"))
+
+
+def _emit_value(value: object, *, err: bool = False) -> None:
+    if _output_format() is _OutputFormat.JSON:
+        _emit_json(value, err=err)
+    else:
+        typer.echo("\n".join(_human_lines(value)), err=err)
+
+
+def _output_format() -> _OutputFormat:
+    context = click.get_current_context(silent=True)
+    while context is not None:
+        if isinstance(context.obj, _OutputFormat):
+            return context.obj
+        context = context.parent
+    return _OutputFormat.HUMAN
+
+
+def _human_lines(value: object, *, indent: int = 0) -> list[str]:
+    prefix = " " * indent
+    if isinstance(value, Mapping):
+        if not value:
+            return [f"{prefix}(none)"]
+        lines: list[str] = []
+        for key, item in value.items():
+            label = str(key).replace("_", " ").capitalize()
+            if isinstance(item, Mapping | list | tuple) or isinstance(item, str) and "\n" in item:
+                lines.append(f"{prefix}{label}:")
+                lines.extend(_human_lines(item, indent=indent + 2))
+            else:
+                lines.append(f"{prefix}{label}: {_human_scalar(item)}")
+        return lines
+    if isinstance(value, list | tuple):
+        if not value:
+            return [f"{prefix}(none)"]
+        lines = []
+        for index, item in enumerate(value, start=1):
+            if isinstance(item, Mapping | list | tuple):
+                lines.append(f"{prefix}{index}.")
+                lines.extend(_human_lines(item, indent=indent + 2))
+            else:
+                lines.append(f"{prefix}- {_human_scalar(item)}")
+        return lines
+    if isinstance(value, str) and "\n" in value:
+        return [f"{prefix}{_human_scalar(line)}" for line in value.rstrip("\n").splitlines()]
+    return [f"{prefix}{_human_scalar(value)}"]
+
+
+def _human_scalar(value: object) -> str:
+    if value is None:
+        return "not set"
+    if isinstance(value, bool):
+        return "yes" if value else "no"
+    return redact_sensitive_diagnostic(str(value))
 
 
 def _emit_json(value: object, *, err: bool = False) -> None:
