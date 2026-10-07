@@ -38,7 +38,7 @@ from data_designer.slurm.contracts import (
     validate_plain_text,
     validate_url,
 )
-from data_designer.slurm.types import EnvironmentName, Identifier, SchemaVersion
+from data_designer.slurm.types import EnvironmentName, Identifier, PartitionSelection, SchemaVersion
 
 __all__ = [
     "ArrayTasksConfig",
@@ -315,7 +315,7 @@ class ArrayTasksConfig(AuthoredConfig):
 
 class SubmissionConfig(AuthoredConfig):
     account: Identifier | None = None
-    partition: Identifier | None = None
+    partition: PartitionSelection | None = None
     job_name: Identifier = "data-designer"
     time_limit: Annotated[str, StringConstraints(pattern=r"^(?:[0-9]+-)?[0-9]{2}:[0-9]{2}:[0-9]{2}$")] = "03:55:00"
     comment: Annotated[str, StringConstraints(max_length=256)] | None = None

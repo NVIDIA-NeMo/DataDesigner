@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from data_designer.slurm.contracts import Identifier
+from data_designer.slurm.contracts import Identifier, PartitionSelection
 from data_designer.slurm.launcher.errors import SlurmCommandError, SlurmCommandOutputError, SlurmSubmissionError
 from data_designer.slurm.launcher.models import (
     SlurmAccountingEntry,
@@ -28,6 +28,7 @@ from data_designer.slurm.launcher.parsing import (
     parse_gpu_counts,
     parse_named_jobs,
     parse_queue,
+    parse_selected_partition_gpu_counts,
     parse_submission,
 )
 from data_designer.slurm.launcher.runner import CommandRunner, SubprocessRunner
@@ -35,6 +36,7 @@ from data_designer.slurm.security import redact_sensitive_diagnostic
 from data_designer.slurm.state import SchedulerIdentity, SchedulerJobIdentity
 
 _IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+_PARTITION_SELECTION_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}(?:,[A-Za-z0-9][A-Za-z0-9._-]{0,127})*$")
 _ENVIRONMENT_NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _MAX_SLURM_INTEGER = (1 << 32) - 1
 _UNKNOWN_QUEUE_JOB_DETAILS = frozenset(
@@ -224,15 +226,24 @@ class SlurmCommandClient:
         """Release one held managed Slurm job or array."""
         self._run((self._executables.scontrol, "release", _format_job_id(job_id)))
 
-    def query_gpu_counts(self, *, partition: Identifier | None = None) -> tuple[int, ...]:
-        """Return configured GPU counts for the requested or default partition."""
+    def query_gpu_counts(self, *, partition: PartitionSelection | None = None) -> tuple[int, ...]:
+        """Return configured GPU counts for requested partitions or the default."""
         if partition is None:
             command = (self._executables.sinfo, "--noheader", "--format=%P|%G")
             return parse_default_partition_gpu_counts(self._run(command))
-        if type(partition) is not str or _IDENTIFIER_PATTERN.fullmatch(partition) is None:
-            raise ValueError("Slurm partition must be a valid identifier")
-        command = (self._executables.sinfo, "--noheader", "--format=%G", f"--partition={partition}")
-        return parse_gpu_counts(self._run(command))
+        if (
+            type(partition) is not str
+            or len(partition) > 1024
+            or _PARTITION_SELECTION_PATTERN.fullmatch(partition) is None
+            or len(set(partition.split(","))) != len(partition.split(","))
+        ):
+            raise ValueError("Slurm partitions must be a comma-separated list of unique valid identifiers")
+        partitions = tuple(partition.split(","))
+        if len(partitions) == 1:
+            command = (self._executables.sinfo, "--noheader", "--format=%G", f"--partition={partition}")
+            return parse_gpu_counts(self._run(command))
+        command = (self._executables.sinfo, "--noheader", "--format=%P|%G", f"--partition={partition}")
+        return parse_selected_partition_gpu_counts(self._run(command), partitions=partitions)
 
     def _run(
         self,
