@@ -420,7 +420,7 @@ class _SystemRunBackend:
                 status_command.extend(("--cluster", plan.selected_profile.cluster_name))
             self._report_progress(f"Submitted. Check status: {shlex.join(status_command)}")
             self._report_progress(
-                "After allocation, follow shard 0 logs: "
+                "After allocation, follow shard 0 Slurm logs: "
                 + shlex.join(
                     (
                         "tail",
@@ -430,8 +430,18 @@ class _SystemRunBackend:
                     )
                 )
             )
+            server_log_root = run_root / "shards" / "shard-00000" / "attempts" / "attempt-0001" / "logs"
+            self._report_progress(
+                "Once serving starts, follow shard 0 vLLM logs: "
+                + f"find {shlex.quote(server_log_root.as_posix())} -type f "
+                "\\( -name 'deployment-*-serve.out' -o -name 'deployment-*-serve.err' \\) "
+                "-exec tail -F {} +"
+            )
             if len(plan.shards) > 1:
-                self._report_progress("For another shard, replace _0 in the log filenames with its task index.")
+                self._report_progress(
+                    "For another shard, replace _0 in the Slurm log filenames and shard-00000 in the vLLM path "
+                    "with its shard ID."
+                )
             return SlurmRunExecution(
                 run_id=plan.run_id,
                 state="submitted",

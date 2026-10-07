@@ -579,6 +579,11 @@ def test_execute_reports_safe_submission_and_log_guidance(
     assert "tail -F" in progress[2]
     assert "slurm-attempt-0001-42_0.out" in progress[2]
     assert "slurm-attempt-0001-42_0.err" in progress[2]
+    assert "follow shard 0 vLLM logs" in progress[3]
+    assert "shards/shard-00000/attempts/attempt-0001/logs" in progress[3]
+    assert "deployment-*-serve.out" in progress[3]
+    assert "deployment-*-serve.err" in progress[3]
+    assert "-exec tail -F {} +" in progress[3]
 
 
 def test_execute_status_guidance_preserves_explicit_profile_selection(
