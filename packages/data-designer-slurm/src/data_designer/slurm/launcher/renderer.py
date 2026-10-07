@@ -218,23 +218,32 @@ def _build_generation_directives(
         if plan.array_tasks.max_concurrent is not None:
             resolved_array = f"{resolved_array}%{plan.array_tasks.max_concurrent}"
 
+    profile = plan.selected_profile.profile
+    if profile.gpu_request_mode == "gres":
+        # Reserve CPUs with every GPU so socket-local CPU binding cannot hide GPUs from a serving step.
+        cpus_per_gpu = max(
+            1, (plan.client.authored.cpus + plan.resolved_gpus_per_node - 1) // plan.resolved_gpus_per_node
+        )
+        cpu_directive = ("cpus-per-gpu", str(cpus_per_gpu))
+    else:
+        if profile.scheduler.mem_per_gpu is not None:
+            raise SlurmBatchRenderError("mem_per_gpu requires GRES GPU request mode")
+        cpu_directive = ("cpus-per-task", str(plan.client.authored.cpus))
+
     values: list[tuple[str, str | None]] = [
         ("job-name", plan.submission.job_name if job_name is None else job_name),
         ("account", plan.submission.account),
         ("partition", plan.submission.partition),
         ("nodes", str(node_count)),
-        ("cpus-per-task", str(plan.client.authored.cpus)),
+        cpu_directive,
         ("time", plan.submission.time_limit),
         ("array", resolved_array),
         ("chdir", posixpath.dirname(plan.authored_config.path)),
         ("output", output_path),
         ("error", error_path),
     ]
-    profile = plan.selected_profile.profile
     if profile.gpu_request_mode == "gres":
         values.append(("gres", f"gpu:{plan.resolved_gpus_per_node}"))
-    elif profile.scheduler.mem_per_gpu is not None:
-        raise SlurmBatchRenderError("mem_per_gpu requires GRES GPU request mode")
     if profile.scheduler.mem_per_gpu is not None:
         values.append(("mem-per-gpu", profile.scheduler.mem_per_gpu))
     if plan.submission.comment is not None:

@@ -119,6 +119,8 @@ def test_retry_renderer_waits_for_persisted_attempt_before_starting_runtime(
     script = render_generation_retry_script(multi_node_plan, retry)
 
     assert f"#SBATCH --job-name={retry.submission_job_name}" in script
+    assert "#SBATCH --cpus-per-gpu=4\n" in script
+    assert "#SBATCH --cpus-per-task=" not in script
     assert multi_node_plan.submission.job_name not in script
     assert "#SBATCH --array=1%2" in script
     assert 'DD_ATTEMPT_ORDINAL="0002"' in script

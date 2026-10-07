@@ -111,18 +111,31 @@ def test_renderer_uses_discovered_slurm_bin_path_without_profile_override(
     assert ResolvedSlurmRunPlan.model_validate_json(plan.serialize_json()).scheduler_bin_path == "/shared/slurm/bin"
 
 
-@pytest.mark.parametrize("gpu_request_mode", ("gres", "visible"))
-def test_renderer_reserves_client_cpus_for_each_gpu_request_mode(
+@pytest.mark.parametrize(
+    ("gpu_request_mode", "client_cpus", "expected_directive"),
+    (
+        ("gres", 4, "#SBATCH --cpus-per-gpu=1\n"),
+        ("gres", 16, "#SBATCH --cpus-per-gpu=2\n"),
+        ("gres", 17, "#SBATCH --cpus-per-gpu=3\n"),
+        ("visible", 17, "#SBATCH --cpus-per-task=17\n"),
+    ),
+)
+def test_renderer_reserves_client_cpus_without_restricting_gpu_socket_visibility(
     single_node_plan: ResolvedSlurmRunPlan,
     gpu_request_mode: Literal["gres", "visible"],
+    client_cpus: int,
+    expected_directive: str,
 ) -> None:
     profile = single_node_plan.selected_profile.profile.model_copy(update={"gpu_request_mode": gpu_request_mode})
     client = single_node_plan.client.model_copy(
-        update={"authored": single_node_plan.client.authored.model_copy(update={"cpus": 17})}
+        update={"authored": single_node_plan.client.authored.model_copy(update={"cpus": client_cpus})}
     )
     plan = single_node_plan.model_copy(update={"selected_profile": injected_profile(profile), "client": client})
 
-    assert "#SBATCH --cpus-per-task=17\n" in render_generation_attempt_script(plan, attempt_ordinal=1)
+    script = render_generation_attempt_script(plan, attempt_ordinal=1)
+
+    assert expected_directive in script
+    assert script.count("#SBATCH --cpus-") == 1
 
 
 def test_renderer_rejects_mem_per_gpu_without_a_slurm_gpu_request(
