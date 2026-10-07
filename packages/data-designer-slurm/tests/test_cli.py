@@ -624,7 +624,7 @@ def test_image_add_rejects_versioned_vllm_as_client() -> None:
 
 
 def test_profile_init_creates_starter_and_emits_validation_command(tmp_path: Path) -> None:
-    profile_file = tmp_path / "profile.yml"
+    profile_file = tmp_path / "config" / "profile.yml"
     workspace = tmp_path / "workspace"
 
     result = CliRunner().invoke(
@@ -649,6 +649,7 @@ def test_profile_init_creates_starter_and_emits_validation_command(tmp_path: Pat
         "validation_command": f"data-designer slurm profile validate --profile-file {profile_file.as_posix()}",
     }
     assert profile_file.is_file()
+    assert profile_file.parent.is_dir()
     assert not workspace.exists()
 
 
