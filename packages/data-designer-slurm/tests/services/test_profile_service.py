@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import os
 import stat
 from pathlib import Path
 
@@ -89,6 +90,91 @@ def test_profile_init_creates_deterministic_private_starter_without_side_effects
         },
     }
     assert "container_mounts" not in profile_file.read_text()
+
+
+def test_profile_init_creates_missing_parent_directories(tmp_path: Path) -> None:
+    profile_file = tmp_path / "nested" / "config" / "profile.yml"
+
+    result = create_slurm_profile_service(profile_file=profile_file).initialize(
+        workspace_root=tmp_path / "workspace",
+        image_build_partition="cpu",
+        host_patterns=("login",),
+    )
+
+    assert result.profile_file == profile_file.as_posix()
+    assert load_profile_catalog(profile_file).default_cluster == "default"
+    for directory in (profile_file.parent, profile_file.parent.parent):
+        assert stat.S_IMODE(directory.stat().st_mode) == 0o700
+    assert stat.S_IMODE(profile_file.stat().st_mode) == 0o600
+
+
+def test_profile_init_creates_usable_private_directories_with_restrictive_umask(tmp_path: Path) -> None:
+    profile_file = tmp_path / "nested" / "config" / "profile.yml"
+    previous_umask = os.umask(0o777)
+    try:
+        create_slurm_profile_service(profile_file=profile_file).initialize(
+            workspace_root=tmp_path / "workspace",
+            image_build_partition="cpu",
+            host_patterns=("login",),
+        )
+    finally:
+        os.umask(previous_umask)
+
+    assert load_profile_catalog(profile_file).default_cluster == "default"
+    for directory in (profile_file.parent, profile_file.parent.parent):
+        assert stat.S_IMODE(directory.stat().st_mode) == 0o700
+
+
+def test_profile_init_handles_unsupported_nofollow_chmod(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    profile_file = tmp_path / "nested" / "profile.yml"
+    original_chmod = os.chmod
+
+    def reject_nofollow_chmod(
+        path: str,
+        mode: int,
+        *,
+        dir_fd: int | None = None,
+        follow_symlinks: bool = True,
+    ) -> None:
+        if not follow_symlinks:
+            raise NotImplementedError("chmod without following symlinks is unavailable")
+        original_chmod(path, mode, dir_fd=dir_fd, follow_symlinks=follow_symlinks)
+
+    monkeypatch.setattr(os, "chmod", reject_nofollow_chmod)
+
+    create_slurm_profile_service(profile_file=profile_file).initialize(
+        workspace_root=tmp_path / "workspace",
+        image_build_partition="cpu",
+        host_patterns=("login",),
+    )
+
+    assert load_profile_catalog(profile_file).default_cluster == "default"
+    assert stat.S_IMODE(profile_file.parent.stat().st_mode) == 0o700
+
+
+def test_profile_init_does_not_follow_replaced_parent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    profile_file = tmp_path / "nested" / "profile.yml"
+    redirect = tmp_path / "redirect"
+    redirect.mkdir()
+    original_mkdir = os.mkdir
+
+    def replace_new_directory(name: str, mode: int = 0o777, *, dir_fd: int | None = None) -> None:
+        if name == "nested" and dir_fd is not None:
+            os.symlink(redirect, name, dir_fd=dir_fd)
+            return
+        original_mkdir(name, mode, dir_fd=dir_fd)
+
+    monkeypatch.setattr(os, "mkdir", replace_new_directory)
+
+    with pytest.raises(SlurmServiceError) as caught:
+        create_slurm_profile_service(profile_file=profile_file).initialize(
+            workspace_root=tmp_path / "workspace",
+            image_build_partition="cpu",
+            host_patterns=("login",),
+        )
+
+    assert caught.value.code is SlurmServiceErrorCode.UNAVAILABLE
+    assert tuple(redirect.iterdir()) == ()
 
 
 def test_profile_init_and_auto_gpu_resolution_accept_multiple_partitions(tmp_path: Path) -> None:
@@ -191,8 +277,8 @@ def test_profile_init_refuses_to_follow_dangling_destination_symlink(tmp_path: P
 
 @pytest.mark.parametrize(
     "profile_file",
-    (Path("profile.txt"), Path("missing/profile.yml")),
-    ids=("unsupported-suffix", "missing-parent"),
+    (Path("profile.txt"), Path("missing/profile.txt")),
+    ids=("unsupported-suffix", "unsupported-suffix-with-missing-parent"),
 )
 def test_profile_init_rejects_invalid_destination(tmp_path: Path, profile_file: Path) -> None:
     with pytest.raises(SlurmServiceError) as caught:
