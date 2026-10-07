@@ -72,7 +72,7 @@ def test_bootstrap_manifest_builds_typed_one_node_steps_without_secret_values(ru
     assert "SLURM_TMPDIR" not in manifest.serialize_json()
 
 
-@pytest.mark.parametrize(("tensor_parallel", "replicas"), ((1, 8), (4, 2)))
+@pytest.mark.parametrize(("tensor_parallel", "replicas"), ((1, 8), (2, 4), (4, 2)))
 def test_one_node_multi_replica_manifest_uses_one_gpu_owned_worker(
     runtime_case: RuntimeCase, tensor_parallel: int, replicas: int
 ) -> None:
@@ -104,14 +104,20 @@ def test_one_node_multi_replica_manifest_uses_one_gpu_owned_worker(
     assert len(servers) == 1
     assert servers[0].gpu_indices == tuple(range(8))
     assert len(servers[0].readiness) == replicas
-    assert {probe.host for probe in servers[0].readiness} == {"compute-001"}
+    assert {probe.host for probe in servers[0].readiness} == {"127.0.0.1"}
     worker = decode_node_worker_spec(servers[0].command[-1])
     processes = worker.nodes[0].processes
     assert len(processes) == replicas
     assert [process.gpu_indices for process in processes] == [
         tuple(range(index * tensor_parallel, (index + 1) * tensor_parallel)) for index in range(replicas)
     ]
-    assert all(("--host", "0.0.0.0") == process.command[process.command.index("--host") :][:2] for process in processes)
+    assert all(
+        ("--host", "127.0.0.1") == process.command[process.command.index("--host") :][:2] for process in processes
+    )
+    endpoint = next(step for step in manifest.steps if step.role is RuntimeStepRole.ENDPOINT)
+    assert "0.0.0.0" not in endpoint.command
+    assert "compute-001" not in endpoint.command
+    assert " ".join(endpoint.command).count("http://127.0.0.1:") == replicas
 
 
 @pytest.mark.parametrize("role", (RuntimeStepRole.CLIENT_PREFLIGHT, RuntimeStepRole.SERVER))

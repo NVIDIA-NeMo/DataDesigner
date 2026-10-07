@@ -77,7 +77,7 @@ def build_distributed_server_step(
     readiness = (
         tuple(
             RuntimeProbeSpec(
-                host=layout.get_host(probe.node_index),
+                host="127.0.0.1" if len(layout.node_hosts) == 1 else layout.get_host(probe.node_index),
                 port=probe.port,
                 path=probe.path,
                 deadline_seconds=probe.deadline_seconds,

@@ -30,7 +30,7 @@ def build_node_worker_spec(
                 NodeProcessSpec(
                     process_id=process.process_id,
                     command=(
-                        build_vllm_command(deployment, process, plan, host="0.0.0.0")
+                        build_vllm_command(deployment, process, plan)
                         if len(layout.node_hosts) == 1
                         else build_vllm_process_command(deployment, process, plan, layout)
                     ),
