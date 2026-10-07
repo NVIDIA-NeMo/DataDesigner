@@ -72,6 +72,7 @@ class SlurmRunCompiler:
                     sha256=effective.authored.compute_sha256(),
                 ),
                 selected_profile=effective.selected_profile,
+                scheduler_bin_path=effective.scheduler_bin_path,
                 resolved_gpus_per_node=effective.resolved_gpus_per_node,
                 builder=effective.builder,
                 invocation=effective.invocation,
