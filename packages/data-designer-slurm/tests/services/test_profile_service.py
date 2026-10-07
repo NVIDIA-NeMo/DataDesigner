@@ -125,6 +125,52 @@ def test_profile_init_creates_usable_private_directories_with_restrictive_umask(
         assert stat.S_IMODE(directory.stat().st_mode) == 0o700
 
 
+def test_profile_init_normalizes_unsupported_directory_permissions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    profile_file = tmp_path / "nested" / "profile.yml"
+
+    def reject_chmod(*args: object, **kwargs: object) -> None:
+        raise NotImplementedError("chmod without following symlinks is unavailable")
+
+    monkeypatch.setattr(os, "chmod", reject_chmod)
+
+    with pytest.raises(SlurmServiceError) as caught:
+        create_slurm_profile_service(profile_file=profile_file).initialize(
+            workspace_root=tmp_path / "workspace",
+            image_build_partition="cpu",
+            host_patterns=("login",),
+        )
+
+    assert caught.value.code is SlurmServiceErrorCode.UNAVAILABLE
+    assert not profile_file.exists()
+
+
+def test_profile_init_does_not_follow_replaced_parent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    profile_file = tmp_path / "nested" / "profile.yml"
+    redirect = tmp_path / "redirect"
+    redirect.mkdir()
+    original_mkdir = os.mkdir
+
+    def replace_new_directory(name: str, mode: int = 0o777, *, dir_fd: int | None = None) -> None:
+        if name == "nested" and dir_fd is not None:
+            os.symlink(redirect, name, dir_fd=dir_fd)
+            return
+        original_mkdir(name, mode, dir_fd=dir_fd)
+
+    monkeypatch.setattr(os, "mkdir", replace_new_directory)
+
+    with pytest.raises(SlurmServiceError) as caught:
+        create_slurm_profile_service(profile_file=profile_file).initialize(
+            workspace_root=tmp_path / "workspace",
+            image_build_partition="cpu",
+            host_patterns=("login",),
+        )
+
+    assert caught.value.code is SlurmServiceErrorCode.UNAVAILABLE
+    assert tuple(redirect.iterdir()) == ()
+
+
 def test_profile_init_and_auto_gpu_resolution_accept_multiple_partitions(tmp_path: Path) -> None:
     profile_file = tmp_path / "profile.yml"
     workspace = tmp_path / "workspace"

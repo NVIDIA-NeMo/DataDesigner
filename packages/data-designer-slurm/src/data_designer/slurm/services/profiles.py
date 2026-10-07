@@ -336,16 +336,23 @@ def _open_or_create_profile_parent(parent: Path) -> Iterator[int]:
             except FileExistsError:
                 pass
             if created:
-                os.chmod(child.name, PRIVATE_DIRECTORY_MODE, dir_fd=descriptor, follow_symlinks=False)
+                try:
+                    os.chmod(child.name, PRIVATE_DIRECTORY_MODE, dir_fd=descriptor, follow_symlinks=False)
+                except (NotImplementedError, ValueError) as exc:
+                    raise OSError("profile directory permissions cannot be set safely") from exc
+            parent_descriptor = descriptor
             descriptor = stack.enter_context(
                 open_verified_child_directory(
-                    descriptor,
+                    parent_descriptor,
                     child.name,
                     child,
                     resource_name="profile",
                     require_private=created,
                 )
             )
+            if created:
+                os.fsync(descriptor)
+                os.fsync(parent_descriptor)
         yield descriptor
 
 
