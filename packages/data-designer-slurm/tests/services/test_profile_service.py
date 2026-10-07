@@ -91,6 +91,22 @@ def test_profile_init_creates_deterministic_private_starter_without_side_effects
     assert "container_mounts" not in profile_file.read_text()
 
 
+def test_profile_init_creates_missing_parent_directories(tmp_path: Path) -> None:
+    profile_file = tmp_path / "nested" / "config" / "profile.yml"
+
+    result = create_slurm_profile_service(profile_file=profile_file).initialize(
+        workspace_root=tmp_path / "workspace",
+        image_build_partition="cpu",
+        host_patterns=("login",),
+    )
+
+    assert result.profile_file == profile_file.as_posix()
+    assert load_profile_catalog(profile_file).default_cluster == "default"
+    for directory in (profile_file.parent, profile_file.parent.parent):
+        assert stat.S_IMODE(directory.stat().st_mode) == 0o700
+    assert stat.S_IMODE(profile_file.stat().st_mode) == 0o600
+
+
 def test_profile_init_and_auto_gpu_resolution_accept_multiple_partitions(tmp_path: Path) -> None:
     profile_file = tmp_path / "profile.yml"
     workspace = tmp_path / "workspace"
@@ -191,8 +207,8 @@ def test_profile_init_refuses_to_follow_dangling_destination_symlink(tmp_path: P
 
 @pytest.mark.parametrize(
     "profile_file",
-    (Path("profile.txt"), Path("missing/profile.yml")),
-    ids=("unsupported-suffix", "missing-parent"),
+    (Path("profile.txt"), Path("missing/profile.txt")),
+    ids=("unsupported-suffix", "unsupported-suffix-with-missing-parent"),
 )
 def test_profile_init_rejects_invalid_destination(tmp_path: Path, profile_file: Path) -> None:
     with pytest.raises(SlurmServiceError) as caught:

@@ -27,7 +27,11 @@ from data_designer.slurm.config import (
     resolve_profile,
 )
 from data_designer.slurm.contracts import ContractValue, Identifier, compute_canonical_json_sha256
-from data_designer.slurm.filesystem import create_restrictive_temporary_file, open_verified_directory
+from data_designer.slurm.filesystem import (
+    PRIVATE_DIRECTORY_MODE,
+    create_restrictive_temporary_file,
+    open_verified_directory,
+)
 from data_designer.slurm.images.registry import ImageRegistryStore
 from data_designer.slurm.launcher.client import SlurmCommandClient
 from data_designer.slurm.launcher.errors import SlurmLauncherError
@@ -283,6 +287,7 @@ def _serialize_catalog(payload: dict[str, object], *, suffix: str) -> bytes:
 
 
 def _create_profile_file(path: Path, content: bytes) -> None:
+    _create_profile_parent(path.parent)
     with open_verified_directory(path.parent, resource_name="profile") as parent_descriptor:
         descriptor, temporary_name = create_restrictive_temporary_file(
             parent_descriptor,
@@ -310,6 +315,20 @@ def _create_profile_file(path: Path, content: bytes) -> None:
                 os.unlink(temporary_name, dir_fd=parent_descriptor)
                 os.fsync(parent_descriptor)
             except FileNotFoundError:
+                pass
+
+
+def _create_profile_parent(parent: Path) -> None:
+    missing: list[Path] = []
+    directory = parent
+    while not directory.exists():
+        missing.append(directory)
+        directory = directory.parent
+    for directory in reversed(missing):
+        try:
+            directory.mkdir(mode=PRIVATE_DIRECTORY_MODE)
+        except FileExistsError:
+            with open_verified_directory(directory, resource_name="profile"):
                 pass
 
 
