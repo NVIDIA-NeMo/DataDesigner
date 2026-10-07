@@ -9,7 +9,9 @@ import json
 import os
 import shlex
 import socket
-from collections.abc import Callable, Mapping
+import stat
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import ExitStack, contextmanager
 from fnmatch import fnmatchcase
 from pathlib import Path
 
@@ -27,7 +29,12 @@ from data_designer.slurm.config import (
     resolve_profile,
 )
 from data_designer.slurm.contracts import ContractValue, Identifier, compute_canonical_json_sha256
-from data_designer.slurm.filesystem import create_restrictive_temporary_file, open_verified_directory
+from data_designer.slurm.filesystem import (
+    PRIVATE_DIRECTORY_MODE,
+    create_restrictive_temporary_file,
+    open_verified_child_directory,
+    open_verified_directory,
+)
 from data_designer.slurm.images.registry import ImageRegistryStore
 from data_designer.slurm.launcher.client import SlurmCommandClient
 from data_designer.slurm.launcher.errors import SlurmLauncherError
@@ -283,7 +290,7 @@ def _serialize_catalog(payload: dict[str, object], *, suffix: str) -> bytes:
 
 
 def _create_profile_file(path: Path, content: bytes) -> None:
-    with open_verified_directory(path.parent, resource_name="profile") as parent_descriptor:
+    with _open_or_create_profile_parent(path.parent) as parent_descriptor:
         descriptor, temporary_name = create_restrictive_temporary_file(
             parent_descriptor,
             prefix=f".{path.name}.",
@@ -311,6 +318,74 @@ def _create_profile_file(path: Path, content: bytes) -> None:
                 os.fsync(parent_descriptor)
             except FileNotFoundError:
                 pass
+
+
+@contextmanager
+def _open_or_create_profile_parent(parent: Path) -> Iterator[int]:
+    missing: list[Path] = []
+    directory = parent
+    while not directory.exists():
+        missing.append(directory)
+        directory = directory.parent
+    with ExitStack() as stack:
+        descriptor = stack.enter_context(open_verified_directory(directory, resource_name="profile"))
+        for child in reversed(missing):
+            created = False
+            try:
+                os.mkdir(child.name, PRIVATE_DIRECTORY_MODE, dir_fd=descriptor)
+                created = True
+            except FileExistsError:
+                pass
+            if created:
+                _set_created_directory_mode(descriptor, child.name)
+            parent_descriptor = descriptor
+            descriptor = stack.enter_context(
+                open_verified_child_directory(
+                    parent_descriptor,
+                    child.name,
+                    child,
+                    resource_name="profile",
+                    require_private=created,
+                )
+            )
+            if created:
+                os.fsync(descriptor)
+                os.fsync(parent_descriptor)
+        yield descriptor
+
+
+def _set_created_directory_mode(parent_descriptor: int, name: str) -> None:
+    try:
+        os.chmod(name, PRIVATE_DIRECTORY_MODE, dir_fd=parent_descriptor, follow_symlinks=False)
+    except (NotImplementedError, ValueError) as exc:
+        # Older Linux fchmodat rejects AT_SYMLINK_NOFOLLOW even for real directories.
+        flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+        try:
+            descriptor = os.open(name, flags, dir_fd=parent_descriptor)
+        except PermissionError:
+            pass
+        else:
+            try:
+                os.fchmod(descriptor, PRIVATE_DIRECTORY_MODE)
+            finally:
+                os.close(descriptor)
+            return
+
+        # O_PATH can open a directory whose owner access was removed by umask.
+        path_flag = getattr(os, "O_PATH", None)
+        if path_flag is None:
+            raise OSError("profile directory permissions cannot be set safely") from exc
+        descriptor = os.open(
+            name,
+            path_flag | os.O_DIRECTORY | os.O_NOFOLLOW,
+            dir_fd=parent_descriptor,
+        )
+        try:
+            if not stat.S_ISDIR(os.fstat(descriptor).st_mode):
+                raise OSError("profile directory changed while permissions were being set")
+            os.chmod(f"/proc/self/fd/{descriptor}", PRIVATE_DIRECTORY_MODE)
+        finally:
+            os.close(descriptor)
 
 
 def _validate_workspace(path: Path) -> None:
