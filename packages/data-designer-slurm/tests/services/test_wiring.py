@@ -12,6 +12,7 @@ from types import SimpleNamespace
 import pytest
 
 import data_designer.slurm.services.retry_collection as retry_collection_module
+import data_designer.slurm.services.wiring as wiring_module
 from data_designer.slurm.benchmark.compiler import BenchmarkCompiler
 from data_designer.slurm.client.dependencies import ResolvedClientDependencies
 from data_designer.slurm.client.runtime import ClientRuntimeInspectionError, ClientRuntimeInspector
@@ -36,6 +37,7 @@ from data_designer.slurm.launcher.models import (
     SlurmQueueEntry,
     SlurmSubmissionMatch,
 )
+from data_designer.slurm.launcher.scheduler_path import SchedulerPathError
 from data_designer.slurm.planning import ResolvedSlurmRunPlan
 from data_designer.slurm.services import (
     SlurmServiceError,
@@ -66,6 +68,7 @@ def _use_persisted_client_runtime(
     single_node_plan: ResolvedSlurmRunPlan,
 ) -> None:
     monkeypatch.setattr(ClientRuntimeInspector, "inspect", lambda self: single_node_plan.client.runtime)
+    monkeypatch.setattr(wiring_module, "resolve_scheduler_bin_path", lambda configured: configured or "/opt/slurm/bin")
 
 
 class _Launcher:
@@ -237,6 +240,36 @@ def test_production_wiring_dry_run_resolves_and_renders_without_submission(
     assert result.state == "dry_run"
     assert result.batch_script is not None
     assert "#SBATCH --array=0" in result.batch_script
+    assert 'export PATH="/opt/slurm/bin:/usr/local/sbin:' in result.batch_script
+    plan = service.plan(authored_run_single, source_root=tmp_path)
+    assert plan.scheduler_bin_path == "/opt/slurm/bin"
+    assert plan.selected_profile.profile.scheduler.bin_path is None
+    assert launcher.submissions == []
+
+
+def test_missing_srun_fails_before_submission(
+    tmp_path: Path,
+    profile_catalog: SlurmProfileCatalog,
+    authored_run_single: DataDesignerSlurmConfig,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def missing_scheduler(_configured: str | None) -> str:
+        raise SchedulerPathError("srun was not found on the submit host PATH")
+
+    monkeypatch.setattr(wiring_module, "resolve_scheduler_bin_path", missing_scheduler)
+    launcher = _Launcher()
+    service = create_slurm_run_service(
+        profile=_profile(tmp_path, profile_catalog),
+        launcher=launcher,  # type: ignore[arg-type]
+        run_id_factory=lambda: "run-missing-srun",
+        package_version="0.9.2",
+    )
+
+    with pytest.raises(SlurmServiceError) as caught:
+        service.execute(authored_run_single, source_root=tmp_path, dry_run=False)
+
+    assert caught.value.code is SlurmServiceErrorCode.UNAVAILABLE
+    assert "srun was not found" in str(caught.value)
     assert launcher.submissions == []
 
 

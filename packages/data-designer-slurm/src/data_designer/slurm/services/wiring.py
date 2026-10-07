@@ -49,6 +49,7 @@ from data_designer.slurm.images.service import VerifiedImageRegistry
 from data_designer.slurm.launcher.client import SlurmCommandClient
 from data_designer.slurm.launcher.errors import SlurmLauncherError, SlurmSubmissionError
 from data_designer.slurm.launcher.renderer import render_generation_attempt_script
+from data_designer.slurm.launcher.scheduler_path import SchedulerPathError, resolve_scheduler_bin_path
 from data_designer.slurm.planning import ResolvedImage, ResolvedSlurmRunPlan
 from data_designer.slurm.planning.compiler import SlurmRunCompiler
 from data_designer.slurm.planning.resolution import resolve_slurm_config
@@ -187,6 +188,10 @@ class _RunPreparer:
     ) -> _PreparedRun:
         try:
             run_id = self._run_id_factory()
+            try:
+                scheduler_bin_path = resolve_scheduler_bin_path(self._profile.profile.scheduler.bin_path)
+            except SchedulerPathError as error:
+                raise SlurmServiceError(SlurmServiceErrorCode.UNAVAILABLE, operation, str(error)) from None
             workspace_root = self._profile.profile.workspace_root
             run_root = Path(workspace_root) / "runs" / run_id
             client_runtime = self._runtime_inspector.inspect()
@@ -213,6 +218,7 @@ class _RunPreparer:
                 runtime_bundle=runtime_bundle,
                 run_id=run_id,
                 package_version=self._package_version,
+                scheduler_bin_path=scheduler_bin_path,
                 resolved_gpus_per_node=self._resolve_gpu_count(authored, operation),
                 builder_payload=builder_payload,
             )

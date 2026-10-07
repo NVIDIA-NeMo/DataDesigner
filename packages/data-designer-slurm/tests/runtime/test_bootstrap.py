@@ -10,7 +10,7 @@ import pytest
 from conftest import RuntimeCase, relocate_plan
 
 from data_designer.slurm.contracts import ArtifactReference
-from data_designer.slurm.planning import ResolvedSlurmRunPlan
+from data_designer.slurm.planning import PortClaim, ResolvedSlurmRunPlan, ResolvedTopology
 from data_designer.slurm.runtime.bootstrap import RuntimeBootstrapManifest, RuntimeStepSpec, build_runtime_manifest
 from data_designer.slurm.runtime.distributed import build_vllm_process_command
 from data_designer.slurm.runtime.errors import SlurmRuntimeError
@@ -57,6 +57,8 @@ def test_bootstrap_manifest_builds_typed_one_node_steps_without_secret_values(ru
     assert "--attempt-dir" in manifest.steps[-1].command
     assert all(step.node_hosts == ("compute-001",) for step in manifest.steps)
     assert all(step.role is not RuntimeStepRole.SERVER_PREFLIGHT for step in manifest.steps)
+    server = next(step for step in manifest.steps if step.role is RuntimeStepRole.SERVER)
+    assert server.command[server.command.index("--host") + 1] == "127.0.0.1"
     endpoint = next(step for step in manifest.steps if step.role is RuntimeStepRole.ENDPOINT)
     assert endpoint.literal_environment["PYTHONPATH"] == runtime_root.as_posix()
     assert endpoint.container_environment == ()
@@ -68,6 +70,54 @@ def test_bootstrap_manifest_builds_typed_one_node_steps_without_secret_values(ru
         for step in client_steps
     )
     assert "SLURM_TMPDIR" not in manifest.serialize_json()
+
+
+@pytest.mark.parametrize(("tensor_parallel", "replicas"), ((1, 8), (2, 4), (4, 2)))
+def test_one_node_multi_replica_manifest_uses_one_gpu_owned_worker(
+    runtime_case: RuntimeCase, tensor_parallel: int, replicas: int
+) -> None:
+    plan = runtime_case.context.plan
+    placement = plan.deployments[0]
+    authored = placement.authored.model_copy(
+        update={"topology": placement.authored.topology.model_copy(update={"tensor_parallel": tensor_parallel})}
+    )
+    topology = ResolvedTopology.derive(
+        node_count=1, gpus_per_node=plan.resolved_gpus_per_node, tensor_parallel=tensor_parallel, nodes_per_replica=1
+    )
+    ports = tuple(
+        PortClaim(name=f"{placement.deployment_id}-http-{index:05d}", role="http", node_index=0, port=18000 + index)
+        for index in range(replicas)
+    )
+    placement = placement.model_copy(update={"authored": authored, "topology": topology, "ports": ports})
+    plan = ResolvedSlurmRunPlan.model_validate(plan.model_copy(update={"deployments": (placement,)}).model_dump())
+    context = replace(runtime_case.context, plan=plan)
+
+    manifest = build_runtime_manifest(
+        context,
+        {"SLURM_JOB_GPUS": "0,1,2,3,4,5,6,7"},
+        runtime_root=Path("/tmp/data-designer-slurm-4101-0/runtime"),
+        log_directory=context.attempt_directory / "logs/execution-00000002",
+        layout=AllocationLayout(("compute-001",)),
+    )
+
+    servers = tuple(step for step in manifest.steps if step.role is RuntimeStepRole.SERVER)
+    assert len(servers) == 1
+    assert servers[0].gpu_indices == tuple(range(8))
+    assert len(servers[0].readiness) == replicas
+    assert {probe.host for probe in servers[0].readiness} == {"127.0.0.1"}
+    worker = decode_node_worker_spec(servers[0].command[-1])
+    processes = worker.nodes[0].processes
+    assert len(processes) == replicas
+    assert [process.gpu_indices for process in processes] == [
+        tuple(range(index * tensor_parallel, (index + 1) * tensor_parallel)) for index in range(replicas)
+    ]
+    assert all(
+        ("--host", "127.0.0.1") == process.command[process.command.index("--host") :][:2] for process in processes
+    )
+    endpoint = next(step for step in manifest.steps if step.role is RuntimeStepRole.ENDPOINT)
+    assert "0.0.0.0" not in endpoint.command
+    assert "compute-001" not in endpoint.command
+    assert " ".join(endpoint.command).count("http://127.0.0.1:") == replicas
 
 
 @pytest.mark.parametrize("role", (RuntimeStepRole.CLIENT_PREFLIGHT, RuntimeStepRole.SERVER))
@@ -174,7 +224,7 @@ def test_bootstrap_manifest_composes_multi_node_workers_and_remote_endpoints(
     preflight = next(step for step in manifest.steps if step.step_id == "deployment-00000-preflight")
     worker_spec = decode_node_worker_spec(distributed.command[-1])
     endpoint = next(step for step in manifest.steps if step.step_id == "deployment-00000-endpoint")
-    remote_server = next(step for step in manifest.steps if step.step_id == "deployment-00001-replica-00000-rank-00000")
+    remote_server = next(step for step in manifest.steps if step.step_id == "deployment-00001-serve")
     remote_preflight = next(step for step in manifest.steps if step.step_id == "deployment-00001-preflight")
 
     assert distributed.node_hosts == ("compute-001", "compute-002")
@@ -195,10 +245,16 @@ def test_bootstrap_manifest_composes_multi_node_workers_and_remote_endpoints(
     remote_worker_spec = decode_node_worker_spec(remote_preflight.command[-1])
     assert remote_worker_spec.required_model_path == "/workspace/primary/models/model-1"
     assert remote_server.node_hosts == ("compute-003",)
-    assert remote_server.command[2] == "/workspace/primary/models/model-1"
-    executor_index = remote_server.command.index("--distributed-executor-backend")
-    assert remote_server.command[executor_index + 1] == "uni"
-    assert tuple(probe.host for probe in remote_server.readiness) == ("compute-003",)
+    assert remote_server.gpu_indices == tuple(range(8))
+    remote_server_spec = decode_node_worker_spec(remote_server.command[-1])
+    assert remote_server_spec.required_model_path == "/workspace/primary/models/model-1"
+    assert remote_server_spec.nodes[0].host == "compute-003"
+    assert len(remote_server_spec.nodes[0].processes) == 8
+    assert all(
+        process.command[process.command.index("--distributed-executor-backend") + 1] == "uni"
+        for process in remote_server_spec.nodes[0].processes
+    )
+    assert tuple(probe.host for probe in remote_server.readiness) == ("compute-003",) * 8
 
 
 def test_pipeline_parallel_process_uses_multi_process_executor(

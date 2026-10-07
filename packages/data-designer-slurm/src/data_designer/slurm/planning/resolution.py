@@ -85,6 +85,7 @@ class EffectiveDataDesignerSlurmConfig(ContractValue):
     package_version: Annotated[str, StringConstraints(min_length=1, max_length=128)]
     authored: DataDesignerSlurmConfig
     selected_profile: SelectedSlurmProfile
+    scheduler_bin_path: str | None = None
     resolved_gpus_per_node: PositiveInt
     builder: ResolvedBuilderInput
     builder_payload: dict[str, JsonValue] | None = None
@@ -107,6 +108,7 @@ def resolve_slurm_config(
     runtime_bundle: ArtifactReference,
     run_id: str,
     package_version: str,
+    scheduler_bin_path: str | None = None,
     resolved_gpus_per_node: int | None = None,
     builder_payload: dict[str, JsonValue] | None = None,
 ) -> EffectiveDataDesignerSlurmConfig:
@@ -127,6 +129,7 @@ def resolve_slurm_config(
             package_version=package_version,
             authored=authored,
             selected_profile=selected_profile,
+            scheduler_bin_path=scheduler_bin_path,
             resolved_gpus_per_node=gpus_per_node,
             builder=builder,
             builder_payload=resolved_builder_payload,
