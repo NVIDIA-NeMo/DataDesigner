@@ -1,6 +1,13 @@
 # Slurm run operations
 
-The CLI prints canonical JSON to stdout. Errors are canonical JSON on stderr, so automation can consume the same commands as an operator.
+The CLI prints readable labels and values by default. To get canonical JSON for scripts or agents, put `--output json` immediately after `slurm`, before the command. Errors are readable on stderr by default and retain structured JSON and the same exit codes in JSON mode.
+
+```bash
+data-designer slurm --output json execute run.yaml --dry-run > dry-run.json
+data-designer slurm --output json status <run-id> > status.json
+```
+
+You can also set `DATA_DESIGNER_SLURM_OUTPUT=json` for a script that calls several Slurm commands. The default remains human-readable when that variable is unset. In either mode, progress and optional image-job logs go to stderr; do not parse them as the command result.
 
 ## Resolve without submitting
 
@@ -17,6 +24,8 @@ data-designer slurm execute run.yaml
 ```
 
 A successful response includes `run_id`, `state`, `plan_sha256`, `shard_count`, and `job_id`. The package persists immutable inputs before submission and records scheduler identity after acceptance. Conflicting durable state is never overwritten.
+
+In an interactive terminal, `execute` reports when it invokes `sbatch` with the rendered script on standard input. After Slurm accepts and releases the job, it prints a `status` command and a `tail -F` example for the first shard's stdout and stderr. Logs appear only after the job receives an allocation. The invocation display omits exported environment details and is not a replay command; use `--dry-run` to inspect the rendered script. Do not submit again just because a job is pending.
 
 Use `--profile-file` and `--cluster` on any command when the defaults are not appropriate.
 
