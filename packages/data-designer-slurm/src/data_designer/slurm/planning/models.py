@@ -400,6 +400,7 @@ class ResolvedSlurmRunPlan(ContractRecord):
     package_version: Annotated[str, StringConstraints(min_length=1, max_length=128)]
     authored_config: ArtifactReference
     selected_profile: SelectedSlurmProfile
+    scheduler_bin_path: str | None = Field(default=None, exclude_if=lambda value: value is None)
     resolved_gpus_per_node: PositiveInt
     builder: ResolvedBuilderInput
     invocation: ResolvedInvocation
@@ -412,9 +413,21 @@ class ResolvedSlurmRunPlan(ContractRecord):
     container_mounts: tuple[ContainerMount, ...] = ()
     runtime_bundle: ArtifactReference
 
+    @field_validator("scheduler_bin_path")
+    @classmethod
+    def validate_scheduler_bin_path(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        validate_absolute_path(value)
+        if ":" in value:
+            raise ValueError("scheduler bin path must name one directory")
+        return value
+
     @model_validator(mode="after")
     def validate_plan(self) -> ResolvedSlurmRunPlan:
         profile = self.selected_profile.profile
+        if profile.scheduler.bin_path is not None and self.scheduler_bin_path not in (None, profile.scheduler.bin_path):
+            raise ValueError("resolved scheduler bin path does not match the selected profile override")
         if profile.gpus_per_node != "auto" and profile.gpus_per_node != self.resolved_gpus_per_node:
             raise ValueError("resolved GPU count does not match the selected profile")
         if profile.gpu_request_mode == "visible" and profile.scheduler.mem_per_gpu is not None:

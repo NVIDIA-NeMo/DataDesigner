@@ -101,6 +101,36 @@ def test_partial_startup_failure_cleans_already_started_lane(monkeypatch: pytest
     assert supervisor.cleanup_complete
 
 
+def test_node_worker_assigns_distinct_visible_gpus_to_two_tp4_replicas(monkeypatch: pytest.MonkeyPatch) -> None:
+    visible: list[str] = []
+
+    def start(*arguments: object, **keywords: object) -> _FakeProcess:
+        del arguments
+        environment = keywords["env"]
+        assert isinstance(environment, dict)
+        visible.append(environment["CUDA_VISIBLE_DEVICES"])
+        return _FakeProcess(pid=40 + len(visible), returncode=1 if len(visible) == 2 else None)
+
+    def terminate(child: _FakeProcess, selected: int) -> None:
+        del selected
+        child.returncode = -15
+
+    monkeypatch.setattr(runtime_node_worker.subprocess, "Popen", start)
+    monkeypatch.setattr(runtime_node_worker, "_signal_process_group", terminate)
+    node = NodeSpec(
+        node_index=0,
+        host="compute-001",
+        ports=(),
+        processes=(
+            NodeProcessSpec("replica-0", ("first",), (0, 1, 2, 3), 0),
+            NodeProcessSpec("replica-1", ("second",), (4, 5, 6, 7), 0),
+        ),
+    )
+
+    assert NodeProcessSupervisor(environment={}).run(node, tuple(str(index) for index in range(8))) == 1
+    assert visible == ["0,1,2,3", "4,5,6,7"]
+
+
 def test_follower_failure_terminates_sibling_without_orphan(tmp_path: Path) -> None:
     ready = tmp_path / "ready"
     stopped = tmp_path / "stopped"
