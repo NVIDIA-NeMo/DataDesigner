@@ -381,6 +381,8 @@ def build_vllm_command(
     deployment: ResolvedVllmServerDeployment,
     process: ResolvedVllmProcess,
     plan: ResolvedSlurmRunPlan,
+    *,
+    host: str = "127.0.0.1",
 ) -> tuple[str, ...]:
     if process.http_port is None:  # pragma: no cover - validated before command construction
         raise AssertionError("vLLM HTTP port is unavailable")
@@ -392,7 +394,7 @@ def build_vllm_command(
         "--served-model-name",
         deployment.served_model_name,
         "--host",
-        "127.0.0.1",
+        host,
         "--port",
         str(process.http_port),
         "--tensor-parallel-size",

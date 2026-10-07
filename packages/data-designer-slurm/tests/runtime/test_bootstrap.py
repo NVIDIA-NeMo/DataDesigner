@@ -57,6 +57,8 @@ def test_bootstrap_manifest_builds_typed_one_node_steps_without_secret_values(ru
     assert "--attempt-dir" in manifest.steps[-1].command
     assert all(step.node_hosts == ("compute-001",) for step in manifest.steps)
     assert all(step.role is not RuntimeStepRole.SERVER_PREFLIGHT for step in manifest.steps)
+    server = next(step for step in manifest.steps if step.role is RuntimeStepRole.SERVER)
+    assert server.command[server.command.index("--host") + 1] == "127.0.0.1"
     endpoint = next(step for step in manifest.steps if step.role is RuntimeStepRole.ENDPOINT)
     assert endpoint.literal_environment["PYTHONPATH"] == runtime_root.as_posix()
     assert endpoint.container_environment == ()
@@ -102,15 +104,14 @@ def test_one_node_multi_replica_manifest_uses_one_gpu_owned_worker(
     assert len(servers) == 1
     assert servers[0].gpu_indices == tuple(range(8))
     assert len(servers[0].readiness) == replicas
+    assert {probe.host for probe in servers[0].readiness} == {"compute-001"}
     worker = decode_node_worker_spec(servers[0].command[-1])
     processes = worker.nodes[0].processes
     assert len(processes) == replicas
     assert [process.gpu_indices for process in processes] == [
         tuple(range(index * tensor_parallel, (index + 1) * tensor_parallel)) for index in range(replicas)
     ]
-    assert all(
-        ("--host", "127.0.0.1") == process.command[process.command.index("--host") :][:2] for process in processes
-    )
+    assert all(("--host", "0.0.0.0") == process.command[process.command.index("--host") :][:2] for process in processes)
 
 
 @pytest.mark.parametrize("role", (RuntimeStepRole.CLIENT_PREFLIGHT, RuntimeStepRole.SERVER))
