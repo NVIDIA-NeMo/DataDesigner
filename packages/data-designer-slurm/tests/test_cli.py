@@ -157,6 +157,21 @@ def test_default_empty_image_list_is_readable(monkeypatch: pytest.MonkeyPatch) -
     assert result.stdout == "(none)\n"
 
 
+def test_human_output_redacts_credentials_and_terminal_controls() -> None:
+    rendered = "\n".join(
+        cli_module._human_lines(
+            {"detail": "token=secretvalue\x1b[31m", "script": "first line\napi_key=anothersecret\nlast line"}
+        )
+    )
+
+    assert "secretvalue" not in rendered
+    assert "anothersecret" not in rendered
+    assert "\x1b" not in rendered
+    assert "token=<redacted>" in rendered
+    assert "api_key=<redacted>" in rendered
+    assert "  first line\n  api_key=<redacted>\n  last line" in rendered
+
+
 @pytest.mark.parametrize(
     ("arguments", "expected"),
     [

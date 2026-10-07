@@ -25,6 +25,7 @@ from data_designer.slurm.images.vllm_source import (
     is_versioned_vllm_tag,
     resolve_versioned_vllm_source,
 )
+from data_designer.slurm.security import redact_sensitive_diagnostic
 from data_designer.slurm.services import (
     SlurmServiceError,
     SlurmServiceErrorCode,
@@ -445,7 +446,7 @@ def _human_lines(value: object, *, indent: int = 0) -> list[str]:
                 lines.append(f"{prefix}- {_human_scalar(item)}")
         return lines
     if isinstance(value, str) and "\n" in value:
-        return [f"{prefix}{line}" for line in value.rstrip("\n").splitlines()]
+        return [f"{prefix}{_human_scalar(line)}" for line in value.rstrip("\n").splitlines()]
     return [f"{prefix}{_human_scalar(value)}"]
 
 
@@ -454,7 +455,7 @@ def _human_scalar(value: object) -> str:
         return "not set"
     if isinstance(value, bool):
         return "yes" if value else "no"
-    return str(value)
+    return redact_sensitive_diagnostic(str(value))
 
 
 def _emit_json(value: object, *, err: bool = False) -> None:

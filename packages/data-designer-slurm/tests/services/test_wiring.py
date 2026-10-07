@@ -548,6 +548,36 @@ def test_execute_reports_safe_submission_and_log_guidance(
     assert "slurm-attempt-0001-42_0.err" in progress[2]
 
 
+def test_execute_status_guidance_preserves_explicit_profile_selection(
+    tmp_path: Path,
+    profile_catalog: SlurmProfileCatalog,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    _register_images(tmp_path, authored_run_single, single_node_plan)
+    catalog = profile_catalog.model_copy(
+        update={"clusters": {**profile_catalog.clusters, "primary": _profile(tmp_path, profile_catalog)}}
+    )
+    profile_file = tmp_path / "profiles.json"
+    profile_file.write_text(catalog.model_dump_json())
+    progress: list[str] = []
+    service = create_slurm_run_service(
+        profile_file=profile_file,
+        cluster="primary",
+        launcher=_Launcher(),  # type: ignore[arg-type]
+        run_id_factory=lambda: "run-wired",
+        package_version="0.9.2",
+        progress=progress.append,
+    )
+
+    result = service.execute(authored_run_single, source_root=tmp_path)
+
+    assert result.state == "submitted"
+    assert progress[1] == (
+        f"Submitted. Check status: data-designer slurm status run-wired --profile-file {profile_file} --cluster primary"
+    )
+
+
 @pytest.mark.parametrize(
     ("submission_error", "message"),
     [
@@ -556,8 +586,12 @@ def test_execute_reports_safe_submission_and_log_guidance(
                 "sbatch failed with exit code 1: Invalid account or account/partition combination specified",
                 may_have_succeeded=False,
             ),
-            "Slurm rejected the submission: sbatch failed with exit code 1: "
+            "Slurm submission failed: sbatch failed with exit code 1: "
             "Invalid account or account/partition combination specified",
+        ),
+        (
+            SlurmSubmissionError("sbatch could not be executed: missing executable", may_have_succeeded=False),
+            "Slurm submission failed: sbatch could not be executed: missing executable",
         ),
         (
             SlurmSubmissionError("sbatch response was lost", may_have_succeeded=True),
@@ -610,10 +644,10 @@ def test_execute_redacts_submission_diagnostic(
         service.execute(authored_run_single, source_root=tmp_path)
 
     message = str(caught.value)
-    assert message.startswith("Slurm rejected the submission: sbatch rejected account with token=<redacted>")
+    assert message.startswith("Slurm submission failed: sbatch rejected account with token=<redacted>")
     assert "secretvalue" not in message
     assert "\n" not in message
-    assert len(message) <= 550
+    assert len(message) <= 512
 
 
 def test_status_reconciles_cancelled_scheduler_attempt(

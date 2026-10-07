@@ -407,7 +407,12 @@ class _SystemRunBackend:
                 ) from None
             run_root = Path(plan.authored_config.path).parent
             log_stem = f"slurm-attempt-0001-{receipt.job_id}_0"
-            self._report_progress(f"Submitted. Check status: data-designer slurm status {plan.run_id}")
+            status_command = ["data-designer", "slurm", "status", plan.run_id]
+            if plan.selected_profile.catalog_path is not None:
+                status_command.extend(("--profile-file", plan.selected_profile.catalog_path))
+            if plan.selected_profile.cluster_name is not None:
+                status_command.extend(("--cluster", plan.selected_profile.cluster_name))
+            self._report_progress(f"Submitted. Check status: {shlex.join(status_command)}")
             self._report_progress(
                 "After allocation, follow shard 0 logs: "
                 + shlex.join(
@@ -926,9 +931,7 @@ def _new_run_id() -> str:
 
 def _safe_submission_error(error: SlurmSubmissionError) -> str:
     """Preserve bounded, redacted sbatch diagnostics and submission ambiguity."""
-    prefix = (
-        "Slurm submission outcome is uncertain: " if error.may_have_succeeded else "Slurm rejected the submission: "
-    )
+    prefix = "Slurm submission outcome is uncertain: " if error.may_have_succeeded else "Slurm submission failed: "
     suffix = "; inspect queue and accounting before retrying" if error.may_have_succeeded else ""
     detail = " ".join(redact_sensitive_diagnostic(str(error)).split()) or "no diagnostic was returned"
     max_detail_length = 512 - len(prefix) - len(suffix)
