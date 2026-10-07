@@ -796,12 +796,19 @@ def test_completion_wraps_invalid_tool_schema_as_bad_request() -> None:
     assert "missing a function name" in exc_info.value.message
 
 
-def test_completion_wraps_unsupported_tool_choice_as_bad_request() -> None:
+@pytest.mark.parametrize(
+    "tool_choice",
+    [
+        pytest.param("always", id="unknown-string"),
+        pytest.param({"type": []}, id="malformed-type"),
+    ],
+)
+def test_completion_wraps_unsupported_tool_choice_as_bad_request(tool_choice: object) -> None:
     client = _make_client()
     request = ChatCompletionRequest(
         model=MODEL,
         messages=[{"role": "user", "content": "Hi"}],
-        tool_choice="always",
+        tool_choice=tool_choice,
     )
 
     with pytest.raises(ProviderError) as exc_info:

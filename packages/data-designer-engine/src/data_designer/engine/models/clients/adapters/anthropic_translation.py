@@ -313,7 +313,7 @@ def translate_tool_choice(tool_choice: Any) -> dict[str, Any]:
             raise ValueError(f"Anthropic tool_choice is missing a function name, got: {tool_choice!r}")
         return {"type": "tool", "name": name}
 
-    if choice_type not in _ANTHROPIC_TOOL_CHOICE_TYPES:
+    if not isinstance(choice_type, str) or choice_type not in _ANTHROPIC_TOOL_CHOICE_TYPES:
         raise ValueError(f"Anthropic tool_choice has an unsupported type, got: {tool_choice!r}")
     if choice_type == "tool":
         name = tool_choice.get("name")

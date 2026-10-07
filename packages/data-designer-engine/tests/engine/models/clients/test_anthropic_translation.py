@@ -386,6 +386,8 @@ def test_translate_tool_choice_normalizes_supported_shapes(
         pytest.param({"type": "function", "function": {}}, "missing a function name", id="function-without-name"),
         pytest.param({"type": "tool"}, "missing a tool name", id="tool-without-name"),
         pytest.param({"type": "bogus"}, "unsupported type", id="unknown-type"),
+        pytest.param({"type": []}, "unsupported type", id="list-type"),
+        pytest.param({"type": {}}, "unsupported type", id="dict-type"),
         pytest.param(1, "must be a string or an object", id="wrong-type"),
     ],
 )
