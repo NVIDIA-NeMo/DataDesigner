@@ -20,6 +20,15 @@ from data_designer.config.utils.io_helpers import list_processor_names, load_pro
 from data_designer.config.utils.type_helpers import StrEnum, resolve_string_enum
 from data_designer.engine.dataset_builders.errors import ArtifactStorageError
 from data_designer.engine.storage.media_storage import MediaStorage, StorageMode
+from data_designer.engine.storage.parquet_schema import (
+    cast_table,
+    dataframe_to_table,
+    is_batch_file,
+    read_batch_schema,
+    resolve_target_schema,
+    schema_lock,
+    write_table_atomically,
+)
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -236,7 +245,15 @@ class ArtifactStorage(BaseModel):
             raise ArtifactStorageError("🛑 Partial result file not found.")
         self.mkdir_if_needed(self._get_stage_path(BatchStage.FINAL_RESULT))
         final_file_path = self.create_batch_file_path(batch_number, batch_stage=BatchStage.FINAL_RESULT)
-        shutil.move(partial_result_path, final_file_path)
+        with schema_lock:
+            partial_schema = read_batch_schema(partial_result_path)
+            target_schema = resolve_target_schema(final_file_path, partial_schema)
+            if target_schema.equals(partial_schema):
+                shutil.move(partial_result_path, final_file_path)
+            else:
+                table = cast_table(lazy.pq.read_table(partial_result_path), target_schema, final_file_path)
+                write_table_atomically(table, final_file_path)
+                partial_result_path.unlink()
         return final_file_path
 
     def write_batch_to_parquet_file(
@@ -257,10 +274,17 @@ class ArtifactStorage(BaseModel):
         batch_stage: BatchStage,
         subfolder: str | None = None,
     ) -> Path:
+        batch_stage = resolve_string_enum(batch_stage, BatchStage)
         subfolder = subfolder or ""
         self.mkdir_if_needed(self._get_stage_path(batch_stage) / subfolder)
         file_path = self._get_stage_path(batch_stage) / subfolder / parquet_file_name
-        dataframe.to_parquet(file_path, index=False)
+        table = dataframe_to_table(dataframe)
+        if batch_stage == BatchStage.PARTIAL_RESULT or not is_batch_file(file_path):
+            write_table_atomically(table, file_path)
+            return file_path
+        with schema_lock:
+            target_schema = resolve_target_schema(file_path, table.schema)
+            write_table_atomically(cast_table(table, target_schema, file_path), file_path)
         return file_path
 
     def get_parquet_file_paths(self) -> list[str]:
