@@ -36,7 +36,7 @@ Check that the profile file and workspace are accessible from the submit host, h
 
 ## Slurm commands are unavailable in a batch job
 
-Set `scheduler.bin_path` in the selected profile to the absolute directory containing `srun`, `scontrol`, and the other Slurm executables. The generated batch script prepends this directory to its controlled `PATH`.
+Generation discovers the `srun` directory from the submit host and checks that `scontrol` is there before submitting. If discovery fails, load your site's Slurm environment and retry preparation; the error names the missing tool. If the discovered directory does not exist on compute nodes, set `scheduler.bin_path` in the selected profile to a shared absolute directory containing runnable `srun` and `scontrol`. The generated batch script prepends that directory to its controlled `PATH`.
 
 ## A small run requests every GPU on each node
 

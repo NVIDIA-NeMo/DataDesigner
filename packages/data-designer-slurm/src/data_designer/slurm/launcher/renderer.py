@@ -195,7 +195,7 @@ dd_slurm_run_allocation \
 
 
 def _get_command_path(plan: ResolvedSlurmRunPlan) -> str:
-    scheduler_bin_path = plan.selected_profile.profile.scheduler.bin_path
+    scheduler_bin_path = plan.scheduler_bin_path or plan.selected_profile.profile.scheduler.bin_path
     return _SYSTEM_PATH if scheduler_bin_path is None else f"{scheduler_bin_path}:{_SYSTEM_PATH}"
 
 

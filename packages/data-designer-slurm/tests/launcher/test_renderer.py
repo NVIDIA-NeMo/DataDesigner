@@ -99,6 +99,18 @@ def test_renderer_uses_profile_slurm_bin_path(single_node_plan: ResolvedSlurmRun
     assert "#SBATCH --exclusive" not in script
 
 
+def test_renderer_uses_discovered_slurm_bin_path_without_profile_override(
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    plan = single_node_plan.model_copy(update={"scheduler_bin_path": "/shared/slurm/bin"})
+
+    script = render_generation_attempt_script(plan, attempt_ordinal=1)
+
+    assert plan.selected_profile.profile.scheduler.bin_path is None
+    assert 'export PATH="/shared/slurm/bin:/usr/local/sbin:' in script
+    assert ResolvedSlurmRunPlan.model_validate_json(plan.serialize_json()).scheduler_bin_path == "/shared/slurm/bin"
+
+
 @pytest.mark.parametrize("gpu_request_mode", ("gres", "visible"))
 def test_renderer_reserves_client_cpus_for_each_gpu_request_mode(
     single_node_plan: ResolvedSlurmRunPlan,
