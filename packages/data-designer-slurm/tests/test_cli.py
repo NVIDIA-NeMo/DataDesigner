@@ -101,6 +101,62 @@ class _BenchmarkService:
         return self.report
 
 
+@pytest.fixture(autouse=True)
+def json_output_for_existing_contract_tests(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep existing JSON contract assertions explicit while the CLI default changes."""
+    monkeypatch.setenv("DATA_DESIGNER_SLURM_OUTPUT", "json")
+
+
+def test_default_output_is_readable_and_json_is_explicit(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("DATA_DESIGNER_SLURM_OUTPUT")
+    run_file = tmp_path / "run.json"
+    run_file.write_text(authored_run_single.serialize_json())
+    monkeypatch.setattr(cli_module, "create_slurm_run_service", lambda **_: _RunService())
+
+    human = CliRunner().invoke(cli_module.create_cli(), ["execute", str(run_file), "--dry-run"])
+    machine = CliRunner().invoke(cli_module.create_cli(), ["--output", "json", "execute", str(run_file), "--dry-run"])
+
+    assert human.exit_code == machine.exit_code == 0
+    assert "Run id: run-0001" in human.stdout
+    assert "State: dry_run" in human.stdout
+    assert "Batch script:\n  #!/bin/bash" in human.stdout
+    assert json.loads(machine.stdout)["run_id"] == "run-0001"
+
+
+def test_default_error_is_readable_and_json_error_is_explicit(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("DATA_DESIGNER_SLURM_OUTPUT")
+
+    def fail(**_: object) -> None:
+        raise SlurmServiceError(SlurmServiceErrorCode.UNAVAILABLE, SlurmServiceOperation.STATUS_RUN, "try later")
+
+    monkeypatch.setattr(cli_module, "create_slurm_run_service", fail)
+
+    human = CliRunner().invoke(cli_module.create_cli(), ["status", "run-0001"])
+    machine = CliRunner().invoke(cli_module.create_cli(), ["--output", "json", "status", "run-0001"])
+
+    assert human.exit_code == machine.exit_code == 5
+    assert human.stderr == "Error: try later\nOperation: status run\n"
+    assert json.loads(machine.stderr)["error"]["code"] == "unavailable"
+
+
+def test_default_empty_image_list_is_readable(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("DATA_DESIGNER_SLURM_OUTPUT")
+
+    class ImageService:
+        def list(self) -> tuple[()]:
+            return ()
+
+    monkeypatch.setattr(cli_module, "create_slurm_image_service", lambda **_: ImageService())
+    result = CliRunner().invoke(cli_module.create_cli(), ["image", "ls"])
+
+    assert result.exit_code == 0
+    assert result.stdout == "(none)\n"
+
+
 @pytest.mark.parametrize(
     ("arguments", "expected"),
     [
@@ -493,6 +549,54 @@ def test_image_add_follow_logs_is_explicit_and_keeps_json_on_stdout(monkeypatch:
     assert result.exit_code == 0, result.output
     assert json.loads(result.stdout)["source"] == source
     assert result.stderr == "[image stderr] inspection started\n"
+
+
+@pytest.mark.parametrize("interactive", [False, True])
+def test_image_add_follows_logs_by_default_in_terminals(
+    monkeypatch: pytest.MonkeyPatch,
+    interactive: bool,
+) -> None:
+    source = f"vllm/vllm-openai@sha256:{'a' * 64}"
+
+    class ImageService:
+        def add(self, request: ImageBuildRequest, *, replace: bool) -> ImageBuildRequest:
+            return request
+
+    def create_service(**kwargs: object) -> ImageService:
+        logs = kwargs["logs"]
+        assert callable(logs) is interactive
+        if callable(logs):
+            logs("[image stderr] inspection started")
+        return ImageService()
+
+    monkeypatch.setattr(cli_module, "create_slurm_image_service", create_service)
+    monkeypatch.setattr(cli_module, "_progress_enabled", lambda: interactive)
+
+    result = CliRunner().invoke(cli_module.create_cli(), ["image", "add", source])
+
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.stdout)["source"] == source
+    assert ("[image stderr] inspection started" in result.stderr) is interactive
+
+
+def test_image_add_can_disable_default_log_following(monkeypatch: pytest.MonkeyPatch) -> None:
+    source = f"vllm/vllm-openai@sha256:{'a' * 64}"
+
+    class ImageService:
+        def add(self, request: ImageBuildRequest, *, replace: bool) -> ImageBuildRequest:
+            return request
+
+    def create_service(**kwargs: object) -> ImageService:
+        assert kwargs["logs"] is None
+        return ImageService()
+
+    monkeypatch.setattr(cli_module, "create_slurm_image_service", create_service)
+    monkeypatch.setattr(cli_module, "_progress_enabled", lambda: True)
+
+    result = CliRunner().invoke(cli_module.create_cli(), ["image", "add", source, "--no-follow-logs"])
+
+    assert result.exit_code == 0, result.output
+    assert "[image stderr]" not in result.stderr
 
 
 def test_image_add_rejects_versioned_vllm_as_client() -> None:

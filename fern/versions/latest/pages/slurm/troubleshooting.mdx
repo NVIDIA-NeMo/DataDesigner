@@ -1,6 +1,6 @@
 # Slurm troubleshooting
 
-Start with the JSON error on stderr, then inspect the managed run directory and Slurm state. The CLI uses these exit codes:
+Start with the error on stderr, then inspect the managed run directory and Slurm state. Use `data-designer slurm --output json COMMAND` for a structured error. The CLI uses these exit codes:
 
 | Exit code | Error code | Meaning |
 | --- | --- | --- |
@@ -41,6 +41,19 @@ Set `scheduler.bin_path` in the selected profile to the absolute directory conta
 ## A small run requests every GPU on each node
 
 `gpus_per_node: auto` uses the GPU count reported by eligible nodes and requests that count in GRES mode. Set an explicit count such as `gpus_per_node: 1` when the cluster permits partial-node allocations, then keep deployment topology compatible with that count.
+
+## Slurm rejects the submission
+
+If `sbatch` reports an invalid account/partition combination, check `submission.account` and `submission.partition` in the run file as well as the selected profile defaults. An explicit run-file value takes precedence. A dry-run renders the request but does not verify account authorization with Slurm. On the submit host, inspect associations and partition availability, then validate a candidate without creating a job:
+
+```bash
+sacctmgr -nP show assoc where user="$USER" format=Account,Partition,QOS
+sinfo --all --noheader --format='%P|%a|%G'
+sbatch --test-only --account="$ACCOUNT" --partition="$PARTITION" \
+  --nodes=1 --gres=gpu:"$GPU_COUNT" --time="$TIME_LIMIT" --wrap=true
+```
+
+An association with an empty partition field does not guarantee access to every partition. Match the test-only request to the run's resources; if access remains unclear, ask the cluster administrator. If the CLI reports that the submission outcome is uncertain, inspect queue and accounting state before retrying. A rejected or uncertain submission can leave initialized run state without a recorded attempt.
 
 ## Image registration fails
 

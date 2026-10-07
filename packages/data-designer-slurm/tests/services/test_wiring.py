@@ -28,7 +28,7 @@ from data_designer.slurm.config import (
 from data_designer.slurm.contracts import ArtifactReference, canonical_json
 from data_designer.slurm.images.records import RegisteredImage
 from data_designer.slurm.images.registry import ImageRegistryStore
-from data_designer.slurm.launcher.errors import SlurmLauncherError
+from data_designer.slurm.launcher.errors import SlurmLauncherError, SlurmSubmissionError
 from data_designer.slurm.launcher.models import (
     SlurmAccountingEntry,
     SlurmJobSubmissionReceipt,
@@ -520,6 +520,100 @@ def test_production_wiring_publishes_initial_state_before_releasing_submission(
     assert attempts[0].scheduler == SchedulerIdentity(array_job_id=42, array_task_id=0)
     assert launcher.held_submissions == [True]
     assert launcher.releases == [42]
+
+
+def test_execute_reports_safe_submission_and_log_guidance(
+    tmp_path: Path,
+    profile_catalog: SlurmProfileCatalog,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    _register_images(tmp_path, authored_run_single, single_node_plan)
+    progress: list[str] = []
+    service = create_slurm_run_service(
+        profile=_profile(tmp_path, profile_catalog),
+        launcher=_Launcher(),  # type: ignore[arg-type]
+        run_id_factory=lambda: "run-wired",
+        package_version="0.9.2",
+        progress=progress.append,
+    )
+
+    result = service.execute(authored_run_single, source_root=tmp_path)
+
+    assert result.state == "submitted"
+    assert progress[0] == "Rendered batch script; invoking sbatch --parsable --hold (script via stdin)."
+    assert "data-designer slurm status run-wired" in progress[1]
+    assert "tail -F" in progress[2]
+    assert "slurm-attempt-0001-42_0.out" in progress[2]
+    assert "slurm-attempt-0001-42_0.err" in progress[2]
+
+
+@pytest.mark.parametrize(
+    ("submission_error", "message"),
+    [
+        (
+            SlurmSubmissionError(
+                "sbatch failed with exit code 1: Invalid account or account/partition combination specified",
+                may_have_succeeded=False,
+            ),
+            "Slurm rejected the submission: sbatch failed with exit code 1: "
+            "Invalid account or account/partition combination specified",
+        ),
+        (
+            SlurmSubmissionError("sbatch response was lost", may_have_succeeded=True),
+            "Slurm submission outcome is uncertain",
+        ),
+    ],
+)
+def test_execute_reports_bounded_redacted_submission_diagnostic(
+    tmp_path: Path,
+    profile_catalog: SlurmProfileCatalog,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+    submission_error: SlurmSubmissionError,
+    message: str,
+) -> None:
+    _register_images(tmp_path, authored_run_single, single_node_plan)
+    service = create_slurm_run_service(
+        profile=_profile(tmp_path, profile_catalog),
+        launcher=_Launcher(submission_error=submission_error),  # type: ignore[arg-type]
+        run_id_factory=lambda: "run-wired",
+        package_version="0.9.2",
+    )
+
+    with pytest.raises(SlurmServiceError, match=message) as caught:
+        service.execute(authored_run_single, source_root=tmp_path)
+
+    assert caught.value.code is SlurmServiceErrorCode.UNAVAILABLE
+    assert SlurmStateWriter(tmp_path, "run-wired").load_attempts("shard-00000") == ()
+
+
+def test_execute_redacts_submission_diagnostic(
+    tmp_path: Path,
+    profile_catalog: SlurmProfileCatalog,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    _register_images(tmp_path, authored_run_single, single_node_plan)
+    error = SlurmSubmissionError(
+        "sbatch rejected account with token=secretvalue\n" + "extra detail " * 100,
+        may_have_succeeded=False,
+    )
+    service = create_slurm_run_service(
+        profile=_profile(tmp_path, profile_catalog),
+        launcher=_Launcher(submission_error=error),  # type: ignore[arg-type]
+        run_id_factory=lambda: "run-wired",
+        package_version="0.9.2",
+    )
+
+    with pytest.raises(SlurmServiceError) as caught:
+        service.execute(authored_run_single, source_root=tmp_path)
+
+    message = str(caught.value)
+    assert message.startswith("Slurm rejected the submission: sbatch rejected account with token=<redacted>")
+    assert "secretvalue" not in message
+    assert "\n" not in message
+    assert len(message) <= 550
 
 
 def test_status_reconciles_cancelled_scheduler_attempt(
