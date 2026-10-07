@@ -27,6 +27,31 @@ def test_scheduler_directory_is_discovered_from_submit_path(tmp_path: Path, monk
     assert resolve_scheduler_bin_path(None) == str(directory)
 
 
+def test_scheduler_directory_preserves_command_symlinks(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    directory = tmp_path / "slurm-bin"
+    directory.mkdir()
+    srun_target = tmp_path / "srun-target"
+    scontrol_target = tmp_path / "scontrol-target"
+    srun_target.write_text("#!/bin/sh\nexit 0\n")
+    scontrol_target.write_text("#!/bin/sh\nexit 0\n")
+    srun_target.chmod(0o755)
+    scontrol_target.chmod(0o755)
+    (directory / "srun").symlink_to(srun_target)
+    (directory / "scontrol").symlink_to(scontrol_target)
+    monkeypatch.setenv("PATH", str(directory))
+
+    assert resolve_scheduler_bin_path(None) == str(directory)
+
+
+def test_relative_submit_path_is_normalized(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    directory = tmp_path / "slurm-bin"
+    _install_fake_slurm_tools(directory)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("PATH", "./slurm-bin")
+
+    assert resolve_scheduler_bin_path(None) == str(directory)
+
+
 def test_explicit_override_works_without_submit_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     directory = tmp_path / "slurm-bin"
     _install_fake_slurm_tools(directory)

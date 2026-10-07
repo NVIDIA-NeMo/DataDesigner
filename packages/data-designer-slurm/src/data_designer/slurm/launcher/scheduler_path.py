@@ -24,7 +24,7 @@ def resolve_scheduler_bin_path(configured: str | None) -> str:
             raise SchedulerPathError(
                 "srun was not found on the submit host PATH; load your site's Slurm environment before submitting"
             )
-        directory = Path(srun).resolve(strict=True).parent
+        directory = Path(os.path.abspath(srun)).parent
     else:
         directory = Path(configured)
     try:
