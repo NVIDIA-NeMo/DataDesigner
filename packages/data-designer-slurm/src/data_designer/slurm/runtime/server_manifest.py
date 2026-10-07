@@ -121,7 +121,7 @@ def _build_deployment_serving_steps(
     log_directory: Path,
     layout: AllocationLayout,
 ) -> tuple[RuntimeStepSpec, ...]:
-    if len(deployment.node_indices) > 1:
+    if len(deployment.node_indices) > 1 or len(deployment.processes) > 1:
         return (
             build_distributed_server_step(
                 deployment,
