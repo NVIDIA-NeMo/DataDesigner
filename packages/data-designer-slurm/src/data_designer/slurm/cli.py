@@ -6,6 +6,7 @@ from __future__ import annotations
 import re
 import sys
 from collections.abc import Callable, Mapping
+from contextvars import ContextVar
 from enum import Enum
 from functools import partial
 from pathlib import Path
@@ -56,6 +57,9 @@ class _OutputFormat(str, Enum):
     JSON = "json"
 
 
+_ACTIVE_OUTPUT_FORMAT: ContextVar[_OutputFormat] = ContextVar("slurm_output_format", default=_OutputFormat.HUMAN)
+
+
 app = typer.Typer(
     name="slurm",
     help="Run Data Designer workloads on Slurm",
@@ -79,6 +83,8 @@ def slurm_callback(
 ) -> None:
     """Choose readable output by default or stable JSON for automation."""
     ctx.obj = output
+    token = _ACTIVE_OUTPUT_FORMAT.set(_OutputFormat(output))
+    ctx.call_on_close(lambda: _ACTIVE_OUTPUT_FORMAT.reset(token))
 
 
 @app.command("execute")
@@ -417,7 +423,7 @@ def _output_format() -> _OutputFormat:
         if isinstance(context.obj, _OutputFormat):
             return context.obj
         context = context.parent
-    return _OutputFormat.HUMAN
+    return _ACTIVE_OUTPUT_FORMAT.get()
 
 
 def _human_lines(value: object, *, indent: int = 0) -> list[str]:
