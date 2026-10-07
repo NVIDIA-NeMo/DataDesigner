@@ -66,7 +66,7 @@ data-designer slurm profile init \
   --host-pattern 'login*.example.test'
 ```
 
-The command writes the profile with restrictive permissions and never overwrites an existing file. Before submitting work, review every generated site value. In particular, confirm the account, partitions, hostname pattern, workspace, GPU request mode, `gpus_per_node`, and the image-build CPU, memory, and time limit. The starter sets `gpus_per_node: auto`, which requests the GPU count reported by eligible nodes. For this one-GPU walkthrough on a shared GRES cluster, set `gpus_per_node: 1` when your site permits partial-node allocations. If Slurm commands are not on the batch-job `PATH`, also set `scheduler.bin_path` to their absolute directory. The starter image-build time limit is four hours and may exceed site policy. Edit it before `image add` when necessary.
+The command writes the profile with restrictive permissions and never overwrites an existing file. Before submitting work, review every generated site value. In particular, confirm the account, partitions, hostname pattern, workspace, GPU request mode, `gpus_per_node`, and the image-build CPU, memory, and time limit. The starter sets `gpus_per_node: auto`, which requests the GPU count reported by eligible nodes. For this one-GPU walkthrough on a shared GRES cluster, set `gpus_per_node: 1` when your site permits partial-node allocations. Generation discovers the Slurm executable directory from the submit host; normally you do not need `scheduler.bin_path`. The starter image-build time limit is four hours and may exceed site policy. Edit it before `image add` when necessary.
 
 ## 5. Validate the profile
 
