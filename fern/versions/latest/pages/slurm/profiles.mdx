@@ -76,7 +76,20 @@ data-designer slurm execute run.yaml --cluster lab
 
 `visible` GPU mode asks Slurm for visible GPUs without GRES memory directives. It cannot be combined with `mem_per_gpu`.
 
+To let Slurm choose among GPU partitions, set `scheduler.partition` to a comma-separated value or a YAML list:
+
+```yaml
+scheduler:
+  partition:
+    - gpu-a
+    - gpu-b
+```
+
+The CLI also accepts `--partition gpu-a,gpu-b` during profile initialization. Slurm chooses a partition when scheduling the job; the CPU `image_build.partition` remains a single partition.
+
 `gpus_per_node` is both the GPU count used for deployment topology and, in `gres` mode, the count requested from Slurm on each job node. `auto` queries eligible nodes and uses their reported count, so an eight-GPU partition produces `--gres=gpu:8`. Set an explicit smaller count, such as `1`, for partial-node allocations when the cluster permits them. Use `auto` only when requesting every GPU on each selected node is intended, and use an explicit count when eligible nodes are heterogeneous.
+
+When selecting multiple partitions with `gpus_per_node: auto`, every selected partition must report GPU resources and all eligible nodes must report the same GPU count. Choose partitions that can also satisfy the run's GPU topology, model, and image requirements.
 
 Generation automatically discovers the directory containing `srun` on the submit host and records it in the immutable run plan, then prepends it to the batch job's controlled `PATH`. Load your site's Slurm environment before submitting; no profile setting is normally needed. If the submit-host path is not available on compute nodes, set `scheduler.bin_path` as an override. It must be one absolute directory containing runnable `srun` and `scontrol`, visible from compute nodes; do not provide a colon-separated list.
 

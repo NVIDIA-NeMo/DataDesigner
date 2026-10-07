@@ -79,6 +79,18 @@ def test_renderer_omits_gres_for_visible_mode_and_emits_optional_submission_fiel
     assert '#SBATCH --comment="safe test run"\n' in script
 
 
+def test_renderer_emits_multiple_gpu_partitions(single_node_plan: ResolvedSlurmRunPlan) -> None:
+    submission = ResolvedSubmission(
+        job_name="data-designer",
+        account="research",
+        partition=["gpu-a", "gpu-b"],
+        time_limit="01:00:00",
+    )
+    plan = single_node_plan.model_copy(update={"submission": submission})
+
+    assert "#SBATCH --partition=gpu-a,gpu-b\n" in render_generation_attempt_script(plan, attempt_ordinal=1)
+
+
 def test_renderer_emits_mem_per_gpu_for_gres_mode(single_node_plan: ResolvedSlurmRunPlan) -> None:
     profile = single_node_plan.selected_profile.profile.model_copy(
         update={"scheduler": SchedulerProfile(account="research", partition="batch", mem_per_gpu="80G")}
