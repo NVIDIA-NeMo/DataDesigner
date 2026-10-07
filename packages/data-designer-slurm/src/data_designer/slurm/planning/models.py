@@ -47,7 +47,7 @@ from data_designer.slurm.contracts import (
     validate_plain_text,
 )
 from data_designer.slurm.planning.builder_identity import get_declared_model_aliases
-from data_designer.slurm.types import NetworkPort
+from data_designer.slurm.types import NetworkPort, PartitionSelection
 
 
 class ResolvedImage(ContractValue):
@@ -373,7 +373,7 @@ class PlannedShard(ContractValue):
 
 class ResolvedSubmission(ContractValue):
     account: Identifier | None = None
-    partition: Identifier | None = None
+    partition: PartitionSelection | None = None
     job_name: Identifier
     time_limit: str
     comment: str | None = None

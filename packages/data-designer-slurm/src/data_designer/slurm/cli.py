@@ -223,7 +223,7 @@ def profile_init_command(
     profile_file: Path | None = typer.Option(None, "--profile-file", dir_okay=False),
     cluster: str = typer.Option("default", "--cluster"),
     account: str | None = typer.Option(None, "--account"),
-    partition: str | None = typer.Option(None, "--partition"),
+    partition: str | None = typer.Option(None, "--partition", help="GPU partition or comma-separated partitions"),
     host_pattern: list[str] | None = typer.Option(None, "--host-pattern"),
 ) -> None:
     """Create a safe portable starter profile without overwriting."""
