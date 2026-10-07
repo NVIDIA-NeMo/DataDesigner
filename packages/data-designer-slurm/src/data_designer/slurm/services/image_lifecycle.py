@@ -32,6 +32,7 @@ from data_designer.slurm.images.records import RegisteredImage
 from data_designer.slurm.launcher.client import SlurmCommandClient
 from data_designer.slurm.launcher.errors import SlurmLauncherError, SlurmSubmissionError
 from data_designer.slurm.launcher.models import SlurmAccountingEntry, SlurmQueueEntry
+from data_designer.slurm.security import redact_sensitive_diagnostic
 from data_designer.slurm.services.errors import SlurmServiceError, SlurmServiceErrorCode, SlurmServiceOperation
 from data_designer.slurm.state import (
     SchedulerJobIdentity,
@@ -134,7 +135,8 @@ class _JobLogFollower:
         self._skip_next_lf[stream] = len(parts) > 1 and parts[-2] == "\r" and not parts[-1]
 
     def _emit_line(self, stream: str, line: str) -> None:
-        self._emit(f"[image {stream}] {_UNSAFE_TERMINAL_CHARACTERS.sub('?', line)}")
+        sanitized = redact_sensitive_diagnostic(line)
+        self._emit(f"[image {stream}] {_UNSAFE_TERMINAL_CHARACTERS.sub('?', sanitized)}")
 
     def _emit(self, message: str) -> None:
         if self._limit_reported:
