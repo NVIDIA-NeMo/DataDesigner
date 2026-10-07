@@ -9,6 +9,7 @@ import json
 import os
 import shlex
 import socket
+import stat
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import ExitStack, contextmanager
 from fnmatch import fnmatchcase
@@ -336,10 +337,7 @@ def _open_or_create_profile_parent(parent: Path) -> Iterator[int]:
             except FileExistsError:
                 pass
             if created:
-                try:
-                    os.chmod(child.name, PRIVATE_DIRECTORY_MODE, dir_fd=descriptor, follow_symlinks=False)
-                except (NotImplementedError, ValueError) as exc:
-                    raise OSError("profile directory permissions cannot be set safely") from exc
+                _set_created_directory_mode(descriptor, child.name)
             parent_descriptor = descriptor
             descriptor = stack.enter_context(
                 open_verified_child_directory(
@@ -354,6 +352,40 @@ def _open_or_create_profile_parent(parent: Path) -> Iterator[int]:
                 os.fsync(descriptor)
                 os.fsync(parent_descriptor)
         yield descriptor
+
+
+def _set_created_directory_mode(parent_descriptor: int, name: str) -> None:
+    try:
+        os.chmod(name, PRIVATE_DIRECTORY_MODE, dir_fd=parent_descriptor, follow_symlinks=False)
+    except (NotImplementedError, ValueError) as exc:
+        # Older Linux fchmodat rejects AT_SYMLINK_NOFOLLOW even for real directories.
+        flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+        try:
+            descriptor = os.open(name, flags, dir_fd=parent_descriptor)
+        except PermissionError:
+            pass
+        else:
+            try:
+                os.fchmod(descriptor, PRIVATE_DIRECTORY_MODE)
+            finally:
+                os.close(descriptor)
+            return
+
+        # O_PATH can open a directory whose owner access was removed by umask.
+        path_flag = getattr(os, "O_PATH", None)
+        if path_flag is None:
+            raise OSError("profile directory permissions cannot be set safely") from exc
+        descriptor = os.open(
+            name,
+            path_flag | os.O_DIRECTORY | os.O_NOFOLLOW,
+            dir_fd=parent_descriptor,
+        )
+        try:
+            if not stat.S_ISDIR(os.fstat(descriptor).st_mode):
+                raise OSError("profile directory changed while permissions were being set")
+            os.chmod(f"/proc/self/fd/{descriptor}", PRIVATE_DIRECTORY_MODE)
+        finally:
+            os.close(descriptor)
 
 
 def _validate_workspace(path: Path) -> None:

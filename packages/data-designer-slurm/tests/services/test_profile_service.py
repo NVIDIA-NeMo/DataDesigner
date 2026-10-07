@@ -125,25 +125,31 @@ def test_profile_init_creates_usable_private_directories_with_restrictive_umask(
         assert stat.S_IMODE(directory.stat().st_mode) == 0o700
 
 
-def test_profile_init_normalizes_unsupported_directory_permissions(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_profile_init_handles_unsupported_nofollow_chmod(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     profile_file = tmp_path / "nested" / "profile.yml"
+    original_chmod = os.chmod
 
-    def reject_chmod(*args: object, **kwargs: object) -> None:
-        raise NotImplementedError("chmod without following symlinks is unavailable")
+    def reject_nofollow_chmod(
+        path: str,
+        mode: int,
+        *,
+        dir_fd: int | None = None,
+        follow_symlinks: bool = True,
+    ) -> None:
+        if not follow_symlinks:
+            raise NotImplementedError("chmod without following symlinks is unavailable")
+        original_chmod(path, mode, dir_fd=dir_fd, follow_symlinks=follow_symlinks)
 
-    monkeypatch.setattr(os, "chmod", reject_chmod)
+    monkeypatch.setattr(os, "chmod", reject_nofollow_chmod)
 
-    with pytest.raises(SlurmServiceError) as caught:
-        create_slurm_profile_service(profile_file=profile_file).initialize(
-            workspace_root=tmp_path / "workspace",
-            image_build_partition="cpu",
-            host_patterns=("login",),
-        )
+    create_slurm_profile_service(profile_file=profile_file).initialize(
+        workspace_root=tmp_path / "workspace",
+        image_build_partition="cpu",
+        host_patterns=("login",),
+    )
 
-    assert caught.value.code is SlurmServiceErrorCode.UNAVAILABLE
-    assert not profile_file.exists()
+    assert load_profile_catalog(profile_file).default_cluster == "default"
+    assert stat.S_IMODE(profile_file.parent.stat().st_mode) == 0o700
 
 
 def test_profile_init_does_not_follow_replaced_parent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
