@@ -156,7 +156,7 @@ Dry-run resolves the selected profile, records the active shared Python runtime,
 data-designer slurm execute run.yaml --cluster primary
 ```
 
-The command prints one JSON object. Save its `run_id`; all lifecycle commands use the managed run ID rather than a raw Slurm job ID.
+The command prints a readable result, a status command, and a first-shard log-tail command in an interactive terminal. Save its run ID; all lifecycle commands use the managed run ID rather than a raw Slurm job ID. To capture a JSON object instead, use `data-designer slurm --output json execute run.yaml --cluster primary`.
 
 ## 11. Inspect or cancel the run
 

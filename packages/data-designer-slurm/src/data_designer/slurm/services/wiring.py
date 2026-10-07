@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import importlib.metadata
 import os
+import shlex
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
@@ -46,13 +47,14 @@ from data_designer.slurm.images.records import RegisteredImage
 from data_designer.slurm.images.registry import ImageRegistryStore
 from data_designer.slurm.images.service import VerifiedImageRegistry
 from data_designer.slurm.launcher.client import SlurmCommandClient
-from data_designer.slurm.launcher.errors import SlurmLauncherError
+from data_designer.slurm.launcher.errors import SlurmLauncherError, SlurmSubmissionError
 from data_designer.slurm.launcher.renderer import render_generation_attempt_script
 from data_designer.slurm.planning import ResolvedImage, ResolvedSlurmRunPlan
 from data_designer.slurm.planning.compiler import SlurmRunCompiler
 from data_designer.slurm.planning.resolution import resolve_slurm_config
 from data_designer.slurm.runtime.bundle import stage_runtime_bundle
 from data_designer.slurm.runtime.errors import SlurmRuntimeError
+from data_designer.slurm.security import redact_sensitive_diagnostic
 from data_designer.slurm.services.artifacts import StateRunArtifactPublisher
 from data_designer.slurm.services.benchmark import SlurmBenchmarkService
 from data_designer.slurm.services.errors import SlurmServiceError, SlurmServiceErrorCode, SlurmServiceOperation
@@ -284,6 +286,7 @@ class _SystemRunBackend:
         publisher: SlurmRunArtifactPublisher,
         clock: Clock,
         source_environment: Mapping[str, str],
+        progress: Callable[[str], None] | None = None,
     ) -> None:
         self._preparer = preparer
         self._profile = selected_profile
@@ -291,6 +294,7 @@ class _SystemRunBackend:
         self._publisher = publisher
         self._clock = clock
         self._source_environment = source_environment
+        self._progress = progress
         self._retry_collection = RunRetryCollectionBackend(
             selected_profile.profile.workspace_root,
             launcher,
@@ -327,12 +331,19 @@ class _SystemRunBackend:
                 prepared,
                 force=False,
             )
+            self._report_progress("Rendered batch script; invoking sbatch --parsable --hold (script via stdin).")
             try:
                 receipt = self._launcher.submit_script(
                     prepared.batch_script,
                     hold=True,
                     export_environment=export_environment,
                 )
+            except SlurmSubmissionError as error:
+                raise SlurmServiceError(
+                    SlurmServiceErrorCode.UNAVAILABLE,
+                    SlurmServiceOperation.EXECUTE_RUN,
+                    _safe_submission_error(error),
+                ) from None
             except SlurmLauncherError:
                 raise SlurmServiceError(
                     SlurmServiceErrorCode.UNAVAILABLE,
@@ -394,6 +405,27 @@ class _SystemRunBackend:
                     SlurmServiceOperation.EXECUTE_RUN,
                     f"held Slurm job {receipt.job_id} could not be released and was cancelled",
                 ) from None
+            run_root = Path(plan.authored_config.path).parent
+            log_stem = f"slurm-attempt-0001-{receipt.job_id}_0"
+            status_command = ["data-designer", "slurm", "status", plan.run_id]
+            if plan.selected_profile.catalog_path is not None:
+                status_command.extend(("--profile-file", plan.selected_profile.catalog_path))
+            if plan.selected_profile.cluster_name is not None:
+                status_command.extend(("--cluster", plan.selected_profile.cluster_name))
+            self._report_progress(f"Submitted. Check status: {shlex.join(status_command)}")
+            self._report_progress(
+                "After allocation, follow shard 0 logs: "
+                + shlex.join(
+                    (
+                        "tail",
+                        "-F",
+                        (run_root / f"{log_stem}.out").as_posix(),
+                        (run_root / f"{log_stem}.err").as_posix(),
+                    )
+                )
+            )
+            if len(plan.shards) > 1:
+                self._report_progress("For another shard, replace _0 in the log filenames with its task index.")
             return SlurmRunExecution(
                 run_id=plan.run_id,
                 state="submitted",
@@ -401,6 +433,14 @@ class _SystemRunBackend:
                 shard_count=len(plan.shards),
                 job_id=receipt.job_id,
             )
+
+    def _report_progress(self, message: str) -> None:
+        if self._progress is not None:
+            try:
+                self._progress(message)
+            except Exception:
+                # Display is optional and must not affect submission or reconciliation.
+                pass
 
     @staticmethod
     def _materialize_default_managed_assets(
@@ -739,6 +779,7 @@ def create_slurm_run_service(
     clock: Clock | None = None,
     package_version: str | None = None,
     source_environment: Mapping[str, str] | None = None,
+    progress: Callable[[str], None] | None = None,
 ) -> SlurmRunService:
     """Create the production run service for one selected cluster profile."""
     selected = resolve_profile(profile=profile, catalog=catalog, profile_file=profile_file, cluster=cluster)
@@ -751,6 +792,7 @@ def create_slurm_run_service(
         clock=clock,
         package_version=package_version,
         source_environment=source_environment,
+        progress=progress,
     )
 
 
@@ -764,6 +806,7 @@ def _create_slurm_run_service(
     clock: Clock | None = None,
     package_version: str | None = None,
     source_environment: Mapping[str, str] | None = None,
+    progress: Callable[[str], None] | None = None,
 ) -> SlurmRunService:
     command_client = launcher or SlurmCommandClient()
     selected_clock = clock or _utc_now
@@ -782,6 +825,7 @@ def _create_slurm_run_service(
         artifact_publisher or StateRunArtifactPublisher(selected.profile.workspace_root, selected_clock),
         selected_clock,
         dict(os.environ if source_environment is None else source_environment),
+        progress,
     )
     return SlurmRunService(_SystemRunPlanner(preparer), render_generation_attempt_script, backend)
 
@@ -883,6 +927,17 @@ def _load_optional(call: Callable[[], _ResultT]) -> _ResultT | None:
 
 def _new_run_id() -> str:
     return f"run-{uuid4().hex}"
+
+
+def _safe_submission_error(error: SlurmSubmissionError) -> str:
+    """Preserve bounded, redacted sbatch diagnostics and submission ambiguity."""
+    prefix = "Slurm submission outcome is uncertain: " if error.may_have_succeeded else "Slurm submission failed: "
+    suffix = "; inspect queue and accounting before retrying" if error.may_have_succeeded else ""
+    detail = " ".join(redact_sensitive_diagnostic(str(error)).split()) or "no diagnostic was returned"
+    max_detail_length = 512 - len(prefix) - len(suffix)
+    if len(detail) > max_detail_length:
+        detail = f"{detail[: max_detail_length - 3]}..."
+    return f"{prefix}{detail}{suffix}"
 
 
 def _utc_now() -> datetime:
