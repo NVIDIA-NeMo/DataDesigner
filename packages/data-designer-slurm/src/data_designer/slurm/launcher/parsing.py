@@ -146,6 +146,29 @@ def parse_gpu_counts(output: str) -> tuple[int, ...]:
     return tuple(counts)
 
 
+def parse_selected_partition_gpu_counts(output: str, *, partitions: tuple[str, ...]) -> tuple[int, ...]:
+    """Require a GPU count from every requested partition in ``%P|%G`` rows."""
+    requested = set(partitions)
+    found: set[str] = set()
+    counts: list[int] = []
+    for line_number, line in _collect_nonempty_lines(output):
+        fields = tuple(field.strip() for field in line.split("|"))
+        if len(fields) != 2 or not all(fields):
+            raise SlurmCommandOutputError(f"sinfo line {line_number} must contain a partition and resources")
+        partition, gres = fields
+        partition = partition.removesuffix("*")
+        if partition not in requested:
+            raise SlurmCommandOutputError(f"sinfo line {line_number} contains an unexpected partition")
+        row_counts = parse_gpu_counts(gres)
+        if len(row_counts) != 1:
+            raise SlurmCommandOutputError(f"sinfo partition {partition!r} has no GPU resources")
+        found.add(partition)
+        counts.extend(row_counts)
+    if found != requested:
+        raise SlurmCommandOutputError("sinfo omitted a requested partition")
+    return tuple(counts)
+
+
 def parse_default_partition_gpu_counts(output: str) -> tuple[int, ...]:
     """Parse GPU counts from ``sinfo --format=%P|%G`` default-partition rows."""
     default_partition: str | None = None
