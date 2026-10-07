@@ -28,6 +28,7 @@ from data_designer.slurm.launcher.parsing import (
     parse_gpu_counts,
     parse_named_jobs,
     parse_queue,
+    parse_selected_partition_gpu_counts,
     parse_submission,
 )
 from data_designer.slurm.launcher.runner import CommandRunner, SubprocessRunner
@@ -237,8 +238,12 @@ class SlurmCommandClient:
             or len(set(partition.split(","))) != len(partition.split(","))
         ):
             raise ValueError("Slurm partitions must be a comma-separated list of unique valid identifiers")
-        command = (self._executables.sinfo, "--noheader", "--format=%G", f"--partition={partition}")
-        return parse_gpu_counts(self._run(command))
+        partitions = tuple(partition.split(","))
+        if len(partitions) == 1:
+            command = (self._executables.sinfo, "--noheader", "--format=%G", f"--partition={partition}")
+            return parse_gpu_counts(self._run(command))
+        command = (self._executables.sinfo, "--noheader", "--format=%P|%G", f"--partition={partition}")
+        return parse_selected_partition_gpu_counts(self._run(command), partitions=partitions)
 
     def _run(
         self,

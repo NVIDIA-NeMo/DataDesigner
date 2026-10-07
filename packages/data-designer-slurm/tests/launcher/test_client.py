@@ -252,11 +252,25 @@ def test_client_queries_partition_scoped_gpu_inventory() -> None:
 
 
 def test_client_queries_multiple_partition_gpu_inventory() -> None:
-    command = ("sinfo", "--noheader", "--format=%G", "--partition=batch,other")
-    runner = FakeSlurmRunner(sinfo_responses={command: FakeCommandResponse(stdout="gpu:a100:8\ngpu:h100:8\n")})
+    command = ("sinfo", "--noheader", "--format=%P|%G", "--partition=batch,other")
+    runner = FakeSlurmRunner(
+        sinfo_responses={command: FakeCommandResponse(stdout="batch|gpu:a100:8\nother|gpu:h100:8\n")}
+    )
 
     assert SlurmCommandClient(runner).query_gpu_counts(partition="batch,other") == (8, 8)
     assert runner.calls == [command]
+
+
+@pytest.mark.parametrize(
+    "output",
+    ["batch|gpu:a100:8\n", "batch|gpu:a100:8\nother|(null)\n", "batch|gpu:a100:8\nother|gpu:h100:8\nother|(null)\n"],
+)
+def test_client_rejects_selected_partition_without_gpu_inventory(output: str) -> None:
+    command = ("sinfo", "--noheader", "--format=%P|%G", "--partition=batch,other")
+    runner = FakeSlurmRunner(sinfo_responses={command: FakeCommandResponse(stdout=output)})
+
+    with pytest.raises(SlurmCommandOutputError, match="requested partition|no GPU resources"):
+        SlurmCommandClient(runner).query_gpu_counts(partition="batch,other")
 
 
 @pytest.mark.parametrize("selection", ["batch,,other", "batch,other;echo", "batch,batch"])
