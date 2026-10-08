@@ -579,6 +579,37 @@ def test_execute_reports_safe_submission_and_log_guidance(
     assert "tail -F" in progress[2]
     assert "slurm-attempt-0001-42_0.out" in progress[2]
     assert "slurm-attempt-0001-42_0.err" in progress[2]
+    assert "watch shard 0 vLLM logs (including new executions)" in progress[3]
+    assert "shards/shard-00000/attempts/attempt-0001/logs" in progress[3]
+    assert "watch -n 2 -t" in progress[3]
+    assert "deployment-*.out" in progress[3]
+    assert "deployment-*.err" in progress[3]
+    assert "-exec tail -n 10 {} +" in progress[3]
+
+
+def test_execute_distinguishes_shard_index_from_shard_id_in_log_guidance(
+    tmp_path: Path,
+    profile_catalog: SlurmProfileCatalog,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    sharded_run = authored_run_single.model_copy(
+        update={"array_tasks": authored_run_single.array_tasks.model_copy(update={"count": 2})}
+    )
+    _register_images(tmp_path, sharded_run, single_node_plan)
+    progress: list[str] = []
+    service = create_slurm_run_service(
+        profile=_profile(tmp_path, profile_catalog),
+        launcher=_Launcher(),  # type: ignore[arg-type]
+        run_id_factory=lambda: "run-wired",
+        package_version="0.9.2",
+        progress=progress.append,
+    )
+
+    result = service.execute(sharded_run, source_root=tmp_path)
+
+    assert result.shard_count == 2
+    assert "_1 and shard-00001" in progress[4]
 
 
 def test_execute_status_guidance_preserves_explicit_profile_selection(
