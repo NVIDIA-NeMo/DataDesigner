@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -773,6 +774,46 @@ def test_consolidate_kwargs_non_openrouter_no_openrouter_headers(
 
 
 @pytest.mark.parametrize(
+    ("configured", "per_call", "provider", "expected"),
+    [
+        pytest.param({"reasoning_effort": "high"}, None, None, {"reasoning_effort": "high"}, id="configured-only"),
+        pytest.param(None, {"tool_choice": "required"}, None, {"tool_choice": "required"}, id="per-call-only"),
+        pytest.param(
+            {"reasoning_effort": "high", "seed": 1},
+            {"tool_choice": "required", "seed": 2},
+            None,
+            {"reasoning_effort": "high", "tool_choice": "required", "seed": 2},
+            id="per-call-adds-and-overrides-configured",
+        ),
+        pytest.param(
+            {"reasoning_effort": "high", "seed": 1},
+            {"seed": 2},
+            {"seed": 3, "route": "fast"},
+            {"reasoning_effort": "high", "seed": 3, "route": "fast"},
+            id="provider-overrides-configured-and-per-call",
+        ),
+        pytest.param(None, None, None, None, id="none-set"),
+    ],
+)
+def test_consolidate_kwargs_merges_extra_body_key_by_key(
+    stub_model_configs: list[Any],
+    stub_model_facade: ModelFacade,
+    configured: dict[str, Any] | None,
+    per_call: dict[str, Any] | None,
+    provider: dict[str, Any] | None,
+    expected: dict[str, Any] | None,
+) -> None:
+    stub_model_configs[0].inference_parameters.extra_body = configured
+    stub_model_facade.model_provider.extra_body = provider
+    kwargs = {} if per_call is None else {"extra_body": per_call}
+
+    result = stub_model_facade.consolidate_kwargs(**kwargs)
+
+    assert result.get("extra_body") == expected
+    assert stub_model_configs[0].inference_parameters.extra_body == configured
+
+
+@pytest.mark.parametrize(
     "skip_usage_tracking",
     [
         False,
@@ -835,6 +876,86 @@ def test_completion_forwards_n_to_request(
     assert request.n == 4
 
 
+def test_completion_forwards_tool_choice_and_keeps_configured_extra_body(
+    stub_completion_messages: list[ChatMessage],
+    stub_model_configs: list[Any],
+    stub_model_facade: ModelFacade,
+    stub_model_client: MagicMock,
+) -> None:
+    stub_model_configs[0].inference_parameters.extra_body = {"reasoning_effort": "high"}
+    stub_model_client.completion.return_value = _make_response("Test response")
+
+    stub_model_facade.completion(stub_completion_messages, tool_choice="required", extra_body={"seed": 7})
+
+    request = stub_model_client.completion.call_args.args[0]
+    assert request.tool_choice == "required"
+    assert request.extra_body == {"reasoning_effort": "high", "seed": 7}
+
+
+@pytest.mark.asyncio
+async def test_acompletion_forwards_tool_choice_and_keeps_configured_extra_body(
+    stub_completion_messages: list[ChatMessage],
+    stub_model_configs: list[Any],
+    stub_model_facade: ModelFacade,
+    stub_model_client: MagicMock,
+) -> None:
+    stub_model_configs[0].inference_parameters.extra_body = {"reasoning_effort": "high"}
+    stub_model_client.acompletion = AsyncMock(return_value=_make_response("Test response"))
+
+    await stub_model_facade.acompletion(stub_completion_messages, tool_choice="required", extra_body={"seed": 7})
+
+    request = stub_model_client.acompletion.call_args.args[0]
+    assert request.tool_choice == "required"
+    assert request.extra_body == {"reasoning_effort": "high", "seed": 7}
+
+
+def test_completion_warns_about_dropped_kwargs(
+    stub_completion_messages: list[ChatMessage],
+    stub_model_facade: ModelFacade,
+    stub_model_client: MagicMock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    stub_model_client.completion.return_value = _make_response("Test response")
+
+    with caplog.at_level(logging.WARNING):
+        stub_model_facade.completion(
+            stub_completion_messages, tool_choice="auto", reasoning_effort="high", parallel_tool_calls=False
+        )
+
+    warnings = [
+        record.getMessage()
+        for record in caplog.records
+        if record.name == "data_designer.engine.models.facade" and record.levelno == logging.WARNING
+    ]
+    assert len(warnings) == 1
+    assert "parallel_tool_calls" in warnings[0]
+    assert "reasoning_effort" in warnings[0]
+    assert "tool_choice" not in warnings[0]
+    request = stub_model_client.completion.call_args.args[0]
+    assert request.tool_choice == "auto"
+
+
+def test_completion_warns_once_per_set_of_dropped_kwargs(
+    stub_completion_messages: list[ChatMessage],
+    stub_model_facade: ModelFacade,
+    stub_model_client: MagicMock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    stub_model_client.completion.return_value = _make_response("Test response")
+
+    with caplog.at_level(logging.DEBUG, logger="data_designer.engine.models.facade"):
+        stub_model_facade.completion(stub_completion_messages, reasoning_effort="high")
+        stub_model_facade.completion(stub_completion_messages, reasoning_effort="low")
+        stub_model_facade.completion(stub_completion_messages, reasoning_effort="high", parallel_tool_calls=False)
+
+    dropped_records = [
+        record
+        for record in caplog.records
+        if record.name == "data_designer.engine.models.facade" and "Unknown kwargs" in record.getMessage()
+    ]
+    assert [record.levelno for record in dropped_records] == [logging.WARNING, logging.DEBUG, logging.WARNING]
+
+
 def test_generate_text_embeddings_success(
     stub_model_facade: ModelFacade,
     stub_model_client: MagicMock,
@@ -866,6 +987,20 @@ def test_generate_text_embeddings_with_kwargs(
     kwargs = {"temperature": 0.7, "max_tokens": 100, "input_type": "query"}
     _ = stub_model_facade.generate_text_embeddings(["test1", "test2"], **kwargs)
     assert stub_model_client.embeddings.call_count == 1
+
+
+def test_generate_text_embeddings_merges_configured_and_per_call_extra_body(
+    stub_model_configs: list[Any],
+    stub_model_facade: ModelFacade,
+    stub_model_client: MagicMock,
+) -> None:
+    stub_model_configs[0].inference_parameters.extra_body = {"input_type": "query"}
+    stub_model_client.embeddings.return_value = EmbeddingResponse(vectors=[[0.1, 0.2]])
+
+    stub_model_facade.generate_text_embeddings(["test"], extra_body={"truncate": "END"})
+
+    request = stub_model_client.embeddings.call_args.args[0]
+    assert request.extra_body == {"input_type": "query", "truncate": "END"}
 
 
 def test_generate_with_mcp_tools(
@@ -927,6 +1062,124 @@ def test_generate_with_mcp_tools(
     assert captured_calls[0][1]["tools"][0]["function"]["name"] == "lookup"
     assert any(message.role == "tool" for message in captured_calls[1][0])
     assert registry_calls == [("tools", "lookup", {"query": "foo"}, None)]
+
+
+def test_generate_applies_tool_choice_until_the_first_tool_call(
+    stub_model_configs: Any,
+    stub_model_client: MagicMock,
+    stub_model_provider_registry: Any,
+) -> None:
+    tool_call = ToolCall(id="call-1", name="lookup", arguments_json="{}")
+    responses = [_make_response(content=None, tool_calls=[tool_call]), _make_response("final result")]
+    captured_kwargs: list[dict[str, Any]] = []
+
+    def _completion(self: Any, messages: list[ChatMessage], **kwargs: Any) -> ChatCompletionResponse:
+        captured_kwargs.append(kwargs)
+        return responses.pop(0)
+
+    mcp_facade = StubMCPFacade(
+        tool_schemas=[{"type": "function", "function": {"name": "lookup", "parameters": {"type": "object"}}}]
+    )
+    model = ModelFacade(
+        model_config=stub_model_configs[0],
+        model_provider_registry=stub_model_provider_registry,
+        client=stub_model_client,
+        mcp_registry=StubMCPRegistry(mcp_facade),
+    )
+
+    with patch.object(ModelFacade, "completion", new=_completion):
+        result, _ = model.generate(prompt="question", parser=lambda x: x, tool_alias="tools", tool_choice="required")
+
+    assert result == "final result"
+    assert captured_kwargs[0]["tool_choice"] == "required"
+    assert "tool_choice" not in captured_kwargs[1]
+
+
+@pytest.mark.asyncio
+async def test_agenerate_applies_tool_choice_until_the_first_tool_call(
+    stub_model_configs: Any,
+    stub_model_client: MagicMock,
+    stub_model_provider_registry: Any,
+) -> None:
+    tool_call = ToolCall(id="call-1", name="lookup", arguments_json="{}")
+    responses = [_make_response(content=None, tool_calls=[tool_call]), _make_response("final result")]
+    captured_kwargs: list[dict[str, Any]] = []
+
+    async def _acompletion(self: Any, messages: list[ChatMessage], **kwargs: Any) -> ChatCompletionResponse:
+        captured_kwargs.append(kwargs)
+        return responses.pop(0)
+
+    mcp_facade = StubMCPFacade(
+        tool_schemas=[{"type": "function", "function": {"name": "lookup", "parameters": {"type": "object"}}}]
+    )
+    model = ModelFacade(
+        model_config=stub_model_configs[0],
+        model_provider_registry=stub_model_provider_registry,
+        client=stub_model_client,
+        mcp_registry=StubMCPRegistry(mcp_facade),
+    )
+
+    with patch.object(ModelFacade, "acompletion", new=_acompletion):
+        result, _ = await model.agenerate(
+            prompt="question", parser=lambda x: x, tool_alias="tools", tool_choice="required"
+        )
+
+    assert result == "final result"
+    assert captured_kwargs[0]["tool_choice"] == "required"
+    assert "tool_choice" not in captured_kwargs[1]
+
+
+@pytest.mark.parametrize(
+    ("replies", "expect_tool_choice_after_restart"),
+    [
+        pytest.param(["tool call", "unparseable", "final result"], False, id="restart-after-tool-call"),
+        pytest.param(["unparseable", "final result"], True, id="restart-before-any-tool-call"),
+    ],
+)
+def test_generate_restart_restores_tool_choice_state_from_checkpoint(
+    stub_model_configs: Any,
+    stub_model_client: MagicMock,
+    stub_model_provider_registry: Any,
+    replies: list[str],
+    expect_tool_choice_after_restart: bool,
+) -> None:
+    tool_call = ToolCall(id="call-1", name="lookup", arguments_json="{}")
+    responses = [
+        _make_response(content=None, tool_calls=[tool_call]) if reply == "tool call" else _make_response(reply)
+        for reply in replies
+    ]
+    captured_kwargs: list[dict[str, Any]] = []
+
+    def _completion(self: Any, messages: list[ChatMessage], **kwargs: Any) -> ChatCompletionResponse:
+        captured_kwargs.append(kwargs)
+        return responses.pop(0)
+
+    def _parser(response: str) -> str:
+        if response == "unparseable":
+            raise ParserException("unparseable")
+        return response
+
+    mcp_facade = StubMCPFacade(
+        tool_schemas=[{"type": "function", "function": {"name": "lookup", "parameters": {"type": "object"}}}]
+    )
+    model = ModelFacade(
+        model_config=stub_model_configs[0],
+        model_provider_registry=stub_model_provider_registry,
+        client=stub_model_client,
+        mcp_registry=StubMCPRegistry(mcp_facade),
+    )
+
+    with patch.object(ModelFacade, "completion", new=_completion):
+        result, _ = model.generate(
+            prompt="question",
+            parser=_parser,
+            tool_alias="tools",
+            tool_choice="required",
+            max_conversation_restarts=1,
+        )
+
+    assert result == "final result"
+    assert ("tool_choice" in captured_kwargs[-1]) is expect_tool_choice_after_restart
 
 
 def test_generate_preserves_multimodal_mcp_tool_results_between_turns(
@@ -1729,6 +1982,21 @@ def test_generate_image_chat_completion_tracks_image_usage(
     assert images == ["image1", "image2"]
     assert stub_model_facade.usage_stats.image_usage.total_images == 2
     assert stub_model_facade.usage_stats.image_usage.has_usage is True
+
+
+def test_generate_image_merges_configured_and_per_call_extra_body(
+    stub_model_configs: list[Any],
+    stub_model_facade: ModelFacade,
+    stub_model_client: MagicMock,
+) -> None:
+    stub_model_configs[0].inference_parameters.extra_body = {"quality": "hd"}
+    stub_model_client.generate_image.return_value = ImageGenerationResponse(images=[ImagePayload(b64_data="image")])
+
+    with patch("data_designer.engine.models.facade.is_image_diffusion_model", return_value=True):
+        stub_model_facade.generate_image(prompt="test prompt", extra_body={"size": "1024x1024"})
+
+    request = stub_model_client.generate_image.call_args.args[0]
+    assert request.extra_body == {"quality": "hd", "size": "1024x1024"}
 
 
 def test_generate_image_skip_usage_tracking(

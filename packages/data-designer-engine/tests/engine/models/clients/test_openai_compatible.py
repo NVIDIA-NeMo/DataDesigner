@@ -132,7 +132,61 @@ def test_completion_posts_to_chat_completions_route() -> None:
     assert payload["temperature"] == 0.7
     assert payload["seed"] == 42
     assert "timeout" not in payload
+    assert "tool_choice" not in payload
     assert call_args.kwargs["headers"]["X-Trace"] == "1"
+
+
+@pytest.mark.parametrize(
+    "tool_choice",
+    [
+        pytest.param("required", id="string"),
+        pytest.param({"type": "function", "function": {"name": "search"}}, id="named-function"),
+    ],
+)
+def test_completion_forwards_tool_choice_unchanged(tool_choice: str | dict[str, Any]) -> None:
+    sync_mock = make_mock_sync_client(_chat_response())
+    client = _make_client(sync_client=sync_mock)
+
+    request = ChatCompletionRequest(
+        model=MODEL,
+        messages=[{"role": "user", "content": "Hi"}],
+        tools=[{"type": "function", "function": {"name": "search"}}],
+        tool_choice=tool_choice,
+    )
+    client.completion(request)
+
+    assert sync_mock.post.call_args.kwargs["json"]["tool_choice"] == tool_choice
+
+
+@pytest.mark.asyncio
+async def test_acompletion_forwards_tool_choice_unchanged() -> None:
+    async_mock = make_mock_async_client(_chat_response())
+    client = _make_client(async_client=async_mock)
+
+    request = ChatCompletionRequest(
+        model=MODEL,
+        messages=[{"role": "user", "content": "Hi"}],
+        tools=[{"type": "function", "function": {"name": "search"}}],
+        tool_choice="required",
+    )
+    await client.acompletion(request)
+
+    assert async_mock.post.call_args.kwargs["json"]["tool_choice"] == "required"
+
+
+def test_completion_extra_body_tool_choice_overrides_request_field() -> None:
+    sync_mock = make_mock_sync_client(_chat_response())
+    client = _make_client(sync_client=sync_mock)
+
+    request = ChatCompletionRequest(
+        model=MODEL,
+        messages=[{"role": "user", "content": "Hi"}],
+        tool_choice="required",
+        extra_body={"tool_choice": "none"},
+    )
+    client.completion(request)
+
+    assert sync_mock.post.call_args.kwargs["json"]["tool_choice"] == "none"
 
 
 def test_timeout_excluded_from_body_and_used_as_http_timeout() -> None:

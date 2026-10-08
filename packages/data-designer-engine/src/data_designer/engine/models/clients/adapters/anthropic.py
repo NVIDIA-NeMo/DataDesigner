@@ -45,6 +45,7 @@ class AnthropicClient(HttpModelClient):
             "stop",
             "max_tokens",
             "tools",
+            "tool_choice",
             "n",
             "response_format",
             "frequency_penalty",

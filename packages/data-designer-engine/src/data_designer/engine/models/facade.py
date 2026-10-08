@@ -91,10 +91,11 @@ def _build_generation_validation_error(
 
 # Known keyword arguments extracted into request fields for each modality.
 # Note: `extra_body` and `extra_headers` appear in every set but receive special
-# treatment in `consolidate_kwargs` (merged with provider-level overrides) and in
-# `TransportKwargs` (extra_body is either flattened into the request body or
-# preserved as a nested dict depending on the adapter; extra_headers are
-# forwarded as HTTP headers).  They are NOT regular model parameters.
+# treatment in `consolidate_kwargs` (`extra_body` is merged key by key: model
+# config, then the call, then the provider) and in `TransportKwargs`
+# (extra_body keys are merged into the request body and take precedence over
+# same-named request fields; extra_headers are forwarded as HTTP headers).
+# They are NOT regular model parameters.
 _COMPLETION_REQUEST_FIELDS = frozenset(
     {
         "temperature",
@@ -108,6 +109,7 @@ _COMPLETION_REQUEST_FIELDS = frozenset(
         "presence_penalty",
         "timeout",
         "tools",
+        "tool_choice",
         "extra_body",
         "extra_headers",
     }
@@ -146,6 +148,7 @@ class ModelFacade:
         self._client = client
         self._mcp_registry = mcp_registry
         self._usage_stats = ModelUsageStats()
+        self._warned_dropped_kwargs: set[frozenset[str]] = set()
 
     @property
     def model_name(self) -> str:
@@ -187,11 +190,23 @@ class ModelFacade:
         return self._usage_stats
 
     def consolidate_kwargs(self, **kwargs: Any) -> dict[str, Any]:
+        """Combine the model's inference parameters, the call's kwargs, and the provider's extras.
+
+        Call kwargs override inference parameters. ``extra_body`` is merged key by key in the order
+        model config, call, provider, so a later source wins only for the keys it sets; nested values
+        are replaced, not merged. Provider ``extra_headers`` override the call's.
+        """
         # Remove purpose from kwargs to avoid passing it to the model
         kwargs.pop("purpose", None)
-        kwargs = {**self._model_config.inference_parameters.generate_kwargs, **kwargs}
-        if self.model_provider.extra_body:
-            kwargs["extra_body"] = {**kwargs.get("extra_body", {}), **self.model_provider.extra_body}
+        inference_kwargs = self._model_config.inference_parameters.generate_kwargs
+        extra_body = {
+            **(inference_kwargs.get("extra_body") or {}),
+            **(kwargs.get("extra_body") or {}),
+            **(self.model_provider.extra_body or {}),
+        }
+        kwargs = {**inference_kwargs, **kwargs}
+        if extra_body:
+            kwargs["extra_body"] = extra_body
         if self.model_provider.extra_headers:
             kwargs["extra_headers"] = {**(kwargs.get("extra_headers") or {}), **self.model_provider.extra_headers}
         # Inject framework-level attribution header when telemetry is enabled.
@@ -337,7 +352,10 @@ class ModelFacade:
             skip_usage_tracking (bool): Whether to skip usage tracking. Default: `False`.
             purpose (str): The purpose of the model usage to show as context in the error message.
                 It is expected to be used by the @catch_llm_exceptions decorator.
-            **kwargs: Additional arguments to pass to the model.
+            **kwargs: Request arguments sent with every completion, such as ``temperature``,
+                ``tool_choice``, or ``extra_body`` (merged as described in ``consolidate_kwargs``).
+                With ``tool_alias``, ``tool_choice`` applies only until the first tool call; a
+                ``tool_choice`` inside ``extra_body`` is sent unchanged on every round.
 
         Returns:
             A tuple containing:
@@ -380,6 +398,10 @@ class ModelFacade:
             completion_kwargs.pop("allow_multiple_choices", None)
             if tool_schemas is not None:
                 completion_kwargs["tools"] = tool_schemas
+            if tool_call_turns > 0:
+                # A forced tool_choice holds only until the first tool call. Repeating it would make every
+                # response a tool call, so the tool loop could never end.
+                completion_kwargs.pop("tool_choice", None)
 
             completion_response = self.completion(
                 messages,
@@ -497,6 +519,10 @@ class ModelFacade:
             completion_kwargs.pop("allow_multiple_choices", None)
             if tool_schemas is not None:
                 completion_kwargs["tools"] = tool_schemas
+            if tool_call_turns > 0:
+                # A forced tool_choice holds only until the first tool call. Repeating it would make every
+                # response a tool call, so the tool loop could never end.
+                completion_kwargs.pop("tool_choice", None)
 
             completion_response = await self.acompletion(
                 messages,
@@ -814,10 +840,15 @@ class ModelFacade:
                 metadata[key] = value
 
         if metadata:
-            logger.debug(
-                "Unknown kwargs %s dropped (not forwarded as model parameters). "
+            # Warn once per set of names; repeats go to DEBUG so a per-record call can't flood the log.
+            dropped = frozenset(metadata)
+            log = logger.debug if dropped in self._warned_dropped_kwargs else logger.warning
+            self._warned_dropped_kwargs.add(dropped)
+            log(
+                "Unknown kwargs %s dropped for model %r (not forwarded as model parameters). "
                 "Use 'extra_body' to pass non-standard parameters to the model.",
-                metadata.keys(),
+                sorted(dropped),
+                self.model_alias,
             )
 
         return ChatCompletionRequest(**request_fields)
