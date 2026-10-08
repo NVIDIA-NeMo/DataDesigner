@@ -431,16 +431,19 @@ class _SystemRunBackend:
                 )
             )
             server_log_root = run_root / "shards" / "shard-00000" / "attempts" / "attempt-0001" / "logs"
+            server_log_command = (
+                f"find {shlex.quote(server_log_root.as_posix())} -type f "
+                "\\( -name 'deployment-*.out' -o -name 'deployment-*.err' \\) "
+                "-exec tail -n 10 {} +"
+            )
             self._report_progress(
-                "Once serving starts, follow shard 0 vLLM logs: "
-                + f"find {shlex.quote(server_log_root.as_posix())} -type f "
-                "\\( -name 'deployment-*-serve.out' -o -name 'deployment-*-serve.err' \\) "
-                "-exec tail -F {} +"
+                "Once serving starts, watch shard 0 vLLM logs (including new executions): "
+                + shlex.join(("watch", "-n", "2", "-t", server_log_command))
             )
             if len(plan.shards) > 1:
                 self._report_progress(
-                    "For another shard, replace _0 in the Slurm log filenames and shard-00000 in the vLLM path "
-                    "with its shard ID."
+                    "For another shard, replace _0 in the Slurm filenames with its numeric task index, and "
+                    "shard-00000 in the vLLM path with its shard ID (for example, _1 and shard-00001)."
                 )
             return SlurmRunExecution(
                 run_id=plan.run_id,
