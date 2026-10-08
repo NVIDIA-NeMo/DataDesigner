@@ -157,6 +157,16 @@ def test_default_empty_image_list_is_readable(monkeypatch: pytest.MonkeyPatch) -
     assert result.stdout == "(none)\n"
 
 
+def test_json_output_works_without_click_context(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(cli_module.click, "get_current_context", lambda silent=True: None)
+    token = cli_module._ACTIVE_OUTPUT_FORMAT.set(cli_module._OutputFormat.JSON)
+    try:
+        assert cli_module._output_format() is cli_module._OutputFormat.JSON
+    finally:
+        cli_module._ACTIVE_OUTPUT_FORMAT.reset(token)
+    assert cli_module._output_format() is cli_module._OutputFormat.HUMAN
+
+
 def test_human_output_redacts_credentials_and_terminal_controls() -> None:
     rendered = "\n".join(
         cli_module._human_lines(
