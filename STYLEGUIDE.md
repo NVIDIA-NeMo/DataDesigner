@@ -474,7 +474,7 @@ The following ruff linter rules are currently enabled (see [pyproject.toml](pypr
 
 - `W`: pycodestyle warnings
 - `F`: pyflakes (unused imports, undefined names)
-- `I`: isort (import sorting)
+- `I`: isort (import sorting); `I002` also requires `from __future__ import annotations` in `packages/*/src`
 - `ICN`: flake8-import-conventions (standard import names)
 - `PIE`: flake8-pie (miscellaneous lints)
 - `TID`: flake8-tidy-imports (bans relative imports)
