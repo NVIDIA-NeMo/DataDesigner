@@ -3,9 +3,12 @@
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import MagicMock
 
+import httpx
 import pytest
+from pytest_httpx import HTTPXMock
 
 from data_designer.config.models import (
     ChatCompletionInferenceParams,
@@ -17,9 +20,11 @@ from data_designer.engine.model_provider import ModelProviderRegistry
 from data_designer.engine.models.clients.adapters.anthropic import AnthropicClient
 from data_designer.engine.models.clients.adapters.http_model_client import ClientConcurrencyMode
 from data_designer.engine.models.clients.adapters.openai_compatible import OpenAICompatibleClient
+from data_designer.engine.models.clients.errors import ProviderError, ProviderErrorKind
 from data_designer.engine.models.clients.factory import create_model_client
 from data_designer.engine.models.clients.model_request_executor import ModelRequestExecutor
 from data_designer.engine.models.clients.retry import RetryConfig
+from data_designer.engine.models.clients.types import ChatCompletionRequest
 from data_designer.engine.models.request_admission.controller import AdaptiveRequestAdmissionController
 from data_designer.engine.secret_resolver import SecretResolver
 from data_designer.engine.testing import InMemoryAdmissionEventSink
@@ -247,3 +252,98 @@ def test_no_request_admission_returns_inner_client_directly(
     client = create_model_client(openai_model_config, secret_resolver, openai_registry)
     assert isinstance(client, OpenAICompatibleClient)
     assert not isinstance(client, ModelRequestExecutor)
+
+
+@pytest.mark.asyncio(loop_scope="session")
+@pytest.mark.parametrize("concurrency_mode", [ClientConcurrencyMode.SYNC, ClientConcurrencyMode.ASYNC])
+@pytest.mark.parametrize("exception_type", [httpx.RemoteProtocolError, httpx.ReadError, httpx.WriteError])
+async def test_request_admission_retries_transport_errors(
+    openai_model_config: ModelConfig,
+    secret_resolver: SecretResolver,
+    openai_registry: ModelProviderRegistry,
+    httpx_mock: HTTPXMock,
+    concurrency_mode: ClientConcurrencyMode,
+    exception_type: type[httpx.TransportError],
+) -> None:
+    sink = InMemoryAdmissionEventSink()
+    controller = AdaptiveRequestAdmissionController(event_sink=sink)
+    controller.register(provider_name="openai-prod", model_id="gpt-test", alias="test-model", max_parallel_requests=1)
+    client = create_model_client(
+        openai_model_config,
+        secret_resolver,
+        openai_registry,
+        retry_config=RetryConfig(max_retries=1, backoff_factor=0.0),
+        client_concurrency_mode=concurrency_mode,
+        request_admission=controller,
+        request_event_sink=sink,
+    )
+    httpx_mock.add_exception(exception_type("Server disconnected without sending a response."))
+    httpx_mock.add_response(json={"choices": [{"message": {"role": "assistant", "content": "ok"}}]})
+    request = ChatCompletionRequest(model="gpt-test", messages=[])
+
+    try:
+        response = (
+            await client.acompletion(request)
+            if concurrency_mode == ClientConcurrencyMode.ASYNC
+            else await asyncio.to_thread(client.completion, request)
+        )
+    finally:
+        await client.aclose()
+        client.close()
+
+    assert response.message.content == "ok"
+    assert len(httpx_mock.get_requests()) == 2
+    acquired = [event for event in sink.request_events if event.event_kind == "request_lease_acquired"]
+    released = [event for event in sink.request_events if event.event_kind == "request_lease_released"]
+    assert len(acquired) == len(released) == 2
+    assert len({event.request_lease_id for event in acquired}) == 2
+    assert {event.request_lease_id for event in acquired} == {event.request_lease_id for event in released}
+    completed = [event for event in sink.request_events if event.event_kind == "model_request_completed"]
+    assert [event.diagnostics["outcome"] for event in completed] == ["api_connection", "success"]
+
+
+@pytest.mark.asyncio(loop_scope="session")
+@pytest.mark.parametrize("concurrency_mode", [ClientConcurrencyMode.SYNC, ClientConcurrencyMode.ASYNC])
+@pytest.mark.parametrize("exception_type", [httpx.RemoteProtocolError, httpx.ReadError, httpx.WriteError])
+@pytest.mark.parametrize("max_retries", [0, 2])
+async def test_request_admission_transport_errors_respect_retry_budget(
+    openai_model_config: ModelConfig,
+    secret_resolver: SecretResolver,
+    openai_registry: ModelProviderRegistry,
+    httpx_mock: HTTPXMock,
+    concurrency_mode: ClientConcurrencyMode,
+    exception_type: type[httpx.TransportError],
+    max_retries: int,
+) -> None:
+    controller = AdaptiveRequestAdmissionController()
+    controller.register(provider_name="openai-prod", model_id="gpt-test", alias="test-model", max_parallel_requests=1)
+    client = create_model_client(
+        openai_model_config,
+        secret_resolver,
+        openai_registry,
+        retry_config=RetryConfig(max_retries=max_retries, backoff_factor=0.0),
+        client_concurrency_mode=concurrency_mode,
+        request_admission=controller,
+    )
+    error = exception_type("Server disconnected")
+    httpx_mock.add_exception(error, is_reusable=True)
+    request = ChatCompletionRequest(model="gpt-test", messages=[])
+
+    try:
+        with pytest.raises(ProviderError) as exc_info:
+            if concurrency_mode == ClientConcurrencyMode.ASYNC:
+                await client.acompletion(request)
+            else:
+                await asyncio.to_thread(client.completion, request)
+    finally:
+        await client.aclose()
+        client.close()
+
+    assert exc_info.value.kind == ProviderErrorKind.API_CONNECTION
+    assert exc_info.value.__cause__ is error
+    assert exc_info.value.provider_name == "openai-prod"
+    assert exc_info.value.model_name == "gpt-test"
+    assert len(httpx_mock.get_requests()) == max_retries + 1
+    snapshot = controller.pressure.global_snapshot("openai-prod", "gpt-test")
+    assert snapshot is not None
+    assert snapshot.aggregate_in_flight == 0
