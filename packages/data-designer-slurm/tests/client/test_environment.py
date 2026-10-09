@@ -196,6 +196,11 @@ def test_inspect_distributions_uses_active_environment_paths(
     monkeypatch.setattr(environment_module.site, "getsitepackages", lambda: [interpreter_path])
     monkeypatch.setattr(environment_module.site, "getusersitepackages", lambda: user_site_path)
     monkeypatch.setattr(environment_module.site, "ENABLE_USER_SITE", user_site_enabled)
+    monkeypatch.setattr(
+        environment_module.subprocess,
+        "check_output",
+        lambda *args, **kwargs: json.dumps([submit_path, interpreter_path, pth_path]),
+    )
     monkeypatch.setenv("PYTHONPATH", os.pathsep.join((submit_path, user_site_path)))
     monkeypatch.setattr("data_designer.slurm.client.environment.importlib.metadata.distributions", distributions)
 
