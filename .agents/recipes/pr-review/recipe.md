@@ -13,6 +13,10 @@ permissions:
 
 # PR Review
 
+This is the legacy local Agentic CI recipe. The GitHub workflow now posts
+`/review` guidance; the review runner loads the existing `review-code` skill
+and owns review publication. The procedure below applies only to local use.
+
 Review pull request #{{pr_number}} using the `review-code` skill.
 
 ## Instructions
@@ -34,8 +38,7 @@ Review pull request #{{pr_number}} using the `review-code` skill.
 
 ## Constraints
 
-- Do NOT post the review to GitHub yourself. The workflow handles posting via
-  `gh pr comment --body-file`.
+- Do NOT post the review to GitHub yourself. Save the review locally; this recipe no longer has a GitHub publisher.
 - Do NOT approve or request changes on the PR.
 - If the diff is extremely large (>100 changed files), focus on the most
   critical files and note that a full review was not feasible in a single pass.
