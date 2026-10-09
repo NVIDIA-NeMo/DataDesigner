@@ -303,28 +303,43 @@ def inspect_distributions(path: Path | None) -> tuple[InstalledDistribution, ...
 
 
 def _active_distribution_search_paths() -> list[str]:
-    """Exclude submit-only ``PYTHONPATH`` entries from the client runtime inventory."""
+    """Exclude user-site and submit-only ``PYTHONPATH`` entries from the inventory."""
+    search_paths = sys.path.copy()
+    if site.ENABLE_USER_SITE:
+        try:
+            search_paths = [
+                entry
+                for entry in json.loads(
+                    subprocess.check_output(
+                        (sys.executable, "-s", "-c", "import json,sys; print(json.dumps(sys.path))"),
+                        text=True,
+                        timeout=10,
+                    )
+                )
+                if entry
+            ]
+        except (OSError, subprocess.SubprocessError, ValueError) as error:
+            raise ClientWorkerError(
+                ClientErrorCode.DEPENDENCY_CONFLICT,
+                "client Python import paths cannot be inspected with user-site disabled",
+            ) from error
     configured_paths = {
         _normalize_import_path(entry) for entry in os.environ.get("PYTHONPATH", "").split(os.pathsep) if entry
     }
-    if not configured_paths:
-        return sys.path.copy()
-
-    site_paths = site.getsitepackages()
-    if site.ENABLE_USER_SITE:
-        user_site_path = site.getusersitepackages()
-        if isinstance(user_site_path, str):
-            site_paths.append(user_site_path)
-        else:
-            site_paths.extend(user_site_path)
-    standard_site_paths = {_normalize_import_path(entry) for entry in site_paths}
-    search_paths: list[str] = []
-    for entry in sys.path:
+    user_site = site.getusersitepackages()
+    user_site_paths = {
+        _normalize_import_path(entry) for entry in ([user_site] if isinstance(user_site, str) else user_site)
+    }
+    standard_site_paths = {_normalize_import_path(entry) for entry in site.getsitepackages()}
+    active_paths: list[str] = []
+    for entry in search_paths:
         normalized_entry = _normalize_import_path(entry)
+        if normalized_entry in user_site_paths:
+            continue
         if normalized_entry in configured_paths and normalized_entry not in standard_site_paths:
             continue
-        search_paths.append(entry)
-    return search_paths
+        active_paths.append(entry)
+    return active_paths
 
 
 def _normalize_import_path(path: str) -> str:

@@ -56,7 +56,8 @@ class ClientRuntimeInspector:
             missing = _REQUIRED_DISTRIBUTIONS.difference(names)
             if missing:
                 raise ClientRuntimeInspectionError(
-                    f"required client distributions are not installed: {', '.join(sorted(missing))}"
+                    f"required client distributions are not installed with user-site disabled: {', '.join(sorted(missing))}; "
+                    "install them in the shared client Python environment, for example a virtual environment"
                 )
             package_versions = {
                 distribution.version
