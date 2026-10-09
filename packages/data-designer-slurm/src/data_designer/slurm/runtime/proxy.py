@@ -222,7 +222,7 @@ class _ProxyApplication:
             ) as response:
                 await response.read()
                 return response.status == 200
-        except (ClientError, TimeoutError):
+        except (ClientError, asyncio.TimeoutError):
             return False
         finally:
             self.pool.release(index)
@@ -251,9 +251,9 @@ class _ProxyApplication:
             self.metrics.backend_requests[index] += 1
             try:
                 response = await self._request_backend(request, backend, body, index)
-            except (ClientError, TimeoutError) as error:
+            except (ClientError, asyncio.TimeoutError) as error:
                 self.metrics.connection_failed += 1
-                reason = "timeout" if isinstance(error, TimeoutError) else "connection_error"
+                reason = "timeout" if isinstance(error, asyncio.TimeoutError) else "connection_error"
                 outcomes.append(reason)
                 self.pool.release(index)
                 excluded.add(index)
@@ -421,6 +421,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
         access_log=None,
         keepalive_timeout=_KEEPALIVE_TIMEOUT_SECONDS,
         shutdown_timeout=10.0,
+        handler_cancellation=True,
     )
     return 0
 
