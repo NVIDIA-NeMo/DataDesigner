@@ -303,24 +303,20 @@ def inspect_distributions(path: Path | None) -> tuple[InstalledDistribution, ...
 
 
 def _active_distribution_search_paths() -> list[str]:
-    """Exclude submit-only ``PYTHONPATH`` entries from the client runtime inventory."""
+    """Exclude user-site and submit-only ``PYTHONPATH`` entries from the inventory."""
     configured_paths = {
         _normalize_import_path(entry) for entry in os.environ.get("PYTHONPATH", "").split(os.pathsep) if entry
     }
-    if not configured_paths:
-        return sys.path.copy()
-
-    site_paths = site.getsitepackages()
-    if site.ENABLE_USER_SITE:
-        user_site_path = site.getusersitepackages()
-        if isinstance(user_site_path, str):
-            site_paths.append(user_site_path)
-        else:
-            site_paths.extend(user_site_path)
-    standard_site_paths = {_normalize_import_path(entry) for entry in site_paths}
+    user_site = site.getusersitepackages()
+    user_site_paths = {
+        _normalize_import_path(entry) for entry in ([user_site] if isinstance(user_site, str) else user_site)
+    }
+    standard_site_paths = {_normalize_import_path(entry) for entry in site.getsitepackages()}
     search_paths: list[str] = []
     for entry in sys.path:
         normalized_entry = _normalize_import_path(entry)
+        if normalized_entry in user_site_paths:
+            continue
         if normalized_entry in configured_paths and normalized_entry not in standard_site_paths:
             continue
         search_paths.append(entry)

@@ -200,7 +200,7 @@ def test_inspect_distributions_uses_active_environment_paths(
     monkeypatch.setattr("data_designer.slurm.client.environment.importlib.metadata.distributions", distributions)
 
     assert inspect_distributions(None) == ()
-    expected_paths = [interpreter_path, *([user_site_path] if user_site_enabled else []), pth_path]
+    expected_paths = [interpreter_path, pth_path]
     assert calls == [{"path": expected_paths}]
 
 
