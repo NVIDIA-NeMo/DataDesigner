@@ -211,6 +211,9 @@ def infer_error_kind_from_exception(exc: Exception) -> ProviderErrorKind:
     connection failures, etc.) that don't carry an HTTP status code.
     """
     # Include stale keep-alive failures so the request executor can retry them.
+    # These can also occur after a POST was processed. We accept possible duplicate
+    # generation or billing to recover from transient failures, matching the
+    # existing transport retry policy.
     # Local protocol errors are client mistakes and should not be retried.
     if isinstance(exc, (lazy.httpx.NetworkError, lazy.httpx.RemoteProtocolError)):
         return ProviderErrorKind.API_CONNECTION
