@@ -1,7 +1,6 @@
 ---
 name: review-code
-description: Perform a thorough code review of the current branch or a GitHub PR by number.
-argument-hint: "[pr-number] [special instructions]"
+description: Perform a thorough code review of the current branch or a GitHub PR by number. The argument may start with a pull-request number to review that PR, optionally followed by focus instructions such as "focus on the API changes"; with no number, the current branch is reviewed.
 disable-model-invocation: true
 metadata:
     internal: true
