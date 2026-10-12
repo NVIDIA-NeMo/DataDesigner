@@ -220,6 +220,7 @@ def test_rendered_image_lifecycle_job_computes_digest_and_runs_inspection(
     assert expected_home.parent.name == "data-designer-slurm-5101-0"
     assert not expected_home.parent.exists()
     assert Path(prepared.plan.inspection_output_path).read_text() == "{}\n"
+    assert (Path(prepared.plan.job_directory) / "phase").read_text() == "inspection_complete\n"
     if source_kind == "oci":
         assert enroot_log.read_text().splitlines() == ["version", "import", "create", "start", "remove"]
         assert Path(prepared.plan.sqsh_path).read_text() == "imported image\n"

@@ -26,6 +26,7 @@ from data_designer.slurm.images.lifecycle import (
     prepare_image_lifecycle_job,
     publish_completed_image_lifecycle,
     read_image_lifecycle_log,
+    read_image_lifecycle_phase,
     submit_prepared_image_lifecycle,
 )
 from data_designer.slurm.images.records import RegisteredImage
@@ -50,11 +51,19 @@ ProgressReporter = Callable[[str], None]
 LogReporter = Callable[[str], None]
 
 _POLL_INTERVAL_SECONDS = 30.0
+_HEARTBEAT_INTERVAL = timedelta(minutes=2)
 _ACCOUNTING_EXIT_LAG = timedelta(minutes=5)
 _LOG_READ_BYTES = 64 * 1024
 _LOG_TOTAL_BYTES = 1024 * 1024
 _LOG_LIMIT_NOTICE = "Image job log display reached its 1 MiB limit; further output is hidden."
 _UNSAFE_TERMINAL_CHARACTERS = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
+_PHASE_LABELS = {
+    "importing_oci": "importing OCI layers and creating SQSH",
+    "preparing_sqsh": "preparing existing SQSH",
+    "verifying_sqsh": "verifying SQSH",
+    "inspecting_image": "inspecting image",
+    "inspection_complete": "inspection complete",
+}
 
 
 class _TerminalLifecycleError(RuntimeError):
@@ -77,10 +86,11 @@ class _JobLogFollower:
         self._unavailable_reported = False
         self._limit_reported = False
 
-    def drain(self, *, final: bool = False) -> None:
+    def drain(self, *, final: bool = False) -> bool:
         """Print newly appended bytes; after termination, drain the bounded remainder."""
+        before = self._displayed_bytes
         if self._limit_reported:
-            return
+            return False
         while self._source_bytes < _LOG_TOTAL_BYTES:
             received = False
             for stream in ("stdout", "stderr"):
@@ -99,14 +109,14 @@ class _JobLogFollower:
                     if not self._unavailable_reported:
                         self._emit("Image job logs are unavailable.")
                         self._unavailable_reported = True
-                    return
+                    return self._displayed_bytes > before
                 self._offsets[stream] = offset
                 self._source_bytes += len(content)
                 if content:
                     received = True
                     self._append(stream, content)
                     if self._limit_reported:
-                        return
+                        return self._displayed_bytes > before
             if not final or not received:
                 break
         if final or self._source_bytes >= _LOG_TOTAL_BYTES:
@@ -117,6 +127,7 @@ class _JobLogFollower:
                     self._pending_lines[stream] = ""
             if self._source_bytes >= _LOG_TOTAL_BYTES:
                 self._emit_limit()
+        return self._displayed_bytes > before
 
     def _append(self, stream: str, content: bytes, *, final: bool = False) -> None:
         text = self._decoders[stream].decode(content, final=final)
@@ -135,6 +146,8 @@ class _JobLogFollower:
         self._skip_next_lf[stream] = len(parts) > 1 and parts[-2] == "\r" and not parts[-1]
 
     def _emit_line(self, stream: str, line: str) -> None:
+        if not line.strip():
+            return
         sanitized = redact_sensitive_diagnostic(line)
         self._emit(f"[image {stream}] {_UNSAFE_TERMINAL_CHARACTERS.sub('?', sanitized)}")
 
@@ -229,9 +242,13 @@ class SlurmImageLifecycleManager:
         try:
             submitted_at = self._clock()
             self._report_progress(f"Image add job {receipt.job_id} submitted; checking every 30 seconds.")
-            self._wait_for_success(receipt.job_id, follower, submitted_at=submitted_at)
-            self._report_progress("Inspection complete; verifying and registering image...")
-            return publish_completed_image_lifecycle(prepared, replace=replace)
+            self._wait_for_success(prepared, receipt.job_id, follower, submitted_at=submitted_at)
+            self._report_progress("Registering image alias...")
+            registered = publish_completed_image_lifecycle(prepared, replace=replace)
+            self._report_progress(
+                f"Image add complete: {registered.name} (total elapsed {_format_elapsed(self._clock() - submitted_at)})."
+            )
+            return registered
         except (ImageConflictError, ImageVerificationError):
             raise SlurmServiceError(
                 SlurmServiceErrorCode.CONFLICT,
@@ -256,11 +273,20 @@ class SlurmImageLifecycleManager:
             self._cancel_and_cleanup(receipt.job_id, prepared, follower)
             raise
 
-    def _wait_for_success(self, job_id: int, follower: _JobLogFollower | None, *, submitted_at: datetime) -> None:
+    def _wait_for_success(
+        self,
+        prepared: PreparedImageLifecycleJob,
+        job_id: int,
+        follower: _JobLogFollower | None,
+        *,
+        submitted_at: datetime,
+    ) -> None:
         client = _RecordingObservationClient(self._launcher)
         observations = SchedulerObservationCollector(client)
         previous: SchedulerObservation | None = None
         completed_without_accounting_deadline: datetime | None = None
+        last_activity_at: datetime | None = None
+        previous_phase: str | None = None
         while True:
             observed_at = self._clock()
             observation = observations.collect(
@@ -268,25 +294,31 @@ class SlurmImageLifecycleManager:
                 observed_at=observed_at,
                 previous={job_id: previous},
             )[0]
-            elapsed_seconds = max(0, int((observed_at - submitted_at).total_seconds()))
-            hours, remainder = divmod(elapsed_seconds, 3600)
-            minutes, seconds = divmod(remainder, 60)
-            elapsed = f"{hours:02}:{minutes:02}:{seconds:02}"
+            elapsed = _format_elapsed(observed_at - submitted_at)
             state = observation.state.value.replace("_", " ")
-            if (
-                observation.state is SchedulerState.RUNNING
-                and previous is not None
-                and previous.state is SchedulerState.RUNNING
-            ):
-                state = "still running"
-            self._report_progress(f"Image add job {job_id}: {state} (elapsed {elapsed}).")
-            if follower is not None:
-                follower.drain()
+            state_changed = previous is None or observation.state is not previous.state
+            had_logs = follower.drain() if follower is not None else False
+            if had_logs:
+                last_activity_at = observed_at
+            try:
+                phase = read_image_lifecycle_phase(prepared)
+            except (ImageLifecycleError, OSError, ValueError):
+                phase = None
+            if phase is not None and phase != previous_phase:
+                self._report_progress(f"Image add job {job_id}: {_PHASE_LABELS[phase]}.")
+                previous_phase = phase
+                last_activity_at = observed_at
+            heartbeat_due = last_activity_at is None or observed_at - last_activity_at >= _HEARTBEAT_INTERVAL
+            if state_changed or heartbeat_due:
+                if not state_changed and observation.state is SchedulerState.RUNNING:
+                    state = "still running"
+                self._report_progress(f"Image add job {job_id}: {state} (elapsed {elapsed}).")
+                last_activity_at = observed_at
             if observation.state is SchedulerState.COMPLETED:
                 accounting = next((entry for entry in client.accounting if entry.job_identity == job_id), None)
                 if accounting is None or accounting.state is not SchedulerState.COMPLETED:
-                    self._report_progress("Waiting for successful job exit evidence...")
                     if completed_without_accounting_deadline is None:
+                        self._report_progress("Waiting for successful job exit evidence...")
                         completed_without_accounting_deadline = observed_at + _ACCOUNTING_EXIT_LAG
                     elif observed_at > completed_without_accounting_deadline:
                         raise SlurmStateError("completed image lifecycle job has no exit evidence")
@@ -377,6 +409,13 @@ def _new_lifecycle_id() -> Identifier:
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _format_elapsed(duration: timedelta) -> str:
+    elapsed_seconds = max(0, int(duration.total_seconds()))
+    hours, remainder = divmod(elapsed_seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    return f"{hours:02}:{minutes:02}:{seconds:02}"
 
 
 __all__ = ["Clock", "LifecycleIdFactory", "Sleeper", "SlurmImageLifecycleManager"]
