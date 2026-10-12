@@ -23,7 +23,6 @@ from data_designer.slurm.config.run import (
     DataDesignerSlurmConfig,
     InputBindings,
     InvocationConfig,
-    InvocationDiagnostics,
     MCPProviderConfig,
     OutputConfig,
     ServerDeploymentConfig,
@@ -76,7 +75,6 @@ class DataDesignerSlurmConfigBuilder:
         input_bindings: InputBindings | Mapping[str, object] | None = None,
         mcp_providers: Sequence[MCPProviderConfig | Mapping[str, object]] = (),
         model_concurrency: Mapping[str, int] | None = None,
-        diagnostics: InvocationDiagnostics | Mapping[str, object] | None = None,
     ) -> DataDesignerSlurmConfigBuilder:
         """Set typed Data Designer invocation intent."""
         self._invocation = _validate_model(
@@ -89,7 +87,6 @@ class DataDesignerSlurmConfigBuilder:
                 "input_bindings": {} if input_bindings is None else input_bindings,
                 "mcp_providers": list(mcp_providers),
                 "model_concurrency": {} if model_concurrency is None else dict(model_concurrency),
-                "diagnostics": {} if diagnostics is None else diagnostics,
             },
         )
         return self
@@ -97,7 +94,7 @@ class DataDesignerSlurmConfigBuilder:
     def with_client(
         self,
         *,
-        cpus: int = 32,
+        cpus: int = 16,
         dependencies: ClientDependencies | Mapping[str, object] | None = None,
     ) -> DataDesignerSlurmConfigBuilder:
         """Set the separate zero-GPU Data Designer client declaration."""
