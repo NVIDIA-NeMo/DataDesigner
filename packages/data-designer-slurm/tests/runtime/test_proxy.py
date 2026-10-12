@@ -10,7 +10,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 
 import pytest
-from aiohttp import ClientSession, web
+from aiohttp import ClientSession, ClientTimeout, TCPConnector, web
 from aiohttp.test_utils import TestServer
 
 from data_designer.slurm.runtime import proxy as runtime_proxy
@@ -39,6 +39,148 @@ def _backend(server: TestServer) -> _Backend:
     assert server.host is not None
     assert server.port is not None
     return _Backend(server.host, server.port)
+
+
+@asynccontextmanager
+async def _serve_production(
+    backend: _Backend,
+    monkeypatch: pytest.MonkeyPatch,
+) -> AsyncIterator[tuple[str, TCPConnector]]:
+    runner: web.AppRunner | None = None
+    connector: TCPConnector | None = None
+
+    def run_app(application: web.Application, **options: object) -> None:
+        nonlocal runner
+        for name in ("host", "port", "print"):
+            options.pop(name)
+        runner = web.AppRunner(application, **options)
+
+    def create_connector(**options: object) -> TCPConnector:
+        nonlocal connector
+        connector = TCPConnector(**options)
+        return connector
+
+    monkeypatch.setattr(runtime_proxy.web, "run_app", run_app)
+    monkeypatch.setattr(runtime_proxy, "TCPConnector", create_connector)
+    assert runtime_proxy.main(["--listen-port", "1", "--backend", backend.origin]) == 0
+    assert runner is not None
+    await runner.setup()
+    try:
+        await web.TCPSite(runner, "127.0.0.1", 0).start()
+        assert connector is not None
+        yield f"http://127.0.0.1:{runner.addresses[0][1]}", connector
+    finally:
+        await runner.cleanup()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("streaming", (False, True), ids=("before-headers", "between-sse-chunks"))
+async def test_production_proxy_disconnect_releases_upstream(
+    monkeypatch: pytest.MonkeyPatch,
+    streaming: bool,
+) -> None:
+    entered, closed, release = asyncio.Event(), asyncio.Event(), asyncio.Event()
+    transport: asyncio.Transport | None = None
+
+    async def delayed(request: web.Request) -> web.StreamResponse:
+        nonlocal transport
+        if request.path == "/complete":
+            return web.Response(text="complete")
+        transport = request.transport
+        response = web.StreamResponse(headers={"Content-Type": "text/event-stream"})
+        try:
+            if streaming:
+                await response.prepare(request)
+                await response.write(b"data: first\n\n")
+            entered.set()
+            await release.wait()
+            if streaming:
+                await response.write(b"data: second\n\n")
+            return response
+        finally:
+            closed.set()
+
+    async with _serve(_application(delayed)) as backend:
+        async with _serve_production(_backend(backend), monkeypatch) as (origin, connector):
+            port = int(origin.rsplit(":", 1)[1])
+            reader, writer = await asyncio.open_connection("127.0.0.1", port)
+            try:
+                writer.write(b"POST /v1/chat/completions HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\n\r\n")
+                await writer.drain()
+                await asyncio.wait_for(entered.wait(), 2)
+                if streaming:
+                    await asyncio.wait_for(reader.readuntil(b"data: first\n\n"), 2)
+                assert len(connector._acquired) == 1
+                writer.close()
+                await writer.wait_closed()
+                await asyncio.wait_for(closed.wait(), 2)
+                assert transport is not None and transport.is_closing()
+                async with ClientSession() as client:
+                    async with client.get(f"{origin}/metrics") as response:
+                        metrics = await response.json()
+                    assert metrics["backends"][0]["active_requests"] == 0
+                    assert not connector._acquired
+                    assert metrics["connections"]["idle"] == 0
+                    async with client.get(f"{origin}/complete") as response:
+                        assert response.status == 200
+                        assert await response.text() == "complete"
+            finally:
+                writer.close()
+                release.set()
+
+
+@pytest.fixture
+def total_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    def timeout(**options: object) -> ClientTimeout:
+        return ClientTimeout(**(options | {"total": 0.05, "sock_read": 1.0}))
+
+    monkeypatch.setattr(runtime_proxy, "ClientTimeout", timeout)
+
+
+@pytest.mark.asyncio
+async def test_proxy_total_timeout_fails_over_and_classifies_timeout(total_timeout: None) -> None:
+    calls: list[str] = []
+
+    async def slow(request: web.Request) -> web.Response:
+        calls.append("slow")
+        await asyncio.sleep(1)
+        return web.Response(text="late")
+
+    async def available(request: web.Request) -> web.Response:
+        calls.append("spare")
+        return web.Response(text="complete")
+
+    async with _serve(_application(slow)) as first, _serve(_application(available)) as second:
+        proxy = _ProxyApplication((_backend(first), _backend(second)), 1)
+        async with _serve(proxy.create()) as endpoint, ClientSession() as client:
+            async with client.post(endpoint.make_url("/v1/chat/completions"), json={}) as response:
+                assert response.status == 200
+                assert await response.text() == "complete"
+            async with client.get(endpoint.make_url("/metrics")) as response:
+                metrics = await response.json()
+            assert metrics["retries"] == {"timeout": 1}
+            assert metrics["connections"]["failed"] == 1
+            assert [item["active_requests"] for item in metrics["backends"]] == [0, 0]
+    assert calls == ["slow", "spare"]
+
+
+@pytest.mark.asyncio
+async def test_proxy_health_aggregates_total_timeout(total_timeout: None) -> None:
+    async def slow(request: web.Request) -> web.Response:
+        await asyncio.sleep(1)
+        return web.Response()
+
+    async def healthy(request: web.Request) -> web.Response:
+        return web.Response()
+
+    async with _serve(_application(slow)) as first, _serve(_application(healthy)) as second:
+        proxy = _ProxyApplication((_backend(first), _backend(second)), 1)
+        async with _serve(proxy.create()) as endpoint, ClientSession() as client:
+            async with client.get(endpoint.make_url("/health")) as response:
+                assert response.status == 503
+                assert await response.json() == {"status": "unavailable", "backends_ready": 1, "backends": 2}
+            async with client.get(endpoint.make_url("/metrics")) as response:
+                assert all(item["active_requests"] == 0 for item in (await response.json())["backends"])
 
 
 @pytest.mark.asyncio

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import shlex
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
@@ -95,6 +96,7 @@ def test_collection_renderer_uses_plan_bound_native_python_and_no_gpu_directives
 
 def test_retry_renderer_waits_for_persisted_attempt_before_starting_runtime(
     multi_node_plan: ResolvedSlurmRunPlan,
+    tmp_path: Path,
 ) -> None:
     retry = RetryPlan(
         schema_version=1,
@@ -134,7 +136,25 @@ def test_retry_renderer_waits_for_persisted_attempt_before_starting_runtime(
     assert "--container-image=" not in script
     assert "--container-mounts=" not in script
     assert "--container-env=" not in script
-    assert f'readonly DD_CLIENT_PYTHON="{multi_node_plan.client.runtime.python_executable}"' in script
+    binding = next(line for line in script.splitlines() if line.partition("=")[0].endswith("DD_CLIENT_PYTHON"))
+    plan_path = tmp_path / "resolved-plan.json"
+    plan_path.write_text(multi_node_plan.serialize_json())
+    reader = Path(__file__).parents[2] / "src/data_designer/slurm/runtime/plan_reader.sh"
+    completed = subprocess.run(
+        (
+            "bash",
+            "-c",
+            f'set -e\n{binding}\nsource {shlex.quote(str(reader))}\ndd_read_control_plan "$1"\n'
+            'printf "%s\\n" "$DD_CLIENT_PYTHON"',
+            "retry",
+            str(plan_path),
+        ),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert completed.stdout.strip() == multi_node_plan.client.runtime.python_executable
     assert 'export PYTHONPATH="${DD_RUNTIME_ROOT}"' in script
     assert "--gres=none" in script
     assert "--export=ALL" in script
