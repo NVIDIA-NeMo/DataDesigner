@@ -194,10 +194,12 @@ def test_profile_init_and_auto_gpu_resolution_accept_multiple_partitions(tmp_pat
         partition="gpu-a,gpu-b",
     )
     assert load_profile_catalog(profile_file).clusters["default"].scheduler.partition == "gpu-a,gpu-b"
+    assert load_profile_catalog(profile_file).clusters["default"].host_patterns == []
 
     result = service.validate()
 
     assert result.gpus_per_node == 8
+    assert result.selection_source is ProfileSelectionSource.DEFAULT
     assert launcher.partitions == ["gpu-a,gpu-b"]
 
 
@@ -226,7 +228,6 @@ def test_profile_init_uses_explicit_environment_then_home_path_precedence(tmp_pa
     from_home = create_slurm_profile_service(
         environ={},
         home_directory=tmp_path,
-        hostname_resolver=lambda: ("Node.EXAMPLE.test", "node.example.test", "node-short"),
     ).initialize(
         workspace_root=tmp_path / "workspace",
         image_build_partition="cpu",
@@ -236,10 +237,7 @@ def test_profile_init_uses_explicit_environment_then_home_path_precedence(tmp_pa
     assert from_environment.profile_file == environment_file.as_posix()
     assert from_home.profile_file == (tmp_path / ".data-designer-slurm-profile.yml").as_posix()
     assert yaml.safe_load(explicit_file.read_text()) == json.loads(explicit_file.read_text())
-    assert load_profile_catalog(from_home.profile_file).clusters["default"].host_patterns == [
-        "node.example.test",
-        "node-short",
-    ]
+    assert load_profile_catalog(from_home.profile_file).clusters["default"].host_patterns == []
 
 
 def test_profile_init_refuses_to_overwrite_or_leave_temporary_files(tmp_path: Path) -> None:

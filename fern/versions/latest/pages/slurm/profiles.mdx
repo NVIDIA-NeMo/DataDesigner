@@ -21,11 +21,10 @@ data-designer slurm profile init \
   --image-build-partition cpu \
   --cluster primary \
   --account research \
-  --partition gpu \
-  --host-pattern 'login*.example.test'
+  --partition gpu
 ```
 
-The starter sets `gpus_per_node: auto`, `gpu_request_mode: gres`, and CPU image-build resources of 2 CPUs, 8 GiB, and four hours. Initialization creates missing parent directories of a custom `--profile-file` with private permissions. Review the generated account, partitions, host patterns, workspace, GPU settings, and image-build resources against site policy before validation or image registration.
+The starter sets `host_patterns: []`, `gpus_per_node: auto`, `gpu_request_mode: gres`, and CPU image-build resources of 2 CPUs, 8 GiB, and four hours. Initialization creates missing parent directories of a custom `--profile-file` with private permissions. Review the generated account, partitions, workspace, GPU settings, and image-build resources against site policy before validation or image registration. For hostname-based selection in a multi-cluster catalog, pass one or more explicit `--host-pattern` values during initialization or edit `host_patterns` in the catalog.
 
 ## Configure multiple clusters
 
