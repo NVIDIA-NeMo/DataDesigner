@@ -99,8 +99,8 @@ if os.environ.get("DATA_DESIGNER_SKIP_NVIDIA_VISION_HEALTH_CHECK"):
 IMG_COUNT = 512  # Number of images to process
 BASE64_IMAGE_HEIGHT = 512  # Standardized height for model input
 
-# Load the pets dataset (train split, ~23 MB total)
-img_dataset_cfg = {"path": "rokmr/pets", "split": "train"}
+# Load the Parquet export to avoid ZIP label inference in datasets 5.x.
+img_dataset_cfg = {"path": "rokmr/pets", "revision": "refs/convert/parquet", "split": "train"}
 
 
 # %%
