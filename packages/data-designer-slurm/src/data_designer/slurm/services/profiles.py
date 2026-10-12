@@ -119,14 +119,13 @@ class SlurmProfileService:
                 environ=self._environ,
                 home_directory=self._home_directory,
             )
-            selected_patterns = host_patterns or _normalize_hostnames(self._hostname_resolver())
             payload = _starter_catalog_payload(
                 workspace_root=Path(workspace_root).expanduser().resolve(),
                 image_build_partition=image_build_partition,
                 cluster=cluster,
                 account=account,
                 partition=partition,
-                host_patterns=selected_patterns,
+                host_patterns=host_patterns,
             )
             SlurmProfileCatalog.model_validate(payload, strict=True)
             _create_profile_file(path, _serialize_catalog(payload, suffix=path.suffix))
