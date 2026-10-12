@@ -289,7 +289,6 @@ def _materialize_output(authored: DataDesignerSlurmConfig, run_root: str) -> Res
         root=authored.output.root or posixpath.join(run_root, "output"),
         format=authored.output.format,
         partitions=authored.output.partitions,
-        require_exact_record_count=authored.output.require_exact_record_count,
     )
 
 

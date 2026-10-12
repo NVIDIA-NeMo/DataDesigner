@@ -61,9 +61,6 @@
   ],
   "invocation": {
     "dataset_name": "single-node",
-    "diagnostics": {
-      "log_requests": false
-    },
     "input_bindings": {
       "managed_assets_path": null,
       "seed_path": null
@@ -80,7 +77,6 @@
   "output": {
     "format": "parquet",
     "partitions": 1,
-    "require_exact_record_count": false,
     "root": null
   },
   "schema_version": 1,
