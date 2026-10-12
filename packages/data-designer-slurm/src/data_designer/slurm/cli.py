@@ -358,14 +358,22 @@ def image_remove_command(
     name: str = typer.Argument(...),
     profile_file: Path | None = typer.Option(None, "--profile-file", dir_okay=False),
     cluster: str | None = typer.Option(None, "--cluster"),
+    delete_artifact: bool = typer.Option(False, "--delete-artifact", help="Also delete an unshared OCI SQSH artifact."),
 ) -> None:
-    """Unregister one alias without deleting its SQSH artifact."""
+    """Unregister one alias; optionally delete its package-owned SQSH artifact."""
     operation = SlurmServiceOperation.REMOVE_IMAGE
     result = _invoke(
         operation,
-        lambda: create_slurm_image_service(profile_file=profile_file, cluster=cluster).remove(name),
+        lambda: create_slurm_image_service(profile_file=profile_file, cluster=cluster).remove(
+            name, delete_artifact=delete_artifact
+        ),
     )
-    _emit_result(result)
+    if _output_format() is _OutputFormat.JSON:
+        _emit_result(result)
+    else:
+        typer.echo(f"Removed image alias: {_human_scalar(result.name)}")
+        outcome = "deleted" if delete_artifact else "retained"
+        typer.echo(f"SQSH artifact {outcome}: {_human_scalar(result.path)}")
 
 
 def _invoke(operation: SlurmServiceOperation, call: Callable[[], _ResultT]) -> _ResultT:

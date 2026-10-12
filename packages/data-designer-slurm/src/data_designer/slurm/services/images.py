@@ -47,8 +47,8 @@ class SlurmImageManager(Protocol):
     def get(self, name: Identifier) -> RegisteredImage:
         """Return one registered image."""
 
-    def remove(self, name: Identifier) -> RegisteredImage:
-        """Unregister one alias without deleting its SQSH."""
+    def remove(self, name: Identifier, *, delete_artifact: bool = False) -> RegisteredImage:
+        """Unregister one alias and optionally delete its package-owned SQSH."""
 
 
 class SlurmImageService:
@@ -145,14 +145,16 @@ class SlurmImageService:
 
         return _invoke_service_backend(operation, get_image)
 
-    def remove(self, name: Identifier) -> RegisteredImage:
-        """Unregister one alias without deleting its SQSH artifact."""
+    def remove(self, name: Identifier, *, delete_artifact: bool = False) -> RegisteredImage:
+        """Unregister one alias and optionally delete its package-owned SQSH artifact."""
         operation = SlurmServiceOperation.REMOVE_IMAGE
         normalized_name = _validate_name(name, operation)
+        if type(delete_artifact) is not bool:
+            raise _make_invalid_request_error(operation, "delete_artifact must be a boolean")
         manager = self._require_manager(operation)
 
         def remove_image() -> RegisteredImage:
-            image = manager.remove(normalized_name)
+            image = manager.remove(normalized_name, delete_artifact=delete_artifact)
             if not isinstance(image, RegisteredImage) or image.name != normalized_name:
                 raise TypeError("image manager returned an invalid removal result")
             return image

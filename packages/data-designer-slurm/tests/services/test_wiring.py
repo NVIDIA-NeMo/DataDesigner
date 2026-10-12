@@ -1472,3 +1472,21 @@ def test_production_image_registry_operations(
 
     assert selected == removed == images[0]
     assert service.list() == ()
+
+
+def test_production_image_remove_refuses_to_delete_external_sqsh(
+    tmp_path: Path,
+    profile_catalog: SlurmProfileCatalog,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    _register_images(tmp_path, authored_run_single, single_node_plan)
+    service = create_slurm_image_service(profile=_profile(tmp_path, profile_catalog))
+    image = service.list()[0]
+
+    with pytest.raises(SlurmServiceError) as caught:
+        service.remove(image.name, delete_artifact=True)
+
+    assert caught.value.code is SlurmServiceErrorCode.CONFLICT
+    assert "package-owned" in str(caught.value)
+    assert service.get(image.name) == image

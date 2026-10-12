@@ -232,9 +232,9 @@ class VerifiedImageRegistry:
             inspection=image.inspection,
         )
 
-    def unregister(self, name: str) -> RegisteredImage:
-        """Remove an alias while leaving its underlying artifact untouched."""
-        return self._registry.unregister(name)
+    def unregister(self, name: str, *, delete_artifact: bool = False) -> RegisteredImage:
+        """Remove an alias and optionally its unshared, package-owned artifact."""
+        return self._registry.unregister(name, delete_artifact=delete_artifact)
 
 
 def compute_sqsh_file_sha256(path: Path) -> Sha256Digest:

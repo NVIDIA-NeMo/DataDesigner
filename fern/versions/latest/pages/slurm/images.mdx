@@ -79,6 +79,14 @@ Removing an alias does not delete its SQSH artifact:
 data-designer slurm image rm vllm
 ```
 
+To delete the SQSH too, use `--delete-artifact`. This works only for an OCI artifact imported into the selected workspace by `image add`, and only when no other registered alias points to the same file. Existing SQSH files registered from outside the workspace are never deleted by this command. Make sure no active run needs the artifact before removing it.
+
+```bash
+data-designer slurm image rm vllm --delete-artifact
+```
+
+The command confirms the alias removal and whether the SQSH was retained or deleted.
+
 Published OCI imports are content-addressed. Identical imports can share an artifact, while conflicting bytes or inspection facts fail closed.
 
 ## Compatibility rules

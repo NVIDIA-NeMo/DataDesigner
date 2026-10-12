@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
+from pydantic import BaseModel
 
 import data_designer.slurm.cli as cli_module
 import data_designer.slurm.cli_benchmark as benchmark_cli_module
@@ -155,6 +156,38 @@ def test_default_empty_image_list_is_readable(monkeypatch: pytest.MonkeyPatch) -
 
     assert result.exit_code == 0
     assert result.stdout == "(none)\n"
+
+
+def test_image_remove_confirms_alias_removal_and_preserves_json(monkeypatch: pytest.MonkeyPatch) -> None:
+    class RemovedImage(BaseModel):
+        name: str
+        path: str
+
+    removed = RemovedImage(name="vllm-gpt-oss", path="/workspace/images/vllm-gpt-oss.sqsh")
+    calls: list[bool] = []
+
+    class ImageService:
+        def remove(self, name: str, *, delete_artifact: bool) -> RemovedImage:
+            assert name == removed.name
+            calls.append(delete_artifact)
+            return removed
+
+    monkeypatch.setattr(cli_module, "create_slurm_image_service", lambda **_: ImageService())
+    monkeypatch.delenv("DATA_DESIGNER_SLURM_OUTPUT")
+
+    human = CliRunner().invoke(cli_module.create_cli(), ["image", "rm", removed.name])
+    deleted = CliRunner().invoke(cli_module.create_cli(), ["image", "rm", removed.name, "--delete-artifact"])
+    machine = CliRunner().invoke(cli_module.create_cli(), ["--output", "json", "image", "rm", removed.name])
+
+    assert human.exit_code == deleted.exit_code == machine.exit_code == 0
+    assert human.stdout == (
+        "Removed image alias: vllm-gpt-oss\nSQSH artifact retained: /workspace/images/vllm-gpt-oss.sqsh\n"
+    )
+    assert deleted.stdout == (
+        "Removed image alias: vllm-gpt-oss\nSQSH artifact deleted: /workspace/images/vllm-gpt-oss.sqsh\n"
+    )
+    assert json.loads(machine.stdout) == removed.model_dump()
+    assert calls == [False, True, False]
 
 
 def test_json_output_works_without_click_context(monkeypatch: pytest.MonkeyPatch) -> None:
