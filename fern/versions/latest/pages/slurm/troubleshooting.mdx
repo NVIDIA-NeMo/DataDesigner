@@ -91,7 +91,7 @@ Do not edit persisted manifests. Conflicts preserve scheduler and provenance evi
 
 ## Output is incomplete
 
-Check that every shard has a `winner.json`, then follow its `candidate_manifest.path` to the canonical `output-manifest.json`. Do not count files by recursively scanning attempts. Retry missing shards, then use `merge` with the original run directory. When `require_exact_record_count` is true, a short result remains a failure rather than being silently accepted.
+Check that every shard has a `winner.json`, then follow its `candidate_manifest.path` to the canonical `output-manifest.json`. Do not count files by recursively scanning attempts. A short result cannot become a shard winner. Retry missing shards, then use `merge` with the original run directory.
 
 ## Scratch files are gone
 
