@@ -121,15 +121,16 @@ class _DelayedAccountingLauncher(_Launcher):
 
 
 class _TransitionLauncher(_Launcher):
-    def __init__(self, *, on_submit: Callable[[], None]) -> None:
+    def __init__(self, *, on_submit: Callable[[], None], running_checks: int = 1) -> None:
         super().__init__(queue_state=SchedulerState.PENDING, accounting_state=None, on_submit=on_submit)
         self.queue_queries = 0
+        self.running_checks = running_checks
 
     def query_queue(self, selectors: object) -> tuple[SlurmQueueEntry, ...]:
         self.queue_queries += 1
         if self.queue_queries == 2:
             self.queue_state = SchedulerState.RUNNING
-        elif self.queue_queries == 3:
+        elif self.queue_queries == 2 + self.running_checks:
             self.queue_state = SchedulerState.COMPLETED
             self.accounting_state = SchedulerState.COMPLETED
         return super().query_queue(selectors)
@@ -227,13 +228,13 @@ def test_image_add_reports_progress_on_each_thirty_second_check(tmp_path: Path) 
 
     assert clock.sleep_calls == [30.0, 30.0]
     assert progress == [
-        "Submitting image inspection job...",
-        "Image inspection job submitted; checking every 30 seconds.",
-        "Image inspection job: completed.",
+        "Submitting image add job...",
+        "Image add job 42 submitted; checking every 30 seconds.",
+        "Image add job 42: completed (elapsed 00:00:00).",
         "Waiting for successful job exit evidence...",
-        "Image inspection job: completed.",
+        "Image add job 42: completed (elapsed 00:00:30).",
         "Waiting for successful job exit evidence...",
-        "Image inspection job: completed.",
+        "Image add job 42: completed (elapsed 00:01:00).",
         "Inspection complete; verifying and registering image...",
     ]
 
@@ -243,7 +244,7 @@ def test_image_add_reports_pending_running_and_completed(tmp_path: Path) -> None
     source = tmp_path / "client.sqsh"
     content = b"client image"
     source.write_bytes(content)
-    launcher = _TransitionLauncher(on_submit=lambda: _write_inspection(workspace, content))
+    launcher = _TransitionLauncher(on_submit=lambda: _write_inspection(workspace, content), running_checks=2)
     clock = FakeClock(datetime(2026, 9, 10, tzinfo=timezone.utc))
     progress: list[str] = []
     service = create_slurm_image_service(
@@ -257,10 +258,11 @@ def test_image_add_reports_pending_running_and_completed(tmp_path: Path) -> None
 
     service.add(ImageBuildRequest(name="client", kind="client", source=source.as_posix()))
 
-    assert clock.sleep_calls == [30.0, 30.0]
-    assert "Image inspection job: pending." in progress
-    assert "Image inspection job: running." in progress
-    assert "Image inspection job: completed." in progress
+    assert clock.sleep_calls == [30.0, 30.0, 30.0]
+    assert "Image add job 42: pending (elapsed 00:00:00)." in progress
+    assert "Image add job 42: running (elapsed 00:00:30)." in progress
+    assert "Image add job 42: still running (elapsed 00:01:00)." in progress
+    assert "Image add job 42: completed (elapsed 00:01:30)." in progress
 
 
 def test_image_add_follows_bounded_job_logs_before_success_cleanup(tmp_path: Path) -> None:

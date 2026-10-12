@@ -33,7 +33,7 @@ Custom OCI sources must use `repository@sha256:<64 lowercase hex characters>`. T
 
 The command stages package-owned inspection code, submits a CPU job using `image_build`, waits for terminal Slurm state, verifies the SQSH and inspection record, then atomically publishes the artifact and alias. The terminal stays attached while the job runs.
 
-In an interactive terminal, `image add` reports the scheduler state every 30 seconds and follows the image job's standard output and error by default:
+In an interactive terminal, `image add` reports the job ID, scheduler state, and elapsed time every 30 seconds and follows the image job's standard output and error by default:
 
 ```bash
 data-designer slurm image add vllm/vllm-openai:v0.22.0 \

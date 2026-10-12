@@ -212,7 +212,7 @@ class SlurmImageLifecycleManager:
             raise _unavailable("image lifecycle job cannot be prepared") from None
 
         try:
-            self._report_progress("Submitting image inspection job...")
+            self._report_progress("Submitting image add job...")
             receipt = submit_prepared_image_lifecycle(prepared, self._launcher)
         except SlurmSubmissionError as error:
             if not error.may_have_succeeded:
@@ -227,8 +227,9 @@ class SlurmImageLifecycleManager:
 
         follower = _JobLogFollower(prepared, receipt.job_id, self._logs) if self._logs is not None else None
         try:
-            self._report_progress("Image inspection job submitted; checking every 30 seconds.")
-            self._wait_for_success(receipt.job_id, follower)
+            submitted_at = self._clock()
+            self._report_progress(f"Image add job {receipt.job_id} submitted; checking every 30 seconds.")
+            self._wait_for_success(receipt.job_id, follower, submitted_at=submitted_at)
             self._report_progress("Inspection complete; verifying and registering image...")
             return publish_completed_image_lifecycle(prepared, replace=replace)
         except (ImageConflictError, ImageVerificationError):
@@ -255,7 +256,7 @@ class SlurmImageLifecycleManager:
             self._cancel_and_cleanup(receipt.job_id, prepared, follower)
             raise
 
-    def _wait_for_success(self, job_id: int, follower: _JobLogFollower | None) -> None:
+    def _wait_for_success(self, job_id: int, follower: _JobLogFollower | None, *, submitted_at: datetime) -> None:
         client = _RecordingObservationClient(self._launcher)
         observations = SchedulerObservationCollector(client)
         previous: SchedulerObservation | None = None
@@ -267,7 +268,18 @@ class SlurmImageLifecycleManager:
                 observed_at=observed_at,
                 previous={job_id: previous},
             )[0]
-            self._report_progress(f"Image inspection job: {observation.state.value.replace('_', ' ')}.")
+            elapsed_seconds = max(0, int((observed_at - submitted_at).total_seconds()))
+            hours, remainder = divmod(elapsed_seconds, 3600)
+            minutes, seconds = divmod(remainder, 60)
+            elapsed = f"{hours:02}:{minutes:02}:{seconds:02}"
+            state = observation.state.value.replace("_", " ")
+            if (
+                observation.state is SchedulerState.RUNNING
+                and previous is not None
+                and previous.state is SchedulerState.RUNNING
+            ):
+                state = "still running"
+            self._report_progress(f"Image add job {job_id}: {state} (elapsed {elapsed}).")
             if follower is not None:
                 follower.drain()
             if observation.state is SchedulerState.COMPLETED:
