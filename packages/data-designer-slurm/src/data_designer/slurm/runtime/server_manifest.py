@@ -80,7 +80,12 @@ def build_distributed_server_step(
                 host="127.0.0.1" if len(layout.node_hosts) == 1 else layout.get_host(probe.node_index),
                 port=probe.port,
                 path=probe.path,
-                deadline_seconds=probe.deadline_seconds,
+                deadline_seconds=probe.deadline_seconds
+                + next(
+                    process.launch_delay_seconds
+                    for process in deployment.processes
+                    if process.node_index == probe.node_index and process.http_port == probe.port
+                ),
             )
             for probe in deployment.readiness_probes
         )
