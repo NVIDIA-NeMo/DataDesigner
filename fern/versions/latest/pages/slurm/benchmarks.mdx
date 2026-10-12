@@ -18,8 +18,7 @@ Create `benchmark.yaml` next to an existing `run.yaml`:
 schema_version: 1
 name: generator-scaling
 base_run: run.yaml
-model_aliases:
-  - generator
+model_aliases: all
 concurrency_values:
   - 32
   - 64
@@ -43,6 +42,8 @@ analysis:
   target_total_records: 1000000
   target_runtime: 4h
 ```
+
+`model_aliases` is required. Set it to `all` to apply each concurrency value to every model in the base run. For a two-model run with `generator` and `reviewer`, values `[32, 64]` produce concurrency pairs `(32, 32)` and `(64, 64)` at each deployment case. To vary only one model, set `model_aliases: [generator]`; the reviewer then keeps its base-run concurrency. Every selected model receives the same value, so this sweep does not produce mixed pairs such as `(32, 64)`.
 
 The compiler expands the authored order deterministically. For this example, the first cases are `single-node-groups-c32` and `two-node-group-c32`. An adaptive record policy uses `ceil(concurrency * records_per_concurrency)`, bounded by `base_records` and `max_records`.
 

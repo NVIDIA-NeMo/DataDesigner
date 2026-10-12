@@ -388,7 +388,6 @@ class ResolvedOutput(ContractValue):
     root: str
     format: Literal["parquet", "jsonl", "csv"]
     partitions: PositiveInt
-    require_exact_record_count: bool
 
     _root_is_absolute = field_validator("root")(validate_absolute_path)
 

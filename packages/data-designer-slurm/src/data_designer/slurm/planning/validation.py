@@ -94,10 +94,6 @@ def validate_resolved_plan(
     _require(
         plan.output.partitions == authored.output.partitions, "resolved output partitions do not match authored input"
     )
-    _require(
-        plan.output.require_exact_record_count == authored.output.require_exact_record_count,
-        "resolved exact-record policy does not match authored input",
-    )
     if authored.output.root is not None:
         _require(plan.output.root == authored.output.root, "resolved output root does not match authored input")
 
