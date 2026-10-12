@@ -7,6 +7,7 @@ import re
 import sys
 from collections.abc import Callable, Mapping
 from contextvars import ContextVar
+from datetime import UTC, datetime
 from enum import Enum
 from functools import partial
 from pathlib import Path
@@ -358,14 +359,22 @@ def image_remove_command(
     name: str = typer.Argument(...),
     profile_file: Path | None = typer.Option(None, "--profile-file", dir_okay=False),
     cluster: str | None = typer.Option(None, "--cluster"),
+    delete_artifact: bool = typer.Option(False, "--delete-artifact", help="Also delete an unshared OCI SQSH artifact."),
 ) -> None:
-    """Unregister one alias without deleting its SQSH artifact."""
+    """Unregister one alias; optionally delete its package-owned SQSH artifact."""
     operation = SlurmServiceOperation.REMOVE_IMAGE
     result = _invoke(
         operation,
-        lambda: create_slurm_image_service(profile_file=profile_file, cluster=cluster).remove(name),
+        lambda: create_slurm_image_service(profile_file=profile_file, cluster=cluster).remove(
+            name, delete_artifact=delete_artifact
+        ),
     )
-    _emit_result(result)
+    if _output_format() is _OutputFormat.JSON:
+        _emit_result(result)
+    else:
+        typer.echo(f"Removed image alias: {_human_scalar(result.name)}")
+        outcome = "deleted" if delete_artifact else "retained"
+        typer.echo(f"SQSH artifact {outcome}: {_human_scalar(result.path)}")
 
 
 def _invoke(operation: SlurmServiceOperation, call: Callable[[], _ResultT]) -> _ResultT:
@@ -471,7 +480,7 @@ def _emit_json(value: object, *, err: bool = False) -> None:
 def _emit_progress(message: str) -> None:
     try:
         if _progress_enabled():
-            typer.echo(message, err=True)
+            typer.echo(f"[{_utc_timestamp()}] {message}", err=True)
     except Exception:
         # Progress is optional and must not change the submission outcome.
         pass
@@ -479,7 +488,7 @@ def _emit_progress(message: str) -> None:
 
 def _emit_image_log(message: str) -> None:
     try:
-        typer.echo(message, err=True)
+        typer.echo(f"[{_utc_timestamp()}] {message}", err=True)
     except Exception:
         # Log display is optional and must not change the submission outcome.
         pass
@@ -487,6 +496,10 @@ def _emit_image_log(message: str) -> None:
 
 def _progress_enabled() -> bool:
     return sys.stderr.isatty()
+
+
+def _utc_timestamp() -> str:
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _derive_image_name(source: str) -> str:

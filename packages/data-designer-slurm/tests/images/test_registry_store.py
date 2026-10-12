@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import stat
@@ -20,7 +21,12 @@ from slurm_test_fakes import FakeInspectionEnvironment
 import data_designer.slurm.images.service as image_service
 from data_designer.slurm.config import ImageBuildRequest, ImageInspectionRecord, InstalledDistribution
 from data_designer.slurm.images import filesystem as image_filesystem
-from data_designer.slurm.images.errors import ImageConflictError, ImageRegistryError, ImageVerificationError
+from data_designer.slurm.images.errors import (
+    ImageArtifactRemovalError,
+    ImageConflictError,
+    ImageRegistryError,
+    ImageVerificationError,
+)
 from data_designer.slurm.images.inspection import ClientImageInspector, ServingImageInspector
 from data_designer.slurm.images.records import RegisteredImage
 from data_designer.slurm.images.registry import ImageRegistryStore
@@ -127,6 +133,92 @@ def test_registry_allows_aliases_with_identical_facts_for_one_path(tmp_path: Pat
     store.register(alias, verify_before_publish=lambda _image: None)
 
     assert store.list_images() == (image, alias)
+
+
+def test_unregister_can_delete_unshared_imported_artifact(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    artifact_path = workspace / "images" / "artifacts" / f"client-{hashlib.sha256(b'client').hexdigest()}.sqsh"
+    artifact_path.parent.mkdir(parents=True)
+    artifact_path.write_bytes(b"client")
+    image = _get_registered_client_image(artifact_path).model_copy(update={"source_oci_digest": "a" * 64})
+    store = ImageRegistryStore(workspace)
+    store.register(image, verify_before_publish=lambda _image: None)
+
+    removed = store.unregister("client", delete_artifact=True)
+
+    assert removed == image
+    assert store.list_images() == ()
+    assert not artifact_path.exists()
+
+
+def test_unregister_refuses_to_delete_shared_or_external_artifacts(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    artifact_path = workspace / "images" / "artifacts" / f"client-{hashlib.sha256(b'client').hexdigest()}.sqsh"
+    artifact_path.parent.mkdir(parents=True)
+    artifact_path.write_bytes(b"client")
+    imported = _get_registered_client_image(artifact_path).model_copy(update={"source_oci_digest": "a" * 64})
+    store = ImageRegistryStore(workspace)
+    store.register(imported, verify_before_publish=lambda _image: None)
+    store.register(imported.model_copy(update={"name": "other"}), verify_before_publish=lambda _image: None)
+
+    with pytest.raises(ImageConflictError, match="another image alias"):
+        store.unregister("client", delete_artifact=True)
+
+    assert len(store.list_images()) == 2
+    assert artifact_path.exists()
+
+    external_path = _write_sqsh(tmp_path / "external.sqsh", b"external")
+    external = _get_registered_client_image(external_path, name="external")
+    store.register(external, verify_before_publish=lambda _image: None)
+    with pytest.raises(ImageConflictError, match="package-owned"):
+        store.unregister("external", delete_artifact=True)
+    assert store.get_by_name("external") == external
+    assert external_path.exists()
+
+
+def test_unregister_reports_partial_artifact_removal_failure(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    artifact_path = workspace / "images" / "artifacts" / f"client-{hashlib.sha256(b'client').hexdigest()}.sqsh"
+    artifact_path.parent.mkdir(parents=True)
+    artifact_path.write_bytes(b"client")
+    image = _get_registered_client_image(artifact_path).model_copy(update={"source_oci_digest": "a" * 64})
+    store = ImageRegistryStore(workspace)
+    store.register(image, verify_before_publish=lambda _image: None)
+    real_unlink = os.unlink
+
+    def fail_artifact_unlink(name: str, *, dir_fd: int | None = None) -> None:
+        if name == artifact_path.name:
+            raise OSError("injected artifact removal failure")
+        real_unlink(name, dir_fd=dir_fd)
+
+    with (
+        patch("data_designer.slurm.images.registry.os.unlink", side_effect=fail_artifact_unlink),
+        pytest.raises(ImageArtifactRemovalError, match="alias was removed"),
+    ):
+        store.unregister("client", delete_artifact=True)
+
+    assert store.list_images() == ()
+    assert artifact_path.exists()
+
+
+def test_unregister_refuses_symlinked_artifact_without_removing_alias(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    content = b"client"
+    artifact_path = workspace / "images" / "artifacts" / f"client-{hashlib.sha256(content).hexdigest()}.sqsh"
+    artifact_path.parent.mkdir(parents=True)
+    artifact_path.write_bytes(content)
+    image = _get_registered_client_image(artifact_path).model_copy(update={"source_oci_digest": "a" * 64})
+    store = ImageRegistryStore(workspace)
+    store.register(image, verify_before_publish=lambda _image: None)
+    outside = _write_sqsh(tmp_path / "outside.sqsh", b"outside")
+    artifact_path.unlink()
+    artifact_path.symlink_to(outside)
+
+    with pytest.raises(ImageConflictError, match="unavailable for deletion"):
+        store.unregister("client", delete_artifact=True)
+
+    assert store.get_by_name("client") == image
+    assert outside.read_bytes() == b"outside"
 
 
 def test_registry_rejects_new_alias_with_conflicting_facts_for_one_path(tmp_path: Path) -> None:
