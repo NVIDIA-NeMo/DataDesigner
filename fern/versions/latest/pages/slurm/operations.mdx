@@ -7,7 +7,7 @@ data-designer slurm --output json execute run.yaml --dry-run > dry-run.json
 data-designer slurm --output json status <run-id> > status.json
 ```
 
-You can also set `DATA_DESIGNER_SLURM_OUTPUT=json` for a script that calls several Slurm commands. The default remains human-readable when that variable is unset. In either mode, progress and optional image-job logs go to stderr; do not parse them as the command result.
+You can also set `DATA_DESIGNER_SLURM_OUTPUT=json` for a script that calls several Slurm commands. The default remains human-readable when that variable is unset. In either mode, progress and optional image-job logs go to stderr with UTC display timestamps; do not parse them as the command result.
 
 ## Resolve without submitting
 
