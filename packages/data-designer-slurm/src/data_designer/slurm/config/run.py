@@ -51,7 +51,6 @@ __all__ = [
     "EnvironmentBinding",
     "InputBindings",
     "InvocationConfig",
-    "InvocationDiagnostics",
     "LiteralEnvironmentBinding",
     "LocalStdioMCPProviderConfig",
     "MCPProviderConfig",
@@ -163,11 +162,6 @@ MCPProviderConfig = Annotated[
 ]
 
 
-class InvocationDiagnostics(AuthoredConfig):
-    # Retained to read existing run records; request logging is not implemented.
-    log_requests: bool = False
-
-
 class InvocationConfig(AuthoredConfig):
     num_records: PositiveInt
     dataset_name: Identifier
@@ -176,7 +170,6 @@ class InvocationConfig(AuthoredConfig):
     input_bindings: InputBindings = Field(default_factory=InputBindings)
     mcp_providers: list[MCPProviderConfig] = Field(default_factory=list)
     model_concurrency: dict[str, PositiveInt] = Field(default_factory=dict)
-    diagnostics: InvocationDiagnostics = Field(default_factory=InvocationDiagnostics)
 
     @field_validator("run_config")
     @classmethod
@@ -340,8 +333,6 @@ class OutputConfig(AuthoredConfig):
     root: str | None = None
     format: Literal["parquet", "jsonl", "csv"] = "parquet"
     partitions: PositiveInt = 1
-    # Retained to read existing run records; shard winners already require an exact count.
-    require_exact_record_count: bool = False
 
     @field_validator("root")
     @classmethod
