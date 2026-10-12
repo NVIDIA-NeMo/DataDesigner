@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import shlex
+import subprocess
 from dataclasses import replace
 from pathlib import Path
 
@@ -72,52 +74,80 @@ def test_bootstrap_manifest_builds_typed_one_node_steps_without_secret_values(ru
     assert "SLURM_TMPDIR" not in manifest.serialize_json()
 
 
-@pytest.mark.parametrize(("tensor_parallel", "replicas"), ((1, 8), (2, 4), (4, 2)))
-def test_one_node_multi_replica_manifest_uses_one_gpu_owned_worker(
-    runtime_case: RuntimeCase, tensor_parallel: int, replicas: int
+@pytest.mark.parametrize(
+    ("nodes", "tensor_parallel", "replicas", "stagger"), ((1, 1, 8, 0), (1, 2, 4, 2), (1, 4, 2, 0), (2, 4, 4, 2))
+)
+def test_multi_replica_manifest_uses_one_gpu_owned_worker(
+    runtime_case: RuntimeCase, nodes: int, tensor_parallel: int, replicas: int, stagger: int
 ) -> None:
     plan = runtime_case.context.plan
     placement = plan.deployments[0]
     authored = placement.authored.model_copy(
-        update={"topology": placement.authored.topology.model_copy(update={"tensor_parallel": tensor_parallel})}
+        update={
+            "topology": placement.authored.topology.model_copy(update={"tensor_parallel": tensor_parallel}),
+            "resources": placement.authored.resources.model_copy(update={"nodes": nodes}),
+            "server": placement.authored.server.model_copy(
+                update={
+                    "startup_timeout": "2s",
+                    "distributed_init_timeout": "1s",
+                    "lead_boot_standoff": "4s",
+                    "rank_launch_stagger": f"{stagger}s",
+                }
+            ),
+        }
     )
     topology = ResolvedTopology.derive(
-        node_count=1, gpus_per_node=plan.resolved_gpus_per_node, tensor_parallel=tensor_parallel, nodes_per_replica=1
+        node_count=nodes,
+        gpus_per_node=plan.resolved_gpus_per_node,
+        tensor_parallel=tensor_parallel,
+        nodes_per_replica=1,
     )
     ports = tuple(
-        PortClaim(name=f"{placement.deployment_id}-http-{index:05d}", role="http", node_index=0, port=18000 + index)
+        PortClaim(
+            name=f"{placement.deployment_id}-http-{index:05d}",
+            role="http",
+            node_index=index // (replicas // nodes),
+            port=18000 + index % (replicas // nodes),
+        )
         for index in range(replicas)
     )
-    placement = placement.model_copy(update={"authored": authored, "topology": topology, "ports": ports})
+    placement = placement.model_copy(
+        update={"authored": authored, "topology": topology, "ports": ports, "node_indices": tuple(range(nodes))}
+    )
     plan = ResolvedSlurmRunPlan.model_validate(plan.model_copy(update={"deployments": (placement,)}).model_dump())
     context = replace(runtime_case.context, plan=plan)
 
+    layout = AllocationLayout(tuple(f"compute-{index + 1:03d}" for index in range(nodes)))
     manifest = build_runtime_manifest(
         context,
         {"SLURM_JOB_GPUS": "0,1,2,3,4,5,6,7"},
         runtime_root=Path("/tmp/data-designer-slurm-4101-0/runtime"),
         log_directory=context.attempt_directory / "logs/execution-00000002",
-        layout=AllocationLayout(("compute-001",)),
+        layout=layout,
     )
 
     servers = tuple(step for step in manifest.steps if step.role is RuntimeStepRole.SERVER)
     assert len(servers) == 1
     assert servers[0].gpu_indices == tuple(range(8))
     assert len(servers[0].readiness) == replicas
-    assert {probe.host for probe in servers[0].readiness} == {"127.0.0.1"}
+    assert {probe.host for probe in servers[0].readiness} == ({"127.0.0.1"} if nodes == 1 else set(layout.node_hosts))
     worker = decode_node_worker_spec(servers[0].command[-1])
-    processes = worker.nodes[0].processes
+    processes = tuple(process for node in worker.nodes for process in node.processes)
     assert len(processes) == replicas
     assert [process.gpu_indices for process in processes] == [
-        tuple(range(index * tensor_parallel, (index + 1) * tensor_parallel)) for index in range(replicas)
+        tuple(
+            range((index % (replicas // nodes)) * tensor_parallel, (index % (replicas // nodes) + 1) * tensor_parallel)
+        )
+        for index in range(replicas)
     ]
     assert all(
-        ("--host", "127.0.0.1") == process.command[process.command.index("--host") :][:2] for process in processes
+        ("--host", "127.0.0.1" if nodes == 1 else "0.0.0.0") == process.command[process.command.index("--host") :][:2]
+        for process in processes
     )
     endpoint = next(step for step in manifest.steps if step.role is RuntimeStepRole.ENDPOINT)
     assert "0.0.0.0" not in endpoint.command
-    assert "compute-001" not in endpoint.command
-    assert " ".join(endpoint.command).count("http://127.0.0.1:") == replicas
+    assert " ".join(endpoint.command).count("http://") == replicas
+    _assert_launch_readiness(manifest, runtime_case.workspace)
 
 
 @pytest.mark.parametrize("role", (RuntimeStepRole.CLIENT_PREFLIGHT, RuntimeStepRole.SERVER))
@@ -202,6 +232,14 @@ def test_bootstrap_manifest_composes_multi_node_workers_and_remote_endpoints(
                     update={
                         "model": f"/workspace/primary/models/model-{deployment_index}",
                         "served_model_name": deployment.served_model_name,
+                        "server": deployment.authored.server.model_copy(
+                            update={
+                                "startup_timeout": "2s",
+                                "distributed_init_timeout": "1s",
+                                "lead_boot_standoff": "4s",
+                                "rank_launch_stagger": "2s",
+                            }
+                        ),
                     }
                 ),
                 "model": f"/workspace/primary/models/model-{deployment_index}",
@@ -255,6 +293,45 @@ def test_bootstrap_manifest_composes_multi_node_workers_and_remote_endpoints(
         for process in remote_server_spec.nodes[0].processes
     )
     assert tuple(probe.host for probe in remote_server.readiness) == ("compute-003",) * 8
+    _assert_launch_readiness(manifest, runtime_case.workspace)
+
+
+def _assert_launch_readiness(manifest: RuntimeBootstrapManifest, workspace: Path) -> None:
+    manifest_path = workspace / "readiness-manifest.json"
+    manifest_path.write_text(manifest.serialize_json())
+    cases: list[str] = []
+    budgets: list[tuple[int, int]] = []
+    for step in manifest.steps:
+        if step.role is not RuntimeStepRole.SERVER:
+            continue
+        worker = decode_node_worker_spec(step.command[-1])
+        for probe in step.readiness:
+            process = next(
+                process
+                for node in worker.nodes
+                if node.host == probe.host or probe.host == "127.0.0.1"
+                for process in node.processes
+                if "--headless" not in process.command
+                if str(probe.port) == process.command[process.command.index("--port") + 1]
+            )
+            budgets.append((probe.deadline_seconds, process.launch_delay_seconds + 2))
+            cases.append(f"*://{probe.host}:{probe.port}/*) ((SECONDS >= {process.launch_delay_seconds + 1}));;")
+    entrypoint = Path(__file__).parents[2] / "src/data_designer/slurm/runtime/entrypoint.sh"
+    command = f"""
+source {shlex.quote(str(entrypoint))}
+DD_RUNTIME_MANIFEST={shlex.quote(str(manifest_path))}
+SECONDS=0
+dd_start_step() {{ DD_LAST_PID=1; }}
+dd_register_required_pid() {{ :; }}
+dd_require_running() {{ :; }}
+dd_sleep() {{ if [[ $1 == 0.5 ]]; then SECONDS=$((SECONDS + 1)); else SECONDS=$((SECONDS + $1)); fi; }}
+curl() {{ case "${{@: -1}}" in {" ".join(cases)} *) return 99;; esac; }}
+dd_start_servers
+dd_wait_for_role_readiness server
+"""
+    completed = subprocess.run(("bash", "-c", command), capture_output=True, text=True, timeout=10)
+    assert completed.returncode == 0, completed.stderr
+    assert all(actual == expected for actual, expected in budgets)
 
 
 def test_pipeline_parallel_process_uses_multi_process_executor(

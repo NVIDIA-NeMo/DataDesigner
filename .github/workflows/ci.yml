@@ -130,9 +130,19 @@ jobs:
             pytest packages/data-designer/tests
 
   test-slurm-package:
-    name: Test Slurm package wheels
+    name: ${{ matrix.name }}
     needs: validate-dispatch
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - python-version: "3.10"
+            test-path: packages/data-designer-slurm/tests/runtime/test_proxy.py
+            name: Test Slurm proxy (Python 3.10)
+          - python-version: "3.11"
+            test-path: packages/data-designer-slurm/tests
+            name: Test Slurm package wheels
 
     steps:
       - name: Checkout code
@@ -142,16 +152,17 @@ jobs:
         uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           version: "latest"
-          python-version: "3.11"
+          python-version: ${{ matrix.python-version }}
           enable-cache: true
 
       - name: Install development dependencies
         run: make install-dev
 
       - name: Run package tests
-        run: .venv/bin/pytest packages/data-designer-slurm/tests
+        run: .venv/bin/pytest ${{ matrix.test-path }}
 
       - name: Run built-wheel installation tests
+        if: matrix.python-version == '3.11'
         run: make test-slurm-wheel-install
 
   # ===========================================================================
