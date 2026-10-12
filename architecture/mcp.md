@@ -51,14 +51,14 @@ Maps `tool_alias` → `ToolConfig`. Lazy `MCPFacade` construction mirrors `Model
 4. `ModelFacade` delegates to `MCPFacade.process_completion_response`
 5. `MCPFacade` extracts tool calls, executes them in parallel via `MCPIOService`
 6. Tool results are formatted as `ChatMessage`s and fed back to the LLM for another completion round
-7. Process repeats until the LLM produces a final response or the turn limit is reached
+7. Process repeats until the LLM produces a final response. Past the turn limit, tool calls are refused so the model answers instead
 
 ## Design Decisions
 
 - **Single background async loop** avoids creating event loops per request. All MCP I/O funnels through one loop on a daemon thread, with sync callers bridging via `run_coroutine_threadsafe`.
 - **Session pooling with in-flight deduplication** prevents redundant connections when multiple generators discover tools from the same provider concurrently.
 - **Tool schema coalescing** — concurrent `list_tools` calls for the same session share a single in-flight request, reducing startup latency when many columns use the same tool.
-- **Turn limits on tool loops** prevent runaway tool-call chains. `refuse_completion_response` gracefully terminates when the limit is reached.
+- **Turn limits on tool loops** prevent runaway tool-call chains. Past the limit, `refuse_completion_response` answers tool calls with a refusal, and the loop ends once the model replies without calling a tool. That relies on the model being free not to call one, which is why a caller's forced `tool_choice` is dropped after the first tool call. A `tool_choice` inside `extra_body` is sent unchanged on every round.
 
 ## Cross-References
 

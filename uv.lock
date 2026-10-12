@@ -836,7 +836,6 @@ name = "data-designer-config"
 source = { editable = "packages/data-designer-config" }
 dependencies = [
     { name = "httpx" },
-    { name = "idna" },
     { name = "jinja2" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.4.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
@@ -850,13 +849,11 @@ dependencies = [
     { name = "pyyaml" },
     { name = "requests" },
     { name = "rich" },
-    { name = "urllib3" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "httpx", specifier = ">=0.27.2,<1" },
-    { name = "idna", specifier = ">=3.18,<4" },
     { name = "jinja2", specifier = ">=3.1.6,<4" },
     { name = "numpy", specifier = ">=1.23.5,<3" },
     { name = "pandas", specifier = ">=2.3.3,<4" },
@@ -868,7 +865,6 @@ requires-dist = [
     { name = "pyyaml", specifier = ">=6.0.1,<7" },
     { name = "requests", specifier = ">=2.33,<3" },
     { name = "rich", specifier = ">=13.7.1,<15" },
-    { name = "urllib3", specifier = ">=2.8.0,<3" },
 ]
 
 [[package]]
@@ -876,10 +872,7 @@ name = "data-designer-engine"
 source = { editable = "packages/data-designer-engine" }
 dependencies = [
     { name = "anyascii" },
-    { name = "anyio" },
     { name = "asciichartpy" },
-    { name = "chardet" },
-    { name = "cryptography" },
     { name = "data-designer-config" },
     { name = "duckdb" },
     { name = "faker" },
@@ -902,14 +895,11 @@ dependencies = [
     { name = "pandas", version = "3.0.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "pyarrow" },
     { name = "pydantic" },
-    { name = "pyjwt", extra = ["crypto"] },
-    { name = "python-multipart" },
     { name = "rich" },
     { name = "ruff" },
     { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "sqlfluff" },
-    { name = "starlette" },
     { name = "tiktoken" },
     { name = "wcwidth" },
 ]
@@ -917,10 +907,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "anyascii", specifier = ">=0.3.3,<1" },
-    { name = "anyio", specifier = ">=4.14.2,<5" },
     { name = "asciichartpy", specifier = ">=1.5.25,<2" },
-    { name = "chardet", specifier = ">=3.0.2,<6" },
-    { name = "cryptography", specifier = ">=50.0.0,<51" },
     { name = "data-designer-config", editable = "packages/data-designer-config" },
     { name = "duckdb", specifier = ">=1.5.0,<2" },
     { name = "faker", specifier = ">=20.1.0,<21" },
@@ -940,13 +927,10 @@ requires-dist = [
     { name = "pandas", specifier = ">=2.3.3,<4" },
     { name = "pyarrow", specifier = ">=24,<25" },
     { name = "pydantic", specifier = ">=2.9.2,<3" },
-    { name = "pyjwt", extras = ["crypto"], specifier = ">=2.15.0,<3" },
-    { name = "python-multipart", specifier = ">=0.0.32,<1" },
     { name = "rich", specifier = ">=13.7.1,<15" },
     { name = "ruff", specifier = ">=0.14.10,<1" },
     { name = "scipy", specifier = ">=1.11.0,<2" },
     { name = "sqlfluff", specifier = ">=4.1.0,<5" },
-    { name = "starlette", specifier = ">=1.2.0,<2" },
     { name = "tiktoken", specifier = ">=0.8.0,<1" },
     { name = "wcwidth", specifier = ">=0.2.13,<1" },
 ]
