@@ -13,6 +13,7 @@ from data_designer.config import DataDesignerConfigBuilder, LLMTextColumnConfig,
 from data_designer.slurm.config import (
     DEFAULT_PROFILE_FILE_NAME,
     PROFILE_FILE_ENVIRONMENT,
+    ClientConfig,
     DataDesignerSlurmBenchmarkConfig,
     DataDesignerSlurmConfig,
     DataDesignerSlurmConfigBuilder,
@@ -61,7 +62,12 @@ def test_builder_builds_without_file_discovery_or_serialization(tmp_path: Path) 
     assert config.name == "generated-run"
     assert config.builder.inline is not None
     assert config.deployments[0].model_alias == "generator"
+    assert config.client.cpus == 16
     assert not tuple(tmp_path.iterdir())
+
+
+def test_client_cpu_default_is_16() -> None:
+    assert ClientConfig().cpus == 16
 
 
 def test_builder_requires_complete_authored_intent() -> None:

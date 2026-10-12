@@ -97,7 +97,7 @@ class DataDesignerSlurmConfigBuilder:
     def with_client(
         self,
         *,
-        cpus: int = 32,
+        cpus: int = 16,
         dependencies: ClientDependencies | Mapping[str, object] | None = None,
     ) -> DataDesignerSlurmConfigBuilder:
         """Set the separate zero-GPU Data Designer client declaration."""

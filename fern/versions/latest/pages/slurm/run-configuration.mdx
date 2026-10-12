@@ -15,7 +15,7 @@ invocation:
   model_concurrency:
     generator: 64
 client:
-  cpus: 32
+  cpus: 16
 deployments:
   - model_alias: generator
     served_model_name: example/generator
@@ -37,14 +37,15 @@ submission:
 output:
   format: parquet
   partitions: 1
-  require_exact_record_count: false
 ```
 
 `builder` accepts exactly one complete serialized Data Designer config through `source` or `inline`. Relative source paths resolve from the run file directory. `invocation.run_config` accepts public `RunConfig` fields, while `input_bindings.seed_path` and `managed_assets_path` accept absolute compute-visible paths.
 
 Every `model_alias` in `model_concurrency` and the builder must have one deployment. Deployment aliases must be unique. `model` selects the Hugging Face model ID or absolute model path loaded by the serving container. `served_model_name` is the name exposed to the client and defaults to `model`; set it explicitly when `model` is a container-visible path but the builder uses a stable model name. Output formats are `parquet`, `jsonl`, and `csv`.
 
-The client runs from the same shared Python environment as the CLI on the first allocated GPU node. Its step requests no GPUs; the serving steps use the GPUs and their registered images. The `client` block is optional; `client.cpus` defaults to 32 and controls the client's CPU allocation, not its execution image.
+The client runs from the same shared Python environment as the CLI on the first allocated GPU node. Its step requests no GPUs; the serving steps use the GPUs and their registered images. The `client` block is optional; `client.cpus` defaults to 16. It sets the client step's CPU request and contributes to the batch allocation's CPU request.
+
+Omit `output.require_exact_record_count` and `invocation.diagnostics.log_requests` from new run files. These fields are accepted only so older run records remain readable; neither changes runtime behavior. A shard must complete its planned record count before it can become a winner.
 
 Use `submission.partition` to override the profile's GPU partition selection for one run. It accepts a comma-separated value or a YAML list, such as:
 
@@ -180,7 +181,7 @@ slurm = (
         dataset_name="generated",
         model_concurrency={"generator": 16},
     )
-    .with_client(cpus=32)
+    .with_client(cpus=16)
     .with_deployment(
         {
             "model_alias": "generator",

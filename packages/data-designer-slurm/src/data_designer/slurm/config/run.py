@@ -164,6 +164,7 @@ MCPProviderConfig = Annotated[
 
 
 class InvocationDiagnostics(AuthoredConfig):
+    # Retained to read existing run records; request logging is not implemented.
     log_requests: bool = False
 
 
@@ -257,7 +258,7 @@ class ClientDependencies(AuthoredConfig):
 
 
 class ClientConfig(AuthoredConfig):
-    cpus: PositiveInt = 32
+    cpus: PositiveInt = 16
     dependencies: ClientDependencies = Field(default_factory=ClientDependencies)
 
 
@@ -339,6 +340,7 @@ class OutputConfig(AuthoredConfig):
     root: str | None = None
     format: Literal["parquet", "jsonl", "csv"] = "parquet"
     partitions: PositiveInt = 1
+    # Retained to read existing run records; shard winners already require an exact count.
     require_exact_record_count: bool = False
 
     @field_validator("root")
