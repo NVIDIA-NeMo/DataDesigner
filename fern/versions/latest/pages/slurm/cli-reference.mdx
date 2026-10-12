@@ -11,7 +11,7 @@ All commands accept `--profile-file PATH` and `--cluster NAME` where cluster sel
 | `image add` | Resolve an official versioned vLLM tag, or import/inspect a pinned OCI or SQSH image through a CPU Slurm job, then publish a verified alias. |
 | `image ls` | List aliases in the selected profile workspace. |
 | `image info NAME` | Show one registered alias and immutable image facts. |
-| `image rm NAME` | Remove an alias without deleting its SQSH artifact. |
+| `image rm NAME` | Remove an alias and retain its SQSH artifact. Use `--delete-artifact` to also remove an unshared, package-owned OCI artifact. |
 | `execute RUN_FILE` | Resolve and submit a run. Add `--dry-run` to render without submission. |
 | `status RUN_ID` | Reconcile scheduler observations with durable managed state. |
 | `cancel RUN_ID` | Cancel active jobs owned by a managed run. |

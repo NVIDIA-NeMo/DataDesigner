@@ -18,6 +18,10 @@ class ImageRegistryError(SlurmImageError):
     """Raised when persisted image registry state cannot be read or written."""
 
 
+class ImageArtifactRemovalError(ImageRegistryError):
+    """Raised when an alias was removed but its artifact could not be deleted."""
+
+
 class ImageNotFoundError(SlurmImageError):
     """Raised when an image alias or path is not registered."""
 

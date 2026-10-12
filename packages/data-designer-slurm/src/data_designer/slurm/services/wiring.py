@@ -42,7 +42,12 @@ from data_designer.slurm.config import (
     resolve_profile,
 )
 from data_designer.slurm.contracts import Identifier, ShardId
-from data_designer.slurm.images.errors import ImageConflictError, ImageNotFoundError, SlurmImageError
+from data_designer.slurm.images.errors import (
+    ImageArtifactRemovalError,
+    ImageConflictError,
+    ImageNotFoundError,
+    SlurmImageError,
+)
 from data_designer.slurm.images.records import RegisteredImage
 from data_designer.slurm.images.registry import ImageRegistryStore
 from data_designer.slurm.images.service import VerifiedImageRegistry
@@ -768,8 +773,11 @@ class _RegistryImageBackend:
     def get(self, name: Identifier) -> RegisteredImage:
         return self._invoke_registry(SlurmServiceOperation.GET_IMAGE, lambda: self._store.get_by_name(name))
 
-    def remove(self, name: Identifier) -> RegisteredImage:
-        return self._invoke_registry(SlurmServiceOperation.REMOVE_IMAGE, lambda: self._verified.unregister(name))
+    def remove(self, name: Identifier, *, delete_artifact: bool = False) -> RegisteredImage:
+        return self._invoke_registry(
+            SlurmServiceOperation.REMOVE_IMAGE,
+            lambda: self._verified.unregister(name, delete_artifact=delete_artifact),
+        )
 
     @staticmethod
     def _invoke_registry(operation: SlurmServiceOperation, call: Callable[[], _ResultT]) -> _ResultT:
@@ -777,8 +785,10 @@ class _RegistryImageBackend:
             return call()
         except ImageNotFoundError:
             raise SlurmServiceError(SlurmServiceErrorCode.NOT_FOUND, operation, "image is not registered") from None
-        except ImageConflictError:
-            raise SlurmServiceError(SlurmServiceErrorCode.CONFLICT, operation, "image registry conflict") from None
+        except ImageConflictError as error:
+            raise SlurmServiceError(SlurmServiceErrorCode.CONFLICT, operation, str(error)) from None
+        except ImageArtifactRemovalError as error:
+            raise SlurmServiceError(SlurmServiceErrorCode.UNAVAILABLE, operation, str(error)) from None
         except SlurmImageError:
             raise SlurmServiceError(
                 SlurmServiceErrorCode.INTERNAL, operation, "image registry operation failed"

@@ -4,10 +4,12 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
+from pydantic import BaseModel
 
 import data_designer.slurm.cli as cli_module
 import data_designer.slurm.cli_benchmark as benchmark_cli_module
@@ -22,6 +24,15 @@ from data_designer.slurm.services import (
     SlurmServiceOperation,
 )
 from data_designer.slurm.state import CollectionState
+
+
+def _timestamped_lines(output: str) -> list[str]:
+    lines: list[str] = []
+    for line in output.splitlines():
+        match = re.fullmatch(r"\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\] (.*)", line)
+        assert match is not None, line
+        lines.append(match.group(1))
+    return lines
 
 
 class _RunService:
@@ -157,6 +168,38 @@ def test_default_empty_image_list_is_readable(monkeypatch: pytest.MonkeyPatch) -
     assert result.stdout == "(none)\n"
 
 
+def test_image_remove_confirms_alias_removal_and_preserves_json(monkeypatch: pytest.MonkeyPatch) -> None:
+    class RemovedImage(BaseModel):
+        name: str
+        path: str
+
+    removed = RemovedImage(name="vllm-gpt-oss", path="/workspace/images/vllm-gpt-oss.sqsh")
+    calls: list[bool] = []
+
+    class ImageService:
+        def remove(self, name: str, *, delete_artifact: bool) -> RemovedImage:
+            assert name == removed.name
+            calls.append(delete_artifact)
+            return removed
+
+    monkeypatch.setattr(cli_module, "create_slurm_image_service", lambda **_: ImageService())
+    monkeypatch.delenv("DATA_DESIGNER_SLURM_OUTPUT")
+
+    human = CliRunner().invoke(cli_module.create_cli(), ["image", "rm", removed.name])
+    deleted = CliRunner().invoke(cli_module.create_cli(), ["image", "rm", removed.name, "--delete-artifact"])
+    machine = CliRunner().invoke(cli_module.create_cli(), ["--output", "json", "image", "rm", removed.name])
+
+    assert human.exit_code == deleted.exit_code == machine.exit_code == 0
+    assert human.stdout == (
+        "Removed image alias: vllm-gpt-oss\nSQSH artifact retained: /workspace/images/vllm-gpt-oss.sqsh\n"
+    )
+    assert deleted.stdout == (
+        "Removed image alias: vllm-gpt-oss\nSQSH artifact deleted: /workspace/images/vllm-gpt-oss.sqsh\n"
+    )
+    assert json.loads(machine.stdout) == removed.model_dump()
+    assert calls == [False, True, False]
+
+
 def test_json_output_works_without_click_context(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(cli_module.click, "get_current_context", lambda silent=True: None)
     token = cli_module._ACTIVE_OUTPUT_FORMAT.set(cli_module._OutputFormat.JSON)
@@ -235,7 +278,7 @@ def test_execute_reports_submission_in_interactive_terminal(
 
     assert result.exit_code == 0
     assert json.loads(result.stdout)["state"] == "submitted"
-    assert result.stderr == "Preparing and submitting run...\n"
+    assert _timestamped_lines(result.stderr) == ["Preparing and submitting run..."]
 
 
 def test_progress_stream_failure_does_not_stop_submissions(
@@ -251,7 +294,7 @@ def test_progress_stream_failure_does_not_stop_submissions(
     original_echo = cli_module.typer.echo
 
     def echo_with_broken_progress(message: str, *, err: bool = False) -> None:
-        if message.startswith("Preparing and submitting"):
+        if "Preparing and submitting" in message:
             raise BrokenPipeError("progress stream closed")
         original_echo(message, err=err)
 
@@ -311,7 +354,7 @@ def test_benchmark_cli_forwards_run_and_analysis_actions(
     assert json.loads(analyze_result.stdout)["analysis_id"] == benchmark_report.analysis_id
     assert service.run_calls == [(benchmark_config, tmp_path, True)]
     assert service.analysis_calls == [("benchmark-001", True, True)]
-    assert run_result.stderr == "Preparing benchmark launch...\nBenchmark case 1/1: submitted.\n"
+    assert _timestamped_lines(run_result.stderr) == ["Preparing benchmark launch...", "Benchmark case 1/1: submitted."]
 
 
 def test_retry_emits_deterministic_json_and_maps_task_ids(monkeypatch) -> None:
@@ -369,7 +412,7 @@ def test_retry_force_skips_confirmation(monkeypatch) -> None:
 
     assert result.exit_code == 0
     assert service.retry_calls == [("42", None, "if_possible", False)]
-    assert result.stderr == "Preparing and submitting retry...\n"
+    assert _timestamped_lines(result.stderr) == ["Preparing and submitting retry..."]
 
 
 def test_retry_decline_emits_stable_result(monkeypatch) -> None:
@@ -430,7 +473,7 @@ def test_merge_emits_collection_job_and_forwards_paths(tmp_path: Path, monkeypat
         "state": "submitted",
     }
     assert service.collection_calls == [(input_path, output_path, 2)]
-    assert result.stderr == "Preparing and submitting collection job...\n"
+    assert _timestamped_lines(result.stderr) == ["Preparing and submitting collection job..."]
 
 
 @pytest.mark.parametrize(
@@ -528,7 +571,7 @@ def test_image_add_resolves_versioned_vllm_before_import(
     def create_service(**kwargs: object) -> ImageService:
         progress = kwargs["progress"]
         assert callable(progress)
-        progress("Image inspection job: pending.")
+        progress("Image add job 42: pending (elapsed 00:00:00).")
         return ImageService()
 
     monkeypatch.setattr(cli_module, "create_slurm_image_service", create_service)
@@ -541,11 +584,11 @@ def test_image_add_resolves_versioned_vllm_before_import(
     assert requests[0].source == pinned
     assert requests[0].name == "vllm-openai-v0.22.0"
     assert json.loads(result.stdout)["name"] == "vllm-openai-v0.22.0"
-    assert result.stderr.splitlines() == (
+    assert _timestamped_lines(result.stderr) == (
         [
             "Resolving vLLM image tag...",
             "Preparing image registration...",
-            "Image inspection job: pending.",
+            "Image add job 42: pending (elapsed 00:00:00).",
         ]
         if interactive
         else []
@@ -573,7 +616,7 @@ def test_image_add_follow_logs_is_explicit_and_keeps_json_on_stdout(monkeypatch:
 
     assert result.exit_code == 0, result.output
     assert json.loads(result.stdout)["source"] == source
-    assert result.stderr == "[image stderr] inspection started\n"
+    assert _timestamped_lines(result.stderr) == ["[image stderr] inspection started"]
 
 
 @pytest.mark.parametrize("interactive", [False, True])
