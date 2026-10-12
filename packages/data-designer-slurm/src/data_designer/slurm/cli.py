@@ -7,6 +7,7 @@ import re
 import sys
 from collections.abc import Callable, Mapping
 from contextvars import ContextVar
+from datetime import UTC, datetime
 from enum import Enum
 from functools import partial
 from pathlib import Path
@@ -471,7 +472,7 @@ def _emit_json(value: object, *, err: bool = False) -> None:
 def _emit_progress(message: str) -> None:
     try:
         if _progress_enabled():
-            typer.echo(message, err=True)
+            typer.echo(f"[{_utc_timestamp()}] {message}", err=True)
     except Exception:
         # Progress is optional and must not change the submission outcome.
         pass
@@ -479,7 +480,7 @@ def _emit_progress(message: str) -> None:
 
 def _emit_image_log(message: str) -> None:
     try:
-        typer.echo(message, err=True)
+        typer.echo(f"[{_utc_timestamp()}] {message}", err=True)
     except Exception:
         # Log display is optional and must not change the submission outcome.
         pass
@@ -487,6 +488,10 @@ def _emit_image_log(message: str) -> None:
 
 def _progress_enabled() -> bool:
     return sys.stderr.isatty()
+
+
+def _utc_timestamp() -> str:
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _derive_image_name(source: str) -> str:
