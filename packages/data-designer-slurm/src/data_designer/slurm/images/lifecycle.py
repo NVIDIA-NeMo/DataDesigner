@@ -47,6 +47,7 @@ _IDENTIFIER_ADAPTER = TypeAdapter(Identifier)
 _MINIMUM_ENROOT_OCI_VERSION = (3, 5)
 _MINIMUM_ENROOT_SQSH_VERSION = (3, 5)
 _MAXIMUM_INSPECTION_SIZE = 1024 * 1024
+_PHASE_FILENAME = "phase"
 
 
 @dataclass(frozen=True, slots=True)
@@ -176,7 +177,9 @@ if [[ -e "${{DD_IMAGE_SQSH}}" || -L "${{DD_IMAGE_SQSH}}" ]]; then
 fi
 verify_enroot_compatibility {minimum_major} {minimum_minor} "digest-pinned OCI imports"
 DD_REMOVE_SQSH_ON_FAILURE=1
+report_phase importing_oci
 enroot import -o "${{DD_IMAGE_SQSH}}" "${{DD_OCI_SOURCE}}"
+report_phase verifying_sqsh
 """
     else:
         minimum_major, minimum_minor = _MINIMUM_ENROOT_SQSH_VERSION
@@ -209,6 +212,7 @@ fi
     return f"""#!/usr/bin/env bash
 {directives}
 set -Eeuo pipefail
+umask 077
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 {scratch_source}
@@ -260,6 +264,11 @@ verify_sha256() {{
     [[ "$(compute_file_sha256 "$2")" == "$1" ]]
 }}
 
+report_phase() {{
+    printf '%s\\n' "$1" > "${{DD_JOB_DIR}}/.phase.next" &&
+        mv -f -- "${{DD_JOB_DIR}}/.phase.next" "${{DD_JOB_DIR}}/{_PHASE_FILENAME}" || true
+}}
+
 verify_enroot_compatibility() {{
     local required_major="$1" required_minor="$2" purpose="$3"
     local version major minor
@@ -289,7 +298,8 @@ if [[ ! ${{SLURM_CPUS_PER_TASK:-}} =~ ^[1-9][0-9]*$ ]]; then
 fi
 export ENROOT_MAX_PROCESSORS="${{SLURM_CPUS_PER_TASK}}"
 
-{source_block}if [[ ! -f "${{DD_IMAGE_SQSH}}" || -L "${{DD_IMAGE_SQSH}}" ]]; then
+{source_block}{"report_phase preparing_sqsh" if plan.operation is ImageLifecycleOperation.INSPECT_SQSH else ""}
+if [[ ! -f "${{DD_IMAGE_SQSH}}" || -L "${{DD_IMAGE_SQSH}}" ]]; then
     printf '%s\\n' 'SQSH path must be a regular non-symlink file' >&2
     exit 66
 fi
@@ -320,6 +330,7 @@ if [[ "${{DD_VERIFIED_SQSH_SHA256}}" != "${{DD_SQSH_SHA256}}" ]]; then
 fi
 {inspection_source_block}
 
+report_phase inspecting_image
 enroot create -f --name "${{DD_CONTAINER_NAME}}" "${{DD_INSPECTION_SQSH}}"
 ENROOT_LOGIN_SHELL=no ENROOT_MOUNT_HOME=no enroot start --root \
     --rc "${{DD_ENROOT_RC}}" \
@@ -358,6 +369,7 @@ if [[ "${{DD_FINAL_PATH_SHA256}}" != "${{DD_SQSH_SHA256}}" ]]; then
     printf '%s\\n' 'SQSH path changed during inspection' >&2
     exit 74
 fi
+report_phase inspection_complete
 true
 """
 
@@ -489,6 +501,25 @@ def read_image_lifecycle_log(
             return content, offset + len(content)
         finally:
             os.close(descriptor)
+
+
+def read_image_lifecycle_phase(prepared: PreparedImageLifecycleJob) -> str | None:
+    """Read the job's bounded phase checkpoint without following symlinks."""
+    with _open_prepared_job_directory(prepared) as directory_descriptor:
+        try:
+            content = _read_regular_file(
+                directory_descriptor,
+                _PHASE_FILENAME,
+                Path(prepared.plan.job_directory) / _PHASE_FILENAME,
+                maximum_size=64,
+            )
+        except ImageLifecycleError as error:
+            if isinstance(error.__cause__, FileNotFoundError):
+                return None
+            raise
+    phase = content.decode("ascii", errors="ignore").strip()
+    valid_phases = {"importing_oci", "preparing_sqsh", "verifying_sqsh", "inspecting_image", "inspection_complete"}
+    return phase if phase in valid_phases else None
 
 
 def _verify_prepared_lifecycle(

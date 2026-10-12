@@ -121,15 +121,16 @@ class _DelayedAccountingLauncher(_Launcher):
 
 
 class _TransitionLauncher(_Launcher):
-    def __init__(self, *, on_submit: Callable[[], None]) -> None:
+    def __init__(self, *, on_submit: Callable[[], None], running_checks: int = 1) -> None:
         super().__init__(queue_state=SchedulerState.PENDING, accounting_state=None, on_submit=on_submit)
         self.queue_queries = 0
+        self.running_checks = running_checks
 
     def query_queue(self, selectors: object) -> tuple[SlurmQueueEntry, ...]:
         self.queue_queries += 1
         if self.queue_queries == 2:
             self.queue_state = SchedulerState.RUNNING
-        elif self.queue_queries == 3:
+        elif self.queue_queries == 2 + self.running_checks:
             self.queue_state = SchedulerState.COMPLETED
             self.accounting_state = SchedulerState.COMPLETED
         return super().query_queue(selectors)
@@ -206,7 +207,7 @@ def test_default_image_add_waits_for_completed_job_accounting_evidence(tmp_path:
     assert not _job_directory(workspace).exists()
 
 
-def test_image_add_reports_progress_on_each_thirty_second_check(tmp_path: Path) -> None:
+def test_image_add_waits_for_accounting_without_repeating_status(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     source = tmp_path / "client.sqsh"
     content = b"client image"
@@ -227,14 +228,12 @@ def test_image_add_reports_progress_on_each_thirty_second_check(tmp_path: Path) 
 
     assert clock.sleep_calls == [30.0, 30.0]
     assert progress == [
-        "Submitting image inspection job...",
-        "Image inspection job submitted; checking every 30 seconds.",
-        "Image inspection job: completed.",
+        "Submitting image add job...",
+        "Image add job 42 submitted; checking every 30 seconds.",
+        "Image add job 42: completed (elapsed 00:00:00).",
         "Waiting for successful job exit evidence...",
-        "Image inspection job: completed.",
-        "Waiting for successful job exit evidence...",
-        "Image inspection job: completed.",
-        "Inspection complete; verifying and registering image...",
+        "Registering image alias...",
+        "Image add complete: client (total elapsed 00:01:00).",
     ]
 
 
@@ -243,7 +242,7 @@ def test_image_add_reports_pending_running_and_completed(tmp_path: Path) -> None
     source = tmp_path / "client.sqsh"
     content = b"client image"
     source.write_bytes(content)
-    launcher = _TransitionLauncher(on_submit=lambda: _write_inspection(workspace, content))
+    launcher = _TransitionLauncher(on_submit=lambda: _write_inspection(workspace, content), running_checks=2)
     clock = FakeClock(datetime(2026, 9, 10, tzinfo=timezone.utc))
     progress: list[str] = []
     service = create_slurm_image_service(
@@ -257,10 +256,70 @@ def test_image_add_reports_pending_running_and_completed(tmp_path: Path) -> None
 
     service.add(ImageBuildRequest(name="client", kind="client", source=source.as_posix()))
 
-    assert clock.sleep_calls == [30.0, 30.0]
-    assert "Image inspection job: pending." in progress
-    assert "Image inspection job: running." in progress
-    assert "Image inspection job: completed." in progress
+    assert clock.sleep_calls == [30.0, 30.0, 30.0]
+    assert "Image add job 42: pending (elapsed 00:00:00)." in progress
+    assert "Image add job 42: running (elapsed 00:00:30)." in progress
+    assert "Image add job 42: still running (elapsed 00:01:00)." not in progress
+    assert "Image add job 42: completed (elapsed 00:01:30)." in progress
+
+
+def test_image_add_reports_job_phases_and_quiet_heartbeat(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    source = tmp_path / "client.sqsh"
+    content = b"client image"
+    source.write_bytes(content)
+
+    class PhasedLauncher(_TransitionLauncher):
+        def query_queue(self, selectors: object) -> tuple[SlurmQueueEntry, ...]:
+            entries = super().query_queue(selectors)
+            if self.queue_queries == 2:
+                (_job_directory(workspace) / "phase").write_text("inspecting_image\n")
+            elif self.queue_queries == 7:
+                (_job_directory(workspace) / "phase").write_text("inspection_complete\n")
+            return entries
+
+    launcher = PhasedLauncher(on_submit=lambda: _write_inspection(workspace, content), running_checks=6)
+    clock = FakeClock(datetime(2026, 9, 10, tzinfo=timezone.utc))
+    progress: list[str] = []
+    service = create_slurm_image_service(
+        profile=_profile(workspace),
+        launcher=launcher,  # type: ignore[arg-type]
+        lifecycle_id_factory=lambda: _LIFECYCLE_ID,
+        clock=clock.now,
+        sleep=clock.sleep,
+        progress=progress.append,
+    )
+
+    service.add(ImageBuildRequest(name="client", kind="client", source=source.as_posix()))
+
+    assert "Image add job 42: inspecting image." in progress
+    assert "Image add job 42: inspection complete." in progress
+    assert "Image add job 42: still running (elapsed 00:02:30)." in progress
+    assert "Image add job 42: still running (elapsed 00:01:00)." not in progress
+    assert "Image add complete: client (total elapsed 00:03:30)." in progress
+
+
+def test_image_add_skips_empty_followed_log_lines(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    source = tmp_path / "client.sqsh"
+    content = b"client image"
+    source.write_bytes(content)
+
+    def on_submit() -> None:
+        _write_inspection(workspace, content)
+        (_job_directory(workspace) / f"slurm-{_JOB_ID}.err").write_bytes(b"first\n\n  \r\nsecond\n")
+
+    logs: list[str] = []
+    service = create_slurm_image_service(
+        profile=_profile(workspace),
+        launcher=_Launcher(on_submit=on_submit),  # type: ignore[arg-type]
+        lifecycle_id_factory=lambda: _LIFECYCLE_ID,
+        logs=logs.append,
+    )
+
+    service.add(ImageBuildRequest(name="client", kind="client", source=source.as_posix()))
+
+    assert logs == ["[image stderr] first", "[image stderr] second"]
 
 
 def test_image_add_follows_bounded_job_logs_before_success_cleanup(tmp_path: Path) -> None:

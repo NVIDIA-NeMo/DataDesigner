@@ -22,6 +22,7 @@ from yaml.resolver import BaseResolver
 from data_designer.slurm.config import ImageRef
 from data_designer.slurm.contracts import Identifier, validate_absolute_path
 from data_designer.slurm.images.errors import (
+    ImageArtifactRemovalError,
     ImageConflictError,
     ImageNotFoundError,
     ImageRegistryError,
@@ -178,9 +179,11 @@ class ImageRegistryStore:
                     raise
         return image
 
-    def unregister(self, name: Identifier) -> RegisteredImage:
-        """Atomically remove an alias without deleting its underlying SQSH artifact."""
+    def unregister(self, name: Identifier, *, delete_artifact: bool = False) -> RegisteredImage:
+        """Remove an alias and optionally its unshared, package-owned SQSH artifact."""
         name = _validate_image_alias(name)
+        if delete_artifact:
+            return self._unregister_with_artifact(name)
         self._ensure_storage()
         alias_lock_name = f"alias-{name}.lock"
         with self._open_storage() as (image_root_descriptor, lock_directory_descriptor):
@@ -208,6 +211,91 @@ class ImageRegistryStore:
                 )
                 self._save(image_root_descriptor, snapshot, updated)
         return removed
+
+    def _unregister_with_artifact(self, name: Identifier) -> RegisteredImage:
+        selected = self.get_by_name(name)
+        artifact_directory = self._image_root / "artifacts"
+        expected_path = artifact_directory / f"{name}-{selected.sqsh_sha256}.sqsh"
+        if selected.source_oci_digest is None or selected.path != expected_path.as_posix():
+            raise ImageConflictError("only package-owned OCI artifacts can be deleted")
+
+        alias_lock_name = f"alias-{name}.lock"
+        target_lock_name = _get_target_lock_name(selected.path)
+        with self._open_storage() as (image_root_descriptor, lock_directory_descriptor):
+            with (
+                acquire_file_lock(
+                    lock_directory_descriptor,
+                    alias_lock_name,
+                    self._lock_directory / alias_lock_name,
+                ),
+                acquire_file_lock(
+                    lock_directory_descriptor,
+                    target_lock_name,
+                    self._lock_directory / target_lock_name,
+                ),
+                acquire_file_lock(
+                    lock_directory_descriptor,
+                    _REGISTRY_LOCK_FILENAME,
+                    self._lock_directory / _REGISTRY_LOCK_FILENAME,
+                ),
+            ):
+                self._recover_transaction(image_root_descriptor)
+                snapshot = self._load_from_directory(image_root_descriptor)
+                current = next((image for image in snapshot.images if image.name == name), None)
+                if current != selected:
+                    raise ImageConflictError("image alias changed during artifact removal")
+                if any(image.name != name and image.path == selected.path for image in snapshot.images):
+                    raise ImageConflictError("SQSH artifact is still used by another image alias")
+                with open_verified_child_directory(
+                    image_root_descriptor,
+                    "artifacts",
+                    artifact_directory,
+                ) as artifact_directory_descriptor:
+                    try:
+                        artifact_descriptor = os.open(
+                            expected_path.name,
+                            os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0),
+                            dir_fd=artifact_directory_descriptor,
+                        )
+                    except OSError as error:
+                        raise ImageConflictError("SQSH artifact is unavailable for deletion") from error
+                    try:
+                        artifact_status = os.fstat(artifact_descriptor)
+                        path_status = os.stat(
+                            expected_path.name,
+                            dir_fd=artifact_directory_descriptor,
+                            follow_symlinks=False,
+                        )
+                        if not stat.S_ISREG(artifact_status.st_mode) or (
+                            artifact_status.st_dev,
+                            artifact_status.st_ino,
+                        ) != (path_status.st_dev, path_status.st_ino):
+                            raise ImageConflictError("SQSH artifact changed before deletion")
+                        updated = ImageRegistryDocument(
+                            schema_version=1,
+                            images=tuple(image for image in snapshot.images if image.name != name),
+                        )
+                        self._save(image_root_descriptor, snapshot, updated)
+                        try:
+                            path_status = os.stat(
+                                expected_path.name,
+                                dir_fd=artifact_directory_descriptor,
+                                follow_symlinks=False,
+                            )
+                            if (
+                                artifact_status.st_dev,
+                                artifact_status.st_ino,
+                            ) != (path_status.st_dev, path_status.st_ino):
+                                raise OSError("SQSH artifact changed after alias removal")
+                            os.unlink(expected_path.name, dir_fd=artifact_directory_descriptor)
+                            os.fsync(artifact_directory_descriptor)
+                        except OSError as error:
+                            raise ImageArtifactRemovalError(
+                                "image alias was removed, but SQSH artifact deletion could not be confirmed"
+                            ) from error
+                    finally:
+                        os.close(artifact_descriptor)
+        return selected
 
     def _load(self) -> ImageRegistryDocument:
         try:
