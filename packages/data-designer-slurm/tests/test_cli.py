@@ -171,7 +171,7 @@ def test_default_empty_image_list_is_readable(monkeypatch: pytest.MonkeyPatch) -
     result = CliRunner().invoke(cli_module.create_cli(), ["image", "ls"])
 
     assert result.exit_code == 0
-    assert result.stdout == "(none)\n"
+    assert result.stdout == "No registered images.\n"
 
 
 def test_image_add_list_and_info_show_image_details(

@@ -271,10 +271,10 @@ def profile_validate_command(
 
 @image_app.command("add")
 def image_add_command(
-    source: str = typer.Argument(..., help="Digest-pinned OCI, versioned official vLLM image, or SQSH"),
-    kind: str = typer.Option("serving", "--kind", help="Image role (defaults to serving)"),
-    name: str | None = typer.Option(None, "--name"),
-    replace: bool = typer.Option(False, "--replace"),
+    source: str = typer.Argument(..., help="Digest-qualified OCI, official versioned vLLM tag, or absolute SQSH path"),
+    kind: str = typer.Option("serving", "--kind", help="Image role: serving or client"),
+    name: str | None = typer.Option(None, "--name", help="Alias to register (derived from the source by default)"),
+    replace: bool = typer.Option(False, "--replace", help="Allow replacement of an existing alias"),
     follow_logs: bool | None = typer.Option(
         None,
         "--follow-logs/--no-follow-logs",
@@ -345,14 +345,14 @@ def image_list_command(
     if _output_format() is _OutputFormat.JSON:
         _emit_value([image.model_dump(mode="json") for image in images])
     elif not images:
-        typer.echo("(none)")
+        typer.echo("No registered images.")
     else:
         typer.echo("\n\n".join("\n".join(_image_list_lines(image)) for image in images))
 
 
 @image_app.command("info")
 def image_info_command(
-    name: str = typer.Argument(...),
+    name: str = typer.Argument(..., help="Registered image alias"),
     profile_file: Path | None = typer.Option(None, "--profile-file", dir_okay=False),
     cluster: str | None = typer.Option(None, "--cluster"),
 ) -> None:
@@ -367,10 +367,12 @@ def image_info_command(
 
 @image_app.command("rm")
 def image_remove_command(
-    name: str = typer.Argument(...),
+    name: str = typer.Argument(..., help="Registered image alias to remove"),
     profile_file: Path | None = typer.Option(None, "--profile-file", dir_okay=False),
     cluster: str | None = typer.Option(None, "--cluster"),
-    delete_artifact: bool = typer.Option(False, "--delete-artifact", help="Also delete an unshared OCI SQSH artifact."),
+    delete_artifact: bool = typer.Option(
+        False, "--delete-artifact", help="Also delete an unshared SQSH imported by this workspace"
+    ),
 ) -> None:
     """Unregister one alias; optionally delete its package-owned SQSH artifact."""
     operation = SlurmServiceOperation.REMOVE_IMAGE
