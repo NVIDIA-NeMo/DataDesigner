@@ -100,7 +100,13 @@ dd_slurm_run_allocation() {
     dd_start_step "${DD_RUNTIME_MANIFEST}" "${DD_STEP_IDS[0]}"
     local client_pid=${DD_LAST_PID}
     DD_MANAGED_PIDS+=("${client_pid}")
+    local client_log_command progress_command
+    printf -v client_log_command 'tail -F %q %q' "${DD_STEP_STDOUT}" "${DD_STEP_STDERR}"
+    printf -v progress_command 'cat %q' "${DD_ATTEMPT_PATH}/client-progress.json"
+    dd_runtime_log "Generation started. Follow client logs: ${client_log_command}"
+    dd_runtime_log "Inspect generation progress: ${progress_command}"
     dd_wait_for_client "${client_pid}"
+    dd_runtime_log 'Generation finished; finalizing run...'
     dd_require_running
 
     DD_RUNTIME_PHASE=cleanup
@@ -109,6 +115,7 @@ dd_slurm_run_allocation() {
     dd_run_bound_control_phase succeed
     DD_RUNTIME_FINALIZED=1
     DD_RUNTIME_PHASE=completed
+    dd_runtime_log 'Run completed.'
 }
 
 dd_run_bound_control_phase() {
