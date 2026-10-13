@@ -60,6 +60,8 @@ data-designer slurm image ls
 data-designer slurm image info vllm
 ```
 
+`image ls` shows each alias, image kind, detected runtime version, and SQSH path. Use `image info` for the full image details and hashes. `--output json` retains the complete registration record for scripts.
+
 Aliases are cluster-profile scoped because each profile has its own workspace. Run configuration can reference an alias with `name` or a registered absolute path with `path`.
 
 ## Replace or remove an alias
