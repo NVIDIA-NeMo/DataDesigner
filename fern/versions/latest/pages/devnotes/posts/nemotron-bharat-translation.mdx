@@ -9,7 +9,7 @@ import { Authors } from "@/components/Authors";
 
 When we set out to improve Indic language capabilities for Nemotron models, we started by collecting natural, human-authored sources across all 22 languages of India's Eighth Schedule. That gave us a decent amount of data for more popular languages like Hindi, but far less for the rest. For most of these languages, open native-language text simply does not exist at the scale we needed for pretraining -- and even where it does, it doesn't carry the same breadth of knowledge, register, and structure that years of curation have already put into English pretraining corpora. So we took an English corpus that had already gone through that curation, Nemotron-CC v2, and translated it. In addition to native scripts, we wanted our models to be knowledgeable in the Latin script variants of the languages as well whenever feasible.
 
-We put together the [`data-designer-nemotron-bharat-translation`](https://github.com/NVIDIA-NeMo/DataDesignerPlugins/tree/main/plugins/data-designer-nemotron-bharat-translation) plugin to showcase and reproduce the pipeline we built for creating the Indic corpus. It translates documents into any of the 22 languages, scores every translation for quality against the source (accuracy, fluency, terminology, style, and formatting, each error tagged by severity), and self-corrects the ones that fail. For languages that are lower-resource and harder to generate, we employ targeted approaches to boost generation quality. For the Latin script translations, we use a two-stage approach where the text is translated first into native script and then into Latin script.
+We put together the [`data-designer-nemotron-bharat-translation`](https://github.com/NVIDIA-NeMo/DataDesignerPlugins/tree/main/plugins/data-designer-nemotron-bharat-translation) plugin to showcase and reproduce the pipeline we built for creating the Indic corpus. It translates documents into any of the 22 languages, scores every translation for quality against the source (faithfulness, fluency, terminology, style, and format preservation, each error tagged by severity), and self-corrects the ones that fail. For languages that are lower-resource and harder to generate, we employ targeted approaches to boost generation quality. For the Latin script translations, we use a two-stage approach where the text is translated first into native script and then into Latin script.
 
 {/* more */}
 
@@ -88,9 +88,7 @@ Indic-language text in the wild mixes ASCII digits with native numerals (e.g. Hi
 
 Evaluation always uses the same `evaluation_prompt` regardless of which numeral style was drawn for translation -- there is no separate native-numeral evaluation rubric to keep in sync. This makes the LLM judge's scores comparable between generations that specifically ask for native scripts and those where no preference is specified.
 
----
-
-The rest of this post walks through how each of these three paths is expressed as configuration on the same `document-translation` column, starting with the routing table.
+The rest of this post walks through how the three translation paths, along with these two features, are expressed as configuration on the same `document-translation` column, starting with the routing table.
 
 ---
 
