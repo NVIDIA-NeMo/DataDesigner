@@ -1,5 +1,5 @@
 ---
-title: "Creating Data Similar to the Nemotron Bharat Corpus: Pretraining Data Using Translations Across 22 Indian Languages"
+title: "Creating Data Similar to the Nemotron Indic Corpus: Pretraining Data Using Translations Across 22 Indian Languages"
 description: "A Data Designer plugin that translates, evaluates, and self-corrects text documents across all 22 constitutionally scheduled Indic languages."
 ---
 
@@ -13,7 +13,7 @@ We put together the [`data-designer-nemotron-bharat-translation`](https://github
 
 {/* more */}
 
-![A source document fanning out through three translation paths -- a direct arrow, overlapping window tiles, and a script-remap tile grid -- into a stack of translated documents](/assets/nemotron-bharat-translation/nemotron-bharat.png)
+![A source document fanning out through three translation paths -- a direct arrow, overlapping window tiles, and a script-remap tile grid -- into a stack of translated documents](/assets/nemotron-indic-translation/nemotron-indic.png)
 
 ## Why 22 Languages Is Not "the Same Problem, 22 Times"
 
@@ -42,7 +42,7 @@ Not every language goes through the pipeline the same way. Which of three paths 
 The model translates the whole document in one call, an LLM judge scores it against the source, and (where rewriting is used) anything below threshold gets rewritten and re-scored. This is the path for 20 of the 22 languages: the top 12 higher-resource languages (Bengali, Gujarati, Hindi, Kannada, Malayalam, Marathi, Nepali, Odia, Punjabi, Tamil, Telugu, Urdu) are translated by a general-purpose instruction-tuned model, [`google/gemma-4-31B-it`](https://huggingface.co/google/gemma-4-31B-it), with the full judge-and-rewrite loop; 8 of the remaining 10 lower-resource languages (Assamese, Bodo, Dogri, Kashmiri, Konkani, Maithili, Sanskrit, Sindhi) are translated by a narrower specialist, [`bodhan-ai/indic-translate`](https://huggingface.co/bodhan-ai/indic-translate), judged with the same rubric at a lower per-language threshold, and never rewritten -- rewriting these languages tends to make the translator fall into repetition loops rather than improve.
 
 <img
-  src="/assets/nemotron-bharat-translation/path1-direct-translation.svg"
+  src="/assets/nemotron-indic-translation/path1-direct-translation.svg"
   alt="Path 1: English document translated in one call, then scored by an LLM judge. If the score is at least the configured threshold, it becomes the translated document. If not, and the rewrite budget is not exhausted, the document is rewritten and sent back to the same LLM judge; once the score passes the threshold or the rewrite budget runs out, the result becomes the translated document. The threshold and rewrite budget are configured per language."
 />
 
@@ -51,7 +51,7 @@ The model translates the whole document in one call, an LLM judge scores it agai
 When the model degrades in quality beyond a certain number of tokens, like in the case of Santali, where the model cannot translate a single document past a couple thousand tokens without the quality collapsing, we use a windowing approach. To do this, using newline as the delimiter, we create overlapping windows from the source document, with each window close to the maximum tokens per window specified. If a document contains no newlines to split on, it falls back to the normal full-document translation. The overlapping windows allow the translation model see context beyond the targeted translation region. A specialist translator (`bodhan-ai/indic-translate` in our case) translates all the windows, and a general-purpose LLM (`google/gemma-4-31B-it` in our case) is asked to extract each window's own non-overlapping segment, removing the overlap. These extracted segments are stitched back together to get the final translation of the full document.
 
 <img
-  src="/assets/nemotron-bharat-translation/path2-windowed-translation.svg"
+  src="/assets/nemotron-indic-translation/path2-windowed-translation.svg"
   alt="Path 2: The full English document is split into 4 overlapping windows, stacked with staggered horizontal span to show the overlap between consecutive windows. All 4 pass through a shared specialist translator, then a shared general-purpose LLM that removes the overlap, producing 4 aligned non-overlapping segments, which are stacked back together into the final Santali document"
 />
 
@@ -66,7 +66,7 @@ For Manipuri, the script we were targeting, Meitei Mayek, had a lot of issues wh
 The specialist translator instead translates it into a script it does handle well, and the result is deterministically remapped into the target script -- a character-level substitution. The intermediate script used in the case of Manipuri is Bengali, which is then remapped to Meitei Mayek in a rule-based approach. This is possible since both scripts are phonetic and a mostly many-to-one mapping exists from Bengali to Meitei Mayek. The judgment is again carried out by `google/gemma-4-31B-it`.
 
 <img
-  src="/assets/nemotron-bharat-translation/path3-script-remap.svg"
+  src="/assets/nemotron-indic-translation/path3-script-remap.svg"
   alt="Path 3: English document translated by a specialist translator into Bengali-script Manipuri, then deterministically remapped character-by-character from Bengali script to Meitei Mayek to produce the final Manipuri document"
 />
 
@@ -160,7 +160,7 @@ builder.add_column(
 
 ## Model Routing, By Language
 
-Here is the routing that was used for the Nemotron Bharat Indic corpus:
+Here is the routing that was used for the Nemotron Indic corpus:
 
 | Languages | Translator | Evaluator | Notes |
 | --- | --- | --- | --- |
