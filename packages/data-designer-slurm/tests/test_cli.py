@@ -268,6 +268,52 @@ def test_existing_client_image_summary_omits_absent_oci_digest(
     assert listed.stdout == "client (client, Python 3.12.12)\n  SQSH: /workspace/images/client.sqsh\n"
 
 
+def test_image_list_sanitizes_runtime_without_changing_json(
+    monkeypatch: pytest.MonkeyPatch,
+    serving_image_inspection: ImageInspectionRecord,
+    client_image_inspection: ImageInspectionRecord,
+) -> None:
+    payload = serving_image_inspection.model_dump(mode="json")
+    payload["inspection"]["runtime_version"] = "0.21.0\nForged alias: admin\x1b[31m token=secretvalue"
+    altered_inspection = ImageInspectionRecord.model_validate(payload)
+    serving = RegisteredImage(
+        schema_version=1,
+        name="vllm",
+        path="/workspace/images/vllm.sqsh",
+        sqsh_sha256=altered_inspection.sqsh_sha256,
+        inspection=altered_inspection,
+    )
+    client = RegisteredImage(
+        schema_version=1,
+        name="client",
+        path="/workspace/images/client.sqsh",
+        sqsh_sha256=client_image_inspection.sqsh_sha256,
+        inspection=client_image_inspection,
+    )
+
+    class ImageService:
+        def list(self) -> tuple[RegisteredImage, ...]:
+            return (serving, client)
+
+    monkeypatch.setattr(cli_module, "create_slurm_image_service", lambda **_: ImageService())
+    monkeypatch.delenv("DATA_DESIGNER_SLURM_OUTPUT")
+
+    human = CliRunner().invoke(cli_module.create_cli(), ["image", "ls"])
+    machine = CliRunner().invoke(cli_module.create_cli(), ["--output", "json", "image", "ls"])
+
+    assert human.exit_code == machine.exit_code == 0
+    lines = human.stdout.splitlines()
+    assert len(lines) == 5
+    assert lines[0].startswith("vllm (serving, vLLM 0.21.0 Forged alias: admin")
+    assert "token=<redacted>" in lines[0]
+    assert lines[1] == "  SQSH: /workspace/images/vllm.sqsh"
+    assert lines[2] == ""
+    assert lines[3:] == ["client (client, Python 3.12.12)", "  SQSH: /workspace/images/client.sqsh"]
+    assert "\x1b" not in human.stdout
+    assert "secretvalue" not in human.stdout
+    assert json.loads(machine.stdout) == [serving.model_dump(mode="json"), client.model_dump(mode="json")]
+
+
 def test_image_remove_confirms_alias_removal_and_preserves_json(monkeypatch: pytest.MonkeyPatch) -> None:
     class RemovedImage(BaseModel):
         name: str

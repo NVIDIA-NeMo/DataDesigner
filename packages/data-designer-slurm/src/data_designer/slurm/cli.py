@@ -464,8 +464,9 @@ def _image_list_lines(image: RegisteredImage) -> list[str]:
     else:
         assert isinstance(details, ClientImageInspection)
         runtime = f"Python {details.python_version}"
+    summary = f"{image.name} ({details.kind.value}, {runtime})"
     return [
-        f"{_human_scalar(image.name)} ({details.kind.value}, {runtime})",
+        " ".join(_human_scalar(summary).splitlines()),
         f"  SQSH: {_human_scalar(image.path)}",
     ]
 
