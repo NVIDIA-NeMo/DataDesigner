@@ -144,6 +144,25 @@ def test_default_output_is_readable_and_json_is_explicit(
     assert json.loads(machine.stdout)["run_id"] == "run-0001"
 
 
+def test_submitted_run_hides_absent_batch_script_in_human_output(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("DATA_DESIGNER_SLURM_OUTPUT")
+    run_file = tmp_path / "run.json"
+    run_file.write_text(authored_run_single.serialize_json())
+    monkeypatch.setattr(cli_module, "create_slurm_run_service", lambda **_: _RunService())
+
+    human = CliRunner().invoke(cli_module.create_cli(), ["execute", str(run_file)])
+    machine = CliRunner().invoke(cli_module.create_cli(), ["--output", "json", "execute", str(run_file)])
+
+    assert human.exit_code == machine.exit_code == 0
+    assert "Job id: 43" in human.stdout
+    assert "Batch script:" not in human.stdout
+    assert json.loads(machine.stdout)["batch_script"] is None
+
+
 def test_default_error_is_readable_and_json_error_is_explicit(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("DATA_DESIGNER_SLURM_OUTPUT")
 

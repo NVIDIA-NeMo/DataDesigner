@@ -90,6 +90,8 @@ def load_builder_payload(path: str | Path) -> dict[str, JsonValue]:
     resolved_path = _normalize_file_path(path)
     try:
         contents = resolved_path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        raise SlurmConfigLoadError(f"builder source file not found: {resolved_path}") from None
     except OSError:
         raise SlurmConfigLoadError(f"cannot read configuration file {resolved_path}") from None
     try:

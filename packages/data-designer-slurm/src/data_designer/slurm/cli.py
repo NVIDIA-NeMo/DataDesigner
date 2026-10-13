@@ -35,6 +35,8 @@ from data_designer.slurm.images.vllm_source import (
 )
 from data_designer.slurm.security import redact_sensitive_diagnostic
 from data_designer.slurm.services import (
+    SlurmRetryExecution,
+    SlurmRunExecution,
     SlurmServiceError,
     SlurmServiceErrorCode,
     SlurmServiceOperation,
@@ -429,7 +431,10 @@ def _fail(error: SlurmServiceError) -> NoReturn:
 
 
 def _emit_result(result: BaseModel) -> None:
-    _emit_value(result.model_dump(mode="json"))
+    if _output_format() is _OutputFormat.HUMAN and isinstance(result, SlurmRunExecution | SlurmRetryExecution):
+        _emit_value(result.model_dump(mode="json", exclude_none=True))
+    else:
+        _emit_value(result.model_dump(mode="json"))
 
 
 def _emit_registered_image(result: BaseModel, *, registered: bool = False) -> None:
