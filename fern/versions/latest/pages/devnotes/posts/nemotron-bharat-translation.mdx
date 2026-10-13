@@ -80,6 +80,23 @@ The two-step route won by a wide margin. The one-step route hallucinated more an
 
 Romanized documents are transliterated from the already-accepted native translation, not the English source, and are judged again with an added script-compliance check -- so a romanized document is independently verified, not just a fixed function of its native counterpart. Romanized coverage exists only for the 12 priority languages; the 10 lower-resource languages are released in native script alone.
 
+The two-step route is a single column: `intermediate_language` names the native-script pivot, and the whole translate-evaluate procedure runs twice -- source to native script, then native script to Latin script. The final stage lands in `<name>`/`<name>_evaluation`, and the native-script stage is kept in the `<name>_intermediate*` columns.
+
+```python
+builder.add_column(
+    DocumentTranslationConfig(
+        name="translation",
+        text_column="text",
+        source_language="en-Latn-IN",
+        intermediate_language="hi-Deva-IN",
+        target_language="hi-Latn-IN",
+        translation_mode="generic",
+        model_alias="gemma",
+        evaluator_model_alias="gemma",
+    )
+)
+```
+
 ---
 
 ## Native-Numeral Prose
@@ -87,6 +104,23 @@ Romanized documents are transliterated from the already-accepted native translat
 Indic-language text in the wild mixes ASCII digits with native numerals (e.g. Hindi's ०-९), and we want the model to be comfortable with both rather than seeing only ASCII digits from translated data. Per-row, `native_numeral_probability` draws a chance of writing numbers in prose using the target language's native numeral script (e.g. Hindi's ०-९) instead of ASCII digits. The model is provided with documentation of each language's native numeral mapping, to help it in case it is unaware or confused about certain rare scripts. The prompt asks the model to keep digits inside code, formulas, URLs, and LaTeX in ASCII regardless of the style used in prose. Which style a row got is recorded in `<name>_numeral_style` (`"native"` or `"none"`), so it is auditable after the fact rather than only visible in the prompt.
 
 Evaluation always uses the same `evaluation_prompt` regardless of which numeral style was drawn for translation -- there is no separate native-numeral evaluation rubric to keep in sync. This makes the LLM judge's scores comparable between generations that specifically ask for native scripts and those where no preference is specified.
+
+Native numerals are only supported with `translation_mode="generic"`; the `bodhan` prompt has no native-numeral variant, so that mode forces the probability to 0.
+
+```python
+builder.add_column(
+    DocumentTranslationConfig(
+        name="translation",
+        text_column="text",
+        source_language="en-Latn-IN",
+        target_language="hi-Deva-IN",
+        translation_mode="generic",
+        model_alias="gemma",
+        evaluator_model_alias="gemma",
+        native_numeral_probability=0.5,
+    )
+)
+```
 
 The rest of this post walks through how the three translation paths, along with these two features, are expressed as configuration on the same `document-translation` column, starting with the routing table.
 
