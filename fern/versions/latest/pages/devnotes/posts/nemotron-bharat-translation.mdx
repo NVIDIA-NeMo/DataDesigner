@@ -107,7 +107,7 @@ What changes per language is entirely configuration: `translation_mode` (`generi
 In the snippets below, the model aliases `gemma` and `bodhan` are illustrative: they stand for `google/gemma-4-31B-it` and `bodhan-ai/indic-translate`, and must be registered as `ModelConfig`s on the builder before running (see [Try It Yourself](#try-it-yourself) for an example).
 
 ```python
-from data_designer.config.config_builder import DataDesignerConfigBuilder
+from data_designer.config import DataDesignerConfigBuilder
 from data_designer_nemotron_bharat_translation.config import DocumentTranslationConfig
 
 builder = DataDesignerConfigBuilder()
@@ -215,8 +215,7 @@ uv add data-designer data-designer-nemotron-bharat-translation
 
 ```python
 from data_designer.interface import DataDesigner
-from data_designer.config import ChatCompletionInferenceParams, ModelConfig
-from data_designer.config.config_builder import DataDesignerConfigBuilder
+from data_designer.config import ChatCompletionInferenceParams, DataDesignerConfigBuilder, ModelConfig
 from data_designer_nemotron_bharat_translation.config import DocumentTranslationConfig
 
 # "nvidia" is the default model provider (build.nvidia.com); see
