@@ -204,7 +204,14 @@ class _RunPreparer:
                 self._images.resolve_for_planning(deployment.server.image, expected_kind=ImageKind.SERVING)
                 for deployment in authored.deployments
             )
-            builder_payload = _resolve_builder_payload(authored, source_root)
+            try:
+                builder_payload = _resolve_builder_payload(authored, source_root)
+            except SlurmConfigLoadError as error:
+                raise SlurmServiceError(
+                    SlurmServiceErrorCode.INVALID_REQUEST,
+                    operation,
+                    _safe_builder_load_error(error),
+                ) from None
             dependencies = stack.enter_context(
                 self._dependencies.resolve(
                     authored.client.dependencies,
@@ -956,6 +963,16 @@ def _load_optional(call: Callable[[], _ResultT]) -> _ResultT | None:
 
 def _new_run_id() -> str:
     return f"run-{uuid4().hex}"
+
+
+def _safe_builder_load_error(error: SlurmConfigLoadError) -> str:
+    """Expose a bounded, redacted builder diagnostic instead of a generic failure."""
+    prefix = "run configuration cannot be prepared: "
+    detail = " ".join(redact_sensitive_diagnostic(str(error)).split()) or "builder source cannot be loaded"
+    max_detail_length = 512 - len(prefix)
+    if len(detail) > max_detail_length:
+        detail = f"{detail[: max_detail_length - 3]}..."
+    return f"{prefix}{detail}"
 
 
 def _safe_submission_error(error: SlurmSubmissionError) -> str:
