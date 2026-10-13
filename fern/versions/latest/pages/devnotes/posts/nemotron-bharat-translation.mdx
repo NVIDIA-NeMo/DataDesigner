@@ -101,7 +101,7 @@ builder.add_column(
 
 ## Native-Numeral Prose
 
-Indic-language text in the wild mixes ASCII digits with native numerals (e.g. Hindi's ०-९), and we want the model to be comfortable with both rather than seeing only ASCII digits from translated data. Per-row, `native_numeral_probability` draws a chance of writing numbers in prose using the target language's native numeral script (e.g. Hindi's ०-९) instead of ASCII digits. The model is provided with documentation of each language's native numeral mapping, to help it in case it is unaware or confused about certain rare scripts. The prompt asks the model to keep digits inside code, formulas, URLs, and LaTeX in ASCII regardless of the style used in prose. Which style a row got is recorded in `<name>_numeral_style` (`"native"` or `"none"`), so it is auditable after the fact rather than only visible in the prompt.
+Indic-language text in the wild mixes ASCII digits with native numerals (e.g. Hindi's ०-९), and we want the model to be comfortable with both rather than seeing only ASCII digits from translated data. Per-row, `native_numeral_probability` draws a chance of writing numbers in prose using the target language's native numeral script (e.g. Hindi's ०-९) instead of ASCII digits. The model is provided with documentation of each language's native numeral mapping, to help it in case it is unaware or confused about certain rare scripts. The prompt asks the model to keep digits inside code, formulas, URLs, and LaTeX in ASCII regardless of the style used in prose. Which style was requested for a row is recorded in `<name>_numeral_style` (`"native"` or `"none"`), so the draw is auditable after the fact rather than only visible in the prompt. The column records the request; it does not check that the generated text actually uses native digits.
 
 Evaluation always uses the same `evaluation_prompt` regardless of which numeral style was drawn for translation -- there is no separate native-numeral evaluation rubric to keep in sync. This makes the LLM judge's scores comparable between generations that specifically ask for native scripts and those where no preference is specified.
 
@@ -247,7 +247,12 @@ uv add data-designer data-designer-nemotron-bharat-translation
 
 ```python
 from data_designer.interface import DataDesigner
-from data_designer.config import ChatCompletionInferenceParams, DataDesignerConfigBuilder, ModelConfig
+from data_designer.config import (
+    ChatCompletionInferenceParams,
+    DataDesignerConfigBuilder,
+    LocalFileSeedSource,
+    ModelConfig,
+)
 from data_designer_nemotron_bharat_translation.config import DocumentTranslationConfig
 
 # "nvidia" is the default model provider (build.nvidia.com); see
@@ -255,14 +260,14 @@ from data_designer_nemotron_bharat_translation.config import DocumentTranslation
 model_configs = [
     ModelConfig(
         alias="gemma",
-        model="google/gemma-4-31B-it",
+        model="google/gemma-4-31b-it",
         provider="nvidia",
         inference_parameters=ChatCompletionInferenceParams(temperature=1.0, max_tokens=12288),
     )
 ]
 
 builder = DataDesignerConfigBuilder(model_configs=model_configs)
-builder.with_seed_dataset(...)
+builder.with_seed_dataset(LocalFileSeedSource(path="/path/to/your/seed/file.parquet"))
 builder.add_column(
     DocumentTranslationConfig(
         name="translation",
@@ -277,6 +282,8 @@ builder.add_column(
 preview = DataDesigner().preview(builder, num_records=5)
 preview.display_sample_record()
 ```
+
+Replace the seed path with an existing Parquet file that has a `text` column holding the English documents to translate; the placeholder path will not run until you do.
 
 Start here:
 
