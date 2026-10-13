@@ -48,7 +48,7 @@ The model translates the whole document in one call, an LLM judge scores it agai
 
 ### Path 2: Overlapping Windowed Translation and Restitching
 
-When the model degrades in quality beyond a certain number of tokens, like in the case of Santali, where the model cannot translate a single document past a couple thousand tokens without the quality collapsing, we use a windowing approach. To do this, using newline as the delimiter, we create overlapping windows from the source document, with each window close to the maximum tokens per window specified. This is done so that the translation model gets context beyond the targeted translation region. A specialist translator (`bodhan-ai/indic-translate` in our case) translates all the windows, and a general-purpose LLM (`google/gemma-4-31B-it` in our case) is asked to extract each window's own non-overlapping segment, removing the overlap. These extracted segments are stitched back together to get the final translation of the full document.
+When the model degrades in quality beyond a certain number of tokens, like in the case of Santali, where the model cannot translate a single document past a couple thousand tokens without the quality collapsing, we use a windowing approach. To do this, using newline as the delimiter, we create overlapping windows from the source document, with each window close to the maximum tokens per window specified. If a document contains no newlines to split on, it falls back to the normal full-document translation. In our tests on a range of documents this case was rare, and windowing improved quality on documents beyond 2,048 tokens. This is done so that the translation model gets context beyond the targeted translation region. A specialist translator (`bodhan-ai/indic-translate` in our case) translates all the windows, and a general-purpose LLM (`google/gemma-4-31B-it` in our case) is asked to extract each window's own non-overlapping segment, removing the overlap. These extracted segments are stitched back together to get the final translation of the full document.
 
 <img
   src="/assets/nemotron-bharat-translation/path2-windowed-translation.svg"
@@ -57,7 +57,13 @@ When the model degrades in quality beyond a certain number of tokens, like in th
 
 ### Path 3: LLM Translation to a Different Script, Then Remapping
 
-For Manipuri, the script we were targeting, Meitei Mayek, had a lot of issues when we tried to generate it directly with `google/gemma-4-31B-it` or `bodhan-ai/indic-translate`. The specialist translator instead translates it into a script it does handle well, and the result is deterministically remapped into the target script -- a character-level substitution. The intermediate script used in the case of Manipuri is Bengali, which is then remapped to Meitei Mayek in a rule-based approach. This is possible since both scripts are phonetic and a mostly many-to-one mapping exists from Bengali to Meitei Mayek. The judgment is again carried out by `google/gemma-4-31B-it`.
+For Manipuri, the script we were targeting, Meitei Mayek, had a lot of issues when we tried to generate it directly with `google/gemma-4-31B-it` or `bodhan-ai/indic-translate`:
+
+- The models have little knowledge of Meitei Mayek, so they generate it unreliably.
+- On longer documents, generation falls into repetition loops.
+- Tokenization is very inefficient for the script, at roughly 9x the tokens of the English source, which makes generation extremely slow.
+
+The specialist translator instead translates it into a script it does handle well, and the result is deterministically remapped into the target script -- a character-level substitution. The intermediate script used in the case of Manipuri is Bengali, which is then remapped to Meitei Mayek in a rule-based approach. This is possible since both scripts are phonetic and a mostly many-to-one mapping exists from Bengali to Meitei Mayek. The judgment is again carried out by `google/gemma-4-31B-it`.
 
 <img
   src="/assets/nemotron-bharat-translation/path3-script-remap.svg"
@@ -78,7 +84,7 @@ Romanized documents are transliterated from the already-accepted native translat
 
 ## Native-Numeral Prose
 
-Per-row, `native_numeral_probability` draws a chance of writing numbers in prose using the target language's native numeral script (e.g. Hindi's ०-९) instead of ASCII digits. The model is provided with documentation of each language's native numeral mapping, to help it in case it is unaware or confused about certain rare scripts. The prompt asks the model to keep digits inside code, formulas, URLs, and LaTeX in ASCII regardless of the style used in prose. Which style a row got is recorded in `<name>_numeral_style` (`"native"` or `"none"`), so it is auditable after the fact rather than only visible in the prompt.
+Indic-language text in the wild mixes ASCII digits with native numerals (e.g. Hindi's ०-९), and we want the model to be comfortable with both rather than seeing only ASCII digits from translated data. Per-row, `native_numeral_probability` draws a chance of writing numbers in prose using the target language's native numeral script (e.g. Hindi's ०-९) instead of ASCII digits. The model is provided with documentation of each language's native numeral mapping, to help it in case it is unaware or confused about certain rare scripts. The prompt asks the model to keep digits inside code, formulas, URLs, and LaTeX in ASCII regardless of the style used in prose. Which style a row got is recorded in `<name>_numeral_style` (`"native"` or `"none"`), so it is auditable after the fact rather than only visible in the prompt.
 
 Evaluation always uses the same `evaluation_prompt` regardless of which numeral style was drawn for translation -- there is no separate native-numeral evaluation rubric to keep in sync. This makes the LLM judge's scores comparable between generations that specifically ask for native scripts and those where no preference is specified.
 
