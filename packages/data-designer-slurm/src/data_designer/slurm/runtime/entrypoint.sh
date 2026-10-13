@@ -14,6 +14,10 @@ DD_RUNTIME_FINALIZED=0
 DD_RUNTIME_PHASE=initialization
 DD_RUNTIME_RETRY_ARGUMENTS=()
 
+dd_runtime_log() {
+    printf '[%s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1"
+}
+
 dd_slurm_run_allocation() {
     if [[ $# -ne 2 && $# -ne 5 ]]; then
         printf '%s\n' 'allocation runtime requires plan and attempt with optional retry binding' >&2
@@ -66,16 +70,21 @@ dd_slurm_run_allocation() {
     dd_require_plan_secrets
 
     DD_RUNTIME_PHASE=client_preflight
+    dd_runtime_log 'Running client preflight...'
     dd_read_step_ids "${DD_RUNTIME_MANIFEST}" client_preflight
     ((${#DD_STEP_IDS[@]} == 1))
     dd_run_step "${DD_RUNTIME_MANIFEST}" "${DD_STEP_IDS[0]}"
 
     DD_RUNTIME_PHASE=server_preflight
+    dd_runtime_log 'Running serving preflight...'
     dd_run_role_steps server_preflight
     DD_RUNTIME_PHASE=start_servers
+    dd_runtime_log 'Starting vLLM servers...'
     dd_start_servers
     DD_RUNTIME_PHASE=server_readiness
+    dd_runtime_log 'Waiting for vLLM servers to become ready...'
     dd_wait_for_role_readiness server
+    dd_runtime_log 'vLLM servers are ready.'
     DD_RUNTIME_PHASE=start_endpoints
     dd_start_endpoints
     DD_RUNTIME_PHASE=endpoint_readiness
@@ -85,12 +94,19 @@ dd_slurm_run_allocation() {
     dd_run_bound_control_phase ready
 
     DD_RUNTIME_PHASE=client
+    dd_runtime_log 'Starting Data Designer client...'
     dd_read_step_ids "${DD_RUNTIME_MANIFEST}" client
     ((${#DD_STEP_IDS[@]} == 1))
     dd_start_step "${DD_RUNTIME_MANIFEST}" "${DD_STEP_IDS[0]}"
     local client_pid=${DD_LAST_PID}
     DD_MANAGED_PIDS+=("${client_pid}")
+    local client_log_command progress_command
+    printf -v client_log_command 'tail -F %q %q' "${DD_STEP_STDOUT}" "${DD_STEP_STDERR}"
+    printf -v progress_command 'cat %q' "${DD_ATTEMPT_PATH}/client-progress.json"
+    dd_runtime_log "Generation started. Follow client logs: ${client_log_command}"
+    dd_runtime_log "Inspect generation progress: ${progress_command}"
     dd_wait_for_client "${client_pid}"
+    dd_runtime_log 'Generation finished; finalizing run...'
     dd_require_running
 
     DD_RUNTIME_PHASE=cleanup
@@ -99,6 +115,7 @@ dd_slurm_run_allocation() {
     dd_run_bound_control_phase succeed
     DD_RUNTIME_FINALIZED=1
     DD_RUNTIME_PHASE=completed
+    dd_runtime_log 'Run completed.'
 }
 
 dd_run_bound_control_phase() {
@@ -187,7 +204,7 @@ dd_verify_gpu_count() {
 
 dd_start_servers() {
     dd_read_step_ids "${DD_RUNTIME_MANIFEST}" server
-    local step_id deployment delay remaining
+    local step_id deployment delay remaining tail_command
     local -A deployment_started=()
     for step_id in "${DD_STEP_IDS[@]+"${DD_STEP_IDS[@]}"}"; do
         dd_read_step "${DD_RUNTIME_MANIFEST}" "${step_id}"
@@ -199,6 +216,8 @@ dd_start_servers() {
         dd_start_step "${DD_RUNTIME_MANIFEST}" "${step_id}"
         dd_register_required_pid "${DD_LAST_PID}"
         dd_require_running
+        printf -v tail_command 'tail -F %q %q' "${DD_STEP_STDOUT}" "${DD_STEP_STDERR}"
+        dd_runtime_log "Serving step ${step_id} started. Follow vLLM logs: ${tail_command}"
     done
 }
 

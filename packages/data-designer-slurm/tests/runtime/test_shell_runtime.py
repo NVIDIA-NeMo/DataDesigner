@@ -87,6 +87,20 @@ dd_slurm_run_allocation "${{DD_PLAN}}" "${{DD_ATTEMPT_DIR}}"
     assert not scratch_root.exists()
     assert not marker_path.exists()
     assert "supersecret" not in completed.stdout + completed.stderr + manifest_path.read_text()
+    assert "Starting vLLM servers..." in completed.stdout
+    assert "Waiting for vLLM servers to become ready..." in completed.stdout
+    assert "vLLM servers are ready." in completed.stdout
+    assert (
+        f"Follow vLLM logs: tail -F {log_directory / 'deployment-00000-replica-00000-rank-00000.out'} "
+        f"{log_directory / 'deployment-00000-replica-00000-rank-00000.err'}"
+    ) in completed.stdout
+    assert (
+        f"Generation started. Follow client logs: tail -F {log_directory / 'client-generation.out'} "
+        f"{log_directory / 'client-generation.err'}"
+    ) in completed.stdout
+    assert f"Inspect generation progress: cat {attempt_directory / 'client-progress.json'}" in completed.stdout
+    assert "Generation finished; finalizing run..." in completed.stdout
+    assert "Run completed." in completed.stdout
 
 
 def test_staged_shell_modules_parse_as_bash(tmp_path: Path) -> None:
