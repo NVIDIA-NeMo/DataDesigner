@@ -90,26 +90,26 @@ export const authors: Record<string, Author> = {
   kipraveen: {
     name: "Kiran Praveen",
     description: "Machine Learning Engineer at NVIDIA",
-    avatar: "https://github.com/kipraveen.png",
+    avatar: "https://avatars.githubusercontent.com/u/204656351?v=4",
   },
   sniverty: {
     name: "Sriharsha Niverty",
     description: "Machine Learning Engineer at NVIDIA",
-    avatar: "https://github.com/sniverty.png",
+    avatar: "https://avatars.githubusercontent.com/u/10280516?v=4",
   },
   uvaidya: {
     name: "Utkarsh Vaidya",
     description: "Machine Learning Engineer at NVIDIA",
-    avatar: "https://github.com/uvaidya.png",
+    avatar: "https://avatars.githubusercontent.com/u/15611525?v=4",
   },
   niketa: {
     name: "Niket Agarwal",
     description: "Machine Learning Engineer at NVIDIA",
-    avatar: "https://github.com/niketa.png",
+    avatar: "https://avatars.githubusercontent.com/u/2584050?v=4",
   },
   ravirajj: {
     name: "Raviraj Joshi",
     description: "Machine Learning Engineer at NVIDIA",
-    avatar: "https://github.com/ravirajj.png",
+    avatar: "https://avatars.githubusercontent.com/u/3112692?v=4",
   },
 };
