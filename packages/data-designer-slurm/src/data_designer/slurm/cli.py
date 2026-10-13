@@ -18,9 +18,15 @@ import typer
 from pydantic import BaseModel, ValidationError
 
 from data_designer.slurm.cli_benchmark import create_benchmark_app
-from data_designer.slurm.config import ImageBuildRequest, SlurmConfigLoadError, load_run_config
+from data_designer.slurm.config import (
+    ClientImageInspection,
+    ImageBuildRequest,
+    ServingImageInspection,
+    SlurmConfigLoadError,
+    load_run_config,
+)
 from data_designer.slurm.contracts import canonical_json
-from data_designer.slurm.images.records import validate_oci_source_for_lifecycle
+from data_designer.slurm.images.records import RegisteredImage, validate_oci_source_for_lifecycle
 from data_designer.slurm.images.vllm_source import (
     VllmSourceResolutionError,
     VllmTagNotFoundError,
@@ -265,10 +271,10 @@ def profile_validate_command(
 
 @image_app.command("add")
 def image_add_command(
-    source: str = typer.Argument(..., help="Digest-pinned OCI, versioned official vLLM image, or SQSH"),
-    kind: str = typer.Option("serving", "--kind", help="Image role (defaults to serving)"),
-    name: str | None = typer.Option(None, "--name"),
-    replace: bool = typer.Option(False, "--replace"),
+    source: str = typer.Argument(..., help="Digest-qualified OCI, official versioned vLLM tag, or absolute SQSH path"),
+    kind: str = typer.Option("serving", "--kind", help="Image role: serving or client"),
+    name: str | None = typer.Option(None, "--name", help="Alias to register (derived from the source by default)"),
+    replace: bool = typer.Option(False, "--replace", help="Allow replacement of an existing alias"),
     follow_logs: bool | None = typer.Option(
         None,
         "--follow-logs/--no-follow-logs",
@@ -322,7 +328,7 @@ def image_add_command(
             logs=_emit_image_log if (follow_logs if follow_logs is not None else _progress_enabled()) else None,
         ).add(request, replace=replace)
 
-    _emit_result(_invoke(operation, add))
+    _emit_registered_image(_invoke(operation, add), registered=True)
 
 
 @image_app.command("ls")
@@ -336,12 +342,17 @@ def image_list_command(
         operation,
         lambda: create_slurm_image_service(profile_file=profile_file, cluster=cluster).list(),
     )
-    _emit_value([image.model_dump(mode="json") for image in images])
+    if _output_format() is _OutputFormat.JSON:
+        _emit_value([image.model_dump(mode="json") for image in images])
+    elif not images:
+        typer.echo("No registered images.")
+    else:
+        typer.echo("\n\n".join("\n".join(_image_list_lines(image)) for image in images))
 
 
 @image_app.command("info")
 def image_info_command(
-    name: str = typer.Argument(...),
+    name: str = typer.Argument(..., help="Registered image alias"),
     profile_file: Path | None = typer.Option(None, "--profile-file", dir_okay=False),
     cluster: str | None = typer.Option(None, "--cluster"),
 ) -> None:
@@ -351,15 +362,17 @@ def image_info_command(
         operation,
         lambda: create_slurm_image_service(profile_file=profile_file, cluster=cluster).get(name),
     )
-    _emit_result(result)
+    _emit_registered_image(result)
 
 
 @image_app.command("rm")
 def image_remove_command(
-    name: str = typer.Argument(...),
+    name: str = typer.Argument(..., help="Registered image alias to remove"),
     profile_file: Path | None = typer.Option(None, "--profile-file", dir_okay=False),
     cluster: str | None = typer.Option(None, "--cluster"),
-    delete_artifact: bool = typer.Option(False, "--delete-artifact", help="Also delete an unshared OCI SQSH artifact."),
+    delete_artifact: bool = typer.Option(
+        False, "--delete-artifact", help="Also delete an unshared SQSH imported by this workspace"
+    ),
 ) -> None:
     """Unregister one alias; optionally delete its package-owned SQSH artifact."""
     operation = SlurmServiceOperation.REMOVE_IMAGE
@@ -417,6 +430,45 @@ def _fail(error: SlurmServiceError) -> NoReturn:
 
 def _emit_result(result: BaseModel) -> None:
     _emit_value(result.model_dump(mode="json"))
+
+
+def _emit_registered_image(result: BaseModel, *, registered: bool = False) -> None:
+    if _output_format() is _OutputFormat.JSON or not isinstance(result, RegisteredImage):
+        _emit_result(result)
+        return
+    typer.echo("\n".join(_registered_image_lines(result, registered=registered)))
+
+
+def _registered_image_lines(result: RegisteredImage, *, registered: bool = False) -> list[str]:
+    alias_label = "Registered image alias" if registered else "Image alias"
+    lines = [
+        f"{alias_label}: {_human_scalar(result.name)}",
+        f"SQSH path: {_human_scalar(result.path)}",
+        f"SQSH sha256: {_human_scalar(result.sqsh_sha256)}",
+    ]
+    if result.source_oci_digest is not None:
+        lines.append(f"Source OCI digest: {_human_scalar(result.source_oci_digest)}")
+    lines.extend(
+        (
+            "Image details:",
+            *_human_lines(result.inspection.inspection.model_dump(mode="json"), indent=2),
+        )
+    )
+    return lines
+
+
+def _image_list_lines(image: RegisteredImage) -> list[str]:
+    details = image.inspection.inspection
+    if isinstance(details, ServingImageInspection):
+        runtime = f"vLLM {details.runtime_version}"
+    else:
+        assert isinstance(details, ClientImageInspection)
+        runtime = f"Python {details.python_version}"
+    summary = f"{image.name} ({details.kind.value}, {runtime})"
+    return [
+        " ".join(_human_scalar(summary).splitlines()),
+        f"  SQSH: {_human_scalar(image.path)}",
+    ]
 
 
 def _emit_value(value: object, *, err: bool = False) -> None:
