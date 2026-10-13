@@ -175,6 +175,8 @@ navigation:
     contents:
       - page: Overview
         path: ./latest/pages/devnotes/index.mdx
+      - page: Nemotron Indic Translation
+        path: ./latest/pages/devnotes/posts/nemotron-bharat-translation.mdx
       - page: Pause, Inspect, Resume
         path: ./latest/pages/devnotes/posts/annotate-hard-pages-review-gates.mdx
       - page: Image Generation for Multimodal Data Pipelines
