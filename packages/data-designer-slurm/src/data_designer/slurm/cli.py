@@ -18,7 +18,13 @@ import typer
 from pydantic import BaseModel, ValidationError
 
 from data_designer.slurm.cli_benchmark import create_benchmark_app
-from data_designer.slurm.config import ImageBuildRequest, SlurmConfigLoadError, load_run_config
+from data_designer.slurm.config import (
+    ClientImageInspection,
+    ImageBuildRequest,
+    ServingImageInspection,
+    SlurmConfigLoadError,
+    load_run_config,
+)
 from data_designer.slurm.contracts import canonical_json
 from data_designer.slurm.images.records import RegisteredImage, validate_oci_source_for_lifecycle
 from data_designer.slurm.images.vllm_source import (
@@ -322,7 +328,7 @@ def image_add_command(
             logs=_emit_image_log if (follow_logs if follow_logs is not None else _progress_enabled()) else None,
         ).add(request, replace=replace)
 
-    _emit_registered_image(_invoke(operation, add))
+    _emit_registered_image(_invoke(operation, add), registered=True)
 
 
 @image_app.command("ls")
@@ -341,7 +347,7 @@ def image_list_command(
     elif not images:
         typer.echo("(none)")
     else:
-        typer.echo("\n\n".join("\n".join(_registered_image_lines(image)) for image in images))
+        typer.echo("\n\n".join("\n".join(_image_list_lines(image)) for image in images))
 
 
 @image_app.command("info")
@@ -424,16 +430,17 @@ def _emit_result(result: BaseModel) -> None:
     _emit_value(result.model_dump(mode="json"))
 
 
-def _emit_registered_image(result: BaseModel) -> None:
+def _emit_registered_image(result: BaseModel, *, registered: bool = False) -> None:
     if _output_format() is _OutputFormat.JSON or not isinstance(result, RegisteredImage):
         _emit_result(result)
         return
-    typer.echo("\n".join(_registered_image_lines(result)))
+    typer.echo("\n".join(_registered_image_lines(result, registered=registered)))
 
 
-def _registered_image_lines(result: RegisteredImage) -> list[str]:
+def _registered_image_lines(result: RegisteredImage, *, registered: bool = False) -> list[str]:
+    alias_label = "Registered image alias" if registered else "Image alias"
     lines = [
-        f"Image alias: {_human_scalar(result.name)}",
+        f"{alias_label}: {_human_scalar(result.name)}",
         f"SQSH path: {_human_scalar(result.path)}",
         f"SQSH sha256: {_human_scalar(result.sqsh_sha256)}",
     ]
@@ -446,6 +453,19 @@ def _registered_image_lines(result: RegisteredImage) -> list[str]:
         )
     )
     return lines
+
+
+def _image_list_lines(image: RegisteredImage) -> list[str]:
+    details = image.inspection.inspection
+    if isinstance(details, ServingImageInspection):
+        runtime = f"vLLM {details.runtime_version}"
+    else:
+        assert isinstance(details, ClientImageInspection)
+        runtime = f"Python {details.python_version}"
+    return [
+        f"{_human_scalar(image.name)} ({details.kind.value}, {runtime})",
+        f"  SQSH: {_human_scalar(image.path)}",
+    ]
 
 
 def _emit_value(value: object, *, err: bool = False) -> None:

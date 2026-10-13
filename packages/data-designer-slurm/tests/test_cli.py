@@ -226,7 +226,9 @@ def test_image_add_list_and_info_show_image_details(
     )
     assert added.exit_code == listed.exit_code == info.exit_code == 0
     assert machine_added.exit_code == machine.exit_code == machine_list.exit_code == 0
-    assert added.stdout == listed.stdout == info.stdout == expected
+    assert added.stdout == expected.replace("Image alias:", "Registered image alias:", 1)
+    assert listed.stdout == "vllm (serving, vLLM 0.21.0)\n  SQSH: /workspace/images/vllm.sqsh\n"
+    assert info.stdout == expected
     assert json.loads(machine_added.stdout) == image.model_dump(mode="json")
     assert json.loads(machine.stdout) == image.model_dump(mode="json")
     assert json.loads(machine_list.stdout) == [image.model_dump(mode="json")]
@@ -249,16 +251,21 @@ def test_existing_client_image_summary_omits_absent_oci_digest(
             assert name == image.name
             return image
 
+        def list(self) -> tuple[RegisteredImage, ...]:
+            return (image,)
+
     monkeypatch.setattr(cli_module, "create_slurm_image_service", lambda **_: ImageService())
     monkeypatch.delenv("DATA_DESIGNER_SLURM_OUTPUT")
 
     result = CliRunner().invoke(cli_module.create_cli(), ["image", "info", image.name])
+    listed = CliRunner().invoke(cli_module.create_cli(), ["image", "ls"])
 
-    assert result.exit_code == 0
+    assert result.exit_code == listed.exit_code == 0
     assert "Source OCI digest:" not in result.stdout
     assert result.stdout.count("Image details:") == 1
     assert "  Kind: client\n" in result.stdout
     assert "  Python version:" in result.stdout
+    assert listed.stdout == "client (client, Python 3.12.12)\n  SQSH: /workspace/images/client.sqsh\n"
 
 
 def test_image_remove_confirms_alias_removal_and_preserves_json(monkeypatch: pytest.MonkeyPatch) -> None:
