@@ -14,7 +14,13 @@ from pydantic import BaseModel
 import data_designer.slurm.cli as cli_module
 import data_designer.slurm.cli_benchmark as benchmark_cli_module
 from data_designer.slurm.benchmark import BenchmarkManifest, BenchmarkReport
-from data_designer.slurm.config import DataDesignerSlurmBenchmarkConfig, DataDesignerSlurmConfig, ImageBuildRequest
+from data_designer.slurm.config import (
+    DataDesignerSlurmBenchmarkConfig,
+    DataDesignerSlurmConfig,
+    ImageBuildRequest,
+    ImageInspectionRecord,
+)
+from data_designer.slurm.images.records import RegisteredImage
 from data_designer.slurm.services import (
     SlurmCollectionExecution,
     SlurmRetryExecution,
@@ -166,6 +172,93 @@ def test_default_empty_image_list_is_readable(monkeypatch: pytest.MonkeyPatch) -
 
     assert result.exit_code == 0
     assert result.stdout == "(none)\n"
+
+
+def test_image_add_list_and_info_show_image_details(
+    monkeypatch: pytest.MonkeyPatch,
+    serving_image_inspection: ImageInspectionRecord,
+) -> None:
+    image = RegisteredImage(
+        schema_version=1,
+        name="vllm",
+        path="/workspace/images/vllm.sqsh",
+        sqsh_sha256=serving_image_inspection.sqsh_sha256,
+        source_oci_digest="a" * 64,
+        inspection=serving_image_inspection,
+    )
+
+    class ImageService:
+        def add(self, request: ImageBuildRequest, *, replace: bool) -> RegisteredImage:
+            assert request.name == image.name
+            assert not replace
+            return image
+
+        def list(self) -> tuple[RegisteredImage, ...]:
+            return (image,)
+
+        def get(self, name: str) -> RegisteredImage:
+            assert name == image.name
+            return image
+
+    monkeypatch.setattr(cli_module, "create_slurm_image_service", lambda **_: ImageService())
+    monkeypatch.delenv("DATA_DESIGNER_SLURM_OUTPUT")
+    source = f"registry.example/vllm@sha256:{'a' * 64}"
+
+    added = CliRunner().invoke(cli_module.create_cli(), ["image", "add", source, "--name", image.name])
+    listed = CliRunner().invoke(cli_module.create_cli(), ["image", "ls"])
+    info = CliRunner().invoke(cli_module.create_cli(), ["image", "info", image.name])
+    machine_added = CliRunner().invoke(
+        cli_module.create_cli(), ["--output", "json", "image", "add", source, "--name", image.name]
+    )
+    machine = CliRunner().invoke(cli_module.create_cli(), ["--output", "json", "image", "info", image.name])
+    machine_list = CliRunner().invoke(cli_module.create_cli(), ["--output", "json", "image", "ls"])
+
+    expected = (
+        "Image alias: vllm\n"
+        "SQSH path: /workspace/images/vllm.sqsh\n"
+        f"SQSH sha256: {serving_image_inspection.sqsh_sha256}\n"
+        f"Source OCI digest: {'a' * 64}\n"
+        "Image details:\n"
+        "  Kind: serving\n"
+        "  Server type: vllm\n"
+        "  Runtime version: 0.21.0\n"
+        "  Executable path: /usr/local/bin/vllm\n"
+    )
+    assert added.exit_code == listed.exit_code == info.exit_code == 0
+    assert machine_added.exit_code == machine.exit_code == machine_list.exit_code == 0
+    assert added.stdout == listed.stdout == info.stdout == expected
+    assert json.loads(machine_added.stdout) == image.model_dump(mode="json")
+    assert json.loads(machine.stdout) == image.model_dump(mode="json")
+    assert json.loads(machine_list.stdout) == [image.model_dump(mode="json")]
+
+
+def test_existing_client_image_summary_omits_absent_oci_digest(
+    monkeypatch: pytest.MonkeyPatch,
+    client_image_inspection: ImageInspectionRecord,
+) -> None:
+    image = RegisteredImage(
+        schema_version=1,
+        name="client",
+        path="/workspace/images/client.sqsh",
+        sqsh_sha256=client_image_inspection.sqsh_sha256,
+        inspection=client_image_inspection,
+    )
+
+    class ImageService:
+        def get(self, name: str) -> RegisteredImage:
+            assert name == image.name
+            return image
+
+    monkeypatch.setattr(cli_module, "create_slurm_image_service", lambda **_: ImageService())
+    monkeypatch.delenv("DATA_DESIGNER_SLURM_OUTPUT")
+
+    result = CliRunner().invoke(cli_module.create_cli(), ["image", "info", image.name])
+
+    assert result.exit_code == 0
+    assert "Source OCI digest:" not in result.stdout
+    assert result.stdout.count("Image details:") == 1
+    assert "  Kind: client\n" in result.stdout
+    assert "  Python version:" in result.stdout
 
 
 def test_image_remove_confirms_alias_removal_and_preserves_json(monkeypatch: pytest.MonkeyPatch) -> None:

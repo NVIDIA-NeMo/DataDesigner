@@ -20,7 +20,7 @@ from pydantic import BaseModel, ValidationError
 from data_designer.slurm.cli_benchmark import create_benchmark_app
 from data_designer.slurm.config import ImageBuildRequest, SlurmConfigLoadError, load_run_config
 from data_designer.slurm.contracts import canonical_json
-from data_designer.slurm.images.records import validate_oci_source_for_lifecycle
+from data_designer.slurm.images.records import RegisteredImage, validate_oci_source_for_lifecycle
 from data_designer.slurm.images.vllm_source import (
     VllmSourceResolutionError,
     VllmTagNotFoundError,
@@ -322,7 +322,7 @@ def image_add_command(
             logs=_emit_image_log if (follow_logs if follow_logs is not None else _progress_enabled()) else None,
         ).add(request, replace=replace)
 
-    _emit_result(_invoke(operation, add))
+    _emit_registered_image(_invoke(operation, add))
 
 
 @image_app.command("ls")
@@ -336,7 +336,12 @@ def image_list_command(
         operation,
         lambda: create_slurm_image_service(profile_file=profile_file, cluster=cluster).list(),
     )
-    _emit_value([image.model_dump(mode="json") for image in images])
+    if _output_format() is _OutputFormat.JSON:
+        _emit_value([image.model_dump(mode="json") for image in images])
+    elif not images:
+        typer.echo("(none)")
+    else:
+        typer.echo("\n\n".join("\n".join(_registered_image_lines(image)) for image in images))
 
 
 @image_app.command("info")
@@ -351,7 +356,7 @@ def image_info_command(
         operation,
         lambda: create_slurm_image_service(profile_file=profile_file, cluster=cluster).get(name),
     )
-    _emit_result(result)
+    _emit_registered_image(result)
 
 
 @image_app.command("rm")
@@ -417,6 +422,30 @@ def _fail(error: SlurmServiceError) -> NoReturn:
 
 def _emit_result(result: BaseModel) -> None:
     _emit_value(result.model_dump(mode="json"))
+
+
+def _emit_registered_image(result: BaseModel) -> None:
+    if _output_format() is _OutputFormat.JSON or not isinstance(result, RegisteredImage):
+        _emit_result(result)
+        return
+    typer.echo("\n".join(_registered_image_lines(result)))
+
+
+def _registered_image_lines(result: RegisteredImage) -> list[str]:
+    lines = [
+        f"Image alias: {_human_scalar(result.name)}",
+        f"SQSH path: {_human_scalar(result.path)}",
+        f"SQSH sha256: {_human_scalar(result.sqsh_sha256)}",
+    ]
+    if result.source_oci_digest is not None:
+        lines.append(f"Source OCI digest: {_human_scalar(result.source_oci_digest)}")
+    lines.extend(
+        (
+            "Image details:",
+            *_human_lines(result.inspection.inspection.model_dump(mode="json"), indent=2),
+        )
+    )
+    return lines
 
 
 def _emit_value(value: object, *, err: bool = False) -> None:
