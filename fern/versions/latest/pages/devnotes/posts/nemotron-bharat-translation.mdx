@@ -104,6 +104,8 @@ The plugin registers a single Data Designer column generator, `document-translat
 
 What changes per language is entirely configuration: `translation_mode` (`generic` vs. `bodhan`) picks the default prompt and language-description table, `model_alias`/`evaluator_model_alias` pick the models, and a couple of language-specific fields turn on windowing or script remapping. There is no per-language branch in the generator itself.
 
+In the snippets below, the model aliases `gemma` and `bodhan` are illustrative: they stand for `google/gemma-4-31B-it` and `bodhan-ai/indic-translate`, and must be registered as `ModelConfig`s on the builder before running (see [Try It Yourself](#try-it-yourself) for an example).
+
 ```python
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer_nemotron_bharat_translation.config import DocumentTranslationConfig
