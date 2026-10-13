@@ -49,4 +49,4 @@ reports = [{ version = "4.67.3", license = "MPL-2.0 AND MIT" }]
 
 [exceptions.typing_extensions]
 reason = "Python typing compatibility dependency under the PSF license."
-reports = [{ version = "4.15.0", license = "PSF-2.0" }]
+reports = [{ version = "4.16.0", license = "PSF-2.0" }]

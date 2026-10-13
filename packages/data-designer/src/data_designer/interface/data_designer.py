@@ -626,11 +626,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         """Get the runtime configuration applied to dataset generation.
 
         Returns:
-            The active RunConfig instance. Note that ``RunConfig`` normalizes
-            some fields on construction (e.g., ``shutdown_error_rate`` becomes
-            ``1.0`` when ``disable_early_shutdown=True``), so the returned
-            object may not exactly equal the one originally passed to
-            ``set_run_config``.
+            The active RunConfig instance.
         """
         return self._run_config
 

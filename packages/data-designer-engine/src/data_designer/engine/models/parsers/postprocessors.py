@@ -3,6 +3,9 @@
 
 from __future__ import annotations
 
+import json
+from typing import NoReturn
+
 import json_repair
 
 from data_designer.engine.models.parsers.types import (
@@ -41,6 +44,7 @@ def merge_text_blocks(
 def deserialize_json_code(
     structured_response: LLMStructuredResponse,
 ) -> LLMStructuredResponse:
+    """Deserialize fenced JSON, falling back to a complete bare JSON response."""
     processed_response = structured_response.model_copy()
     processed_response.parsed = []
 
@@ -54,4 +58,15 @@ def deserialize_json_code(
         else:
             processed_response.parsed.append(block)
 
+    if not any(isinstance(block, StructuredDataBlock) for block in processed_response.parsed):
+        try:
+            deserialized = json.loads(structured_response.response, parse_constant=_reject_json_constant)
+        except ValueError:
+            return processed_response
+        processed_response.parsed = [StructuredDataBlock(serialized=structured_response.response, obj=deserialized)]
+
     return processed_response
+
+
+def _reject_json_constant(value: str) -> NoReturn:
+    raise ValueError(f"Non-standard JSON constant: {value}")

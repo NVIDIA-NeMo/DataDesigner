@@ -493,7 +493,8 @@ def test_run_config_setting_persists(stub_artifact_path, stub_model_providers):
         )
     )
     assert data_designer.run_config.disable_early_shutdown is True
-    assert data_designer.run_config.shutdown_error_rate == 1.0  # normalized when disabled
+    assert data_designer.run_config.shutdown_error_rate == 0.8
+    assert data_designer.run_config.effective_shutdown_error_rate == 1.0
     assert data_designer.run_config.shutdown_error_window == 25
     assert data_designer.run_config.buffer_size == 500
     assert data_designer.run_config.max_in_flight_tasks == 1536
@@ -563,8 +564,8 @@ def test_resource_provider_uses_otel_sink_only_when_enabled(
         assert create_provider.call_args.kwargs["scheduler_event_sink"] is None
 
 
-def test_run_config_normalizes_error_rate_when_disabled(stub_artifact_path, stub_model_providers):
-    """Test that shutdown_error_rate is normalized to 1.0 when disabled."""
+def test_run_config_keeps_error_rate_when_disabled(stub_artifact_path, stub_model_providers):
+    """Test that shutdown_error_rate round-trips and only the effective rate is 1.0 when disabled."""
     data_designer = DataDesigner(artifact_path=stub_artifact_path, model_providers=stub_model_providers)
 
     # When enabled (default), shutdown_error_rate should use the configured value
@@ -576,14 +577,15 @@ def test_run_config_normalizes_error_rate_when_disabled(stub_artifact_path, stub
     )
     assert data_designer.run_config.shutdown_error_rate == 0.7
 
-    # When disabled, shutdown_error_rate should be normalized to 1.0
+    # When disabled, shutdown_error_rate keeps the configured value; the effective rate is 1.0
     data_designer.set_run_config(
         RunConfig(
             disable_early_shutdown=True,
             shutdown_error_rate=0.7,
         )
     )
-    assert data_designer.run_config.shutdown_error_rate == 1.0
+    assert data_designer.run_config.shutdown_error_rate == 0.7
+    assert data_designer.run_config.effective_shutdown_error_rate == 1.0
 
 
 def test_get_models_uses_sync_clients(stub_artifact_path, stub_model_providers):

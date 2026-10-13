@@ -1,6 +1,10 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from __future__ import annotations
+
+import json
+
 import pytest
 from pydantic import BaseModel, Field
 
@@ -43,6 +47,64 @@ class Bar(BaseModel):
 
 class Foo(BaseModel):
     bar: Bar
+
+
+@pytest.fixture(params=["pydantic", "structured"])
+def json_recipe(request: pytest.FixtureRequest) -> PydanticResponseRecipe | StructuredResponseRecipe:
+    if request.param == "pydantic":
+        return PydanticResponseRecipe(Foo)
+    return StructuredResponseRecipe(Foo.model_json_schema())
+
+
+@pytest.mark.parametrize("padding", ["", " \n\t", "    "])
+def test_json_recipe_accepts_bare_json(
+    json_recipe: PydanticResponseRecipe | StructuredResponseRecipe, padding: str
+) -> None:
+    example = Foo(bar=Bar(baz=42, unicode_math=f"<b>**value**</b> &amp; `code` {UNICODE_MATH_STRING}"))
+    response = padding + example.model_dump_json() + padding
+    result = json_recipe.parse(response)
+    assert (result.model_dump() if isinstance(result, BaseModel) else result) == example.model_dump()
+
+
+@pytest.mark.parametrize("response", ["{}", '{"bar": {"baz": "hello"}}'])
+def test_json_recipe_validates_bare_json(
+    json_recipe: PydanticResponseRecipe | StructuredResponseRecipe, response: str
+) -> None:
+    with pytest.raises(ParserException, match="Response doesn't match requested <response_schema>"):
+        json_recipe.parse(response)
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        '{"bar": {"baz": 42}',
+        '{"bar": {"baz": 42,}}',
+        "{bar: {baz: 42}}",
+        'Here is the JSON: {"bar": {"baz": 42}}',
+        '{"bar": {"baz": 42}} trailing text',
+        '{"bar": {"baz": 42}} {"bar": {"baz": 43}}',
+    ],
+)
+def test_json_recipe_rejects_malformed_or_embedded_bare_json(
+    json_recipe: PydanticResponseRecipe | StructuredResponseRecipe, response: str
+) -> None:
+    with pytest.raises(ParserException, match="No parsable JSON found"):
+        json_recipe.parse(response)
+
+
+def test_json_recipe_preserves_fenced_json_precedence(
+    json_recipe: PydanticResponseRecipe | StructuredResponseRecipe,
+) -> None:
+    example = Foo(bar=Bar(baz=42))
+    response = f'{example.model_dump_json()}\n\n```json\n{{"bar": {{"baz": "invalid"}}}}\n```'
+    with pytest.raises(ParserException, match="Response doesn't match requested <response_schema>"):
+        json_recipe.parse(response)
+
+
+def test_structured_response_prunes_bare_json_extra_fields() -> None:
+    recipe = StructuredResponseRecipe(Foo.model_json_schema())
+    example = Foo(bar=Bar(baz=42)).model_dump()
+    assert recipe.parse(json.dumps({**example, "extra": "drop me"})) == example
 
 
 def test_pydantic_response():
@@ -177,7 +239,6 @@ def test_structured_response_patched_case_single_lb():
         "```json\n{}\n```\n",
         '```json\n{"foo": 2}\n```\n',
         '```json\n{"bar": {"baz": "hello"}}\n```\n',
-        '{"bar": {"baz": 42}}',
     ],
 )
 def test_pydantic_response_failure_cases(bad_response):
@@ -199,7 +260,6 @@ def test_pydantic_response_failure_cases(bad_response):
         "```json\n{}\n```\n",
         '```json\n{"foo": 2}\n```\n',
         '```json\n{"bar": {"baz": "hello"}}\n```\n',
-        '{"bar": {"baz": 42}}',
     ],
 )
 def test_structured_response_failure_cases(bad_response):

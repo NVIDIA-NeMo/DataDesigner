@@ -319,11 +319,11 @@ class RunConfig(ConfigBase):
     shutdown_error_rate: float = Field(default=0.5, ge=0.0, le=1.0)
     buffer_size: int = Field(default=1000, gt=0)
 
-    @model_validator(mode="after")
-    def normalize_shutdown_settings(self) -> Self:
-        if self.disable_early_shutdown:
-            self.shutdown_error_rate = 1.0
-        return self
+    # Derive runtime values in a property instead of overwriting user-set fields,
+    # so the config round-trips through model_dump/model_validate unchanged
+    @property
+    def effective_shutdown_error_rate(self) -> float:
+        return 1.0 if self.disable_early_shutdown else self.shutdown_error_rate
 ```
 
 ### Dataclasses

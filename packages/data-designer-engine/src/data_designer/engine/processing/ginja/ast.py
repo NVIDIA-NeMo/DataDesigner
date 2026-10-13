@@ -62,6 +62,7 @@ def ast_count_name_references(ast: j_nodes.Node, name: str) -> int:
 
     Args:
         ast (jinja2.nodes.Node): The starting Jinja2 AST node
+        name (str): The variable name to count references to.
 
     Returns:
         int: The number of nodes descended from the provided node whose
