@@ -66,7 +66,7 @@ def test_collection_renderer_uses_plan_bound_native_python_and_no_gpu_directives
         ),
         python_executable="/shared/data-designer/bin/python",
         host_destination=destination.host_path,
-        num_partitions=plan.output.partitions,
+        num_partitions=1,
     )
 
     script = render_collection_script(plan, collection, destination)
@@ -226,7 +226,7 @@ def test_destination_reauthorizes_explicit_path_through_workspace_mapping(
         ),
         python_executable="/shared/data-designer/bin/python",
         host_destination=requested,
-        num_partitions=plan.output.partitions,
+        num_partitions=1,
     )
 
     assert destination.authorized_root == workspace_root
@@ -258,7 +258,13 @@ def test_destination_rejects_package_managed_paths(
 
 
 def test_destination_allows_current_run_output_subtree(multi_node_plan: ResolvedSlurmRunPlan) -> None:
-    requested = (Path(multi_node_plan.output.root) / "collected").as_posix()
+    requested = (
+        Path(multi_node_plan.selected_profile.profile.workspace_root)
+        / "runs"
+        / multi_node_plan.run_id
+        / "output"
+        / "collected"
+    ).as_posix()
 
     assert CollectionDestinationResolver().resolve(multi_node_plan, requested).host_path == requested
 

@@ -24,7 +24,6 @@ from data_designer.slurm.config.run import (
     InputBindings,
     InvocationConfig,
     MCPProviderConfig,
-    OutputConfig,
     ServerDeploymentConfig,
     SubmissionConfig,
 )
@@ -43,7 +42,6 @@ class DataDesignerSlurmConfigBuilder:
         self._deployments: list[ServerDeploymentConfig] = []
         self._array_tasks = ArrayTasksConfig()
         self._submission = SubmissionConfig()
-        self._output = OutputConfig()
 
     @classmethod
     def from_config_builder(
@@ -133,11 +131,6 @@ class DataDesignerSlurmConfigBuilder:
         self._submission = _validate_model(SubmissionConfig, values)
         return self
 
-    def with_output(self, **values: object) -> DataDesignerSlurmConfigBuilder:
-        """Set typed dataset output intent."""
-        self._output = _validate_model(OutputConfig, values)
-        return self
-
     def build(self) -> DataDesignerSlurmConfig:
         """Return the complete authored declaration without resolving ambient state."""
         missing = []
@@ -159,7 +152,6 @@ class DataDesignerSlurmConfigBuilder:
                 "deployments": self._deployments,
                 "array_tasks": self._array_tasks,
                 "submission": self._submission,
-                "output": self._output,
             },
         )
 

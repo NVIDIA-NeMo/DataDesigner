@@ -17,7 +17,7 @@ export PYTHONNOUSERSITE=1
 readonly DD_RUNTIME_ARCHIVE="/workspace/primary/runtime/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee.tar.gz"
 readonly DD_RUNTIME_SHA256="eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
 readonly DD_PLAN="/workspace/primary/runs/run-single/resolved-plan.json"
-readonly DD_PLAN_SHA256="82229085d7141ea3035512d6cf8c018a16c477ef0d461661c5560a9d8fd7202a"
+readonly DD_PLAN_SHA256="8318ae41cfdb1fbbfcea21fe28cd89b09bcf73772f69340a7863d333b2b76a75"
 readonly DD_RUN_ROOT="/workspace/primary/runs/run-single"
 readonly DD_ATTEMPT_ORDINAL="0001"
 

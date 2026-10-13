@@ -140,15 +140,16 @@ class RunRetryCollectionBackend:
                 CollectionDestinationResolver().resolve(plan, destination)
             except StateConflictError as error:
                 raise SlurmServiceError(SlurmServiceErrorCode.INVALID_REQUEST, operation, str(error)) from None
-            if num_partitions is not None and num_partitions != plan.output.partitions:
+            effective_partitions = 1 if num_partitions is None else num_partitions
+            if effective_partitions > plan.invocation.authored.num_records:
                 raise SlurmServiceError(
                     SlurmServiceErrorCode.INVALID_REQUEST,
                     operation,
-                    "num_partitions must match the persisted run output partitions",
+                    "num_partitions must not exceed requested records",
                 )
-            effective_partitions = plan.output.partitions
             status = SlurmCollectionCoordinator(self._workspace_root, run_id, self._launcher).submit(
                 destination=destination,
+                num_partitions=effective_partitions,
                 submitted_at=self._clock(),
             )
             if status.scheduler is None:

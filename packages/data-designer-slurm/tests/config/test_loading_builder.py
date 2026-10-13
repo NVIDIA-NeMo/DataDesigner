@@ -108,7 +108,6 @@ def test_builder_rejects_unsupported_output_format(tmp_path: Path) -> None:
         ("with_invocation", {"num_records": 0, "dataset_name": "generated"}),
         ("with_array_tasks", {"count": 1, "max_concurrent": 2}),
         ("with_submission", {"time_limit": "invalid"}),
-        ("with_output", {"partitions": 0}),
     ],
 )
 def test_builder_normalizes_invalid_authored_values(

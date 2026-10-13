@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import math
-import posixpath
 
 from pydantic import Field
 
@@ -131,17 +130,12 @@ def _compile_child(
             )
         )
 
-    output_root = base_run.output.root
-    output = base_run.output
-    if output_root is not None:
-        output = output.model_copy(update={"root": posixpath.join(output_root, benchmark_id, case_id)})
     return DataDesignerSlurmConfig.model_validate(
         base_run.model_copy(
             update={
                 "name": _bounded_identifier(f"{base_run.name}-{case_id}"),
                 "invocation": invocation,
                 "deployments": deployments,
-                "output": output,
             }
         ).model_dump(mode="python")
     )

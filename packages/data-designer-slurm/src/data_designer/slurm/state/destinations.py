@@ -32,12 +32,16 @@ class CollectionDestinationResolver:
         requested_destination: str | Path | None = None,
     ) -> CollectionDestination:
         """Return one authorized host output path."""
-        raw_destination = plan.output.root if requested_destination is None else Path(requested_destination).as_posix()
+        workspace_root = plan.selected_profile.profile.workspace_root
+        raw_destination = (
+            posixpath.join(workspace_root, "runs", plan.run_id, "output")
+            if requested_destination is None
+            else Path(requested_destination).as_posix()
+        )
         try:
             host_path = validate_absolute_path(raw_destination)
         except ValueError as error:
             raise StateConflictError("collection destination must be a normalized absolute path") from error
-        workspace_root = plan.selected_profile.profile.workspace_root
         _validate_destination_overlap(plan, host_path)
         authorized = {workspace_root, *(mount.source for mount in plan.container_mounts if not mount.read_only)}
         writable = tuple(root for root in authorized if host_path == root or is_path_below(host_path, root))
@@ -59,8 +63,6 @@ class CollectionDestinationResolver:
             raise StateConflictError("collection run identity does not match the resolved plan")
         if collection_plan.host_destination != destination.host_path:
             raise StateConflictError("collection host destination no longer matches resolved intent")
-        if collection_plan.num_partitions != resolved_plan.output.partitions:
-            raise StateConflictError("collection partition count no longer matches resolved intent")
         return destination
 
 

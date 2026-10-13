@@ -34,7 +34,7 @@ Retries create new attempts. The original attempt records remain durable, and ea
 
 ## Collect winners
 
-Default successful output is already managed beneath the run directory. Use `merge` to submit a zero-GPU CPU job that collects shard winners to an explicit compute-visible destination:
+Successful shards publish Parquet winners under the run directory. Use `merge` to submit a zero-GPU CPU job that collects them to an explicit compute-visible destination:
 
 ```bash
 data-designer slurm merge \
@@ -44,7 +44,7 @@ data-designer slurm merge \
 
 `--input-path` must be exactly a managed run directory under the selected profile workspace. The output path must be absolute, writable, compute-visible, and authorized by the profile mounts.
 
-If supplied, `--num-partitions` must equal the partition count persisted in the run:
+`--num-partitions` selects the number of collected Parquet files. It defaults to 1 and cannot exceed the run's record count:
 
 ```bash
 data-designer slurm merge \
@@ -53,4 +53,4 @@ data-designer slurm merge \
   --num-partitions 20
 ```
 
-Repeating collection returns or reuses managed state when safe. Conflicting destinations or partition counts are rejected.
+Repeating the same merge command returns or reuses managed collection state when safe. Changing the destination or partition count of an active collection is a conflict.
