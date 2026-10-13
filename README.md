@@ -21,7 +21,7 @@ Data Designer helps you create synthetic datasets that go beyond simple LLM prom
 - **Connect generation to external tools** through local or remote MCP servers and capture interaction traces
 - **Control relationships** between fields with dependency-aware generation
 - **Validate and score outputs** with Python, SQL, custom validators, and LLM judges
-- **Extend Data Designer** with plugins for custom columns, seed readers, and processors
+- **[Extend Data Designer with plugins](#do-more-with-data-designer-plugins)** for specialized data sources, generation capabilities, and processing steps
 - **Preview, resume, and monitor generation** from small experiments to large runs
 
 ---
@@ -97,6 +97,33 @@ config_builder.add_column(
 preview = data_designer.preview(config_builder=config_builder)
 preview.display_sample_record()
 ```
+---
+
+## Do more with Data Designer plugins
+
+Plugins extend the data sources, generation capabilities, and processing steps available in your Data Designer workflows. The [DataDesignerPlugins repository](https://github.com/NVIDIA-NeMo/DataDesignerPlugins) contains optional NVIDIA-maintained packages that add these capabilities.
+
+| What you want to do | Plugin package |
+| --- | --- |
+| Use files from GitHub or local Git repositories as seed data | [GitHub seed reader](https://github.com/NVIDIA-NeMo/DataDesignerPlugins/blob/main/plugins/data-designer-github/README.md) |
+| Generate question-answer data for retriever training, with document chunking, embedding-based deduplication, and export to Automodel-compatible training formats | [Retrieval SDG toolkit](https://github.com/NVIDIA-NeMo/DataDesignerPlugins/blob/main/plugins/data-designer-retrieval-sdg/README.md) |
+
+Data Designer provides the generation framework. Plugin packages add specialized capabilities to your existing workflow and can also provide ready-made workflows with their own CLI.
+
+After installing Data Designer, browse and install compatible packages from the default NVIDIA catalog:
+
+```bash
+data-designer plugin list
+data-designer plugin info github
+data-designer plugin install github
+data-designer plugin installed
+```
+
+The NVIDIA catalog is configured by default. Install plugin packages in the same Python environment as Data Designer. Their extensions are discovered automatically after installation; follow each package’s usage guide to configure them in your workflow.
+
+[Browse available plugins](https://nvidia-nemo.github.io/DataDesignerPlugins/plugins/) · [Discovery and installation guide](https://docs.nvidia.com/nemo/datadesigner/plugins/discover) · [Build your own plugin](https://docs.nvidia.com/nemo/datadesigner/plugins/example-plugin)
+
+---
 
 ---
 
