@@ -104,7 +104,7 @@ export const authors: Record<string, Author> = {
   },
   niketa: {
     name: "Niket Agarwal",
-    description: "Machine Learning Engineer at NVIDIA",
+    description: "Senior Distinguished Engineer at NVIDIA",
     avatar: "https://avatars.githubusercontent.com/u/2584050?v=4",
   },
   ravirajj: {
