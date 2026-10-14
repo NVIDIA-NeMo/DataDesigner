@@ -67,10 +67,14 @@ def test_partial_startup_failure_cleans_already_started_lane(monkeypatch: pytest
     process = _FakeProcess(pid=41)
     calls = 0
     signals: list[int] = []
+    cache_paths: list[Path] = []
 
     def start(*arguments: object, **keywords: object) -> _FakeProcess:
         nonlocal calls
-        del arguments, keywords
+        del arguments
+        environment = keywords["env"]
+        assert isinstance(environment, dict)
+        cache_paths.append(Path(environment["TIKTOKEN_RS_CACHE_DIR"]))
         calls += 1
         if calls == 2:
             raise OSError("injected partial startup")
@@ -99,16 +103,22 @@ def test_partial_startup_failure_cleans_already_started_lane(monkeypatch: pytest
 
     assert signals
     assert supervisor.cleanup_complete
+    assert len(cache_paths) == 2
+    assert all(not path.exists() for path in cache_paths)
 
 
 def test_node_worker_assigns_distinct_visible_gpus_to_two_tp4_replicas(monkeypatch: pytest.MonkeyPatch) -> None:
     visible: list[str] = []
+    cache_paths: list[Path] = []
 
     def start(*arguments: object, **keywords: object) -> _FakeProcess:
         del arguments
         environment = keywords["env"]
         assert isinstance(environment, dict)
         visible.append(environment["CUDA_VISIBLE_DEVICES"])
+        cache_path = Path(environment["TIKTOKEN_RS_CACHE_DIR"])
+        assert cache_path.is_dir()
+        cache_paths.append(cache_path)
         return _FakeProcess(pid=40 + len(visible), returncode=1 if len(visible) == 2 else None)
 
     def terminate(child: _FakeProcess, selected: int) -> None:
@@ -129,6 +139,33 @@ def test_node_worker_assigns_distinct_visible_gpus_to_two_tp4_replicas(monkeypat
 
     assert NodeProcessSupervisor(environment={}).run(node, tuple(str(index) for index in range(8))) == 1
     assert visible == ["0,1,2,3", "4,5,6,7"]
+    assert len(set(cache_paths)) == 2
+    assert all(not path.exists() for path in cache_paths)
+
+
+def test_node_worker_preserves_configured_tokenizer_cache(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    cache_path = tmp_path / "prewarmed-cache"
+    cache_path.mkdir()
+    observed: list[str] = []
+
+    def start(*arguments: object, **keywords: object) -> _FakeProcess:
+        del arguments
+        environment = keywords["env"]
+        assert isinstance(environment, dict)
+        observed.append(environment["TIKTOKEN_RS_CACHE_DIR"])
+        return _FakeProcess(pid=41, returncode=1)
+
+    monkeypatch.setattr(runtime_node_worker.subprocess, "Popen", start)
+    node = NodeSpec(
+        node_index=0,
+        host="compute-001",
+        ports=(),
+        processes=(NodeProcessSpec("replica-0", ("serve",), (0,), 0),),
+    )
+
+    assert NodeProcessSupervisor(environment={"TIKTOKEN_RS_CACHE_DIR": cache_path.as_posix()}).run(node, ("0",)) == 1
+    assert observed == [cache_path.as_posix()]
+    assert cache_path.is_dir()
 
 
 def test_follower_failure_terminates_sibling_without_orphan(tmp_path: Path) -> None:
