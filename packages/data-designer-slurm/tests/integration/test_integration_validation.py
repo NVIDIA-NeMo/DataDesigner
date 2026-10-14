@@ -383,11 +383,11 @@ def test_client_candidate_validation_supports_preterminal_runtime_state(records:
 @pytest.mark.parametrize(
     ("mutation", "message"),
     [
-        ("partial_result", "complete client results"),
-        ("failed_result", "complete client results"),
+        ("partial_result", "actual records must match"),
+        ("failed_result", "nonempty client results"),
         ("failed_attempt", "successful attempts"),
         ("wrong_terminal_classification", "successfully classified"),
-        ("ineligible_candidate", "complete candidate outputs"),
+        ("ineligible_candidate", "nonempty candidate outputs"),
         ("stale_winner", "winner attempt_id"),
         ("digest_mismatch", "digest"),
         ("dataset_path_mismatch", "dataset path"),

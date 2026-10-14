@@ -639,7 +639,7 @@ def test_future_client_timestamp_cannot_push_persisted_state_clock_forward(runti
     assert state.attempt.state is AttemptLifecycleState.FAILED
 
 
-def test_partial_client_result_is_classified_before_candidate_loading(runtime_case: RuntimeCase) -> None:
+def test_partial_client_result_requires_candidate_manifest(runtime_case: RuntimeCase) -> None:
     clock = FakeClock(runtime_case.created_at.replace(second=10), monotonic_time=100)
     state = FakeStateStore(runtime_case.context.attempt)
     runner = _FakeRunner(generation_hook=lambda: _write_partial_result(runtime_case, clock))
@@ -658,8 +658,30 @@ def test_partial_client_result_is_classified_before_candidate_loading(runtime_ca
     with pytest.raises(SlurmRuntimeError) as raised:
         controller.run()
 
-    assert raised.value.code is SlurmRuntimeErrorCode.CLIENT_FAILED
+    assert raised.value.code is SlurmRuntimeErrorCode.FINALIZATION_FAILED
     assert not (runtime_case.context.attempt_directory / "output-manifest.json").exists()
+
+
+def test_nonempty_partial_client_result_completes(runtime_case: RuntimeCase) -> None:
+    clock = FakeClock(runtime_case.created_at.replace(second=10), monotonic_time=100)
+    state = FakeStateStore(runtime_case.context.attempt)
+    runner = _FakeRunner(generation_hook=lambda: _write_complete_result(runtime_case, clock, shortfall=1))
+    controller = OneNodeAllocationController(
+        runtime_case.context,
+        runtime_proxy_path=runtime_case.context.attempt_directory / "runtime/proxy.py",
+        state=state,
+        supervisor=_supervisor(runner, clock),
+        preflight=FakePreflight(),
+        client_steps=FakeClientStepBuilder(),
+        prober=_FakeProber(ready=True, clock=clock),
+        clock=clock,
+        environment=_ALLOCATION_ENVIRONMENT,
+    )
+
+    result = controller.run()
+
+    assert result.state is AttemptLifecycleState.SUCCEEDED
+    assert state.winners[0].attempt_id == result.attempt_id
 
 
 def test_stale_candidate_from_an_earlier_generation_cannot_succeed(runtime_case: RuntimeCase) -> None:
@@ -685,13 +707,14 @@ def test_stale_candidate_from_an_earlier_generation_cannot_succeed(runtime_case:
     assert state.attempt.state is AttemptLifecycleState.FAILED
 
 
-def _write_complete_result(runtime_case: RuntimeCase, clock: FakeClock) -> None:
+def _write_complete_result(runtime_case: RuntimeCase, clock: FakeClock, *, shortfall: int = 0) -> None:
     context = runtime_case.context
     requested = context.shard.requested_records
     dataset_path = (context.attempt_directory / "dataset").as_posix()
     output_path = Path(dataset_path) / "part-00000.parquet"
     output_path.parent.mkdir(exist_ok=True)
-    table = lazy.pa.table({"record_id": range(requested)})
+    actual_records = requested - shortfall
+    table = lazy.pa.table({"record_id": range(actual_records)})
     lazy.pq.write_table(table, output_path)
     output_bytes = output_path.read_bytes()
     candidate = CandidateOutputManifest(
@@ -703,14 +726,14 @@ def _write_complete_result(runtime_case: RuntimeCase, clock: FakeClock) -> None:
         created_at=clock.now(),
         dataset_path=dataset_path,
         requested_records=requested,
-        actual_records=requested,
-        outcome=CandidateOutcome.COMPLETE,
+        actual_records=actual_records,
+        outcome=CandidateOutcome.COMPLETE if not shortfall else CandidateOutcome.PARTIAL,
         files=(
             CandidateOutputFile(
                 relative_path="part-00000.parquet",
                 sha256=hashlib.sha256(output_bytes).hexdigest(),
                 byte_size=len(output_bytes),
-                record_count=requested,
+                record_count=actual_records,
             ),
         ),
         dataset_schema_digest=compute_candidate_schema_digest(table.schema),
@@ -726,8 +749,8 @@ def _write_complete_result(runtime_case: RuntimeCase, clock: FakeClock) -> None:
         attempt_id=context.attempt.attempt_id,
         completed_at=clock.now(),
         requested_records=requested,
-        actual_records=requested,
-        outcome=ClientOutcome.COMPLETE,
+        actual_records=actual_records,
+        outcome=ClientOutcome.COMPLETE if not shortfall else ClientOutcome.PARTIAL,
         dataset_path=dataset_path,
         early_shutdown=False,
         requested_resume_mode=context.plan.invocation.authored.resume,
