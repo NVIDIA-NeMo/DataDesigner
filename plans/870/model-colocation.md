@@ -7,6 +7,7 @@ Different model deployments currently receive disjoint nodes and the full profil
 ## Goal
 
 Allow explicit single-node groups with disjoint per-deployment GPU quotas in one managed run.
+Deliver as one PR against `feat/slurm-execution`.
 
 ## Design
 
@@ -16,8 +17,8 @@ Use `resources.shared_node` and `resources.gpus_per_node`. One group must cover 
 
 - [x] Add authored/preparation validation and deterministic placement/port/GPU contracts, including compatibility tests.
 - [x] Compose shared node workers and verify readiness, CUDA mapping, failures, cleanup, and retry resource preservation.
-- [ ] Document two distinct models and run the package/docs gates and one bounded end-to-end smoke.
-- [ ] Obtain independent Claude review, address verified findings, review the final branch, and open one PR against `feat/slurm-execution`.
+- [x] Document two distinct models and run the package/docs gates and one bounded end-to-end smoke.
+- [x] Obtain independent Claude review, address verified findings, and review the final branch.
 
 ## Open questions
 
