@@ -34,7 +34,7 @@ class CollectionDestinationResolver:
         """Return one authorized host output path."""
         workspace_root = plan.selected_profile.profile.workspace_root
         raw_destination = (
-            posixpath.join(workspace_root, "runs", plan.run_id, "output")
+            posixpath.join(workspace_root, "runs", plan.run_id, "merge-output")
             if requested_destination is None
             else Path(requested_destination).as_posix()
         )
@@ -78,7 +78,7 @@ def _validate_destination_overlap(plan: ResolvedSlurmRunPlan, host_path: str) ->
     if paths_overlap(host_path, managed_assets_path):
         raise StateConflictError("collection destination must not overlap managed assets")
     runs_root = posixpath.join(workspace_root, "runs")
-    run_output_root = posixpath.join(runs_root, plan.run_id, "output")
+    run_output_root = posixpath.join(runs_root, plan.run_id, "merge-output")
     if paths_overlap(host_path, runs_root) and not (
         host_path == run_output_root or is_path_below(host_path, run_output_root)
     ):

@@ -243,6 +243,7 @@ def test_destination_reauthorizes_explicit_path_through_workspace_mapping(
         ("runs/run-001/collections", "package-managed run state"),
         ("runs/run-001/retries", "package-managed run state"),
         ("runs/other-run/output", "package-managed run state"),
+        ("runs/other-run/merge-output", "package-managed run state"),
     ],
 )
 def test_destination_rejects_package_managed_paths(
@@ -257,12 +258,12 @@ def test_destination_rejects_package_managed_paths(
         CollectionDestinationResolver().resolve(multi_node_plan, requested)
 
 
-def test_destination_allows_current_run_output_subtree(multi_node_plan: ResolvedSlurmRunPlan) -> None:
+def test_destination_allows_current_run_merge_output_subtree(multi_node_plan: ResolvedSlurmRunPlan) -> None:
     requested = (
         Path(multi_node_plan.selected_profile.profile.workspace_root)
         / "runs"
         / multi_node_plan.run_id
-        / "output"
+        / "merge-output"
         / "collected"
     ).as_posix()
 
