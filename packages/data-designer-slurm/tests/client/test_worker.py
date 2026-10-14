@@ -12,10 +12,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
-import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
-from conftest import ClientWorkerCase, FakeCreationResults, FakeDataDesigner
+from conftest import ClientWorkerCase, FakeDataDesigner
 
 import data_designer.slurm.client.worker as worker_module
 from data_designer.config import ResumeMode
@@ -33,6 +32,7 @@ from data_designer.slurm.client.records import (
 from data_designer.slurm.contracts import compute_serialized_json_sha256
 from data_designer.slurm.planning import ResolvedDependencyLock, ResolvedSlurmRunPlan
 from data_designer.slurm.state import CandidateOutputManifest, compute_candidate_schema_digest
+from data_designer.slurm.state.artifacts import CandidateArtifactVerifier
 
 
 def test_preflight_materializes_endpoint_and_ready_environment(client_worker_case: ClientWorkerCase) -> None:
@@ -180,29 +180,16 @@ def test_run_persists_semantic_result_and_candidate(
     progress = ClientProgress.model_validate_json((client_worker_case.attempt_dir / "client-progress.json").read_text())
     assert persisted == result
     assert candidate.actual_records == actual_records
+    assert tuple(file.relative_path for file in candidate.files) == ("parquet-files/batch_00000.parquet",)
+    assert not (client_worker_case.attempt_dir / "dataset/part-00000.parquet").exists()
     assert result.candidate_output_manifest.sha256 == candidate.compute_sha256()
     assert progress.phase is ClientProgressPhase.COMPLETE
 
 
-def test_run_normalizes_parquet_schema_metadata(
-    client_worker_case: ClientWorkerCase,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    def export_with_metadata(results: FakeCreationResults, path: Path, *, format: str) -> Path:
-        assert format == "parquet"
-        schema = pa.schema(
-            [("value", pa.int64())],
-            metadata={b"producer": b"data-designer"},
-        )
-        table = pa.Table.from_arrays(
-            [pa.array(range(results.actual_num_records))],
-            schema=schema,
-        )
-        pq.write_table(table, path)
-        return path
-
-    monkeypatch.setattr(FakeCreationResults, "export", export_with_metadata)
-    worker = ClientWorker(data_designer_factory=FakeDataDesigner)
+def test_run_normalizes_parquet_schema_metadata(client_worker_case: ClientWorkerCase) -> None:
+    worker = ClientWorker(
+        data_designer_factory=partial(FakeDataDesigner, schema_metadata={b"producer": b"data-designer"})
+    )
     worker.preflight(
         client_worker_case.plan_path,
         prepared=client_worker_case.prepared,
@@ -220,8 +207,65 @@ def test_run_normalizes_parquet_schema_metadata(
     candidate = CandidateOutputManifest.model_validate_json(
         (client_worker_case.attempt_dir / "output-manifest.json").read_text()
     )
-    schema = pq.read_schema(client_worker_case.attempt_dir / "dataset/part-00000.parquet")
+    schema = pq.read_schema(client_worker_case.attempt_dir / "dataset/parquet-files/batch_00000.parquet")
     assert candidate.dataset_schema_digest == compute_candidate_schema_digest(schema)
+
+
+@pytest.mark.parametrize("batch_count", (2, 65))
+def test_run_uses_batch_files_when_candidate_is_bounded(
+    client_worker_case: ClientWorkerCase,
+    batch_count: int,
+) -> None:
+    worker = ClientWorker(data_designer_factory=partial(FakeDataDesigner, batch_count=batch_count))
+    worker.preflight(
+        client_worker_case.plan_path,
+        prepared=client_worker_case.prepared,
+        endpoints=client_worker_case.endpoints,
+        plugins=(),
+    )
+    worker.run(
+        client_worker_case.plan_path,
+        prepared=client_worker_case.prepared,
+        endpoints=client_worker_case.endpoints,
+        plugins=(),
+    )
+
+    candidate = CandidateOutputManifest.model_validate_json(
+        (client_worker_case.attempt_dir / "output-manifest.json").read_text()
+    )
+    if batch_count == 2:
+        assert tuple(file.relative_path for file in candidate.files) == (
+            "parquet-files/batch_00000.parquet",
+            "parquet-files/batch_00001.parquet",
+        )
+        assert not (client_worker_case.attempt_dir / "dataset/part-00000.parquet").exists()
+        with CandidateArtifactVerifier().verify(candidate) as verified:
+            assert sum(verified.record_counts) == candidate.actual_records
+            assert verified.dataset_schema_digest == candidate.dataset_schema_digest
+    else:
+        assert tuple(file.relative_path for file in candidate.files) == ("part-00000.parquet",)
+        assert (client_worker_case.attempt_dir / "dataset/part-00000.parquet").is_file()
+
+
+def test_run_exports_batches_with_different_schemas(client_worker_case: ClientWorkerCase) -> None:
+    worker = ClientWorker(data_designer_factory=partial(FakeDataDesigner, batch_count=2, mixed_batch_schemas=True))
+    worker.preflight(
+        client_worker_case.plan_path,
+        prepared=client_worker_case.prepared,
+        endpoints=client_worker_case.endpoints,
+        plugins=(),
+    )
+    worker.run(
+        client_worker_case.plan_path,
+        prepared=client_worker_case.prepared,
+        endpoints=client_worker_case.endpoints,
+        plugins=(),
+    )
+
+    candidate = CandidateOutputManifest.model_validate_json(
+        (client_worker_case.attempt_dir / "output-manifest.json").read_text()
+    )
+    assert tuple(file.relative_path for file in candidate.files) == ("part-00000.parquet",)
 
 
 @pytest.mark.parametrize(
@@ -446,7 +490,7 @@ def test_if_possible_interruption_preserves_workspace_for_retry(client_worker_ca
         )
 
     resume_path = Path(plan.shards[0].resume_workspace.path)
-    assert (resume_path / "batch.parquet").is_file()
+    assert (resume_path / "parquet-files/batch_00000.parquet").is_file()
     attempt_dir = resume_path.parent / "attempts" / "attempt-0002"
     scratch_root = client_worker_case.scratch_root.parent / "retry-scratch"
     overlay_path = scratch_root / "client-env" / "site-packages"
