@@ -34,7 +34,19 @@ Retries create new attempts. The original attempt records remain durable, and ea
 
 ## Collect winners
 
-Successful shards publish Parquet winners under the run directory. Use `merge` to submit a zero-GPU CPU job that collects them to an explicit compute-visible destination:
+Successful shards publish Parquet winners under the run directory. Use `merge` to submit a zero-GPU CPU job that collects them under `<workspace_root>/runs/<run-id>/output`:
+
+```bash
+data-designer slurm merge <run-id>
+```
+
+For an explicit destination, use `--output-path`:
+
+```bash
+data-designer slurm merge <run-id> --output-path /workspace/alice/exports/final-dataset
+```
+
+You can also select the run with `--input-path` instead of the positional run ID:
 
 ```bash
 data-designer slurm merge \
@@ -42,15 +54,12 @@ data-designer slurm merge \
   --output-path /workspace/alice/exports/final-dataset
 ```
 
-`--input-path` must be exactly a managed run directory under the selected profile workspace. The output path must be absolute, writable, compute-visible, and authorized by the profile mounts.
+`--input-path` must be exactly a managed run directory under the selected profile workspace. An explicit output path must be absolute, writable, compute-visible, and authorized by the profile mounts.
 
 `--num-partitions` selects the number of collected Parquet files. It defaults to 1 for a new collection and cannot exceed the run's record count:
 
 ```bash
-data-designer slurm merge \
-  --input-path /workspace/alice/data-designer-slurm/runs/<run-id> \
-  --output-path /workspace/alice/exports/final-dataset \
-  --num-partitions 20
+data-designer slurm merge <run-id> --num-partitions 20
 ```
 
-Repeating the same merge command returns or reuses managed collection state when safe. If you omit `--num-partitions` on a repeat call, the existing collection keeps its count. Changing the destination or explicitly requesting a different partition count for an active collection is a conflict.
+Repeating the same merge command returns or reuses managed collection state when safe. If you omit `--output-path` or `--num-partitions` on a repeat call, the existing collection keeps its destination and partition count. Explicitly changing either for an active collection is a conflict.

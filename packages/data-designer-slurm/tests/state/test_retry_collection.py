@@ -896,6 +896,14 @@ def test_collection_prepares_missing_authorized_destination_parents(
 
     assert destination.parent.is_dir()
     assert not destination.exists()
+    assert (
+        SlurmCollectionCoordinator(
+            case.workspace,
+            case.plan.run_id,
+            SlurmCommandClient(runner),
+        ).submit()
+        == submitted
+    )
     result = SlurmCollectionWorker(
         case.workspace,
         case.plan.run_id,
@@ -1086,9 +1094,12 @@ def test_collection_definite_submission_failure_settles_and_can_be_retried(
     runner = FakeSlurmRunner(jobs=(FakeSlurmJob(5101),))
     runner.script_next("sbatch", FakeCommandResponse(stderr="submission rejected", returncode=2))
     coordinator = SlurmCollectionCoordinator(case.workspace, case.plan.run_id, SlurmCommandClient(runner))
+    destination = case.workspace / "exports" / "custom"
 
     with pytest.raises(SlurmStateError, match="cannot submit collection"):
-        coordinator.submit(num_partitions=3, submitted_at=case.created_at + timedelta(minutes=10))
+        coordinator.submit(
+            destination=destination, num_partitions=3, submitted_at=case.created_at + timedelta(minutes=10)
+        )
 
     storage = CollectionStorage(StateStorage(case.workspace, case.plan.run_id))
     assert storage.read_status("collection-0001").state is CollectionState.FAILED
@@ -1096,6 +1107,7 @@ def test_collection_definite_submission_failure_settles_and_can_be_retried(
     assert submitted.collection_id == "collection-0002"
     assert submitted.state is CollectionState.SUBMITTED
     assert storage.read_plan(submitted.collection_id).num_partitions == 3
+    assert storage.read_plan(submitted.collection_id).host_destination == destination.as_posix()
 
 
 def test_collection_discards_trailing_journal_interrupted_before_submission(

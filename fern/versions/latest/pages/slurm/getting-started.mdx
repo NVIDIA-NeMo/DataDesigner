@@ -173,16 +173,12 @@ Each successful shard publishes a canonical winner at:
 
 The winner's `candidate_manifest.path` points to the winning attempt's `output-manifest.json`. That manifest records `dataset_path` and the relative path, size, digest, and record count of every canonical output file. Follow this chain instead of recursively scanning for Parquet files, because failed or superseded attempts can retain non-canonical files.
 
-Use `status` to confirm every shard succeeded. To create one collected dataset at an explicit destination, submit a managed collection job:
+Use `status` to confirm every shard succeeded. To create one collected dataset at the default destination under the run directory, submit a managed collection job:
 
 ```bash
-data-designer slurm merge \
-  --input-path /workspace/alice/data-designer-slurm/runs/<run-id> \
-  --output-path /workspace/alice/exports/greetings \
-  --num-partitions 1 \
-  --cluster primary
+data-designer slurm merge <run-id>
 ```
 
-`--num-partitions` controls the collected Parquet file count and defaults to 1 for a new collection.
+The command writes to `/workspace/alice/data-designer-slurm/runs/<run-id>/output`. `--output-path` selects another authorized destination. `--num-partitions` controls the collected Parquet file count and defaults to 1 for a new collection.
 
 Continue with [Run operations](/slurm/run-operations), [Retry and collection](/slurm/retry-and-collection), [Scaling runs](/slurm/run-configuration#scale-runs), [Dependencies and tools](/slurm/dependencies-and-tools), or the [CLI reference](/slurm/cli-reference).
