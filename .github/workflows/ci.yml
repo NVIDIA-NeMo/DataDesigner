@@ -225,6 +225,9 @@ jobs:
       - name: Run linter
         run: make lint
 
+      - name: Test Graphify compatibility
+        run: make test-graphify
+
   license-headers:
     name: Check License Headers
     needs: validate-dispatch

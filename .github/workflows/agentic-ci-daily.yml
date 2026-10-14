@@ -96,12 +96,19 @@ jobs:
         id: cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: |
-            .agentic-ci-state
-            graphify-out
+          path: .agentic-ci-state
           key: agentic-ci-state-${{ matrix.suite }}-${{ github.run_id }}
           restore-keys: |
             agentic-ci-state-${{ matrix.suite }}-
+
+      - name: Restore Graphify baseline
+        if: matrix.suite == 'structure'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: graphify-out
+          key: graphify-${{ hashFiles('.agents/requirements-graphify.txt', '.agents/tools/structural_impact.py') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            graphify-${{ hashFiles('.agents/requirements-graphify.txt', '.agents/tools/structural_impact.py') }}-
 
       - name: Initialize runner memory
         env:
@@ -127,9 +134,11 @@ jobs:
 
       - name: Install graphify
         if: matrix.suite == 'structure'
+        env:
+          GRAPHIFY_VENV: ${{ runner.temp }}/graphify-venv
         run: |
-          python -m venv /tmp/graphify-venv
-          /tmp/graphify-venv/bin/python -m pip install graphifyy==0.4.23 --quiet 2>&1 | tail -3
+          make install-graphify
+          echo "GRAPHIFY_VENV=$GRAPHIFY_VENV" >> "$GITHUB_ENV"
 
       - name: Build dependency inventory
         if: matrix.suite == 'dependencies'
@@ -741,9 +750,7 @@ jobs:
         if: always() && (steps.scope_gate.outputs.rejected == 'true' || steps.lockfile_gate.outputs.rejected == 'true')
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: |
-            .agentic-ci-state
-            graphify-out
+          path: .agentic-ci-state
           key: agentic-ci-state-${{ matrix.suite }}-${{ github.run_id }}-${{ github.run_attempt }}-rejected
 
       - name: Fail rejected fix gates

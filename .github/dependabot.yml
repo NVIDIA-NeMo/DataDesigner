@@ -11,6 +11,16 @@ updates:
     commit-message:
       prefix: "ci"
   - package-ecosystem: pip
+    directory: /.agents
+    schedule:
+      interval: weekly
+    groups:
+      graphify:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: "ci"
+  - package-ecosystem: pip
     directory: /packages/data-designer-config
     schedule:
       interval: weekly
