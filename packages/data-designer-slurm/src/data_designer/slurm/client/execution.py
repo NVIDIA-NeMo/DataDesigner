@@ -52,11 +52,23 @@ from data_designer.slurm.config.run import LocalStdioMCPProviderConfig, RemoteMC
 from data_designer.slurm.contracts import ArtifactReference
 from data_designer.slurm.planning import PlannedShard, ResolvedDependencyLock, ResolvedSlurmRunPlan
 from data_designer.slurm.runtime.ports import resolve_allocation_plan
-from data_designer.slurm.state import CandidateOutcome, CandidateOutputFile, CandidateOutputManifest
+from data_designer.slurm.state import (
+    MAXIMUM_CANDIDATE_OUTPUT_FILES,
+    CandidateOutcome,
+    CandidateOutputFile,
+    CandidateOutputManifest,
+    compute_candidate_schema_digest,
+)
 
 Clock = Callable[[], datetime]
 DataDesignerFactory = Callable[..., DataDesigner]
 logger = logging.getLogger(__name__)
+
+
+class _ResultArtifactStorage(Protocol):
+    @property
+    def final_dataset_path(self) -> Path:
+        """Return the directory containing Data Designer's final batch files."""
 
 
 class CreationResults(Protocol):
@@ -66,6 +78,10 @@ class CreationResults(Protocol):
     early_shutdown: bool | None
     requested_resume_mode: ResumeMode | None
     effective_resume_mode: ResumeMode | None
+
+    @property
+    def artifact_storage(self) -> _ResultArtifactStorage:
+        """Return the storage used by this generation result."""
 
     def export(self, path: Path, *, format: str) -> Path:
         """Export the generated dataset."""
@@ -542,8 +558,8 @@ class ClientWorker:
         results: CreationResults,
         creation: _ValidatedCreation,
     ) -> ClientResult:
-        dataset_path, exported_path = self._place_dataset(creation, results)
-        candidate = self._build_candidate_manifest(context, prepared, creation, dataset_path, exported_path)
+        dataset_path, output_paths = self._place_dataset(creation, results)
+        candidate = self._build_candidate_manifest(context, prepared, creation, dataset_path, output_paths)
         return self._publish_success(context, prepared, creation, candidate)
 
     @staticmethod
@@ -600,20 +616,32 @@ class ClientWorker:
     def _place_dataset(
         creation: _ValidatedCreation,
         results: CreationResults,
-    ) -> tuple[Path, Path | None]:
+    ) -> tuple[Path, tuple[Path, ...]]:
         dataset_path = creation.dataset_path
-        exported_path: Path | None = None
-        if creation.actual_records:
-            exported_path = results.export(dataset_path / "part-00000.parquet", format="parquet")
+        output_paths = ClientWorker._candidate_output_paths(creation, results)
         if dataset_path != creation.expected_path:
             ensure_private_directory(creation.expected_path.parent)
             dataset_path.rename(creation.expected_path)
-            if exported_path is not None:
-                exported_path = creation.expected_path / exported_path.relative_to(dataset_path)
+            output_paths = tuple(creation.expected_path / path.relative_to(dataset_path) for path in output_paths)
             dataset_path = creation.expected_path
         if dataset_path != creation.expected_path:
             raise ClientWorkerError(ClientErrorCode.OUTPUT_INVALID, "Data Designer dataset path is invalid")
-        return dataset_path, exported_path
+        return dataset_path, output_paths
+
+    @staticmethod
+    def _candidate_output_paths(creation: _ValidatedCreation, results: CreationResults) -> tuple[Path, ...]:
+        if not creation.actual_records:
+            return ()
+        batches = tuple(sorted(results.artifact_storage.final_dataset_path.glob("batch_*.parquet")))
+        if not batches:
+            raise ClientWorkerError(ClientErrorCode.OUTPUT_INVALID, "Data Designer produced no final batch files")
+        if len(batches) <= MAXIMUM_CANDIDATE_OUTPUT_FILES:
+            schema_digests = {compute_candidate_schema_digest(lazy.pq.read_schema(path)) for path in batches}
+            if len(schema_digests) == 1:
+                return batches
+        # The export keeps the candidate bounded when there are many batches and
+        # unifies schemas when batch column types differ.
+        return (results.export(creation.dataset_path / "part-00000.parquet", format="parquet"),)
 
     def _build_candidate_manifest(
         self,
@@ -621,24 +649,26 @@ class ClientWorker:
         prepared: PreparedClientEnvironment,
         creation: _ValidatedCreation,
         dataset_path: Path,
-        exported_path: Path | None,
+        output_paths: tuple[Path, ...],
     ) -> CandidateOutputManifest:
         files: tuple[CandidateOutputFile, ...] = ()
         schema_digest = context.plan.builder.content_sha256
-        if exported_path is not None:
-            metadata = lazy.pq.read_metadata(exported_path)
-            if metadata.num_rows != creation.actual_records:
-                raise ClientWorkerError(ClientErrorCode.OUTPUT_INVALID, "exported record count differs")
-            schema_digest = hashlib.sha256(
-                lazy.pq.read_schema(exported_path).remove_metadata().serialize().to_pybytes()
-            ).hexdigest()
-            files = (
+        if output_paths:
+            record_counts = tuple(lazy.pq.read_metadata(path).num_rows for path in output_paths)
+            if sum(record_counts) != creation.actual_records:
+                raise ClientWorkerError(ClientErrorCode.OUTPUT_INVALID, "candidate record count differs")
+            schema_digests = {compute_candidate_schema_digest(lazy.pq.read_schema(path)) for path in output_paths}
+            if len(schema_digests) != 1:
+                raise ClientWorkerError(ClientErrorCode.OUTPUT_INVALID, "candidate batch schemas differ")
+            schema_digest = schema_digests.pop()
+            files = tuple(
                 CandidateOutputFile(
-                    relative_path=exported_path.relative_to(dataset_path).as_posix(),
-                    sha256=compute_file_sha256(exported_path, missing_code=ClientErrorCode.OUTPUT_INVALID),
-                    byte_size=exported_path.stat().st_size,
-                    record_count=creation.actual_records,
-                ),
+                    relative_path=path.relative_to(dataset_path).as_posix(),
+                    sha256=compute_file_sha256(path, missing_code=ClientErrorCode.OUTPUT_INVALID),
+                    byte_size=path.stat().st_size,
+                    record_count=record_count,
+                )
+                for path, record_count in zip(output_paths, record_counts, strict=True)
             )
         created_at = self._clock()
         return CandidateOutputManifest(
