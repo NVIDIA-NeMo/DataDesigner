@@ -24,10 +24,14 @@ from data_designer.slurm.client import ClientResult
 from data_designer.slurm.config import (
     DataDesignerSlurmBenchmarkConfig,
     DataDesignerSlurmConfig,
+    DataDesignerSlurmConfigBuilder,
     ImageInspectionRecord,
+    ServerDeploymentConfig,
     SlurmProfileCatalog,
 )
 from data_designer.slurm.planning import ResolvedDependencyLock, ResolvedSlurmRunPlan
+from data_designer.slurm.planning.compiler import SlurmRunCompiler
+from data_designer.slurm.planning.resolution import resolve_slurm_config
 from data_designer.slurm.state import (
     AttemptManifest,
     AttemptReadiness,
@@ -79,6 +83,48 @@ def dependency_lock_single() -> ResolvedDependencyLock:
 @pytest.fixture
 def single_node_plan() -> ResolvedSlurmRunPlan:
     return ResolvedSlurmRunPlan.model_validate_json((CONTRACT_GOLDEN_DIRECTORY / "single_node_plan.json").read_text())
+
+
+@pytest.fixture
+def shared_node_config(authored_run_single: DataDesignerSlurmConfig) -> DataDesignerSlurmConfig:
+    payload = authored_run_single.model_dump(mode="python")
+    models = (("writer", "Qwen/Qwen2.5-0.5B-Instruct"), ("judge", "microsoft/Phi-3-mini-4k-instruct"))
+    payload["builder"]["inline"]["data_designer"]["model_configs"] = [
+        {"alias": alias, "model": model, "provider": "openai"} for alias, model in models
+    ]
+    builder = DataDesignerSlurmConfigBuilder.from_builder_source("builder.yaml").with_invocation(
+        num_records=4, dataset_name="judged", model_concurrency={"writer": 1, "judge": 1}
+    )
+    for alias, model in models:
+        deployment = authored_run_single.deployments[0].model_dump(mode="python")
+        deployment.update(
+            model_alias=alias, model=model, resources={"nodes": 1, "shared_node": "models", "gpus_per_node": 4}
+        )
+        deployment["topology"]["tensor_parallel"] = 2
+        builder.with_deployment(ServerDeploymentConfig.model_validate(deployment))
+    config = builder.build().model_dump(mode="python")
+    config["builder"] = payload["builder"]
+    return DataDesignerSlurmConfig.model_validate(config)
+
+
+@pytest.fixture
+def shared_node_plan(
+    shared_node_config: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+    dependency_lock_single: ResolvedDependencyLock,
+) -> ResolvedSlurmRunPlan:
+    return SlurmRunCompiler.compile(
+        resolve_slurm_config(
+            shared_node_config,
+            selected_profile=single_node_plan.selected_profile,
+            client_runtime=single_node_plan.client.runtime,
+            deployment_images=(single_node_plan.deployments[0].image,) * 2,
+            dependency_lock=dependency_lock_single,
+            runtime_bundle=single_node_plan.runtime_bundle,
+            run_id=single_node_plan.run_id,
+            package_version=single_node_plan.package_version,
+        )
+    )
 
 
 @pytest.fixture

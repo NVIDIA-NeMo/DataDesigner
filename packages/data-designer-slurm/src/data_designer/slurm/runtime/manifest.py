@@ -47,6 +47,7 @@ class RuntimeStepSpec(ContractValue):
     command: tuple[str, ...] = Field(min_length=1)
     cpus: PositiveInt
     gpu_indices: tuple[NonNegativeInt, ...] = ()
+    gpu_binding: Literal["mask", "none"] = Field(default="mask", exclude_if=lambda value: value == "mask")
     node_hosts: tuple[str, ...] = Field(min_length=1)
     kill_on_bad_exit: bool = False
     literal_environment: dict[EnvironmentName, str] = Field(default_factory=dict)
@@ -100,6 +101,8 @@ class RuntimeStepSpec(ContractValue):
             raise ValueError("server runtime steps require GPUs")
         if self.role not in server_roles and self.gpu_indices:
             raise ValueError("non-server runtime steps cannot request GPUs")
+        if self.gpu_binding == "none" and not self.gpu_indices:
+            raise ValueError("unbound GPU steps require GPUs")
         if len(self.node_hosts) > 1 and self.role not in server_roles:
             raise ValueError("only server runtime steps may span nodes")
         if self.kill_on_bad_exit and self.role not in server_roles:

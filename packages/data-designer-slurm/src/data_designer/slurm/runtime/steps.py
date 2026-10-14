@@ -232,6 +232,11 @@ def build_vllm_steps(
     runtime_root: Path,
 ) -> tuple[RuntimeStep, ...]:
     """Build one structured server step per resolved vLLM process."""
+    if any(item.authored.resources.shared_node is not None for item in plan.deployments):
+        raise SlurmRuntimeError(
+            SlurmRuntimeErrorCode.INVALID_CONTEXT,
+            "shared_node requires the coordinated allocation runtime",
+        )
     return tuple(
         _build_vllm_step(deployment, process, plan, attempt_directory, source_environment, runtime_root)
         for process in deployment.processes

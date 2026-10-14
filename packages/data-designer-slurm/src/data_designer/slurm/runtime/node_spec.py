@@ -80,6 +80,7 @@ class NodeWorkerSpec:
     resolved_gpus_per_node: int
     required_model_path: str | None
     nodes: tuple[NodeSpec, ...]
+    required_model_paths: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if type(self.schema_version) is not int or self.schema_version != 1:
@@ -90,6 +91,12 @@ class NodeWorkerSpec:
             raise ValueError("required model path is invalid")
         if self.required_model_path is not None:
             validate_absolute_path(self.required_model_path)
+        if type(self.required_model_paths) is not tuple:
+            raise ValueError("required model paths must be a tuple")
+        for path in self.required_model_paths:
+            if type(path) is not str:
+                raise ValueError("required model path is invalid")
+            validate_absolute_path(path)
         if (
             type(self.nodes) is not tuple
             or not self.nodes
@@ -131,6 +138,8 @@ def encode_node_worker_spec(spec: NodeWorkerSpec) -> str:
             for node in spec.nodes
         ],
     }
+    if spec.required_model_paths:
+        payload["required_model_paths"] = list(spec.required_model_paths)
     serialized = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
     if len(serialized) > _MAXIMUM_SPEC_BYTES:
         raise ValueError("node worker specification exceeds its size limit")
@@ -152,13 +161,19 @@ def decode_node_worker_spec(encoded: str) -> NodeWorkerSpec:
 
 
 def _parse_worker_spec(payload: object) -> NodeWorkerSpec:
-    root = _require_mapping(payload, {"schema_version", "resolved_gpus_per_node", "required_model_path", "nodes"})
+    keys = {"schema_version", "resolved_gpus_per_node", "required_model_path", "nodes"}
+    if isinstance(payload, dict) and "required_model_paths" in payload:
+        keys.add("required_model_paths")
+    root = _require_mapping(payload, keys)
     nodes = tuple(_parse_node(value) for value in _require_list(root["nodes"]))
     return NodeWorkerSpec(
         schema_version=_require_integer(root["schema_version"]),
         resolved_gpus_per_node=_require_integer(root["resolved_gpus_per_node"]),
         required_model_path=_require_optional_string(root["required_model_path"]),
         nodes=nodes,
+        required_model_paths=tuple(
+            _require_string(path) for path in _require_list(root.get("required_model_paths", []))
+        ),
     )
 
 

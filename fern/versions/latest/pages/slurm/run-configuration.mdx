@@ -148,6 +148,54 @@ invocation:
     judge: 32
 ```
 
+### Different models on one node
+
+By default, deployments use disjoint nodes and each receives the profile's GPU budget. To place different models on the same physical node, give their resources the same `shared_node` name and explicit GPU quotas:
+
+```yaml
+deployments:
+  - model_alias: writer
+    model: Qwen/Qwen2.5-0.5B-Instruct
+    resources:
+      shared_node: models
+      gpus_per_node: 1
+    topology:
+      tensor_parallel: 1
+    server:
+      type: vllm
+      image: {name: vllm}
+  - model_alias: judge
+    model: microsoft/Phi-3-mini-4k-instruct
+    resources:
+      shared_node: models
+      gpus_per_node: 1
+    topology:
+      tensor_parallel: 1
+    server:
+      type: vllm
+      image: {name: vllm}
+```
+
+Declare both aliases in the Data Designer builder. For example, the writer can generate an `answer` column and the judge can evaluate `{{ answer }}` in a dependent column. A complete four-record example is included at `packages/data-designer-slurm/examples/colocated-models.yaml`.
+
+The profile's `gpus_per_node` is the Slurm allocation budget. Set it to `2` for the example above; the quota sum must fit that budget. Each quota is a positive number of GPUs reserved for that deployment. `tensor_parallel` must divide its quota: a quota of four with TP two starts two replicas of that model. The compiler assigns immutable disjoint GPU slices and separate backend and logical endpoint ports. GPU identifiers are resolved from the serving step's actual CUDA visibility, including Slurm device remapping. Each alias retains its own readiness, backend order, concurrency, and status; a model failure stops the shared worker and fails the attempt.
+
+Shared placement requires one group covering every deployment in the run, at least two deployments, `resources.nodes: 1`, `nodes_per_replica: 1`, GRES GPU request mode, the same resolved serving image, and identical `server.environment` and `queue_backpressure` settings. Model identities, served names, extra arguments, and launch/readiness timings may differ. Multiple groups, mixtures of shared and disjoint placements, multi-node shared groups, and different images within one group are rejected before submission. GPUs are not shared between models, and memory fit is not inferred. Choose model and KV-cache settings that fit each quota. An allocation can use fewer GPUs than the physical node has; sharing does not add node exclusivity.
+
+Python callers use the same resource fields with `with_deployment`:
+
+```python
+slurm.with_deployment({
+    "model_alias": "writer",
+    "model": "Qwen/Qwen2.5-0.5B-Instruct",
+    "resources": {"shared_node": "models", "gpus_per_node": 1},
+    "topology": {"tensor_parallel": 1},
+    "server": {"type": "vllm", "image": {"name": "vllm"}},
+})
+```
+
+Add the judge deployment with the same group name before calling `build()` or `write_config()`.
+
 ## Build a run in Python
 
 ```python

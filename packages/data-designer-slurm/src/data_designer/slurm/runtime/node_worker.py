@@ -57,7 +57,9 @@ class NodeProcessSupervisor:
         started_at = time.monotonic()
         try:
             for process in node.processes:
-                self._wait_for_launch(process.launch_delay_seconds, started_at)
+                early_exit = self._wait_for_launch(process.launch_delay_seconds, started_at)
+                if early_exit is not None:
+                    return early_exit
                 if self._stop_requested:
                     return 1
                 self._children.append(self._start_process(process, visible_gpus))
@@ -113,8 +115,12 @@ class NodeProcessSupervisor:
             close_fds=True,
         )
 
-    def _wait_for_launch(self, delay_seconds: int, started_at: float) -> None:
+    def _wait_for_launch(self, delay_seconds: int, started_at: float) -> int | None:
         while not self._stop_requested:
+            for child in self._children:
+                returncode = child.poll()
+                if returncode is not None:
+                    return returncode if returncode != 0 else 1
             remaining = delay_seconds - (time.monotonic() - started_at)
             if remaining <= 0:
                 return
@@ -144,6 +150,8 @@ def main(arguments: Sequence[str] | None = None) -> int:
         _verify_node(spec, node, visible_gpus, os.environ)
         if parsed.operation == "preflight":
             _verify_required_model_path(spec.required_model_path)
+            for path in spec.required_model_paths:
+                _verify_required_model_path(path)
             _verify_ports(node.ports)
             return 0
         return _run_node(node, visible_gpus)

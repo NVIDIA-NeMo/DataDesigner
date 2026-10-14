@@ -24,6 +24,7 @@ from data_designer.slurm.planning.models import (
     ResolvedDeployment,
     ResolvedSlurmRunPlan,
     ResolvedTopology,
+    derive_deployment_placement,
 )
 from data_designer.slurm.planning.resolution import (
     EffectiveDataDesignerSlurmConfig,
@@ -109,21 +110,27 @@ def _compile_deployments(
     if len(effective.authored.deployments) > _PORT_RANGE_SIZE:
         raise SlurmPlanCompilationError("deployment count exceeds the compiler-owned logical endpoint port range")
     resolved: list[ResolvedDeployment] = []
-    next_node_index = 0
+    placements = derive_deployment_placement(effective.authored.deployments, effective.resolved_gpus_per_node)
+    http_offsets: dict[int, int] = {}
     for index, (authored, image) in enumerate(
         zip(effective.authored.deployments, effective.deployment_images, strict=True)
     ):
+        node_indices, gpu_start_index, quota = placements[index]
         topology = ResolvedTopology.derive(
             node_count=authored.resources.nodes,
-            gpus_per_node=effective.resolved_gpus_per_node,
+            gpus_per_node=quota,
             tensor_parallel=authored.topology.tensor_parallel,
             nodes_per_replica=authored.topology.nodes_per_replica,
         )
         if topology.replicas_per_node_group > _PORT_RANGE_SIZE:
             raise SlurmPlanCompilationError("replica lanes exceed the compiler-owned deployment port range")
         deployment_id = f"deployment-{index:05d}"
-        node_indices = tuple(range(next_node_index, next_node_index + authored.resources.nodes))
-        ports = _compile_deployment_ports(deployment_id, node_indices, topology)
+        http_offset = http_offsets.get(node_indices[0], 0)
+        if http_offset + topology.replicas_per_node_group > _PORT_RANGE_SIZE:
+            raise SlurmPlanCompilationError("replica lanes exceed the compiler-owned node port range")
+        ports = _compile_deployment_ports(deployment_id, node_indices, topology, http_offset=http_offset)
+        for node in node_indices:
+            http_offsets[node] = http_offset + topology.replicas_per_node_group
         resolved.append(
             ResolvedDeployment(
                 deployment_id=deployment_id,
@@ -131,12 +138,12 @@ def _compile_deployments(
                 served_model_name=authored.served_model_name or authored.model,
                 image=image,
                 node_indices=node_indices,
-                gpus_per_node=effective.resolved_gpus_per_node,
+                gpus_per_node=quota,
+                gpu_start_index=gpu_start_index,
                 topology=topology,
                 ports=ports,
             )
         )
-        next_node_index += authored.resources.nodes
     return tuple(resolved)
 
 
@@ -144,6 +151,8 @@ def _compile_deployment_ports(
     deployment_id: str,
     node_indices: tuple[int, ...],
     topology: ResolvedTopology,
+    *,
+    http_offset: int = 0,
 ) -> tuple[PortClaim, ...]:
     http: list[PortClaim] = []
     rendezvous: list[PortClaim] = []
@@ -156,7 +165,7 @@ def _compile_deployment_ports(
                     name=f"{deployment_id}-http-{replica_index:05d}",
                     role="http",
                     node_index=head,
-                    port=_HTTP_PORT + lane_index,
+                    port=_HTTP_PORT + http_offset + lane_index,
                 )
             )
             if topology.nodes_per_replica > 1:

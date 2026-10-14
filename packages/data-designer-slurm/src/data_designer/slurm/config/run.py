@@ -256,6 +256,16 @@ class ClientConfig(AuthoredConfig):
 
 class DeploymentResources(AuthoredConfig):
     nodes: PositiveInt = 1
+    shared_node: Identifier | None = Field(default=None, exclude_if=lambda value: value is None)
+    gpus_per_node: PositiveInt | None = Field(default=None, exclude_if=lambda value: value is None)
+
+    @model_validator(mode="after")
+    def validate_shared_node(self) -> DeploymentResources:
+        if (self.shared_node is None) != (self.gpus_per_node is None):
+            raise ValueError("shared_node and gpus_per_node must be provided together")
+        if self.shared_node is not None and self.nodes != 1:
+            raise ValueError("shared_node requires exactly one deployment node")
+        return self
 
 
 class DeploymentTopology(AuthoredConfig):
@@ -288,6 +298,13 @@ class ServerDeploymentConfig(AuthoredConfig):
 
     @model_validator(mode="after")
     def validate_topology(self) -> ServerDeploymentConfig:
+        if self.resources.shared_node is not None:
+            if self.topology.nodes_per_replica != 1:
+                raise ValueError("shared_node supports only single-node replicas")
+            quota = self.resources.gpus_per_node
+            assert quota is not None
+            if quota % self.topology.tensor_parallel:
+                raise ValueError("tensor_parallel must divide the deployment GPU quota")
         if self.resources.nodes % self.topology.nodes_per_replica:
             raise ValueError("nodes_per_replica must divide deployment nodes")
         if self.server.enable_expert_parallel and self.topology.nodes_per_replica > 1:
@@ -347,6 +364,24 @@ class DataDesignerSlurmConfig(AuthoredConfig):
         aliases = [deployment.model_alias for deployment in self.deployments]
         if len(aliases) != len(set(aliases)):
             raise ValueError("deployment model aliases must be unique")
+        groups: dict[str, list[ServerDeploymentConfig]] = {}
+        for deployment in self.deployments:
+            if deployment.resources.shared_node is not None:
+                groups.setdefault(deployment.resources.shared_node, []).append(deployment)
+        if groups and (
+            len(groups) != 1 or any(deployment.resources.shared_node is None for deployment in self.deployments)
+        ):
+            raise ValueError("shared_node requires one group covering all deployments")
+        for members in groups.values():
+            if len(members) < 2:
+                raise ValueError("shared_node requires at least two deployments in each group")
+            first = members[0].server
+            if any(
+                member.server.environment != first.environment
+                or member.server.queue_backpressure != first.queue_backpressure
+                for member in members[1:]
+            ):
+                raise ValueError("shared_node requires matching server environment and queue backpressure")
         unknown_concurrency = set(self.invocation.model_concurrency).difference(aliases)
         if unknown_concurrency:
             raise ValueError(
