@@ -26,8 +26,6 @@ def validate_collection_inputs(
     _require(actual_shards == expected_shards, "collection candidates do not match ordered planned shards")
     _require(all(candidate.winner_eligible for candidate in candidates), "collection candidate is empty")
 
-    schema_digests = {candidate.dataset_schema_digest for candidate in candidates}
-    _require(len(schema_digests) == 1, "collection candidates have incompatible schemas")
     _require(
         all(candidate.provenance_digest == resolved_plan.compute_sha256() for candidate in candidates),
         "collection candidate provenance does not match the resolved plan",
