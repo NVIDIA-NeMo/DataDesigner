@@ -97,8 +97,6 @@ We use [NVIDIA Data Designer](https://github.com/NVIDIA-NeMo/DataDesigner) to tu
 
 **Figure 4: Iterative chart data development including sourcing, data generation, evaluation and failure analysis.**
 
-To generate examples for your own charts, start with our [Data Designer recipe](/recipes/chart-qa/chart-question-answering).
-
 ## Asking useful questions
 
 We design questions around what people want to learn from charts when using AI assistants to understand documents. Answering a question often requires several skills together: finding relevant information, connecting legends and axes to the plotted data, and distinguishing similar colors, lines, bars, etc. Model failures help us identify which of these skills need more training.
@@ -134,3 +132,7 @@ Additionally, for a set of synthetic data and human-labeled data, we use our own
 ## What comes next
 
 We are continuing to expand the diversity and improve the quality of our training data to strengthen Nemotron’s chart and document understanding. The tool-use examples point to another direction: training models to choose useful tool calls and verify their measurements against the chart.
+
+## Try for yourself
+
+To generate examples for your own charts, start with our [Data Designer recipe](/recipes/chart-qa/chart-question-answering). The [runnable script](https://github.com/NVIDIA-NeMo/DataDesigner/blob/main/docs/assets/recipes/chart_qa/chart_qa.py) includes question and answer generation, reasoning traces, and quality checks.
