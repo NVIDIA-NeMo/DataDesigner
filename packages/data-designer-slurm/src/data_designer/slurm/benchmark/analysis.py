@@ -187,13 +187,6 @@ class BenchmarkAnalyzer:
         boot_seconds = measurements.boot_seconds
         generation_seconds = measurements.generation_seconds
         wall_seconds = measurements.wall_seconds
-        requested_records = observed.authored_config.invocation.num_records
-        if actual_records != requested_records:
-            return _update_result(
-                result,
-                outcome=BenchmarkOutcome.INCOMPLETE,
-                actual_records=actual_records,
-            )
         gpus_per_job = result.gpus_per_job
         if gpus_per_job is None:
             raise ValueError("resolved benchmark case has no GPU count")

@@ -25,7 +25,7 @@ from data_designer.slurm.runtime.preflight import (
     SystemAllocationPreflight,
     validate_allocation_layout,
 )
-from data_designer.slurm.runtime.records import load_complete_client_candidate
+from data_designer.slurm.runtime.records import load_nonempty_client_candidate
 from data_designer.slurm.serving.deployment import ResolvedVllmServerDeployment
 from data_designer.slurm.state import (
     AttemptLifecycleState,
@@ -185,7 +185,7 @@ def _client(
         )
         if return_code != 0:
             raise SlurmRuntimeError(SlurmRuntimeErrorCode.CLIENT_FAILED, "client generation failed")
-        client_result, candidate = load_complete_client_candidate(
+        client_result, candidate = load_nonempty_client_candidate(
             context,
             context.attempt,
             attempt_directory=arguments.attempt_dir,

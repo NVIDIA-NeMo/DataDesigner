@@ -789,6 +789,32 @@ def test_collection_submits_cpu_job_and_publishes_ordered_winners_atomically(
     assert (unrelated_stage / "active").read_text() == "preserve"
 
 
+def test_collection_merges_nonempty_partial_shard_winners(
+    tmp_path: Path,
+    authored_run: DataDesignerSlurmConfig,
+    multi_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    case = _initialize_run(tmp_path, authored_run, multi_node_plan)
+    _publish_all_winners(case, shortfall=9)
+    coordinator = SlurmCollectionCoordinator(
+        case.workspace,
+        case.plan.run_id,
+        SlurmCommandClient(FakeSlurmRunner(jobs=(FakeSlurmJob(5101),))),
+    )
+    submitted = coordinator.submit(submitted_at=case.created_at + timedelta(minutes=10))
+    result = SlurmCollectionWorker(
+        case.workspace,
+        case.plan.run_id,
+        submitted.collection_id,
+        environment={"SLURM_JOB_ID": "5101"},
+    ).run(completed_at=case.created_at + timedelta(minutes=11))
+
+    expected = sum(shard.record_range.record_count - 9 for shard in case.shards)
+    assert result.actual_records == expected
+    assert lazy.pq.read_metadata(_output_root(case.plan) / result.files[0].relative_path).num_rows == expected
+    assert coordinator.submit().state is CollectionState.SUCCEEDED
+
+
 def test_collection_requires_stable_plan_provenance_across_distinct_shards(
     tmp_path: Path,
     authored_run: DataDesignerSlurmConfig,
@@ -1280,7 +1306,7 @@ def test_collection_uses_merge_partition_count(
     excessive = plan.model_copy(update={"num_partitions": case.plan.invocation.authored.num_records + 1})
     with pytest.raises(StateConflictError, match="partitions exceed requested records"):
         CollectionDestinationResolver().validate_persisted(resolved_plan, excessive)
-    with pytest.raises(StateContractError, match="partitions exceed requested records"):
+    with pytest.raises(StateContractError, match="partitions exceed available records"):
         validate_collection_inputs(resolved_plan, excessive, candidates)
 
     result = SlurmCollectionWorker(
@@ -1942,7 +1968,7 @@ def _submitted_attempt(
     )
 
 
-def _publish_all_winners(case: _RunCase) -> None:
+def _publish_all_winners(case: _RunCase, *, shortfall: int = 0) -> None:
     for shard in case.shards:
         scheduler = SchedulerIdentity(array_job_id=4101, array_task_id=shard.shard_index)
         submitted = _submitted_attempt(case, shard, scheduler=scheduler)
@@ -1954,7 +1980,7 @@ def _publish_all_winners(case: _RunCase) -> None:
         )
         case.writer.update_attempt(running)
         with case.writer.acquire_dataset_workspace(shard.shard_id, submitted.attempt_id, "never") as dataset_path:
-            _publish_candidate(case, shard, running, dataset_path)
+            _publish_candidate(case, shard, running, dataset_path, shortfall=shortfall)
         case.writer.finalize_winner(
             shard.shard_id,
             running.attempt_id,
@@ -1962,9 +1988,17 @@ def _publish_all_winners(case: _RunCase) -> None:
         )
 
 
-def _publish_candidate(case: _RunCase, shard: ShardManifest, running: AttemptManifest, dataset_path: Path) -> None:
+def _publish_candidate(
+    case: _RunCase,
+    shard: ShardManifest,
+    running: AttemptManifest,
+    dataset_path: Path,
+    *,
+    shortfall: int = 0,
+) -> None:
     output_path = dataset_path / "part-00000.parquet"
-    values = range(shard.record_range.start_index, shard.record_range.end_index_exclusive)
+    actual_records = shard.record_range.record_count - shortfall
+    values = range(shard.record_range.start_index, shard.record_range.start_index + actual_records)
     table = lazy.pa.table({"record_id": values})
     lazy.pq.write_table(table, output_path)
     output_path.chmod(0o644)
@@ -1981,14 +2015,14 @@ def _publish_candidate(case: _RunCase, shard: ShardManifest, running: AttemptMan
         created_at=running.updated_at + timedelta(minutes=1),
         dataset_path=dataset_path.as_posix(),
         requested_records=shard.record_range.record_count,
-        actual_records=shard.record_range.record_count,
-        outcome=CandidateOutcome.COMPLETE,
+        actual_records=actual_records,
+        outcome=CandidateOutcome.COMPLETE if not shortfall else CandidateOutcome.PARTIAL,
         files=(
             CandidateOutputFile(
                 relative_path=output_path.name,
                 sha256=hashlib.sha256(content).hexdigest(),
                 byte_size=len(content),
-                record_count=shard.record_range.record_count,
+                record_count=actual_records,
             ),
         ),
         dataset_schema_digest=compute_candidate_schema_digest(table.schema),
@@ -2002,8 +2036,8 @@ def _publish_candidate(case: _RunCase, shard: ShardManifest, running: AttemptMan
         attempt_id=running.attempt_id,
         completed_at=running.updated_at + timedelta(minutes=2),
         requested_records=shard.record_range.record_count,
-        actual_records=shard.record_range.record_count,
-        outcome=ClientOutcome.COMPLETE,
+        actual_records=actual_records,
+        outcome=ClientOutcome.COMPLETE if not shortfall else ClientOutcome.PARTIAL,
         dataset_path=dataset_path.as_posix(),
         early_shutdown=False,
         requested_resume_mode=case.plan.invocation.authored.resume,

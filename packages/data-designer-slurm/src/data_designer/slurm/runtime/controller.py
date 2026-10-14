@@ -21,7 +21,7 @@ from data_designer.slurm.runtime.models import AllocationContext, RuntimeEndpoin
 from data_designer.slurm.runtime.ports import resolve_allocation_deployments
 from data_designer.slurm.runtime.preflight import AllocationPreflight
 from data_designer.slurm.runtime.probes import ReadinessProber
-from data_designer.slurm.runtime.records import load_complete_client_candidate
+from data_designer.slurm.runtime.records import load_nonempty_client_candidate
 from data_designer.slurm.runtime.steps import (
     ClientStepBuilder,
     build_endpoint_steps,
@@ -125,7 +125,7 @@ class _RuntimeTopology:
 
 
 class OneNodeAllocationController:
-    """Execute one planned shard attempt and finalize only complete candidates."""
+    """Execute one planned shard attempt and finalize nonempty candidates."""
 
     def __init__(
         self,
@@ -362,7 +362,7 @@ class OneNodeAllocationController:
             generation_started_at = self._now()
             self._supervisor.wait(self._supervisor.start(generation), required=required_processes)
             self._supervisor.require_running(required_processes)
-            client_result, candidate = load_complete_client_candidate(self._context, self._attempt)
+            client_result, candidate = load_nonempty_client_candidate(self._context, self._attempt)
             if self._retry_resume_mode is not None and client_result.effective_resume_mode != self._retry_resume_mode:
                 raise SlurmRuntimeError(
                     SlurmRuntimeErrorCode.FINALIZATION_FAILED,
@@ -370,10 +370,10 @@ class OneNodeAllocationController:
                 )
             self._validate_client_timestamps(candidate.created_at, client_result.completed_at, generation_started_at)
             candidate_reference = client_result.candidate_output_manifest
-            if candidate_reference is None:  # pragma: no cover - the record contract requires this for complete results
+            if candidate_reference is None:  # pragma: no cover - nonempty results require this reference
                 raise SlurmRuntimeError(
                     SlurmRuntimeErrorCode.FINALIZATION_FAILED,
-                    "complete client result has no candidate reference",
+                    "nonempty client result has no candidate reference",
                 )
             self._state.publish_attempt_result(client_result, candidate)
             self._attempt = _copy_attempt(self._attempt, candidate_output=candidate_reference)

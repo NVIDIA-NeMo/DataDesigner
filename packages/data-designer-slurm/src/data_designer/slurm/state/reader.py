@@ -184,7 +184,11 @@ class StateReader:
         shard: ShardManifest,
         attempt: AttemptManifest,
     ) -> tuple[ClientResult, CandidateOutputManifest] | None:
-        """Load and validate a complete producer result pair when present."""
+        """Load a committed producer result pair, if the attempt has one."""
+        if attempt.candidate_output is None:
+            # The client also writes partial results to this directory. Only
+            # the attempt's candidate reference commits a result for state use.
+            return None
         try:
             client_result, candidate = self._storage.read_finalization_records(shard.shard_id, attempt.attempt_id)
         except FileNotFoundError:

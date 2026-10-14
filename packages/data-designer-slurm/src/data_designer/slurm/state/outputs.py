@@ -67,8 +67,10 @@ class CandidateOutputManifest(StateRecord):
 
     @property
     def winner_eligible(self) -> bool:
-        """Whether this complete candidate may be published as the shard winner."""
-        return self.outcome is CandidateOutcome.COMPLETE
+        """Whether this nonempty candidate may be published as the shard winner."""
+        return (self.outcome is CandidateOutcome.COMPLETE and self.actual_records == self.requested_records) or (
+            self.outcome is CandidateOutcome.PARTIAL and 0 < self.actual_records < self.requested_records
+        )
 
     @model_validator(mode="after")
     def validate_output(self) -> CandidateOutputManifest:

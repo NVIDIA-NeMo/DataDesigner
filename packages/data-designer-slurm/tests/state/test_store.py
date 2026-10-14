@@ -1625,7 +1625,7 @@ def test_candidate_schema_digest_ignores_arrow_metadata() -> None:
     assert compute_candidate_schema_digest(annotated) == compute_candidate_schema_digest(schema)
 
 
-def test_finalization_rejects_partial_client_results_and_candidate_file_drift(
+def test_finalization_rejects_mismatched_partial_result_and_candidate_file_drift(
     tmp_path: Path,
     authored_run_single: DataDesignerSlurmConfig,
     single_node_plan: ResolvedSlurmRunPlan,

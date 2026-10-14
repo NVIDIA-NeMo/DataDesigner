@@ -248,7 +248,8 @@ def test_successful_benchmark_case_requires_metrics() -> None:
 @pytest.mark.parametrize(
     ("field", "value"),
     [
-        ("actual_records", 999),
+        ("actual_records", 0),
+        ("actual_records", 1001),
         ("generation_seconds", 0),
         ("wall_seconds", 0),
         ("rows_per_second", 0),
