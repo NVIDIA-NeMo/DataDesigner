@@ -40,6 +40,8 @@ Shards with at least one generated record can publish Parquet winners, even when
 data-designer slurm merge <run-id>
 ```
 
+The merge reads the immutable winning shard outputs and verifies their schemas. If nested struct fields appear in different orders across shards, it writes them in the first shard's field order. Missing fields and changed field types are rejected. The collection job uses the installed Slurm package version and runtime bundle from the merge command, so a newer installation can collect an earlier run without changing its shard records.
+
 For an explicit destination, use `--output-path`:
 
 ```bash

@@ -20,6 +20,7 @@ from data_designer.slurm.filesystem import get_file_facts
 from data_designer.slurm.state.artifacts import CandidateArtifactSnapshot, CandidateArtifactVerifier
 from data_designer.slurm.state.collection_filesystem import StagedCollection, StagedFile
 from data_designer.slurm.state.collection_records import CollectedOutputFile, CollectionResult
+from data_designer.slurm.state.collection_schema import require_compatible_candidate_schemas
 from data_designer.slurm.state.filesystem import open_verified_directory, publish_immutable_text, sync_directory
 from data_designer.slurm.state.outputs import CandidateOutputManifest, CollectionPlan
 
@@ -73,6 +74,11 @@ class CollectionMerger:
     ) -> CollectionResult:
         """Write deterministic partitions, rebind inputs, and publish the stage."""
         snapshots = tuple(self._inspect_candidate(candidate) for candidate in candidates)
+        schema = (
+            require_compatible_candidate_schemas(candidates, self._verifier)
+            if len({candidate.dataset_schema_digest for candidate in candidates}) != 1
+            else None
+        )
         batches = self._iter_batches(candidates)
         try:
             first_batch = next(batches, None)
@@ -80,7 +86,7 @@ class CollectionMerger:
                 raise OSError("collection inputs contain no records")
             layout = _PartitionLayout(
                 stage_path=staged.path,
-                schema=first_batch.schema.remove_metadata(),
+                schema=schema if schema is not None else first_batch.schema.remove_metadata(),
                 record_counts=_partition_record_counts(
                     sum(candidate.actual_records for candidate in candidates),
                     collection_plan.num_partitions,
@@ -195,13 +201,17 @@ class _BoundOutput:
 
 
 class _ParquetWriter:
-    def __init__(self, writer: _ArrowBatchWriter, output: _BoundOutput) -> None:
+    def __init__(self, writer: _ArrowBatchWriter, output: _BoundOutput, schema: object) -> None:
         self._writer = writer
         self._output = output
+        self._schema = schema
         self._closed = False
 
     def write(self, batch: object) -> None:
-        self._writer.write_batch(batch.replace_schema_metadata(None))
+        normalized = batch.replace_schema_metadata(None)
+        if not normalized.schema.equals(self._schema):
+            normalized = normalized.cast(self._schema)
+        self._writer.write_batch(normalized)
 
     def finish(self, relative_path: str, record_count: int) -> CollectedOutputFile:
         self.close()
@@ -218,7 +228,9 @@ class _ParquetWriter:
 def _open_parquet_writer(output_path: Path, schema: object) -> Generator[CollectionPartitionWriter, None, None]:
     with output_path.open("x+b") as output:
         os.fchmod(output.fileno(), 0o600)
-        partition_writer = _ParquetWriter(lazy.pq.ParquetWriter(output, schema), _BoundOutput(output_path, output))
+        partition_writer = _ParquetWriter(
+            lazy.pq.ParquetWriter(output, schema), _BoundOutput(output_path, output), schema
+        )
         try:
             yield partition_writer
         finally:

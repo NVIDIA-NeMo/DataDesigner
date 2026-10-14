@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import sys
 from datetime import datetime, timezone
+from importlib.metadata import version
 from pathlib import Path
 from typing import Protocol
 
@@ -17,6 +18,8 @@ from data_designer.slurm.launcher.client import SlurmCommandClient
 from data_designer.slurm.launcher.collection import render_collection_script
 from data_designer.slurm.launcher.errors import SlurmLauncherError, SlurmSubmissionError
 from data_designer.slurm.launcher.models import SlurmJobSubmissionReceipt, SlurmSubmissionMatch
+from data_designer.slurm.runtime.bundle import stage_runtime_bundle
+from data_designer.slurm.runtime.errors import SlurmRuntimeError
 from data_designer.slurm.state.collection_filesystem import (
     derive_collection_staging_directory,
     prepare_collection_destination,
@@ -122,14 +125,18 @@ class SlurmCollectionCoordinator:
                 effective_partitions = num_partitions
                 if effective_partitions is None:
                     effective_partitions = current_plan.num_partitions if current is not None else 1
+                planned_shards = self._inputs.get_winner_shards()
+                runtime_bundle = stage_runtime_bundle(self._state.workspace_root)
                 collection_plan = CollectionPlan(
                     schema_version=1,
                     collection_id=self._collections.get_next_collection_id(),
                     run_id=run.run_id,
                     created_at=timestamp,
                     resolved_plan=run.resolved_plan,
-                    planned_shards=self._inputs.get_winner_shards(),
+                    planned_shards=planned_shards,
                     python_executable=self._python_executable,
+                    package_version=version("data-designer-slurm"),
+                    runtime_bundle=runtime_bundle,
                     host_destination=resolved_destination.host_path,
                     num_partitions=effective_partitions,
                 )
@@ -156,7 +163,7 @@ class SlurmCollectionCoordinator:
                 return self._submit_prepared(collection_plan, prepared, script, timestamp)
         except (StateConflictError, StateCorruptionError, SlurmStateError):
             raise
-        except (OSError, ValidationError, ValueError) as error:
+        except (OSError, SlurmRuntimeError, ValidationError, ValueError) as error:
             raise SlurmStateError(f"cannot submit collection for run {self._run_id!r}") from error
 
     def refresh(
