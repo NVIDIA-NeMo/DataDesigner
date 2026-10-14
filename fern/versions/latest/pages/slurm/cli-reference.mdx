@@ -30,7 +30,7 @@ All commands accept `--profile-file PATH` and `--cluster NAME` where cluster sel
 | `--cluster NAME` | Most commands | Select one catalog entry explicitly. |
 | `--dry-run` | `execute`, `retry` | Perform resolution and render a batch script without submission. |
 | `--input-path PATH` | `merge` | Select a managed run directory instead of passing `RUN_ID`. |
-| `--output-path PATH` | `merge` | Select an authorized compute-visible collection directory instead of `<workspace_root>/runs/<run-id>/output`. |
+| `--output-path PATH` | `merge` | Select an authorized compute-visible collection directory instead of `<workspace_root>/runs/<run-id>/merge-output`. |
 | `--num-partitions N` | `merge` | Write N Parquet files; defaults to 1 for a new collection. |
 | `--force` | `retry`, `benchmark run` | Skip retry confirmation or resume a safely recoverable benchmark submission. It does not overwrite immutable evidence. |
 | `--refresh-state` | `benchmark analyze` | Reconcile each child with the scheduler before analysis. |

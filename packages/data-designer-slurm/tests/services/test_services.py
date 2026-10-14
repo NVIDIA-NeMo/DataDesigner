@@ -336,7 +336,7 @@ def test_run_service_forwards_run_id_without_destination(tmp_path: Path) -> None
         collection_id="collection-0001",
         state=CollectionState.SUBMITTED,
         job_id=44,
-        output_path=(tmp_path / "runs/run-0001/output").as_posix(),
+        output_path=(tmp_path / "runs/run-0001/merge-output").as_posix(),
         num_partitions=1,
     )
     backend.collect.return_value = expected

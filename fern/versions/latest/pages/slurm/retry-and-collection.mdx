@@ -34,7 +34,7 @@ Retries create new attempts. The original attempt records remain durable, and ea
 
 ## Collect winners
 
-Successful shards publish Parquet winners under the run directory. Use `merge` to submit a zero-GPU CPU job that collects them under `<workspace_root>/runs/<run-id>/output`:
+Successful shards publish Parquet winners under the run directory. Use `merge` to submit a zero-GPU CPU job that collects them under `<workspace_root>/runs/<run-id>/merge-output`:
 
 ```bash
 data-designer slurm merge <run-id>

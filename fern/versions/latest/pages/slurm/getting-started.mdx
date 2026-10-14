@@ -179,6 +179,6 @@ Use `status` to confirm every shard succeeded. To create one collected dataset a
 data-designer slurm merge <run-id>
 ```
 
-The command writes to `/workspace/alice/data-designer-slurm/runs/<run-id>/output`. `--output-path` selects another authorized destination. `--num-partitions` controls the collected Parquet file count and defaults to 1 for a new collection.
+The command writes to `/workspace/alice/data-designer-slurm/runs/<run-id>/merge-output`. `--output-path` selects another authorized destination. `--num-partitions` controls the collected Parquet file count and defaults to 1 for a new collection.
 
 Continue with [Run operations](/slurm/run-operations), [Retry and collection](/slurm/retry-and-collection), [Scaling runs](/slurm/run-configuration#scale-runs), [Dependencies and tools](/slurm/dependencies-and-tools), or the [CLI reference](/slurm/cli-reference).

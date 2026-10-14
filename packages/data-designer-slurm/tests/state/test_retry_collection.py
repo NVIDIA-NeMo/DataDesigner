@@ -1862,7 +1862,7 @@ def test_collection_worker_validates_location_before_constructing_state(tmp_path
 
 
 def _output_root(plan: ResolvedSlurmRunPlan) -> Path:
-    return Path(plan.selected_profile.profile.workspace_root) / "runs" / plan.run_id / "output"
+    return Path(plan.selected_profile.profile.workspace_root) / "runs" / plan.run_id / "merge-output"
 
 
 def _initialize_run(

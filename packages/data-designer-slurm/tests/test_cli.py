@@ -97,7 +97,7 @@ class _RunService:
             collection_id="collection-0001",
             state=CollectionState.SUBMITTED,
             job_id=43,
-            output_path=(destination or Path("/workspace/runs/run-0001/output")).resolve().as_posix(),
+            output_path=(destination or Path("/workspace/runs/run-0001/merge-output")).resolve().as_posix(),
             num_partitions=1 if num_partitions is None else num_partitions,
         )
 
@@ -648,7 +648,7 @@ def test_merge_accepts_run_id_with_default_destination(monkeypatch: pytest.Monke
     result = CliRunner().invoke(cli_module.create_cli(), ["merge", "run-0001"])
 
     assert result.exit_code == 0
-    assert json.loads(result.stdout)["output_path"] == "/workspace/runs/run-0001/output"
+    assert json.loads(result.stdout)["output_path"] == "/workspace/runs/run-0001/merge-output"
     assert service.collection_calls == [("run-0001", None, None)]
 
 
