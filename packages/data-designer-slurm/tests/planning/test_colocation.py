@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
+from data_designer.config import DataDesignerConfig
 from data_designer.slurm.config import (
     DataDesignerSlurmConfig,
     DataDesignerSlurmConfigBuilder,
@@ -97,8 +98,21 @@ def test_shared_node_plan_assigns_distinct_models_gpus_ports_and_one_node(
     assert "#SBATCH --exclusive" not in script
 
 
-@pytest.mark.parametrize("mutation", ("overlap", "oversubscription", "node", "image", "visible"))
-def test_shared_node_plan_rejects_invalid_ownership(shared_node_plan: ResolvedSlurmRunPlan, mutation: str) -> None:
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    (
+        ("overlap", "GPU ownership"),
+        ("oversubscription", "quotas exceed"),
+        ("node", "placement and GPU ownership"),
+        ("image", "same resolved serving image"),
+        ("visible", "requires GRES"),
+        ("environment", "matching server environment"),
+        ("queue", "matching server environment"),
+    ),
+)
+def test_shared_node_plan_rejects_invalid_ownership(
+    shared_node_plan: ResolvedSlurmRunPlan, mutation: str, message: str
+) -> None:
     payload = shared_node_plan.model_dump(mode="python")
     if mutation == "overlap":
         payload["deployments"][1]["gpu_start_index"] = 0
@@ -110,11 +124,30 @@ def test_shared_node_plan_rejects_invalid_ownership(shared_node_plan: ResolvedSl
             port["node_index"] = 1
     elif mutation == "image":
         payload["deployments"][1]["image"]["path"] = "/images/other.sqsh"
+    elif mutation == "visible":
+        profile = shared_node_plan.selected_profile.profile
+        visible_profile = profile.model_copy(
+            update={
+                "gpu_request_mode": "visible",
+                "scheduler": profile.scheduler.model_copy(update={"mem_per_gpu": None}),
+            }
+        )
+        payload["selected_profile"] = injected_profile(visible_profile).model_dump(mode="python")
+    elif mutation == "environment":
+        payload["deployments"][1]["authored"]["server"]["environment"] = {"MODE": {"type": "literal", "value": "other"}}
     else:
-        payload["selected_profile"]["profile"]["gpu_request_mode"] = "visible"
-        payload["selected_profile"]["profile"]["scheduler"]["mem_per_gpu"] = None
-    with pytest.raises(ValidationError):
+        payload["deployments"][1]["authored"]["server"]["queue_backpressure"]["max_waiting_requests"] = 2
+    with pytest.raises(ValidationError, match=message):
         ResolvedSlurmRunPlan.model_validate(payload)
+
+
+def test_documented_colocated_example_validates_both_public_configs() -> None:
+    path = Path(__file__).parents[2] / "examples/colocated-models.yaml"
+    config = load_run_config(path)
+    builder = DataDesignerConfig.model_validate(config.builder.inline["data_designer"])
+    assert [model.alias for model in builder.model_configs] == ["writer", "judge"]
+    assert [column.name for column in builder.columns] == ["answer", "review"]
+    assert len({model.model for model in builder.model_configs}) == 2
 
 
 def test_shared_node_runtime_ports_are_distinct_and_isolated(shared_node_plan: ResolvedSlurmRunPlan) -> None:

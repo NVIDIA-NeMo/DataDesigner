@@ -244,8 +244,8 @@ def _resolved_facts(
     authored: DataDesignerSlurmConfig,
     plan: ResolvedSlurmRunPlan,
 ) -> BenchmarkCaseResult:
-    nodes = sum(len(deployment.node_indices) for deployment in plan.deployments)
-    gpus = sum(len(deployment.node_indices) * deployment.gpus_per_node for deployment in plan.deployments)
+    nodes = len({index for deployment in plan.deployments for index in deployment.node_indices})
+    gpus = nodes * plan.resolved_gpus_per_node
     topology_digest = compute_canonical_json_sha256(
         [
             {
