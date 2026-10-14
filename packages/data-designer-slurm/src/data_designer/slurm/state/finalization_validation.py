@@ -69,8 +69,11 @@ class FinalizationChainValidator:
             attempt.state in {AttemptLifecycleState.RUNNING, AttemptLifecycleState.SUCCEEDED},
             "attempt results require a running or successful attempt",
         )
-        _require(client_result.outcome is ClientOutcome.COMPLETE, "only complete client results may be finalized")
-        _require(candidate.winner_eligible, "only complete candidate outputs may be finalized")
+        _require(
+            client_result.outcome in {ClientOutcome.COMPLETE, ClientOutcome.PARTIAL}
+            and bool(client_result.actual_records),
+            "only nonempty client results may be finalized",
+        )
 
     @staticmethod
     def _validate_winner_outcome(attempt: AttemptManifest) -> None:
@@ -124,9 +127,10 @@ class FinalizationChainValidator:
             "client and candidate requested records must match the planned shard",
         )
         _require(
-            client_result.actual_records == candidate.actual_records == planned_shard.requested_records,
-            "client and candidate actual records must complete the planned shard",
+            client_result.actual_records == candidate.actual_records,
+            "client and candidate actual records must match",
         )
+        _require(candidate.winner_eligible, "only nonempty candidate outputs may be finalized")
         expected_suffix = f".{CANDIDATE_OUTPUT_FORMAT}"
         _require(
             all(output_file.relative_path.endswith(expected_suffix) for output_file in candidate.files),
@@ -170,7 +174,7 @@ class FinalizationChainValidator:
             "output-manifest.json",
         )
         reference = client_result.candidate_output_manifest
-        _require(reference is not None, "complete client result has no candidate manifest reference")
+        _require(reference is not None, "nonempty client result has no candidate manifest reference")
         _require(reference.path == expected_path, "candidate manifest path does not match planned intent")
         _require(reference.sha256 == candidate.compute_sha256(), "client candidate digest does not match the manifest")
 
@@ -181,14 +185,14 @@ class FinalizationChainValidator:
         winner: ShardWinner,
     ) -> None:
         reference = client_result.candidate_output_manifest
-        _require(reference is not None, "complete client result has no candidate manifest reference")
+        _require(reference is not None, "nonempty client result has no candidate manifest reference")
         _require(attempt.candidate_output == reference, "attempt candidate reference does not match client result")
         _require(winner.candidate_manifest == reference, "winner candidate reference does not match client result")
 
     @staticmethod
     def _validate_attempt_reference(attempt: AttemptManifest, client_result: ClientResult) -> None:
         reference = client_result.candidate_output_manifest
-        _require(reference is not None, "complete client result has no candidate manifest reference")
+        _require(reference is not None, "nonempty client result has no candidate manifest reference")
         _require(
             attempt.candidate_output is None or attempt.candidate_output == reference,
             "attempt candidate reference does not match client result",

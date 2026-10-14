@@ -139,11 +139,11 @@ class SlurmCollectionWorker:
         status: CollectionStatus | None = None,
     ) -> CollectionResult:
         result = self._collections.read_result(plan)
-        resolved_plan = self._reader.load_resolved_plan()
+        _, candidates = self._inputs.resolve(plan)
         validated = validate_collection_result(
             plan,
             result,
-            expected_records=resolved_plan.invocation.authored.num_records,
+            expected_records=sum(candidate.actual_records for candidate in candidates),
         )
         if status is not None and status.result != self._collections.get_result_reference(plan, validated):
             raise StateCorruptionError("collection status does not bind its published result")

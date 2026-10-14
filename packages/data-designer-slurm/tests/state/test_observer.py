@@ -515,6 +515,90 @@ def test_refresh_uses_terminal_accounting_over_stale_active_queue_state(
     assert status.effective_state is EffectiveRunState.FAILED
 
 
+def test_refresh_ignores_uncommitted_partial_client_output_from_failed_attempt(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+    fake_slurm_runner: FakeSlurmRunner,
+) -> None:
+    case = _initialized_case(tmp_path, authored_run_single, single_node_plan)
+    running = _copy_attempt(
+        case.attempt,
+        state=AttemptLifecycleState.RUNNING,
+        updated_at=case.attempt.created_at + timedelta(minutes=2),
+    )
+    case.writer.update_attempt(running)
+    failed = _copy_attempt(
+        running,
+        state=AttemptLifecycleState.FAILED,
+        terminal_classification=AttemptTerminalClassification.FAILED,
+        updated_at=case.attempt.created_at + timedelta(minutes=3),
+    )
+    case.writer.update_attempt(failed)
+
+    attempt_dir = case.writer.run_root / f"shards/{failed.shard_id}/attempts/{failed.attempt_id}"
+    candidate_path = attempt_dir / "output-manifest.json"
+    dataset_path = attempt_dir / "dataset"
+    requested = case.plan.shards[case.shard.shard_index].requested_records
+    candidate = CandidateOutputManifest(
+        schema_version=1,
+        run_id=case.plan.run_id,
+        shard_id=failed.shard_id,
+        attempt_id=failed.attempt_id,
+        attempt_ordinal=failed.attempt_ordinal,
+        created_at=failed.updated_at,
+        dataset_path=dataset_path.as_posix(),
+        requested_records=requested,
+        actual_records=requested - 1,
+        outcome=CandidateOutcome.PARTIAL,
+        files=(
+            CandidateOutputFile(
+                relative_path="part-00000.parquet",
+                sha256="a" * 64,
+                byte_size=1,
+                record_count=requested - 1,
+            ),
+        ),
+        dataset_schema_digest="b" * 64,
+        provenance_digest=case.plan.compute_sha256(),
+    )
+    result = ClientResult(
+        schema_version=1,
+        run_id=case.plan.run_id,
+        shard_id=failed.shard_id,
+        attempt_id=failed.attempt_id,
+        completed_at=failed.updated_at,
+        requested_records=requested,
+        actual_records=requested - 1,
+        outcome=ClientOutcome.PARTIAL,
+        dataset_path=dataset_path.as_posix(),
+        early_shutdown=False,
+        requested_resume_mode=case.plan.invocation.authored.resume,
+        effective_resume_mode="never",
+        candidate_output_manifest=ArtifactReference(
+            path=candidate_path.as_posix(),
+            sha256=candidate.compute_sha256(),
+        ),
+    )
+    candidate_path.write_text(candidate.serialize_json())
+    (attempt_dir / "client-result.json").write_text(result.serialize_json())
+
+    SlurmCommandClient(fake_slurm_runner).submit("run.sbatch")
+    scheduler = cast(SchedulerIdentity, failed.scheduler)
+    fake_slurm_runner.set_task_state(scheduler, queue_state=None, accounting_state="FAILED", exit_code="70:0")
+    status = SlurmStateReconciler(
+        case.workspace,
+        case.plan.run_id,
+        SlurmCommandClient(fake_slurm_runner),
+    ).refresh(observed_at=case.created_at + timedelta(minutes=5))
+
+    attempt = status.shards[0].attempts[0]
+    assert attempt.effective_state is EffectiveAttemptState.FAILED
+    assert attempt.generation_state is GenerationState.FAILED
+    assert attempt.client_result is None
+    assert attempt.candidate_output is None
+
+
 def test_refresh_marks_unrequeued_preemption_as_failure_after_fixed_deadline(
     tmp_path: Path,
     authored_run_single: DataDesignerSlurmConfig,

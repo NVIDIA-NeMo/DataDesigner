@@ -206,14 +206,14 @@ def test_pending_and_stopped_deployments_reject_ready_backends(
         AttemptReadiness.model_validate_json(json.dumps(payload))
 
 
-def test_partial_candidate_is_never_winner_eligible() -> None:
+def test_nonempty_partial_candidate_is_winner_eligible() -> None:
     payload = _golden_payload("candidate_output.json")
     payload["actual_records"] = 99
     payload["outcome"] = "partial"
     payload["files"][0]["record_count"] = 99
 
     partial_candidate = CandidateOutputManifest.model_validate_json(json.dumps(payload))
-    assert not partial_candidate.winner_eligible
+    assert partial_candidate.winner_eligible
 
 
 def test_candidate_output_rejects_count_and_file_mismatches() -> None:
