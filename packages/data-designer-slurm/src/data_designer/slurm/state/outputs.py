@@ -165,6 +165,8 @@ class CollectionPlan(StateRecord):
     resolved_plan: ArtifactReference
     planned_shards: tuple[CollectionShard, ...] = Field(min_length=1)
     python_executable: str
+    package_version: str | None = Field(default=None, min_length=1, exclude_if=lambda value: value is None)
+    runtime_bundle: ArtifactReference | None = Field(default=None, exclude_if=lambda value: value is None)
     host_destination: str
     num_partitions: PositiveInt
     overwrite: Literal[False] = False
@@ -179,6 +181,8 @@ class CollectionPlan(StateRecord):
 
     @model_validator(mode="after")
     def validate_shards(self) -> CollectionPlan:
+        if (self.package_version is None) != (self.runtime_bundle is None):
+            raise ValueError("collection package version and runtime bundle must be set together")
         shard_ids = [shard.shard_id for shard in self.planned_shards]
         winner_paths = [shard.winner_manifest.path for shard in self.planned_shards]
         if len(shard_ids) != len(set(shard_ids)):

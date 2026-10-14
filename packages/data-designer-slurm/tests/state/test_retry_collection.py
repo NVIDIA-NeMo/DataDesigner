@@ -55,6 +55,7 @@ from data_designer.slurm.state import (
 )
 from data_designer.slurm.state.attempt_identity import require_attempt_scheduler_identity
 from data_designer.slurm.state.collection_inputs import CollectionInputResolver
+from data_designer.slurm.state.collection_schema import schemas_match_except_struct_order
 from data_designer.slurm.state.collection_storage import CollectionStorage
 from data_designer.slurm.state.collection_validation import validate_collection_inputs
 from data_designer.slurm.state.collection_worker import SlurmCollectionWorker
@@ -758,6 +759,12 @@ def test_collection_submits_cpu_job_and_publishes_ordered_winners_atomically(
     expected_python = Path(sys.executable).absolute().as_posix()
     assert collection_plan.python_executable == expected_python
     assert f'readonly DD_COLLECTION_PYTHON="{expected_python}"' in script
+    assert collection_plan.package_version != case.plan.package_version
+    assert f'readonly DD_PACKAGE_VERSION="{collection_plan.package_version}"' in script
+    assert collection_plan.runtime_bundle != case.plan.runtime_bundle
+    assert Path(collection_plan.runtime_bundle.path).is_file()
+    assert f'readonly DD_RUNTIME_ARCHIVE="{collection_plan.runtime_bundle.path}"' in script
+    assert f'readonly DD_RUNTIME_SHA256="{collection_plan.runtime_bundle.sha256}"' in script
     assert "data_designer.slurm.state.collection_worker" in script
     assert "enroot start" not in script
     assert "DD_CLIENT_IMAGE" not in script
@@ -813,6 +820,64 @@ def test_collection_merges_nonempty_partial_shard_winners(
     assert result.actual_records == expected
     assert lazy.pq.read_metadata(_output_root(case.plan) / result.files[0].relative_path).num_rows == expected
     assert coordinator.submit().state is CollectionState.SUCCEEDED
+
+
+def test_collection_merges_reordered_struct_fields_from_partial_winners(
+    tmp_path: Path,
+    authored_run: DataDesignerSlurmConfig,
+    multi_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    case = _initialize_run(tmp_path, authored_run, multi_node_plan)
+    _publish_all_winners(case, shortfall=9, alternating_struct_order=True)
+    coordinator = SlurmCollectionCoordinator(
+        case.workspace,
+        case.plan.run_id,
+        SlurmCommandClient(FakeSlurmRunner(jobs=(FakeSlurmJob(5101),))),
+    )
+    submitted = coordinator.submit(submitted_at=case.created_at + timedelta(minutes=10))
+    result = SlurmCollectionWorker(
+        case.workspace,
+        case.plan.run_id,
+        submitted.collection_id,
+        environment={"SLURM_JOB_ID": "5101"},
+    ).run(completed_at=case.created_at + timedelta(minutes=11))
+
+    expected = sum(shard.record_range.record_count - 9 for shard in case.shards)
+    table = lazy.pq.read_table(_output_root(case.plan) / result.files[0].relative_path)
+    assert result.actual_records == expected
+    assert table.num_rows == expected
+    assert table.schema.field("editorial_assessment").type == lazy.pa.struct(
+        [lazy.pa.field("needs_revision", lazy.pa.bool_()), lazy.pa.field("visible_item", lazy.pa.string())]
+    )
+    rows = table.select(["record_id", "editorial_assessment"]).to_pylist()
+    assert all(row["editorial_assessment"]["visible_item"] == f"item-{row['record_id']}" for row in rows)
+
+
+def test_collection_schema_reordering_does_not_hide_type_or_field_changes() -> None:
+    field = lazy.pa.field
+    reference = lazy.pa.schema(
+        [field("assessment", lazy.pa.struct([field("flag", lazy.pa.bool_()), field("label", lazy.pa.string())]))]
+    )
+    reordered = lazy.pa.schema(
+        [field("assessment", lazy.pa.struct([field("label", lazy.pa.string()), field("flag", lazy.pa.bool_())]))]
+    )
+    changed_type = lazy.pa.schema(
+        [field("assessment", lazy.pa.struct([field("flag", lazy.pa.string()), field("label", lazy.pa.string())]))]
+    )
+    added_field = lazy.pa.schema(
+        [
+            field(
+                "assessment",
+                lazy.pa.struct(
+                    [field("flag", lazy.pa.bool_()), field("label", lazy.pa.string()), field("extra", lazy.pa.string())]
+                ),
+            )
+        ]
+    )
+
+    assert schemas_match_except_struct_order(reference, reordered)
+    assert not schemas_match_except_struct_order(reference, changed_type)
+    assert not schemas_match_except_struct_order(reference, added_field)
 
 
 def test_collection_requires_stable_plan_provenance_across_distinct_shards(
@@ -1968,7 +2033,12 @@ def _submitted_attempt(
     )
 
 
-def _publish_all_winners(case: _RunCase, *, shortfall: int = 0) -> None:
+def _publish_all_winners(
+    case: _RunCase,
+    *,
+    shortfall: int = 0,
+    alternating_struct_order: bool = False,
+) -> None:
     for shard in case.shards:
         scheduler = SchedulerIdentity(array_job_id=4101, array_task_id=shard.shard_index)
         submitted = _submitted_attempt(case, shard, scheduler=scheduler)
@@ -1980,7 +2050,15 @@ def _publish_all_winners(case: _RunCase, *, shortfall: int = 0) -> None:
         )
         case.writer.update_attempt(running)
         with case.writer.acquire_dataset_workspace(shard.shard_id, submitted.attempt_id, "never") as dataset_path:
-            _publish_candidate(case, shard, running, dataset_path, shortfall=shortfall)
+            _publish_candidate(
+                case,
+                shard,
+                running,
+                dataset_path,
+                shortfall=shortfall,
+                struct_fields_reversed=alternating_struct_order and shard.shard_index % 2 == 1,
+                with_struct=alternating_struct_order,
+            )
         case.writer.finalize_winner(
             shard.shard_id,
             running.attempt_id,
@@ -1995,11 +2073,25 @@ def _publish_candidate(
     dataset_path: Path,
     *,
     shortfall: int = 0,
+    with_struct: bool = False,
+    struct_fields_reversed: bool = False,
 ) -> None:
     output_path = dataset_path / "part-00000.parquet"
     actual_records = shard.record_range.record_count - shortfall
     values = range(shard.record_range.start_index, shard.record_range.start_index + actual_records)
     table = lazy.pa.table({"record_id": values})
+    if with_struct:
+        struct_fields = [
+            lazy.pa.field("needs_revision", lazy.pa.bool_()),
+            lazy.pa.field("visible_item", lazy.pa.string()),
+        ]
+        if struct_fields_reversed:
+            struct_fields.reverse()
+        assessment = lazy.pa.array(
+            [{"needs_revision": index % 2 == 0, "visible_item": f"item-{index}"} for index in values],
+            type=lazy.pa.struct(struct_fields),
+        )
+        table = table.append_column("editorial_assessment", assessment)
     lazy.pq.write_table(table, output_path)
     output_path.chmod(0o644)
     content = output_path.read_bytes()
