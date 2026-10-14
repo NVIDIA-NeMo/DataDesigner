@@ -54,7 +54,6 @@ __all__ = [
     "LiteralEnvironmentBinding",
     "LocalStdioMCPProviderConfig",
     "MCPProviderConfig",
-    "OutputConfig",
     "QueueBackpressureConfig",
     "RemoteMCPProviderConfig",
     "SecretRef",
@@ -174,7 +173,7 @@ class InvocationConfig(AuthoredConfig):
     @field_validator("run_config")
     @classmethod
     def validate_run_config_keys(cls, value: dict[str, JsonValue]) -> dict[str, JsonValue]:
-        unknown = set(value).difference(RunConfig.model_fields)
+        unknown = set(value).difference(RunConfig.model_fields.keys() - {"display_tui"})
         if unknown:
             raise ValueError(f"unknown Data Designer RunConfig fields: {', '.join(sorted(unknown))}")
         RunConfig.model_validate(value)
@@ -329,17 +328,6 @@ class SubmissionConfig(AuthoredConfig):
         return None if value is None else validate_plain_text(value, field_name="submission comment")
 
 
-class OutputConfig(AuthoredConfig):
-    root: str | None = None
-    format: Literal["parquet", "jsonl", "csv"] = "parquet"
-    partitions: PositiveInt = 1
-
-    @field_validator("root")
-    @classmethod
-    def validate_root(cls, value: str | None) -> str | None:
-        return None if value is None else validate_absolute_path(value)
-
-
 class DataDesignerSlurmConfig(AuthoredConfig):
     """Complete portable intent for one Data Designer Slurm run."""
 
@@ -351,7 +339,6 @@ class DataDesignerSlurmConfig(AuthoredConfig):
     deployments: list[ServerDeploymentConfig] = Field(min_length=1)
     array_tasks: ArrayTasksConfig = Field(default_factory=ArrayTasksConfig)
     submission: SubmissionConfig = Field(default_factory=SubmissionConfig)
-    output: OutputConfig = Field(default_factory=OutputConfig)
 
     @model_validator(mode="after")
     def validate_run(self) -> DataDesignerSlurmConfig:

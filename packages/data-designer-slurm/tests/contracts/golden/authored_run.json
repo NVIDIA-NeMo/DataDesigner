@@ -128,11 +128,6 @@
     }
   },
   "name": "two-model-generation",
-  "output": {
-    "format": "parquet",
-    "partitions": 1,
-    "root": null
-  },
   "schema_version": 1,
   "submission": {
     "account": null,

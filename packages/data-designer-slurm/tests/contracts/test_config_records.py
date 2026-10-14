@@ -689,6 +689,16 @@ def test_run_validates_public_run_config_and_shard_count(authored_run: DataDesig
         DataDesignerSlurmConfig.model_validate(payload)
 
     payload = authored_run.model_dump(mode="json")
+    payload["invocation"]["run_config"]["display_tui"] = True
+    with pytest.raises(ValidationError, match="display_tui"):
+        DataDesignerSlurmConfig.model_validate(payload)
+
+    payload = authored_run.model_dump(mode="json")
+    payload["output"] = {"format": "jsonl", "partitions": 1}
+    with pytest.raises(ValidationError, match="output"):
+        DataDesignerSlurmConfig.model_validate(payload)
+
+    payload = authored_run.model_dump(mode="json")
     payload["array_tasks"]["count"] = 101
     payload["array_tasks"]["max_concurrent"] = 1
     with pytest.raises(ValidationError, match="requested records"):
