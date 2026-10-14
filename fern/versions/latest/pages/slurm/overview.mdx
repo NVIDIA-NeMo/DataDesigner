@@ -28,7 +28,7 @@ Run Slurm commands from a site-approved submit environment with the cluster CLI 
 
 ## Storage model
 
-The configured `workspace_root` is durable and shared. It contains image metadata, immutable run inputs, Slurm logs, attempt state, winning results, and collection state. Collected output goes to the destination selected with `slurm merge --output-path`.
+The configured `workspace_root` is durable and shared. It contains image metadata, immutable run inputs, Slurm logs, attempt state, winning results, and collection state. `slurm merge RUN_ID` collects winners under `<workspace_root>/runs/<run-id>/merge-output` by default. Use `--output-path` to select another authorized destination.
 
 Runtime bundle extraction, the client dependency overlay, Data Designer home and cache directories, and Enroot state use allocation-local scratch. Serving containers mount that scratch at `/run/data-designer-slurm`; native client steps use the corresponding host path. The runtime removes it on success, failure, cancellation, and retry. Do not configure a mount that overlaps this path or expect transient scratch files to remain after a job.
 

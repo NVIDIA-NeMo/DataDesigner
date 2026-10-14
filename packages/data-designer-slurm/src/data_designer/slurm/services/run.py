@@ -84,9 +84,9 @@ class SlurmRunBackend(Protocol):
 
     def collect(
         self,
-        input_path: Path,
+        input_path: Identifier | Path,
         *,
-        destination: Path,
+        destination: Path | None,
         num_partitions: int | None,
     ) -> SlurmCollectionExecution:
         """Submit or recover one winner-driven collection."""
@@ -261,17 +261,23 @@ class SlurmRunService:
         self,
         input_path: str | Path,
         *,
-        destination: str | Path,
+        destination: str | Path | None = None,
         num_partitions: int | None = None,
     ) -> SlurmCollectionExecution:
-        """Submit or recover collection for one managed run directory."""
+        """Submit or recover collection by run ID or managed run directory."""
         operation = SlurmServiceOperation.COLLECT_RUN
-        if not isinstance(input_path, str | Path) or not isinstance(destination, str | Path):
-            raise _make_invalid_request_error(operation, "input_path and destination must be paths")
+        if not isinstance(input_path, str | Path):
+            raise _make_invalid_request_error(operation, "input_path must be a run ID or path")
+        if destination is not None and not isinstance(destination, str | Path):
+            raise _make_invalid_request_error(operation, "destination must be a path")
         if num_partitions is not None and (type(num_partitions) is not int or num_partitions <= 0):
             raise _make_invalid_request_error(operation, "num_partitions must be a positive integer")
-        normalized_input = Path(input_path).expanduser().resolve()
-        normalized_destination = Path(destination).expanduser().resolve()
+        normalized_input = (
+            _validate_run_id(input_path, operation)
+            if isinstance(input_path, str) and "/" not in input_path
+            else Path(input_path).expanduser().resolve()
+        )
+        normalized_destination = None if destination is None else Path(destination).expanduser().resolve()
         backend = self._require_backend(operation)
 
         return _invoke_service_backend(
@@ -320,9 +326,9 @@ def _retry_run(
 
 def _collect_run(
     backend: SlurmRunBackend,
-    input_path: Path,
+    input_path: Identifier | Path,
     *,
-    destination: Path,
+    destination: Path | None,
     num_partitions: int | None,
 ) -> SlurmCollectionExecution:
     result = backend.collect(
@@ -332,7 +338,7 @@ def _collect_run(
     )
     if not isinstance(result, SlurmCollectionExecution):
         raise TypeError("run backend returned an invalid collection result")
-    if result.output_path != destination.as_posix() or (
+    if (destination is not None and result.output_path != destination.as_posix()) or (
         num_partitions is not None and result.num_partitions != num_partitions
     ):
         raise TypeError("run backend returned collection intent that does not match the request")

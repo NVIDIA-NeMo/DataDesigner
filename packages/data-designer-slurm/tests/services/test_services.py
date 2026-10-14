@@ -329,6 +329,23 @@ def test_run_service_defaults_collection_to_one_partition(tmp_path: Path) -> Non
     )
 
 
+def test_run_service_forwards_run_id_without_destination(tmp_path: Path) -> None:
+    backend = Mock(spec=SlurmRunBackend)
+    expected = SlurmCollectionExecution(
+        run_id="run-0001",
+        collection_id="collection-0001",
+        state=CollectionState.SUBMITTED,
+        job_id=44,
+        output_path=(tmp_path / "runs/run-0001/merge-output").as_posix(),
+        num_partitions=1,
+    )
+    backend.collect.return_value = expected
+    service = SlurmRunService(FakeRunPlanningBackend(()), FakeBatchScriptRenderer(()), backend)
+
+    assert service.collect("run-0001") is expected
+    backend.collect.assert_called_once_with("run-0001", destination=None, num_partitions=None)
+
+
 @pytest.mark.parametrize("num_partitions", [0, -1, True, 1.5])
 def test_run_service_rejects_invalid_collection_partitions(num_partitions: object) -> None:
     service = SlurmRunService(FakeRunPlanningBackend(()), FakeBatchScriptRenderer(()), Mock(spec=SlurmRunBackend))

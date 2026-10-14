@@ -92,7 +92,7 @@ array_tasks:
   max_concurrent: 4
 ```
 
-`count` cannot exceed `num_records`, and `max_concurrent` cannot exceed `count`. Status, retry, and collection retain shard identities and winners. Array task count controls execution shards; it does not set the number of collected Parquet files. Use `slurm merge --num-partitions 20` if you want 20 output files.
+`count` cannot exceed `num_records`, and `max_concurrent` cannot exceed `count`. Status, retry, and collection retain shard identities and winners. Array task count controls execution shards; it does not set the number of collected Parquet files. Use `slurm merge RUN_ID --num-partitions 20` if you want 20 output files.
 
 Runs with more than one array task do not support global processors or profilers; image, plugin, custom, or unknown column types; local-callable validators; shuffled seed input; or authored seed-selection strategies. Seeded array runs must bind the dataset through `invocation.input_bindings.seed_path`.
 
