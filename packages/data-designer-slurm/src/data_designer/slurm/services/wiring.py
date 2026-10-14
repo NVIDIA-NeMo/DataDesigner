@@ -737,9 +737,9 @@ class _SystemRunBackend:
 
     def collect(
         self,
-        input_path: Path,
+        input_path: Identifier | Path,
         *,
-        destination: Path,
+        destination: Path | None,
         num_partitions: int | None,
     ) -> SlurmCollectionExecution:
         return self._retry_collection.collect(
