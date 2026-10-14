@@ -308,7 +308,7 @@ def test_run_service_normalizes_collection_paths(tmp_path: Path, monkeypatch: py
     )
 
 
-def test_run_service_uses_persisted_collection_partitions_when_omitted(tmp_path: Path) -> None:
+def test_run_service_defaults_collection_to_one_partition(tmp_path: Path) -> None:
     backend = Mock(spec=SlurmRunBackend)
     expected = SlurmCollectionExecution(
         run_id="run-0001",
@@ -316,7 +316,7 @@ def test_run_service_uses_persisted_collection_partitions_when_omitted(tmp_path:
         state=CollectionState.SUBMITTED,
         job_id=44,
         output_path=(tmp_path / "collected").as_posix(),
-        num_partitions=2,
+        num_partitions=1,
     )
     backend.collect.return_value = expected
     service = SlurmRunService(FakeRunPlanningBackend(()), FakeBatchScriptRenderer(()), backend)

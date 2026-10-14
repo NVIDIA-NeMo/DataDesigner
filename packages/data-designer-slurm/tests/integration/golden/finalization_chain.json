@@ -4,12 +4,12 @@
     "attempt_ordinal": 1,
     "candidate_output": {
       "path": "/workspace/primary/runs/run-single/shards/shard-00000/attempts/attempt-0001/output-manifest.json",
-      "sha256": "287150bc3b0d19e14c745fddc7822d9a1448e25e7aa6d356d1e5c3444fef5621"
+      "sha256": "0afc18907a46ce999d233872e461feee3c5ce8d1067c511f696250ed9101d8b6"
     },
     "created_at": "2026-08-19T12:00:02Z",
     "resolved_plan": {
       "path": "/workspace/primary/runs/run-single/resolved-plan.json",
-      "sha256": "82229085d7141ea3035512d6cf8c018a16c477ef0d461661c5560a9d8fd7202a"
+      "sha256": "8318ae41cfdb1fbbfcea21fe28cd89b09bcf73772f69340a7863d333b2b76a75"
     },
     "run_id": "run-single",
     "scheduler": {
@@ -38,7 +38,7 @@
       }
     ],
     "outcome": "complete",
-    "provenance_digest": "82229085d7141ea3035512d6cf8c018a16c477ef0d461661c5560a9d8fd7202a",
+    "provenance_digest": "8318ae41cfdb1fbbfcea21fe28cd89b09bcf73772f69340a7863d333b2b76a75",
     "requested_records": 8,
     "run_id": "run-single",
     "schema_version": 1,
@@ -49,7 +49,7 @@
     "attempt_id": "attempt-0001",
     "candidate_output_manifest": {
       "path": "/workspace/primary/runs/run-single/shards/shard-00000/attempts/attempt-0001/output-manifest.json",
-      "sha256": "287150bc3b0d19e14c745fddc7822d9a1448e25e7aa6d356d1e5c3444fef5621"
+      "sha256": "0afc18907a46ce999d233872e461feee3c5ce8d1067c511f696250ed9101d8b6"
     },
     "completed_at": "2026-08-19T12:05:01Z",
     "dataset_path": "/workspace/primary/runs/run-single/shards/shard-00000/attempts/attempt-0001/dataset",
@@ -85,12 +85,12 @@
   "run": {
     "authored_config": {
       "path": "/workspace/primary/runs/run-single/authored-config.json",
-      "sha256": "902aee7cc4bd9219ff3eed831f7203bc3722fd0ed9cbc0d01135d5c2b795668b"
+      "sha256": "bf9d45d571f5f288c74a3332cdd23576df60ce7bb3d934774f50bdce4b984fba"
     },
     "created_at": "2026-08-19T12:00:00Z",
     "resolved_plan": {
       "path": "/workspace/primary/runs/run-single/resolved-plan.json",
-      "sha256": "82229085d7141ea3035512d6cf8c018a16c477ef0d461661c5560a9d8fd7202a"
+      "sha256": "8318ae41cfdb1fbbfcea21fe28cd89b09bcf73772f69340a7863d333b2b76a75"
     },
     "run_id": "run-single",
     "schema_version": 1,
@@ -118,7 +118,7 @@
     "attempt_ordinal": 1,
     "candidate_manifest": {
       "path": "/workspace/primary/runs/run-single/shards/shard-00000/attempts/attempt-0001/output-manifest.json",
-      "sha256": "287150bc3b0d19e14c745fddc7822d9a1448e25e7aa6d356d1e5c3444fef5621"
+      "sha256": "0afc18907a46ce999d233872e461feee3c5ce8d1067c511f696250ed9101d8b6"
     },
     "published_at": "2026-08-19T12:05:03Z",
     "run_id": "run-single",

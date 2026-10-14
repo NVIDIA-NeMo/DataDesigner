@@ -131,7 +131,6 @@ def test_resolved_builder_rejects_plaintext_secrets(multi_node_plan: ResolvedSlu
         lambda payload: payload["shards"][1].update(shard_id="shard-00002"),
         lambda payload: payload["shards"][1].update(resume_workspace=payload["shards"][0]["resume_workspace"]),
         lambda payload: payload.update(run_id="run-other"),
-        lambda payload: payload["output"].update(root="/outside/output"),
         lambda payload: payload.update(container_mounts=[]),
         lambda payload: payload["deployments"][0]["topology"].update(replica_count=2),
         lambda payload: payload["invocation"]["effective_input_bindings"].update(
@@ -139,7 +138,6 @@ def test_resolved_builder_rejects_plaintext_secrets(multi_node_plan: ResolvedSlu
         ),
         lambda payload: payload["runtime_bundle"].update(path="/tmp/" + "e" * 64 + ".tar.gz"),
         lambda payload: payload["runtime_bundle"].update(path="/workspace/primary/runtime/runtime.tar.gz"),
-        lambda payload: payload["output"].update(root="/workspace/primary/managed-assets"),
     ],
 )
 def test_plan_rejects_invalid_boundaries(multi_node_plan: ResolvedSlurmRunPlan, mutator: object) -> None:
@@ -204,25 +202,6 @@ def test_plan_rejects_otel_port_collision(multi_node_plan: ResolvedSlurmRunPlan)
     payload["invocation"]["effective_run_config"]["otel_metrics_port"] = 18000
 
     with pytest.raises(ValidationError, match="OTEL metrics port collides"):
-        ResolvedSlurmRunPlan.model_validate_json(json.dumps(payload))
-
-
-@pytest.mark.parametrize(
-    "output_root",
-    [
-        "/workspace/primary/runs/run-001/shards/shard-00000/dataset",
-        "/workspace/primary/runs/run-001",
-        "/workspace/primary/runs",
-    ],
-)
-def test_plan_rejects_output_overlapping_shard_workspace(
-    multi_node_plan: ResolvedSlurmRunPlan,
-    output_root: str,
-) -> None:
-    payload = multi_node_plan.model_dump(mode="json")
-    payload["output"]["root"] = output_root
-
-    with pytest.raises(ValidationError, match="must not overlap"):
         ResolvedSlurmRunPlan.model_validate_json(json.dumps(payload))
 
 

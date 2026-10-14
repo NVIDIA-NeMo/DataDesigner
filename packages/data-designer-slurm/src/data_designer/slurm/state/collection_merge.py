@@ -9,11 +9,11 @@ import hashlib
 import os
 import stat
 from collections.abc import Generator
-from contextlib import AbstractContextManager, contextmanager
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import BinaryIO, Protocol, TextIO
+from typing import BinaryIO, Protocol
 
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.slurm.filesystem import get_file_facts
@@ -49,7 +49,6 @@ class _ArrowBatchWriter(Protocol):
 @dataclass(frozen=True, slots=True)
 class _PartitionLayout:
     stage_path: Path
-    output_format: str
     schema: object
     record_counts: tuple[int, ...]
 
@@ -59,12 +58,10 @@ class CollectionMerger:
 
     def __init__(
         self,
-        output_format: str,
         *,
         verifier: CandidateArtifactVerifier | None = None,
         completed_at: datetime | None = None,
     ) -> None:
-        self._output_format = output_format
         self._verifier = verifier if verifier is not None else CandidateArtifactVerifier()
         self._completed_at = completed_at
 
@@ -83,7 +80,6 @@ class CollectionMerger:
                 raise OSError("collection inputs contain no records")
             layout = _PartitionLayout(
                 stage_path=staged.path,
-                output_format=self._output_format,
                 schema=first_batch.schema.remove_metadata(),
                 record_counts=_partition_record_counts(
                     sum(candidate.actual_records for candidate in candidates),
@@ -133,10 +129,9 @@ class CollectionMerger:
         cursor = _BatchCursor(first_batch, remaining_batches)
         outputs: list[CollectedOutputFile] = []
         for partition_index, record_count in enumerate(layout.record_counts):
-            suffix = "jsonl" if layout.output_format == "jsonl" else layout.output_format
-            relative_path = f"part-{partition_index:05d}.{suffix}"
+            relative_path = f"part-{partition_index:05d}.parquet"
             output_path = layout.stage_path / relative_path
-            with _open_partition_writer(output_path, layout.output_format, layout.schema) as writer:
+            with _open_parquet_writer(output_path, layout.schema) as writer:
                 cursor.write_records(writer, record_count)
                 outputs.append(writer.finish(relative_path, record_count))
         if cursor.has_remaining_records():
@@ -190,7 +185,7 @@ class _BatchCursor:
 
 
 class _BoundOutput:
-    def __init__(self, path: Path, output: BinaryIO | TextIO) -> None:
+    def __init__(self, path: Path, output: BinaryIO) -> None:
         self.path = path
         self._output = output
 
@@ -219,39 +214,6 @@ class _ParquetWriter:
         self._writer.close()
 
 
-class _TextWriter:
-    def __init__(self, output: TextIO, output_format: str, bound_output: _BoundOutput) -> None:
-        self._output = output
-        self._bound_output = bound_output
-        self._format = output_format
-        self._is_first = True
-
-    def write(self, batch: object) -> None:
-        frame = batch.to_pandas()
-        if self._format == "csv":
-            frame.to_csv(self._output, header=self._is_first, index=False)
-        else:
-            content = frame.to_json(orient="records", lines=True, force_ascii=False, date_format="iso")
-            if content:
-                self._output.write(content)
-        self._is_first = False
-
-    def finish(self, relative_path: str, record_count: int) -> CollectedOutputFile:
-        return self._bound_output.describe(relative_path, record_count)
-
-
-def _open_partition_writer(
-    output_path: Path,
-    output_format: str,
-    schema: object,
-) -> AbstractContextManager[CollectionPartitionWriter]:
-    if output_format == "parquet":
-        return _open_parquet_writer(output_path, schema)
-    if output_format in {"csv", "jsonl"}:
-        return _open_text_writer(output_path, output_format)
-    raise ValueError(f"unsupported collection output format {output_format!r}")
-
-
 @contextmanager
 def _open_parquet_writer(output_path: Path, schema: object) -> Generator[CollectionPartitionWriter, None, None]:
     with output_path.open("x+b") as output:
@@ -264,17 +226,7 @@ def _open_parquet_writer(output_path: Path, schema: object) -> Generator[Collect
             _sync_output(output)
 
 
-@contextmanager
-def _open_text_writer(output_path: Path, output_format: str) -> Generator[CollectionPartitionWriter, None, None]:
-    with output_path.open("x+", encoding="utf-8", newline="") as output:
-        os.fchmod(output.fileno(), 0o600)
-        try:
-            yield _TextWriter(output, output_format, _BoundOutput(output_path, output))
-        finally:
-            _sync_output(output)
-
-
-def _sync_output(output: BinaryIO | TextIO) -> None:
+def _sync_output(output: BinaryIO) -> None:
     output.flush()
     os.fsync(output.fileno())
 
