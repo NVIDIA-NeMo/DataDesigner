@@ -24,16 +24,16 @@ _MAXIMUM_RECORD_SIZE = 16 * 1024 * 1024
 _RecordT = TypeVar("_RecordT", bound=ContractRecord)
 
 
-def load_complete_client_candidate(
+def load_nonempty_client_candidate(
     context: AllocationContext,
     attempt: AttemptManifest,
     *,
     attempt_directory: Path | None = None,
 ) -> tuple[ClientResult, CandidateOutputManifest]:
-    """Load a complete semantic client result and its digest-bound candidate."""
+    """Load a nonempty semantic client result and its digest-bound candidate."""
     record_directory = context.attempt_directory if attempt_directory is None else attempt_directory
     client_result = _read_record(record_directory, _CLIENT_RESULT_NAME, ClientResult)
-    if client_result.outcome is not ClientOutcome.COMPLETE:
+    if client_result.outcome not in {ClientOutcome.COMPLETE, ClientOutcome.PARTIAL} or not client_result.actual_records:
         raise SlurmRuntimeError(
             SlurmRuntimeErrorCode.CLIENT_FAILED,
             f"client generation finished with outcome {client_result.outcome.value!r}",
@@ -72,4 +72,4 @@ def _read_record(directory: Path, name: str, record_type: type[_RecordT]) -> _Re
         ) from error
 
 
-__all__ = ["load_complete_client_candidate"]
+__all__ = ["load_nonempty_client_candidate"]
