@@ -71,11 +71,6 @@ class DatasetGenerator:
             "people_gen_resource": create_people_gen_resource(self.schema, person_generator_loader),
         }
 
-    def _round_if_needed(self, column: ConditionalDataColumn, df: pd.DataFrame) -> pd.DataFrame:
-        if hasattr(column.params, "decimal_places") and column.params.decimal_places is not None:
-            df[column.name] = df[column.name].round(column.params.decimal_places)
-        return df
-
     def _run_rejection_sampling(self, df: pd.DataFrame, column: ConditionalDataColumn) -> pd.DataFrame:
         name = column.name
         num_iterations = 0
@@ -88,8 +83,17 @@ class DatasetGenerator:
                     condition,
                     jinja_rendering_engine=self._jinja_rendering_engine,
                 ).select_index(df[needs_samples])
+                if index.empty:
+                    continue
                 src = column.get_sampler(condition, **self._shared_sampler_kwargs)
                 df = src.inject_data_column(df, name, index)
+                decimal_places = getattr(src.params, "decimal_places", None)
+                if decimal_places is not None:
+                    samples = df.loc[index, name]
+                    # Preserve integer conversion before precision rounding, but round before converting to strings.
+                    if column.convert_to == "int":
+                        samples = src.preproc(samples, column.convert_to)
+                    df.loc[index, name] = samples.round(decimal_places)
 
             df[name] = column.get_default_sampler(**self._shared_sampler_kwargs).preproc(df[name], column.convert_to)
 
@@ -121,6 +125,5 @@ class DatasetGenerator:
             dataset[column.name] = column.get_default_sampler(**self._shared_sampler_kwargs).postproc(
                 dataset[column.name], column.convert_to
             )
-            dataset = self._round_if_needed(column, dataset)
 
         return dataset[self.schema.column_names]
