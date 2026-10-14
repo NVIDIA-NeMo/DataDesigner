@@ -100,8 +100,8 @@ class BenchmarkCaseResult(ContractValue):
         if self.outcome is BenchmarkOutcome.SUCCEEDED and any(value is None for value in required):
             raise ValueError("successful benchmark cases require complete timing and feasibility metrics")
         if self.outcome is BenchmarkOutcome.SUCCEEDED:
-            if self.actual_records != self.requested_records:
-                raise ValueError("successful benchmark cases require the requested record count")
+            if self.actual_records == 0:
+                raise ValueError("successful benchmark cases require at least one record")
             if self.wall_seconds == 0 or self.rows_per_second == 0:
                 raise ValueError("successful benchmark wall time and throughput must be positive")
             if self.feasible and self.generation_seconds == 0:

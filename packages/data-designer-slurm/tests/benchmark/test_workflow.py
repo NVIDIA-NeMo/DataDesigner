@@ -455,6 +455,50 @@ def test_analysis_keeps_measured_infeasible_case_successful(
     assert report.cases[0].total_gpu_hours is None
 
 
+def test_analysis_uses_actual_rows_from_nonempty_partial_case(
+    tmp_path: Path,
+    benchmark_config: DataDesignerSlurmBenchmarkConfig,
+    authored_run: DataDesignerSlurmConfig,
+    multi_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    config = _inline_config(benchmark_config, authored_run).model_copy(
+        update={"deployment_cases": [benchmark_config.deployment_cases[0]]}
+    )
+    compiled = BenchmarkCompiler.compile(config, authored_run)
+    store, manifest = _manifest(tmp_path, config, compiled)
+    case = compiled.cases[0]
+    requested_records = case.child_run_config.invocation.num_records
+    actual_records = requested_records - 9
+    observation = BenchmarkRunObservation(
+        authored_config=case.child_run_config,
+        resolved_plan=multi_node_plan.model_copy(update={"run_id": case.child_run_id}),
+        outcome=BenchmarkOutcome.SUCCEEDED,
+        measurements=_measurements(
+            actual_records,
+            60,
+            120,
+            180,
+            len(multi_node_plan.shards),
+        ),
+    )
+
+    report = BenchmarkAnalyzer(_Observer({case.child_run_id: observation}), lambda: NOW).analyze(
+        config,
+        authored_run,
+        manifest,
+        store.manifest_reference(manifest),
+        refresh_state=False,
+    )
+
+    result = report.cases[0]
+    assert result.outcome is BenchmarkOutcome.SUCCEEDED
+    assert result.requested_records == requested_records
+    assert result.actual_records == actual_records
+    assert result.rows_per_second == actual_records / 120
+    assert result.feasible is True
+    assert result.target_jobs is not None
+
+
 def test_analysis_rejects_manifest_rewritten_away_from_compiled_children(
     tmp_path: Path,
     benchmark_config: DataDesignerSlurmBenchmarkConfig,
