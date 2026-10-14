@@ -8,6 +8,7 @@ import platform
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from types import SimpleNamespace
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -50,6 +51,7 @@ class FakeCreationResults:
         self.early_shutdown = actual < requested
         self.requested_resume_mode = resume
         self.effective_resume_mode = ResumeMode.NEVER
+        self.artifact_storage: SimpleNamespace = SimpleNamespace(final_dataset_path=dataset_path / "parquet-files")
 
     def export(self, path: Path, *, format: str) -> Path:
         assert format == "parquet"
@@ -65,12 +67,18 @@ class FakeDataDesigner:
         create_error: BaseException | None = None,
         create_error_after_batch: BaseException | None = None,
         effective_resume: ResumeMode = ResumeMode.NEVER,
+        batch_count: int = 1,
+        schema_metadata: dict[bytes, bytes] | None = None,
+        mixed_batch_schemas: bool = False,
         **kwargs: object,
     ) -> None:
         self.actual_records = actual_records
         self.create_error = create_error
         self.create_error_after_batch = create_error_after_batch
         self.effective_resume = effective_resume
+        self.batch_count = batch_count
+        self.schema_metadata = schema_metadata
+        self.mixed_batch_schemas = mixed_batch_schemas
         self.initialization = kwargs
         self.run_config = None
         self.validated_builder = None
@@ -97,9 +105,22 @@ class FakeDataDesigner:
         actual = num_records if self.actual_records is None else self.actual_records
         dataset_path = artifact_path / dataset_name
         dataset_path.mkdir(parents=True, exist_ok=True)
-        batch_path = dataset_path / "batch.parquet"
-        pq.write_table(pa.table({"value": tuple(range(actual))}), batch_path)
-        on_batch_complete(batch_path)
+        dataset_path.chmod(0o700)
+        batch_dir = dataset_path / "parquet-files"
+        batch_dir.mkdir(exist_ok=True)
+        for index in range(self.batch_count):
+            start = actual * index // self.batch_count
+            end = actual * (index + 1) // self.batch_count
+            values = tuple(range(start, end))
+            if self.mixed_batch_schemas and index == 1:
+                table = pa.table({"value": tuple(float(value) for value in values)})
+            else:
+                table = pa.table({"value": values})
+            if self.schema_metadata is not None:
+                table = table.replace_schema_metadata(self.schema_metadata)
+            batch_path = batch_dir / f"batch_{index:05d}.parquet"
+            pq.write_table(table, batch_path)
+            on_batch_complete(batch_path)
         if self.create_error_after_batch is not None:
             raise self.create_error_after_batch
         results = FakeCreationResults(dataset_path, requested=num_records, actual=actual, resume=resume)
