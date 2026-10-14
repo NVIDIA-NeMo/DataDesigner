@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from data_designer.slurm.contracts import ArtifactReference
 from data_designer.slurm.planning import ResolvedSlurmRunPlan
+from data_designer.slurm.state.artifacts import CandidateArtifactVerifier
+from data_designer.slurm.state.collection_schema import require_compatible_candidate_schemas
 from data_designer.slurm.state.collection_validation import validate_collection_inputs
 from data_designer.slurm.state.errors import StateCorruptionError, StateNotFoundError
 from data_designer.slurm.state.finalization import WinnerFinalizer
@@ -23,6 +25,7 @@ class CollectionInputResolver:
         self._storage = storage
         self._reader = reader
         self._finalizer = WinnerFinalizer(storage, reader)
+        self._verifier = CandidateArtifactVerifier()
 
     def get_winner_shards(self) -> tuple[CollectionShard, ...]:
         """Return one canonical winner reference for every ordered run shard."""
@@ -75,6 +78,8 @@ class CollectionInputResolver:
             validate_collection_inputs(plan, collection_plan, tuple(candidates))
         except StateContractError as error:
             raise StateCorruptionError("collection inputs violate persisted run intent") from error
+        if len({candidate.dataset_schema_digest for candidate in candidates}) != 1:
+            require_compatible_candidate_schemas(tuple(candidates), self._verifier)
         return plan, tuple(candidates)
 
 

@@ -165,6 +165,8 @@ class CollectionPlan(StateRecord):
     resolved_plan: ArtifactReference
     planned_shards: tuple[CollectionShard, ...] = Field(min_length=1)
     python_executable: str
+    package_version: str = Field(min_length=1)
+    runtime_bundle: ArtifactReference
     host_destination: str
     num_partitions: PositiveInt
     overwrite: Literal[False] = False

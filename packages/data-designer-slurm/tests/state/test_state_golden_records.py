@@ -44,7 +44,7 @@ PERSISTED_INTENT_FIXTURES = (
     CONTRACT_GOLDEN_DIRECTORY / "authored_run_single.json",
     CONTRACT_GOLDEN_DIRECTORY / "single_node_plan.json",
 )
-_COMPATIBILITY_FIXTURE_DIGEST = "18dbde1e5a6d883d90d6392487b84750a5dd8133f44d75d425d240ba7feb7b6c"
+_COMPATIBILITY_FIXTURE_DIGEST = "80907fb71902fbb9787eec7ebcd878ca7475fcae8baae66610c3f4082cf879d7"
 
 
 @pytest.mark.parametrize(("filename", "model"), GOLDEN_MODELS)

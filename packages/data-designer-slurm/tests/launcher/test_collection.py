@@ -65,6 +65,8 @@ def test_collection_renderer_uses_plan_bound_native_python_and_no_gpu_directives
             ),
         ),
         python_executable="/shared/data-designer/bin/python",
+        package_version="0.9.9",
+        runtime_bundle=ArtifactReference(path="/workspace/primary/runtime/collection.tar.gz", sha256="b" * 64),
         host_destination=destination.host_path,
         num_partitions=1,
     )
@@ -79,9 +81,9 @@ def test_collection_renderer_uses_plan_bound_native_python_and_no_gpu_directives
         'readonly DD_COLLECTION_PLAN="/workspace/primary/runs/run-001/collections/collection-0001/plan.json"' in script
     )
     assert 'readonly DD_COLLECTION_PYTHON="/shared/data-designer/bin/python"' in script
-    assert 'readonly DD_PACKAGE_VERSION="0.9.2"' in script
-    assert f'readonly DD_RUNTIME_ARCHIVE="{plan.runtime_bundle.path}"' in script
-    assert f'readonly DD_RUNTIME_SHA256="{plan.runtime_bundle.sha256}"' in script
+    assert 'readonly DD_PACKAGE_VERSION="0.9.9"' in script
+    assert f'readonly DD_RUNTIME_ARCHIVE="{collection.runtime_bundle.path}"' in script
+    assert f'readonly DD_RUNTIME_SHA256="{collection.runtime_bundle.sha256}"' in script
     assert 'export PYTHONPATH="${DD_SCRATCH_ROOT}/runtime"' in script
     assert "data_designer.slurm.state.collection_worker" in script
     assert '"${DD_COLLECTION_PYTHON}" -m data_designer.slurm.state.collection_worker' in script
@@ -225,6 +227,8 @@ def test_destination_reauthorizes_explicit_path_through_workspace_mapping(
             ),
         ),
         python_executable="/shared/data-designer/bin/python",
+        package_version="0.9.9",
+        runtime_bundle=ArtifactReference(path="/workspace/primary/runtime/collection.tar.gz", sha256="b" * 64),
         host_destination=requested,
         num_partitions=1,
     )
