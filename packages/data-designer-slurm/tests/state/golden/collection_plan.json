@@ -4,7 +4,6 @@
   "host_destination": "/workspace/runs/run-0001/collection/run-0001.parquet",
   "num_partitions": 1,
   "overwrite": false,
-  "package_version": "0.9.9",
   "planned_shards": [
     {
       "shard_id": "shard-00000",
@@ -20,9 +19,5 @@
     "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
   },
   "run_id": "run-0001",
-  "runtime_bundle": {
-    "path": "/workspace/runtime/collection.tar.gz",
-    "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
-  },
   "schema_version": 1
 }

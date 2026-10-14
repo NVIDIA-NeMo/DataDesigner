@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from data_designer.slurm.config import ContainerMount, injected_profile
 from data_designer.slurm.contracts import ArtifactReference, compute_canonical_json_sha256
@@ -94,6 +95,16 @@ def test_collection_renderer_uses_plan_bound_native_python_and_no_gpu_directives
     assert "#SBATCH --gpus=" not in script
     assert script.index("trap 'exit 143' TERM") < script.index("\ndd_initialize_local_scratch\n")
     assert subprocess.run(("bash", "-n"), input=script, text=True, check=False).returncode == 0
+
+    legacy = CollectionPlan.model_validate(
+        collection.model_dump(mode="python", exclude={"package_version", "runtime_bundle"})
+    )
+    legacy_script = render_collection_script(plan, legacy, destination)
+    assert 'readonly DD_PACKAGE_VERSION="0.9.2"' in legacy_script
+    assert f'readonly DD_RUNTIME_ARCHIVE="{plan.runtime_bundle.path}"' in legacy_script
+    assert f'readonly DD_RUNTIME_SHA256="{plan.runtime_bundle.sha256}"' in legacy_script
+    with pytest.raises(ValidationError, match="package version and runtime bundle must be set together"):
+        CollectionPlan.model_validate(legacy.model_dump(mode="python") | {"package_version": "0.9.9"})
 
 
 def test_retry_renderer_waits_for_persisted_attempt_before_starting_runtime(

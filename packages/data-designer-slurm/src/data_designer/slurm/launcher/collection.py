@@ -47,6 +47,8 @@ def render_collection_script(
         )
     )
     scratch_source = resources.files("data_designer.slurm.runtime").joinpath("scratch.sh").read_text()
+    package_version = collection_plan.package_version or resolved_plan.package_version
+    runtime_bundle = collection_plan.runtime_bundle or resolved_plan.runtime_bundle
     return f"""#!/usr/bin/env bash
 {directives}
 set -Eeuo pipefail
@@ -57,9 +59,9 @@ export PYTHONNOUSERSITE=1
 readonly DD_COLLECTION_PLAN={quote_shell_value(collection_plan_path)}
 readonly DD_COLLECTION_PLAN_SHA256={quote_shell_value(collection_plan.compute_sha256())}
 readonly DD_COLLECTION_PYTHON={quote_shell_value(collection_plan.python_executable)}
-readonly DD_PACKAGE_VERSION={quote_shell_value(collection_plan.package_version)}
-readonly DD_RUNTIME_ARCHIVE={quote_shell_value(collection_plan.runtime_bundle.path)}
-readonly DD_RUNTIME_SHA256={quote_shell_value(collection_plan.runtime_bundle.sha256)}
+readonly DD_PACKAGE_VERSION={quote_shell_value(package_version)}
+readonly DD_RUNTIME_ARCHIVE={quote_shell_value(runtime_bundle.path)}
+readonly DD_RUNTIME_SHA256={quote_shell_value(runtime_bundle.sha256)}
 readonly DD_WORKSPACE_ROOT={quote_shell_value(resolved_plan.selected_profile.profile.workspace_root)}
 readonly DD_RUN_ID={quote_shell_value(resolved_plan.run_id)}
 readonly DD_COLLECTION_ID={quote_shell_value(collection_plan.collection_id)}
