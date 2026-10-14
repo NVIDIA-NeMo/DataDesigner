@@ -45,7 +45,7 @@ class _RunService:
     def __init__(self) -> None:
         self.calls: list[tuple[DataDesignerSlurmConfig, Path, bool]] = []
         self.retry_calls: list[tuple[str, tuple[str, ...] | None, str, bool]] = []
-        self.collection_calls: list[tuple[Path, Path, int | None]] = []
+        self.collection_calls: list[tuple[str | Path, Path | None, int | None]] = []
 
     def execute(
         self,
@@ -86,9 +86,9 @@ class _RunService:
 
     def collect(
         self,
-        input_path: Path,
+        input_path: str | Path,
         *,
-        destination: Path,
+        destination: Path | None,
         num_partitions: int | None,
     ) -> SlurmCollectionExecution:
         self.collection_calls.append((input_path, destination, num_partitions))
@@ -97,7 +97,7 @@ class _RunService:
             collection_id="collection-0001",
             state=CollectionState.SUBMITTED,
             job_id=43,
-            output_path=destination.resolve().as_posix(),
+            output_path=(destination or Path("/workspace/runs/run-0001/merge-output")).resolve().as_posix(),
             num_partitions=1 if num_partitions is None else num_partitions,
         )
 
@@ -639,6 +639,38 @@ def test_merge_emits_collection_job_and_forwards_paths(tmp_path: Path, monkeypat
     }
     assert service.collection_calls == [(input_path, output_path, 2)]
     assert _timestamped_lines(result.stderr) == ["Preparing and submitting collection job..."]
+
+
+def test_merge_accepts_run_id_with_default_destination(monkeypatch: pytest.MonkeyPatch) -> None:
+    service = _RunService()
+    monkeypatch.setattr(cli_module, "create_slurm_run_service", lambda **_: service)
+
+    result = CliRunner().invoke(cli_module.create_cli(), ["merge", "run-0001"])
+
+    assert result.exit_code == 0
+    assert json.loads(result.stdout)["output_path"] == "/workspace/runs/run-0001/merge-output"
+    assert service.collection_calls == [("run-0001", None, None)]
+
+
+def test_merge_accepts_run_id_with_explicit_destination(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    service = _RunService()
+    monkeypatch.setattr(cli_module, "create_slurm_run_service", lambda **_: service)
+    destination = tmp_path / "collected"
+
+    result = CliRunner().invoke(cli_module.create_cli(), ["merge", "run-0001", "--output-path", str(destination)])
+
+    assert result.exit_code == 0
+    assert service.collection_calls == [("run-0001", destination, None)]
+
+
+@pytest.mark.parametrize("arguments", [[], ["run-0001", "--input-path", "/workspace/runs/run-0001"]])
+def test_merge_requires_one_run_reference(arguments: list[str], monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(cli_module, "create_slurm_run_service", lambda **_: _RunService())
+
+    result = CliRunner().invoke(cli_module.create_cli(), ["merge", *arguments])
+
+    assert result.exit_code == 2
+    assert json.loads(result.stderr.splitlines()[-1])["error"]["message"] == "specify a run ID or --input-path"
 
 
 @pytest.mark.parametrize(

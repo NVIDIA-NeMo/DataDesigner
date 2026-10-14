@@ -211,8 +211,9 @@ def retry_command(
 
 @app.command("merge")
 def merge_command(
-    input_path: Path = typer.Option(..., "--input-path", file_okay=False),
-    output_path: Path = typer.Option(..., "--output-path", file_okay=False),
+    run_id: str | None = typer.Argument(None, help="Managed run ID to collect"),
+    input_path: Path | None = typer.Option(None, "--input-path", file_okay=False),
+    output_path: Path | None = typer.Option(None, "--output-path", file_okay=False),
     num_partitions: int | None = typer.Option(
         None, "--num-partitions", min=1, help="Parquet partitions (default: 1 for a new collection)"
     ),
@@ -221,11 +222,19 @@ def merge_command(
 ) -> None:
     """Submit winner-driven collection as a zero-GPU Slurm job."""
     operation = SlurmServiceOperation.COLLECT_RUN
+    if (run_id is None) == (input_path is None):
+        _fail(
+            SlurmServiceError(
+                SlurmServiceErrorCode.INVALID_REQUEST,
+                operation,
+                "specify a run ID or --input-path",
+            )
+        )
     _emit_progress("Preparing and submitting collection job...")
     result = _invoke(
         operation,
         lambda: create_slurm_run_service(profile_file=profile_file, cluster=cluster).collect(
-            input_path,
+            run_id if run_id is not None else input_path,
             destination=output_path,
             num_partitions=num_partitions,
         ),

@@ -128,14 +128,17 @@ class RunRetryCollectionBackend:
 
     def collect(
         self,
-        input_path: Path,
+        input_path: Identifier | Path,
         *,
-        destination: Path,
+        destination: Path | None,
         num_partitions: int | None,
     ) -> SlurmCollectionExecution:
         """Submit or recover one winner-driven collection."""
         operation = SlurmServiceOperation.COLLECT_RUN
-        run_id = self._resolve_run_input_path(input_path, operation)
+        run_path = (
+            (Path(self._workspace_root) / "runs" / input_path).resolve() if isinstance(input_path, str) else input_path
+        )
+        run_id = self._resolve_run_input_path(run_path, operation)
         try:
             plan = SlurmStateWriter(self._workspace_root, run_id).load_resolved_plan()
             try:
@@ -167,7 +170,7 @@ class RunRetryCollectionBackend:
                 collection_id=status.collection_id,
                 state=status.state,
                 job_id=status.scheduler,
-                output_path=destination.as_posix(),
+                output_path=collection_plan.host_destination,
                 num_partitions=collection_plan.num_partitions,
             )
         except SlurmServiceError:
