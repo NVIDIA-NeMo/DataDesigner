@@ -384,14 +384,6 @@ class ResolvedSubmission(ContractValue):
         return self
 
 
-class ResolvedOutput(ContractValue):
-    root: str
-    format: Literal["parquet", "jsonl", "csv"]
-    partitions: PositiveInt
-
-    _root_is_absolute = field_validator("root")(validate_absolute_path)
-
-
 class ResolvedSlurmRunPlan(ContractRecord):
     """Immutable allocation input consumed without ambient configuration."""
 
@@ -408,7 +400,6 @@ class ResolvedSlurmRunPlan(ContractRecord):
     array_tasks: ArrayTasksConfig
     shards: tuple[PlannedShard, ...] = Field(min_length=1)
     submission: ResolvedSubmission
-    output: ResolvedOutput
     container_mounts: tuple[ContainerMount, ...] = ()
     runtime_bundle: ArtifactReference
 
@@ -504,13 +495,6 @@ class ResolvedSlurmRunPlan(ContractRecord):
         ):
             raise ValueError("runtime bundle must be a content-addressed tar archive below the workspace runtime root")
         self._validate_shards(run_root)
-        if not is_path_below(self.output.root, profile.workspace_root):
-            raise ValueError("resolved output root must be below the selected workspace_root")
-        if paths_overlap(self.output.root, managed_assets_path):
-            raise ValueError("resolved output root must not overlap managed assets")
-        shards_root = posixpath.join(run_root, "shards")
-        if paths_overlap(self.output.root, shards_root):
-            raise ValueError("resolved output root must not overlap the run shard workspace")
         return self
 
     def _validate_shards(self, run_root: str) -> None:

@@ -134,12 +134,9 @@ deployments:
       tensor_parallel: 1
 submission:
   time_limit: 01:00:00
-output:
-  format: parquet
-  partitions: 1
 ```
 
-The repository also contains these checked examples under `packages/data-designer-slurm/examples`. `served_model_name` is the name sent by the client to the vLLM-compatible endpoint. It may differ from `model`, which can be an absolute model path visible only to the serving container.
+The repository also contains these checked examples under `packages/data-designer-slurm/examples`. `served_model_name` is the name sent by the client to the vLLM-compatible endpoint. It may differ from `model`, which can be an absolute model path visible only to the serving container. Slurm writes Parquet shard and collection files; the run config needs no output section.
 
 ## 9. Dry-run the submission
 
@@ -182,7 +179,10 @@ Use `status` to confirm every shard succeeded. To create one collected dataset a
 data-designer slurm merge \
   --input-path /workspace/alice/data-designer-slurm/runs/<run-id> \
   --output-path /workspace/alice/exports/greetings \
+  --num-partitions 1 \
   --cluster primary
 ```
+
+`--num-partitions` controls the collected Parquet file count and defaults to 1 for a new collection.
 
 Continue with [Run operations](/slurm/run-operations), [Retry and collection](/slurm/retry-and-collection), [Scaling runs](/slurm/run-configuration#scale-runs), [Dependencies and tools](/slurm/dependencies-and-tools), or the [CLI reference](/slurm/cli-reference).

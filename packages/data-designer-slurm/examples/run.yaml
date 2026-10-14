@@ -21,6 +21,3 @@ deployments:
       tensor_parallel: 1
 submission:
   time_limit: 01:00:00
-output:
-  format: parquet
-  partitions: 1

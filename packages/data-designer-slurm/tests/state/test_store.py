@@ -1526,37 +1526,6 @@ def test_result_publication_rejects_a_successful_attempt_bound_to_another_candid
     )
 
 
-@pytest.mark.parametrize("export_format", ("jsonl", "csv"))
-def test_finalization_keeps_candidate_parquet_separate_from_export_format(
-    tmp_path: Path,
-    authored_run_single: DataDesignerSlurmConfig,
-    single_node_plan: ResolvedSlurmRunPlan,
-    export_format: str,
-) -> None:
-    authored = authored_run_single.model_copy(
-        update={"output": authored_run_single.output.model_copy(update={"format": export_format})}
-    )
-    plan = single_node_plan.model_copy(
-        update={
-            "authored_config": single_node_plan.authored_config.model_copy(
-                update={"sha256": authored.compute_sha256()}
-            ),
-            "output": single_node_plan.output.model_copy(update={"format": export_format}),
-        }
-    )
-    case = _initialized_case(tmp_path, authored, plan)
-    finalization = _complete_finalization_case(case)
-
-    winner = case.writer.finalize_winner(
-        finalization.attempt.shard_id,
-        finalization.attempt.attempt_id,
-        published_at=finalization.published_at,
-    )
-
-    assert winner.attempt_id == finalization.attempt.attempt_id
-    assert finalization.candidate.files[0].relative_path.endswith(".parquet")
-
-
 def test_candidate_verifier_leases_manifest_bounded_files_through_publication(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -34,6 +34,7 @@ def validate_collection_inputs(
     )
 
     expected_records = resolved_plan.invocation.authored.num_records
+    _require(collection_plan.num_partitions <= expected_records, "collection partitions exceed requested records")
     actual_records = sum(candidate.actual_records for candidate in candidates)
     _require(actual_records == expected_records, "collection candidate rows do not match requested run rows")
     return candidates
@@ -66,7 +67,6 @@ def validate_collection_result(
     result: CollectionResult,
     *,
     expected_records: int,
-    output_format: str,
 ) -> CollectionResult:
     """Bind a collected result to its immutable plan and exact row count."""
     _require(result.collection_id == collection_plan.collection_id, "collection result identity does not match")
@@ -78,8 +78,7 @@ def validate_collection_result(
     _require(result.completed_at >= collection_plan.created_at, "collection completion precedes plan creation")
     _require(result.actual_records == expected_records, "collected result has the wrong row count")
     _require(len(result.files) == collection_plan.num_partitions, "collected result has the wrong partition count")
-    suffix = "jsonl" if output_format == "jsonl" else output_format
-    expected_paths = tuple(f"part-{index:05d}.{suffix}" for index in range(collection_plan.num_partitions))
+    expected_paths = tuple(f"part-{index:05d}.parquet" for index in range(collection_plan.num_partitions))
     _require(
         tuple(output.relative_path for output in result.files) == expected_paths,
         "collected result files do not match deterministic partition intent",

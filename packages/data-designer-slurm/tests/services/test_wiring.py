@@ -1124,7 +1124,7 @@ def test_collection_rejects_unmanaged_input_and_destination(
     with pytest.raises(SlurmServiceError) as managed_state:
         service.collect(tmp_path / "runs/run-wired", destination=tmp_path / "runs/run-wired/collections")
     with pytest.raises(SlurmServiceError) as partitions:
-        service.collect(tmp_path / "runs/run-wired", destination=tmp_path / "collected", num_partitions=2)
+        service.collect(tmp_path / "runs/run-wired", destination=tmp_path / "collected", num_partitions=9)
 
     assert unmanaged.value.code is SlurmServiceErrorCode.INVALID_REQUEST
     assert destination.value.code is SlurmServiceErrorCode.INVALID_REQUEST
@@ -1155,19 +1155,25 @@ def test_collection_returns_active_and_completed_jobs(
     )
 
     class Coordinator:
-        def submit(self, *, destination: Path, submitted_at: datetime) -> SimpleNamespace:
-            del destination, submitted_at
+        def submit(self, *, destination: Path, num_partitions: int | None, submitted_at: datetime) -> SimpleNamespace:
+            del destination, num_partitions, submitted_at
             return next(statuses)
 
     monkeypatch.setattr(retry_collection_module, "SlurmCollectionCoordinator", lambda *_: Coordinator())
+    monkeypatch.setattr(
+        retry_collection_module,
+        "CollectionStorage",
+        lambda *_: SimpleNamespace(read_plan=lambda _: SimpleNamespace(num_partitions=3)),
+    )
     output_path = tmp_path / "collected"
 
-    active = service.collect(tmp_path / "runs/run-wired", destination=output_path)
+    active = service.collect(tmp_path / "runs/run-wired", destination=output_path, num_partitions=3)
     completed = service.collect(tmp_path / "runs/run-wired", destination=output_path)
 
     assert active.state is CollectionState.RUNNING
     assert completed.state is CollectionState.SUCCEEDED
     assert active.job_id == completed.job_id == 43
+    assert active.num_partitions == completed.num_partitions == 3
 
 
 def test_auto_gpu_resolution_rejects_mixed_node_shapes(

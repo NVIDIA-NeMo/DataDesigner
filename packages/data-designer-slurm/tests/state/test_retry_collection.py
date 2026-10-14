@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import csv
 import errno
 import hashlib
 import json
@@ -55,11 +54,11 @@ from data_designer.slurm.state import (
     compute_candidate_schema_digest,
 )
 from data_designer.slurm.state.attempt_identity import require_attempt_scheduler_identity
-from data_designer.slurm.state.collection_filesystem import derive_collection_staging_directory
 from data_designer.slurm.state.collection_inputs import CollectionInputResolver
 from data_designer.slurm.state.collection_storage import CollectionStorage
 from data_designer.slurm.state.collection_validation import validate_collection_inputs
 from data_designer.slurm.state.collection_worker import SlurmCollectionWorker
+from data_designer.slurm.state.destinations import CollectionDestinationResolver
 from data_designer.slurm.state.reader import StateReader
 from data_designer.slurm.state.retry_storage import RetryStorage
 from data_designer.slurm.state.storage import StateStorage
@@ -751,7 +750,7 @@ def test_collection_submits_cpu_job_and_publishes_ordered_winners_atomically(
     assert submitted.state is CollectionState.SUBMITTED
     assert submitted.scheduler == 5101
     with pytest.raises(StateConflictError, match="requested destination"):
-        coordinator.submit(destination=Path(case.plan.output.root).parent / "other")
+        coordinator.submit(destination=_output_root(case.plan).parent / "other")
     script = cast(str, runner.inputs[-1])
     collection_plan = CollectionStorage(StateStorage(case.workspace, case.plan.run_id)).read_plan(
         submitted.collection_id
@@ -764,10 +763,10 @@ def test_collection_submits_cpu_job_and_publishes_ordered_winners_atomically(
     assert "DD_CLIENT_IMAGE" not in script
     assert "--gpus" not in script
     assert "#SBATCH --gres" not in script
-    stale_stage = Path(case.plan.output.root).parent / submitted.staging_directory
+    stale_stage = _output_root(case.plan).parent / submitted.staging_directory
     stale_stage.mkdir(mode=0o700)
     (stale_stage / "partial").write_text("incomplete")
-    unrelated_stage = Path(case.plan.output.root).parent / f".dd-collection-{'f' * 32}.tmp"
+    unrelated_stage = _output_root(case.plan).parent / f".dd-collection-{'f' * 32}.tmp"
     unrelated_stage.mkdir(mode=0o700)
     (unrelated_stage / "active").write_text("preserve")
     result = SlurmCollectionWorker(
@@ -777,9 +776,9 @@ def test_collection_submits_cpu_job_and_publishes_ordered_winners_atomically(
         environment={"SLURM_JOB_ID": "5101"},
     ).run(completed_at=case.created_at + timedelta(minutes=11))
 
-    destination = Path(case.plan.output.root)
+    destination = _output_root(case.plan)
     assert result.actual_records == case.plan.invocation.authored.num_records
-    assert len(result.files) == case.plan.output.partitions
+    assert len(result.files) == 1
     assert lazy.pq.read_table(destination / result.files[0].relative_path).column("record_id").to_pylist() == list(
         range(case.plan.invocation.authored.num_records)
     )
@@ -883,15 +882,8 @@ def test_collection_prepares_missing_authorized_destination_parents(
     authored_run: DataDesignerSlurmConfig,
     multi_node_plan: ResolvedSlurmRunPlan,
 ) -> None:
-    workspace_root = Path(multi_node_plan.selected_profile.profile.workspace_root)
-    output = multi_node_plan.output.model_copy(
-        update={"root": (workspace_root / "new" / "nested" / "output").as_posix()}
-    )
-    plan = ResolvedSlurmRunPlan.model_validate_json(
-        json.dumps(multi_node_plan.model_copy(update={"output": output}).model_dump(mode="json"))
-    )
-    case = _initialize_run(tmp_path, authored_run, plan)
-    destination = Path(case.plan.output.root)
+    case = _initialize_run(tmp_path, authored_run, multi_node_plan)
+    destination = case.workspace / "new" / "nested" / "output"
     assert not destination.parent.exists()
     _publish_all_winners(case)
     runner = FakeSlurmRunner(jobs=(FakeSlurmJob(5101),))
@@ -900,7 +892,7 @@ def test_collection_prepares_missing_authorized_destination_parents(
         case.workspace,
         case.plan.run_id,
         SlurmCommandClient(runner),
-    ).submit(submitted_at=case.created_at + timedelta(minutes=10))
+    ).submit(destination=destination, submitted_at=case.created_at + timedelta(minutes=10))
 
     assert destination.parent.is_dir()
     assert not destination.exists()
@@ -1080,7 +1072,7 @@ def test_collection_fences_an_invisible_accepted_submission_before_replacement_w
             "collection-0001",
             environment={"SLURM_JOB_ID": "5101"},
         ).run(completed_at=case.created_at + timedelta(minutes=17))
-    assert not Path(case.plan.output.root).exists()
+    assert not _output_root(case.plan).exists()
     assert sum(Path(call[0]).name == "sbatch" for call in runner.calls) == 2
 
 
@@ -1096,13 +1088,14 @@ def test_collection_definite_submission_failure_settles_and_can_be_retried(
     coordinator = SlurmCollectionCoordinator(case.workspace, case.plan.run_id, SlurmCommandClient(runner))
 
     with pytest.raises(SlurmStateError, match="cannot submit collection"):
-        coordinator.submit(submitted_at=case.created_at + timedelta(minutes=10))
+        coordinator.submit(num_partitions=3, submitted_at=case.created_at + timedelta(minutes=10))
 
     storage = CollectionStorage(StateStorage(case.workspace, case.plan.run_id))
     assert storage.read_status("collection-0001").state is CollectionState.FAILED
     submitted = coordinator.submit(submitted_at=case.created_at + timedelta(minutes=11))
     assert submitted.collection_id == "collection-0002"
     assert submitted.state is CollectionState.SUBMITTED
+    assert storage.read_plan(submitted.collection_id).num_partitions == 3
 
 
 def test_collection_discards_trailing_journal_interrupted_before_submission(
@@ -1165,7 +1158,7 @@ def test_collection_failure_removes_staging_without_publishing_partial_output(
             environment={"SLURM_JOB_ID": "5101"},
         ).run(completed_at=case.created_at + timedelta(minutes=11))
 
-    destination = Path(case.plan.output.root)
+    destination = _output_root(case.plan)
     assert not destination.exists()
     assert not tuple(destination.parent.glob(".dd-*.tmp"))
     persisted = CollectionStorage(StateStorage(case.workspace, case.plan.run_id)).read_status(submitted.collection_id)
@@ -1212,7 +1205,7 @@ def test_collection_rejects_output_replacement_before_descriptor_digest(
             environment={"SLURM_JOB_ID": "5101"},
         ).run(completed_at=case.created_at + timedelta(minutes=11))
 
-    destination = Path(case.plan.output.root)
+    destination = _output_root(case.plan)
     assert not destination.exists()
     assert not (destination.parent / submitted.staging_directory).exists()
     persisted = CollectionStorage(StateStorage(case.workspace, case.plan.run_id)).read_status(submitted.collection_id)
@@ -1229,7 +1222,7 @@ def test_collection_refresh_cleans_only_its_exact_stage_after_oom(
     runner = FakeSlurmRunner(jobs=(FakeSlurmJob(5101),))
     coordinator = SlurmCollectionCoordinator(case.workspace, case.plan.run_id, SlurmCommandClient(runner))
     submitted = coordinator.submit(submitted_at=case.created_at + timedelta(minutes=10))
-    parent = Path(case.plan.output.root).parent
+    parent = _output_root(case.plan).parent
     exact_stage = parent / submitted.staging_directory
     exact_stage.mkdir(mode=0o700)
     (exact_stage / "partial.parquet").write_text("incomplete")
@@ -1243,10 +1236,10 @@ def test_collection_refresh_cleans_only_its_exact_stage_after_oom(
     assert refreshed.state is CollectionState.FAILED
     assert not exact_stage.exists()
     assert (unrelated_stage / "active").read_text() == "preserve"
-    assert not Path(case.plan.output.root).exists()
+    assert not _output_root(case.plan).exists()
 
 
-def test_collection_worker_reauthorizes_persisted_partition_intent(
+def test_collection_uses_merge_partition_count(
     tmp_path: Path,
     authored_run: DataDesignerSlurmConfig,
     multi_node_plan: ResolvedSlurmRunPlan,
@@ -1254,33 +1247,48 @@ def test_collection_worker_reauthorizes_persisted_partition_intent(
     case = _initialize_run(tmp_path, authored_run, multi_node_plan)
     _publish_all_winners(case)
     runner = FakeSlurmRunner(jobs=(FakeSlurmJob(5101),))
-    submitted = SlurmCollectionCoordinator(
+    coordinator = SlurmCollectionCoordinator(
         case.workspace,
         case.plan.run_id,
         SlurmCommandClient(runner),
-    ).submit(submitted_at=case.created_at + timedelta(minutes=10))
+    )
+    submitted = coordinator.submit(num_partitions=3, submitted_at=case.created_at + timedelta(minutes=10))
     storage = CollectionStorage(StateStorage(case.workspace, case.plan.run_id))
     plan = storage.read_plan(submitted.collection_id)
-    tampered = plan.model_copy(update={"num_partitions": plan.num_partitions + 1})
-    storage.get_plan_path(plan.collection_id).write_text(tampered.serialize_json())
-    storage.replace_status(
-        submitted.model_copy(
-            update={
-                "collection_plan": storage.get_plan_reference(tampered),
-                "staging_directory": derive_collection_staging_directory(tampered),
-            }
-        )
-    )
+    assert plan.num_partitions == 3
+    assert coordinator.submit() == submitted
 
     with pytest.raises(StateConflictError, match="partition count"):
-        SlurmCollectionWorker(
-            case.workspace,
-            case.plan.run_id,
-            submitted.collection_id,
-            environment={"SLURM_JOB_ID": "5101"},
-        ).run(completed_at=case.created_at + timedelta(minutes=11))
+        coordinator.submit(num_partitions=2)
 
-    assert not Path(case.plan.output.root).exists()
+    resolved_plan, candidates = CollectionInputResolver(
+        StateStorage(case.workspace, case.plan.run_id),
+        StateReader(StateStorage(case.workspace, case.plan.run_id), case.plan.run_id),
+    ).resolve(plan)
+    excessive = plan.model_copy(update={"num_partitions": case.plan.invocation.authored.num_records + 1})
+    with pytest.raises(StateConflictError, match="partitions exceed requested records"):
+        CollectionDestinationResolver().validate_persisted(resolved_plan, excessive)
+    with pytest.raises(StateContractError, match="partitions exceed requested records"):
+        validate_collection_inputs(resolved_plan, excessive, candidates)
+
+    result = SlurmCollectionWorker(
+        case.workspace,
+        case.plan.run_id,
+        submitted.collection_id,
+        environment={"SLURM_JOB_ID": "5101"},
+    ).run(completed_at=case.created_at + timedelta(minutes=11))
+
+    assert [file.relative_path for file in result.files] == [
+        "part-00000.parquet",
+        "part-00001.parquet",
+        "part-00002.parquet",
+    ]
+    values = [
+        value
+        for file in result.files
+        for value in lazy.pq.read_table(_output_root(case.plan) / file.relative_path).column("record_id").to_pylist()
+    ]
+    assert values == list(range(case.plan.invocation.authored.num_records))
 
 
 def test_succeeded_collection_rejects_modified_partition_bytes(
@@ -1299,7 +1307,7 @@ def test_succeeded_collection_rejects_modified_partition_bytes(
         submitted.collection_id,
         environment={"SLURM_JOB_ID": "5101"},
     ).run(completed_at=case.created_at + timedelta(minutes=11))
-    output_path = Path(case.plan.output.root) / result.files[0].relative_path
+    output_path = _output_root(case.plan) / result.files[0].relative_path
     output_path.write_bytes(output_path.read_bytes() + b"tampered")
 
     with pytest.raises(SlurmStateError, match="cannot submit collection"):
@@ -1322,7 +1330,7 @@ def test_succeeded_collection_rejects_same_size_partition_mutation(
         submitted.collection_id,
         environment={"SLURM_JOB_ID": "5101"},
     ).run(completed_at=case.created_at + timedelta(minutes=11))
-    output_path = Path(case.plan.output.root) / result.files[0].relative_path
+    output_path = _output_root(case.plan) / result.files[0].relative_path
     content = bytearray(output_path.read_bytes())
     content[-1] ^= 1
     output_path.write_bytes(content)
@@ -1398,7 +1406,7 @@ def test_collection_refuses_destination_collision_before_submission(
 ) -> None:
     case = _initialize_run(tmp_path, authored_run, multi_node_plan)
     _publish_all_winners(case)
-    destination = Path(case.plan.output.root)
+    destination = _output_root(case.plan)
     destination.mkdir(mode=0o700)
     marker = destination / "existing.txt"
     marker.write_text("preserve")
@@ -1429,7 +1437,7 @@ def test_collection_refuses_atomic_publication_collision_without_replacement(
         case.plan.run_id,
         SlurmCommandClient(runner),
     ).submit(submitted_at=case.created_at + timedelta(minutes=10))
-    destination = Path(case.plan.output.root)
+    destination = _output_root(case.plan)
     original_rename = collection_filesystem._rename_without_overwrite
 
     def collide(
@@ -1523,7 +1531,7 @@ def test_collection_worker_recovers_interrupted_private_reservation(
         case.plan.run_id,
         SlurmCommandClient(runner),
     ).submit(submitted_at=case.created_at + timedelta(minutes=10))
-    destination = Path(case.plan.output.root)
+    destination = _output_root(case.plan)
     marker_name = collection_filesystem._reservation_marker_name(submitted.staging_directory, destination.name)
     descriptor = os.open(destination.parent, os.O_RDONLY | os.O_DIRECTORY)
     try:
@@ -1604,7 +1612,7 @@ def test_collection_recovery_preserves_unrelated_empty_destination(
         case.plan.run_id,
         SlurmCommandClient(runner),
     ).submit(submitted_at=case.created_at + timedelta(minutes=10))
-    destination = Path(case.plan.output.root)
+    destination = _output_root(case.plan)
     unrelated = destination.parent / "unrelated-reservation"
     unrelated.mkdir(mode=0o700)
     destination.mkdir(mode=0o700)
@@ -1686,20 +1694,15 @@ def test_collection_detects_destination_parent_replacement_before_success(
     multi_node_plan: ResolvedSlurmRunPlan,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    workspace_root = Path(multi_node_plan.selected_profile.profile.workspace_root)
-    output = multi_node_plan.output.model_copy(update={"root": (workspace_root / "exports" / "output").as_posix()})
-    plan = ResolvedSlurmRunPlan.model_validate_json(
-        json.dumps(multi_node_plan.model_copy(update={"output": output}).model_dump(mode="json"))
-    )
-    case = _initialize_run(tmp_path, authored_run, plan)
+    case = _initialize_run(tmp_path, authored_run, multi_node_plan)
     _publish_all_winners(case)
     runner = FakeSlurmRunner(jobs=(FakeSlurmJob(5101),))
     submitted = SlurmCollectionCoordinator(
         case.workspace,
         case.plan.run_id,
         SlurmCommandClient(runner),
-    ).submit(submitted_at=case.created_at + timedelta(minutes=10))
-    destination = Path(case.plan.output.root)
+    ).submit(destination=case.workspace / "exports" / "output", submitted_at=case.created_at + timedelta(minutes=10))
+    destination = case.workspace / "exports" / "output"
     original_parent = destination.parent
     moved_parent = original_parent.with_name("moved-exports")
     original_rename = collection_filesystem._rename_without_overwrite
@@ -1772,7 +1775,7 @@ def test_collection_recovers_when_publication_completed_before_reported_error(
     assert result.actual_records == case.plan.invocation.authored.num_records
     persisted = CollectionStorage(StateStorage(case.workspace, case.plan.run_id)).read_status(submitted.collection_id)
     assert persisted.state is CollectionState.SUCCEEDED
-    assert Path(case.plan.output.root).is_dir()
+    assert _output_root(case.plan).is_dir()
 
 
 def test_collection_worker_rejects_login_node_execution(
@@ -1846,50 +1849,8 @@ def test_collection_worker_validates_location_before_constructing_state(tmp_path
         SlurmCollectionWorker(tmp_path, "../run", "collection-0001")
 
 
-@pytest.mark.parametrize("output_format", ["csv", "jsonl"])
-def test_collection_exports_non_parquet_formats_in_deterministic_partitions(
-    tmp_path: Path,
-    authored_run: DataDesignerSlurmConfig,
-    multi_node_plan: ResolvedSlurmRunPlan,
-    output_format: str,
-) -> None:
-    output = multi_node_plan.output.model_copy(update={"format": output_format, "partitions": 3})
-    plan = ResolvedSlurmRunPlan.model_validate_json(
-        json.dumps(multi_node_plan.model_copy(update={"output": output}).model_dump(mode="json"))
-    )
-    case = _initialize_run(tmp_path, authored_run, plan)
-    _publish_all_winners(case)
-    runner = FakeSlurmRunner(jobs=(FakeSlurmJob(5101),))
-    submitted = SlurmCollectionCoordinator(
-        case.workspace,
-        case.plan.run_id,
-        SlurmCommandClient(runner),
-    ).submit(submitted_at=case.created_at + timedelta(minutes=10))
-
-    result = SlurmCollectionWorker(
-        case.workspace,
-        case.plan.run_id,
-        submitted.collection_id,
-        environment={"SLURM_JOB_ID": "5101"},
-    ).run(completed_at=case.created_at + timedelta(minutes=11))
-
-    assert len(result.files) == 3
-    requested_records = case.plan.invocation.authored.num_records
-    floor_count = requested_records // 3
-    assert tuple(file.record_count for file in result.files) == (
-        floor_count,
-        floor_count,
-        requested_records - 2 * floor_count,
-    )
-    values: list[int] = []
-    for output_file in result.files:
-        path = Path(case.plan.output.root) / output_file.relative_path
-        if output_format == "csv":
-            with path.open(newline="") as source:
-                values.extend(int(row["record_id"]) for row in csv.DictReader(source))
-        else:
-            values.extend(int(json.loads(line)["record_id"]) for line in path.read_text().splitlines())
-    assert values == list(range(requested_records))
+def _output_root(plan: ResolvedSlurmRunPlan) -> Path:
+    return Path(plan.selected_profile.profile.workspace_root) / "runs" / plan.run_id / "output"
 
 
 def _initialize_run(

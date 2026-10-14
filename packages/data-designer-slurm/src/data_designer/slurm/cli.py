@@ -213,7 +213,9 @@ def retry_command(
 def merge_command(
     input_path: Path = typer.Option(..., "--input-path", file_okay=False),
     output_path: Path = typer.Option(..., "--output-path", file_okay=False),
-    num_partitions: int | None = typer.Option(None, "--num-partitions", min=1),
+    num_partitions: int | None = typer.Option(
+        None, "--num-partitions", min=1, help="Parquet partitions (default: 1 for a new collection)"
+    ),
     profile_file: Path | None = typer.Option(None, "--profile-file", dir_okay=False),
     cluster: str | None = typer.Option(None, "--cluster"),
 ) -> None:
