@@ -14,6 +14,7 @@ import subprocess
 import sys
 import time
 from collections.abc import Mapping, Sequence
+from tempfile import TemporaryDirectory
 
 from data_designer.slurm.runtime.node_spec import (
     NodeProcessSpec as NodeProcessSpec,
@@ -41,6 +42,7 @@ class NodeProcessSupervisor:
     def __init__(self, *, environment: Mapping[str, str]) -> None:
         self._environment = dict(environment)
         self._children: list[subprocess.Popen[bytes]] = []
+        self._tokenizer_caches: list[TemporaryDirectory[str]] = []
         self._cleanup_started = False
         self._cleanup_complete = False
         self._stop_requested = False
@@ -83,15 +85,25 @@ class NodeProcessSupervisor:
                 child.wait(timeout=_TERMINATION_GRACE_SECONDS)
             except (OSError, subprocess.SubprocessError):
                 pass
-        self._cleanup_complete = all(child.poll() is not None for child in self._children)
-        if not self._cleanup_complete:
+        if any(child.poll() is None for child in self._children):
             raise RuntimeError("node process cleanup is incomplete")
+        for cache in self._tokenizer_caches:
+            cache.cleanup()
+        self._tokenizer_caches.clear()
+        self._cleanup_complete = True
 
     def _start_process(self, process: NodeProcessSpec, visible_gpus: tuple[str, ...]) -> subprocess.Popen[bytes]:
         if self._cleanup_started:
             raise RuntimeError("cannot launch a node process after cleanup")
         environment = dict(self._environment)
         environment["CUDA_VISIBLE_DEVICES"] = ",".join(visible_gpus[index] for index in process.gpu_indices)
+        if not environment.get("TIKTOKEN_RS_CACHE_DIR"):
+            # Harmony writes downloaded vocabularies directly to its cache path.
+            # Separate concurrent vLLM replicas so one cannot read or remove a
+            # sibling's partially written vocabulary file.
+            cache = TemporaryDirectory(prefix="data-designer-tiktoken-", ignore_cleanup_errors=True)
+            self._tokenizer_caches.append(cache)
+            environment["TIKTOKEN_RS_CACHE_DIR"] = cache.name
         return subprocess.Popen(
             process.command,
             stdin=subprocess.DEVNULL,
