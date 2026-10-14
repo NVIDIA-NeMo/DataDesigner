@@ -87,6 +87,7 @@ class SlurmCollectionCoordinator:
         self,
         *,
         destination: str | Path | None = None,
+        num_partitions: int | None = None,
         submitted_at: datetime | None = None,
     ) -> CollectionStatus:
         """Validate winners and submit a CPU-only collection job."""
@@ -101,6 +102,8 @@ class SlurmCollectionCoordinator:
                         current = self._reconcile_prepared_collection(current_plan, current, timestamp)
                     if current.state is not CollectionState.FAILED:
                         self._validate_existing_destination(current, destination)
+                        if num_partitions is not None and current_plan.num_partitions != num_partitions:
+                            raise StateConflictError("persisted collection partition count does not match the request")
                         return current
                     resolved_destination = self._destinations.validate_persisted(
                         self._reader.load_resolved_plan(),
@@ -113,6 +116,11 @@ class SlurmCollectionCoordinator:
                     )
                 run, resolved_plan, _ = self._reader.load_context()
                 resolved_destination = self._destinations.resolve(resolved_plan, destination)
+                effective_partitions = num_partitions
+                if effective_partitions is None:
+                    effective_partitions = current_plan.num_partitions if current is not None else 1
+                if effective_partitions > resolved_plan.invocation.authored.num_records:
+                    raise StateConflictError("collection partitions must not exceed requested records")
                 collection_plan = CollectionPlan(
                     schema_version=1,
                     collection_id=self._collections.get_next_collection_id(),
@@ -122,7 +130,7 @@ class SlurmCollectionCoordinator:
                     planned_shards=self._inputs.get_winner_shards(),
                     python_executable=self._python_executable,
                     host_destination=resolved_destination.host_path,
-                    num_partitions=resolved_plan.output.partitions,
+                    num_partitions=effective_partitions,
                 )
                 self._inputs.resolve(collection_plan)
                 prepare_collection_destination(
@@ -332,7 +340,6 @@ class SlurmCollectionCoordinator:
             plan,
             result,
             expected_records=resolved_plan.invocation.authored.num_records,
-            output_format=resolved_plan.output.format,
         )
         if status is not None and status.result != self._collections.get_result_reference(plan, validated):
             raise StateCorruptionError("collection status does not bind its published result")

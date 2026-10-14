@@ -34,14 +34,11 @@ array_tasks:
 submission:
   job_name: product-descriptions
   time_limit: 03:55:00
-output:
-  format: parquet
-  partitions: 1
 ```
 
-`builder` accepts exactly one complete serialized Data Designer config through `source` or `inline`. Relative source paths resolve from the run file directory. `invocation.run_config` accepts public `RunConfig` fields, while `input_bindings.seed_path` and `managed_assets_path` accept absolute compute-visible paths.
+`builder` accepts exactly one complete serialized Data Designer config through `source` or `inline`. Relative source paths resolve from the run file directory. `invocation.run_config` accepts public `RunConfig` fields except `display_tui`, which is disabled for Slurm jobs. `input_bindings.seed_path` and `managed_assets_path` accept absolute compute-visible paths.
 
-Every `model_alias` in `model_concurrency` and the builder must have one deployment. Deployment aliases must be unique. `model` selects the Hugging Face model ID or absolute model path loaded by the serving container. `served_model_name` is the name exposed to the client and defaults to `model`; set it explicitly when `model` is a container-visible path but the builder uses a stable model name. Output formats are `parquet`, `jsonl`, and `csv`.
+Every `model_alias` in `model_concurrency` and the builder must have one deployment. Deployment aliases must be unique. `model` selects the Hugging Face model ID or absolute model path loaded by the serving container. `served_model_name` is the name exposed to the client and defaults to `model`; set it explicitly when `model` is a container-visible path but the builder uses a stable model name. Shard and collected output files are Parquet. Choose the destination and partition count with `slurm merge` after the run completes.
 
 The client runs from the same shared Python environment as the CLI on the first allocated GPU node. Its step requests no GPUs; the serving steps use the GPUs and their registered images. The `client` block is optional; `client.cpus` defaults to 16. It sets the client step's CPU request and contributes to the batch allocation's CPU request.
 
@@ -93,13 +90,11 @@ invocation:
 array_tasks:
   count: 20
   max_concurrent: 4
-output:
-  partitions: 20
 ```
 
-`count` cannot exceed `num_records`, and `max_concurrent` cannot exceed `count`. Status, retry, and collection retain shard identities and winners.
+`count` cannot exceed `num_records`, and `max_concurrent` cannot exceed `count`. Status, retry, and collection retain shard identities and winners. Array task count controls execution shards; it does not set the number of collected Parquet files. Use `slurm merge --num-partitions 20` if you want 20 output files.
 
-Runs with more than one array task require Parquet output. They do not support global processors or profilers; image, plugin, custom, or unknown column types; local-callable validators; shuffled seed input; or authored seed-selection strategies. Seeded array runs must bind the dataset through `invocation.input_bindings.seed_path`.
+Runs with more than one array task do not support global processors or profilers; image, plugin, custom, or unknown column types; local-callable validators; shuffled seed input; or authored seed-selection strategies. Seeded array runs must bind the dataset through `invocation.input_bindings.seed_path`.
 
 ### Independent replicas
 

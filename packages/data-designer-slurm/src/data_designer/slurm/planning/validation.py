@@ -90,13 +90,6 @@ def validate_resolved_plan(
     )
     _require(plan.submission.comment == authored.submission.comment, "resolved comment does not match authored input")
 
-    _require(plan.output.format == authored.output.format, "resolved output format does not match authored input")
-    _require(
-        plan.output.partitions == authored.output.partitions, "resolved output partitions do not match authored input"
-    )
-    if authored.output.root is not None:
-        _require(plan.output.root == authored.output.root, "resolved output root does not match authored input")
-
     _require(
         plan.client.dependency_lock.sha256 == dependency_lock.compute_sha256(),
         "dependency lock digest does not match the resolved plan",

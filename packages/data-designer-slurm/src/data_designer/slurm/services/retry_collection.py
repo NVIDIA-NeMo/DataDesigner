@@ -27,8 +27,10 @@ from data_designer.slurm.state import (
     StateCorruptionError,
     StateNotFoundError,
 )
+from data_designer.slurm.state.collection_storage import CollectionStorage
 from data_designer.slurm.state.destinations import CollectionDestinationResolver
 from data_designer.slurm.state.outputs import RetryPlan
+from data_designer.slurm.state.storage import StateStorage
 
 _IDENTIFIER_ADAPTER = TypeAdapter(Identifier)
 
@@ -140,15 +142,15 @@ class RunRetryCollectionBackend:
                 CollectionDestinationResolver().resolve(plan, destination)
             except StateConflictError as error:
                 raise SlurmServiceError(SlurmServiceErrorCode.INVALID_REQUEST, operation, str(error)) from None
-            if num_partitions is not None and num_partitions != plan.output.partitions:
+            if num_partitions is not None and num_partitions > plan.invocation.authored.num_records:
                 raise SlurmServiceError(
                     SlurmServiceErrorCode.INVALID_REQUEST,
                     operation,
-                    "num_partitions must match the persisted run output partitions",
+                    "num_partitions must not exceed requested records",
                 )
-            effective_partitions = plan.output.partitions
             status = SlurmCollectionCoordinator(self._workspace_root, run_id, self._launcher).submit(
                 destination=destination,
+                num_partitions=num_partitions,
                 submitted_at=self._clock(),
             )
             if status.scheduler is None:
@@ -157,13 +159,16 @@ class RunRetryCollectionBackend:
                     operation,
                     "Slurm collection submission was not accepted",
                 )
+            collection_plan = CollectionStorage(StateStorage(Path(self._workspace_root), run_id)).read_plan(
+                status.collection_id
+            )
             return SlurmCollectionExecution(
                 run_id=run_id,
                 collection_id=status.collection_id,
                 state=status.state,
                 job_id=status.scheduler,
                 output_path=destination.as_posix(),
-                num_partitions=effective_partitions,
+                num_partitions=collection_plan.num_partitions,
             )
         except SlurmServiceError:
             raise
