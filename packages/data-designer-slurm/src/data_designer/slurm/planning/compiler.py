@@ -81,7 +81,6 @@ class SlurmRunCompiler:
                 array_tasks=effective.authored.array_tasks,
                 shards=_compile_shards(effective),
                 submission=effective.submission,
-                output=effective.output,
                 container_mounts=tuple(effective.selected_profile.profile.container_mounts),
                 runtime_bundle=effective.runtime_bundle,
             )

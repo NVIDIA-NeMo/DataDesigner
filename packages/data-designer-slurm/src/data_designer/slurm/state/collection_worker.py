@@ -101,7 +101,7 @@ class SlurmCollectionWorker:
                 derive_collection_staging_directory(plan),
                 Path(destination.authorized_root),
             ) as staged:
-                merger = CollectionMerger(resolved_plan.output.format, completed_at=completed_at)
+                merger = CollectionMerger(completed_at=completed_at)
                 result = merger.merge(
                     plan,
                     candidates,
@@ -144,7 +144,6 @@ class SlurmCollectionWorker:
             plan,
             result,
             expected_records=resolved_plan.invocation.authored.num_records,
-            output_format=resolved_plan.output.format,
         )
         if status is not None and status.result != self._collections.get_result_reference(plan, validated):
             raise StateCorruptionError("collection status does not bind its published result")

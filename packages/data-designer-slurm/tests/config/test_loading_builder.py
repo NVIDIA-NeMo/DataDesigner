@@ -97,7 +97,7 @@ def test_benchmark_loader_round_trips_strict_config(
     assert load_benchmark_config(path) == benchmark_config
 
 
-def test_builder_rejects_unsupported_output_format(tmp_path: Path) -> None:
+def test_builder_rejects_unsupported_config_file_extension(tmp_path: Path) -> None:
     with pytest.raises(SlurmConfigBuilderError, match="must end"):
         _config_builder().write_config(tmp_path / "run.txt")
 
@@ -108,7 +108,6 @@ def test_builder_rejects_unsupported_output_format(tmp_path: Path) -> None:
         ("with_invocation", {"num_records": 0, "dataset_name": "generated"}),
         ("with_array_tasks", {"count": 1, "max_concurrent": 2}),
         ("with_submission", {"time_limit": "invalid"}),
-        ("with_output", {"partitions": 0}),
     ],
 )
 def test_builder_normalizes_invalid_authored_values(

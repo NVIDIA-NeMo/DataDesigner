@@ -115,7 +115,6 @@ def test_compiler_resolves_explicit_hostname_and_default_profile_selection(
         "hostname",
         "default",
     }
-    assert {plan.output.root for plan in plans} == {"/workspace/primary/runs/run-single/output"}
     assert all(plan.deployments[0].node_indices == (0,) for plan in plans)
     assert all(
         plan.invocation.effective_input_bindings.managed_assets_path == "/workspace/primary/managed-assets"
@@ -157,7 +156,6 @@ def test_auto_gpu_resolution_is_explicit_and_scheduler_free(
     )
 
     assert plan.resolved_gpus_per_node == 8
-    assert plan.output.root == "/workspace/lab/runs/run-single/output"
     assert plan.submission.account == "lab"
 
 
@@ -231,46 +229,6 @@ def test_compiler_rejects_tensor_parallelism_that_does_not_divide_gpu_shape(
 
 
 @pytest.mark.parametrize(
-    "output_update",
-    [
-        {"root": "/outside/output"},
-        {"root": "/workspace/primary/images/output"},
-        {"root": "/workspace/primary/runtime/output"},
-        {"root": "/workspace/primary/managed-assets/output"},
-        {"root": "/workspace/primary/runs/other-run/output"},
-        {"root": "/workspace/primary/runs/run-single/shards"},
-        {"partitions": 9},
-    ],
-)
-def test_resolution_rejects_invalid_output_destinations(
-    authored_run_single: DataDesignerSlurmConfig,
-    dependency_lock_single: ResolvedDependencyLock,
-    single_node_plan: ResolvedSlurmRunPlan,
-    output_update: dict[str, object],
-) -> None:
-    payload = authored_run_single.model_dump(mode="json")
-    payload["output"].update(output_update)
-    authored = DataDesignerSlurmConfig.model_validate(payload)
-
-    with pytest.raises(SlurmConfigResolutionError, match="output"):
-        _resolve_fixture(authored, dependency_lock_single, single_node_plan)
-
-
-def test_resolution_rejects_output_overlapping_explicit_managed_assets(
-    authored_run_single: DataDesignerSlurmConfig,
-    dependency_lock_single: ResolvedDependencyLock,
-    single_node_plan: ResolvedSlurmRunPlan,
-) -> None:
-    payload = authored_run_single.model_dump(mode="json")
-    payload["invocation"]["input_bindings"]["managed_assets_path"] = "/workspace/primary/custom-assets"
-    payload["output"]["root"] = "/workspace/primary/custom-assets/output"
-    authored = DataDesignerSlurmConfig.model_validate(payload)
-
-    with pytest.raises(SlurmConfigResolutionError, match="managed assets"):
-        _resolve_fixture(authored, dependency_lock_single, single_node_plan)
-
-
-@pytest.mark.parametrize(
     "managed_assets_path",
     [
         "/workspace/primary",
@@ -298,45 +256,6 @@ def test_compiler_rejects_direct_effective_input_resolution_bypass(
     multi_node_plan: ResolvedSlurmRunPlan,
 ) -> None:
     effective = _resolve_fixture(authored_run, dependency_lock, multi_node_plan)
-
-    jsonl_output = authored_run.output.model_copy(update={"format": "jsonl"})
-    jsonl_authored = authored_run.model_copy(update={"output": jsonl_output})
-    with pytest.raises(SlurmPlanCompilationError, match="parquet output"):
-        SlurmRunCompiler.compile(
-            effective.model_copy(
-                update={
-                    "authored": jsonl_authored,
-                    "output": effective.output.model_copy(update={"format": "jsonl"}),
-                }
-            )
-        )
-
-    other_output = "/workspace/primary/runs/other-run/output"
-    other_authored = authored_run.model_copy(
-        update={"output": authored_run.output.model_copy(update={"root": other_output})}
-    )
-    with pytest.raises(SlurmPlanCompilationError, match="another package-managed run"):
-        SlurmRunCompiler.compile(
-            effective.model_copy(
-                update={
-                    "authored": other_authored,
-                    "output": effective.output.model_copy(update={"root": other_output}),
-                }
-            )
-        )
-
-    partitioned_authored = authored_run.model_copy(
-        update={"output": authored_run.output.model_copy(update={"partitions": 101})}
-    )
-    with pytest.raises(SlurmPlanCompilationError, match="requested records"):
-        SlurmRunCompiler.compile(
-            effective.model_copy(
-                update={
-                    "authored": partitioned_authored,
-                    "output": effective.output.model_copy(update={"partitions": 101}),
-                }
-            )
-        )
 
     with pytest.raises(SlurmPlanCompilationError, match="runtime bundle"):
         SlurmRunCompiler.compile(
@@ -375,10 +294,6 @@ def test_compiler_rejects_direct_effective_record_drift(
             effective.model_copy(
                 update={"invocation": effective.invocation.model_copy(update={"effective_run_config": run_config})}
             )
-        )
-    with pytest.raises(SlurmPlanCompilationError, match="resolved output"):
-        SlurmRunCompiler.compile(
-            effective.model_copy(update={"output": effective.output.model_copy(update={"format": "jsonl"})})
         )
     bindings = effective.invocation.effective_input_bindings.model_copy(
         update={"managed_assets_path": "/workspace/other-assets"}
@@ -548,7 +463,7 @@ def test_uneven_shards_assign_remainder_to_the_final_task(
 
 
 @pytest.mark.parametrize(
-    ("builder_update", "output_update", "message"),
+    ("builder_update", "message"),
     [
         (
             {
@@ -557,7 +472,6 @@ def test_uneven_shards_assign_remainder_to_the_final_task(
                     "source": {"path": "/datasets/seed.parquet", "seed_type": "local"},
                 }
             },
-            {},
             "shuffled seed",
         ),
         (
@@ -567,7 +481,6 @@ def test_uneven_shards_assign_remainder_to_the_final_task(
                     "source": {"path": "/datasets/seed.parquet", "seed_type": "local"},
                 }
             },
-            {},
             "seed_path",
         ),
         (
@@ -578,7 +491,6 @@ def test_uneven_shards_assign_remainder_to_the_final_task(
                     "source": {"path": "/datasets/seed.parquet", "seed_type": "local"},
                 }
             },
-            {},
             "selection strategies",
         ),
         (
@@ -592,10 +504,8 @@ def test_uneven_shards_assign_remainder_to_the_final_task(
                     }
                 ]
             },
-            {},
             "media output",
         ),
-        ({}, {"format": "jsonl"}, "parquet output"),
     ],
 )
 def test_resolution_rejects_unshardable_big_iron_fields(
@@ -603,12 +513,10 @@ def test_resolution_rejects_unshardable_big_iron_fields(
     dependency_lock: ResolvedDependencyLock,
     multi_node_plan: ResolvedSlurmRunPlan,
     builder_update: dict[str, object],
-    output_update: dict[str, object],
     message: str,
 ) -> None:
     payload = authored_run.model_dump(mode="json")
     payload["builder"]["inline"]["data_designer"].update(builder_update)
-    payload["output"].update(output_update)
     authored = DataDesignerSlurmConfig.model_validate(payload)
 
     with pytest.raises(SlurmConfigResolutionError, match=message):
@@ -726,13 +634,11 @@ def test_single_shard_allows_non_collectable_big_iron_fields(
             },
         }
     )
-    payload["output"]["format"] = "jsonl"
     authored = DataDesignerSlurmConfig.model_validate(payload)
 
     plan = SlurmRunCompiler.compile(_resolve_fixture(authored, dependency_lock_single, single_node_plan))
 
     assert plan.array_tasks.count == 1
-    assert plan.output.format == "jsonl"
 
 
 @pytest.mark.parametrize("sourced", [False, True], ids=["inline", "sourced"])

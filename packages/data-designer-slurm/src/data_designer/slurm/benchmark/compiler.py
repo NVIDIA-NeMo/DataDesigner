@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import math
-import posixpath
 
 from pydantic import Field
 
@@ -75,7 +74,6 @@ class BenchmarkCompiler:
                         case_id,
                         _compile_child(
                             base_run,
-                            benchmark_id=benchmark_id,
                             case_id=case_id,
                             concurrency=concurrency,
                             selected_aliases=selected_aliases,
@@ -99,7 +97,6 @@ class BenchmarkCompiler:
 def _compile_child(
     base_run: DataDesignerSlurmConfig,
     *,
-    benchmark_id: str,
     case_id: str,
     concurrency: int,
     selected_aliases: tuple[str, ...],
@@ -131,17 +128,12 @@ def _compile_child(
             )
         )
 
-    output_root = base_run.output.root
-    output = base_run.output
-    if output_root is not None:
-        output = output.model_copy(update={"root": posixpath.join(output_root, benchmark_id, case_id)})
     return DataDesignerSlurmConfig.model_validate(
         base_run.model_copy(
             update={
                 "name": _bounded_identifier(f"{base_run.name}-{case_id}"),
                 "invocation": invocation,
                 "deployments": deployments,
-                "output": output,
             }
         ).model_dump(mode="python")
     )
