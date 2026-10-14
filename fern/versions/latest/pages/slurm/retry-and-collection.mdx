@@ -44,7 +44,7 @@ data-designer slurm merge \
 
 `--input-path` must be exactly a managed run directory under the selected profile workspace. The output path must be absolute, writable, compute-visible, and authorized by the profile mounts.
 
-`--num-partitions` selects the number of collected Parquet files. It defaults to 1 and cannot exceed the run's record count:
+`--num-partitions` selects the number of collected Parquet files. It defaults to 1 for a new collection and cannot exceed the run's record count:
 
 ```bash
 data-designer slurm merge \
@@ -53,4 +53,4 @@ data-designer slurm merge \
   --num-partitions 20
 ```
 
-Repeating the same merge command returns or reuses managed collection state when safe. Changing the destination or partition count of an active collection is a conflict.
+Repeating the same merge command returns or reuses managed collection state when safe. If you omit `--num-partitions` on a repeat call, the existing collection keeps its count. Changing the destination or explicitly requesting a different partition count for an active collection is a conflict.

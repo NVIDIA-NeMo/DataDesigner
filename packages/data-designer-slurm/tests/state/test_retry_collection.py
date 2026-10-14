@@ -58,6 +58,7 @@ from data_designer.slurm.state.collection_inputs import CollectionInputResolver
 from data_designer.slurm.state.collection_storage import CollectionStorage
 from data_designer.slurm.state.collection_validation import validate_collection_inputs
 from data_designer.slurm.state.collection_worker import SlurmCollectionWorker
+from data_designer.slurm.state.destinations import CollectionDestinationResolver
 from data_designer.slurm.state.reader import StateReader
 from data_designer.slurm.state.retry_storage import RetryStorage
 from data_designer.slurm.state.storage import StateStorage
@@ -1087,13 +1088,14 @@ def test_collection_definite_submission_failure_settles_and_can_be_retried(
     coordinator = SlurmCollectionCoordinator(case.workspace, case.plan.run_id, SlurmCommandClient(runner))
 
     with pytest.raises(SlurmStateError, match="cannot submit collection"):
-        coordinator.submit(submitted_at=case.created_at + timedelta(minutes=10))
+        coordinator.submit(num_partitions=3, submitted_at=case.created_at + timedelta(minutes=10))
 
     storage = CollectionStorage(StateStorage(case.workspace, case.plan.run_id))
     assert storage.read_status("collection-0001").state is CollectionState.FAILED
     submitted = coordinator.submit(submitted_at=case.created_at + timedelta(minutes=11))
     assert submitted.collection_id == "collection-0002"
     assert submitted.state is CollectionState.SUBMITTED
+    assert storage.read_plan(submitted.collection_id).num_partitions == 3
 
 
 def test_collection_discards_trailing_journal_interrupted_before_submission(
@@ -1254,9 +1256,20 @@ def test_collection_uses_merge_partition_count(
     storage = CollectionStorage(StateStorage(case.workspace, case.plan.run_id))
     plan = storage.read_plan(submitted.collection_id)
     assert plan.num_partitions == 3
+    assert coordinator.submit() == submitted
 
     with pytest.raises(StateConflictError, match="partition count"):
         coordinator.submit(num_partitions=2)
+
+    resolved_plan, candidates = CollectionInputResolver(
+        StateStorage(case.workspace, case.plan.run_id),
+        StateReader(StateStorage(case.workspace, case.plan.run_id), case.plan.run_id),
+    ).resolve(plan)
+    excessive = plan.model_copy(update={"num_partitions": case.plan.invocation.authored.num_records + 1})
+    with pytest.raises(StateConflictError, match="partitions exceed requested records"):
+        CollectionDestinationResolver().validate_persisted(resolved_plan, excessive)
+    with pytest.raises(StateContractError, match="partitions exceed requested records"):
+        validate_collection_inputs(resolved_plan, excessive, candidates)
 
     result = SlurmCollectionWorker(
         case.workspace,

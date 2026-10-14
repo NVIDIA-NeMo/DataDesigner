@@ -34,6 +34,7 @@ def validate_collection_inputs(
     )
 
     expected_records = resolved_plan.invocation.authored.num_records
+    _require(collection_plan.num_partitions <= expected_records, "collection partitions exceed requested records")
     actual_records = sum(candidate.actual_records for candidate in candidates)
     _require(actual_records == expected_records, "collection candidate rows do not match requested run rows")
     return candidates

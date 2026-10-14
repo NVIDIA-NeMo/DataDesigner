@@ -61,6 +61,8 @@ class CollectionDestinationResolver:
         destination = self.resolve(resolved_plan, collection_plan.host_destination)
         if collection_plan.run_id != resolved_plan.run_id:
             raise StateConflictError("collection run identity does not match the resolved plan")
+        if collection_plan.num_partitions > resolved_plan.invocation.authored.num_records:
+            raise StateConflictError("collection partitions exceed requested records")
         if collection_plan.host_destination != destination.host_path:
             raise StateConflictError("collection host destination no longer matches resolved intent")
         return destination

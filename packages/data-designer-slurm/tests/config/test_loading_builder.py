@@ -97,7 +97,7 @@ def test_benchmark_loader_round_trips_strict_config(
     assert load_benchmark_config(path) == benchmark_config
 
 
-def test_builder_rejects_unsupported_output_format(tmp_path: Path) -> None:
+def test_builder_rejects_unsupported_config_file_extension(tmp_path: Path) -> None:
     with pytest.raises(SlurmConfigBuilderError, match="must end"):
         _config_builder().write_config(tmp_path / "run.txt")
 

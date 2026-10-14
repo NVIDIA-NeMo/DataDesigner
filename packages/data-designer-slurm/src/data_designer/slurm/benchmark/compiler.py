@@ -74,7 +74,6 @@ class BenchmarkCompiler:
                         case_id,
                         _compile_child(
                             base_run,
-                            benchmark_id=benchmark_id,
                             case_id=case_id,
                             concurrency=concurrency,
                             selected_aliases=selected_aliases,
@@ -98,7 +97,6 @@ class BenchmarkCompiler:
 def _compile_child(
     base_run: DataDesignerSlurmConfig,
     *,
-    benchmark_id: str,
     case_id: str,
     concurrency: int,
     selected_aliases: tuple[str, ...],
