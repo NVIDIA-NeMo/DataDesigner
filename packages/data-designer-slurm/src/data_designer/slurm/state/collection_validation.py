@@ -19,12 +19,12 @@ def validate_collection_inputs(
     collection_plan: CollectionPlan,
     candidates: tuple[CandidateOutputManifest, ...],
 ) -> tuple[CandidateOutputManifest, ...]:
-    """Require one compatible, complete candidate for every planned shard."""
+    """Require one compatible, nonempty candidate for every planned shard."""
     _require(len(candidates) == len(collection_plan.planned_shards), "collection candidate set is incomplete")
     expected_shards = tuple(shard.shard_id for shard in collection_plan.planned_shards)
     actual_shards = tuple(candidate.shard_id for candidate in candidates)
     _require(actual_shards == expected_shards, "collection candidates do not match ordered planned shards")
-    _require(all(candidate.winner_eligible for candidate in candidates), "collection candidate is not complete")
+    _require(all(candidate.winner_eligible for candidate in candidates), "collection candidate is empty")
 
     schema_digests = {candidate.dataset_schema_digest for candidate in candidates}
     _require(len(schema_digests) == 1, "collection candidates have incompatible schemas")
@@ -33,10 +33,8 @@ def validate_collection_inputs(
         "collection candidate provenance does not match the resolved plan",
     )
 
-    expected_records = resolved_plan.invocation.authored.num_records
-    _require(collection_plan.num_partitions <= expected_records, "collection partitions exceed requested records")
     actual_records = sum(candidate.actual_records for candidate in candidates)
-    _require(actual_records == expected_records, "collection candidate rows do not match requested run rows")
+    _require(collection_plan.num_partitions <= actual_records, "collection partitions exceed available records")
     return candidates
 
 

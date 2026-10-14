@@ -99,7 +99,7 @@ def test_native_phases_use_the_supplied_host_attempt_directory(
         assert attempt_directory == container_attempt_directory
         raise _InjectedFailure
 
-    monkeypatch.setattr(entrypoint, "load_complete_client_candidate", load_candidate)
+    monkeypatch.setattr(entrypoint, "load_nonempty_client_candidate", load_candidate)
     client = entrypoint._parse_arguments(
         _phase_arguments("client", runtime_case, attempt_directory=container_attempt_directory)
     )

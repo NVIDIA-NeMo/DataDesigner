@@ -122,8 +122,6 @@ class SlurmCollectionCoordinator:
                 effective_partitions = num_partitions
                 if effective_partitions is None:
                     effective_partitions = current_plan.num_partitions if current is not None else 1
-                if effective_partitions > resolved_plan.invocation.authored.num_records:
-                    raise StateConflictError("collection partitions must not exceed requested records")
                 collection_plan = CollectionPlan(
                     schema_version=1,
                     collection_id=self._collections.get_next_collection_id(),
@@ -340,13 +338,12 @@ class SlurmCollectionCoordinator:
         plan: CollectionPlan,
         status: CollectionStatus | None = None,
     ) -> CollectionResult:
-        self._inputs.resolve(plan)
+        _, candidates = self._inputs.resolve(plan)
         result = self._collections.read_result(plan)
-        resolved_plan = self._reader.load_resolved_plan()
         validated = validate_collection_result(
             plan,
             result,
-            expected_records=resolved_plan.invocation.authored.num_records,
+            expected_records=sum(candidate.actual_records for candidate in candidates),
         )
         if status is not None and status.result != self._collections.get_result_reference(plan, validated):
             raise StateCorruptionError("collection status does not bind its published result")

@@ -191,7 +191,8 @@ def _measure_records(records: tuple[_MeasurementRecord, ...]) -> BenchmarkMeasur
             return None
         client_result, candidate = result
         if (
-            client_result.outcome is not ClientOutcome.COMPLETE
+            client_result.outcome not in {ClientOutcome.COMPLETE, ClientOutcome.PARTIAL}
+            or not client_result.actual_records
             or candidate.actual_records != client_result.actual_records
         ):
             return None

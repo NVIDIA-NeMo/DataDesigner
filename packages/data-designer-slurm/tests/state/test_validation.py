@@ -200,7 +200,7 @@ def test_attempt_transitions_preserve_identity_and_terminal_state() -> None:
         )
 
 
-def test_failed_partial_and_existing_winners_are_rejected() -> None:
+def test_failed_attempts_and_existing_winners_are_rejected_while_partial_winners_are_allowed() -> None:
     run = _load(RunManifest, "run_manifest.json")
     shard = _load(ShardManifest, "shard_manifest.json")
     attempt = _load(AttemptManifest, "successful_attempt.json")
@@ -230,8 +230,7 @@ def test_failed_partial_and_existing_winners_are_rejected() -> None:
     )
     partial_attempt = _validated_copy(attempt, candidate_output=partial_reference)
     partial_winner = _validated_copy(winner, candidate_manifest=partial_reference)
-    with pytest.raises(StateContractError, match="winner policy"):
-        validate_shard_winner(run, shard, partial_attempt, partial, partial_winner)
+    assert validate_shard_winner(run, shard, partial_attempt, partial, partial_winner) == partial_winner
 
     with pytest.raises(StateContractError, match="immutable"):
         validate_shard_winner(

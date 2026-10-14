@@ -357,7 +357,7 @@ class WinnerFinalizer:
     ) -> ShardWinner:
         reference = client_result.candidate_output_manifest
         if reference is None:
-            raise StateContractError("complete client result has no candidate reference")
+            raise StateContractError("nonempty client result has no candidate reference")
         return ShardWinner(
             schema_version=1,
             run_id=run.run_id,

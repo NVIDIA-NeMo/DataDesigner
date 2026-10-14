@@ -75,7 +75,7 @@ class AttemptResultPublisher:
     def _bind_candidate_reference(attempt: AttemptManifest, client_result: ClientResult) -> AttemptManifest:
         reference = client_result.candidate_output_manifest
         if reference is None:
-            raise StateContractError("complete client result has no candidate manifest reference")
+            raise StateContractError("nonempty client result has no candidate manifest reference")
         if attempt.candidate_output == reference:
             return attempt
         bound_attempt = attempt.model_copy(update={"candidate_output": reference})
