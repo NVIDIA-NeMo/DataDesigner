@@ -16,6 +16,13 @@ allowed_licenses = [
 # Existing dependencies outside the global whitelist are reviewed by package,
 # version, and exact reported license. A version or license metadata change must
 # be reviewed explicitly.
+[exceptions.aiohappyeyeballs]
+reason = "Unmodified async connection helper installed as a separate transitive dependency under the PSF license."
+reports = [
+    { version = "2.6.1", license = "PSF-2.0" },
+    { version = "2.6.1", license = "Python Software Foundation License" },
+]
+
 [exceptions.certifi]
 reason = "Unmodified TLS certificate bundle installed as a separate transitive dependency."
 reports = [{ version = "2026.2.25", license = "Mozilla Public License 2.0 (MPL 2.0)" }]
