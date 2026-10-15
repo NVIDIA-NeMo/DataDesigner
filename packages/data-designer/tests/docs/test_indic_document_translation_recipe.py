@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+import warnings
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from typing import Any
@@ -59,7 +60,6 @@ class _StubBuilder:
 
 def _register_aliases(recipe: ModuleType, monkeypatch: pytest.MonkeyPatch, aliases: list[str]) -> None:
     monkeypatch.setattr(recipe.dd, "DataDesignerConfigBuilder", lambda: _StubBuilder(aliases))
-    monkeypatch.setattr(recipe, "DocumentTranslationConfig", lambda **kwargs: SimpleNamespace(**kwargs))
 
 
 @pytest.fixture
@@ -68,7 +68,10 @@ def registered_aliases(recipe: ModuleType, monkeypatch: pytest.MonkeyPatch) -> N
 
 
 def _translation_column(recipe: ModuleType, seed_path: Path, **kwargs: Any) -> Any:
-    builder = recipe.build_config(seed_path=str(seed_path), **kwargs)
+    # The real DocumentTranslationConfig validates every route; plugin warnings (forced overrides) fail the test.
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        builder = recipe.build_config(seed_path=str(seed_path), **kwargs)
     assert builder.seed_source.path == str(seed_path)
     assert len(builder.columns) == 1
     assert builder.columns[0].name == recipe.OUTPUT_COLUMN
@@ -87,7 +90,7 @@ def test_default_build_uses_gemma_for_translation_and_judge(recipe: ModuleType, 
     assert column.text_column == "text"
     assert column.max_rewrites == 2
     assert column.rewrite_threshold == 75
-    assert getattr(column, "enable_windowing", False) is False
+    assert column.enable_windowing is False
 
 
 @pytest.mark.usefixtures("registered_aliases")
@@ -158,6 +161,12 @@ def test_romanization_route_mirrors_rewrite_settings_on_the_intermediate_stage(
     assert column.intermediate_language == "hi-Deva-IN"
     assert column.max_rewrites_intermediate == 1
     assert column.rewrite_threshold_intermediate == 80
+
+
+@pytest.mark.usefixtures("registered_aliases")
+def test_plugin_validation_rejects_an_unsupported_script_remap(recipe: ModuleType, seed_path: Path) -> None:
+    with pytest.raises(ValueError, match="No script remapper"):
+        recipe.build_config(seed_path=str(seed_path), target_language="hi-Deva-IN", target_language_script="Mtei")
 
 
 @pytest.mark.usefixtures("registered_aliases")
