@@ -11,11 +11,14 @@ from pydantic import Field
 
 from data_designer.slurm.config import (
     AdaptiveRecordPolicy,
+    ArrayTasksConfig,
     BenchmarkDeploymentCase,
     DataDesignerSlurmBenchmarkConfig,
     DataDesignerSlurmConfig,
 )
 from data_designer.slurm.contracts import ContractValue, Identifier, compute_canonical_json_sha256
+
+_CASE_SEMANTICS_VERSION = 2  # Keep single-task cases distinct from earlier multi-task benchmark records.
 
 
 class CompiledBenchmarkCase(ContractValue):
@@ -60,6 +63,7 @@ class BenchmarkCompiler:
 
         identity_digest = compute_canonical_json_sha256(
             {
+                "case_semantics_version": _CASE_SEMANTICS_VERSION,
                 "benchmark": config.model_dump(mode="json"),
                 "base_run": base_run.model_dump(mode="json"),
             }
@@ -134,6 +138,7 @@ def _compile_child(
                 "name": _bounded_identifier(f"{base_run.name}-{case_id}"),
                 "invocation": invocation,
                 "deployments": deployments,
+                "array_tasks": ArrayTasksConfig(),
             }
         ).model_dump(mode="python")
     )

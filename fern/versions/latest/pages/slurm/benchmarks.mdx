@@ -47,6 +47,8 @@ analysis:
 
 The compiler expands the authored order deterministically. For this example, the first cases are `single-node-groups-c32` and `two-node-group-c32`. An adaptive record policy uses `ceil(concurrency * records_per_concurrency)`, bounded by `base_records` and `max_records`.
 
+Each benchmark case runs as one Slurm array task, even when the base run uses multiple tasks. The record policy sets the sample size for that task. This measures the throughput of one allocation, which analysis uses to estimate how many such tasks are needed for `target_total_records` within `target_runtime`.
+
 `nodes_per_replica` controls the number of nodes in each pipeline-parallel group. The resolved replica count is `(nodes / nodes_per_replica) * (gpus_per_node / tensor_parallel)`, so it also depends on the selected profile and the base run's deployment topology.
 
 ## Run
@@ -77,7 +79,7 @@ data-designer slurm benchmark analyze <benchmark-id> --refresh-state
 
 `--refresh-state` performs one fresh-process scheduler reconciliation per child before analysis. Add `--fail-if-incomplete` when automation should return a conflict after the report is persisted if any case is not successful.
 
-Reports retain every manifest case in order. Outcomes include `pending`, `accounting_lag`, `succeeded`, `failed`, `incomplete`, `missing`, `stale`, and `scheduler_inconsistent`. Successful cases can be infeasible when boot time consumes the runtime budget. Boot and wall timing begin when execution starts inside each allocation, so queue wait does not affect topology comparisons. For array runs, `rows_per_second` sums the independently measured shard rates, while target jobs and GPU hours count individual task allocations. `generation_seconds` is the target runtime remaining after the slowest shard boot. Only successful feasible cases participate in Pareto, minimum-job, and minimum-GPU-hour recommendations.
+Reports retain every manifest case in order. Outcomes include `pending`, `accounting_lag`, `succeeded`, `failed`, `incomplete`, `missing`, `stale`, and `scheduler_inconsistent`. Successful cases can be infeasible when boot time consumes the runtime budget. Boot and wall timing begin when execution starts inside the allocation, so queue wait does not affect topology comparisons. `rows_per_second` measures the benchmark task's generation rate. `generation_seconds` is the target runtime remaining after startup, and GPU-hour estimates assume each projected task uses the full target runtime. Only successful feasible cases participate in Pareto, minimum-job, and minimum-GPU-hour recommendations.
 
 ## Python API
 

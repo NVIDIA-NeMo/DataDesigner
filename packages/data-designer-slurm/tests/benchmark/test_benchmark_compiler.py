@@ -27,6 +27,8 @@ def test_compiler_expands_stable_ordered_ordinary_runs(
     )
     assert len({case.child_run_id for case in compiled.cases}) == 6
     assert all(case.child_run_config.invocation.num_records == 1000 for case in compiled.cases)
+    assert all(case.child_run_config.array_tasks.count == 1 for case in compiled.cases)
+    assert all(case.child_run_config.array_tasks.max_concurrent is None for case in compiled.cases)
     assert [deployment.resources.nodes for deployment in compiled.cases[0].child_run_config.deployments] == [2, 1]
     assert [deployment.topology.nodes_per_replica for deployment in compiled.cases[1].child_run_config.deployments] == [
         2,
