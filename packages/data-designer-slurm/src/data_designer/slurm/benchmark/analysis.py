@@ -274,17 +274,14 @@ def _validate_and_get_requested_records(
     base_run: DataDesignerSlurmConfig,
     manifest: BenchmarkManifest,
 ) -> tuple[int, ...]:
-    try:
-        compiled_versions = (
-            BenchmarkCompiler.compile(config, base_run),
-            BenchmarkCompiler._compile(config, base_run, legacy=True),
-        )
-    except ValueError as error:
-        raise BenchmarkManifestMismatchError("benchmark configuration cannot reproduce its children") from error
     actual = tuple(
         (child.case_id, child.child_run_id, child.child_authored_config.sha256) for child in manifest.children
     )
-    for compiled in compiled_versions:
+    for legacy in (False, True):
+        try:
+            compiled = BenchmarkCompiler._compile(config, base_run, legacy=legacy)
+        except ValueError:
+            continue
         expected = tuple(
             (case.case_id, case.child_run_id, case.child_run_config.compute_sha256()) for case in compiled.cases
         )
