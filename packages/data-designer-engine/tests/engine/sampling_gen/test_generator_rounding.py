@@ -89,8 +89,9 @@ def test_conditional_sampling_uses_final_values(
 
 
 @pytest.mark.parametrize("convert_to", [None, "str"])
+@pytest.mark.parametrize("unrounded_precision", [{}, {"decimal_places": None}], ids=["omitted", "none"])
 def test_conditional_precision_survives_rejection_sampling(
-    stub_schema_builder: SchemaBuilder, convert_to: str | None
+    stub_schema_builder: SchemaBuilder, convert_to: str | None, unrounded_precision: dict[str, None]
 ) -> None:
     stub_schema_builder.add_column(
         name="group", sampler_type="category", params={"values": ["whole", "tenths", "unrounded"]}
@@ -101,7 +102,7 @@ def test_conditional_precision_survives_rejection_sampling(
         params={"low": 0.41, "high": 0.49, "decimal_places": 0},
         conditional_params={
             "group == 'tenths'": {"low": 0.41, "high": 0.49, "decimal_places": 1},
-            "group == 'unrounded'": {"low": 0.411, "high": 0.419, "decimal_places": None},
+            "group == 'unrounded'": {"low": 0.411, "high": 0.419, **unrounded_precision},
         },
         convert_to=convert_to,
     )
@@ -151,8 +152,8 @@ def test_constraints_made_impossible_by_rounding(
         ("int", 1, 0.51, 0.54, 1, "int64"),
         ("int", -1, 14.6, 14.9, 20, "int64"),
         ("float", -1, 14.6, 14.9, 10.0, "float64"),
-        ("str", -1, 14.6, 14.9, "10.0", "object"),
-        ("str", 2, 0.411, 0.414, "0.41", "object"),
+        ("str", -1, 14.6, 14.9, "10.0", "str"),
+        ("str", 2, 0.411, 0.414, "0.41", "str"),
     ],
     ids=["int-before-precision", "int-negative-precision", "float-negative-precision", "str-negative-precision", "str"],
 )
@@ -175,7 +176,10 @@ def test_rounding_preserves_type_conversion(
     frame = DatasetGenerator(stub_schema_builder.to_sampler_columns(), random_state=42).generate(8)
 
     assert (frame["value"] == expected).all()
-    assert frame["value"].dtype == dtype
+    if dtype == "str":
+        assert lazy.pd.api.types.is_string_dtype(frame["value"].dtype)
+    else:
+        assert frame["value"].dtype == dtype
 
 
 @pytest.mark.parametrize("convert_to", [None, "float", "int"])
