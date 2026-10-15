@@ -29,6 +29,7 @@ from data_designer.slurm.config import (
     BenchmarkBaseRun,
     DataDesignerSlurmBenchmarkConfig,
     DataDesignerSlurmConfig,
+    FixedRecordPolicy,
 )
 from data_designer.slurm.contracts import ArtifactReference
 from data_designer.slurm.planning import ResolvedSlurmRunPlan
@@ -527,6 +528,63 @@ def test_analysis_rejects_manifest_rewritten_away_from_compiled_children(
             store.manifest_reference(tampered),
             refresh_state=False,
         )
+
+
+def test_analysis_accepts_saved_benchmark_from_previous_compiler(
+    tmp_path: Path,
+    benchmark_config: DataDesignerSlurmBenchmarkConfig,
+    authored_run: DataDesignerSlurmConfig,
+) -> None:
+    config = _inline_config(benchmark_config, authored_run)
+    legacy = BenchmarkCompiler._compile(config, authored_run, legacy=True)
+    assert legacy.benchmark_id == "benchmark-996c47990258ceb4a3ca7b245ddee971"
+    assert legacy.cases[0].child_run_id == "run-996c47990258ceb4-0000-89d3e0eccd48"
+    assert all(case.child_run_config.array_tasks.count == 2 for case in legacy.cases)
+    store, manifest = _manifest(tmp_path, config, legacy)
+    store.publish(config, authored_run, manifest)
+    saved_config, saved_base_run, saved_manifest = store.load()
+    observer = _Observer(
+        {case.child_run_id: BenchmarkObservationFailure(BenchmarkOutcome.MISSING) for case in legacy.cases}
+    )
+
+    report = BenchmarkAnalyzer(observer, lambda: NOW).analyze(
+        saved_config,
+        saved_base_run,
+        saved_manifest,
+        store.manifest_reference(saved_manifest),
+        refresh_state=False,
+    )
+
+    assert report.benchmark_id == legacy.benchmark_id
+    assert tuple(case.outcome for case in report.cases) == (BenchmarkOutcome.MISSING,) * len(legacy.cases)
+    assert tuple(case.requested_records for case in report.cases) == (1000,) * len(legacy.cases)
+
+
+def test_analysis_accepts_single_task_case_below_base_array_count(
+    tmp_path: Path,
+    benchmark_config: DataDesignerSlurmBenchmarkConfig,
+    authored_run: DataDesignerSlurmConfig,
+) -> None:
+    config = _inline_config(benchmark_config, authored_run).model_copy(
+        update={"record_policy": FixedRecordPolicy(type="fixed", records=1)}
+    )
+    compiled = BenchmarkCompiler.compile(config, authored_run)
+    assert authored_run.array_tasks.count == 2
+    assert all(case.child_run_config.array_tasks.count == 1 for case in compiled.cases)
+    store, manifest = _manifest(tmp_path, config, compiled)
+    observer = _Observer(
+        {case.child_run_id: BenchmarkObservationFailure(BenchmarkOutcome.MISSING) for case in compiled.cases}
+    )
+
+    report = BenchmarkAnalyzer(observer, lambda: NOW).analyze(
+        config,
+        authored_run,
+        manifest,
+        store.manifest_reference(manifest),
+        refresh_state=False,
+    )
+
+    assert tuple(case.requested_records for case in report.cases) == (1,) * len(compiled.cases)
 
 
 def test_analysis_recommendations_are_stable_and_select_dominating_case(
