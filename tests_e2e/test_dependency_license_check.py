@@ -51,6 +51,7 @@ def test_evaluate_report_accepts_permissive_and_composite_licenses() -> None:
     )
     packages = [
         module.PackageLicense("apache", "1", "Apache-2.0", ""),
+        module.PackageLicense("multidict", "6.9.1", "Apache License 2.0", ""),
         module.PackageLicense("dual", "1", "Apache-2.0 OR BSD-3-Clause", ""),
         module.PackageLicense("mit", "1", "MIT License", ""),
     ]
@@ -59,6 +60,25 @@ def test_evaluate_report_accepts_permissive_and_composite_licenses() -> None:
 
     assert violations == []
     assert reviewed == []
+
+
+def test_locked_psf_dependency_requires_exact_reviewed_version_and_license() -> None:
+    module = load_script()
+    approved = module.load_policy().exceptions["aiohappyeyeballs"]
+    policy = module.LicensePolicy(allowed_licenses=frozenset(), exceptions={"aiohappyeyeballs": approved})
+
+    accepted, reviewed = module.evaluate_report(
+        [
+            module.PackageLicense("aiohappyeyeballs", "2.6.1", "PSF-2.0", ""),
+            module.PackageLicense("aiohappyeyeballs", "2.6.1", "Python Software Foundation License", ""),
+        ],
+        policy,
+    )
+    changed, _ = module.evaluate_report([module.PackageLicense("aiohappyeyeballs", "2.7.1", "PSF-2.0", "")], policy)
+
+    assert accepted == []
+    assert len(reviewed) == 2
+    assert len(changed) == 1
 
 
 def test_evaluate_report_accepts_allowed_or_alternative() -> None:
