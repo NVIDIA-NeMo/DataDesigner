@@ -14,8 +14,6 @@ invocation:
   dataset_name: product-descriptions
   model_concurrency:
     generator: 64
-client:
-  cpus: 16
 deployments:
   - model_alias: generator
     served_model_name: example/generator
@@ -81,32 +79,53 @@ Set `server.io_processor_plugin` to a registered vLLM IO processor name, such as
 
 ## Scale runs
 
+Each array task gets a separate allocation containing all deployments. A deployment's `resources.nodes` is its node count **within one array task**; different deployments use different nodes by default. For example, a run with a two-node writer and a one-node reviewer requests three nodes per array task. `array_tasks.max_concurrent` limits how many such allocations may run at once.
+
 ### Arrays
 
-Split records into independent shards and limit how many allocations run at once:
+Split the requested total into independent shards and cap the number of allocations that can run at once:
 
 ```yaml
 invocation:
-  num_records: 100000
-  dataset_name: large-run
+  num_records: 1000
+  dataset_name: sharded-run
 array_tasks:
-  count: 20
-  max_concurrent: 4
+  count: 5
+  max_concurrent: 2
 ```
 
-`count` cannot exceed `num_records`, and `max_concurrent` cannot exceed `count`. Status, retry, and collection retain shard identities and winners. Array task count controls execution shards; it does not set the number of collected Parquet files. Use `slurm merge RUN_ID --num-partitions 20` if you want 20 output files.
+This submits one Slurm job array with tasks `0` through `4` (`--array=0-4%2`). Each task runs the **entire deployment set** and plans 200 records: task `0` owns indices `[0, 200)`, task `1` owns `[200, 400)`, and so on through task `4` with `[800, 1000)`. Task `2` corresponds to `shard-00002`. At most two tasks can run concurrently, subject to available cluster resources. Omit `max_concurrent` to let Slurm schedule all five as resources permit. When the total does not divide evenly, the last task gets the remainder. `count` cannot exceed `num_records`, and `max_concurrent` cannot exceed `count`.
+
+`num_records` is the planned total, not a guaranteed output count. A nonempty shard can succeed with fewer records; an empty shard needs a retry. Status, retry, and collection retain each task's shard identity and winning attempt. Array task count does not set the number of collected Parquet files: `slurm merge RUN_ID --num-partitions 5` requests five files from the winning records. See [Retry and collection](/slurm/retry-and-collection) for partial results.
+
+After submission, inspect the managed run ID. If task `2` fails, preview a retry of only that shard:
+
+```bash
+data-designer slurm status <run-id>
+data-designer slurm retry <run-id> --task-id 2 --dry-run
+```
 
 Runs with more than one array task do not support global processors or profilers; image, plugin, custom, or unknown column types; local-callable validators; shuffled seed input; or authored seed-selection strategies. Seeded array runs must bind the dataset through `invocation.input_bindings.seed_path`.
 
 ### Independent replicas
 
-Allocate multiple nodes and keep one vLLM replica per node:
+Allocate multiple nodes and use all eight GPUs per node for one vLLM replica on each node:
 
 ```yaml
 resources:
   nodes: 4
 topology:
   tensor_parallel: 8
+  nodes_per_replica: 1
+```
+
+In an eight-GPU profile, this deployment starts four independent eight-GPU servers. To start one server **per GPU** instead, use `tensor_parallel: 1`; with the same four nodes, that starts 32 servers. Both layouts reserve four eight-GPU nodes in a GRES profile.
+
+```yaml
+resources:
+  nodes: 4
+topology:
+  tensor_parallel: 1
   nodes_per_replica: 1
 ```
 
@@ -122,7 +141,31 @@ topology:
   nodes_per_replica: 2
 ```
 
-`tensor_parallel` must divide the GPUs available on each node. With the eight GPUs per node in the profile example, `tensor_parallel: 8` and `nodes_per_replica: 2` use 16 GPUs per replica. `nodes_per_replica` must divide `resources.nodes`. Multi-node expert parallelism is not supported in v1.
+In an eight-GPU profile, this starts two replicas, each spanning two nodes with 16 GPUs total. `nodes_per_replica` maps to pipeline parallelism; it does not increase the number of independent replicas.
+
+### GPU topology and replica count
+
+`tensor_parallel` is the number of GPUs each replica uses **on each node**. `nodes_per_replica` is the number of nodes in its pipeline-parallel group. The planner starts `gpus_per_node / tensor_parallel` replica lanes per node group, so the total for one deployment is:
+
+```text
+replicas = (resources.nodes / nodes_per_replica) * (gpus_per_node / tensor_parallel)
+GPUs per replica = tensor_parallel * nodes_per_replica
+```
+
+For a profile that requests eight GPUs per node, the following are separate choices for **one deployment in one array task**:
+
+| `resources.nodes` | `tensor_parallel` | `nodes_per_replica` | vLLM replicas | GPUs per replica |
+| ---: | ---: | ---: | ---: | ---: |
+| 1 | 1 | 1 | 8 | 1 |
+| 4 | 1 | 1 | 32 | 1 |
+| 4 | 2 | 1 | 16 | 2 |
+| 4 | 4 | 1 | 8 | 4 |
+| 4 | 8 | 1 | 4 | 8 |
+| 4 | 8 | 2 | 2 | 16 |
+
+Increasing `resources.nodes` at TP=1 creates more independent one-GPU servers; it does not combine their GPUs into one larger server. The client uses one logical endpoint per model alias, backed by a local proxy that routes requests among that alias's replicas. `invocation.model_concurrency` limits in-flight model calls **per alias within each array task**; it does not set the replica count or the number of array tasks.
+
+`tensor_parallel` must divide the GPUs requested per node in the selected profile. `nodes_per_replica` must divide `resources.nodes`. With `gpus_per_node: auto`, the eligible nodes must agree on their GPU count. Multi-node expert parallelism is not supported in v1.
 
 ### Multiple models and images
 
@@ -199,6 +242,51 @@ slurm.with_deployment({
 ```
 
 Add the judge deployment with the same group name before calling `build()` or `write_config()`.
+
+### Put topologies and shards together
+
+This example plans 1,000 records across five array tasks. Each task allocates two nodes for one-GPU `writer` replicas and one node for a single eight-GPU `reviewer` replica. The two aliases may load different model families and serving images:
+
+```yaml
+schema_version: 1
+name: sharded-two-model-run
+builder:
+  source: builder.yaml
+invocation:
+  num_records: 1000
+  dataset_name: reviewed-records
+  model_concurrency:
+    writer: 16
+    reviewer: 16
+deployments:
+  - model_alias: writer
+    model: example/writer-model
+    server:
+      type: vllm
+      image:
+        name: vllm-writer
+    resources:
+      nodes: 2
+    topology:
+      tensor_parallel: 1
+      nodes_per_replica: 1
+  - model_alias: reviewer
+    model: example/reviewer-model
+    server:
+      type: vllm
+      image:
+        name: vllm-reviewer
+    resources:
+      nodes: 1
+    topology:
+      tensor_parallel: 8
+      nodes_per_replica: 1
+array_tasks:
+  count: 5
+  max_concurrent: 2
+```
+
+With eight GPUs per node, **each task** has 16 writer replicas and one reviewer replica on three nodes. At most two tasks can run together, so the run can occupy up to six nodes and has up to 32 writer replicas and two reviewer replicas while both tasks are active. The client can send up to 16 in-flight calls per alias in each task, or up to 32 per alias across two active tasks. Each task has its own client, proxies, and 200 planned records; the tasks do not share a model endpoint. `builder.yaml` must declare `writer` and `reviewer` model aliases, and both image aliases and model IDs above must be replaced with registered images and models available to your cluster.
 
 ## Build a run in Python
 
