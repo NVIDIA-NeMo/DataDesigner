@@ -70,7 +70,7 @@ The command writes the profile with restrictive permissions and never overwrites
 ## 5. Validate the profile
 
 ```bash
-data-designer slurm profile validate --cluster primary
+data-designer slurm profile validate
 ```
 
 Validation checks strict profile loading, cluster selection, workspace access, and scheduler facts. See [Profiles and clusters](/slurm/profiles-and-clusters) for non-default files and multiple clusters.
@@ -81,8 +81,7 @@ Validation checks strict profile loading, cluster selection, workspace access, a
 data-designer slurm image add \
   vllm/vllm-openai:v0.22.0 \
   --kind serving \
-  --name vllm \
-  --cluster primary
+  --name vllm
 ```
 
 Replace the tag with a supported release available to your site. The CLI pins the tag to a registry digest before submission, then submits a CPU Slurm job, waits for it to finish, checks the installed vLLM version, and only then publishes the alias. Keep the terminal open. You can instead import a custom digest-pinned OCI image or register an existing absolute `.sqsh` path. No Data Designer client image is needed. See [Images](/slurm/images).
@@ -98,13 +97,18 @@ data_designer:
       model: example/generator
       provider: openai
   columns:
+    - name: tone
+      column_type: sampler
+      sampler_type: category
+      params:
+        values: [friendly, formal, playful]
     - name: greeting
       column_type: llm-text
-      prompt: Write one short greeting.
+      prompt: Write one short {tone} greeting.
       model_alias: generator
 ```
 
-The model alias in this file must match a deployment in the Slurm run config.
+The sampler chooses a tone for each row, and the model uses that value when writing the greeting. The model alias in this file must match a deployment in the Slurm run config.
 
 ## 8. Create a Slurm run config
 
@@ -141,7 +145,7 @@ The repository also contains these checked examples under `packages/data-designe
 ## 9. Dry-run the submission
 
 ```bash
-data-designer slurm execute run.yaml --dry-run --cluster primary
+data-designer slurm execute run.yaml --dry-run
 ```
 
 Dry-run resolves the selected profile, records the active shared Python runtime, verifies registered serving-image contents, loads the builder envelope, resolves client dependencies, and renders the batch script without calling `sbatch`. Full builder and plugin validation runs with that Python environment on the compute node. Preview staging is temporary: dry-run does not initialize durable managed-run state and cannot be resumed or passed to `status`.
@@ -149,16 +153,16 @@ Dry-run resolves the selected profile, records the active shared Python runtime,
 ## 10. Submit the run
 
 ```bash
-data-designer slurm execute run.yaml --cluster primary
+data-designer slurm execute run.yaml
 ```
 
-The command prints a readable result, a status command, and a first-shard log-tail command in an interactive terminal. Save its run ID; all lifecycle commands use the managed run ID rather than a raw Slurm job ID. To capture a JSON object instead, use `data-designer slurm --output json execute run.yaml --cluster primary`.
+The command prints a readable result, a status command, and a first-shard log-tail command in an interactive terminal. Save its run ID; all lifecycle commands use the managed run ID rather than a raw Slurm job ID. To capture a JSON object instead, use `data-designer slurm --output json execute run.yaml`.
 
 ## 11. Inspect or cancel the run
 
 ```bash
-data-designer slurm status <run-id> --cluster primary
-data-designer slurm cancel <run-id> --cluster primary
+data-designer slurm status <run-id>
+data-designer slurm cancel <run-id>
 ```
 
 Status reconciles active queue and accounting evidence with durable run state. Cancellation targets only jobs recorded for the managed run.

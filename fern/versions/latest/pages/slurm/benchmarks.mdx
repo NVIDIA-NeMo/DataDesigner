@@ -33,11 +33,6 @@ deployment_cases:
       generator:
         nodes: 2
         nodes_per_replica: 2
-record_policy:
-  type: adaptive
-  base_records: 1000
-  max_records: 5000
-  records_per_concurrency: 1.0
 analysis:
   target_total_records: 1000000
   target_runtime: 4h
@@ -45,7 +40,7 @@ analysis:
 
 `model_aliases` is required. Set it to `all` to apply each concurrency value to every model in the base run. For a two-model run with `generator` and `reviewer`, values `[32, 64]` produce concurrency pairs `(32, 32)` and `(64, 64)` at each deployment case. To vary only one model, set `model_aliases: [generator]`; the reviewer then keeps its base-run concurrency. Every selected model receives the same value, so this sweep does not produce mixed pairs such as `(32, 64)`.
 
-The compiler expands the authored order deterministically. For this example, the first cases are `single-node-groups-c32` and `two-node-group-c32`. An adaptive record policy uses `ceil(concurrency * records_per_concurrency)`, bounded by `base_records` and `max_records`.
+The compiler expands the authored order deterministically. For this example, the first cases are `single-node-groups-c32` and `two-node-group-c32`. By default, each case requests `min(5000, max(1000, ceil(concurrency * 1.0)))` records. Thus concurrency 512 requests 1,000 records and concurrency 1,024 requests 1,024. For a longer sample at those concurrency values, set `record_policy: {type: adaptive, base_records: 1000, max_records: 5000, records_per_concurrency: 4.0}` to request 2,048 and 4,096 records. Raise `max_records` when testing larger concurrency values. A fixed policy with `type: fixed` and `records` is also available.
 
 Each benchmark case runs as one Slurm array task, even when the base run uses multiple tasks. The record policy sets the sample size for that task. This measures the throughput of one allocation, which analysis uses to estimate how many such tasks are needed for `target_total_records` within `target_runtime`.
 
@@ -55,8 +50,7 @@ Each benchmark case runs as one Slurm array task, even when the base run uses mu
 
 ```bash
 data-designer slurm benchmark run benchmark.yaml \
-  --profile-file ~/.data-designer-slurm-profile.yml \
-  --cluster primary
+  --profile-file ~/.data-designer-slurm-profile.yml
 ```
 
 The command writes `benchmarks/<benchmark-id>/config.json`, the resolved `base-run.json`, and `benchmark.json` before submitting any child. The manifest is an immutable ordered mapping from case IDs to normal run IDs. Each child keeps its authored config, state, attempts, scheduler evidence, and results under `runs/<run-id>`.
