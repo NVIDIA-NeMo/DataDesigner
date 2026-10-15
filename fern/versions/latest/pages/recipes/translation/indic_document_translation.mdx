@@ -154,7 +154,7 @@ OUTPUT_SUFFIXES = (".parquet", ".jsonl")
 
 
 def resolve_max_rewrites(max_rewrites: int | None, translation_mode: str, enable_windowing: bool) -> int:
-    """Default to the judge-and-rewrite loop, except where the plugin forces it off."""
+    """Default to the judge-and-rewrite loop; bodhan mode and windowing run a single translation pass."""
     if max_rewrites is not None:
         return max_rewrites
     if translation_mode == "bodhan" or enable_windowing:
@@ -187,7 +187,7 @@ def build_config(
     missing_aliases = sorted({model_alias, judge_model_alias} - registered_aliases)
     if missing_aliases:
         raise ValueError(
-            f"Model alias(es) not found in your Data Designer model configs: {', '.join(missing_aliases)}. "
+            f"Register these model alias(es) in your Data Designer model configs: {', '.join(missing_aliases)}. "
             f"Registered aliases: {', '.join(sorted(registered_aliases))}. "
             "Add them with `data-designer config` or by editing ~/.data-designer/model_configs.yaml."
         )
@@ -242,7 +242,7 @@ def save_output(results: DatasetCreationResults, output_path: Path) -> None:
     if output_path.suffix == ".parquet":
         dataset.to_parquet(output_path, index=False)
     else:
-        # force_ascii=False keeps Indic scripts readable instead of \uXXXX escapes.
+        # force_ascii=False writes Indic scripts as readable characters.
         dataset.to_json(output_path, orient="records", lines=True, force_ascii=False)
 
 
@@ -296,7 +296,7 @@ def build_arg_parser() -> ArgumentParser:
         "--native-numeral-probability",
         type=float,
         default=0.0,
-        help="Per-row chance (0 to 1) of writing numbers in native-script digits (generic mode only)",
+        help="Per-row chance (0 to 1) of writing numbers in native-script digits (with --translation-mode generic)",
     )
     parser.add_argument(
         "--output-path",
