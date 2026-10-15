@@ -27,6 +27,8 @@ def test_compiler_expands_stable_ordered_ordinary_runs(
     )
     assert len({case.child_run_id for case in compiled.cases}) == 6
     assert all(case.child_run_config.invocation.num_records == 1000 for case in compiled.cases)
+    assert all(case.child_run_config.array_tasks.count == 1 for case in compiled.cases)
+    assert all(case.child_run_config.array_tasks.max_concurrent is None for case in compiled.cases)
     assert [deployment.resources.nodes for deployment in compiled.cases[0].child_run_config.deployments] == [2, 1]
     assert [deployment.topology.nodes_per_replica for deployment in compiled.cases[1].child_run_config.deployments] == [
         2,
@@ -75,3 +77,25 @@ def test_adaptive_record_policy_is_bounded(
     compiled = BenchmarkCompiler.compile(config, authored_run)
 
     assert compiled.cases[0].child_run_config.invocation.num_records == expected_records
+
+
+def test_default_record_policy_scales_high_concurrency(
+    benchmark_config: DataDesignerSlurmBenchmarkConfig,
+    authored_run: DataDesignerSlurmConfig,
+) -> None:
+    payload = benchmark_config.model_dump(mode="json")
+    payload.pop("record_policy")
+    payload["concurrency_values"] = [512, 1024, 8192]
+    payload["deployment_cases"] = payload["deployment_cases"][:1]
+    config = DataDesignerSlurmBenchmarkConfig.model_validate(payload)
+
+    compiled = BenchmarkCompiler.compile(config, authored_run)
+
+    assert [case.child_run_config.invocation.num_records for case in compiled.cases] == [1000, 1024, 5000]
+    assert all(case.child_run_config.array_tasks.count == 1 for case in compiled.cases)
+
+    payload["record_policy"] = {"type": "adaptive", "records_per_concurrency": 4.0}
+    override = DataDesignerSlurmBenchmarkConfig.model_validate(payload)
+    overridden = BenchmarkCompiler.compile(override, authored_run)
+
+    assert [case.child_run_config.invocation.num_records for case in overridden.cases] == [2048, 4096, 5000]

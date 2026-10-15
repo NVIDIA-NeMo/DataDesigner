@@ -62,10 +62,10 @@ class FixedRecordPolicy(AuthoredConfig):
 
 
 class AdaptiveRecordPolicy(AuthoredConfig):
-    type: Literal["adaptive"]
-    base_records: PositiveInt
-    max_records: PositiveInt
-    records_per_concurrency: PositiveFloat
+    type: Literal["adaptive"] = "adaptive"
+    base_records: PositiveInt = 1000
+    max_records: PositiveInt = 5000
+    records_per_concurrency: PositiveFloat = 1.0
 
     @model_validator(mode="after")
     def validate_bounds(self) -> AdaptiveRecordPolicy:
@@ -91,7 +91,7 @@ class DataDesignerSlurmBenchmarkConfig(AuthoredConfig):
     model_aliases: Literal["all"] | list[str]
     concurrency_values: list[PositiveInt] = Field(min_length=1)
     deployment_cases: list[BenchmarkDeploymentCase] = Field(min_length=1)
-    record_policy: BenchmarkRecordPolicy
+    record_policy: BenchmarkRecordPolicy = Field(default_factory=AdaptiveRecordPolicy)
     analysis: BenchmarkAnalysisTargets
 
     @model_validator(mode="after")

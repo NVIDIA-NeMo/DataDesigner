@@ -11,11 +11,14 @@ from pydantic import Field
 
 from data_designer.slurm.config import (
     AdaptiveRecordPolicy,
+    ArrayTasksConfig,
     BenchmarkDeploymentCase,
     DataDesignerSlurmBenchmarkConfig,
     DataDesignerSlurmConfig,
 )
 from data_designer.slurm.contracts import ContractValue, Identifier, compute_canonical_json_sha256
+
+_CASE_SEMANTICS_VERSION = 2  # Keep single-task cases distinct from earlier multi-task benchmark records.
 
 
 class CompiledBenchmarkCase(ContractValue):
@@ -41,6 +44,15 @@ class BenchmarkCompiler:
         config: DataDesignerSlurmBenchmarkConfig,
         base_run: DataDesignerSlurmConfig,
     ) -> CompiledBenchmark:
+        return BenchmarkCompiler._compile(config, base_run, legacy=False)
+
+    @staticmethod
+    def _compile(
+        config: DataDesignerSlurmBenchmarkConfig,
+        base_run: DataDesignerSlurmConfig,
+        *,
+        legacy: bool,
+    ) -> CompiledBenchmark:
         if not isinstance(config, DataDesignerSlurmBenchmarkConfig):
             raise TypeError("config must be a DataDesignerSlurmBenchmarkConfig")
         if not isinstance(base_run, DataDesignerSlurmConfig):
@@ -58,12 +70,13 @@ class BenchmarkCompiler:
                     f"benchmark deployment case references unknown aliases: {', '.join(sorted(unknown_deployments))}"
                 )
 
-        identity_digest = compute_canonical_json_sha256(
-            {
-                "benchmark": config.model_dump(mode="json"),
-                "base_run": base_run.model_dump(mode="json"),
-            }
-        )
+        identity = {
+            "benchmark": config.model_dump(mode="json"),
+            "base_run": base_run.model_dump(mode="json"),
+        }
+        if not legacy:
+            identity["case_semantics_version"] = _CASE_SEMANTICS_VERSION
+        identity_digest = compute_canonical_json_sha256(identity)
         benchmark_id = f"benchmark-{identity_digest[:32]}"
         expanded: list[tuple[str, DataDesignerSlurmConfig]] = []
         for concurrency in config.concurrency_values:
@@ -79,6 +92,7 @@ class BenchmarkCompiler:
                             selected_aliases=selected_aliases,
                             deployment_case=deployment_case,
                             requested_records=resolve_requested_records(config, concurrency),
+                            single_task=not legacy,
                         ),
                     )
                 )
@@ -102,6 +116,7 @@ def _compile_child(
     selected_aliases: tuple[str, ...],
     deployment_case: BenchmarkDeploymentCase,
     requested_records: int,
+    single_task: bool,
 ) -> DataDesignerSlurmConfig:
     model_concurrency = dict(base_run.invocation.model_concurrency)
     model_concurrency.update(dict.fromkeys(selected_aliases, concurrency))
@@ -128,15 +143,14 @@ def _compile_child(
             )
         )
 
-    return DataDesignerSlurmConfig.model_validate(
-        base_run.model_copy(
-            update={
-                "name": _bounded_identifier(f"{base_run.name}-{case_id}"),
-                "invocation": invocation,
-                "deployments": deployments,
-            }
-        ).model_dump(mode="python")
-    )
+    updates = {
+        "name": _bounded_identifier(f"{base_run.name}-{case_id}"),
+        "invocation": invocation,
+        "deployments": deployments,
+    }
+    if single_task:
+        updates["array_tasks"] = ArrayTasksConfig()
+    return DataDesignerSlurmConfig.model_validate(base_run.model_copy(update=updates).model_dump(mode="python"))
 
 
 def resolve_requested_records(config: DataDesignerSlurmBenchmarkConfig, concurrency: int) -> int:
