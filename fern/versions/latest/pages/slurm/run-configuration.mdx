@@ -75,6 +75,8 @@ server:
 
 `distributed_init_timeout` must not exceed `startup_timeout`. Increase both when distributed initialization legitimately needs more time.
 
+Set `server.io_processor_plugin` to a registered vLLM IO processor name, such as `deberta_gliner_io` for GLiNER. The serving image must include the plugin and its dependencies, and the model must be prepared for that plugin. Pooling options such as `--runner pooling` belong in `extra_args`.
+
 `extra_args` is a list of individual arguments, not a shell command. Options owned by the orchestrator and unsafe shell forms are rejected. Configure model identity, topology, networking, and lifecycle through their typed fields instead of passing reserved options such as `--model`, `--served-model-name`, `--host`, `--port`, `--tensor-parallel-size`, `--pipeline-parallel-size`, or distributed-launch flags. In particular, `served_model_name` belongs on the deployment, alongside `model`, not under `server.extra_args`.
 
 ## Scale runs

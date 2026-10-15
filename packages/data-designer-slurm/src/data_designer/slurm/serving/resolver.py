@@ -168,6 +168,7 @@ def _resolve_vllm_server(
             rank_launch_stagger_seconds=convert_duration_to_seconds(server.rank_launch_stagger),
             readiness_path=server.readiness_path,
             enable_expert_parallel=server.enable_expert_parallel,
+            io_processor_plugin=server.io_processor_plugin,
             queue_backpressure=server.queue_backpressure,
             extra_args=tuple(server.extra_args),
             environment=dict(server.environment),

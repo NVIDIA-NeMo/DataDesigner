@@ -225,6 +225,20 @@ def test_vllm_rejects_nonpositive_retry_after_seconds() -> None:
         QueueBackpressureConfig(retry_after_seconds=0)
 
 
+@pytest.mark.parametrize("plugin", [None, "deberta_gliner_io"])
+def test_vllm_io_processor_plugin_round_trip(plugin: str | None) -> None:
+    server = VllmServerConfig(type="vllm", image=ImageRef(name="vllm"), io_processor_plugin=plugin)
+
+    assert VllmServerConfig.model_validate_json(server.model_dump_json()) == server
+    assert ("io_processor_plugin" in server.model_dump()) == (plugin is not None)
+
+
+@pytest.mark.parametrize("plugin", ["", " ", "../plugin", "plugin module", "--plugin", "plugin;exit", "x" * 129])
+def test_vllm_rejects_invalid_io_processor_plugin(plugin: str) -> None:
+    with pytest.raises(ValidationError, match="io_processor_plugin"):
+        VllmServerConfig(type="vllm", image=ImageRef(name="vllm"), io_processor_plugin=plugin)
+
+
 @pytest.mark.parametrize(
     "argument",
     [

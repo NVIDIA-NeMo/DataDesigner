@@ -96,6 +96,8 @@ def build_vllm_process_command(
     )
     if deployment.launch_policy.enable_expert_parallel:
         command += ("--enable-expert-parallel",)
+    if deployment.launch_policy.io_processor_plugin is not None:
+        command += ("--io-processor-plugin", deployment.launch_policy.io_processor_plugin)
     return command + deployment.launch_policy.extra_args
 
 
