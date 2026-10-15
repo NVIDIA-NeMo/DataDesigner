@@ -15,6 +15,7 @@ from packaging.utils import canonicalize_name
 from pydantic import (
     Field,
     JsonValue,
+    NonNegativeInt,
     PositiveInt,
     StringConstraints,
     field_validator,
@@ -258,6 +259,7 @@ class DeploymentResources(AuthoredConfig):
     nodes: PositiveInt = 1
     shared_node: Identifier | None = Field(default=None, exclude_if=lambda value: value is None)
     gpus_per_node: PositiveInt | None = Field(default=None, exclude_if=lambda value: value is None)
+    gpu_start_index: NonNegativeInt | None = Field(default=None, exclude_if=lambda value: value is None)
 
     @model_validator(mode="after")
     def validate_shared_node(self) -> DeploymentResources:
@@ -265,6 +267,8 @@ class DeploymentResources(AuthoredConfig):
             raise ValueError("shared_node and gpus_per_node must be provided together")
         if self.shared_node is not None and self.nodes != 1:
             raise ValueError("shared_node requires exactly one deployment node")
+        if self.gpu_start_index is not None and self.shared_node is None:
+            raise ValueError("gpu_start_index requires shared_node")
         return self
 
 

@@ -118,6 +118,13 @@ def build_distributed_server_step(
         else ()
     )
     step_id = f"{deployment.deployment_id}-{operation}"
+    if worker_spec.allow_gpu_sharing:
+        launch_order = {
+            process.readiness.port: index
+            for index, process in enumerate(worker_spec.nodes[0].processes)
+            if process.readiness is not None
+        }
+        readiness = tuple(sorted(readiness, key=lambda probe: launch_order[probe.port]))
     return RuntimeStepSpec(
         step_id=step_id,
         role=RuntimeStepRole.SERVER if operation == "serve" else RuntimeStepRole.SERVER_PREFLIGHT,

@@ -15,8 +15,11 @@ from pathlib import Path
 import pytest
 from conftest import RuntimeCase, relocate_plan
 
+from data_designer.slurm.config import DataDesignerSlurmConfig, injected_profile
 from data_designer.slurm.contracts import ArtifactReference
-from data_designer.slurm.planning import ResolvedSlurmRunPlan
+from data_designer.slurm.planning import ResolvedDependencyLock, ResolvedSlurmRunPlan
+from data_designer.slurm.planning.compiler import SlurmRunCompiler
+from data_designer.slurm.planning.resolution import resolve_slurm_config
 from data_designer.slurm.runtime.bootstrap import build_runtime_manifest
 from data_designer.slurm.runtime.errors import SlurmRuntimeError
 from data_designer.slurm.runtime.models import RuntimeStepRole
@@ -34,14 +37,47 @@ from data_designer.slurm.serving.resolver import resolve_vllm_server
 from data_designer.slurm.state import RetryPlan, RetryShard
 
 
+@pytest.mark.parametrize(("shared_gpu", "replicas"), ((False, 1), (True, 1), (True, 2)))
 def test_shared_worker_has_both_models_readiness_and_gpu_free_clients(
-    runtime_case: RuntimeCase, shared_node_plan: ResolvedSlurmRunPlan, tmp_path: Path
+    runtime_case: RuntimeCase,
+    shared_node_plan: ResolvedSlurmRunPlan,
+    tmp_path: Path,
+    shared_node_config: DataDesignerSlurmConfig,
+    dependency_lock_single: ResolvedDependencyLock,
+    shared_gpu: bool,
+    replicas: int,
 ) -> None:
+    if shared_gpu:
+        payload = shared_node_config.model_dump(mode="python")
+        for index, deployment in enumerate(payload["deployments"]):
+            deployment["resources"].update(
+                gpus_per_node=replicas if index == 0 else 1, gpu_start_index=0 if index == 0 else replicas - 1
+            )
+            deployment["topology"]["tensor_parallel"] = 1
+        shared_node_plan = SlurmRunCompiler.compile(
+            resolve_slurm_config(
+                DataDesignerSlurmConfig.model_validate(payload),
+                selected_profile=injected_profile(
+                    shared_node_plan.selected_profile.profile.model_copy(update={"gpus_per_node": replicas})
+                ),
+                client_runtime=shared_node_plan.client.runtime,
+                deployment_images=tuple(member.image for member in shared_node_plan.deployments),
+                dependency_lock=dependency_lock_single,
+                runtime_bundle=shared_node_plan.runtime_bundle,
+                run_id=shared_node_plan.run_id,
+                package_version=shared_node_plan.package_version,
+            )
+        )
+    gpu_budget = replicas if shared_gpu else 8
     plan = relocate_plan(shared_node_plan, runtime_case.workspace)
     context = replace(runtime_case.context, plan=plan, shard=plan.shards[0])
     manifest = build_runtime_manifest(
         context,
-        {"SLURM_JOB_GPUS": "1,3,5,7,9,11,13,15"},
+        {
+            "SLURM_JOB_GPUS": ",".join(str(index + 7) for index in range(replicas))
+            if shared_gpu
+            else "1,3,5,7,9,11,13,15"
+        },
         runtime_root=Path("/tmp/data-designer-slurm-4101-0/runtime"),
         log_directory=context.attempt_directory / "logs",
         layout=AllocationLayout(("compute-001",)),
@@ -49,14 +85,24 @@ def test_shared_worker_has_both_models_readiness_and_gpu_free_clients(
     servers = [step for step in manifest.steps if step.role is RuntimeStepRole.SERVER]
     assert len(servers) == 1
     server = servers[0]
-    assert server.gpu_indices == tuple(range(8))
+    assert server.gpu_indices == tuple(range(gpu_budget))
     assert server.gpu_binding == "none"
-    assert len(server.readiness) == 4
-    assert len({probe.port for probe in server.readiness}) == 4
+    assert len(server.readiness) == (replicas + 1 if shared_gpu else 4)
+    assert len({probe.port for probe in server.readiness}) == len(server.readiness)
     worker = decode_node_worker_spec(server.command[-1])
     processes = worker.nodes[0].processes
-    assert [process.gpu_indices for process in processes] == [(0, 1), (4, 5), (2, 3), (6, 7)]
-    assert [process.launch_delay_seconds for process in processes] == [0, 0, 65, 65]
+    expected_gpus = [(0,), (0,)] if replicas == 1 else [(0,), (1,), (1,)]
+    assert [process.gpu_indices for process in processes] == (
+        expected_gpus if shared_gpu else [(0, 1), (4, 5), (2, 3), (6, 7)]
+    )
+    expected_delays = [0, 0] if replicas == 1 else [0, 0, 65]
+    assert [process.launch_delay_seconds for process in processes] == (
+        expected_delays if shared_gpu else [0, 0, 65, 65]
+    )
+    assert worker.allow_gpu_sharing is shared_gpu
+    assert all((process.readiness is not None) is shared_gpu for process in processes)
+    if shared_gpu:
+        assert [probe.port for probe in server.readiness] == [process.readiness.port for process in processes]
     assert {process.command[2] for process in processes} == {
         deployment.authored.model for deployment in plan.deployments
     }
@@ -86,7 +132,7 @@ printf '%s\n' "${{DD_SRUN_COMMAND[@]}}"
     result = subprocess.run(("bash", "-c", script), capture_output=True, text=True, check=True)
     arguments = result.stdout.splitlines()
     assert "--nodes=1" in arguments
-    assert "--gpus-per-task=8" in arguments
+    assert f"--gpus-per-task={gpu_budget}" in arguments
     assert "--gpu-bind=none" in arguments
     assert "--overlap" in arguments
     assert not any(argument.startswith("--exclusive") for argument in arguments)

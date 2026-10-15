@@ -44,15 +44,26 @@ from data_designer.slurm.services import (
 NOW = datetime(2026, 8, 19, 12, tzinfo=timezone.utc)
 
 
+@pytest.mark.parametrize(
+    ("gpu_start_index", "topology_digest"),
+    [
+        (None, "19380747e9269b80f4d64da44d67a1e010eb61923c34365792df18aab01bc9b7"),
+        (0, "59b41934fbfddc75c4e8d268533737d38c11580e6a041ca27e00ecd457e83dad"),
+        (1, "205f985652cf46653c02b5958d95e3b2fb2775dcec56a014ecdde9bd86093080"),
+    ],
+)
 def test_shared_benchmark_counts_physical_nodes_and_allocated_gpu_budget(
     tmp_path: Path,
     benchmark_config: DataDesignerSlurmBenchmarkConfig,
     shared_node_config: DataDesignerSlurmConfig,
     shared_node_plan: ResolvedSlurmRunPlan,
     dependency_lock_single: ResolvedDependencyLock,
+    gpu_start_index: int | None,
+    topology_digest: str,
 ) -> None:
     payload = shared_node_config.model_dump(mode="python")
     payload["deployments"][0]["resources"]["gpus_per_node"] = 2
+    payload["deployments"][1]["resources"]["gpu_start_index"] = gpu_start_index
     base_run = DataDesignerSlurmConfig.model_validate(payload)
     benchmark_payload = benchmark_config.model_dump(mode="python")
     benchmark_payload.update(
@@ -96,6 +107,7 @@ def test_shared_benchmark_counts_physical_nodes_and_allocated_gpu_budget(
     assert report.cases[0].nodes_per_job == 1
     assert report.cases[0].gpus_per_job == 8
     assert report.cases[0].gpu_hours_per_job == 32
+    assert report.cases[0].topology_digest == topology_digest
 
 
 class _Observer:

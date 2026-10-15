@@ -573,7 +573,7 @@ class ResolvedSlurmRunPlan(ContractRecord):
 def derive_deployment_placement(
     deployments: Sequence[ServerDeploymentConfig], gpus_per_node: int
 ) -> tuple[tuple[tuple[int, ...], int, int], ...]:
-    """Assign nodes and disjoint GPU slices in authored order."""
+    """Assign nodes and GPU slices, allowing explicit shared offsets."""
     groups: dict[str, tuple[int, int, int]] = {}
     placements: list[tuple[tuple[int, ...], int, int]] = []
     next_node = 0
@@ -591,11 +591,12 @@ def derive_deployment_placement(
         if resources.shared_node not in groups:
             groups[resources.shared_node] = (next_node, 0, 0)
             next_node += 1
-        node, gpu_start, members = groups[resources.shared_node]
+        node, next_gpu, members = groups[resources.shared_node]
+        gpu_start = next_gpu if resources.gpu_start_index is None else resources.gpu_start_index
         if gpu_start + quota > gpus_per_node:
             raise ValueError("shared_node GPU quotas exceed the profile GPU budget")
         placements.append(((node,), gpu_start, quota))
-        groups[resources.shared_node] = (node, gpu_start + quota, members + 1)
+        groups[resources.shared_node] = (node, max(next_gpu, gpu_start + quota), members + 1)
     if any(members < 2 for _, _, members in groups.values()):
         raise ValueError("shared_node requires at least two deployments in each group")
     return tuple(placements)

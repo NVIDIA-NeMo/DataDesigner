@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 from data_designer.slurm.planning import ResolvedSlurmRunPlan
-from data_designer.slurm.runtime.node_spec import NodeProcessSpec, NodeSpec, NodeWorkerSpec
+from data_designer.slurm.runtime.node_spec import NodeProcessSpec, NodeReadinessSpec, NodeSpec, NodeWorkerSpec
 from data_designer.slurm.runtime.paths import get_container_path
 from data_designer.slurm.runtime.preflight import AllocationLayout
 from data_designer.slurm.runtime.steps import build_vllm_command
@@ -24,6 +24,13 @@ def build_node_worker_spec(
     """Build the validated work assigned to each node in one deployment."""
     model = _resolve_model(deployment, plan)
     deployments = (deployment, *colocated_deployments)
+    assigned_gpus = [
+        (process.node_index, gpu)
+        for member in deployments
+        for process in member.processes
+        for gpu in process.gpu_indices
+    ]
+    sharing = len(set(assigned_gpus)) != len(assigned_gpus)
     nodes = tuple(
         NodeSpec(
             node_index=node_index,
@@ -41,6 +48,13 @@ def build_node_worker_spec(
                             ),
                             gpu_indices=tuple(process.gpu_indices),
                             launch_delay_seconds=process.launch_delay_seconds,
+                            readiness=NodeReadinessSpec(
+                                port=member.backend_endpoints[process.deployment_replica_index].port,
+                                path=member.launch_policy.readiness_path,
+                                deadline_seconds=member.launch_policy.startup_timeout_seconds,
+                            )
+                            if sharing
+                            else None,
                         )
                         for member in deployments
                         for process in member.processes
@@ -62,6 +76,7 @@ def build_node_worker_spec(
         )
         if colocated_deployments
         else (),
+        allow_gpu_sharing=sharing,
     )
 
 

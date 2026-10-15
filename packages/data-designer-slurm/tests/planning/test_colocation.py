@@ -48,6 +48,8 @@ def test_shared_node_authoring_round_trip(
         ({"shared_node": "models", "gpus_per_node": 4, "nodes": 2}, {}, "exactly one"),
         ({"shared_node": "models", "gpus_per_node": 4}, {"nodes_per_replica": 2}, "single-node"),
         ({"shared_node": "models", "gpus_per_node": 3}, {"tensor_parallel": 2}, "GPU quota"),
+        ({"gpu_start_index": 0}, {}, "requires shared_node"),
+        ({"shared_node": "models", "gpus_per_node": 1, "gpu_start_index": -1}, {}, "allowed minimum"),
     ],
 )
 def test_shared_node_builder_rejects_invalid_resources(
@@ -165,7 +167,7 @@ def test_shared_node_runtime_ports_are_distinct_and_isolated(shared_node_plan: R
     assert first.authored_config == shared_node_plan.authored_config
 
 
-@pytest.mark.parametrize("invalid", ("oversubscription", "visible", "image"))
+@pytest.mark.parametrize("invalid", ("oversubscription", "offset", "visible", "image"))
 def test_preparation_rejects_unsupported_shared_placement(
     shared_node_config: DataDesignerSlurmConfig,
     single_node_plan: ResolvedSlurmRunPlan,
@@ -177,6 +179,8 @@ def test_preparation_rejects_unsupported_shared_placement(
     images = (single_node_plan.deployments[0].image,) * 2
     if invalid == "oversubscription":
         payload["deployments"][1]["resources"]["gpus_per_node"] = 8
+    elif invalid == "offset":
+        payload["deployments"][1]["resources"]["gpu_start_index"] = 8
     elif invalid == "visible":
         profile = profile.model_copy(
             update={
@@ -199,16 +203,30 @@ def test_preparation_rejects_unsupported_shared_placement(
         )
 
 
+@pytest.mark.parametrize(
+    ("quotas", "starts", "budget", "expected_starts"),
+    [
+        ((1, 2), (None, None), 3, [0, 1]),
+        ((1, 1), (0, 0), 1, [0, 0]),
+        ((2, 1), (0, 1), 2, [0, 1]),
+        ((1, 1), (1, None), 3, [1, 2]),
+    ],
+)
 def test_partial_gpu_allocation_uses_per_model_quota_for_replica_count(
     shared_node_config: DataDesignerSlurmConfig,
     single_node_plan: ResolvedSlurmRunPlan,
     dependency_lock_single: ResolvedDependencyLock,
+    quotas: tuple[int, int],
+    starts: tuple[int | None, int | None],
+    budget: int,
+    expected_starts: list[int],
 ) -> None:
     payload = shared_node_config.model_dump(mode="python")
-    for deployment, quota in zip(payload["deployments"], (1, 2), strict=True):
+    for deployment, quota, start in zip(payload["deployments"], quotas, starts, strict=True):
         deployment["resources"]["gpus_per_node"] = quota
+        deployment["resources"]["gpu_start_index"] = start
         deployment["topology"]["tensor_parallel"] = quota
-    profile = single_node_plan.selected_profile.profile.model_copy(update={"gpus_per_node": 3})
+    profile = single_node_plan.selected_profile.profile.model_copy(update={"gpus_per_node": budget})
     plan = SlurmRunCompiler.compile(
         resolve_slurm_config(
             DataDesignerSlurmConfig.model_validate(payload),
@@ -222,8 +240,9 @@ def test_partial_gpu_allocation_uses_per_model_quota_for_replica_count(
         )
     )
     assert [deployment.topology.replica_count for deployment in plan.deployments] == [1, 1]
-    assert [deployment.gpu_start_index for deployment in plan.deployments] == [0, 1]
-    assert [deployment.gpus_per_node for deployment in plan.deployments] == [1, 2]
+    assert [deployment.gpu_start_index for deployment in plan.deployments] == expected_starts
+    assert [deployment.gpus_per_node for deployment in plan.deployments] == list(quotas)
+    assert ResolvedSlurmRunPlan.model_validate_json(plan.serialize_json()) == plan
     script = render_generation_attempt_script(plan, attempt_ordinal=1)
-    assert "#SBATCH --nodes=1\n" in script and "#SBATCH --gres=gpu:3\n" in script
+    assert "#SBATCH --nodes=1\n" in script and f"#SBATCH --gres=gpu:{budget}\n" in script
     assert "#SBATCH --exclusive" not in script

@@ -32,6 +32,7 @@ _SAFE_VALUE_ERROR_MESSAGES = {
         for message in (
             "shared_node and gpus_per_node must be provided together",
             "shared_node requires exactly one deployment node",
+            "gpu_start_index requires shared_node",
             "shared_node supports only single-node replicas",
             "tensor_parallel must divide the deployment GPU quota",
             "shared_node requires at least two deployments in each group",
