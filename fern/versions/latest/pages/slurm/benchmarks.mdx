@@ -49,11 +49,10 @@ Each benchmark case runs as one Slurm array task, even when the base run uses mu
 ## Run
 
 ```bash
-data-designer slurm benchmark run benchmark.yaml \
-  --profile-file ~/.data-designer-slurm-profile.yml
+data-designer slurm benchmark run benchmark.yaml
 ```
 
-The command writes `benchmarks/<benchmark-id>/config.json`, the resolved `base-run.json`, and `benchmark.json` before submitting any child. The manifest is an immutable ordered mapping from case IDs to normal run IDs. Each child keeps its authored config, state, attempts, scheduler evidence, and results under `runs/<run-id>`.
+This uses `DATA_DESIGNER_SLURM_PROFILE_FILE` and the default cluster from Getting Started. The command writes `benchmarks/<benchmark-id>/config.json`, the resolved `base-run.json`, and `benchmark.json` before submitting any child. The manifest is an immutable ordered mapping from case IDs to normal run IDs. Each child keeps its authored config, state, attempts, scheduler evidence, and results under `runs/<run-id>`.
 
 If submission stops partway through, rerun the same command with the same installed revision. Children with scheduler submission evidence are not submitted again, and missing children are attempted in the original order. If a child has initialized inputs but no submission evidence, rerun with `--force` to resume it. Force never replaces benchmark or child metadata. Partial scheduler evidence across a child's shards is preserved as a conflict for operator investigation and cannot be overwritten with force.
 
@@ -85,10 +84,7 @@ from data_designer.slurm.services import create_slurm_benchmark_service
 
 benchmark_file = Path("benchmark.yaml").resolve()
 config = load_benchmark_config(benchmark_file)
-service = create_slurm_benchmark_service(
-    profile_file="~/.data-designer-slurm-profile.yml",
-    cluster="primary",
-)
+service = create_slurm_benchmark_service()
 
 manifest = service.run(config, source_root=benchmark_file.parent)
 report = service.analyze(manifest.benchmark_id, refresh_state=True)
