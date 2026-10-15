@@ -8,11 +8,9 @@ from collections.abc import Callable
 from functools import wraps
 from typing import Any, NoReturn
 
-from pydantic import BaseModel
-
 from data_designer.engine.errors import DataDesignerError
 from data_designer.engine.models.clients.errors import ProviderError, ProviderErrorKind, SyncClientUnavailableError
-from data_designer.engine.models.utils import GenerationTruncationReason
+from data_designer.engine.models.utils import FormattedLLMErrorMessage, GenerationTruncationReason
 
 logger = logging.getLogger(__name__)
 
@@ -150,25 +148,6 @@ RETRYABLE_MODEL_ERRORS: tuple[type[Exception], ...] = (
     ModelInternalServerError,
     ModelAPIConnectionError,
 )
-
-
-class FormattedLLMErrorMessage(BaseModel):
-    cause: str
-    solution: str
-    provider_message: str | None = None
-
-    def __str__(self) -> str:
-        lines = ["  |----------"]
-        if self.provider_message is not None:
-            lines.append(f"  | Provider message: {self.provider_message}")
-        lines.append(f"  | Cause: {self.cause}")
-        lines.extend(
-            [
-                f"  | Solution: {self.solution}",
-                "  |----------",
-            ]
-        )
-        return "\n".join(lines)
 
 
 def _attach_provider_message(

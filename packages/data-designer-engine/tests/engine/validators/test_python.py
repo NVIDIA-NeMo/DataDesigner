@@ -5,9 +5,12 @@ from __future__ import annotations
 
 import json
 import tempfile
+from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
+import data_designer.engine.validators.python as python_validator_module
 from data_designer.config.utils.code_lang import CodeLang
 from data_designer.config.validator_params import CodeValidatorParams
 from data_designer.engine.validators.python import (
@@ -81,6 +84,56 @@ def test_validate_files_in_path(fixture_python_validator, fixture_bad_code_str, 
                 assert result.data[1].python_linter_score == 10.0
                 assert result.data[1].python_linter_severity == "none"
                 assert result.data[1].python_linter_messages == []
+
+
+@pytest.mark.parametrize(
+    "malformed_code",
+    [
+        "def f(:\n    return 1\n",
+        "x = 1 +\n",
+    ],
+)
+def test_validate_malformed_python(fixture_python_validator: PythonValidator, malformed_code: str) -> None:
+    result = fixture_python_validator.run_validation([{"code": malformed_code}])
+
+    assert result.data[0].is_valid is False
+    assert result.data[0].python_linter_score == 0
+    assert result.data[0].python_linter_severity == "fatal"
+    assert result.data[0].python_linter_messages
+    assert all(message["type"] == "fatal" for message in result.data[0].python_linter_messages)
+    assert all(message["message"] for message in result.data[0].python_linter_messages)
+
+
+@pytest.mark.parametrize(
+    "diagnostic_code",
+    [None, "invalid-syntax", "E999", "SyntaxError"],
+    ids=["none-code", "ruff-syntax-code", "legacy-ruff-syntax-code", "pylint-syntax-code"],
+)
+def test_run_linter_classifies_syntax_diagnostics(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, diagnostic_code: str | None
+) -> None:
+    code_file = tmp_path / "module.py"
+    code_file.write_text("pass\n")
+
+    diagnostic = {
+        "filename": str(code_file),
+        "code": diagnostic_code,
+        "location": {"row": 1, "column": 1},
+        "message": "Syntax error",
+    }
+
+    monkeypatch.setattr(python_validator_module, "find_ruff_bin", lambda: "ruff")
+    monkeypatch.setattr(
+        python_validator_module.subprocess,
+        "run",
+        lambda *args, **kwargs: SimpleNamespace(stdout=json.dumps([diagnostic])),
+    )
+
+    result = python_validator_module.PythonValidator._run_linter(str(tmp_path))
+
+    message = result["module"].messages[0]
+    assert message.type == "fatal"
+    assert message.symbol == str(diagnostic_code)
 
 
 def test_python_linter_validation_stat():

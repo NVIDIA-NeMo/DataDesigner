@@ -151,7 +151,9 @@ jobs:
 
       - name: Install docs dependencies
         working-directory: website
-        run: uv sync --python 3.13 --all-packages --group docs --group notebooks
+        # Publishing only converts or restores notebooks; it does not execute them.
+        # Avoid building the Git-pinned nbconvert, which downloads CSS from Jupyter's CDN.
+        run: uv sync --frozen --python 3.13 --all-packages --group docs
 
       - name: Check Fern docs
         working-directory: website
@@ -243,7 +245,9 @@ jobs:
 
       - name: Install docs dependencies
         working-directory: website
-        run: uv sync --python 3.13 --all-packages --group docs --group notebooks
+        # Publishing only converts or restores notebooks; it does not execute them.
+        # Avoid building the Git-pinned nbconvert, which downloads CSS from Jupyter's CDN.
+        run: uv sync --frozen --python 3.13 --all-packages --group docs
 
       - name: Download executed notebooks
         if: needs.build-notebooks.result == 'success'
