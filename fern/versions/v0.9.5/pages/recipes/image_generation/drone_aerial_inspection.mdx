@@ -1,0 +1,332 @@
+---
+title: "Drone Aerial Inspection"
+description: "Generate synthetic low-altitude drone inspection images with controlled site, target, altitude, camera angle, defect, severity, occlusion, and lighting metadata."
+---
+<Info title="Download Recipe">
+  [Download the complete recipe script](https://github.com/NVIDIA-NeMo/DataDesigner/blob/main/fern/assets/recipes/image_generation/drone_aerial_inspection.py)
+</Info>
+
+```python
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#     "data-designer",
+# ]
+# ///
+"""Drone Aerial Inspection Image Generation Recipe
+
+Generate synthetic low-altitude drone inspection images with controlled
+variation over site type, inspection target, altitude, camera angle, defect or
+event, severity, occlusion, lighting, and surface condition.
+
+The recipe is intended for infrastructure inspection, property review,
+construction monitoring, disaster-response review, visual QA, reviewer
+calibration, and VLM evaluation. It avoids surveillance, military targeting,
+evasion, or sensitive-facility prompts.
+
+Prerequisites:
+    - An image-generation provider key for the selected model. The defaults use
+      OpenRouter, so set OPENROUTER_API_KEY before running.
+
+Run:
+    uv run drone_aerial_inspection.py --num-records 10
+"""
+
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+
+import data_designer.config as dd
+from data_designer.interface import DataDesigner, DatasetCreationResults
+
+DEFAULT_MODEL_PROVIDER = "openrouter"
+DEFAULT_MODEL_ID = "google/gemini-3.1-flash-image-preview"
+DEFAULT_MODEL_ALIAS = "drone-aerial-inspection-model"
+
+
+def build_model_configs(
+    *,
+    model_provider: str,
+    model_id: str,
+    model_alias: str,
+    image_size: str,
+    aspect_ratio: str,
+    max_parallel_requests: int,
+) -> list[dd.ModelConfig]:
+    return [
+        dd.ModelConfig(
+            alias=model_alias,
+            model=model_id,
+            provider=model_provider,
+            inference_parameters=dd.ImageInferenceParams(
+                extra_body={
+                    "modalities": ["image", "text"],
+                    "image_config": {
+                        "aspect_ratio": aspect_ratio,
+                        "image_size": image_size,
+                    },
+                },
+                max_parallel_requests=max_parallel_requests,
+            ),
+            skip_health_check=True,
+        )
+    ]
+
+
+def add_category(config_builder: dd.DataDesignerConfigBuilder, name: str, values: list[str]) -> None:
+    config_builder.add_column(
+        dd.SamplerColumnConfig(
+            name=name,
+            sampler_type=dd.SamplerType.CATEGORY,
+            params=dd.CategorySamplerParams(values=values),
+        )
+    )
+
+
+def add_visual_variation_id(config_builder: dd.DataDesignerConfigBuilder) -> None:
+    """Add a unique row-level key that discourages duplicate image generations."""
+    config_builder.add_column(
+        dd.SamplerColumnConfig(
+            name="visual_variation_id",
+            sampler_type=dd.SamplerType.UUID,
+            params=dd.UUIDSamplerParams(prefix="drone-", short_form=True),
+        )
+    )
+
+
+def build_config(
+    *,
+    model_provider: str = DEFAULT_MODEL_PROVIDER,
+    model_id: str = DEFAULT_MODEL_ID,
+    model_alias: str = DEFAULT_MODEL_ALIAS,
+    image_size: str = "1K",
+    aspect_ratio: str = "16:9",
+    max_parallel_requests: int = 10,
+) -> dd.DataDesignerConfigBuilder:
+    model_configs = build_model_configs(
+        model_provider=model_provider,
+        model_id=model_id,
+        model_alias=model_alias,
+        image_size=image_size,
+        aspect_ratio=aspect_ratio,
+        max_parallel_requests=max_parallel_requests,
+    )
+    config_builder = dd.DataDesignerConfigBuilder(model_configs=model_configs)
+    add_visual_variation_id(config_builder)
+
+    add_category(
+        config_builder,
+        "site_type",
+        [
+            "residential roof and yard",
+            "commercial flat roof",
+            "bridge deck and support structure",
+            "rail corridor and track bed",
+            "solar farm rows",
+            "wind turbine tower and blades",
+            "construction site",
+            "roadway and drainage culvert",
+            "utility pipeline corridor",
+            "storm-affected neighborhood street",
+        ],
+    )
+    add_category(
+        config_builder,
+        "inspection_target",
+        [
+            "roof covering condition",
+            "surface cracking",
+            "standing water",
+            "vegetation encroachment",
+            "panel or blade damage",
+            "debris blocking access",
+            "material staging progress",
+            "erosion around infrastructure",
+            "storm or hail damage",
+            "construction progress milestone",
+        ],
+    )
+    add_category(
+        config_builder,
+        "altitude",
+        [
+            "very low drone pass, about 10 meters above the target",
+            "low drone pass, about 25 meters above the target",
+            "medium drone pass, about 60 meters above the target",
+            "higher overview pass, about 100 meters above the target",
+        ],
+    )
+    add_category(
+        config_builder,
+        "camera_angle",
+        [
+            "straight-down nadir view",
+            "oblique 45-degree inspection angle",
+            "shallow side-looking pass",
+            "close detail view with wide-angle lens",
+            "overview frame with the target centered",
+        ],
+    )
+    add_category(
+        config_builder,
+        "defect_or_event",
+        [
+            "no visible issue, normal baseline condition",
+            "small crack or seam separation",
+            "moderate staining or water pooling",
+            "missing roof shingles or damaged surface panels",
+            "debris scattered across the inspection area",
+            "vegetation growth obscuring part of the asset",
+            "erosion or washout near an edge",
+            "construction material staged in the wrong zone",
+            "storm damage with displaced objects",
+            "surface discoloration that may be benign",
+        ],
+    )
+    defect_severity_values = [
+        "minor and easy to miss",
+        "moderate and localized",
+        "severe and clearly visible",
+    ]
+    config_builder.add_column(
+        dd.SamplerColumnConfig(
+            name="severity",
+            sampler_type=dd.SamplerType.SUBCATEGORY,
+            params=dd.SubcategorySamplerParams(
+                category="defect_or_event",
+                values={
+                    "no visible issue, normal baseline condition": ["none"],
+                    "small crack or seam separation": defect_severity_values,
+                    "moderate staining or water pooling": defect_severity_values,
+                    "missing roof shingles or damaged surface panels": defect_severity_values,
+                    "debris scattered across the inspection area": defect_severity_values,
+                    "vegetation growth obscuring part of the asset": defect_severity_values,
+                    "erosion or washout near an edge": defect_severity_values,
+                    "construction material staged in the wrong zone": defect_severity_values,
+                    "storm damage with displaced objects": defect_severity_values,
+                    "surface discoloration that may be benign": ["none - benign confounder"],
+                },
+            ),
+        )
+    )
+    add_category(
+        config_builder,
+        "occlusion",
+        [
+            "clear unobstructed view",
+            "partially occluded by tree branches",
+            "partially occluded by shadows",
+            "partially occluded by temporary equipment",
+            "motion blur from drone movement",
+        ],
+    )
+    add_category(
+        config_builder,
+        "weather_lighting",
+        [
+            "bright midday sun",
+            "soft overcast light",
+            "golden hour light with long shadows",
+            "after-rain wet surfaces",
+            "hazy light with reduced contrast",
+        ],
+    )
+
+    config_builder.add_column(
+        dd.ImageColumnConfig(
+            name="drone_inspection_image",
+            prompt=DRONE_AERIAL_INSPECTION_PROMPT,
+            model_alias=model_alias,
+        )
+    )
+
+    return config_builder
+
+
+def create_dataset(
+    config_builder: dd.DataDesignerConfigBuilder,
+    *,
+    num_records: int,
+    dataset_name: str,
+    artifact_path: Path | str | None = None,
+) -> DatasetCreationResults:
+    data_designer = DataDesigner(artifact_path=artifact_path)
+    data_designer.validate(config_builder)
+    return data_designer.create(config_builder, num_records=num_records, dataset_name=dataset_name)
+
+
+DRONE_AERIAL_INSPECTION_PROMPT = """\
+Create a realistic low-altitude drone inspection image.
+
+Image requirements:
+- Visual variation ID, for internal diversity only: {{ visual_variation_id }}
+- Site type: {{ site_type }}
+- Inspection target: {{ inspection_target }}
+- Altitude: {{ altitude }}
+- Camera angle: {{ camera_angle }}
+- Defect or event: {{ defect_or_event }}
+- Severity: {{ severity }}
+- Occlusion: {{ occlusion }}
+- Weather and lighting: {{ weather_lighting }}
+
+Render the image as if captured by a civilian inspection drone, not a satellite
+or normal ground camera. Make the inspection target and requested defect,
+event, baseline condition, or confounder visible enough for visual QA,
+reviewer calibration, or VLM evaluation. Show realistic materials, shadows,
+scale, surfaces, construction context, vegetation, drainage, roof texture,
+panels, tracks, roads, or structural elements when requested.
+
+Render this as a clean raw drone camera frame. Do not include surveillance UI,
+inspection report graphics, HUD elements, map overlays, crosshairs, targeting
+reticles, bounding boxes, segmentation masks, heatmap colors, arrows, callouts,
+measurement graphics, labels, timestamps, coordinates, real place names,
+readable license plates, identifiable people, faces, watermarks, or any text
+overlay. Do not frame it as a military, police, or sensitive-facility image.
+Generate exactly one final drone inspection image for this row. Do not return
+alternate versions, a grid, a pair of examples, before/after panels, or multiple
+frames. Use the visual variation ID only as an internal diversity key; never
+render it as text.
+"""
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Generate synthetic drone aerial inspection imagery.")
+    parser.add_argument("--num-records", type=int, default=10, help="Number of drone inspection images to generate.")
+    parser.add_argument("--dataset-name", default="drone-aerial-inspection", help="Output dataset name.")
+    parser.add_argument("--artifact-path", type=Path, default=None, help="Optional Data Designer artifact directory.")
+    parser.add_argument("--model-provider", default=DEFAULT_MODEL_PROVIDER, help="Image model provider name.")
+    parser.add_argument("--model-id", default=DEFAULT_MODEL_ID, help="Provider model ID.")
+    parser.add_argument("--model-alias", default=DEFAULT_MODEL_ALIAS, help="Alias used by image columns.")
+    parser.add_argument("--image-size", default="1K", help="OpenRouter image size tier, such as 1K, 2K, or 4K.")
+    parser.add_argument("--aspect-ratio", default="16:9", help="Provider-specific aspect ratio value.")
+    parser.add_argument("--max-parallel-requests", type=int, default=10, help="Maximum parallel image requests.")
+    return parser.parse_args()
+
+
+def main() -> None:
+    args = parse_args()
+    config_builder = build_config(
+        model_provider=args.model_provider,
+        model_id=args.model_id,
+        model_alias=args.model_alias,
+        image_size=args.image_size,
+        aspect_ratio=args.aspect_ratio,
+        max_parallel_requests=args.max_parallel_requests,
+    )
+    results = create_dataset(
+        config_builder,
+        num_records=args.num_records,
+        dataset_name=args.dataset_name,
+        artifact_path=args.artifact_path,
+    )
+    dataset = results.load_dataset()
+    print(f"Generated {len(dataset)} drone aerial inspection image rows.")
+    print(f"Dataset artifacts: {results.artifact_storage.base_dataset_path}")
+
+
+if __name__ == "__main__":
+    main()
+```

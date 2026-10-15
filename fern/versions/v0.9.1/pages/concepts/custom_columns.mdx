@@ -92,6 +92,8 @@ def my_generator(row: dict, generator_params: None, models: dict) -> dict:
 
 This gives you direct access to all `ModelFacade` capabilities: custom parsers, correction loops, structured output, tool use, etc.
 
+Other keyword arguments to `generate()` are sent with each model request: request fields such as `temperature`, `max_tokens`, or `tool_choice`, and an `extra_body` merged as described in [Extra Body Precedence](/concepts/models/inference-parameters#extra-body-precedence). `tool_choice` uses OpenAI's format and is translated for Anthropic providers; with `tool_alias`, it applies only until the model's first tool call. Arguments that aren't request fields are dropped with a warning.
+
 ## Configuration
 
 | Parameter | Type | Required | Description |

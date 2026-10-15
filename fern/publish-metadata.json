@@ -4,9 +4,9 @@
   "action": "release-snapshot",
   "source": {
     "repository": "NVIDIA-NeMo/DataDesigner",
-    "ref": "v0.9.4",
-    "sha": "6a3c73a719de9e983c1aead62c65cf0388b437d0"
+    "ref": "v0.9.5",
+    "sha": "e09cc4c910fe252142572c2935f606a39e39a475"
   },
-  "release_tag": "v0.9.4",
+  "release_tag": "v0.9.5",
   "published_branch": "docs-website"
 }
