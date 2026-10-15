@@ -4,12 +4,6 @@ Use a benchmark to compare concurrency and deployment topology while keeping eac
 
 Complete [Getting Started](/slurm/getting-started) first so the profile, images, and base run are ready.
 
-Install the Slurm extension:
-
-```bash
-pip install "data-designer[slurm]"
-```
-
 ## Define cases
 
 Create `benchmark.yaml` next to an existing `run.yaml`:
@@ -44,7 +38,7 @@ The compiler expands the authored order deterministically. For this example, the
 
 Each benchmark case runs as one Slurm array task, even when the base run uses multiple tasks. The record policy sets the sample size for that task. This measures the throughput of one allocation, which analysis uses to estimate how many such tasks are needed for `target_total_records` within `target_runtime`.
 
-`nodes_per_replica` controls the number of nodes in each pipeline-parallel group. The resolved replica count is `(nodes / nodes_per_replica) * (gpus_per_node / tensor_parallel)`, so it also depends on the selected profile and the base run's deployment topology.
+`nodes_per_replica` controls the number of nodes in each pipeline-parallel group. The resolved replica count is `(nodes / nodes_per_replica) * (gpus_per_node / tensor_parallel)`. Benchmark deployment cases change `nodes` and `nodes_per_replica`; they keep each deployment's `tensor_parallel` from the base run. See [GPU topology and replica count](/slurm/run-configuration#gpu-topology-and-replica-count) for concrete eight-GPU examples.
 
 ## Run
 
