@@ -139,7 +139,7 @@ After installation, invoke the `data-designer` skill or describe the dataset you
 
 This repository supports agent-assisted development — see [CONTRIBUTING.md](CONTRIBUTING.md) for the recommended workflow.
 
-- **[Contributing Guide](CONTRIBUTING.md)** – How to contribute, including agent-assisted workflows
+- **[Contributing Guide](CONTRIBUTING.md)** – How to contribute, including issue triage before external PRs and agent-assisted workflows
 - **[GitHub Issues](https://github.com/NVIDIA-NeMo/DataDesigner/issues)** – Report bugs or make a feature request
 
 ---

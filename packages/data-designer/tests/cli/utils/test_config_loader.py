@@ -68,13 +68,23 @@ def test_load_run_config_accepts_empty_mapping(tmp_path: Path) -> None:
     assert loaded.model_dump(exclude_unset=True) == {}
 
 
-def test_load_run_config_preserves_explicit_partial_fields(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("yaml_text", "expected"),
+    [
+        ("buffer_size: 250\ndisplay_tui: true\n", {"buffer_size": 250, "display_tui": True}),
+        ("disable_early_shutdown: true\n", {"disable_early_shutdown": True}),
+    ],
+    ids=["buffer-size-and-tui", "disable-early-shutdown-only"],
+)
+def test_load_run_config_preserves_explicit_partial_fields(
+    tmp_path: Path, yaml_text: str, expected: dict[str, object]
+) -> None:
     run_config_file = tmp_path / "run-config.yaml"
-    run_config_file.write_text("buffer_size: 250\ndisplay_tui: true\n")
+    run_config_file.write_text(yaml_text)
 
     loaded = load_run_config(str(run_config_file))
 
-    assert loaded.model_dump(exclude_unset=True) == {"buffer_size": 250, "display_tui": True}
+    assert loaded.model_dump(exclude_unset=True) == expected
 
 
 def test_load_run_config_preserves_partial_nested_fields(tmp_path: Path) -> None:

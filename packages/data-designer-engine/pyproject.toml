@@ -34,9 +34,10 @@ bump = true
 [tool.hatch.metadata.hooks.uv-dynamic-versioning]
 dependencies = [
     "anyascii>=0.3.3,<1",
+    "anyio>=4.14.2,<5", # 4.14.2 fixes AnyIO security advisories pulled in by HTTP clients
     "asciichartpy>=1.5.25,<2",
     "chardet>=3.0.2,<6",  # Pulled in by sqlfluff
-    "cryptography>=48.0.1,<=49",
+    "cryptography>=50.0.0,<51", # 50.0.0 fixes certificate and PKCS#7 security advisories
     "data-designer-config=={{ version }}",
     "duckdb>=1.5.0,<2",
     "faker>=20.1.0,<21",
@@ -53,10 +54,10 @@ dependencies = [
     "mcp>=1.29.0,<2", # 1.29.0 fixes MCP security advisories
     "networkx>=3.0,<4",
     "numpy>=1.23.5,<3",
-    "pandas>=2.3.3,<3",
+    "pandas>=2.3.3,<4",
     "pyarrow>=24,<25", # 24.0.0 fixes PyArrow security advisories
     "pydantic>=2.9.2,<3",
-    "pyjwt[crypto]>=2.13.0,<3", # 2.13.0 fixes PyJWT security advisories pulled in by mcp
+    "pyjwt[crypto]>=2.15.0,<3", # 2.15.0 fixes PyJWT security advisories pulled in by mcp
     "python-multipart>=0.0.32,<1", # 0.0.32 addresses multipart security advisories pulled in by mcp
     "rich>=13.7.1,<15",
     "ruff>=0.14.10,<1",

@@ -7,10 +7,11 @@ import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from httpx_retries import Retry, RetryTransport
+import data_designer.lazy_heavy_imports as lazy
 
 if TYPE_CHECKING:
     import httpx
+    from httpx_retries import RetryTransport
 
 logger = logging.getLogger(__name__)
 
@@ -72,13 +73,13 @@ def create_retry_transport(
                 sorted(reserved_overlap),
             )
             status_codes = status_codes - _RESERVED_STATUS_CODES
-    retry = Retry(
+    retry = lazy.httpx_retries.Retry(
         total=cfg.max_retries,
         backoff_factor=cfg.backoff_factor,
         backoff_jitter=cfg.backoff_jitter,
         max_backoff_wait=cfg.max_backoff_wait,
         status_forcelist=status_codes,
         respect_retry_after_header=True,
-        allowed_methods=Retry.RETRYABLE_METHODS | frozenset(["POST"]),
+        allowed_methods=lazy.httpx_retries.Retry.RETRYABLE_METHODS | frozenset(["POST"]),
     )
-    return RetryTransport(transport=transport, retry=retry)
+    return lazy.httpx_retries.RetryTransport(transport=transport, retry=retry)

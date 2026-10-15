@@ -493,7 +493,8 @@ def test_run_config_setting_persists(stub_artifact_path, stub_model_providers):
         )
     )
     assert data_designer.run_config.disable_early_shutdown is True
-    assert data_designer.run_config.shutdown_error_rate == 1.0  # normalized when disabled
+    assert data_designer.run_config.shutdown_error_rate == 0.8
+    assert data_designer.run_config.effective_shutdown_error_rate == 1.0
     assert data_designer.run_config.shutdown_error_window == 25
     assert data_designer.run_config.buffer_size == 500
     assert data_designer.run_config.max_in_flight_tasks == 1536
@@ -563,8 +564,8 @@ def test_resource_provider_uses_otel_sink_only_when_enabled(
         assert create_provider.call_args.kwargs["scheduler_event_sink"] is None
 
 
-def test_run_config_normalizes_error_rate_when_disabled(stub_artifact_path, stub_model_providers):
-    """Test that shutdown_error_rate is normalized to 1.0 when disabled."""
+def test_run_config_keeps_error_rate_when_disabled(stub_artifact_path, stub_model_providers):
+    """Test that shutdown_error_rate round-trips and only the effective rate is 1.0 when disabled."""
     data_designer = DataDesigner(artifact_path=stub_artifact_path, model_providers=stub_model_providers)
 
     # When enabled (default), shutdown_error_rate should use the configured value
@@ -576,14 +577,15 @@ def test_run_config_normalizes_error_rate_when_disabled(stub_artifact_path, stub
     )
     assert data_designer.run_config.shutdown_error_rate == 0.7
 
-    # When disabled, shutdown_error_rate should be normalized to 1.0
+    # When disabled, shutdown_error_rate keeps the configured value; the effective rate is 1.0
     data_designer.set_run_config(
         RunConfig(
             disable_early_shutdown=True,
             shutdown_error_rate=0.7,
         )
     )
-    assert data_designer.run_config.shutdown_error_rate == 1.0
+    assert data_designer.run_config.shutdown_error_rate == 0.7
+    assert data_designer.run_config.effective_shutdown_error_rate == 1.0
 
 
 def test_get_models_uses_sync_clients(stub_artifact_path, stub_model_providers):
@@ -1668,6 +1670,45 @@ def test_validate_raises_error_when_seed_collides(
 
     with pytest.raises(InvalidConfigError):
         data_designer.validate(config_builder)
+
+
+def test_validate_with_literal_braces_in_prompts(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_check_models_model_configs: list[ModelConfig],
+    stub_managed_assets_path: Path,
+) -> None:
+    """Literal braces that are valid Jinja text must not crash validation.
+
+    Regression test for #904: an unmatched ``}`` in a prompt or an unmatched ``{``
+    in a system prompt is invalid f-string syntax but valid Jinja text, so the
+    f-string advisory check must not leak ``ValueError`` from ``string.Formatter``.
+    """
+    config_builder = DataDesignerConfigBuilder(model_configs=stub_check_models_model_configs)
+    config_builder.add_column(
+        SamplerColumnConfig(
+            name="topic",
+            sampler_type=SamplerType.CATEGORY,
+            params=CategorySamplerParams(values=["science"]),
+        )
+    )
+    config_builder.add_column(
+        LLMTextColumnConfig(
+            name="story",
+            model_alias="stub-model",
+            prompt="Write about {{ topic }}. End with a literal } brace.",
+            system_prompt="Open every answer with a literal { brace.",
+        )
+    )
+
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+    )
+
+    assert data_designer.validate(config_builder) is None
 
 
 def test_init_auto_configures_logging_by_default(

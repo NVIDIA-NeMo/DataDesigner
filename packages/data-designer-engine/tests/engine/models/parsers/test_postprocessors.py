@@ -1,6 +1,12 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from __future__ import annotations
+
+import json
+
+import pytest
+
 import data_designer.engine.models.parsers.postprocessors as post
 from data_designer.engine.models.parsers.types import (
     CodeBlock,
@@ -14,6 +20,24 @@ KNOWN_POSTPROCESSORS = [
     post.merge_text_blocks,
     post.deserialize_json_code,
 ]
+
+
+@pytest.mark.parametrize("value", [{"answer": 42}, [1, 2], {}, [], 0, False, None, ""])
+def test_deserialize_bare_json(value: object) -> None:
+    raw = json.dumps(value)
+    response = LLMStructuredResponse(response=raw, markup="", parsed=[TextBlock(text="rendered text")])
+
+    result = post.deserialize_json_code(response)
+
+    assert result.parsed == [StructuredDataBlock(serialized=raw, obj=value)]
+    assert response.parsed == [TextBlock(text="rendered text")]
+
+
+@pytest.mark.parametrize("constant", ["NaN", "Infinity", "-Infinity"])
+def test_deserialize_bare_json_rejects_nonstandard_constants(constant: str) -> None:
+    raw = f'{{"answer": {constant}}}'
+    response = LLMStructuredResponse(response=raw, markup="", parsed=[TextBlock(text=raw)])
+    assert post.deserialize_json_code(response).parsed == response.parsed
 
 
 def test_protocol_adherence_postprocessors():

@@ -138,7 +138,7 @@ def test_dataset_column_convert_datetime_format(stub_schema_builder):
     )
     generator = DatasetGenerator(sampler_columns=stub_schema_builder.to_sampler_columns())
     dataset = generator.generate(NUM_SAMPLES)
-    assert dataset["col_1"].dtype == "object"
+    assert lazy.pd.api.types.is_string_dtype(dataset["col_1"].dtype)
     assert dataset["col_1"].str.contains(r"\d{2}/\d{2}/\d{4}").all()
     assert lazy.pd.to_datetime(dataset["col_1"], format="%m/%d/%Y").notna().all()
 
@@ -183,7 +183,7 @@ def test_datetime_output_round_trips_through_pd_to_datetime(stub_schema_builder)
     dataset = generator.generate(50)
     parsed = lazy.pd.to_datetime(dataset["ts"])
     assert parsed.notna().all()
-    assert parsed.dtype == "datetime64[ns]"
+    assert lazy.pd.api.types.is_datetime64_any_dtype(parsed.dtype)
 
 
 def test_timedelta_single_record(stub_schema_builder):

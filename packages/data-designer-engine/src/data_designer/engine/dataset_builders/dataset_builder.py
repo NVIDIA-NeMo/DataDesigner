@@ -843,7 +843,7 @@ class DatasetBuilder:
                 num_records,
                 buffer_size,
                 on_finalize_row_group=finalize_row_group,
-                shutdown_error_rate=settings.shutdown_error_rate,
+                shutdown_error_rate=settings.effective_shutdown_error_rate,
                 shutdown_error_window=settings.shutdown_error_window,
                 disable_early_shutdown=settings.disable_early_shutdown,
                 trace=trace_enabled,
