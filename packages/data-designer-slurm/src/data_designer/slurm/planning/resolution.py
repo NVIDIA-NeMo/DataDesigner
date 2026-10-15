@@ -36,6 +36,7 @@ from data_designer.slurm.planning.models import (
     ResolvedImage,
     ResolvedInvocation,
     ResolvedSubmission,
+    derive_deployment_placement,
 )
 
 __all__: list[str] = []
@@ -179,6 +180,17 @@ def validate_effective_slurm_config(
 
     _validate_dependency_resolution(authored, effective.client_runtime, effective.dependency_lock)
     _validate_resolved_images(authored, effective.deployment_images)
+    derive_deployment_placement(authored.deployments, effective.resolved_gpus_per_node)
+    shared_images: dict[str, ResolvedImage] = {}
+    for deployment, image in zip(authored.deployments, effective.deployment_images, strict=True):
+        group = deployment.resources.shared_node
+        if group is None:
+            continue
+        if profile.gpu_request_mode != "gres":
+            raise SlurmConfigResolutionError("shared_node requires GRES GPU request mode")
+        first = shared_images.setdefault(group, image)
+        if (image.path, image.sha256, image.inspection_facts) != (first.path, first.sha256, first.inspection_facts):
+            raise SlurmConfigResolutionError("shared_node requires the same resolved serving image")
     _validate_sharding_constraints(authored, builder_payload=effective.builder_payload)
     managed_assets_path = effective.invocation.effective_input_bindings.managed_assets_path
     assert managed_assets_path is not None

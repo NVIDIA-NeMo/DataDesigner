@@ -145,6 +145,11 @@ class OneNodeAllocationController:
     ) -> None:
         if poll_interval_seconds <= 0 or probe_timeout_seconds <= 0:
             raise ValueError("runtime probe intervals must be positive")
+        if any(deployment.authored.resources.shared_node is not None for deployment in context.plan.deployments):
+            raise SlurmRuntimeError(
+                SlurmRuntimeErrorCode.INVALID_CONTEXT,
+                "shared_node requires the coordinated allocation runtime",
+            )
         self._context = context
         self._runtime_proxy_path = runtime_proxy_path
         self._runtime_root = runtime_root if runtime_root is not None else runtime_proxy_path.parent

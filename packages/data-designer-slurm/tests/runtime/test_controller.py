@@ -10,13 +10,14 @@ from pathlib import Path
 from typing import Callable
 
 import pytest
-from conftest import FakeClientStepBuilder, FakePreflight, FakeStateStore, RuntimeCase
+from conftest import FakeClientStepBuilder, FakePreflight, FakeStateStore, RuntimeCase, relocate_plan
 from slurm_test_fakes import FakeClock
 
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.slurm.client import ClientOutcome, ClientResult
 from data_designer.slurm.config import DataDesignerSlurmConfig
 from data_designer.slurm.contracts import ArtifactReference
+from data_designer.slurm.planning import ResolvedSlurmRunPlan
 from data_designer.slurm.runtime.controller import OneNodeAllocationController
 from data_designer.slurm.runtime.errors import SlurmRuntimeError, SlurmRuntimeErrorCode
 from data_designer.slurm.runtime.models import RuntimeStep, RuntimeStepRole
@@ -41,6 +42,29 @@ from data_designer.slurm.state import (
 from data_designer.slurm.state.artifacts import compute_candidate_schema_digest
 
 _ALLOCATION_ENVIRONMENT = {"SLURM_JOB_GPUS": "0"}
+
+
+def test_independent_controller_rejects_shared_plan_before_startup(
+    runtime_case: RuntimeCase,
+    shared_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    plan = relocate_plan(shared_node_plan, runtime_case.workspace)
+    context = replace(runtime_case.context, plan=plan, shard=plan.shards[0])
+    clock = FakeClock(runtime_case.created_at)
+    runner = _FakeRunner()
+    with pytest.raises(SlurmRuntimeError, match="coordinated"):
+        OneNodeAllocationController(
+            context,
+            runtime_proxy_path=context.attempt_directory / "runtime/proxy.py",
+            state=FakeStateStore(context.attempt),
+            supervisor=_supervisor(runner, clock),
+            preflight=FakePreflight(),
+            client_steps=FakeClientStepBuilder(),
+            prober=_FakeProber(ready=True, clock=clock),
+            clock=clock,
+            environment=_ALLOCATION_ENVIRONMENT,
+        )
+    assert not runner.steps
 
 
 @dataclass(slots=True)

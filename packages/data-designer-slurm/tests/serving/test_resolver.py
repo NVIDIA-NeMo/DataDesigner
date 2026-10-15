@@ -63,6 +63,18 @@ def test_multi_node_replica_resolution_matches_golden(multi_replica_plan: Resolv
     assert resolved.logical_endpoint.load_balancing == "least_connections"
 
 
+def test_resolution_preserves_io_processor_plugin(single_node_plan: ResolvedSlurmRunPlan) -> None:
+    placement = single_node_plan.deployments[0]
+    server = placement.authored.server.model_copy(update={"io_processor_plugin": "deberta_gliner_io"})
+    authored = placement.authored.model_copy(update={"server": server})
+    plan = _plan_with_placement(single_node_plan, placement.model_copy(update={"authored": authored}))
+
+    resolved = _resolve(plan, placement.deployment_id)
+
+    assert resolved.launch_policy.io_processor_plugin == "deberta_gliner_io"
+    assert ResolvedVllmServerDeployment.model_validate_json(resolved.model_dump_json()) == resolved
+
+
 def test_multiple_two_node_groups_preserve_global_replica_order_and_delays(
     multi_node_plan: ResolvedSlurmRunPlan,
 ) -> None:

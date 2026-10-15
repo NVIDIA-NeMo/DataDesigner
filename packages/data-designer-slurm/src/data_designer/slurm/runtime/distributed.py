@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 from data_designer.slurm.planning import ResolvedSlurmRunPlan
-from data_designer.slurm.runtime.node_spec import NodeProcessSpec, NodeSpec, NodeWorkerSpec
+from data_designer.slurm.runtime.node_spec import NodeProcessSpec, NodeReadinessSpec, NodeSpec, NodeWorkerSpec
 from data_designer.slurm.runtime.paths import get_container_path
 from data_designer.slurm.runtime.preflight import AllocationLayout
 from data_designer.slurm.runtime.steps import build_vllm_command
@@ -18,36 +18,65 @@ def build_node_worker_spec(
     deployment: ResolvedVllmServerDeployment,
     plan: ResolvedSlurmRunPlan,
     layout: AllocationLayout,
+    *,
+    colocated_deployments: tuple[ResolvedVllmServerDeployment, ...] = (),
 ) -> NodeWorkerSpec:
     """Build the validated work assigned to each node in one deployment."""
     model = _resolve_model(deployment, plan)
+    deployments = (deployment, *colocated_deployments)
+    assigned_gpus = [
+        (process.node_index, gpu)
+        for member in deployments
+        for process in member.processes
+        for gpu in process.gpu_indices
+    ]
+    sharing = len(set(assigned_gpus)) != len(assigned_gpus)
     nodes = tuple(
         NodeSpec(
             node_index=node_index,
             host=layout.get_host(node_index),
-            ports=_get_node_ports(deployment, node_index),
+            ports=tuple(sorted(port for member in deployments for port in _get_node_ports(member, node_index))),
             processes=tuple(
-                NodeProcessSpec(
-                    process_id=process.process_id,
-                    command=(
-                        build_vllm_command(deployment, process, plan)
-                        if len(layout.node_hosts) == 1
-                        else build_vllm_process_command(deployment, process, plan, layout)
+                sorted(
+                    (
+                        NodeProcessSpec(
+                            process_id=process.process_id,
+                            command=(
+                                build_vllm_command(member, process, plan)
+                                if len(layout.node_hosts) == 1
+                                else build_vllm_process_command(member, process, plan, layout)
+                            ),
+                            gpu_indices=tuple(process.gpu_indices),
+                            launch_delay_seconds=process.launch_delay_seconds,
+                            readiness=NodeReadinessSpec(
+                                port=member.backend_endpoints[process.deployment_replica_index].port,
+                                path=member.launch_policy.readiness_path,
+                                deadline_seconds=member.launch_policy.startup_timeout_seconds,
+                            )
+                            if sharing
+                            else None,
+                        )
+                        for member in deployments
+                        for process in member.processes
+                        if process.node_index == node_index
                     ),
-                    gpu_indices=tuple(process.gpu_indices),
-                    launch_delay_seconds=process.launch_delay_seconds,
+                    key=lambda process: process.launch_delay_seconds,
                 )
-                for process in deployment.processes
-                if process.node_index == node_index
             ),
         )
         for node_index in deployment.node_indices
     )
     return NodeWorkerSpec(
         schema_version=1,
-        resolved_gpus_per_node=deployment.gpus_per_node,
-        required_model_path=model if deployment.model.startswith("/") else None,
+        resolved_gpus_per_node=plan.resolved_gpus_per_node if colocated_deployments else deployment.gpus_per_node,
+        required_model_path=model if deployment.model.startswith("/") and not colocated_deployments else None,
         nodes=nodes,
+        required_model_paths=tuple(
+            _resolve_model(member, plan) for member in deployments if member.model.startswith("/")
+        )
+        if colocated_deployments
+        else (),
+        allow_gpu_sharing=sharing,
     )
 
 
@@ -82,6 +111,8 @@ def build_vllm_process_command(
     )
     if deployment.launch_policy.enable_expert_parallel:
         command += ("--enable-expert-parallel",)
+    if deployment.launch_policy.io_processor_plugin is not None:
+        command += ("--io-processor-plugin", deployment.launch_policy.io_processor_plugin)
     return command + deployment.launch_policy.extra_args
 
 

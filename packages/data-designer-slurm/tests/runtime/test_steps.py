@@ -18,8 +18,10 @@ from data_designer.slurm.runtime.backpressure import (
     MAX_WAITING_REQUESTS_ENVIRONMENT,
     RETRY_AFTER_SECONDS_ENVIRONMENT,
 )
+from data_designer.slurm.runtime.distributed import build_vllm_process_command
 from data_designer.slurm.runtime.errors import SlurmRuntimeError
 from data_designer.slurm.runtime.models import RuntimeEndpoint, RuntimeStepRole
+from data_designer.slurm.runtime.preflight import AllocationLayout
 from data_designer.slurm.runtime.steps import (
     DefaultClientStepBuilder,
     build_endpoint_steps,
@@ -139,6 +141,28 @@ def test_vllm_command_maps_absolute_model_path(runtime_case: RuntimeCase) -> Non
     command = build_vllm_command(deployment, deployment.processes[0], plan)
 
     assert command[2] == "/workspace/primary/models/generator"
+
+
+@pytest.mark.parametrize("plugin", [None, "deberta_gliner_io"])
+@pytest.mark.parametrize("plan_fixture", ["single_node_plan", "multi_node_plan", "shared_node_plan"])
+def test_vllm_commands_preserve_typed_io_processor_plugin(
+    request: pytest.FixtureRequest, plan_fixture: str, plugin: str | None
+) -> None:
+    plan = request.getfixturevalue(plan_fixture)
+    deployment = resolve_vllm_server(plan, plan.deployments[0].deployment_id)
+    policy = deployment.launch_policy.model_copy(update={"io_processor_plugin": plugin})
+    deployment = deployment.model_copy(update={"launch_policy": policy})
+    node_count = 1 + max(index for member in plan.deployments for index in member.node_indices)
+    layout = AllocationLayout(tuple(f"compute-{index}" for index in range(node_count)))
+
+    for process in deployment.processes:
+        commands = (build_vllm_process_command(deployment, process, plan, layout),)
+        if process.http_port is not None:
+            commands += (build_vllm_command(deployment, process, plan),)
+        for command in commands:
+            assert command.count("--io-processor-plugin") == (plugin is not None)
+            if plugin is not None:
+                assert command[command.index("--io-processor-plugin") + 1] == plugin
 
 
 def test_client_worker_receives_only_persisted_identity_and_logical_endpoint(runtime_case: RuntimeCase) -> None:

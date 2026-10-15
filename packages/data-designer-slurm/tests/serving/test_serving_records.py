@@ -12,7 +12,18 @@ from data_designer.slurm.config import ImageInspectionRecord
 from data_designer.slurm.planning import ResolvedSlurmRunPlan
 from data_designer.slurm.serving.deployment import ResolvedVllmServerDeployment
 from data_designer.slurm.serving.endpoints import ResolvedLogicalEndpoint
-from data_designer.slurm.serving.vllm import ResolvedVllmProcess
+from data_designer.slurm.serving.vllm import ResolvedVllmLaunchPolicy, ResolvedVllmProcess
+
+
+@pytest.mark.parametrize("plugin", ["", "../plugin", "plugin module", "--plugin", "plugin;exit", "x" * 129])
+def test_resolved_launch_policy_rejects_invalid_io_processor_plugin(
+    resolved_multi_replica_server: ResolvedVllmServerDeployment, plugin: str
+) -> None:
+    payload = resolved_multi_replica_server.launch_policy.model_dump(mode="json")
+    payload["io_processor_plugin"] = plugin
+
+    with pytest.raises(ValidationError, match="io_processor_plugin"):
+        ResolvedVllmLaunchPolicy.model_validate_json(json.dumps(payload))
 
 
 @pytest.mark.parametrize(
