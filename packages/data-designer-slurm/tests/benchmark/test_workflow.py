@@ -32,7 +32,9 @@ from data_designer.slurm.config import (
     FixedRecordPolicy,
 )
 from data_designer.slurm.contracts import ArtifactReference
-from data_designer.slurm.planning import ResolvedSlurmRunPlan
+from data_designer.slurm.planning import ResolvedDependencyLock, ResolvedSlurmRunPlan
+from data_designer.slurm.planning.compiler import SlurmRunCompiler
+from data_designer.slurm.planning.resolution import resolve_slurm_config
 from data_designer.slurm.services import (
     SlurmRunExecution,
     SlurmServiceError,
@@ -41,6 +43,72 @@ from data_designer.slurm.services import (
 )
 
 NOW = datetime(2026, 8, 19, 12, tzinfo=timezone.utc)
+
+
+@pytest.mark.parametrize(
+    ("gpu_start_index", "topology_digest"),
+    [
+        (None, "19380747e9269b80f4d64da44d67a1e010eb61923c34365792df18aab01bc9b7"),
+        (0, "59b41934fbfddc75c4e8d268533737d38c11580e6a041ca27e00ecd457e83dad"),
+        (1, "205f985652cf46653c02b5958d95e3b2fb2775dcec56a014ecdde9bd86093080"),
+    ],
+)
+def test_shared_benchmark_counts_physical_nodes_and_allocated_gpu_budget(
+    tmp_path: Path,
+    benchmark_config: DataDesignerSlurmBenchmarkConfig,
+    shared_node_config: DataDesignerSlurmConfig,
+    shared_node_plan: ResolvedSlurmRunPlan,
+    dependency_lock_single: ResolvedDependencyLock,
+    gpu_start_index: int | None,
+    topology_digest: str,
+) -> None:
+    payload = shared_node_config.model_dump(mode="python")
+    payload["deployments"][0]["resources"]["gpus_per_node"] = 2
+    payload["deployments"][1]["resources"]["gpu_start_index"] = gpu_start_index
+    base_run = DataDesignerSlurmConfig.model_validate(payload)
+    benchmark_payload = benchmark_config.model_dump(mode="python")
+    benchmark_payload.update(
+        base_run={"inline": base_run.model_dump(mode="python")},
+        model_aliases=["writer", "judge"],
+        concurrency_values=[1],
+        record_policy={"type": "fixed", "records": 4},
+        deployment_cases=[{"name": "shared", "deployments": {"writer": {"nodes": 1, "nodes_per_replica": 1}}}],
+    )
+    config = DataDesignerSlurmBenchmarkConfig.model_validate(benchmark_payload)
+    compiled = BenchmarkCompiler.compile(config, base_run)
+    store, manifest = _manifest(tmp_path, config, compiled)
+    case = compiled.cases[0]
+    expected = shared_node_plan
+    plan = SlurmRunCompiler.compile(
+        resolve_slurm_config(
+            case.child_run_config,
+            selected_profile=expected.selected_profile,
+            client_runtime=expected.client.runtime,
+            deployment_images=tuple(deployment.image for deployment in expected.deployments),
+            dependency_lock=dependency_lock_single,
+            runtime_bundle=expected.runtime_bundle,
+            run_id=case.child_run_id,
+            package_version=expected.package_version,
+        )
+    )
+    observer = _Observer(
+        {
+            case.child_run_id: BenchmarkRunObservation(
+                authored_config=case.child_run_config,
+                resolved_plan=plan,
+                outcome=BenchmarkOutcome.SUCCEEDED,
+                measurements=_measurements(4, 1, 2, 3, 1),
+            )
+        }
+    )
+    report = BenchmarkAnalyzer(observer, lambda: NOW).analyze(
+        config, base_run, manifest, store.manifest_reference(manifest), refresh_state=False
+    )
+    assert sum(deployment.gpus_per_node for deployment in plan.deployments) == 6
+    assert report.cases[0].nodes_per_job == 1
+    assert report.cases[0].gpus_per_job == 8
+    assert report.cases[0].gpu_hours_per_job == 32
+    assert report.cases[0].topology_digest == topology_digest
 
 
 class _Observer:

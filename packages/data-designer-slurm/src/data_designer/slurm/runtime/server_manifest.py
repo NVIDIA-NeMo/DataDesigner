@@ -33,30 +33,53 @@ def build_server_steps(
     layout: AllocationLayout,
 ) -> tuple[RuntimeStepSpec, ...]:
     """Build remote preflight entries followed by all serving entries."""
-    preflight_steps = tuple(
-        build_distributed_server_step(
-            deployment,
-            context,
-            runtime_container_root,
-            log_directory,
-            layout,
-            operation="preflight",
-        )
-        for deployment in deployments
-        if _requires_server_preflight(deployment, context)
-    )
-    serving_steps = tuple(
-        step
-        for deployment in deployments
-        for step in _build_deployment_serving_steps(
-            deployment,
-            context,
-            runtime_container_root,
-            log_directory,
-            layout,
-        )
-    )
-    return preflight_steps + serving_steps
+    group_by_id = {
+        deployment.deployment_id: deployment.authored.resources.shared_node for deployment in context.plan.deployments
+    }
+    groups: dict[tuple[str, str], list[ResolvedVllmServerDeployment]] = {}
+    for deployment in deployments:
+        group = group_by_id[deployment.deployment_id]
+        key = ("deployment", deployment.deployment_id) if group is None else ("shared", group)
+        groups.setdefault(key, []).append(deployment)
+    preflight_steps: list[RuntimeStepSpec] = []
+    serving_steps: list[RuntimeStepSpec] = []
+    for members in groups.values():
+        first, *others = members
+        if others or _requires_server_preflight(first, context):
+            preflight_steps.append(
+                build_distributed_server_step(
+                    first,
+                    context,
+                    runtime_container_root,
+                    log_directory,
+                    layout,
+                    operation="preflight",
+                    colocated_deployments=tuple(others),
+                )
+            )
+        if others:
+            serving_steps.append(
+                build_distributed_server_step(
+                    first,
+                    context,
+                    runtime_container_root,
+                    log_directory,
+                    layout,
+                    operation="serve",
+                    colocated_deployments=tuple(others),
+                )
+            )
+        else:
+            serving_steps.extend(
+                _build_deployment_serving_steps(
+                    first,
+                    context,
+                    runtime_container_root,
+                    log_directory,
+                    layout,
+                )
+            )
+    return tuple(preflight_steps + serving_steps)
 
 
 def build_distributed_server_step(
@@ -67,13 +90,14 @@ def build_distributed_server_step(
     layout: AllocationLayout,
     *,
     operation: Literal["preflight", "serve"],
+    colocated_deployments: tuple[ResolvedVllmServerDeployment, ...] = (),
 ) -> RuntimeStepSpec:
     """Build one coordinated node-worker step for a deployment."""
     literal_environment, secret_environment, environment_prefixes = _server_environment(
         deployment,
         runtime_container_root,
     )
-    worker_spec = build_node_worker_spec(deployment, context.plan, layout)
+    worker_spec = build_node_worker_spec(deployment, context.plan, layout, colocated_deployments=colocated_deployments)
     readiness = (
         tuple(
             RuntimeProbeSpec(
@@ -83,16 +107,24 @@ def build_distributed_server_step(
                 deadline_seconds=probe.deadline_seconds
                 + next(
                     process.launch_delay_seconds
-                    for process in deployment.processes
+                    for process in member.processes
                     if process.node_index == probe.node_index and process.http_port == probe.port
                 ),
             )
-            for probe in deployment.readiness_probes
+            for member in (deployment, *colocated_deployments)
+            for probe in member.readiness_probes
         )
         if operation == "serve"
         else ()
     )
     step_id = f"{deployment.deployment_id}-{operation}"
+    if worker_spec.allow_gpu_sharing:
+        launch_order = {
+            process.readiness.port: index
+            for index, process in enumerate(worker_spec.nodes[0].processes)
+            if process.readiness is not None
+        }
+        readiness = tuple(sorted(readiness, key=lambda probe: launch_order[probe.port]))
     return RuntimeStepSpec(
         step_id=step_id,
         role=RuntimeStepRole.SERVER if operation == "serve" else RuntimeStepRole.SERVER_PREFLIGHT,
@@ -106,7 +138,10 @@ def build_distributed_server_step(
             encode_node_worker_spec(worker_spec),
         ),
         cpus=context.plan.client.authored.cpus,
-        gpu_indices=tuple(range(deployment.gpus_per_node)),
+        gpu_indices=tuple(
+            range(context.plan.resolved_gpus_per_node if colocated_deployments else deployment.gpus_per_node)
+        ),
+        gpu_binding="none" if colocated_deployments else "mask",
         node_hosts=tuple(layout.get_host(index) for index in deployment.node_indices),
         kill_on_bad_exit=True,
         literal_environment=literal_environment,

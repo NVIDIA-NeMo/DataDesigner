@@ -3,23 +3,216 @@
 
 from __future__ import annotations
 
+import base64
+import json
+import os
+import subprocess
 import sys
+import tarfile
 import time
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import pytest
 
 from data_designer.slurm.runtime import node_worker as runtime_node_worker
+from data_designer.slurm.runtime.bundle import stage_runtime_bundle
 from data_designer.slurm.runtime.node_spec import (
     NodeProcessSpec,
+    NodeReadinessSpec,
     NodeSpec,
     NodeWorkerSpec,
     decode_node_worker_spec,
     encode_node_worker_spec,
 )
 from data_designer.slurm.runtime.node_worker import NodeProcessSupervisor
+
+
+@pytest.fixture
+def shared_gpu_spec() -> NodeWorkerSpec:
+    processes = tuple(
+        NodeProcessSpec(
+            f"lane-{index}",
+            ("serve",),
+            (0,),
+            0,
+            NodeReadinessSpec(port=18000 + index, path="/health", deadline_seconds=1),
+        )
+        for index in range(2)
+    )
+    return NodeWorkerSpec(1, 1, None, (NodeSpec(0, "compute-001", (18000, 18001), processes),), allow_gpu_sharing=True)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        None,
+        "policy",
+        "boolean",
+        "missing_probe",
+        "remote_probe",
+        "unowned_port",
+        "bad_path",
+        "bad_deadline",
+        "bad_port_type",
+        "outside",
+        "unknown",
+    ),
+)
+def test_shared_gpu_transport_requires_explicit_policy_and_valid_probes(
+    shared_gpu_spec: NodeWorkerSpec,
+    mutation: str | None,
+) -> None:
+    payload = json.loads(base64.urlsafe_b64decode(encode_node_worker_spec(shared_gpu_spec)))
+    process = payload["nodes"][0]["processes"][0]
+    if mutation == "policy":
+        del payload["allow_gpu_sharing"]
+    elif mutation == "boolean":
+        payload["allow_gpu_sharing"] = "true"
+    elif mutation == "missing_probe":
+        del process["readiness"]
+    elif mutation == "remote_probe":
+        process["readiness"]["host"] = "other-host"
+    elif mutation == "unowned_port":
+        process["readiness"]["port"] = 18002
+    elif mutation == "bad_path":
+        process["readiness"]["path"] = "health"
+    elif mutation == "bad_deadline":
+        process["readiness"]["deadline_seconds"] = 0
+    elif mutation == "bad_port_type":
+        process["readiness"]["port"] = "18000"
+    elif mutation == "outside":
+        process["gpu_indices"] = [1]
+    elif mutation == "unknown":
+        payload["unknown"] = True
+    encoded = base64.urlsafe_b64encode(json.dumps(payload).encode()).decode()
+    if mutation is None:
+        assert decode_node_worker_spec(encoded) == shared_gpu_spec
+    else:
+        with pytest.raises(ValueError):
+            decode_node_worker_spec(encoded)
+
+
+@pytest.mark.parametrize("outcome", ("ready", "failed", "cancelled", "timeout"))
+def test_shared_gpu_startup_waits_for_readiness_and_cleans_up(
+    shared_gpu_spec: NodeWorkerSpec,
+    monkeypatch: pytest.MonkeyPatch,
+    outcome: str,
+) -> None:
+    children: list[_FakeProcess] = []
+    events: list[str] = []
+    clock = [0.0]
+    supervisor = NodeProcessSupervisor(environment={})
+
+    def start(*args: object, **kwargs: object) -> _FakeProcess:
+        del args
+        events.append("start")
+        environment = kwargs["env"]
+        assert isinstance(environment, dict)
+        assert environment["CUDA_VISIBLE_DEVICES"] == "GPU-remapped"
+        child = _FakeProcess(pid=40 + len(children), returncode=23 if children else None)
+        children.append(child)
+        return child
+
+    def probe(*args: object, **kwargs: object) -> bool:
+        del args, kwargs
+        events.append("probe")
+        if outcome == "failed":
+            children[0].returncode = 23
+        elif outcome == "cancelled":
+            supervisor.request_stop()
+        elif outcome == "timeout":
+            clock[0] = 2.0
+        return outcome == "ready"
+
+    monkeypatch.setattr(runtime_node_worker.subprocess, "Popen", start)
+    monkeypatch.setattr(runtime_node_worker.HttpReadinessProber, "is_ready", probe)
+    monkeypatch.setattr(runtime_node_worker.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(
+        runtime_node_worker, "_signal_process_group", lambda child, selected: setattr(child, "returncode", -15)
+    )
+    if outcome == "timeout":
+        with pytest.raises(RuntimeError, match="readiness timed out"):
+            supervisor.run(shared_gpu_spec.nodes[0], ("GPU-remapped",))
+    else:
+        assert supervisor.run(shared_gpu_spec.nodes[0], ("GPU-remapped",)) == (1 if outcome == "cancelled" else 23)
+    assert events == (["start", "probe", "start"] if outcome == "ready" else ["start", "probe"])
+    assert supervisor.cleanup_complete
+    assert all(child.poll() is not None for child in children)
+
+
+@pytest.mark.parametrize("visible", ("0", "7", "GPU-remapped"))
+def test_shared_gpu_real_children_wait_for_health_and_receive_the_same_device(
+    shared_gpu_spec: NodeWorkerSpec,
+    tmp_path: Path,
+    unused_tcp_port: int,
+    visible: str,
+) -> None:
+    first, second = tmp_path / "first", tmp_path / "second"
+    program = f"""
+import os, time
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from pathlib import Path
+
+class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+
+Path({str(first)!r}).write_text(os.environ['CUDA_VISIBLE_DEVICES'])
+time.sleep(0.2)
+HTTPServer(('127.0.0.1', {unused_tcp_port}), Handler).serve_forever()
+"""
+    follower = (
+        "import os; from pathlib import Path; from urllib.request import urlopen; "
+        f"urlopen('http://127.0.0.1:{unused_tcp_port}/health',timeout=1).close(); "
+        f"Path({str(second)!r}).write_text(os.environ['CUDA_VISIBLE_DEVICES']); raise SystemExit(23)"
+    )
+    head, tail = shared_gpu_spec.nodes[0].processes
+    assert head.readiness is not None
+    head = replace(
+        head,
+        command=(sys.executable, "-c", program),
+        readiness=replace(head.readiness, port=unused_tcp_port, deadline_seconds=3),
+    )
+    tail = replace(tail, command=(sys.executable, "-c", follower))
+    node = replace(shared_gpu_spec.nodes[0], ports=tuple(sorted((unused_tcp_port, 18001))), processes=(head, tail))
+    spec = decode_node_worker_spec(encode_node_worker_spec(replace(shared_gpu_spec, nodes=(node,))))
+    supervisor = NodeProcessSupervisor(environment={})
+    assert supervisor.run(spec.nodes[0], (visible,)) == 23
+    assert supervisor.cleanup_complete
+    assert first.read_text() == second.read_text() == visible
+
+
+def test_bundled_node_worker_imports_without_client_packages(tmp_path: Path) -> None:
+    workspace, extracted = tmp_path / "workspace", tmp_path / "extracted"
+    workspace.mkdir(mode=0o700)
+    bundle = stage_runtime_bundle(workspace)
+    with tarfile.open(bundle.path) as archive:
+        archive.extractall(extracted, filter="data")
+    program = """
+import importlib.abc
+import sys
+
+class NoClientPackages(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path, target=None):
+        if fullname in {'data_designer.config', 'data_designer.engine', 'data_designer.interface'}:
+            raise ModuleNotFoundError(fullname)
+
+sys.meta_path.insert(0, NoClientPackages())
+from data_designer.slurm.runtime import node_worker
+assert 'data_designer.slurm.planning' not in sys.modules
+print(node_worker.__file__, end='')
+"""
+    result = subprocess.run(
+        (sys.executable, "-c", program),
+        env={**os.environ, "PYTHONPATH": str(extracted)},
+        text=True,
+        capture_output=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == str(extracted / "data_designer/slurm/runtime/node_worker.py")
 
 
 def test_node_worker_spec_round_trips_and_rejects_untrusted_payload() -> None:

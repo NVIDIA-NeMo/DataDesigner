@@ -18,7 +18,7 @@ from data_designer.slurm.config.vllm_validation import (
     validate_vllm_readiness_path,
 )
 from data_designer.slurm.contracts import AuthoredConfig
-from data_designer.slurm.types import Duration, EnvironmentName, NonNegativeDuration
+from data_designer.slurm.types import Duration, EnvironmentName, Identifier, NonNegativeDuration
 
 __all__ = [
     "QueueBackpressureConfig",
@@ -53,6 +53,7 @@ class VllmServerConfig(AuthoredConfig):
         rank_launch_stagger: Additional delay per deployment-wide replica index.
         readiness_path: Absolute HTTP path used for readiness probes.
         enable_expert_parallel: Whether vLLM expert parallelism is requested.
+        io_processor_plugin: Registered vLLM IO processor plugin name.
         queue_backpressure: Logical-endpoint queue admission policy.
         extra_args: Additional shell-free vLLM argv items not reserved by orchestration.
         environment: Explicit literal or secret-reference environment bindings.
@@ -66,6 +67,7 @@ class VllmServerConfig(AuthoredConfig):
     rank_launch_stagger: NonNegativeDuration = "5s"
     readiness_path: str = "/health"
     enable_expert_parallel: bool = False
+    io_processor_plugin: Identifier | None = Field(default=None, exclude_if=lambda value: value is None)
     queue_backpressure: QueueBackpressureConfig = Field(default_factory=QueueBackpressureConfig)
     extra_args: list[str] = Field(default_factory=list)
     environment: dict[EnvironmentName, EnvironmentBinding] = Field(default_factory=dict)
