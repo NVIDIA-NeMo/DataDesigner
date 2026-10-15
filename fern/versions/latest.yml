@@ -178,7 +178,7 @@ navigation:
       - page: Chart Understanding
         path: ./latest/pages/devnotes/posts/chart-understanding.mdx
       - page: Nemotron Indic Translation
-        path: ./latest/pages/devnotes/posts/nemotron-bharat-translation.mdx
+        path: ./latest/pages/devnotes/posts/nemotron-indic-translation.mdx
       - page: Pause, Inspect, Resume
         path: ./latest/pages/devnotes/posts/annotate-hard-pages-review-gates.mdx
       - page: Image Generation for Multimodal Data Pipelines
