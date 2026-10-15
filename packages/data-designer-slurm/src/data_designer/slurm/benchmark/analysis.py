@@ -275,18 +275,22 @@ def _validate_and_get_requested_records(
     manifest: BenchmarkManifest,
 ) -> tuple[int, ...]:
     try:
-        compiled = BenchmarkCompiler.compile(config, base_run)
+        compiled_versions = (
+            BenchmarkCompiler.compile(config, base_run),
+            BenchmarkCompiler._compile(config, base_run, legacy=True),
+        )
     except ValueError as error:
         raise BenchmarkManifestMismatchError("benchmark configuration cannot reproduce its children") from error
-    expected = tuple(
-        (case.case_id, case.child_run_id, case.child_run_config.compute_sha256()) for case in compiled.cases
-    )
     actual = tuple(
         (child.case_id, child.child_run_id, child.child_authored_config.sha256) for child in manifest.children
     )
-    if manifest.benchmark_id != compiled.benchmark_id or actual != expected:
-        raise BenchmarkManifestMismatchError("benchmark manifest does not match deterministic child expansion")
-    return tuple(case.child_run_config.invocation.num_records for case in compiled.cases)
+    for compiled in compiled_versions:
+        expected = tuple(
+            (case.case_id, case.child_run_id, case.child_run_config.compute_sha256()) for case in compiled.cases
+        )
+        if manifest.benchmark_id == compiled.benchmark_id and actual == expected:
+            return tuple(case.child_run_config.invocation.num_records for case in compiled.cases)
+    raise BenchmarkManifestMismatchError("benchmark manifest does not match deterministic child expansion")
 
 
 def _update_result(result: BenchmarkCaseResult, **updates: object) -> BenchmarkCaseResult:
