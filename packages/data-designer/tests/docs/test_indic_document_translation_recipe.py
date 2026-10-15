@@ -12,6 +12,7 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pandas as pd
+import pyarrow as pa
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -273,13 +274,28 @@ def test_create_dataset_forwards_record_count_and_artifact_path(
     )
 
 
+# Data Designer returns judge output as Arrow struct columns; pandas cannot read these back
+# from a parquet file that carries them in its pandas metadata.
+EVALUATION_DTYPE = pd.ArrowDtype(
+    pa.struct(
+        [
+            ("analysis", pa.string()),
+            ("error_analysis", pa.list_(pa.null())),
+            ("justification", pa.string()),
+            ("overall_score", pa.int64()),
+        ]
+    )
+)
+
+
 class _FakeResults:
     def load_dataset(self) -> pd.DataFrame:
+        evaluation = {"analysis": "ok", "error_analysis": [], "justification": "good", "overall_score": 92}
         return pd.DataFrame(
             {
                 "text": ["hello"],
                 "translation": ["नमस्ते"],
-                "translation_evaluation": [{"overall_score": 92, "error_analysis": []}],
+                "translation_evaluation": pd.Series([evaluation], dtype=EVALUATION_DTYPE),
                 "translation_overall_score": [92],
             }
         )
@@ -293,6 +309,7 @@ def test_save_output_writes_parquet_and_creates_parent_directories(recipe: Modul
     written = pd.read_parquet(output_path)
     assert list(written["translation"]) == ["नमस्ते"]
     assert list(written["translation_overall_score"]) == [92]
+    assert written["translation_evaluation"][0]["overall_score"] == 92
 
 
 def test_save_output_writes_readable_indic_text_to_jsonl(recipe: ModuleType, tmp_path: Path) -> None:

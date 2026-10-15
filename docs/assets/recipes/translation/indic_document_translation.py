@@ -64,6 +64,8 @@ from __future__ import annotations
 from argparse import ArgumentParser
 from pathlib import Path
 
+import pyarrow as pa
+import pyarrow.parquet as pq
 from data_designer_nemotron_indic_translation.config import DocumentTranslationConfig
 
 import data_designer.config as dd
@@ -162,7 +164,9 @@ def save_output(results: DatasetCreationResults, output_path: Path) -> None:
     dataset = results.load_dataset()
     output_path.parent.mkdir(parents=True, exist_ok=True)
     if output_path.suffix == ".parquet":
-        dataset.to_parquet(output_path, index=False)
+        # Writing without pandas metadata keeps the judge's struct columns readable with pandas.read_parquet.
+        table = pa.Table.from_pandas(dataset, preserve_index=False).replace_schema_metadata(None)
+        pq.write_table(table, output_path)
     else:
         # force_ascii=False writes Indic scripts as readable characters.
         dataset.to_json(output_path, orient="records", lines=True, force_ascii=False)
