@@ -29,6 +29,8 @@ In an interactive terminal, `execute` reports when it invokes `sbatch` with the 
 
 Use `--profile-file` and `--cluster` on any command when the defaults are not appropriate.
 
+For GPU allocation, tensor parallelism, replica counts, and array task concurrency, see [Scale runs](/slurm/run-configuration#scale-runs) in Run Configuration. `status` reports the resulting run and shard state; topology is chosen in the run file before submission.
+
 ## Inspect status
 
 ```bash
