@@ -14,10 +14,16 @@ from unittest.mock import MagicMock
 import pandas as pd
 import pytest
 
-pytest.importorskip("data_designer_nemotron_indic_translation")
-
 REPO_ROOT = Path(__file__).resolve().parents[4]
 RECIPE_PATH = REPO_ROOT / "docs" / "assets" / "recipes" / "translation" / "indic_document_translation.py"
+PLUGIN_PACKAGE = "data_designer_nemotron_indic_translation"
+PLUGIN_INSTALLED = importlib.util.find_spec(PLUGIN_PACKAGE) is not None
+
+requires_plugin = pytest.mark.skipif(not PLUGIN_INSTALLED, reason=f"needs the {PLUGIN_PACKAGE} plugin installed")
+
+
+def _stub_document_translation_config(**kwargs: Any) -> SimpleNamespace:
+    return SimpleNamespace(**{"enable_windowing": False, **kwargs})
 
 
 def _load_recipe() -> ModuleType:
@@ -25,7 +31,18 @@ def _load_recipe() -> ModuleType:
     assert spec is not None
     assert spec.loader is not None
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    if PLUGIN_INSTALLED:
+        spec.loader.exec_module(module)
+        return module
+    # CI has no plugin installed: load the recipe against a stub so its logic is still tested.
+    package = ModuleType(PLUGIN_PACKAGE)
+    package.__path__ = []
+    config_module = ModuleType(f"{PLUGIN_PACKAGE}.config")
+    config_module.DocumentTranslationConfig = _stub_document_translation_config  # type: ignore[attr-defined]
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setitem(sys.modules, PLUGIN_PACKAGE, package)
+        patch.setitem(sys.modules, f"{PLUGIN_PACKAGE}.config", config_module)
+        spec.loader.exec_module(module)
     return module
 
 
@@ -68,7 +85,7 @@ def registered_aliases(recipe: ModuleType, monkeypatch: pytest.MonkeyPatch) -> N
 
 
 def _translation_column(recipe: ModuleType, seed_path: Path, **kwargs: Any) -> Any:
-    # The real DocumentTranslationConfig validates every route; plugin warnings (forced overrides) fail the test.
+    # With the plugin installed, the real DocumentTranslationConfig validates every route and plugin warnings fail the test.
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         builder = recipe.build_config(seed_path=str(seed_path), **kwargs)
@@ -163,6 +180,16 @@ def test_romanization_route_mirrors_rewrite_settings_on_the_intermediate_stage(
     assert column.rewrite_threshold_intermediate == 80
 
 
+@requires_plugin
+@pytest.mark.usefixtures("registered_aliases")
+def test_recipe_builds_the_plugins_real_config_class(recipe: ModuleType, seed_path: Path) -> None:
+    column = _translation_column(recipe, seed_path)
+
+    assert type(column).__module__.startswith(PLUGIN_PACKAGE)
+    assert column.column_type == "document-translation"
+
+
+@requires_plugin
 @pytest.mark.usefixtures("registered_aliases")
 def test_plugin_validation_rejects_an_unsupported_script_remap(recipe: ModuleType, seed_path: Path) -> None:
     with pytest.raises(ValueError, match="No script remapper"):

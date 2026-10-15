@@ -6,6 +6,10 @@
 #     "data-designer>=0.5.7",
 #     "data-designer-nemotron-indic-translation",
 # ]
+#
+# # Resolves from GitHub until the plugin is published to PyPI; drop this table then.
+# [tool.uv.sources]
+# data-designer-nemotron-indic-translation = { git = "https://github.com/NVIDIA-NeMo/DataDesignerPlugins", subdirectory = "plugins/data-designer-nemotron-indic-translation" }
 # ///
 """Indic Document Translation Recipe
 
