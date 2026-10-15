@@ -5,7 +5,29 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+import yaml
+
 WORKFLOWS_DIR = Path(__file__).resolve().parents[4] / ".github" / "workflows"
+
+
+@pytest.mark.parametrize(
+    ("workflow_name", "job_name"),
+    [
+        ("build-fern-docs.yml", "prepare-published-release"),
+        ("build-fern-docs.yml", "publish"),
+        ("publish-fern-devnotes.yml", "deploy"),
+    ],
+)
+def test_fern_publishing_does_not_install_notebook_runtime(workflow_name: str, job_name: str) -> None:
+    workflow = yaml.safe_load((WORKFLOWS_DIR / workflow_name).read_text())
+    steps = workflow["jobs"][job_name]["steps"]
+    install_step = next(step for step in steps if step["name"] == "Install docs dependencies")
+    command = install_step["run"]
+
+    assert "--group docs" in command
+    assert "--group notebooks" not in command
+    assert "--all-groups" not in command
 
 
 def test_notebook_cache_is_scoped_to_execution_profile() -> None:
