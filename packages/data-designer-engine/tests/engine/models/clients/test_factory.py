@@ -130,8 +130,18 @@ def test_unknown_provider_type_raises_data_designer_error(
         inference_parameters=ChatCompletionInferenceParams(),
         provider="custom-provider",
     )
-    with pytest.raises(DataDesignerError, match="Provider type 'custom'.*is not supported"):
+    with pytest.raises(DataDesignerError) as exc_info:
         create_model_client(config, secret_resolver, registry)
+    assert type(exc_info.value) is DataDesignerError
+    assert str(exc_info.value) == "\n".join(
+        [
+            "  |----------",
+            "  | Cause: Provider type 'custom' for provider 'custom-provider' is not supported.",
+            "  | Solution: Change provider_type to one of 'openai', 'anthropic' in your model provider config. "
+            'Most OpenAI-compatible endpoints (vLLM, TGI, NIM, etc.) work with provider_type="openai".',
+            "  |----------",
+        ]
+    )
 
 
 def test_openai_provider_type_case_insensitive(
