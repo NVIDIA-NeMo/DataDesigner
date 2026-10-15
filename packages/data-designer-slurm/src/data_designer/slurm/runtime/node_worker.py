@@ -19,6 +19,7 @@ from tempfile import TemporaryDirectory
 from data_designer.slurm.runtime.node_spec import (
     NodeProcessSpec as NodeProcessSpec,
 )
+from data_designer.slurm.runtime.node_spec import NodeReadinessSpec
 from data_designer.slurm.runtime.node_spec import (
     NodeSpec as NodeSpec,
 )
@@ -31,6 +32,7 @@ from data_designer.slurm.runtime.node_spec import (
 from data_designer.slurm.runtime.node_spec import (
     encode_node_worker_spec as encode_node_worker_spec,
 )
+from data_designer.slurm.runtime.probes import HttpReadinessProber
 
 _POLL_INTERVAL_SECONDS = 0.1
 _TERMINATION_GRACE_SECONDS = 10.0
@@ -56,11 +58,19 @@ class NodeProcessSupervisor:
         """Launch local lanes and fail the node task when any lane exits."""
         started_at = time.monotonic()
         try:
-            for process in node.processes:
-                self._wait_for_launch(process.launch_delay_seconds, started_at)
+            for index, process in enumerate(node.processes):
+                early_exit = self._wait_for_launch(process.launch_delay_seconds, started_at)
+                if early_exit is not None:
+                    return early_exit
                 if self._stop_requested:
                     return 1
                 self._children.append(self._start_process(process, visible_gpus))
+                if process.readiness is not None and any(
+                    set(process.gpu_indices).intersection(later.gpu_indices) for later in node.processes[index + 1 :]
+                ):
+                    early_exit = self._wait_for_readiness(process.readiness)
+                    if early_exit is not None:
+                        return early_exit
             return self._wait_for_first_exit()
         finally:
             self.cleanup()
@@ -113,12 +123,31 @@ class NodeProcessSupervisor:
             close_fds=True,
         )
 
-    def _wait_for_launch(self, delay_seconds: int, started_at: float) -> None:
+    def _wait_for_launch(self, delay_seconds: int, started_at: float) -> int | None:
         while not self._stop_requested:
+            for child in self._children:
+                returncode = child.poll()
+                if returncode is not None:
+                    return returncode if returncode != 0 else 1
             remaining = delay_seconds - (time.monotonic() - started_at)
             if remaining <= 0:
                 return
             time.sleep(min(remaining, _POLL_INTERVAL_SECONDS))
+
+    def _wait_for_readiness(self, probe: NodeReadinessSpec) -> int | None:
+        deadline = time.monotonic() + probe.deadline_seconds
+        prober = HttpReadinessProber()
+        while not self._stop_requested:
+            early_exit = self._wait_for_launch(0, 0)
+            if early_exit is not None:
+                return early_exit
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise RuntimeError("shared GPU process readiness timed out")
+            if prober.is_ready("127.0.0.1", probe.port, probe.path, timeout_seconds=min(1.0, remaining)):
+                return None
+            time.sleep(min(remaining, _POLL_INTERVAL_SECONDS))
+        return 1
 
     def _wait_for_first_exit(self) -> int:
         while True:
@@ -144,6 +173,8 @@ def main(arguments: Sequence[str] | None = None) -> int:
         _verify_node(spec, node, visible_gpus, os.environ)
         if parsed.operation == "preflight":
             _verify_required_model_path(spec.required_model_path)
+            for path in spec.required_model_paths:
+                _verify_required_model_path(path)
             _verify_ports(node.ports)
             return 0
         return _run_node(node, visible_gpus)

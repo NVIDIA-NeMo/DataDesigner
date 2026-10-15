@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import posixpath
+from collections.abc import Sequence
 from typing import Annotated, Literal
 from urllib.parse import urlsplit
 
@@ -277,6 +278,7 @@ class ResolvedDeployment(ContractValue):
     image: ResolvedImage
     node_indices: tuple[NonNegativeInt, ...] = Field(min_length=1)
     gpus_per_node: PositiveInt
+    gpu_start_index: NonNegativeInt = Field(default=0, exclude_if=lambda value: value == 0)
     topology: ResolvedTopology
     ports: tuple[PortClaim, ...] = ()
 
@@ -422,8 +424,35 @@ class ResolvedSlurmRunPlan(ContractRecord):
             raise ValueError("resolved GPU count does not match the selected profile")
         if profile.gpu_request_mode == "visible" and profile.scheduler.mem_per_gpu is not None:
             raise ValueError("mem_per_gpu requires GRES GPU request mode")
-        if any(deployment.gpus_per_node != self.resolved_gpus_per_node for deployment in self.deployments):
-            raise ValueError("every deployment must use the resolved profile GPU count")
+        placements = derive_deployment_placement(
+            tuple(deployment.authored for deployment in self.deployments), self.resolved_gpus_per_node
+        )
+        for deployment, (nodes, gpu_start, quota) in zip(self.deployments, placements, strict=True):
+            if (deployment.node_indices, deployment.gpu_start_index, deployment.gpus_per_node) != (
+                nodes,
+                gpu_start,
+                quota,
+            ):
+                raise ValueError("deployment placement and GPU ownership must match authored resources")
+        shared: dict[str, ResolvedDeployment] = {}
+        for deployment in self.deployments:
+            group = deployment.authored.resources.shared_node
+            if group is None:
+                continue
+            if profile.gpu_request_mode != "gres":
+                raise ValueError("shared_node requires GRES GPU request mode")
+            first = shared.setdefault(group, deployment)
+            if (deployment.image.path, deployment.image.sha256, deployment.image.inspection_facts) != (
+                first.image.path,
+                first.image.sha256,
+                first.image.inspection_facts,
+            ):
+                raise ValueError("shared_node requires the same resolved serving image")
+            if (
+                deployment.authored.server.environment != first.authored.server.environment
+                or deployment.authored.server.queue_backpressure != first.authored.server.queue_backpressure
+            ):
+                raise ValueError("shared_node requires matching server environment and queue backpressure")
         if tuple(profile.container_mounts) != self.container_mounts:
             raise ValueError("plan mount mappings must match the selected profile")
 
@@ -437,9 +466,6 @@ class ResolvedSlurmRunPlan(ContractRecord):
         if set(aliases) != set(self.builder.model_aliases):
             raise ValueError("resolved deployment aliases must exactly cover Data Designer model aliases")
 
-        node_indices = tuple(index for deployment in self.deployments for index in deployment.node_indices)
-        if node_indices != tuple(range(len(node_indices))):
-            raise ValueError("deployment nodes must be disjoint and contiguous in authored order")
         if self.client.host_node_index != self.deployments[0].node_indices[0]:
             raise ValueError("client must be colocated on the first node of the first deployment")
         authored_bindings = self.invocation.authored.input_bindings
@@ -542,3 +568,35 @@ class ResolvedSlurmRunPlan(ContractRecord):
             raise ValueError("shard resume workspaces must be unique")
         if len(partition_paths) != len(set(partition_paths)):
             raise ValueError("shard input partitions must be unique")
+
+
+def derive_deployment_placement(
+    deployments: Sequence[ServerDeploymentConfig], gpus_per_node: int
+) -> tuple[tuple[tuple[int, ...], int, int], ...]:
+    """Assign nodes and GPU slices, allowing explicit shared offsets."""
+    groups: dict[str, tuple[int, int, int]] = {}
+    placements: list[tuple[tuple[int, ...], int, int]] = []
+    next_node = 0
+    shared_nodes = {deployment.resources.shared_node for deployment in deployments}
+    if shared_nodes != {None} and (len(shared_nodes) != 1 or None in shared_nodes):
+        raise ValueError("shared_node requires one group covering all deployments")
+    for deployment in deployments:
+        resources = deployment.resources
+        if resources.shared_node is None:
+            placements.append((tuple(range(next_node, next_node + resources.nodes)), 0, gpus_per_node))
+            next_node += resources.nodes
+            continue
+        quota = resources.gpus_per_node
+        assert quota is not None
+        if resources.shared_node not in groups:
+            groups[resources.shared_node] = (next_node, 0, 0)
+            next_node += 1
+        node, next_gpu, members = groups[resources.shared_node]
+        gpu_start = next_gpu if resources.gpu_start_index is None else resources.gpu_start_index
+        if gpu_start + quota > gpus_per_node:
+            raise ValueError("shared_node GPU quotas exceed the profile GPU budget")
+        placements.append(((node,), gpu_start, quota))
+        groups[resources.shared_node] = (node, max(next_gpu, gpu_start + quota), members + 1)
+    if any(members < 2 for _, _, members in groups.values()):
+        raise ValueError("shared_node requires at least two deployments in each group")
+    return tuple(placements)

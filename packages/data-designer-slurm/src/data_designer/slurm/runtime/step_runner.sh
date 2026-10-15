@@ -89,14 +89,18 @@ dd_build_srun_command() {
     fi
     if ((${#DD_STEP_GPU_INDICES[@]})); then
         if [[ ${DD_GPU_REQUEST_MODE} == gres ]]; then
-            for index in "${DD_STEP_GPU_INDICES[@]+"${DD_STEP_GPU_INDICES[@]}"}"; do
-                ((gpu_mask |= 1 << index))
-            done
-            printf -v gpu_mask '0x%x' "${gpu_mask}"
-            DD_SRUN_COMMAND+=(
-                "--gpus-per-task=${#DD_STEP_GPU_INDICES[@]}"
-                "--gpu-bind=mask_gpu:${gpu_mask}"
-            )
+            DD_SRUN_COMMAND+=("--gpus-per-task=${#DD_STEP_GPU_INDICES[@]}")
+            if [[ ${DD_STEP_GPU_BINDING:-mask} == none ]]; then
+                DD_SRUN_COMMAND+=(--gpu-bind=none)
+            elif [[ ${DD_STEP_GPU_BINDING:-mask} == mask ]]; then
+                for index in "${DD_STEP_GPU_INDICES[@]+"${DD_STEP_GPU_INDICES[@]}"}"; do
+                    ((gpu_mask |= 1 << index))
+                done
+                printf -v gpu_mask '0x%x' "${gpu_mask}"
+                DD_SRUN_COMMAND+=("--gpu-bind=mask_gpu:${gpu_mask}")
+            else
+                return 64
+            fi
         else
             local visible_gpus
             printf -v visible_gpus '%s,' "${DD_STEP_GPU_INDICES[@]}"

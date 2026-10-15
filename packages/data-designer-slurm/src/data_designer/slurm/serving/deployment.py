@@ -37,6 +37,7 @@ class ResolvedVllmServerDeployment(ContractValue):
     executable_path: str
     node_indices: tuple[NonNegativeInt, ...] = Field(min_length=1)
     gpus_per_node: PositiveInt
+    gpu_start_index: NonNegativeInt = Field(default=0, exclude_if=lambda value: value == 0)
     topology: ResolvedTopology
     launch_policy: ResolvedVllmLaunchPolicy
     processes: tuple[ResolvedVllmProcess, ...] = Field(min_length=1)
@@ -139,7 +140,7 @@ class ResolvedVllmServerDeployment(ContractValue):
             for process in self.processes
             if process.deployment_replica_index == endpoint.deployment_replica_index
         )
-        expected_gpu_start = expected_replica_index_in_node_group * self.topology.tensor_parallel
+        expected_gpu_start = self.gpu_start_index + expected_replica_index_in_node_group * self.topology.tensor_parallel
         expected_gpus = tuple(range(expected_gpu_start, expected_gpu_start + self.topology.tensor_parallel))
         expected_delay = (
             0

@@ -147,7 +147,8 @@ dd_read_step() {
               .stdout_path, "\u0000",
               .stderr_path, "\u0000",
               (.launch_delay_seconds | tostring), "\u0000",
-              (.kill_on_bad_exit | tostring), "\u0000"
+              (.kill_on_bad_exit | tostring), "\u0000",
+              (.gpu_binding // "mask"), "\u0000"
         ' "${manifest}"
     )
     DD_STEP_EXECUTION=${DD_STEP_FIELDS[0]}
@@ -157,6 +158,7 @@ dd_read_step() {
     DD_STEP_STDERR=${DD_STEP_FIELDS[4]}
     DD_STEP_DELAY=${DD_STEP_FIELDS[5]}
     DD_STEP_KILL_ON_BAD_EXIT=${DD_STEP_FIELDS[6]}
+    DD_STEP_GPU_BINDING=${DD_STEP_FIELDS[7]}
     dd_read_null_values DD_STEP_COMMAND < <(
         jq -j --arg step_id "${step_id}" '.steps[] | select(.step_id == $step_id) | .command[] | ., "\u0000"' \
             "${manifest}"

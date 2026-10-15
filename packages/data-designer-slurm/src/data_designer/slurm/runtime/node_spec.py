@@ -8,12 +8,32 @@ from __future__ import annotations
 import base64
 import binascii
 import json
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 
 from data_designer.slurm.contracts import validate_absolute_path
 from data_designer.slurm.runtime.network import validate_host_name, validate_network_port
 
 _MAXIMUM_SPEC_BYTES = 64 * 1024
+
+
+@dataclass(frozen=True, slots=True)
+class NodeReadinessSpec:
+    """Bounded loopback readiness for a node-local process."""
+
+    port: int
+    path: str
+    deadline_seconds: int
+
+    def __post_init__(self) -> None:
+        validate_network_port(self.port)
+        if (
+            type(self.path) is not str
+            or not self.path.startswith("/")
+            or any(ord(value) < 32 or ord(value) == 127 for value in self.path)
+        ):
+            raise ValueError("node readiness path is invalid")
+        if type(self.deadline_seconds) is not int or self.deadline_seconds <= 0:
+            raise ValueError("node readiness deadline is invalid")
 
 
 @dataclass(frozen=True, slots=True)
@@ -24,6 +44,7 @@ class NodeProcessSpec:
     command: tuple[str, ...]
     gpu_indices: tuple[int, ...]
     launch_delay_seconds: int
+    readiness: NodeReadinessSpec | None = None
 
     def __post_init__(self) -> None:
         if (
@@ -47,6 +68,8 @@ class NodeProcessSpec:
             raise ValueError("node process GPU indices are invalid")
         if type(self.launch_delay_seconds) is not int or self.launch_delay_seconds < 0:
             raise ValueError("node process launch delay is invalid")
+        if self.readiness is not None and not isinstance(self.readiness, NodeReadinessSpec):
+            raise ValueError("node process readiness is invalid")
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,6 +93,10 @@ class NodeSpec:
             raise ValueError("node ports must be sorted and unique")
         if not self.processes or len({process.process_id for process in self.processes}) != len(self.processes):
             raise ValueError("node process identities must be present and unique")
+        if any(
+            process.readiness is not None and process.readiness.port not in self.ports for process in self.processes
+        ):
+            raise ValueError("node readiness port is not assigned to the node")
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,8 +107,12 @@ class NodeWorkerSpec:
     resolved_gpus_per_node: int
     required_model_path: str | None
     nodes: tuple[NodeSpec, ...]
+    required_model_paths: tuple[str, ...] = ()
+    allow_gpu_sharing: bool = False
 
     def __post_init__(self) -> None:
+        if type(self.allow_gpu_sharing) is not bool:
+            raise ValueError("GPU sharing policy must be a boolean")
         if type(self.schema_version) is not int or self.schema_version != 1:
             raise ValueError("node worker schema version is unsupported")
         if type(self.resolved_gpus_per_node) is not int or self.resolved_gpus_per_node <= 0:
@@ -90,6 +121,12 @@ class NodeWorkerSpec:
             raise ValueError("required model path is invalid")
         if self.required_model_path is not None:
             validate_absolute_path(self.required_model_path)
+        if type(self.required_model_paths) is not tuple:
+            raise ValueError("required model paths must be a tuple")
+        for path in self.required_model_paths:
+            if type(path) is not str:
+                raise ValueError("required model path is invalid")
+            validate_absolute_path(path)
         if (
             type(self.nodes) is not tuple
             or not self.nodes
@@ -104,7 +141,10 @@ class NodeWorkerSpec:
                 raise ValueError("node process GPU index is outside the allocation")
             assigned_gpus = tuple(index for process in node.processes for index in process.gpu_indices)
             if len(set(assigned_gpus)) != len(assigned_gpus):
-                raise ValueError("node processes must not share GPUs")
+                if not self.allow_gpu_sharing:
+                    raise ValueError("node processes must not share GPUs")
+                if any(process.readiness is None for process in node.processes):
+                    raise ValueError("GPU sharing requires process readiness probes")
 
 
 def encode_node_worker_spec(spec: NodeWorkerSpec) -> str:
@@ -124,6 +164,7 @@ def encode_node_worker_spec(spec: NodeWorkerSpec) -> str:
                         "command": list(process.command),
                         "gpu_indices": list(process.gpu_indices),
                         "launch_delay_seconds": process.launch_delay_seconds,
+                        **({"readiness": asdict(process.readiness)} if process.readiness else {}),
                     }
                     for process in node.processes
                 ],
@@ -131,6 +172,10 @@ def encode_node_worker_spec(spec: NodeWorkerSpec) -> str:
             for node in spec.nodes
         ],
     }
+    if spec.required_model_paths:
+        payload["required_model_paths"] = list(spec.required_model_paths)
+    if spec.allow_gpu_sharing:
+        payload["allow_gpu_sharing"] = True
     serialized = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
     if len(serialized) > _MAXIMUM_SPEC_BYTES:
         raise ValueError("node worker specification exceeds its size limit")
@@ -152,13 +197,20 @@ def decode_node_worker_spec(encoded: str) -> NodeWorkerSpec:
 
 
 def _parse_worker_spec(payload: object) -> NodeWorkerSpec:
-    root = _require_mapping(payload, {"schema_version", "resolved_gpus_per_node", "required_model_path", "nodes"})
+    keys = {"schema_version", "resolved_gpus_per_node", "required_model_path", "nodes"}
+    if isinstance(payload, dict):
+        keys.update(set(payload) & {"required_model_paths", "allow_gpu_sharing"})
+    root = _require_mapping(payload, keys)
     nodes = tuple(_parse_node(value) for value in _require_list(root["nodes"]))
     return NodeWorkerSpec(
         schema_version=_require_integer(root["schema_version"]),
         resolved_gpus_per_node=_require_integer(root["resolved_gpus_per_node"]),
         required_model_path=_require_optional_string(root["required_model_path"]),
         nodes=nodes,
+        required_model_paths=tuple(
+            _require_string(path) for path in _require_list(root.get("required_model_paths", []))
+        ),
+        allow_gpu_sharing=_require_boolean(root.get("allow_gpu_sharing", False)),
     )
 
 
@@ -173,12 +225,25 @@ def _parse_node(payload: object) -> NodeSpec:
 
 
 def _parse_process(payload: object) -> NodeProcessSpec:
-    value = _require_mapping(payload, {"process_id", "command", "gpu_indices", "launch_delay_seconds"})
+    keys = {"process_id", "command", "gpu_indices", "launch_delay_seconds"}
+    if isinstance(payload, dict) and "readiness" in payload:
+        keys.add("readiness")
+    value = _require_mapping(payload, keys)
     return NodeProcessSpec(
         process_id=_require_string(value["process_id"]),
         command=tuple(_require_string(argument) for argument in _require_list(value["command"])),
         gpu_indices=tuple(_require_integer(index) for index in _require_list(value["gpu_indices"])),
         launch_delay_seconds=_require_integer(value["launch_delay_seconds"]),
+        readiness=_parse_readiness(value["readiness"]) if "readiness" in value else None,
+    )
+
+
+def _parse_readiness(payload: object) -> NodeReadinessSpec:
+    value = _require_mapping(payload, {"port", "path", "deadline_seconds"})
+    return NodeReadinessSpec(
+        port=_require_integer(value["port"]),
+        path=_require_string(value["path"]),
+        deadline_seconds=_require_integer(value["deadline_seconds"]),
     )
 
 
@@ -212,8 +277,15 @@ def _require_integer(payload: object) -> int:
     return payload
 
 
+def _require_boolean(payload: object) -> bool:
+    if type(payload) is not bool:
+        raise ValueError("node worker boolean value is invalid")
+    return payload
+
+
 __all__ = [
     "NodeProcessSpec",
+    "NodeReadinessSpec",
     "NodeSpec",
     "NodeWorkerSpec",
     "decode_node_worker_spec",

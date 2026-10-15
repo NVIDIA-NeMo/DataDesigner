@@ -73,11 +73,13 @@ server:
 
 `distributed_init_timeout` must not exceed `startup_timeout`. Increase both when distributed initialization legitimately needs more time.
 
+Set `server.io_processor_plugin` to a registered vLLM IO processor name, such as `deberta_gliner_io` for GLiNER. The serving image must include the plugin and its dependencies, and the model must be prepared for that plugin. Pooling options such as `--runner pooling` belong in `extra_args`.
+
 `extra_args` is a list of individual arguments, not a shell command. Options owned by the orchestrator and unsafe shell forms are rejected. Configure model identity, topology, networking, and lifecycle through their typed fields instead of passing reserved options such as `--model`, `--served-model-name`, `--host`, `--port`, `--tensor-parallel-size`, `--pipeline-parallel-size`, or distributed-launch flags. In particular, `served_model_name` belongs on the deployment, alongside `model`, not under `server.extra_args`.
 
 ## Scale runs
 
-Each array task gets a separate allocation containing all deployments. A deployment's `resources.nodes` is its node count **within one array task**; different deployments use different nodes. For example, a run with a two-node writer and a one-node reviewer requests three nodes per array task. `array_tasks.max_concurrent` limits how many such allocations may run at once.
+Each array task gets a separate allocation containing all deployments. A deployment's `resources.nodes` is its node count **within one array task**; different deployments use different nodes by default. For example, a run with a two-node writer and a one-node reviewer requests three nodes per array task. `array_tasks.max_concurrent` limits how many such allocations may run at once.
 
 ### Arrays
 
@@ -190,6 +192,56 @@ invocation:
     writer: 64
     judge: 32
 ```
+
+### Different models on one node
+
+By default, deployments use disjoint nodes and each receives the profile's GPU budget. To place different models on the same physical node, give their resources the same `shared_node` name and explicit GPU quotas:
+
+```yaml
+deployments:
+  - model_alias: writer
+    model: Qwen/Qwen2.5-0.5B-Instruct
+    resources:
+      shared_node: models
+      gpus_per_node: 1
+    topology:
+      tensor_parallel: 1
+    server:
+      type: vllm
+      image: {name: vllm}
+  - model_alias: judge
+    model: microsoft/Phi-3-mini-4k-instruct
+    resources:
+      shared_node: models
+      gpus_per_node: 1
+    topology:
+      tensor_parallel: 1
+    server:
+      type: vllm
+      image: {name: vllm}
+```
+
+Declare both aliases in the Data Designer builder. For example, the writer can generate an `answer` column and the judge can evaluate `{{ answer }}` in a dependent column. A complete four-record example is included at `packages/data-designer-slurm/examples/colocated-models.yaml`.
+
+The profile's `gpus_per_node` is the Slurm allocation budget. Set it to `2` for the example above; the quota sum must fit that budget. Each quota is a positive number of GPUs reserved for that deployment. `tensor_parallel` must divide its quota: a quota of four with TP two starts two replicas of that model. The compiler assigns immutable disjoint GPU slices and separate backend and logical endpoint ports. GPU identifiers are resolved from the serving step's actual CUDA visibility, including Slurm device remapping. Each alias retains its own readiness, backend order, concurrency, and status; a model failure stops the shared worker and fails the attempt.
+
+Shared placement requires one group covering every deployment in the run, at least two deployments, `resources.nodes: 1`, `nodes_per_replica: 1`, GRES GPU request mode, the same resolved serving image, and identical `server.environment` and `queue_backpressure` settings. Model identities, served names, extra arguments, and launch/readiness timings may differ. Multiple groups, mixtures of shared and disjoint placements, multi-node shared groups, and different images within one group are rejected before submission. Memory fit is not inferred. An allocation can use fewer GPUs than the physical node has; sharing does not add node exclusivity.
+
+To share a GPU explicitly, set `resources.gpu_start_index: 0` and `gpus_per_node: 1` on both deployments, with a profile budget of one GPU. For a TP-two model sharing its second GPU with a detector, use offsets `0` and `1` with quotas `2` and `1` and a profile budget of two. Each slice must fit the budget; automatic placement follows the highest assigned index. Overlapping models start in launch-delay order, waiting for a model's readiness before starting another model on its GPUs. Configure per-model `--gpu-memory-utilization`, context length, and concurrency through `server.extra_args` to leave sufficient memory for both models and startup allocations.
+
+Python callers use the same resource fields with `with_deployment`:
+
+```python
+slurm.with_deployment({
+    "model_alias": "writer",
+    "model": "Qwen/Qwen2.5-0.5B-Instruct",
+    "resources": {"shared_node": "models", "gpus_per_node": 1},
+    "topology": {"tensor_parallel": 1},
+    "server": {"type": "vllm", "image": {"name": "vllm"}},
+})
+```
+
+Add the judge deployment with the same group name before calling `build()` or `write_config()`.
 
 ### Put topologies and shards together
 

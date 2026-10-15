@@ -122,7 +122,7 @@ def _resolve_vllm_server(
                 replica_index_in_node_group=replica_index_in_node_group,
                 deployment_replica_index=deployment_replica_index,
             )
-            gpu_start = replica_index_in_node_group * tensor_parallel
+            gpu_start = resolved_deployment.gpu_start_index + replica_index_in_node_group * tensor_parallel
             gpu_indices = tuple(range(gpu_start, gpu_start + tensor_parallel))
             launch_delay = _calculate_launch_delay_seconds(server, deployment_replica_index)
             for pipeline_rank, node_index in enumerate(group_nodes):
@@ -159,6 +159,7 @@ def _resolve_vllm_server(
         executable_path=inspection.executable_path,
         node_indices=resolved_deployment.node_indices,
         gpus_per_node=resolved_deployment.gpus_per_node,
+        gpu_start_index=resolved_deployment.gpu_start_index,
         topology=resolved_deployment.topology,
         launch_policy=ResolvedVllmLaunchPolicy(
             startup_timeout_seconds=convert_duration_to_seconds(server.startup_timeout),
@@ -167,6 +168,7 @@ def _resolve_vllm_server(
             rank_launch_stagger_seconds=convert_duration_to_seconds(server.rank_launch_stagger),
             readiness_path=server.readiness_path,
             enable_expert_parallel=server.enable_expert_parallel,
+            io_processor_plugin=server.io_processor_plugin,
             queue_backpressure=server.queue_backpressure,
             extra_args=tuple(server.extra_args),
             environment=dict(server.environment),

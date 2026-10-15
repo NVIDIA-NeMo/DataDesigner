@@ -27,6 +27,23 @@ _ERROR_DESCRIPTIONS = {
     "value_error": "value is invalid",
 }
 _SAFE_VALUE_ERROR_MESSAGES = {
+    **{
+        f"Value error, {message}": message
+        for message in (
+            "shared_node and gpus_per_node must be provided together",
+            "shared_node requires exactly one deployment node",
+            "gpu_start_index requires shared_node",
+            "shared_node supports only single-node replicas",
+            "tensor_parallel must divide the deployment GPU quota",
+            "shared_node requires at least two deployments in each group",
+            "shared_node requires one group covering all deployments",
+            "shared_node requires matching server environment and queue backpressure",
+            "shared_node GPU quotas exceed the profile GPU budget",
+            "shared_node requires GRES GPU request mode",
+            "shared_node requires the same resolved serving image",
+            "deployment placement and GPU ownership must match authored resources",
+        )
+    },
     "Value error, builder content digest does not match the resolved input": (
         "resolved builder digest does not match its input"
     ),

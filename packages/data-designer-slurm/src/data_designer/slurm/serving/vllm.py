@@ -36,6 +36,7 @@ class ResolvedVllmLaunchPolicy(ContractValue):
     rank_launch_stagger_seconds: NonNegativeInt
     readiness_path: str
     enable_expert_parallel: bool
+    io_processor_plugin: Identifier | None = Field(default=None, exclude_if=lambda value: value is None)
     queue_backpressure: QueueBackpressureConfig
     extra_args: tuple[str, ...] = ()
     environment: dict[EnvironmentName, EnvironmentBinding] = Field(default_factory=dict)

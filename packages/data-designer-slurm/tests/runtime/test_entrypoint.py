@@ -10,14 +10,14 @@ import json
 import os
 import sys
 import zipfile
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
 
 import pyarrow.parquet as pq
 import pytest
-from conftest import FakeStateStore, RuntimeCase
+from conftest import FakeStateStore, RuntimeCase, relocate_plan
 from packaging.tags import interpreter_name, interpreter_version
 
 import data_designer.slurm.runtime.entrypoint as entrypoint
@@ -161,10 +161,15 @@ def test_client_phase_installs_and_runs_plugin_in_default_worker_process(
     assert dataset.column("custom").to_pylist() == ["plugin-marker"] * case.context.shard.requested_records
 
 
+@pytest.mark.parametrize("plan_fixture", ("single_node_plan", "shared_node_plan"))
 def test_control_phases_record_running_ready_and_failed(
     monkeypatch: pytest.MonkeyPatch,
     runtime_case: RuntimeCase,
+    request: pytest.FixtureRequest,
+    plan_fixture: str,
 ) -> None:
+    plan = relocate_plan(request.getfixturevalue(plan_fixture), runtime_case.workspace)
+    runtime_case = replace(runtime_case, context=replace(runtime_case.context, plan=plan, shard=plan.shards[0]))
     state = FakeStateStore(runtime_case.context.attempt)
     runtime_root = runtime_case.context.attempt_directory / "runtime"
     manifest_path = runtime_case.context.attempt_directory / "runtime-manifest.json"
@@ -184,10 +189,18 @@ def test_control_phases_record_running_ready_and_failed(
 
     assert entrypoint.main(_phase_arguments("ready", runtime_case)) == 0
     assert state.readiness[-1].state is ReadinessState.READY
+    assert [
+        (deployment.model_alias, deployment.expected_backends, deployment.ready_backends)
+        for deployment in state.readiness[-1].deployments
+    ] == [
+        (deployment.authored.model_alias, deployment.topology.replica_count, deployment.topology.replica_count)
+        for deployment in plan.deployments
+    ]
 
     assert entrypoint.main(_phase_arguments("fail", runtime_case)) == 0
     assert state.attempt.state is AttemptLifecycleState.FAILED
     assert [item.state for item in state.readiness[-2:]] == [ReadinessState.FAILED, ReadinessState.STOPPED]
+    assert all(deployment.ready_backends == 0 for deployment in state.readiness[-1].deployments)
 
 
 def test_succeed_phase_stops_runtime_and_finalizes_winner(
