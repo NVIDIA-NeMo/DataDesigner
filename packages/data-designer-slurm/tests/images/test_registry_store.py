@@ -151,7 +151,8 @@ def test_unregister_can_delete_unshared_imported_artifact(tmp_path: Path) -> Non
     assert not artifact_path.exists()
 
 
-def test_unregister_keeps_artifact_referenced_by_persisted_run(tmp_path: Path) -> None:
+@pytest.mark.parametrize("run_name", ("run-example", "experiment-1"))
+def test_unregister_keeps_artifact_referenced_by_persisted_run(tmp_path: Path, run_name: str) -> None:
     workspace = tmp_path / "workspace"
     artifact_path = workspace / "images" / "artifacts" / f"client-{hashlib.sha256(b'client').hexdigest()}.sqsh"
     artifact_path.parent.mkdir(parents=True)
@@ -159,7 +160,7 @@ def test_unregister_keeps_artifact_referenced_by_persisted_run(tmp_path: Path) -
     image = _get_registered_client_image(artifact_path).model_copy(update={"source_oci_digest": "a" * 64})
     store = ImageRegistryStore(workspace)
     store.register(image, verify_before_publish=lambda _image: None)
-    run_root = workspace / "runs" / "run-example"
+    run_root = workspace / "runs" / run_name
     run_root.mkdir(parents=True)
     (run_root / "resolved-plan.json").write_text(
         json.dumps({"deployments": [{"image": {"path": artifact_path.as_posix()}}]})

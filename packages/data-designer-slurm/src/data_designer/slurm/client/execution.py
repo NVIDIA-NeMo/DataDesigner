@@ -122,6 +122,7 @@ class _ProgressWriter:
         self._clock = clock
         self._revision = revision
         self._seen_batches: set[Path] = set()
+        self._pending_batches: set[Path] = set()
         self._completed_records = 0
         self._batches_initialized = False
 
@@ -167,12 +168,20 @@ class _ProgressWriter:
                 self._seen_batches = set(batches)
                 self._completed_records = completed
                 self._batches_initialized = True
-            elif path not in self._seen_batches:
-                self._completed_records += lazy.pq.read_metadata(path).num_rows
-                self._seen_batches.add(path)
         except Exception:
             logger.warning("Could not read completed batch metadata for progress")
             return
+        if path not in self._seen_batches:
+            self._pending_batches.add(path)
+        for pending_path in tuple(sorted(self._pending_batches)):
+            try:
+                count = lazy.pq.read_metadata(pending_path).num_rows
+            except Exception:
+                logger.warning("Could not read completed batch metadata for progress")
+                continue
+            self._completed_records += count
+            self._seen_batches.add(pending_path)
+            self._pending_batches.remove(pending_path)
         self.best_effort(
             ClientProgressPhase.GENERATING,
             completed_records=min(self._completed_records, self._context.shard.requested_records),

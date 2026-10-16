@@ -246,34 +246,42 @@ dd_start_endpoints() {
 
 dd_wait_for_role_readiness() {
     local role=$1
-    local step_id index host port path deadline_seconds deadline
+    local step_id index started_at probe pending
+    local -a probe_steps=() probe_hosts=() probe_ports=() probe_paths=() probe_deadlines=() probe_ready=()
     dd_read_step_ids "${DD_RUNTIME_MANIFEST}" "${role}"
     for step_id in "${DD_STEP_IDS[@]+"${DD_STEP_IDS[@]}"}"; do
         dd_read_step "${DD_RUNTIME_MANIFEST}" "${step_id}"
         ((${#DD_STEP_PROBE_FIELDS[@]} % 4 == 0 && ${#DD_STEP_PROBE_FIELDS[@]} > 0)) || return 65
-        local started_at=${DD_STEP_STARTED_AT[${step_id}]:-${SECONDS}}
+        started_at=${DD_STEP_STARTED_AT[${step_id}]:-${SECONDS}}
         for ((index = 0; index < ${#DD_STEP_PROBE_FIELDS[@]}; index += 4)); do
-            host=${DD_STEP_PROBE_FIELDS[index]}
-            port=${DD_STEP_PROBE_FIELDS[index + 1]}
-            path=${DD_STEP_PROBE_FIELDS[index + 2]}
-            deadline_seconds=${DD_STEP_PROBE_FIELDS[index + 3]}
-            deadline=$((started_at + deadline_seconds))
-            while true; do
-                ((SECONDS < deadline)) || {
-                    printf 'runtime step %q readiness timed out\n' "${step_id}" >&2
+            probe_steps+=("${step_id}")
+            probe_hosts+=("${DD_STEP_PROBE_FIELDS[index]}")
+            probe_ports+=("${DD_STEP_PROBE_FIELDS[index + 1]}")
+            probe_paths+=("${DD_STEP_PROBE_FIELDS[index + 2]}")
+            probe_deadlines+=("$((started_at + DD_STEP_PROBE_FIELDS[index + 3]))")
+            probe_ready+=(0)
+        done
+    done
+    pending=${#probe_steps[@]}
+    while ((pending > 0)); do
+        dd_require_running
+        for ((probe = 0; probe < ${#probe_steps[@]}; probe++)); do
+            [[ ${probe_ready[probe]} == 0 ]] || continue
+            ((SECONDS < probe_deadlines[probe])) || {
+                printf 'runtime step %q readiness timed out\n' "${probe_steps[probe]}" >&2
+                return 70
+            }
+            if curl --fail --silent --max-time 1 \
+                "http://${probe_hosts[probe]}:${probe_ports[probe]}${probe_paths[probe]}" >/dev/null 2>&1; then
+                ((SECONDS < probe_deadlines[probe])) || {
+                    printf 'runtime step %q readiness timed out\n' "${probe_steps[probe]}" >&2
                     return 70
                 }
-                if curl --fail --silent --max-time 1 "http://${host}:${port}${path}" >/dev/null 2>&1; then
-                    ((SECONDS < deadline)) || {
-                        printf 'runtime step %q readiness timed out\n' "${step_id}" >&2
-                        return 70
-                    }
-                    break
-                fi
-                dd_require_running
-                dd_sleep 0.5
-            done
+                probe_ready[probe]=1
+                pending=$((pending - 1))
+            fi
         done
+        ((pending == 0)) || dd_sleep 0.5
     done
 }
 

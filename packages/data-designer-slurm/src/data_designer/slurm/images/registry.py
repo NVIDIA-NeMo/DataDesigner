@@ -328,8 +328,6 @@ class ImageRegistryStore:
                     return
                 with open_verified_child_directory(workspace_descriptor, "runs", runs_root) as runs_descriptor:
                     for run_name in os.listdir(runs_descriptor):
-                        if not run_name.startswith("run-"):
-                            continue
                         run_status = os.stat(run_name, dir_fd=runs_descriptor, follow_symlinks=False)
                         if stat.S_ISLNK(run_status.st_mode):
                             raise ImageConflictError("run state cannot be checked before SQSH artifact deletion")

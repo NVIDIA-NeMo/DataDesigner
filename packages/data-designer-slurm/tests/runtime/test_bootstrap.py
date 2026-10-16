@@ -409,6 +409,38 @@ fi
     assert "readiness timed out" in completed.stderr
 
 
+def test_server_readiness_checks_later_steps_before_earlier_steps_finish() -> None:
+    entrypoint = Path(__file__).parents[2] / "src/data_designer/slurm/runtime/entrypoint.sh"
+    command = f"""
+source {shlex.quote(str(entrypoint))}
+DD_RUNTIME_MANIFEST=unused
+SECONDS=0
+DD_STEP_STARTED_AT[first]=0
+DD_STEP_STARTED_AT[second]=0
+dd_read_step_ids() {{ DD_STEP_IDS=(first second); }}
+dd_read_step() {{
+    case "$2" in
+        first) DD_STEP_PROBE_FIELDS=(127.0.0.1 10001 /health 120);;
+        second) DD_STEP_PROBE_FIELDS=(127.0.0.1 10002 /health 60);;
+    esac
+}}
+dd_require_running() {{ :; }}
+dd_sleep() {{ SECONDS=$((SECONDS + 1)); }}
+curl() {{
+    case "${{@: -1}}" in
+        *:10001/*) ((SECONDS >= 110));;
+        *:10002/*) ((SECONDS >= 10));;
+    esac
+}}
+dd_wait_for_role_readiness server
+echo "ready-at:$SECONDS"
+"""
+    completed = subprocess.run(("bash", "-c", command), capture_output=True, text=True, timeout=10)
+
+    assert completed.returncode == 0, completed.stderr
+    assert "ready-at:110" in completed.stdout
+
+
 def test_pipeline_parallel_process_uses_multi_process_executor(
     runtime_case: RuntimeCase,
     multi_node_plan: ResolvedSlurmRunPlan,
