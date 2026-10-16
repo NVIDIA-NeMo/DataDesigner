@@ -6,6 +6,7 @@ from __future__ import annotations
 import functools
 import logging
 import re
+from collections.abc import Iterator
 from copy import deepcopy
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, overload
@@ -25,32 +26,37 @@ logger = logging.getLogger(__name__)
 
 
 def prune_additional_properties(
-    _, allow_additional_properties: bool, instance: DataObjectT, schema: JSONSchemaT
-) -> None:
-    """A JSONSchemaValidtor extension function to prune additional properties.
+    validator: Any, allow_additional_properties: bool | JSONSchemaT, instance: DataObjectT, schema: JSONSchemaT
+) -> Iterator[Any]:
+    """Prune forbidden properties and validate explicitly allowed dictionary values.
 
     Operates on an individual schema in-place.
 
     Args:
-        allow_additional_properties (bool): The value of the `additionalProperties`
+        validator: The active JSON Schema validator.
+        allow_additional_properties: The value of the `additionalProperties`
             field for this schema.
         instance (DataObjectT): The data object being validated.
         schema (JSONSchemaT): The schema for this object.
 
-    Returns:
-        Nothing (in place)
+    Yields:
+        Validation errors for schema-valued additional properties.
     """
-    # Only act if the instance is a dict.
-    if not isinstance(instance, dict) or allow_additional_properties:
+    if allow_additional_properties is not False:
+        yield from lazy.jsonschema.Draft202012Validator.VALIDATORS["additionalProperties"](
+            validator, allow_additional_properties, instance, schema
+        )
+        return
+    if not isinstance(instance, dict):
         return
 
-    # Allowed keys are those defined in the schema's "properties".
+    # Properties matched by a pattern are also declared fields.
     allowed = schema.get("properties", {}).keys()
 
     # Iterate over a copy of keys so we can modify the dict in place.
     n_removed = 0
     for key in list(instance.keys()):
-        if key not in allowed:
+        if key not in allowed and not any(re.search(pattern, key) for pattern in schema.get("patternProperties", {})):
             instance.pop(key)
             n_removed += 1
             logger.info(f"Unspecified property removed from data object: {key}.")
@@ -220,9 +226,9 @@ def validate(
             Default: `False`.
         no_extra_properties (bool): If set to `True`, then
             `additionalProperties: False` is set on all the schema
-            and all of its sub-schemas. This operation overrides any
-            existing settings of `additionalProperties` within the
-            schema. Default: `False`.
+            and its record sub-schemas where no explicit setting exists.
+            Declared dictionary schemas and explicit `additionalProperties`
+            settings are preserved. Default: `False`.
 
     Raises:
         JSONSchemaValidationError: This exception raised in the

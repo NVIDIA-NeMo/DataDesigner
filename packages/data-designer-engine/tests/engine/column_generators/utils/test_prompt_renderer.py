@@ -1,9 +1,12 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from __future__ import annotations
+
 from unittest.mock import Mock, patch
 
 import pytest
+from pydantic import BaseModel, JsonValue
 
 from data_designer.config.column_configs import (
     LLMCodeColumnConfig,
@@ -32,6 +35,24 @@ def test_prompt_renderer_prompt_type():
     assert PromptType.SYSTEM_PROMPT == "system_prompt"
     assert PromptType.USER_PROMPT == "user_prompt"
     assert issubclass(PromptType, str)
+
+
+class DictionaryOutput(BaseModel):
+    fields: dict[str, int]
+    metadata: dict[str, JsonValue]
+
+
+@pytest.mark.parametrize("use_pydantic", [False, True], ids=["json-schema", "pydantic"])
+def test_parse_structured_dictionary_output(use_pydantic: bool) -> None:
+    config = LLMStructuredColumnConfig(
+        name="test_column",
+        prompt="Test prompt",
+        model_alias="test_model",
+        output_format=DictionaryOutput if use_pydantic else DictionaryOutput.model_json_schema(),
+    )
+    example = DictionaryOutput(fields={"alpha": 1}, metadata={"nested": {"values": [1, "two", None]}})
+    recipe = create_response_recipe(config)
+    assert recipe.parse(example.model_dump_json()) == example.model_dump()
 
 
 @pytest.mark.parametrize(

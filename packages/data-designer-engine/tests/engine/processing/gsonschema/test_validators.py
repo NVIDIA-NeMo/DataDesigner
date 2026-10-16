@@ -1,9 +1,48 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from __future__ import annotations
+
 import pytest
 
 from data_designer.engine.processing.gsonschema.validators import JSONSchemaValidationError, validate
+
+
+@pytest.mark.parametrize("no_extra_properties", [False, True])
+@pytest.mark.parametrize("additional_properties", [{}, {"type": "integer"}, True])
+def test_validate_dictionary_entries(additional_properties: dict | bool, no_extra_properties: bool) -> None:
+    schema = {"type": "object", "additionalProperties": additional_properties}
+    data = {"alpha": 1, "beta": 2}
+    assert validate(data, schema, pruning=True, no_extra_properties=no_extra_properties) == data
+
+
+@pytest.mark.parametrize("no_extra_properties", [False, True])
+@pytest.mark.parametrize("pruning", [False, True])
+def test_reject_invalid_dictionary_value(pruning: bool, no_extra_properties: bool) -> None:
+    schema = {"type": "object", "additionalProperties": {"type": "integer"}}
+    with pytest.raises(JSONSchemaValidationError):
+        validate({"alpha": "invalid"}, schema, pruning=pruning, no_extra_properties=no_extra_properties)
+
+
+def test_prune_record_fields_inside_dictionary() -> None:
+    schema = {
+        "type": "object",
+        "additionalProperties": {
+            "type": "object",
+            "properties": {"value": {"type": "integer"}},
+        },
+    }
+    data = {"alpha": {"value": 1, "extra": 2}}
+    assert validate(data, schema, pruning=True, no_extra_properties=True) == {"alpha": {"value": 1}}
+    assert data == {"alpha": {"value": 1, "extra": 2}}
+
+
+def test_preserve_pattern_properties_during_pruning() -> None:
+    schema = {
+        "type": "object",
+        "patternProperties": {"^item_": {"type": "integer"}},
+    }
+    assert validate({"item_alpha": 1, "extra": 2}, schema, pruning=True, no_extra_properties=True) == {"item_alpha": 1}
 
 
 @pytest.fixture

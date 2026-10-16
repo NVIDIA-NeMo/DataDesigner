@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 
 import pytest
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, JsonValue
 
 from data_designer.engine.models.parsers.errors import ParserException
 from data_designer.engine.models.recipes.response_recipes import (
@@ -47,6 +47,42 @@ class Bar(BaseModel):
 
 class Foo(BaseModel):
     bar: Bar
+
+
+class DictionaryResponse(BaseModel):
+    fields: dict[str, int]
+
+
+class FlexibleDictionaryResponse(BaseModel):
+    fields: dict[str, JsonValue]
+
+
+@pytest.mark.parametrize("fenced", [False, True], ids=["bare", "fenced"])
+@pytest.mark.parametrize(
+    "model,data",
+    [
+        (DictionaryResponse, {"fields": {"alpha": 1, "beta": 2}}),
+        (
+            FlexibleDictionaryResponse,
+            {"fields": {"alpha": 1, "beta": None, "nested": {"values": [1, "two", {"three": True}]}}},
+        ),
+    ],
+    ids=["typed-dictionary", "flexible-json"],
+)
+def test_structured_response_preserves_dictionary_entries(model: type[BaseModel], data: dict, fenced: bool) -> None:
+    recipe = StructuredResponseRecipe(model.model_json_schema())
+    raw = json.dumps({**data, "extra": "prune me"})
+    response = f"```json\n{raw}\n```" if fenced else raw
+    assert recipe.parse(response) == data
+
+
+@pytest.mark.parametrize("fenced", [False, True], ids=["bare", "fenced"])
+def test_structured_response_rejects_invalid_dictionary_value(fenced: bool) -> None:
+    recipe = StructuredResponseRecipe(DictionaryResponse.model_json_schema())
+    raw = json.dumps({"fields": {"alpha": "invalid"}})
+    response = f"```json\n{raw}\n```" if fenced else raw
+    with pytest.raises(ParserException, match="Response doesn't match requested <response_schema>"):
+        recipe.parse(response)
 
 
 @pytest.fixture(params=["pydantic", "structured"])
