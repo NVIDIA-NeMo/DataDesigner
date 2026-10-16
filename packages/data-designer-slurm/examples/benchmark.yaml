@@ -1,8 +1,7 @@
 schema_version: 1
 name: generator-scaling
 base_run: run.yaml
-model_aliases:
-  - generator
+model_aliases: all
 concurrency_values:
   - 32
   - 64
@@ -17,11 +16,6 @@ deployment_cases:
       generator:
         nodes: 2
         nodes_per_replica: 2
-record_policy:
-  type: adaptive
-  base_records: 1000
-  max_records: 5000
-  records_per_concurrency: 1.0
 analysis:
   target_total_records: 1000000
   target_runtime: 4h

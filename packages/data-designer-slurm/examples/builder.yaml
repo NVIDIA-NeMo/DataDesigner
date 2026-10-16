@@ -4,7 +4,12 @@ data_designer:
       model: example/generator
       provider: openai
   columns:
+    - name: tone
+      column_type: sampler
+      sampler_type: category
+      params:
+        values: [friendly, formal, playful]
     - name: greeting
       column_type: llm-text
-      prompt: Write one short greeting.
+      prompt: Write one short {{ tone }} greeting.
       model_alias: generator
