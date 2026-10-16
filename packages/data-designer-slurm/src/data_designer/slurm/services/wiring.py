@@ -16,8 +16,9 @@ from pathlib import Path
 from typing import Literal, Protocol, TypeVar
 from uuid import uuid4
 
-from pydantic import JsonValue
+from pydantic import JsonValue, ValidationError
 
+from data_designer.slurm._errors import format_validation_error
 from data_designer.slurm.benchmark.execution import SystemBenchmarkBackend
 from data_designer.slurm.benchmark.observer import PersistedBenchmarkRunObserver
 from data_designer.slurm.client.dependencies import (
@@ -200,10 +201,6 @@ class _RunPreparer:
             workspace_root = self._profile.profile.workspace_root
             run_root = Path(workspace_root) / "runs" / run_id
             client_runtime = self._runtime_inspector.inspect()
-            deployment_images = tuple(
-                self._images.resolve_for_planning(deployment.server.image, expected_kind=ImageKind.SERVING)
-                for deployment in authored.deployments
-            )
             try:
                 builder_payload = _resolve_builder_payload(authored, source_root)
             except SlurmConfigLoadError as error:
@@ -212,6 +209,7 @@ class _RunPreparer:
                     operation,
                     _safe_builder_load_error(error),
                 ) from None
+            _validate_builder_for_submission(authored, builder_payload, operation)
             dependencies = stack.enter_context(
                 self._dependencies.resolve(
                     authored.client.dependencies,
@@ -221,6 +219,18 @@ class _RunPreparer:
                 )
             )
             runtime_bundle = stage_runtime_bundle(workspace_root)
+            try:
+                stack.enter_context(ImageRegistryStore(workspace_root).acquire_run_reference_lock())
+            except (SlurmImageError, OSError):
+                raise SlurmServiceError(
+                    SlurmServiceErrorCode.UNAVAILABLE,
+                    operation,
+                    "image registry cannot coordinate run publication",
+                ) from None
+            deployment_images = tuple(
+                self._images.resolve_for_planning(deployment.server.image, expected_kind=ImageKind.SERVING)
+                for deployment in authored.deployments
+            )
             effective = resolve_slurm_config(
                 authored,
                 selected_profile=self._profile,
@@ -349,121 +359,121 @@ class _SystemRunBackend:
                 prepared,
                 force=False,
             )
-            self._report_progress("Rendered batch script; invoking sbatch --parsable --hold (script via stdin).")
+        self._report_progress("Rendered batch script; invoking sbatch --parsable --hold (script via stdin).")
+        try:
+            receipt = self._launcher.submit_script(
+                prepared.batch_script,
+                hold=True,
+                export_environment=export_environment,
+            )
+        except SlurmSubmissionError as error:
+            raise SlurmServiceError(
+                SlurmServiceErrorCode.UNAVAILABLE,
+                SlurmServiceOperation.EXECUTE_RUN,
+                _safe_submission_error(error),
+            ) from None
+        except SlurmLauncherError:
+            raise SlurmServiceError(
+                SlurmServiceErrorCode.UNAVAILABLE,
+                SlurmServiceOperation.EXECUTE_RUN,
+                "Slurm submission is unavailable",
+            ) from None
+        try:
+            self._record_submission(publisher, plan, receipt.job_id)
+        except Exception as error:
             try:
-                receipt = self._launcher.submit_script(
-                    prepared.batch_script,
-                    hold=True,
-                    export_environment=export_environment,
-                )
-            except SlurmSubmissionError as error:
+                self._launcher.cancel(receipt.job_id)
+            except Exception:
                 raise SlurmServiceError(
                     SlurmServiceErrorCode.UNAVAILABLE,
                     SlurmServiceOperation.EXECUTE_RUN,
-                    _safe_submission_error(error),
-                ) from None
-            except SlurmLauncherError:
-                raise SlurmServiceError(
-                    SlurmServiceErrorCode.UNAVAILABLE,
-                    SlurmServiceOperation.EXECUTE_RUN,
-                    "Slurm submission is unavailable",
-                ) from None
+                    f"Slurm job {receipt.job_id} was submitted but could not be recorded or cancelled",
+                ) from error
             try:
-                self._record_submission(publisher, plan, receipt.job_id)
-            except Exception as error:
-                try:
-                    self._launcher.cancel(receipt.job_id)
-                except Exception:
-                    raise SlurmServiceError(
-                        SlurmServiceErrorCode.UNAVAILABLE,
-                        SlurmServiceOperation.EXECUTE_RUN,
-                        f"Slurm job {receipt.job_id} was submitted but could not be recorded or cancelled",
-                    ) from error
+                self._record_submission_failure(publisher, plan, receipt.job_id)
+            except SlurmServiceError as state_error:
+                raise SlurmServiceError(
+                    SlurmServiceErrorCode.INTERNAL,
+                    SlurmServiceOperation.EXECUTE_RUN,
+                    f"Slurm job {receipt.job_id} was cancelled but its partial submission state could not be updated",
+                ) from state_error
+            raise
+        except BaseException:
+            try:
+                self._launcher.cancel(receipt.job_id)
+            except Exception:
+                pass
+            else:
                 try:
                     self._record_submission_failure(publisher, plan, receipt.job_id)
-                except SlurmServiceError as state_error:
-                    raise SlurmServiceError(
-                        SlurmServiceErrorCode.INTERNAL,
-                        SlurmServiceOperation.EXECUTE_RUN,
-                        f"Slurm job {receipt.job_id} was cancelled but its partial submission state could not be updated",
-                    ) from state_error
-                raise
-            except BaseException:
-                try:
-                    self._launcher.cancel(receipt.job_id)
-                except Exception:
+                except BaseException:
                     pass
-                else:
-                    try:
-                        self._record_submission_failure(publisher, plan, receipt.job_id)
-                    except BaseException:
-                        pass
-                raise
+            raise
+        try:
+            self._launcher.release(receipt.job_id)
+        except SlurmLauncherError as error:
             try:
-                self._launcher.release(receipt.job_id)
-            except SlurmLauncherError as error:
-                try:
-                    self._launcher.cancel(receipt.job_id)
-                except Exception:
-                    raise SlurmServiceError(
-                        SlurmServiceErrorCode.UNAVAILABLE,
-                        SlurmServiceOperation.EXECUTE_RUN,
-                        f"held Slurm job {receipt.job_id} could not be released or cancelled",
-                    ) from error
-                try:
-                    self._record_submission_failure(publisher, plan, receipt.job_id)
-                except SlurmServiceError as state_error:
-                    raise SlurmServiceError(
-                        SlurmServiceErrorCode.INTERNAL,
-                        SlurmServiceOperation.EXECUTE_RUN,
-                        f"held Slurm job {receipt.job_id} was cancelled but run {plan.run_id!r} could not be updated",
-                    ) from state_error
+                self._launcher.cancel(receipt.job_id)
+            except Exception:
                 raise SlurmServiceError(
                     SlurmServiceErrorCode.UNAVAILABLE,
                     SlurmServiceOperation.EXECUTE_RUN,
-                    f"held Slurm job {receipt.job_id} could not be released and was cancelled",
-                ) from None
-            run_root = Path(plan.authored_config.path).parent
-            log_stem = f"slurm-attempt-0001-{receipt.job_id}_0"
-            status_command = ["data-designer", "slurm", "status", plan.run_id]
-            if plan.selected_profile.catalog_path is not None:
-                status_command.extend(("--profile-file", plan.selected_profile.catalog_path))
-            if plan.selected_profile.cluster_name is not None:
-                status_command.extend(("--cluster", plan.selected_profile.cluster_name))
-            self._report_progress(f"Submitted. Check status: {shlex.join(status_command)}")
-            self._report_progress(
-                "After allocation, follow shard 0 Slurm logs: "
-                + shlex.join(
-                    (
-                        "tail",
-                        "-F",
-                        (run_root / f"{log_stem}.out").as_posix(),
-                        (run_root / f"{log_stem}.err").as_posix(),
-                    )
+                    f"held Slurm job {receipt.job_id} could not be released or cancelled",
+                ) from error
+            try:
+                self._record_submission_failure(publisher, plan, receipt.job_id)
+            except SlurmServiceError as state_error:
+                raise SlurmServiceError(
+                    SlurmServiceErrorCode.INTERNAL,
+                    SlurmServiceOperation.EXECUTE_RUN,
+                    f"held Slurm job {receipt.job_id} was cancelled but run {plan.run_id!r} could not be updated",
+                ) from state_error
+            raise SlurmServiceError(
+                SlurmServiceErrorCode.UNAVAILABLE,
+                SlurmServiceOperation.EXECUTE_RUN,
+                f"held Slurm job {receipt.job_id} could not be released and was cancelled",
+            ) from None
+        run_root = Path(plan.authored_config.path).parent
+        log_stem = f"slurm-attempt-0001-{receipt.job_id}_0"
+        status_command = ["data-designer", "slurm", "status", plan.run_id]
+        if plan.selected_profile.catalog_path is not None:
+            status_command.extend(("--profile-file", plan.selected_profile.catalog_path))
+        if plan.selected_profile.cluster_name is not None:
+            status_command.extend(("--cluster", plan.selected_profile.cluster_name))
+        self._report_progress(f"Submitted. Check status: {shlex.join(status_command)}")
+        self._report_progress(
+            "After allocation, follow shard 0 Slurm logs: "
+            + shlex.join(
+                (
+                    "tail",
+                    "-F",
+                    (run_root / f"{log_stem}.out").as_posix(),
+                    (run_root / f"{log_stem}.err").as_posix(),
                 )
             )
-            server_log_root = run_root / "shards" / "shard-00000" / "attempts" / "attempt-0001" / "logs"
-            server_log_command = (
-                f"find {shlex.quote(server_log_root.as_posix())} -type f "
-                "\\( -name 'deployment-*.out' -o -name 'deployment-*.err' \\) "
-                "-exec tail -n 10 {} +"
-            )
+        )
+        server_log_root = run_root / "shards" / "shard-00000" / "attempts" / "attempt-0001" / "logs"
+        server_log_command = (
+            f"find {shlex.quote(server_log_root.as_posix())} -type f "
+            "\\( -name 'deployment-*.out' -o -name 'deployment-*.err' \\) "
+            "-exec tail -n 10 {} +"
+        )
+        self._report_progress(
+            "Once serving starts, watch shard 0 vLLM logs (including new executions): "
+            + shlex.join(("watch", "-n", "2", "-t", server_log_command))
+        )
+        if len(plan.shards) > 1:
             self._report_progress(
-                "Once serving starts, watch shard 0 vLLM logs (including new executions): "
-                + shlex.join(("watch", "-n", "2", "-t", server_log_command))
+                "For another shard, replace _0 in the Slurm filenames with its numeric task index, and "
+                "shard-00000 in the vLLM path with its shard ID (for example, _1 and shard-00001)."
             )
-            if len(plan.shards) > 1:
-                self._report_progress(
-                    "For another shard, replace _0 in the Slurm filenames with its numeric task index, and "
-                    "shard-00000 in the vLLM path with its shard ID (for example, _1 and shard-00001)."
-                )
-            return SlurmRunExecution(
-                run_id=plan.run_id,
-                state="submitted",
-                plan_sha256=plan.compute_sha256(),
-                shard_count=len(plan.shards),
-                job_id=receipt.job_id,
-            )
+        return SlurmRunExecution(
+            run_id=plan.run_id,
+            state="submitted",
+            plan_sha256=plan.compute_sha256(),
+            shard_count=len(plan.shards),
+            job_id=receipt.job_id,
+        )
 
     def _report_progress(self, message: str) -> None:
         if self._progress is not None:
@@ -973,6 +983,113 @@ def _safe_builder_load_error(error: SlurmConfigLoadError) -> str:
     if len(detail) > max_detail_length:
         detail = f"{detail[: max_detail_length - 3]}..."
     return f"{prefix}{detail}"
+
+
+def _validate_builder_for_submission(
+    authored: DataDesignerSlurmConfig,
+    builder_payload: dict[str, JsonValue] | None,
+    operation: SlurmServiceOperation,
+) -> None:
+    """Reject invalid built-in builder settings before reserving GPUs.
+
+    A plugin supplied only through the client dependency lock and a local seed
+    path visible only on compute nodes are checked during allocation preflight.
+    """
+    from data_designer.config.config_builder import BuilderConfig
+    from data_designer.config.utils.io_helpers import VALID_DATASET_FILE_EXTENSIONS
+    from data_designer.errors import DataDesignerError
+
+    payload = authored.builder.inline if authored.builder.inline is not None else builder_payload
+    assert payload is not None
+    normalized = payload if "data_designer" in payload else {"data_designer": payload}
+    data_designer = normalized.get("data_designer")
+    columns = data_designer.get("columns") if isinstance(data_designer, dict) else None
+    processors = data_designer.get("processors") if isinstance(data_designer, dict) else None
+    seed_config = data_designer.get("seed_config") if isinstance(data_designer, dict) else None
+    seed_source = seed_config.get("source") if isinstance(seed_config, dict) else None
+    builtin_columns = {
+        "custom",
+        "embedding",
+        "expression",
+        "image",
+        "llm-code",
+        "llm-judge",
+        "llm-structured",
+        "llm-text",
+        "sampler",
+        "seed-dataset",
+        "validation",
+    }
+    unknown_column = isinstance(columns, list) and any(
+        isinstance(column, dict)
+        and isinstance(column.get("column_type"), str)
+        and column["column_type"] not in builtin_columns
+        for column in columns
+    )
+    unknown_processor = isinstance(processors, list) and any(
+        isinstance(processor, dict)
+        and isinstance(processor.get("processor_type"), str)
+        and processor["processor_type"] not in {"drop_columns", "schema_transform"}
+        for processor in processors
+    )
+    unknown_seed_source = (
+        isinstance(seed_source, dict)
+        and isinstance(seed_source.get("seed_type"), str)
+        and seed_source["seed_type"] not in {"local", "hf", "df", "directory", "file_contents", "agent_rollout"}
+    )
+    deferred_local_seed_path = (
+        isinstance(seed_source, dict)
+        and seed_source.get("seed_type") == "local"
+        and isinstance(seed_source.get("path"), str)
+        and seed_source["path"].lower().endswith(tuple(VALID_DATASET_FILE_EXTENSIONS))
+    )
+    plugin_dependency = bool(authored.client.dependencies.requirements or authored.client.dependencies.lock_file)
+    if (plugin_dependency and (unknown_column or unknown_processor or unknown_seed_source)) or deferred_local_seed_path:
+        # Validate the complete built-in envelope while deferring plugin entries
+        # and local seed path existence until the client reaches its allocation.
+        data_designer = dict(data_designer)
+        if plugin_dependency and unknown_column:
+            data_designer["columns"] = [
+                column
+                for column in columns
+                if not (
+                    isinstance(column, dict)
+                    and isinstance(column.get("column_type"), str)
+                    and column["column_type"] not in builtin_columns
+                )
+            ]
+        if plugin_dependency and unknown_processor:
+            data_designer["processors"] = [
+                processor
+                for processor in processors
+                if not (
+                    isinstance(processor, dict)
+                    and isinstance(processor.get("processor_type"), str)
+                    and processor["processor_type"] not in {"drop_columns", "schema_transform"}
+                )
+            ]
+        if (plugin_dependency and unknown_seed_source) or deferred_local_seed_path:
+            data_designer["seed_config"] = {
+                **seed_config,
+                "source": {"seed_type": "hf", "path": "deferred-seed-source"},
+            }
+        normalized = {**normalized, "data_designer": data_designer}
+    try:
+        BuilderConfig.model_validate(normalized)
+    except ValidationError as error:
+        detail = format_validation_error(error, subject="builder configuration", models=BuilderConfig)
+        raise SlurmServiceError(SlurmServiceErrorCode.INVALID_REQUEST, operation, _bounded_diagnostic(detail)) from None
+    except DataDesignerError as error:
+        detail = " ".join(redact_sensitive_diagnostic(str(error)).split())
+        raise SlurmServiceError(
+            SlurmServiceErrorCode.INVALID_REQUEST,
+            operation,
+            _bounded_diagnostic(f"builder configuration failed validation: {detail}"),
+        ) from None
+
+
+def _bounded_diagnostic(message: str) -> str:
+    return f"{message[:509]}..." if len(message) > 512 else message
 
 
 def _safe_submission_error(error: SlurmSubmissionError) -> str:

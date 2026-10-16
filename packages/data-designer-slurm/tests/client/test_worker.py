@@ -16,6 +16,7 @@ import pyarrow.parquet as pq
 import pytest
 from conftest import ClientWorkerCase, FakeDataDesigner
 
+import data_designer.slurm.client.execution as execution_module
 import data_designer.slurm.client.worker as worker_module
 from data_designer.config import ResumeMode
 from data_designer.slurm.client.errors import ClientWorkerError
@@ -184,6 +185,87 @@ def test_run_persists_semantic_result_and_candidate(
     assert not (client_worker_case.attempt_dir / "dataset/part-00000.parquet").exists()
     assert result.candidate_output_manifest.sha256 == candidate.compute_sha256()
     assert progress.phase is ClientProgressPhase.COMPLETE
+
+
+def test_progress_metadata_error_does_not_abort_generation(
+    client_worker_case: ClientWorkerCase,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    worker = ClientWorker(data_designer_factory=partial(FakeDataDesigner, batch_count=2))
+    worker.preflight(
+        client_worker_case.plan_path,
+        prepared=client_worker_case.prepared,
+        endpoints=client_worker_case.endpoints,
+        plugins=(),
+    )
+    original = pq.read_metadata
+    reads = 0
+
+    def fail_once(path: Path) -> object:
+        nonlocal reads
+        reads += 1
+        if reads == 1:
+            raise OSError("transient metadata read failure")
+        return original(path)
+
+    monkeypatch.setattr(execution_module.lazy.pq, "read_metadata", fail_once)
+    result = worker.run(
+        client_worker_case.plan_path,
+        prepared=client_worker_case.prepared,
+        endpoints=client_worker_case.endpoints,
+        plugins=(),
+    )
+
+    assert result.outcome is ClientOutcome.COMPLETE
+    assert result.actual_records == client_worker_case.plan.shards[0].requested_records
+
+
+def test_progress_retries_transient_batch_metadata_errors(
+    client_worker_case: ClientWorkerCase,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    worker = ClientWorker(data_designer_factory=partial(FakeDataDesigner, batch_count=3))
+    worker.preflight(
+        client_worker_case.plan_path,
+        prepared=client_worker_case.prepared,
+        endpoints=client_worker_case.endpoints,
+        plugins=(),
+    )
+    original_read = pq.read_metadata
+    original_best_effort = execution_module._ProgressWriter.best_effort  # noqa: SLF001
+    failed = False
+    generating_counts: list[int | None] = []
+
+    def fail_second_batch_once(path: Path) -> object:
+        nonlocal failed
+        if path.name == "batch_00001.parquet" and not failed:
+            failed = True
+            raise OSError("transient metadata read failure")
+        return original_read(path)
+
+    def observe_progress(
+        writer: object,
+        phase: ClientProgressPhase,
+        *,
+        completed_records: int | None = None,
+        error_code: ClientErrorCode | None = None,
+    ) -> None:
+        if phase is ClientProgressPhase.GENERATING:
+            generating_counts.append(completed_records)
+        original_best_effort(writer, phase, completed_records=completed_records, error_code=error_code)
+
+    monkeypatch.setattr(execution_module.lazy.pq, "read_metadata", fail_second_batch_once)
+    monkeypatch.setattr(execution_module._ProgressWriter, "best_effort", observe_progress)  # noqa: SLF001
+    result = worker.run(
+        client_worker_case.plan_path,
+        prepared=client_worker_case.prepared,
+        endpoints=client_worker_case.endpoints,
+        plugins=(),
+    )
+
+    assert failed
+    assert result.outcome is ClientOutcome.COMPLETE
+    assert generating_counts[-1] == result.actual_records
 
 
 def test_run_normalizes_parquet_schema_metadata(client_worker_case: ClientWorkerCase) -> None:

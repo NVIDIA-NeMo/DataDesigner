@@ -31,7 +31,7 @@ def render_generation_attempt_script(plan: ResolvedSlurmRunPlan, *, attempt_ordi
             error_path=posixpath.join(run_root, f"slurm-attempt-{attempt}-%A_%a.err"),
         )
     )
-    if plan.selected_profile.profile.gpu_request_mode == "visible":
+    if _requires_exclusive_nodes(plan):
         directive_text = f"{directive_text}\n#SBATCH --exclusive"
     return f"""#!/usr/bin/env bash
 {directive_text}
@@ -106,6 +106,8 @@ def render_generation_retry_script(plan: ResolvedSlurmRunPlan, retry: RetryPlan)
             error_path=posixpath.join(retry_root, "slurm-%A_%a.err"),
         )
     )
+    if _requires_exclusive_nodes(plan):
+        directives = f"{directives}\n#SBATCH --exclusive"
     attempt_cases = "\n".join(
         f"    {shard.array_task_index}) DD_ATTEMPT_ORDINAL={quote_shell_value(f'{shard.attempt_ordinal:04d}')} ;;"
         for shard in retry.planned_shards
@@ -249,3 +251,10 @@ def _build_generation_directives(
     if plan.submission.comment is not None:
         values.append(("comment", plan.submission.comment))
     return tuple(values)
+
+
+def _requires_exclusive_nodes(plan: ResolvedSlurmRunPlan) -> bool:
+    """Avoid remote-node port collisions when batch GPU IDs describe node zero only."""
+    if plan.selected_profile.profile.gpu_request_mode == "visible":
+        return True
+    return any(index > 0 for deployment in plan.deployments for index in deployment.node_indices)

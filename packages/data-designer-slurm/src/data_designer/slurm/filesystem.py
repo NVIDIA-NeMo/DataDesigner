@@ -24,12 +24,13 @@ def acquire_restrictive_file_lock(
     display_path: Path,
     *,
     resource_name: str,
+    shared: bool = False,
 ) -> Iterator[None]:
     """Acquire one private single-link lock beneath a verified directory."""
     descriptor: int | None = None
     try:
         descriptor = open_lock_file(directory_descriptor, name, display_path, resource_name=resource_name)
-        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        fcntl.flock(descriptor, fcntl.LOCK_SH if shared else fcntl.LOCK_EX)
         locked_status = os.fstat(descriptor)
         current_status = os.stat(name, dir_fd=directory_descriptor, follow_symlinks=False)
         if (

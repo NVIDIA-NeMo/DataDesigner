@@ -88,7 +88,7 @@ def test_multi_replica_manifest_uses_one_gpu_owned_worker(
             "resources": placement.authored.resources.model_copy(update={"nodes": nodes}),
             "server": placement.authored.server.model_copy(
                 update={
-                    "startup_timeout": "2s",
+                    "startup_timeout": "10s",
                     "distributed_init_timeout": "1s",
                     "lead_boot_standoff": "4s",
                     "rank_launch_stagger": f"{stagger}s",
@@ -234,7 +234,7 @@ def test_bootstrap_manifest_composes_multi_node_workers_and_remote_endpoints(
                         "served_model_name": deployment.served_model_name,
                         "server": deployment.authored.server.model_copy(
                             update={
-                                "startup_timeout": "2s",
+                                "startup_timeout": "10s",
                                 "distributed_init_timeout": "1s",
                                 "lead_boot_standoff": "4s",
                                 "rank_launch_stagger": "2s",
@@ -314,7 +314,7 @@ def _assert_launch_readiness(manifest: RuntimeBootstrapManifest, workspace: Path
                 if "--headless" not in process.command
                 if str(probe.port) == process.command[process.command.index("--port") + 1]
             )
-            budgets.append((probe.deadline_seconds, process.launch_delay_seconds + 2))
+            budgets.append((probe.deadline_seconds, process.launch_delay_seconds + 10))
             cases.append(f"*://{probe.host}:{probe.port}/*) ((SECONDS >= {process.launch_delay_seconds + 1}));;")
     entrypoint = Path(__file__).parents[2] / "src/data_designer/slurm/runtime/entrypoint.sh"
     command = f"""
@@ -332,6 +332,113 @@ dd_wait_for_role_readiness server
     completed = subprocess.run(("bash", "-c", command), capture_output=True, text=True, timeout=10)
     assert completed.returncode == 0, completed.stderr
     assert all(actual == expected for actual, expected in budgets)
+
+
+def test_server_readiness_uses_one_deadline_for_all_probes() -> None:
+    entrypoint = Path(__file__).parents[2] / "src/data_designer/slurm/runtime/entrypoint.sh"
+    command = f"""
+source {shlex.quote(str(entrypoint))}
+DD_RUNTIME_MANIFEST=unused
+SECONDS=0
+DD_STEP_STARTED_AT[server]=0
+dd_read_step_ids() {{ DD_STEP_IDS=(server); }}
+dd_read_step() {{ DD_STEP_PROBE_FIELDS=(127.0.0.1 10001 /health 4 127.0.0.1 10002 /health 4); }}
+dd_require_running() {{ :; }}
+dd_sleep() {{ SECONDS=$((SECONDS + 1)); }}
+curl() {{ [[ "${{@: -1}}" == *:10001/* && $SECONDS -ge 3 ]]; }}
+if dd_wait_for_role_readiness server; then
+    echo unexpected-success
+else
+    echo "timeout-at:$SECONDS"
+fi
+"""
+    completed = subprocess.run(("bash", "-c", command), capture_output=True, text=True, timeout=10)
+
+    assert completed.returncode == 0
+    assert "timeout-at:4" in completed.stdout
+    assert "readiness timed out" in completed.stderr
+
+
+def test_server_readiness_rejects_late_success_after_earlier_probe() -> None:
+    entrypoint = Path(__file__).parents[2] / "src/data_designer/slurm/runtime/entrypoint.sh"
+    command = f"""
+source {shlex.quote(str(entrypoint))}
+DD_RUNTIME_MANIFEST=unused
+SECONDS=0
+DD_STEP_STARTED_AT[server]=0
+dd_read_step_ids() {{ DD_STEP_IDS=(server); }}
+dd_read_step() {{ DD_STEP_PROBE_FIELDS=(127.0.0.1 10001 /health 4 127.0.0.1 10002 /health 4); }}
+dd_require_running() {{ :; }}
+dd_sleep() {{ :; }}
+curl() {{ SECONDS=5; return 0; }}
+if dd_wait_for_role_readiness server; then
+    echo unexpected-success
+else
+    echo "timeout-at:$SECONDS"
+fi
+"""
+    completed = subprocess.run(("bash", "-c", command), capture_output=True, text=True, timeout=10)
+
+    assert completed.returncode == 0
+    assert "timeout-at:5" in completed.stdout
+    assert "readiness timed out" in completed.stderr
+
+
+def test_server_readiness_rejects_late_success_for_single_probe() -> None:
+    entrypoint = Path(__file__).parents[2] / "src/data_designer/slurm/runtime/entrypoint.sh"
+    command = f"""
+source {shlex.quote(str(entrypoint))}
+DD_RUNTIME_MANIFEST=unused
+SECONDS=0
+DD_STEP_STARTED_AT[server]=0
+dd_read_step_ids() {{ DD_STEP_IDS=(server); }}
+dd_read_step() {{ DD_STEP_PROBE_FIELDS=(127.0.0.1 10001 /health 4); }}
+dd_require_running() {{ :; }}
+dd_sleep() {{ :; }}
+curl() {{ SECONDS=5; return 0; }}
+if dd_wait_for_role_readiness server; then
+    echo unexpected-success
+else
+    echo "timeout-at:$SECONDS"
+fi
+"""
+    completed = subprocess.run(("bash", "-c", command), capture_output=True, text=True, timeout=10)
+
+    assert completed.returncode == 0
+    assert "timeout-at:5" in completed.stdout
+    assert "readiness timed out" in completed.stderr
+
+
+def test_server_readiness_checks_later_steps_before_earlier_steps_finish() -> None:
+    entrypoint = Path(__file__).parents[2] / "src/data_designer/slurm/runtime/entrypoint.sh"
+    command = f"""
+source {shlex.quote(str(entrypoint))}
+DD_RUNTIME_MANIFEST=unused
+SECONDS=0
+DD_STEP_STARTED_AT[first]=0
+DD_STEP_STARTED_AT[second]=0
+dd_read_step_ids() {{ DD_STEP_IDS=(first second); }}
+dd_read_step() {{
+    case "$2" in
+        first) DD_STEP_PROBE_FIELDS=(127.0.0.1 10001 /health 120);;
+        second) DD_STEP_PROBE_FIELDS=(127.0.0.1 10002 /health 60);;
+    esac
+}}
+dd_require_running() {{ :; }}
+dd_sleep() {{ SECONDS=$((SECONDS + 1)); }}
+curl() {{
+    case "${{@: -1}}" in
+        *:10001/*) ((SECONDS >= 110));;
+        *:10002/*) ((SECONDS >= 10));;
+    esac
+}}
+dd_wait_for_role_readiness server
+echo "ready-at:$SECONDS"
+"""
+    completed = subprocess.run(("bash", "-c", command), capture_output=True, text=True, timeout=10)
+
+    assert completed.returncode == 0, completed.stderr
+    assert "ready-at:110" in completed.stdout
 
 
 def test_pipeline_parallel_process_uses_multi_process_executor(

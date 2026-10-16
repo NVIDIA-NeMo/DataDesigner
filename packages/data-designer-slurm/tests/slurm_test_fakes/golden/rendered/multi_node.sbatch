@@ -10,6 +10,7 @@
 #SBATCH --output="/workspace/primary/runs/run-001/slurm-attempt-0001-%A_%a.out"
 #SBATCH --error="/workspace/primary/runs/run-001/slurm-attempt-0001-%A_%a.err"
 #SBATCH --gres=gpu:8
+#SBATCH --exclusive
 set -Eeuo pipefail
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 export PYTHONNOUSERSITE=1
