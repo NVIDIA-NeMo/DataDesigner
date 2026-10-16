@@ -297,7 +297,8 @@ assert StateArtifactReference is ContractArtifactReference
 assert StateRecordRange is ContractRecordRange
 assert StateResumeWorkspace is ContractResumeWorkspace
 examples = Path("examples")
-assert load_builder_payload(examples / "builder.yaml")["data_designer"]["columns"][0]["name"] == "greeting"
+builder_example = load_builder_payload(examples / "builder.yaml")
+assert [column["name"] for column in builder_example["data_designer"]["columns"]] == ["tone", "greeting"]
 run_example = load_run_config(examples / "run.yaml")
 benchmark_example = load_benchmark_config(examples / "benchmark.yaml")
 assert run_example.name == "greeting-run"
