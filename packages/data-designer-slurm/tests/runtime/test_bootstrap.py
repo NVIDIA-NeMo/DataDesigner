@@ -334,40 +334,53 @@ dd_wait_for_role_readiness server
     assert all(actual == expected for actual, expected in budgets)
 
 
-def test_server_readiness_uses_one_deadline_for_all_probes() -> None:
+def _run_readiness_command(body: str) -> subprocess.CompletedProcess[str]:
     entrypoint = Path(__file__).parents[2] / "src/data_designer/slurm/runtime/entrypoint.sh"
-    command = f"""
-source {shlex.quote(str(entrypoint))}
+    return subprocess.run(
+        ("bash", "-c", f"source {shlex.quote(str(entrypoint))}\n{body}"),
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+
+
+def test_server_readiness_uses_one_deadline_for_all_probes() -> None:
+    command = """
 DD_RUNTIME_MANIFEST=unused
 SECONDS=0
 DD_STEP_STARTED_AT[server]=0
-dd_read_step_ids() {{ DD_STEP_IDS=(server); }}
-dd_read_step() {{ DD_STEP_PROBE_FIELDS=(127.0.0.1 10001 /health 4 127.0.0.1 10002 /health 4); }}
-dd_require_running() {{ :; }}
-dd_sleep() {{ SECONDS=$((SECONDS + 1)); }}
-curl() {{ [[ "${{@: -1}}" == *:10001/* && $SECONDS -ge 3 ]]; }}
+dd_read_step_ids() { DD_STEP_IDS=(server); }
+dd_read_step() { DD_STEP_PROBE_FIELDS=(127.0.0.1 10001 /health 4 127.0.0.1 10002 /health 4); }
+dd_require_running() { :; }
+dd_sleep() { SECONDS=$((SECONDS + 1)); }
+curl() { [[ "${@: -1}" == *:10001/* && $SECONDS -ge 3 ]]; }
 if dd_wait_for_role_readiness server; then
     echo unexpected-success
 else
     echo "timeout-at:$SECONDS"
 fi
 """
-    completed = subprocess.run(("bash", "-c", command), capture_output=True, text=True, timeout=10)
+    completed = _run_readiness_command(command)
 
     assert completed.returncode == 0
     assert "timeout-at:4" in completed.stdout
     assert "readiness timed out" in completed.stderr
 
 
-def test_server_readiness_rejects_late_success_after_earlier_probe() -> None:
-    entrypoint = Path(__file__).parents[2] / "src/data_designer/slurm/runtime/entrypoint.sh"
+@pytest.mark.parametrize(
+    "probe_fields",
+    (
+        pytest.param("127.0.0.1 10001 /health 4", id="single-probe"),
+        pytest.param("127.0.0.1 10001 /health 4 127.0.0.1 10002 /health 4", id="second-probe"),
+    ),
+)
+def test_server_readiness_rejects_late_success(probe_fields: str) -> None:
     command = f"""
-source {shlex.quote(str(entrypoint))}
 DD_RUNTIME_MANIFEST=unused
 SECONDS=0
 DD_STEP_STARTED_AT[server]=0
 dd_read_step_ids() {{ DD_STEP_IDS=(server); }}
-dd_read_step() {{ DD_STEP_PROBE_FIELDS=(127.0.0.1 10001 /health 4 127.0.0.1 10002 /health 4); }}
+dd_read_step() {{ DD_STEP_PROBE_FIELDS=({probe_fields}); }}
 dd_require_running() {{ :; }}
 dd_sleep() {{ :; }}
 curl() {{ SECONDS=5; return 0; }}
@@ -377,32 +390,7 @@ else
     echo "timeout-at:$SECONDS"
 fi
 """
-    completed = subprocess.run(("bash", "-c", command), capture_output=True, text=True, timeout=10)
-
-    assert completed.returncode == 0
-    assert "timeout-at:5" in completed.stdout
-    assert "readiness timed out" in completed.stderr
-
-
-def test_server_readiness_rejects_late_success_for_single_probe() -> None:
-    entrypoint = Path(__file__).parents[2] / "src/data_designer/slurm/runtime/entrypoint.sh"
-    command = f"""
-source {shlex.quote(str(entrypoint))}
-DD_RUNTIME_MANIFEST=unused
-SECONDS=0
-DD_STEP_STARTED_AT[server]=0
-dd_read_step_ids() {{ DD_STEP_IDS=(server); }}
-dd_read_step() {{ DD_STEP_PROBE_FIELDS=(127.0.0.1 10001 /health 4); }}
-dd_require_running() {{ :; }}
-dd_sleep() {{ :; }}
-curl() {{ SECONDS=5; return 0; }}
-if dd_wait_for_role_readiness server; then
-    echo unexpected-success
-else
-    echo "timeout-at:$SECONDS"
-fi
-"""
-    completed = subprocess.run(("bash", "-c", command), capture_output=True, text=True, timeout=10)
+    completed = _run_readiness_command(command)
 
     assert completed.returncode == 0
     assert "timeout-at:5" in completed.stdout
@@ -410,32 +398,30 @@ fi
 
 
 def test_server_readiness_checks_later_steps_before_earlier_steps_finish() -> None:
-    entrypoint = Path(__file__).parents[2] / "src/data_designer/slurm/runtime/entrypoint.sh"
-    command = f"""
-source {shlex.quote(str(entrypoint))}
+    command = """
 DD_RUNTIME_MANIFEST=unused
 SECONDS=0
 DD_STEP_STARTED_AT[first]=0
 DD_STEP_STARTED_AT[second]=0
-dd_read_step_ids() {{ DD_STEP_IDS=(first second); }}
-dd_read_step() {{
+dd_read_step_ids() { DD_STEP_IDS=(first second); }
+dd_read_step() {
     case "$2" in
         first) DD_STEP_PROBE_FIELDS=(127.0.0.1 10001 /health 120);;
         second) DD_STEP_PROBE_FIELDS=(127.0.0.1 10002 /health 60);;
     esac
-}}
-dd_require_running() {{ :; }}
-dd_sleep() {{ SECONDS=$((SECONDS + 1)); }}
-curl() {{
-    case "${{@: -1}}" in
+}
+dd_require_running() { :; }
+dd_sleep() { SECONDS=$((SECONDS + 1)); }
+curl() {
+    case "${@: -1}" in
         *:10001/*) ((SECONDS >= 110));;
         *:10002/*) ((SECONDS >= 10));;
     esac
-}}
+}
 dd_wait_for_role_readiness server
 echo "ready-at:$SECONDS"
 """
-    completed = subprocess.run(("bash", "-c", command), capture_output=True, text=True, timeout=10)
+    completed = _run_readiness_command(command)
 
     assert completed.returncode == 0, completed.stderr
     assert "ready-at:110" in completed.stdout

@@ -1020,17 +1020,18 @@ def _validate_builder_for_submission(
         "seed-dataset",
         "validation",
     }
+    builtin_processors = {"drop_columns", "schema_transform"}
+
+    def is_unrecognized_type(value: object, discriminator: str, known: set[str]) -> bool:
+        return (
+            isinstance(value, dict) and isinstance(value.get(discriminator), str) and value[discriminator] not in known
+        )
+
     unknown_column = isinstance(columns, list) and any(
-        isinstance(column, dict)
-        and isinstance(column.get("column_type"), str)
-        and column["column_type"] not in builtin_columns
-        for column in columns
+        is_unrecognized_type(column, "column_type", builtin_columns) for column in columns
     )
     unknown_processor = isinstance(processors, list) and any(
-        isinstance(processor, dict)
-        and isinstance(processor.get("processor_type"), str)
-        and processor["processor_type"] not in {"drop_columns", "schema_transform"}
-        for processor in processors
+        is_unrecognized_type(processor, "processor_type", builtin_processors) for processor in processors
     )
     unknown_seed_source = (
         isinstance(seed_source, dict)
@@ -1050,23 +1051,13 @@ def _validate_builder_for_submission(
         data_designer = dict(data_designer)
         if plugin_dependency and unknown_column:
             data_designer["columns"] = [
-                column
-                for column in columns
-                if not (
-                    isinstance(column, dict)
-                    and isinstance(column.get("column_type"), str)
-                    and column["column_type"] not in builtin_columns
-                )
+                column for column in columns if not is_unrecognized_type(column, "column_type", builtin_columns)
             ]
         if plugin_dependency and unknown_processor:
             data_designer["processors"] = [
                 processor
                 for processor in processors
-                if not (
-                    isinstance(processor, dict)
-                    and isinstance(processor.get("processor_type"), str)
-                    and processor["processor_type"] not in {"drop_columns", "schema_transform"}
-                )
+                if not is_unrecognized_type(processor, "processor_type", builtin_processors)
             ]
         if (plugin_dependency and unknown_seed_source) or deferred_local_seed_path:
             data_designer["seed_config"] = {
