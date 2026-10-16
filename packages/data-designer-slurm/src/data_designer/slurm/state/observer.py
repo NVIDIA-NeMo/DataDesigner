@@ -127,7 +127,16 @@ class SlurmStateReconciler:
             )
             for shard in shards
         )
-        return self._compose_run_status(run, timestamp, shard_statuses)
+        latest_evidence = max(
+            (
+                attempt.readiness.updated_at
+                for shard in shard_statuses
+                for attempt in shard.attempts
+                if attempt.readiness
+            ),
+            default=timestamp,
+        )
+        return self._compose_run_status(run, max(timestamp, latest_evidence), shard_statuses)
 
     def _compose_run_status(
         self,
@@ -242,7 +251,9 @@ class SlurmStateReconciler:
                 attempt,
                 readiness,
                 scheduler,
-                current_time=scheduler.observed_at,
+                current_time=max(scheduler.observed_at, readiness.updated_at)
+                if readiness is not None
+                else scheduler.observed_at,
             )
         else:
             if attempt.state is not AttemptLifecycleState.CREATED:

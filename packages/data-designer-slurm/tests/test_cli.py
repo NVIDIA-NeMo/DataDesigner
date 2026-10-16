@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from click.testing import CliRunner
@@ -502,6 +503,11 @@ def test_benchmark_cli_forwards_run_and_analysis_actions(
         return service
 
     monkeypatch.setattr(benchmark_cli_module, "create_slurm_benchmark_service", create_benchmark_service)
+    monkeypatch.setattr(
+        benchmark_cli_module,
+        "resolve_profile",
+        lambda **_: SimpleNamespace(profile=SimpleNamespace(workspace_root="/workspace")),
+    )
     monkeypatch.setattr(cli_module, "_progress_enabled", lambda: True)
 
     run_result = CliRunner().invoke(
@@ -520,6 +526,27 @@ def test_benchmark_cli_forwards_run_and_analysis_actions(
     assert service.run_calls == [(benchmark_config, tmp_path, True)]
     assert service.analysis_calls == [("benchmark-001", True, True)]
     assert _timestamped_lines(run_result.stderr) == ["Preparing benchmark launch...", "Benchmark case 1/1: submitted."]
+
+
+def test_benchmark_analyze_rejects_directory_outside_selected_workspace(
+    benchmark_manifest: BenchmarkManifest, benchmark_report: BenchmarkReport, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service = _BenchmarkService(benchmark_manifest, benchmark_report)
+    monkeypatch.setattr(benchmark_cli_module, "create_slurm_benchmark_service", lambda **_: service)
+    monkeypatch.setattr(
+        benchmark_cli_module,
+        "resolve_profile",
+        lambda **_: SimpleNamespace(profile=SimpleNamespace(workspace_root="/workspace")),
+    )
+
+    result = CliRunner().invoke(
+        cli_module.create_cli(),
+        ["benchmark", "analyze", "/another-workspace/benchmarks/benchmark-001"],
+    )
+
+    assert result.exit_code == 2
+    assert "outside the selected profile" in result.output
+    assert service.analysis_calls == []
 
 
 def test_retry_emits_deterministic_json_and_maps_task_ids(monkeypatch) -> None:

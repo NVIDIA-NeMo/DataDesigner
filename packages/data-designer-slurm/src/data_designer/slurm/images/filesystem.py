@@ -27,8 +27,10 @@ from data_designer.slurm.images.errors import ImageRegistryError
 
 
 @contextmanager
-def acquire_file_lock(directory_descriptor: int, name: str, display_path: Path) -> Iterator[None]:
-    """Acquire one exclusive advisory lock without reopening its parent path."""
+def acquire_file_lock(
+    directory_descriptor: int, name: str, display_path: Path, *, shared: bool = False
+) -> Iterator[None]:
+    """Acquire one advisory lock without reopening its parent path."""
     with ExitStack() as resources:
         try:
             resources.enter_context(
@@ -37,6 +39,7 @@ def acquire_file_lock(directory_descriptor: int, name: str, display_path: Path) 
                     name,
                     display_path,
                     resource_name="registry",
+                    shared=shared,
                 )
             )
         except OSError as error:
