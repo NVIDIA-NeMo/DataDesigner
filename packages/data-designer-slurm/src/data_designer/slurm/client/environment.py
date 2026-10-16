@@ -338,7 +338,8 @@ def _active_distribution_search_paths() -> list[str]:
             continue
         if normalized_entry in configured_paths and normalized_entry not in standard_site_paths:
             continue
-        active_paths.append(entry)
+        if normalized_entry not in active_paths:
+            active_paths.append(normalized_entry)
     return active_paths
 
 
