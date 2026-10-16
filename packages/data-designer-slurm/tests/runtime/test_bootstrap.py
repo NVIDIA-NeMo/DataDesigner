@@ -316,9 +316,7 @@ def _assert_launch_readiness(manifest: RuntimeBootstrapManifest, workspace: Path
             )
             budgets.append((probe.deadline_seconds, process.launch_delay_seconds + 10))
             cases.append(f"*://{probe.host}:{probe.port}/*) ((SECONDS >= {process.launch_delay_seconds + 1}));;")
-    entrypoint = Path(__file__).parents[2] / "src/data_designer/slurm/runtime/entrypoint.sh"
     command = f"""
-source {shlex.quote(str(entrypoint))}
 DD_RUNTIME_MANIFEST={shlex.quote(str(manifest_path))}
 SECONDS=0
 dd_start_step() {{ DD_LAST_PID=1; }}
@@ -329,7 +327,7 @@ curl() {{ case "${{@: -1}}" in {" ".join(cases)} *) return 99;; esac; }}
 dd_start_servers
 dd_wait_for_role_readiness server
 """
-    completed = subprocess.run(("bash", "-c", command), capture_output=True, text=True, timeout=10)
+    completed = _run_readiness_command(command)
     assert completed.returncode == 0, completed.stderr
     assert all(actual == expected for actual, expected in budgets)
 
