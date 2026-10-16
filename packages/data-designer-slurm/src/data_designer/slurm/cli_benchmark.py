@@ -12,9 +12,9 @@ from pathlib import Path
 import typer
 from pydantic import BaseModel
 
-from data_designer.slurm.config import load_benchmark_config
+from data_designer.slurm.config import load_benchmark_config, resolve_profile
 from data_designer.slurm.services import create_slurm_benchmark_service
-from data_designer.slurm.services.errors import SlurmServiceOperation
+from data_designer.slurm.services.errors import SlurmServiceError, SlurmServiceErrorCode, SlurmServiceOperation
 
 _Invoke = Callable[[SlurmServiceOperation, Callable[[], BaseModel]], BaseModel]
 _Emit = Callable[[BaseModel], None]
@@ -43,7 +43,18 @@ def _analyze_benchmark(
     refresh: bool,
     fail_if_incomplete: bool,
 ) -> BaseModel:
-    benchmark_id = Path(benchmark.rstrip("/")).name
+    normalized = benchmark.rstrip("/")
+    benchmark_id = Path(normalized).name
+    if normalized != benchmark_id:
+        selected = resolve_profile(profile_file=profile_file, cluster=cluster)
+        requested = Path(normalized).expanduser().resolve()
+        expected = (Path(selected.profile.workspace_root) / "benchmarks" / benchmark_id).resolve()
+        if requested != expected:
+            raise SlurmServiceError(
+                SlurmServiceErrorCode.INVALID_REQUEST,
+                SlurmServiceOperation.ANALYZE_BENCHMARK,
+                "benchmark directory is outside the selected profile's benchmarks directory",
+            )
     service = create_slurm_benchmark_service(profile_file=profile_file, cluster=cluster)
     return service.analyze(
         benchmark_id,

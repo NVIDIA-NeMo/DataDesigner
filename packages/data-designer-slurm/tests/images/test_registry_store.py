@@ -151,6 +151,88 @@ def test_unregister_can_delete_unshared_imported_artifact(tmp_path: Path) -> Non
     assert not artifact_path.exists()
 
 
+def test_unregister_keeps_artifact_referenced_by_persisted_run(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    artifact_path = workspace / "images" / "artifacts" / f"client-{hashlib.sha256(b'client').hexdigest()}.sqsh"
+    artifact_path.parent.mkdir(parents=True)
+    artifact_path.write_bytes(b"client")
+    image = _get_registered_client_image(artifact_path).model_copy(update={"source_oci_digest": "a" * 64})
+    store = ImageRegistryStore(workspace)
+    store.register(image, verify_before_publish=lambda _image: None)
+    run_root = workspace / "runs" / "run-example"
+    run_root.mkdir(parents=True)
+    (run_root / "resolved-plan.json").write_text(
+        json.dumps({"deployments": [{"image": {"path": artifact_path.as_posix()}}]})
+    )
+
+    with pytest.raises(ImageConflictError, match="referenced by run"):
+        store.unregister("client", delete_artifact=True)
+
+    assert store.get_by_name("client") == image
+    assert artifact_path.exists()
+
+
+@pytest.mark.parametrize("invalid_plan", ("symlink", "oversized"))
+def test_unregister_keeps_artifact_when_run_plan_cannot_be_safely_read(
+    tmp_path: Path,
+    invalid_plan: str,
+) -> None:
+    workspace = tmp_path / "workspace"
+    artifact_path = workspace / "images" / "artifacts" / f"client-{hashlib.sha256(b'client').hexdigest()}.sqsh"
+    artifact_path.parent.mkdir(parents=True)
+    artifact_path.write_bytes(b"client")
+    image = _get_registered_client_image(artifact_path).model_copy(update={"source_oci_digest": "a" * 64})
+    store = ImageRegistryStore(workspace)
+    store.register(image, verify_before_publish=lambda _image: None)
+    run_root = workspace / "runs" / "run-example"
+    run_root.mkdir(parents=True)
+    plan_path = run_root / "resolved-plan.json"
+    if invalid_plan == "symlink":
+        source = tmp_path / "outside.json"
+        source.write_text(json.dumps({"deployments": []}))
+        plan_path.symlink_to(source)
+    else:
+        with plan_path.open("wb") as plan:
+            plan.truncate(16 * 1024 * 1024 + 1)
+
+    with pytest.raises(ImageConflictError, match="run plan cannot be checked"):
+        store.unregister("client", delete_artifact=True)
+
+    assert store.get_by_name("client") == image
+    assert artifact_path.exists()
+
+
+def test_artifact_removal_waits_for_run_plan_publication(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    artifact_path = workspace / "images" / "artifacts" / f"client-{hashlib.sha256(b'client').hexdigest()}.sqsh"
+    artifact_path.parent.mkdir(parents=True)
+    artifact_path.write_bytes(b"client")
+    image = _get_registered_client_image(artifact_path).model_copy(update={"source_oci_digest": "a" * 64})
+    store = ImageRegistryStore(workspace)
+    store.register(image, verify_before_publish=lambda _image: None)
+    started = Event()
+
+    def remove() -> None:
+        started.set()
+        store.unregister("client", delete_artifact=True)
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        with store.acquire_run_reference_lock():
+            pending = executor.submit(remove)
+            assert started.wait(timeout=2)
+            run_root = workspace / "runs" / "run-concurrent"
+            run_root.mkdir(parents=True)
+            (run_root / "resolved-plan.json").write_text(
+                json.dumps({"deployments": [{"image": {"path": artifact_path.as_posix()}}]})
+            )
+            assert not pending.done()
+        with pytest.raises(ImageConflictError, match="referenced by run"):
+            pending.result(timeout=2)
+
+    assert store.get_by_name("client") == image
+    assert artifact_path.exists()
+
+
 def test_unregister_refuses_to_delete_shared_or_external_artifacts(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     artifact_path = workspace / "images" / "artifacts" / f"client-{hashlib.sha256(b'client').hexdigest()}.sqsh"

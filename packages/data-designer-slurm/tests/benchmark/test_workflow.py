@@ -420,10 +420,16 @@ def test_partial_submission_attempts_all_children_and_resumes_only_missing(
         progress=progress.append,
     )
 
-    with pytest.raises(SlurmServiceError, match="1 of 2"):
+    with pytest.raises(SlurmServiceError, match="1 of 2") as failure:
         backend.run(config, source_root=tmp_path, force=True)
     assert len(calls) == 2
-    assert "Benchmark case 1/2: submission failed; continuing." in progress
+    assert compiled.benchmark_id in str(failure.value)
+    assert missing_id in str(failure.value)
+    assert "submission unavailable" in str(failure.value)
+    assert (
+        f"Benchmark case 1/2 submission failed: {compiled.cases[0].case_id} "
+        f"(run {missing_id}): submission unavailable; continuing."
+    ) in progress
     assert "Benchmark launch: 1 submitted, 0 already submitted, 1 failed." in progress
 
     failures.clear()

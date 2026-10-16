@@ -444,6 +444,44 @@ def test_environment_installs_verified_wheel_overlay(client_worker_case: ClientW
     assert "--no-deps" in commands[0]
 
 
+def test_overlay_reuse_checks_installed_files_and_rejects_strays(tmp_path: Path) -> None:
+    target = tmp_path / "scratch" / "client-env" / "site-packages"
+    expected = (InstalledDistribution(name="example-plugin", version="1.0.0"),)
+    calls: list[tuple[str, ...]] = []
+
+    def inventory(path: Path | None) -> tuple[InstalledDistribution, ...]:
+        return expected if calls else ()
+
+    def install(command: tuple[str, ...]) -> None:
+        calls.append(command)
+        (target / "example_plugin.py").write_text("original")
+
+    builder = ClientEnvironmentBuilder(inventory=inventory, command_runner=install)
+    assert builder._install_overlay(Path(sys.executable), (tmp_path / "plugin.whl",), expected, target) is (  # noqa: SLF001
+        ClientInstallerOutcome.INSTALLED
+    )
+    assert builder._install_overlay(Path(sys.executable), (tmp_path / "plugin.whl",), expected, target) is (  # noqa: SLF001
+        ClientInstallerOutcome.REUSED
+    )
+
+    generated_bytecode = target / "__pycache__" / "example_plugin.cpython-311.pyc"
+    generated_bytecode.parent.mkdir()
+    generated_bytecode.write_bytes(b"unverified cached code")
+    assert builder._install_overlay(Path(sys.executable), (tmp_path / "plugin.whl",), expected, target) is (  # noqa: SLF001
+        ClientInstallerOutcome.REUSED
+    )
+    assert not generated_bytecode.exists()
+
+    (target / "example_plugin.py").write_text("changed")
+    with pytest.raises(ClientWorkerError, match="overlay files differ"):
+        builder._install_overlay(Path(sys.executable), (tmp_path / "plugin.whl",), expected, target)  # noqa: SLF001
+
+    (target / "example_plugin.py").write_text("original")
+    (target / "unexpected.py").write_text("stray")
+    with pytest.raises(ClientWorkerError, match="overlay files differ"):
+        builder._install_overlay(Path(sys.executable), (tmp_path / "plugin.whl",), expected, target)  # noqa: SLF001
+
+
 def test_discover_plugins_loads_verified_entry_point(
     fake_plugin_overlay: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -16,8 +16,9 @@ from pathlib import Path
 from typing import Literal, Protocol, TypeVar
 from uuid import uuid4
 
-from pydantic import JsonValue
+from pydantic import JsonValue, ValidationError
 
+from data_designer.slurm._errors import format_validation_error
 from data_designer.slurm.benchmark.execution import SystemBenchmarkBackend
 from data_designer.slurm.benchmark.observer import PersistedBenchmarkRunObserver
 from data_designer.slurm.client.dependencies import (
@@ -174,6 +175,16 @@ class _RunPreparer:
     ) -> Iterator[_PreparedRun]:
         stack = ExitStack()
         try:
+            try:
+                stack.enter_context(
+                    ImageRegistryStore(self._profile.profile.workspace_root).acquire_run_reference_lock()
+                )
+            except (SlurmImageError, OSError):
+                raise SlurmServiceError(
+                    SlurmServiceErrorCode.UNAVAILABLE,
+                    operation,
+                    "image registry cannot coordinate run publication",
+                ) from None
             prepared = self._prepare(authored, source_root=source_root, operation=operation, stack=stack)
         except BaseException:
             stack.close()
@@ -212,6 +223,7 @@ class _RunPreparer:
                     operation,
                     _safe_builder_load_error(error),
                 ) from None
+            _validate_builder_for_submission(authored, builder_payload, operation)
             dependencies = stack.enter_context(
                 self._dependencies.resolve(
                     authored.client.dependencies,
@@ -973,6 +985,113 @@ def _safe_builder_load_error(error: SlurmConfigLoadError) -> str:
     if len(detail) > max_detail_length:
         detail = f"{detail[: max_detail_length - 3]}..."
     return f"{prefix}{detail}"
+
+
+def _validate_builder_for_submission(
+    authored: DataDesignerSlurmConfig,
+    builder_payload: dict[str, JsonValue] | None,
+    operation: SlurmServiceOperation,
+) -> None:
+    """Reject invalid built-in builder settings before reserving GPUs.
+
+    A plugin supplied only through the client dependency lock and a local seed
+    path visible only on compute nodes are checked during allocation preflight.
+    """
+    from data_designer.config.config_builder import BuilderConfig
+    from data_designer.config.utils.io_helpers import VALID_DATASET_FILE_EXTENSIONS
+    from data_designer.errors import DataDesignerError
+
+    payload = authored.builder.inline if authored.builder.inline is not None else builder_payload
+    assert payload is not None
+    normalized = payload if "data_designer" in payload else {"data_designer": payload}
+    data_designer = normalized.get("data_designer")
+    columns = data_designer.get("columns") if isinstance(data_designer, dict) else None
+    processors = data_designer.get("processors") if isinstance(data_designer, dict) else None
+    seed_config = data_designer.get("seed_config") if isinstance(data_designer, dict) else None
+    seed_source = seed_config.get("source") if isinstance(seed_config, dict) else None
+    builtin_columns = {
+        "custom",
+        "embedding",
+        "expression",
+        "image",
+        "llm-code",
+        "llm-judge",
+        "llm-structured",
+        "llm-text",
+        "sampler",
+        "seed-dataset",
+        "validation",
+    }
+    unknown_column = isinstance(columns, list) and any(
+        isinstance(column, dict)
+        and isinstance(column.get("column_type"), str)
+        and column["column_type"] not in builtin_columns
+        for column in columns
+    )
+    unknown_processor = isinstance(processors, list) and any(
+        isinstance(processor, dict)
+        and isinstance(processor.get("processor_type"), str)
+        and processor["processor_type"] not in {"drop_columns", "schema_transform"}
+        for processor in processors
+    )
+    unknown_seed_source = (
+        isinstance(seed_source, dict)
+        and isinstance(seed_source.get("seed_type"), str)
+        and seed_source["seed_type"] not in {"local", "hf", "df", "directory", "file_contents", "agent_rollout"}
+    )
+    deferred_local_seed_path = (
+        isinstance(seed_source, dict)
+        and seed_source.get("seed_type") == "local"
+        and isinstance(seed_source.get("path"), str)
+        and seed_source["path"].lower().endswith(tuple(VALID_DATASET_FILE_EXTENSIONS))
+    )
+    plugin_dependency = bool(authored.client.dependencies.requirements or authored.client.dependencies.lock_file)
+    if (plugin_dependency and (unknown_column or unknown_processor or unknown_seed_source)) or deferred_local_seed_path:
+        # Validate the complete built-in envelope while deferring plugin entries
+        # and local seed path existence until the client reaches its allocation.
+        data_designer = dict(data_designer)
+        if plugin_dependency and unknown_column:
+            data_designer["columns"] = [
+                column
+                for column in columns
+                if not (
+                    isinstance(column, dict)
+                    and isinstance(column.get("column_type"), str)
+                    and column["column_type"] not in builtin_columns
+                )
+            ]
+        if plugin_dependency and unknown_processor:
+            data_designer["processors"] = [
+                processor
+                for processor in processors
+                if not (
+                    isinstance(processor, dict)
+                    and isinstance(processor.get("processor_type"), str)
+                    and processor["processor_type"] not in {"drop_columns", "schema_transform"}
+                )
+            ]
+        if (plugin_dependency and unknown_seed_source) or deferred_local_seed_path:
+            data_designer["seed_config"] = {
+                **seed_config,
+                "source": {"seed_type": "hf", "path": "deferred-seed-source"},
+            }
+        normalized = {**normalized, "data_designer": data_designer}
+    try:
+        BuilderConfig.model_validate(normalized)
+    except ValidationError as error:
+        detail = format_validation_error(error, subject="builder configuration", models=BuilderConfig)
+        raise SlurmServiceError(SlurmServiceErrorCode.INVALID_REQUEST, operation, _bounded_diagnostic(detail)) from None
+    except DataDesignerError as error:
+        detail = " ".join(redact_sensitive_diagnostic(str(error)).split())
+        raise SlurmServiceError(
+            SlurmServiceErrorCode.INVALID_REQUEST,
+            operation,
+            _bounded_diagnostic(f"builder configuration failed validation: {detail}"),
+        ) from None
+
+
+def _bounded_diagnostic(message: str) -> str:
+    return f"{message[:509]}..." if len(message) > 512 else message
 
 
 def _safe_submission_error(error: SlurmSubmissionError) -> str:

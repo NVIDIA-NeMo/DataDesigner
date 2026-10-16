@@ -34,6 +34,7 @@ from data_designer.slurm.config import (
     load_run_config,
 )
 from data_designer.slurm.contracts import ArtifactReference, Identifier
+from data_designer.slurm.security import redact_sensitive_diagnostic
 from data_designer.slurm.services.errors import (
     SlurmServiceError,
     SlurmServiceErrorCode,
@@ -116,6 +117,7 @@ class SystemBenchmarkBackend:
             ) from None
 
         failures: list[SlurmServiceErrorCode] = []
+        first_failure: str | None = None
         submitted = 0
         reused = 0
         total = len(compiled.cases)
@@ -142,19 +144,32 @@ class SystemBenchmarkBackend:
                     self._report_progress(f"Benchmark case {index}/{total}: submitted.")
             except SlurmServiceError as error:
                 failures.append(error.code)
-                self._report_progress(f"Benchmark case {index}/{total}: submission failed; continuing.")
+                reason = (
+                    "internal child submission error"
+                    if error.code is SlurmServiceErrorCode.INTERNAL
+                    else " ".join(redact_sensitive_diagnostic(str(error)).split())[:256]
+                )
+                detail = f"{case.case_id} (run {case.child_run_id}): {reason}"
+                first_failure = first_failure or detail
+                self._report_progress(f"Benchmark case {index}/{total} submission failed: {detail}; continuing.")
             except Exception:
                 failures.append(SlurmServiceErrorCode.INTERNAL)
-                self._report_progress(f"Benchmark case {index}/{total}: submission failed; continuing.")
+                detail = f"{case.case_id} (run {case.child_run_id}): internal child submission error"
+                first_failure = first_failure or detail
+                self._report_progress(f"Benchmark case {index}/{total} submission failed: {detail}; continuing.")
         self._report_progress(
             f"Benchmark launch: {submitted} submitted, {reused} already submitted, {len(failures)} failed."
         )
         if failures:
             code = _partial_failure_code(failures)
+            message = (
+                f"Benchmark {manifest.benchmark_id}: {len(failures)} of {total} child runs could not be submitted; "
+                f"first failure: {first_failure}"
+            )
             raise SlurmServiceError(
                 code,
                 SlurmServiceOperation.RUN_BENCHMARK,
-                f"{len(failures)} of {len(compiled.cases)} benchmark child runs could not be submitted",
+                message[:509] + "..." if len(message) > 512 else message,
             )
         return manifest
 

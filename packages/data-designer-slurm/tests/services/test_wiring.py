@@ -459,6 +459,129 @@ def test_execute_reports_missing_builder_source(
     assert not launcher.submissions
 
 
+@pytest.mark.parametrize("invalid_columns", (1, 100))
+def test_execute_rejects_invalid_builtin_builder_before_submission(
+    tmp_path: Path,
+    profile_catalog: SlurmProfileCatalog,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+    invalid_columns: int,
+) -> None:
+    payload = authored_run_single.model_dump(mode="json")
+    payload["builder"]["inline"]["data_designer"]["columns"] = [
+        {"name": f"invalid-{index}", "column_type": "sampler", "sampler_type": "not-a-sampler"}
+        for index in range(invalid_columns)
+    ]
+    authored = DataDesignerSlurmConfig.model_validate(payload)
+    _register_images(tmp_path, authored, single_node_plan)
+    launcher = _Launcher()
+    service = create_slurm_run_service(
+        profile=_profile(tmp_path, profile_catalog),
+        launcher=launcher,  # type: ignore[arg-type]
+        run_id_factory=lambda: "run-wired",
+        package_version="0.9.2",
+    )
+
+    with pytest.raises(SlurmServiceError, match="builder configuration failed validation") as caught:
+        service.execute(authored, source_root=tmp_path)
+
+    assert caught.value.code is SlurmServiceErrorCode.INVALID_REQUEST
+    assert len(str(caught.value)) <= 512
+    assert not launcher.submissions
+
+
+def test_submit_validation_defers_overlay_plugin_columns(
+    authored_run_single: DataDesignerSlurmConfig,
+) -> None:
+    payload = authored_run_single.model_dump(mode="json")
+    payload["client"]["dependencies"]["requirements"] = ["example-plugin==1.0.0"]
+    payload["builder"]["inline"]["data_designer"]["columns"] = [
+        {"name": "plugin", "column_type": "example-plugin-column"}
+    ]
+    authored = DataDesignerSlurmConfig.model_validate(payload)
+
+    wiring_module._validate_builder_for_submission(  # noqa: SLF001
+        authored,
+        None,
+        SlurmServiceOperation.EXECUTE_RUN,
+    )
+
+
+def test_submit_validation_rejects_invalid_model_with_overlay_plugin_column(
+    authored_run_single: DataDesignerSlurmConfig,
+) -> None:
+    payload = authored_run_single.model_dump(mode="json")
+    payload["client"]["dependencies"]["requirements"] = ["example-plugin==1.0.0"]
+    builder = payload["builder"]["inline"]["data_designer"]
+    builder["columns"] = [{"name": "plugin", "column_type": "example-plugin-column"}]
+    builder["model_configs"] = [{"alias": "generator", "model": 123}]
+    authored = DataDesignerSlurmConfig.model_validate(payload)
+
+    with pytest.raises(SlurmServiceError, match="builder configuration failed validation") as caught:
+        wiring_module._validate_builder_for_submission(  # noqa: SLF001
+            authored,
+            None,
+            SlurmServiceOperation.EXECUTE_RUN,
+        )
+
+    assert caught.value.code is SlurmServiceErrorCode.INVALID_REQUEST
+
+
+def test_submit_validation_defers_overlay_plugin_seed_source(
+    authored_run_single: DataDesignerSlurmConfig,
+) -> None:
+    payload = authored_run_single.model_dump(mode="json")
+    payload["client"]["dependencies"]["requirements"] = ["example-plugin==1.0.0"]
+    payload["builder"]["inline"]["data_designer"]["seed_config"] = {
+        "source": {"seed_type": "plugin-seed-source", "dataset": "demo"},
+        "sampling_strategy": "ordered",
+    }
+    authored = DataDesignerSlurmConfig.model_validate(payload)
+
+    wiring_module._validate_builder_for_submission(  # noqa: SLF001
+        authored,
+        None,
+        SlurmServiceOperation.EXECUTE_RUN,
+    )
+
+    payload["builder"]["inline"]["data_designer"]["seed_config"]["sampling_strategy"] = "invalid"
+    invalid = DataDesignerSlurmConfig.model_validate(payload)
+    with pytest.raises(SlurmServiceError, match="builder configuration failed validation") as caught:
+        wiring_module._validate_builder_for_submission(  # noqa: SLF001
+            invalid,
+            None,
+            SlurmServiceOperation.EXECUTE_RUN,
+        )
+    assert caught.value.code is SlurmServiceErrorCode.INVALID_REQUEST
+
+
+def test_submit_validation_defers_compute_only_local_seed_path(
+    authored_run_single: DataDesignerSlurmConfig,
+) -> None:
+    payload = authored_run_single.model_dump(mode="json")
+    payload["builder"]["inline"]["data_designer"]["seed_config"] = {
+        "source": {"seed_type": "local", "path": "/compute-only/seed.parquet"},
+        "sampling_strategy": "ordered",
+    }
+    authored = DataDesignerSlurmConfig.model_validate(payload)
+
+    wiring_module._validate_builder_for_submission(  # noqa: SLF001
+        authored,
+        None,
+        SlurmServiceOperation.EXECUTE_RUN,
+    )
+
+    payload["builder"]["inline"]["data_designer"]["seed_config"]["source"]["path"] = "/compute-only/seed.txt"
+    invalid = DataDesignerSlurmConfig.model_validate(payload)
+    with pytest.raises(SlurmServiceError, match="builder configuration failed validation") as caught:
+        wiring_module._validate_builder_for_submission(  # noqa: SLF001
+            invalid,
+            None,
+            SlurmServiceOperation.EXECUTE_RUN,
+        )
+    assert caught.value.code is SlurmServiceErrorCode.INVALID_REQUEST
+
+
 def test_production_wiring_submits_after_publisher_initialization(
     tmp_path: Path,
     profile_catalog: SlurmProfileCatalog,
