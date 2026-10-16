@@ -175,12 +175,7 @@ class _RunPreparer:
     ) -> Iterator[_PreparedRun]:
         stack = ExitStack()
         try:
-            prepared = self._prepare(authored, source_root=source_root, operation=operation, stack=stack)
-        except BaseException:
-            stack.close()
-            raise
-        try:
-            yield prepared
+            yield self._prepare(authored, source_root=source_root, operation=operation, stack=stack)
         finally:
             stack.close()
 
@@ -352,13 +347,7 @@ class _SystemRunBackend:
                 )
             self._materialize_default_managed_assets(config, plan)
             export_environment = self._build_export_environment(config)
-            publisher = self._publisher
-            self._initialize_run(
-                publisher,
-                config,
-                prepared,
-                force=False,
-            )
+            self._initialize_run(config, prepared)
         self._report_progress("Rendered batch script; invoking sbatch --parsable --hold (script via stdin).")
         try:
             receipt = self._launcher.submit_script(
@@ -379,7 +368,7 @@ class _SystemRunBackend:
                 "Slurm submission is unavailable",
             ) from None
         try:
-            self._record_submission(publisher, plan, receipt.job_id)
+            self._record_submission(plan, receipt.job_id)
         except Exception as error:
             try:
                 self._launcher.cancel(receipt.job_id)
@@ -390,7 +379,7 @@ class _SystemRunBackend:
                     f"Slurm job {receipt.job_id} was submitted but could not be recorded or cancelled",
                 ) from error
             try:
-                self._record_submission_failure(publisher, plan, receipt.job_id)
+                self._record_submission_failure(plan, receipt.job_id)
             except SlurmServiceError as state_error:
                 raise SlurmServiceError(
                     SlurmServiceErrorCode.INTERNAL,
@@ -405,7 +394,7 @@ class _SystemRunBackend:
                 pass
             else:
                 try:
-                    self._record_submission_failure(publisher, plan, receipt.job_id)
+                    self._record_submission_failure(plan, receipt.job_id)
                 except BaseException:
                     pass
             raise
@@ -421,7 +410,7 @@ class _SystemRunBackend:
                     f"held Slurm job {receipt.job_id} could not be released or cancelled",
                 ) from error
             try:
-                self._record_submission_failure(publisher, plan, receipt.job_id)
+                self._record_submission_failure(plan, receipt.job_id)
             except SlurmServiceError as state_error:
                 raise SlurmServiceError(
                     SlurmServiceErrorCode.INTERNAL,
@@ -532,19 +521,16 @@ class _SystemRunBackend:
 
     def _initialize_run(
         self,
-        publisher: SlurmRunArtifactPublisher,
         config: DataDesignerSlurmConfig,
         prepared: _PreparedRun,
-        *,
-        force: bool,
     ) -> None:
         try:
-            publisher.initialize(
+            self._publisher.initialize(
                 config,
                 prepared.plan,
                 prepared.dependencies,
                 prepared.builder_payload,
-                force=force,
+                force=False,
             )
         except StateNotFoundError:
             raise SlurmServiceError(
@@ -567,12 +553,11 @@ class _SystemRunBackend:
 
     def _record_submission(
         self,
-        publisher: SlurmRunArtifactPublisher,
         plan: ResolvedSlurmRunPlan,
         job_id: int,
     ) -> None:
         try:
-            publisher.record_submission(plan, job_id, submitted_at=self._clock())
+            self._publisher.record_submission(plan, job_id, submitted_at=self._clock())
         except StateNotFoundError:
             raise SlurmServiceError(
                 SlurmServiceErrorCode.NOT_FOUND,
@@ -594,12 +579,11 @@ class _SystemRunBackend:
 
     def _record_submission_failure(
         self,
-        publisher: SlurmRunArtifactPublisher,
         plan: ResolvedSlurmRunPlan,
         job_id: int,
     ) -> None:
         try:
-            publisher.record_submission_failure(plan, job_id, failed_at=self._clock())
+            self._publisher.record_submission_failure(plan, job_id, failed_at=self._clock())
         except (StateNotFoundError, StateConflictError, SlurmStateError):
             raise SlurmServiceError(
                 SlurmServiceErrorCode.INTERNAL,
@@ -1020,17 +1004,18 @@ def _validate_builder_for_submission(
         "seed-dataset",
         "validation",
     }
+    builtin_processors = {"drop_columns", "schema_transform"}
+
+    def is_unrecognized_type(value: object, discriminator: str, known: set[str]) -> bool:
+        return (
+            isinstance(value, dict) and isinstance(value.get(discriminator), str) and value[discriminator] not in known
+        )
+
     unknown_column = isinstance(columns, list) and any(
-        isinstance(column, dict)
-        and isinstance(column.get("column_type"), str)
-        and column["column_type"] not in builtin_columns
-        for column in columns
+        is_unrecognized_type(column, "column_type", builtin_columns) for column in columns
     )
     unknown_processor = isinstance(processors, list) and any(
-        isinstance(processor, dict)
-        and isinstance(processor.get("processor_type"), str)
-        and processor["processor_type"] not in {"drop_columns", "schema_transform"}
-        for processor in processors
+        is_unrecognized_type(processor, "processor_type", builtin_processors) for processor in processors
     )
     unknown_seed_source = (
         isinstance(seed_source, dict)
@@ -1050,23 +1035,13 @@ def _validate_builder_for_submission(
         data_designer = dict(data_designer)
         if plugin_dependency and unknown_column:
             data_designer["columns"] = [
-                column
-                for column in columns
-                if not (
-                    isinstance(column, dict)
-                    and isinstance(column.get("column_type"), str)
-                    and column["column_type"] not in builtin_columns
-                )
+                column for column in columns if not is_unrecognized_type(column, "column_type", builtin_columns)
             ]
         if plugin_dependency and unknown_processor:
             data_designer["processors"] = [
                 processor
                 for processor in processors
-                if not (
-                    isinstance(processor, dict)
-                    and isinstance(processor.get("processor_type"), str)
-                    and processor["processor_type"] not in {"drop_columns", "schema_transform"}
-                )
+                if not is_unrecognized_type(processor, "processor_type", builtin_processors)
             ]
         if (plugin_dependency and unknown_seed_source) or deferred_local_seed_path:
             data_designer["seed_config"] = {
