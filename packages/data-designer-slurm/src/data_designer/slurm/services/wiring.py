@@ -175,16 +175,6 @@ class _RunPreparer:
     ) -> Iterator[_PreparedRun]:
         stack = ExitStack()
         try:
-            try:
-                stack.enter_context(
-                    ImageRegistryStore(self._profile.profile.workspace_root).acquire_run_reference_lock()
-                )
-            except (SlurmImageError, OSError):
-                raise SlurmServiceError(
-                    SlurmServiceErrorCode.UNAVAILABLE,
-                    operation,
-                    "image registry cannot coordinate run publication",
-                ) from None
             prepared = self._prepare(authored, source_root=source_root, operation=operation, stack=stack)
         except BaseException:
             stack.close()
@@ -211,10 +201,6 @@ class _RunPreparer:
             workspace_root = self._profile.profile.workspace_root
             run_root = Path(workspace_root) / "runs" / run_id
             client_runtime = self._runtime_inspector.inspect()
-            deployment_images = tuple(
-                self._images.resolve_for_planning(deployment.server.image, expected_kind=ImageKind.SERVING)
-                for deployment in authored.deployments
-            )
             try:
                 builder_payload = _resolve_builder_payload(authored, source_root)
             except SlurmConfigLoadError as error:
@@ -233,6 +219,18 @@ class _RunPreparer:
                 )
             )
             runtime_bundle = stage_runtime_bundle(workspace_root)
+            try:
+                stack.enter_context(ImageRegistryStore(workspace_root).acquire_run_reference_lock())
+            except (SlurmImageError, OSError):
+                raise SlurmServiceError(
+                    SlurmServiceErrorCode.UNAVAILABLE,
+                    operation,
+                    "image registry cannot coordinate run publication",
+                ) from None
+            deployment_images = tuple(
+                self._images.resolve_for_planning(deployment.server.image, expected_kind=ImageKind.SERVING)
+                for deployment in authored.deployments
+            )
             effective = resolve_slurm_config(
                 authored,
                 selected_profile=self._profile,
@@ -361,121 +359,121 @@ class _SystemRunBackend:
                 prepared,
                 force=False,
             )
-            self._report_progress("Rendered batch script; invoking sbatch --parsable --hold (script via stdin).")
+        self._report_progress("Rendered batch script; invoking sbatch --parsable --hold (script via stdin).")
+        try:
+            receipt = self._launcher.submit_script(
+                prepared.batch_script,
+                hold=True,
+                export_environment=export_environment,
+            )
+        except SlurmSubmissionError as error:
+            raise SlurmServiceError(
+                SlurmServiceErrorCode.UNAVAILABLE,
+                SlurmServiceOperation.EXECUTE_RUN,
+                _safe_submission_error(error),
+            ) from None
+        except SlurmLauncherError:
+            raise SlurmServiceError(
+                SlurmServiceErrorCode.UNAVAILABLE,
+                SlurmServiceOperation.EXECUTE_RUN,
+                "Slurm submission is unavailable",
+            ) from None
+        try:
+            self._record_submission(publisher, plan, receipt.job_id)
+        except Exception as error:
             try:
-                receipt = self._launcher.submit_script(
-                    prepared.batch_script,
-                    hold=True,
-                    export_environment=export_environment,
-                )
-            except SlurmSubmissionError as error:
+                self._launcher.cancel(receipt.job_id)
+            except Exception:
                 raise SlurmServiceError(
                     SlurmServiceErrorCode.UNAVAILABLE,
                     SlurmServiceOperation.EXECUTE_RUN,
-                    _safe_submission_error(error),
-                ) from None
-            except SlurmLauncherError:
-                raise SlurmServiceError(
-                    SlurmServiceErrorCode.UNAVAILABLE,
-                    SlurmServiceOperation.EXECUTE_RUN,
-                    "Slurm submission is unavailable",
-                ) from None
+                    f"Slurm job {receipt.job_id} was submitted but could not be recorded or cancelled",
+                ) from error
             try:
-                self._record_submission(publisher, plan, receipt.job_id)
-            except Exception as error:
-                try:
-                    self._launcher.cancel(receipt.job_id)
-                except Exception:
-                    raise SlurmServiceError(
-                        SlurmServiceErrorCode.UNAVAILABLE,
-                        SlurmServiceOperation.EXECUTE_RUN,
-                        f"Slurm job {receipt.job_id} was submitted but could not be recorded or cancelled",
-                    ) from error
+                self._record_submission_failure(publisher, plan, receipt.job_id)
+            except SlurmServiceError as state_error:
+                raise SlurmServiceError(
+                    SlurmServiceErrorCode.INTERNAL,
+                    SlurmServiceOperation.EXECUTE_RUN,
+                    f"Slurm job {receipt.job_id} was cancelled but its partial submission state could not be updated",
+                ) from state_error
+            raise
+        except BaseException:
+            try:
+                self._launcher.cancel(receipt.job_id)
+            except Exception:
+                pass
+            else:
                 try:
                     self._record_submission_failure(publisher, plan, receipt.job_id)
-                except SlurmServiceError as state_error:
-                    raise SlurmServiceError(
-                        SlurmServiceErrorCode.INTERNAL,
-                        SlurmServiceOperation.EXECUTE_RUN,
-                        f"Slurm job {receipt.job_id} was cancelled but its partial submission state could not be updated",
-                    ) from state_error
-                raise
-            except BaseException:
-                try:
-                    self._launcher.cancel(receipt.job_id)
-                except Exception:
+                except BaseException:
                     pass
-                else:
-                    try:
-                        self._record_submission_failure(publisher, plan, receipt.job_id)
-                    except BaseException:
-                        pass
-                raise
+            raise
+        try:
+            self._launcher.release(receipt.job_id)
+        except SlurmLauncherError as error:
             try:
-                self._launcher.release(receipt.job_id)
-            except SlurmLauncherError as error:
-                try:
-                    self._launcher.cancel(receipt.job_id)
-                except Exception:
-                    raise SlurmServiceError(
-                        SlurmServiceErrorCode.UNAVAILABLE,
-                        SlurmServiceOperation.EXECUTE_RUN,
-                        f"held Slurm job {receipt.job_id} could not be released or cancelled",
-                    ) from error
-                try:
-                    self._record_submission_failure(publisher, plan, receipt.job_id)
-                except SlurmServiceError as state_error:
-                    raise SlurmServiceError(
-                        SlurmServiceErrorCode.INTERNAL,
-                        SlurmServiceOperation.EXECUTE_RUN,
-                        f"held Slurm job {receipt.job_id} was cancelled but run {plan.run_id!r} could not be updated",
-                    ) from state_error
+                self._launcher.cancel(receipt.job_id)
+            except Exception:
                 raise SlurmServiceError(
                     SlurmServiceErrorCode.UNAVAILABLE,
                     SlurmServiceOperation.EXECUTE_RUN,
-                    f"held Slurm job {receipt.job_id} could not be released and was cancelled",
-                ) from None
-            run_root = Path(plan.authored_config.path).parent
-            log_stem = f"slurm-attempt-0001-{receipt.job_id}_0"
-            status_command = ["data-designer", "slurm", "status", plan.run_id]
-            if plan.selected_profile.catalog_path is not None:
-                status_command.extend(("--profile-file", plan.selected_profile.catalog_path))
-            if plan.selected_profile.cluster_name is not None:
-                status_command.extend(("--cluster", plan.selected_profile.cluster_name))
-            self._report_progress(f"Submitted. Check status: {shlex.join(status_command)}")
-            self._report_progress(
-                "After allocation, follow shard 0 Slurm logs: "
-                + shlex.join(
-                    (
-                        "tail",
-                        "-F",
-                        (run_root / f"{log_stem}.out").as_posix(),
-                        (run_root / f"{log_stem}.err").as_posix(),
-                    )
+                    f"held Slurm job {receipt.job_id} could not be released or cancelled",
+                ) from error
+            try:
+                self._record_submission_failure(publisher, plan, receipt.job_id)
+            except SlurmServiceError as state_error:
+                raise SlurmServiceError(
+                    SlurmServiceErrorCode.INTERNAL,
+                    SlurmServiceOperation.EXECUTE_RUN,
+                    f"held Slurm job {receipt.job_id} was cancelled but run {plan.run_id!r} could not be updated",
+                ) from state_error
+            raise SlurmServiceError(
+                SlurmServiceErrorCode.UNAVAILABLE,
+                SlurmServiceOperation.EXECUTE_RUN,
+                f"held Slurm job {receipt.job_id} could not be released and was cancelled",
+            ) from None
+        run_root = Path(plan.authored_config.path).parent
+        log_stem = f"slurm-attempt-0001-{receipt.job_id}_0"
+        status_command = ["data-designer", "slurm", "status", plan.run_id]
+        if plan.selected_profile.catalog_path is not None:
+            status_command.extend(("--profile-file", plan.selected_profile.catalog_path))
+        if plan.selected_profile.cluster_name is not None:
+            status_command.extend(("--cluster", plan.selected_profile.cluster_name))
+        self._report_progress(f"Submitted. Check status: {shlex.join(status_command)}")
+        self._report_progress(
+            "After allocation, follow shard 0 Slurm logs: "
+            + shlex.join(
+                (
+                    "tail",
+                    "-F",
+                    (run_root / f"{log_stem}.out").as_posix(),
+                    (run_root / f"{log_stem}.err").as_posix(),
                 )
             )
-            server_log_root = run_root / "shards" / "shard-00000" / "attempts" / "attempt-0001" / "logs"
-            server_log_command = (
-                f"find {shlex.quote(server_log_root.as_posix())} -type f "
-                "\\( -name 'deployment-*.out' -o -name 'deployment-*.err' \\) "
-                "-exec tail -n 10 {} +"
-            )
+        )
+        server_log_root = run_root / "shards" / "shard-00000" / "attempts" / "attempt-0001" / "logs"
+        server_log_command = (
+            f"find {shlex.quote(server_log_root.as_posix())} -type f "
+            "\\( -name 'deployment-*.out' -o -name 'deployment-*.err' \\) "
+            "-exec tail -n 10 {} +"
+        )
+        self._report_progress(
+            "Once serving starts, watch shard 0 vLLM logs (including new executions): "
+            + shlex.join(("watch", "-n", "2", "-t", server_log_command))
+        )
+        if len(plan.shards) > 1:
             self._report_progress(
-                "Once serving starts, watch shard 0 vLLM logs (including new executions): "
-                + shlex.join(("watch", "-n", "2", "-t", server_log_command))
+                "For another shard, replace _0 in the Slurm filenames with its numeric task index, and "
+                "shard-00000 in the vLLM path with its shard ID (for example, _1 and shard-00001)."
             )
-            if len(plan.shards) > 1:
-                self._report_progress(
-                    "For another shard, replace _0 in the Slurm filenames with its numeric task index, and "
-                    "shard-00000 in the vLLM path with its shard ID (for example, _1 and shard-00001)."
-                )
-            return SlurmRunExecution(
-                run_id=plan.run_id,
-                state="submitted",
-                plan_sha256=plan.compute_sha256(),
-                shard_count=len(plan.shards),
-                job_id=receipt.job_id,
-            )
+        return SlurmRunExecution(
+            run_id=plan.run_id,
+            state="submitted",
+            plan_sha256=plan.compute_sha256(),
+            shard_count=len(plan.shards),
+            job_id=receipt.job_id,
+        )
 
     def _report_progress(self, message: str) -> None:
         if self._progress is not None:

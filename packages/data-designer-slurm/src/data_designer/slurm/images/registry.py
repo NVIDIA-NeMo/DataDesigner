@@ -74,14 +74,15 @@ class ImageRegistryStore:
         return self._registry_path
 
     @contextmanager
-    def acquire_run_reference_lock(self) -> Iterator[None]:
-        """Serialize run-plan publication with destructive artifact removal."""
+    def acquire_run_reference_lock(self, *, exclusive: bool = False) -> Iterator[None]:
+        """Allow concurrent run publication while excluding artifact removal."""
         self._ensure_storage()
         with self._open_storage() as (_, lock_directory_descriptor):
             with acquire_file_lock(
                 lock_directory_descriptor,
                 _RUN_REFERENCE_LOCK_FILENAME,
                 self._lock_directory / _RUN_REFERENCE_LOCK_FILENAME,
+                shared=not exclusive,
             ):
                 yield
 
@@ -227,7 +228,7 @@ class ImageRegistryStore:
         return removed
 
     def _unregister_with_artifact(self, name: Identifier) -> RegisteredImage:
-        with self.acquire_run_reference_lock():
+        with self.acquire_run_reference_lock(exclusive=True):
             return self._unregister_with_artifact_locked(name)
 
     def _unregister_with_artifact_locked(self, name: Identifier) -> RegisteredImage:
@@ -251,69 +252,70 @@ class ImageRegistryStore:
                     target_lock_name,
                     self._lock_directory / target_lock_name,
                 ),
-                acquire_file_lock(
+            ):
+                # The caller holds the exclusive run-reference lock through the final unlink.
+                self._require_no_persisted_run_reference(selected.path)
+                with acquire_file_lock(
                     lock_directory_descriptor,
                     _REGISTRY_LOCK_FILENAME,
                     self._lock_directory / _REGISTRY_LOCK_FILENAME,
-                ),
-            ):
-                self._recover_transaction(image_root_descriptor)
-                snapshot = self._load_from_directory(image_root_descriptor)
-                current = next((image for image in snapshot.images if image.name == name), None)
-                if current != selected:
-                    raise ImageConflictError("image alias changed during artifact removal")
-                if any(image.name != name and image.path == selected.path for image in snapshot.images):
-                    raise ImageConflictError("SQSH artifact is still used by another image alias")
-                self._require_no_persisted_run_reference(selected.path)
-                with open_verified_child_directory(
-                    image_root_descriptor,
-                    "artifacts",
-                    artifact_directory,
-                ) as artifact_directory_descriptor:
-                    try:
-                        artifact_descriptor = os.open(
-                            expected_path.name,
-                            os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0),
-                            dir_fd=artifact_directory_descriptor,
-                        )
-                    except OSError as error:
-                        raise ImageConflictError("SQSH artifact is unavailable for deletion") from error
-                    try:
-                        artifact_status = os.fstat(artifact_descriptor)
-                        path_status = os.stat(
-                            expected_path.name,
-                            dir_fd=artifact_directory_descriptor,
-                            follow_symlinks=False,
-                        )
-                        if not stat.S_ISREG(artifact_status.st_mode) or (
-                            artifact_status.st_dev,
-                            artifact_status.st_ino,
-                        ) != (path_status.st_dev, path_status.st_ino):
-                            raise ImageConflictError("SQSH artifact changed before deletion")
-                        updated = ImageRegistryDocument(
-                            schema_version=1,
-                            images=tuple(image for image in snapshot.images if image.name != name),
-                        )
-                        self._save(image_root_descriptor, snapshot, updated)
+                ):
+                    self._recover_transaction(image_root_descriptor)
+                    snapshot = self._load_from_directory(image_root_descriptor)
+                    current = next((image for image in snapshot.images if image.name == name), None)
+                    if current != selected:
+                        raise ImageConflictError("image alias changed during artifact removal")
+                    if any(image.name != name and image.path == selected.path for image in snapshot.images):
+                        raise ImageConflictError("SQSH artifact is still used by another image alias")
+                    with open_verified_child_directory(
+                        image_root_descriptor,
+                        "artifacts",
+                        artifact_directory,
+                    ) as artifact_directory_descriptor:
                         try:
+                            artifact_descriptor = os.open(
+                                expected_path.name,
+                                os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0),
+                                dir_fd=artifact_directory_descriptor,
+                            )
+                        except OSError as error:
+                            raise ImageConflictError("SQSH artifact is unavailable for deletion") from error
+                        try:
+                            artifact_status = os.fstat(artifact_descriptor)
                             path_status = os.stat(
                                 expected_path.name,
                                 dir_fd=artifact_directory_descriptor,
                                 follow_symlinks=False,
                             )
-                            if (
+                            if not stat.S_ISREG(artifact_status.st_mode) or (
                                 artifact_status.st_dev,
                                 artifact_status.st_ino,
                             ) != (path_status.st_dev, path_status.st_ino):
-                                raise OSError("SQSH artifact changed after alias removal")
-                            os.unlink(expected_path.name, dir_fd=artifact_directory_descriptor)
-                            os.fsync(artifact_directory_descriptor)
-                        except OSError as error:
-                            raise ImageArtifactRemovalError(
-                                "image alias was removed, but SQSH artifact deletion could not be confirmed"
-                            ) from error
-                    finally:
-                        os.close(artifact_descriptor)
+                                raise ImageConflictError("SQSH artifact changed before deletion")
+                            updated = ImageRegistryDocument(
+                                schema_version=1,
+                                images=tuple(image for image in snapshot.images if image.name != name),
+                            )
+                            self._save(image_root_descriptor, snapshot, updated)
+                            try:
+                                path_status = os.stat(
+                                    expected_path.name,
+                                    dir_fd=artifact_directory_descriptor,
+                                    follow_symlinks=False,
+                                )
+                                if (
+                                    artifact_status.st_dev,
+                                    artifact_status.st_ino,
+                                ) != (path_status.st_dev, path_status.st_ino):
+                                    raise OSError("SQSH artifact changed after alias removal")
+                                os.unlink(expected_path.name, dir_fd=artifact_directory_descriptor)
+                                os.fsync(artifact_directory_descriptor)
+                            except OSError as error:
+                                raise ImageArtifactRemovalError(
+                                    "image alias was removed, but SQSH artifact deletion could not be confirmed"
+                                ) from error
+                        finally:
+                            os.close(artifact_descriptor)
         return selected
 
     def _require_no_persisted_run_reference(self, artifact_path: str) -> None:
@@ -340,12 +342,21 @@ class ImageRegistryStore:
                         if plan is None:
                             continue
                         deployments = plan.get("deployments")
-                        if not isinstance(deployments, list):
+                        if not isinstance(deployments, list) or not deployments:
                             raise ImageConflictError("run plan cannot be checked before SQSH artifact deletion")
                         for deployment in deployments:
                             if not isinstance(deployment, dict) or not isinstance(deployment.get("image"), dict):
                                 raise ImageConflictError("run plan cannot be checked before SQSH artifact deletion")
-                            if deployment["image"].get("path") == artifact_path:
+                            image_path = deployment["image"].get("path")
+                            if not isinstance(image_path, str) or not image_path.endswith(".sqsh"):
+                                raise ImageConflictError("run plan cannot be checked before SQSH artifact deletion")
+                            try:
+                                validate_absolute_path(image_path)
+                            except ValueError:
+                                raise ImageConflictError(
+                                    "run plan cannot be checked before SQSH artifact deletion"
+                                ) from None
+                            if image_path == artifact_path:
                                 raise ImageConflictError(f"SQSH artifact is still referenced by run {run_name!r}")
         except (OSError, ValueError, TypeError, UnicodeError) as error:
             raise ImageConflictError("run state cannot be checked before SQSH artifact deletion") from error

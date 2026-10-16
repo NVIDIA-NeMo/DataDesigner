@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Mapping
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -612,6 +613,44 @@ def test_production_wiring_submits_after_publisher_initialization(
     assert launcher.releases == [42]
     assert launcher.exported_environments == [{"SLURM_EXPORT_ENV": "ALL"}]
     assert (tmp_path / "managed-assets").is_dir()
+
+
+def test_execute_releases_run_reference_lock_before_submission(
+    tmp_path: Path,
+    profile_catalog: SlurmProfileCatalog,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    _register_images(tmp_path, authored_run_single, single_node_plan)
+
+    class _CheckingLauncher(_Launcher):
+        def submit_script(
+            self,
+            script: str,
+            *,
+            hold: bool = False,
+            export_environment: Mapping[str, str] | None = None,
+        ) -> SlurmJobSubmissionReceipt:
+            def acquire_deletion_lock() -> None:
+                with ImageRegistryStore(tmp_path).acquire_run_reference_lock(exclusive=True):
+                    pass
+
+            executor = ThreadPoolExecutor(max_workers=1)
+            try:
+                executor.submit(acquire_deletion_lock).result(timeout=2)
+            finally:
+                executor.shutdown(wait=False, cancel_futures=True)
+            return super().submit_script(script, hold=hold, export_environment=export_environment)
+
+    service = create_slurm_run_service(
+        profile=_profile(tmp_path, profile_catalog),
+        artifact_publisher=_Publisher(),  # type: ignore[arg-type]
+        launcher=_CheckingLauncher(),  # type: ignore[arg-type]
+        run_id_factory=lambda: "run-wired",
+        package_version="0.9.2",
+    )
+
+    assert service.execute(authored_run_single, source_root=tmp_path).state == "submitted"
 
 
 def test_production_wiring_exports_referenced_secrets_to_the_allocation(
