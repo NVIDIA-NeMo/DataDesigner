@@ -491,7 +491,7 @@ def test_execute_rejects_invalid_builtin_builder_before_submission(
     assert not launcher.submissions
 
 
-def test_submit_validation_defers_overlay_plugin_columns(
+def test_submit_validation_defers_overlay_plugin_components(
     authored_run_single: DataDesignerSlurmConfig,
 ) -> None:
     payload = authored_run_single.model_dump(mode="json")
@@ -499,6 +499,7 @@ def test_submit_validation_defers_overlay_plugin_columns(
     payload["builder"]["inline"]["data_designer"]["columns"] = [
         {"name": "plugin", "column_type": "example-plugin-column"}
     ]
+    payload["builder"]["inline"]["data_designer"]["processors"] = [{"processor_type": "example-plugin-processor"}]
     authored = DataDesignerSlurmConfig.model_validate(payload)
 
     wiring_module._validate_builder_for_submission(  # noqa: SLF001
