@@ -235,7 +235,10 @@ You rarely set this manually—instantiating `LLMTextColumnConfig` automatically
 
 Computed property listing columns that must be generated before this one. The framework derives this automatically:
 
-- For LLM/Expression columns: extracted from Jinja2 template `{{ variables }}`
+- For LLM columns: variables in `prompt` and `system_prompt` Jinja2 templates, plus column names referenced in `multi_modal_context`
+- For Expression columns: variables in the Jinja2 template
+- For Image columns: variables in the `prompt` Jinja2 template, plus column names referenced in `multi_modal_context`
+- For Embedding columns: the `target_column`
 - For Validation columns: explicitly listed target columns
 - For Sampler columns with conditional parameters: columns referenced in conditions
 
