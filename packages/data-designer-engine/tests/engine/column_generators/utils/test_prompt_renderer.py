@@ -43,7 +43,7 @@ class DictionaryOutput(BaseModel):
 
 
 @pytest.mark.parametrize("use_pydantic", [False, True], ids=["json-schema", "pydantic"])
-def test_parse_structured_dictionary_output(use_pydantic: bool) -> None:
+def test_create_response_recipe_preserves_structured_dictionary_schema(use_pydantic: bool) -> None:
     config = LLMStructuredColumnConfig(
         name="test_column",
         prompt="Test prompt",

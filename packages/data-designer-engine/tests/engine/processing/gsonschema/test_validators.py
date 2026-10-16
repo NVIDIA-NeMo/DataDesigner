@@ -312,6 +312,47 @@ def test_non_discriminated_one_of_fallback() -> None:
         validate({"value": []}, schema, pruning=True)
 
 
+@pytest.mark.parametrize("keyword", ["anyOf", "oneOf"])
+@pytest.mark.parametrize("use_array", [False, True], ids=["object", "array"])
+def test_validate_alternatives_without_mutating_failed_candidates(keyword: str, use_array: bool) -> None:
+    alternatives = [
+        {"type": "object", "properties": {name: {"type": "integer"}}, "required": [name]} for name in ("a", "b")
+    ]
+    if use_array:
+        alternatives = [{"type": "array", "items": alternative} for alternative in alternatives]
+    schema = {keyword: alternatives}
+    data = [{"b": 2, "extra": 3}] if use_array else {"b": 2, "extra": 3}
+    expected = [{"b": 2}] if use_array else {"b": 2}
+    assert validate(data, schema, pruning=True, no_extra_properties=True) == expected
+    assert data == ([{"b": 2, "extra": 3}] if use_array else {"b": 2, "extra": 3})
+
+
+@pytest.mark.parametrize("keyword", ["anyOf", "oneOf"])
+def test_reject_dictionary_value_matching_no_alternative(keyword: str) -> None:
+    schema = {
+        "type": "object",
+        "additionalProperties": {
+            keyword: [
+                {"type": "object", "properties": {name: {"type": "integer"}}, "required": [name]} for name in ("a", "b")
+            ]
+        },
+    }
+    data = {"x": {"a": "invalid", "b": "invalid"}}
+    with pytest.raises(JSONSchemaValidationError):
+        validate(data, schema, pruning=True, no_extra_properties=True)
+    assert data == {"x": {"a": "invalid", "b": "invalid"}}
+
+
+def test_reject_ambiguous_one_of_after_independent_pruning() -> None:
+    schema = {
+        "oneOf": [
+            {"type": "object", "properties": {name: {"type": "integer"}}, "required": [name]} for name in ("a", "b")
+        ]
+    }
+    with pytest.raises(JSONSchemaValidationError):
+        validate({"a": 1, "b": 2}, schema, pruning=True, no_extra_properties=True)
+
+
 def test_normalize_decimal_anyof_fields() -> None:
     """Test that Decimal-like anyOf fields are normalized to floats with proper precision."""
     schema = {
