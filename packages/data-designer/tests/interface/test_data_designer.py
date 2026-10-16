@@ -28,7 +28,13 @@ from data_designer.config.errors import InvalidConfigError
 from data_designer.config.models import ChatCompletionInferenceParams, ModelConfig, ModelProvider
 from data_designer.config.processors import DropColumnsProcessorConfig
 from data_designer.config.run_config import JinjaRenderingEngine, RequestAdmissionTuningConfig, ResumeMode, RunConfig
-from data_designer.config.sampler_params import CategorySamplerParams, DatetimeSamplerParams, SamplerType
+from data_designer.config.sampler_constraints import ScalarInequalityConstraint
+from data_designer.config.sampler_params import (
+    CategorySamplerParams,
+    DatetimeSamplerParams,
+    SamplerType,
+    UniformSamplerParams,
+)
 from data_designer.config.seed import IndexRange, PartitionBlock, SamplingStrategy
 from data_designer.config.seed_source import (
     AgentRolloutFormat,
@@ -784,6 +790,42 @@ def test_create_reports_effective_resume_mode(
     assert restarted.requested_resume_mode == ResumeMode.IF_POSSIBLE
     assert restarted.effective_resume_mode == ResumeMode.NEVER
     assert restarted.dataset_path != first.dataset_path
+
+
+@pytest.mark.parametrize("preview", [False, True], ids=["create", "preview"])
+def test_rounded_sampler_constraints_and_conditions_e2e(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    preview: bool,
+) -> None:
+    builder = DataDesignerConfigBuilder(model_configs=[])
+    builder.add_column(
+        SamplerColumnConfig(
+            name="value", sampler_type="uniform", params=UniformSamplerParams(low=0, high=1, decimal_places=0)
+        )
+    )
+    builder.add_column(
+        SamplerColumnConfig(
+            name="label",
+            sampler_type="category",
+            params=CategorySamplerParams(values=["low"]),
+            conditional_params={"value > 0.75": CategorySamplerParams(values=["high"])},
+        )
+    )
+    builder.add_constraint(ScalarInequalityConstraint(target_column="value", operator="gt", rhs=0.25))
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path, model_providers=stub_model_providers, secret_resolver=PlaintextResolver()
+    )
+    data_designer.set_run_config(RunConfig(buffer_size=16, display_tui=False))
+
+    if preview:
+        frame = data_designer.preview(builder, num_records=64).dataset
+    else:
+        frame = data_designer.create(builder, num_records=64).load_dataset()
+
+    assert len(frame) == 64
+    assert (frame["value"] == 1).all()
+    assert (frame["label"] == "high").all()
 
 
 def test_create_with_drop_true_can_skip_dropped_column_artifacts(
