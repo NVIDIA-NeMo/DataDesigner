@@ -1,0 +1,462 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+from __future__ import annotations
+
+import hashlib
+import os
+import shutil
+import statistics
+import subprocess
+import sys
+import tempfile
+import time
+from contextlib import contextmanager
+from email.message import Message
+from email.parser import BytesParser
+from functools import partial
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from threading import Thread
+from typing import Iterator
+from zipfile import ZipFile
+
+from packaging.requirements import Requirement
+from packaging.utils import canonicalize_name
+
+REPOSITORY_ROOT = Path(__file__).parents[1]
+PACKAGE_PATHS = (
+    "packages/data-designer-config",
+    "packages/data-designer-engine",
+    "packages/data-designer",
+    "packages/data-designer-slurm",
+)
+EXAMPLE_PATH = REPOSITORY_ROOT / "packages" / "data-designer-slurm" / "examples"
+SLURM_DOCS_PATH = REPOSITORY_ROOT / "fern" / "versions" / "latest" / "pages" / "slurm"
+FIRST_PARTY_PACKAGES = frozenset(
+    {"data-designer", "data-designer-config", "data-designer-engine", "data-designer-slurm"}
+)
+CLI_HELP_SAMPLES = 9
+MAX_BASE_CLI_HELP_SECONDS = 1.0
+MAX_EXTENSION_CLI_HELP_OVERHEAD_SECONDS = 0.1
+
+
+class _QuietIndexHandler(SimpleHTTPRequestHandler):
+    def log_message(self, _format: str, *_args: object) -> None:
+        pass
+
+
+def run(
+    command: list[str],
+    *,
+    cwd: Path,
+    check: bool = True,
+    isolate_pip: bool = False,
+) -> subprocess.CompletedProcess[str]:
+    environment = os.environ.copy()
+    environment.pop("PYTHONPATH", None)
+    environment.pop("VIRTUAL_ENV", None)
+    if isolate_pip:
+        environment = {name: value for name, value in environment.items() if not name.startswith("PIP_")}
+        environment["PIP_CONFIG_FILE"] = os.devnull
+    result = subprocess.run(command, cwd=cwd, env=environment, capture_output=True, text=True, check=False)
+    if check and result.returncode:
+        raise RuntimeError(result.stdout + result.stderr)
+    return result
+
+
+def wheel_metadata(path: Path) -> Message:
+    with ZipFile(path) as wheel:
+        metadata_path = next(name for name in wheel.namelist() if name.endswith(".dist-info/METADATA"))
+        return BytesParser().parsebytes(wheel.read(metadata_path))
+
+
+def audit_public_artifacts(*paths: Path) -> None:
+    result = run(
+        [sys.executable, str(REPOSITORY_ROOT / "scripts" / "audit_slurm_public_artifacts.py"), *map(str, paths)],
+        cwd=REPOSITORY_ROOT,
+        check=False,
+    )
+    if result.returncode:
+        raise RuntimeError(result.stdout + result.stderr)
+
+
+def verify_documented_examples() -> None:
+    documented_examples = {
+        "builder.yaml": "getting-started.mdx",
+        "run.yaml": "getting-started.mdx",
+        "benchmark.yaml": "benchmarks.mdx",
+        "profile-catalog.yaml": "profiles.mdx",
+    }
+    for name, document_name in documented_examples.items():
+        example = (EXAMPLE_PATH / name).read_text().rstrip()
+        document = SLURM_DOCS_PATH.joinpath(document_name).read_text()
+        assert f"```yaml\n{example}\n```" in document
+
+
+def build_wheels(uv: str, wheel_directory: Path) -> dict[str, Path]:
+    for package_path in PACKAGE_PATHS:
+        run(
+            [uv, "build", "--wheel", "--out-dir", str(wheel_directory), package_path],
+            cwd=REPOSITORY_ROOT,
+        )
+
+    wheels = {}
+    for wheel_path in wheel_directory.glob("*.whl"):
+        name = canonicalize_name(wheel_metadata(wheel_path)["Name"])
+        wheels[name] = wheel_path
+    return wheels
+
+
+def requirement(metadata: Message, dependency_name: str) -> Requirement:
+    requirements = [Requirement(value) for value in metadata.get_all("Requires-Dist", [])]
+    return next(item for item in requirements if canonicalize_name(item.name) == dependency_name)
+
+
+def python_path(environment_path: Path) -> Path:
+    if os.name == "nt":
+        return environment_path / "Scripts" / "python.exe"
+    return environment_path / "bin" / "python"
+
+
+def create_environment(uv: str, environment_path: Path, *, cwd: Path) -> Path:
+    run([uv, "venv", "--python", sys.executable, str(environment_path)], cwd=cwd)
+    return python_path(environment_path)
+
+
+def install(uv: str, python: Path, wheel_directory: Path, package: str, *, cwd: Path) -> None:
+    run(
+        [
+            uv,
+            "pip",
+            "install",
+            "--python",
+            str(python),
+            "--prerelease=allow",
+            "--no-index",
+            "--find-links",
+            str(wheel_directory),
+            package,
+        ],
+        cwd=cwd,
+    )
+
+
+def download_third_party_wheels(wheel_directory: Path, metadata: dict[str, Message]) -> None:
+    requirements = {
+        str(parsed)
+        for distribution in metadata.values()
+        for value in distribution.get_all("Requires-Dist", [])
+        if canonicalize_name((parsed := Requirement(value)).name) not in FIRST_PARTY_PACKAGES
+        and (parsed.marker is None or parsed.marker.evaluate())
+    }
+    run(
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "download",
+            "--disable-pip-version-check",
+            "--only-binary=:all:",
+            "--pre",
+            "--dest",
+            str(wheel_directory),
+            *sorted(requirements),
+        ],
+        cwd=REPOSITORY_ROOT,
+        isolate_pip=True,
+    )
+
+
+def create_simple_index(root: Path, wheel_directory: Path) -> None:
+    wheels_by_package: dict[str, list[Path]] = {}
+    for wheel in wheel_directory.glob("*.whl"):
+        name = canonicalize_name(wheel_metadata(wheel)["Name"])
+        wheels_by_package.setdefault(name, []).append(wheel)
+    for name, wheels in wheels_by_package.items():
+        package_index = root / "simple" / name
+        package_index.mkdir(parents=True)
+        links = []
+        for wheel in sorted(wheels):
+            digest = hashlib.sha256(wheel.read_bytes()).hexdigest()
+            links.append(f'<a href="../../wheels/{wheel.name}#sha256={digest}">{wheel.name}</a>')
+        package_index.joinpath("index.html").write_text("".join(f"{link}\n" for link in links))
+
+
+@contextmanager
+def serve_index(root: Path) -> Iterator[str]:
+    handler = partial(_QuietIndexHandler, directory=str(root))
+    server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_port}/simple"
+    finally:
+        server.shutdown()
+        thread.join()
+        server.server_close()
+
+
+def install_from_index(python: Path, index_url: str, package: str, *, cwd: Path) -> None:
+    run(
+        [
+            str(python),
+            "-m",
+            "pip",
+            "install",
+            "--disable-pip-version-check",
+            "--pre",
+            "--index-url",
+            index_url,
+            package,
+        ],
+        cwd=cwd,
+        isolate_pip=True,
+    )
+
+
+def verify_install(python: Path, version: str, *, slurm: bool, cwd: Path) -> None:
+    statement = f"""
+import sys
+from importlib.metadata import version
+from importlib.util import find_spec
+
+import data_designer
+import data_designer.config
+import data_designer.engine
+import data_designer.interface
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from typer.testing import CliRunner
+
+from data_designer.cli.main import app
+
+assert data_designer.__file__ is None
+assert version("data-designer") == {version!r}
+assert (find_spec("data_designer.slurm") is not None) is {slurm!r}
+assert "data_designer.slurm" not in sys.modules
+assert "packaging.requirements" not in sys.modules
+
+help_result = CliRunner().invoke(app, ["--help"])
+assert help_result.exit_code == 0, help_result.output
+assert ("slurm" in help_result.output) is {slurm!r}
+assert "data_designer.slurm" not in sys.modules
+assert "packaging.requirements" not in sys.modules
+"""
+    if slurm:
+        statement += f"""
+slurm_help_result = CliRunner().invoke(app, ["slurm", "--help"])
+assert slurm_help_result.exit_code == 0, (slurm_help_result.output, repr(slurm_help_result.exception))
+assert all(
+    command in slurm_help_result.output
+    for command in ("execute", "status", "cancel", "retry", "merge", "image", "profile", "benchmark")
+)
+assert "data_designer.slurm.cli" in sys.modules
+assert version("data-designer-slurm") == {version!r}
+from data_designer.slurm.benchmark import BenchmarkCompiler
+from data_designer.slurm.config import load_benchmark_config, load_builder_payload, load_profile_catalog, load_run_config
+from data_designer.slurm.contracts import ArtifactReference as ContractArtifactReference
+from data_designer.slurm.contracts import RecordRange as ContractRecordRange
+from data_designer.slurm.contracts import ResumeWorkspace as ContractResumeWorkspace
+from data_designer.slurm.integration import PlanStateValidator
+from data_designer.slurm.images.registry import ImageRegistryStore
+from data_designer.slurm.planning import ArtifactReference as PlanningArtifactReference
+from data_designer.slurm.planning import RecordRange as PlanningRecordRange
+from data_designer.slurm.planning import ResumeWorkspace as PlanningResumeWorkspace
+from data_designer.slurm.runtime import proxy as runtime_proxy
+from data_designer.slurm.state import ArtifactReference as StateArtifactReference
+from data_designer.slurm.state import RecordRange as StateRecordRange
+from data_designer.slurm.state import ResumeWorkspace as StateResumeWorkspace
+from data_designer.slurm.state import (
+    CollectionResult,
+    RetryPlan,
+    RunManifest,
+    RunStatus,
+    SchedulerObservationCollector,
+    SlurmCollectionCoordinator,
+    SlurmRetryCoordinator,
+    SlurmStateReconciler,
+)
+from data_designer.slurm.services import create_slurm_benchmark_service
+assert BenchmarkCompiler.__name__ == "BenchmarkCompiler"
+assert callable(runtime_proxy.main)
+assert callable(create_slurm_benchmark_service)
+assert CollectionResult.__name__ == "CollectionResult"
+assert RetryPlan.__name__ == "RetryPlan"
+assert RunManifest.__name__ == "RunManifest"
+assert RunStatus.__name__ == "RunStatus"
+assert SchedulerObservationCollector.__name__ == "SchedulerObservationCollector"
+assert SlurmCollectionCoordinator.__name__ == "SlurmCollectionCoordinator"
+assert SlurmRetryCoordinator.__name__ == "SlurmRetryCoordinator"
+assert SlurmStateReconciler.__name__ == "SlurmStateReconciler"
+assert ImageRegistryStore.__name__ == "ImageRegistryStore"
+assert PlanningArtifactReference is ContractArtifactReference
+assert PlanningRecordRange is ContractRecordRange
+assert PlanningResumeWorkspace is ContractResumeWorkspace
+assert StateArtifactReference is ContractArtifactReference
+assert StateRecordRange is ContractRecordRange
+assert StateResumeWorkspace is ContractResumeWorkspace
+examples = Path("examples")
+builder_example = load_builder_payload(examples / "builder.yaml")
+assert [column["name"] for column in builder_example["data_designer"]["columns"]] == ["tone", "greeting"]
+run_example = load_run_config(examples / "run.yaml")
+benchmark_example = load_benchmark_config(examples / "benchmark.yaml")
+assert run_example.name == "greeting-run"
+assert benchmark_example.name == "generator-scaling"
+assert len(BenchmarkCompiler.compile(benchmark_example, run_example).cases) == 4
+assert load_profile_catalog(examples / "profile-catalog.yaml").default_cluster == "primary"
+profile_help_result = CliRunner().invoke(app, ["slurm", "profile", "--help"])
+assert profile_help_result.exit_code == 0, profile_help_result.output
+with TemporaryDirectory() as temporary_directory:
+    root = Path(temporary_directory)
+    profile_file = root / "profile.yml"
+    profile_init_result = CliRunner().invoke(
+        app,
+        [
+            "slurm",
+            "profile",
+            "init",
+            "--workspace-root",
+            str(root / "workspace"),
+            "--image-build-partition",
+            "cpu",
+            "--profile-file",
+            str(profile_file),
+            "--host-pattern",
+            "login.example.test",
+        ],
+    )
+    assert profile_init_result.exit_code == 0, profile_init_result.output
+    assert profile_file.is_file()
+"""
+    run([str(python), "-c", statement], cwd=cwd)
+
+
+def cli_help_medians(base_python: Path, extension_python: Path, *, cwd: Path) -> tuple[float, float]:
+    statement = """
+from typer.testing import CliRunner
+from data_designer.cli.main import app
+
+result = CliRunner().invoke(app, ["--help"])
+assert result.exit_code == 0, result.output
+"""
+    for python in (base_python, extension_python):
+        run([str(python), "-c", statement], cwd=cwd)
+
+    samples: dict[Path, list[float]] = {base_python: [], extension_python: []}
+    for index in range(CLI_HELP_SAMPLES):
+        environments = (base_python, extension_python) if index % 2 == 0 else (extension_python, base_python)
+        for python in environments:
+            start = time.perf_counter()
+            run([str(python), "-c", statement], cwd=cwd)
+            samples[python].append(time.perf_counter() - start)
+    return statistics.median(samples[base_python]), statistics.median(samples[extension_python])
+
+
+def main() -> None:
+    uv = shutil.which("uv")
+    if uv is None:
+        raise RuntimeError("uv is required")
+    if run([sys.executable, "-m", "pip", "--version"], cwd=REPOSITORY_ROOT, check=False).returncode:
+        raise RuntimeError("pip is required")
+    verify_documented_examples()
+
+    with tempfile.TemporaryDirectory() as temporary_directory:
+        root = Path(temporary_directory)
+        shutil.copytree(EXAMPLE_PATH, root / "examples")
+        wheel_directory = root / "wheels"
+        wheel_directory.mkdir()
+        wheels = build_wheels(uv, wheel_directory)
+
+        assert set(wheels) == FIRST_PARTY_PACKAGES
+        metadata = {name: wheel_metadata(path) for name, path in wheels.items()}
+        download_third_party_wheels(wheel_directory, metadata)
+        create_simple_index(root, wheel_directory)
+        versions = {item["Version"] for item in metadata.values()}
+        assert len(versions) == 1
+        leaf_wheel = wheels["data-designer-slurm"]
+        audit_public_artifacts(leaf_wheel)
+        base_metadata = metadata["data-designer"]
+        leaf_metadata = metadata["data-designer-slurm"]
+        version = base_metadata["Version"]
+        assert leaf_metadata["Version"] == version
+
+        base_config_requirement = requirement(base_metadata, "data-designer-config")
+        base_engine_requirement = requirement(base_metadata, "data-designer-engine")
+        engine_config_requirement = requirement(metadata["data-designer-engine"], "data-designer-config")
+        base_leaf_requirement = requirement(base_metadata, "data-designer-slurm")
+        leaf_base_requirement = requirement(leaf_metadata, "data-designer")
+        leaf_packaging_requirement = requirement(leaf_metadata, "packaging")
+        leaf_pip_requirement = requirement(leaf_metadata, "pip")
+        leaf_pydantic_requirement = requirement(leaf_metadata, "pydantic")
+        leaf_pyyaml_requirement = requirement(leaf_metadata, "pyyaml")
+        leaf_aiohttp_requirement = requirement(leaf_metadata, "aiohttp")
+        assert str(base_config_requirement.specifier) == f"=={version}"
+        assert str(base_engine_requirement.specifier) == f"=={version}"
+        assert str(engine_config_requirement.specifier) == f"=={version}"
+        assert str(base_leaf_requirement.specifier) == f"=={version}"
+        assert str(leaf_base_requirement.specifier) == f"=={version}"
+        assert leaf_packaging_requirement.specifier == Requirement("packaging>=25,<27").specifier
+        assert leaf_pip_requirement.specifier == Requirement("pip>=25,<27").specifier
+        assert leaf_pydantic_requirement.specifier == Requirement("pydantic>=2.12,<3").specifier
+        assert leaf_pyyaml_requirement.specifier == Requirement("pyyaml>=6.0.1,<7").specifier
+        assert leaf_aiohttp_requirement.specifier == Requirement("aiohttp>=3.14.3,<4").specifier
+        assert base_leaf_requirement.marker is not None
+        assert base_leaf_requirement.marker.evaluate({"extra": "slurm"})
+        assert not base_leaf_requirement.marker.evaluate({"extra": ""})
+        assert "slurm" in base_metadata.get_all("Provides-Extra", [])
+        with ZipFile(leaf_wheel) as wheel:
+            assert "data_designer/__init__.py" not in wheel.namelist()
+
+        base_python = create_environment(uv, root / "base", cwd=root)
+        install(uv, base_python, wheel_directory, f"data-designer=={version}", cwd=root)
+        verify_install(base_python, version, slurm=False, cwd=root)
+
+        extra_python = create_environment(uv, root / "extra", cwd=root)
+        install(uv, extra_python, wheel_directory, "pip", cwd=root)
+        with serve_index(root) as index_url:
+            install_from_index(extra_python, index_url, f"data-designer[slurm]=={version}", cwd=root)
+        verify_install(extra_python, version, slurm=True, cwd=root)
+        base_cli_help, extension_cli_help = cli_help_medians(base_python, extra_python, cwd=root)
+        extension_overhead = extension_cli_help - base_cli_help
+        assert base_cli_help <= MAX_BASE_CLI_HELP_SECONDS, (
+            f"Base CLI root help took {base_cli_help:.3f}s; budget is {MAX_BASE_CLI_HELP_SECONDS:.3f}s"
+        )
+        assert extension_overhead <= MAX_EXTENSION_CLI_HELP_OVERHEAD_SECONDS, (
+            f"CLI extension added {extension_overhead:.3f}s to root help "
+            f"(base={base_cli_help:.3f}s, extension={extension_cli_help:.3f}s)"
+        )
+        print(
+            f"CLI help median: base={base_cli_help:.3f}s, extension={extension_cli_help:.3f}s, "
+            f"overhead={extension_overhead:.3f}s"
+        )
+
+        leaf_python = create_environment(uv, root / "leaf", cwd=root)
+        install(uv, leaf_python, wheel_directory, f"data-designer-slurm=={version}", cwd=root)
+        verify_install(leaf_python, version, slurm=True, cwd=root)
+
+        leaf_only_directory = root / "leaf-only"
+        leaf_only_directory.mkdir()
+        shutil.copy2(leaf_wheel, leaf_only_directory)
+        missing_python = create_environment(uv, root / "missing", cwd=root)
+        result = run(
+            [
+                uv,
+                "pip",
+                "install",
+                "--python",
+                str(missing_python),
+                "--no-index",
+                "--find-links",
+                str(leaf_only_directory),
+                str(leaf_wheel),
+            ],
+            cwd=root,
+            check=False,
+        )
+        assert result.returncode != 0
+        assert f"data-designer=={version}" in (result.stdout + result.stderr)
+
+
+if __name__ == "__main__":
+    main()

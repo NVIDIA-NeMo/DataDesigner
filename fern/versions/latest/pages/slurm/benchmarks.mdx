@@ -1,0 +1,87 @@
+# Slurm benchmarks
+
+Use a benchmark to compare concurrency and deployment topology while keeping each case as an ordinary Data Designer Slurm run. No benchmark controller stays resident after submission.
+
+Complete [Getting Started](/slurm/getting-started) first so the profile, images, and base run are ready.
+
+## Define cases
+
+Create `benchmark.yaml` next to an existing `run.yaml`:
+
+```yaml
+schema_version: 1
+name: generator-scaling
+base_run: run.yaml
+model_aliases: all
+concurrency_values:
+  - 32
+  - 64
+deployment_cases:
+  - name: single-node-groups
+    deployments:
+      generator:
+        nodes: 2
+        nodes_per_replica: 1
+  - name: two-node-group
+    deployments:
+      generator:
+        nodes: 2
+        nodes_per_replica: 2
+analysis:
+  target_total_records: 1000000
+  target_runtime: 4h
+```
+
+`model_aliases` is required. Set it to `all` to apply each concurrency value to every model in the base run. For a two-model run with `generator` and `reviewer`, values `[32, 64]` produce concurrency pairs `(32, 32)` and `(64, 64)` at each deployment case. To vary only one model, set `model_aliases: [generator]`; the reviewer then keeps its base-run concurrency. Every selected model receives the same value, so this sweep does not produce mixed pairs such as `(32, 64)`.
+
+The compiler expands the authored order deterministically. For this example, the first cases are `single-node-groups-c32` and `two-node-group-c32`. By default, each case requests `min(5000, max(1000, ceil(concurrency * 1.0)))` records. Thus concurrency 512 requests 1,000 records and concurrency 1,024 requests 1,024. For a longer sample at those concurrency values, set `record_policy: {type: adaptive, base_records: 1000, max_records: 5000, records_per_concurrency: 4.0}` to request 2,048 and 4,096 records. Raise `max_records` when testing larger concurrency values. A fixed policy with `type: fixed` and `records` is also available.
+
+Each benchmark case runs as one Slurm array task, even when the base run uses multiple tasks. The record policy sets the sample size for that task. This measures the throughput of one allocation, which analysis uses to estimate how many such tasks are needed for `target_total_records` within `target_runtime`.
+
+`nodes_per_replica` controls the number of nodes in each pipeline-parallel group. The resolved replica count is `(nodes / nodes_per_replica) * (gpus_per_node / tensor_parallel)`. Benchmark deployment cases change `nodes` and `nodes_per_replica`; they keep each deployment's `tensor_parallel` from the base run. See [GPU topology and replica count](/slurm/run-configuration#gpu-topology-and-replica-count) for concrete eight-GPU examples.
+
+## Run
+
+```bash
+data-designer slurm benchmark run benchmark.yaml
+```
+
+This uses `DATA_DESIGNER_SLURM_PROFILE_FILE` and the default cluster from Getting Started. The command writes `benchmarks/<benchmark-id>/config.json`, the resolved `base-run.json`, and `benchmark.json` before submitting any child. The manifest is an immutable ordered mapping from case IDs to normal run IDs. Each child keeps its authored config, state, attempts, scheduler evidence, and results under `runs/<run-id>`.
+
+If submission stops partway through, rerun the same command with the same installed revision. Children with scheduler submission evidence are not submitted again, and missing children are attempted in the original order. If a child has initialized inputs but no submission evidence, rerun with `--force` to resume it. Force never replaces benchmark or child metadata. Partial scheduler evidence across a child's shards is preserved as a conflict for operator investigation and cannot be overwritten with force.
+
+## Observe and analyze
+
+Inspect any child with the normal run command:
+
+```bash
+data-designer slurm status <child-run-id>
+```
+
+Write a point-in-time benchmark report from persisted child state:
+
+```bash
+data-designer slurm benchmark analyze <benchmark-id> --refresh-state
+```
+
+`--refresh-state` performs one fresh-process scheduler reconciliation per child before analysis. Add `--fail-if-incomplete` when automation should return a conflict after the report is persisted if any case is not successful.
+
+Reports retain every manifest case in order. Outcomes include `pending`, `accounting_lag`, `succeeded`, `failed`, `incomplete`, `missing`, `stale`, and `scheduler_inconsistent`. Successful cases can be infeasible when boot time consumes the runtime budget. Boot and wall timing begin when execution starts inside the allocation, so queue wait does not affect topology comparisons. For new one-task cases, `rows_per_second` measures that task's generation rate. Reports for saved multi-task benchmarks retain their aggregate shard rate. `generation_seconds` is the target runtime remaining after startup, and GPU-hour estimates assume each projected task uses the full target runtime. Only successful feasible cases participate in Pareto, minimum-job, and minimum-GPU-hour recommendations.
+
+## Python API
+
+```python
+from pathlib import Path
+
+from data_designer.slurm.config import load_benchmark_config
+from data_designer.slurm.services import create_slurm_benchmark_service
+
+benchmark_file = Path("benchmark.yaml").resolve()
+config = load_benchmark_config(benchmark_file)
+service = create_slurm_benchmark_service()
+
+manifest = service.run(config, source_root=benchmark_file.parent)
+report = service.analyze(manifest.benchmark_id, refresh_state=True)
+```
+
+For child failure recovery and output collection, use [Retry and collection](/slurm/retry-and-collection).

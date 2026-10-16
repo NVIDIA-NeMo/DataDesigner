@@ -1,0 +1,912 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import stat
+import subprocess
+import sys
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+from threading import Barrier, Event
+from unittest.mock import patch
+
+import pytest
+import yaml
+from slurm_test_fakes import FakeInspectionEnvironment
+
+import data_designer.slurm.images.service as image_service
+from data_designer.slurm.config import ImageBuildRequest, ImageInspectionRecord, InstalledDistribution
+from data_designer.slurm.images import filesystem as image_filesystem
+from data_designer.slurm.images.errors import (
+    ImageArtifactRemovalError,
+    ImageConflictError,
+    ImageRegistryError,
+    ImageVerificationError,
+)
+from data_designer.slurm.images.inspection import ClientImageInspector, ServingImageInspector
+from data_designer.slurm.images.records import RegisteredImage
+from data_designer.slurm.images.registry import ImageRegistryStore
+from data_designer.slurm.images.service import VerifiedImageRegistry, compute_sqsh_file_sha256
+
+
+@pytest.mark.parametrize(
+    "content",
+    (
+        b"not-yaml: [\n",
+        b"\xff",
+        b"schema_version: 1\nimages: &recursive\n  - *recursive\n",
+        b"images: []\n",
+        b"schema_version: 2\nimages: []\n",
+        b"schema_version: 1\nschema_version: 1\nimages: []\n",
+    ),
+    ids=(
+        "invalid-yaml",
+        "invalid-utf8",
+        "recursive-alias",
+        "missing-version",
+        "unsupported-version",
+        "duplicate-key",
+    ),
+)
+def test_registry_normalizes_corrupt_persisted_state(tmp_path: Path, content: bytes) -> None:
+    workspace = tmp_path / "workspace"
+    _write_registry_content(workspace, content)
+
+    with pytest.raises(ImageRegistryError, match="cannot load"):
+        ImageRegistryStore(workspace).list_images()
+
+
+def test_registry_rejects_persisted_non_sqsh_path(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    image = _get_registered_client_image(_write_sqsh(tmp_path / "client.sqsh", b"client"))
+    payload = image.model_dump(mode="json")
+    payload["path"] = (tmp_path / "client.bin").as_posix()
+    _write_registry_images(workspace, (payload,))
+
+    with pytest.raises(ImageRegistryError, match="cannot load"):
+        ImageRegistryStore(workspace).list_images()
+
+
+def test_registry_rejects_persisted_inspection_digest_mismatch(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    image = _get_registered_client_image(_write_sqsh(tmp_path / "client.sqsh", b"client"))
+    payload = image.model_dump(mode="json")
+    payload["sqsh_sha256"] = "f" * 64
+    _write_registry_images(workspace, (payload,))
+
+    with pytest.raises(ImageRegistryError, match="cannot load"):
+        ImageRegistryStore(workspace).list_images()
+
+
+def test_registry_rejects_persisted_unsorted_aliases(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    zeta = _get_registered_client_image(_write_sqsh(tmp_path / "zeta.sqsh", b"zeta"), name="zeta")
+    alpha = _get_registered_client_image(_write_sqsh(tmp_path / "alpha.sqsh", b"alpha"), name="alpha")
+    _write_registry_images(workspace, (zeta.model_dump(mode="json"), alpha.model_dump(mode="json")))
+
+    with pytest.raises(ImageRegistryError, match="cannot load"):
+        ImageRegistryStore(workspace).list_images()
+
+
+def test_registry_rejects_persisted_duplicate_aliases(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    image = _get_registered_client_image(_write_sqsh(tmp_path / "client.sqsh", b"client"))
+    payload = image.model_dump(mode="json")
+    _write_registry_images(workspace, (payload, payload))
+
+    with pytest.raises(ImageRegistryError, match="cannot load"):
+        ImageRegistryStore(workspace).list_images()
+
+
+def test_registry_rejects_persisted_conflicting_facts_for_one_path(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    image_path = _write_sqsh(tmp_path / "shared.sqsh", b"shared")
+    client = _get_registered_client_image(image_path, name="client")
+    serving_inspection = _inspect_serving(image_path)
+    serving = RegisteredImage(
+        schema_version=1,
+        name="serving",
+        path=image_path.as_posix(),
+        sqsh_sha256=serving_inspection.sqsh_sha256,
+        inspection=serving_inspection,
+    )
+    _write_registry_images(
+        workspace,
+        (client.model_dump(mode="json"), serving.model_dump(mode="json")),
+    )
+
+    with pytest.raises(ImageRegistryError, match="cannot load"):
+        ImageRegistryStore(workspace).list_images()
+
+
+def test_registry_allows_aliases_with_identical_facts_for_one_path(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    image = _get_registered_client_image(_write_sqsh(tmp_path / "shared.sqsh", b"shared"), name="alpha")
+    alias = image.model_copy(update={"name": "beta"})
+    store = ImageRegistryStore(workspace)
+
+    store.register(image, verify_before_publish=lambda _image: None)
+    store.register(alias, verify_before_publish=lambda _image: None)
+
+    assert store.list_images() == (image, alias)
+
+
+def test_unregister_can_delete_unshared_imported_artifact(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    artifact_path = workspace / "images" / "artifacts" / f"client-{hashlib.sha256(b'client').hexdigest()}.sqsh"
+    artifact_path.parent.mkdir(parents=True)
+    artifact_path.write_bytes(b"client")
+    image = _get_registered_client_image(artifact_path).model_copy(update={"source_oci_digest": "a" * 64})
+    store = ImageRegistryStore(workspace)
+    store.register(image, verify_before_publish=lambda _image: None)
+
+    removed = store.unregister("client", delete_artifact=True)
+
+    assert removed == image
+    assert store.list_images() == ()
+    assert not artifact_path.exists()
+
+
+@pytest.mark.parametrize("run_name", ("run-example", "experiment-1"))
+def test_unregister_keeps_artifact_referenced_by_persisted_run(tmp_path: Path, run_name: str) -> None:
+    workspace = tmp_path / "workspace"
+    artifact_path = workspace / "images" / "artifacts" / f"client-{hashlib.sha256(b'client').hexdigest()}.sqsh"
+    artifact_path.parent.mkdir(parents=True)
+    artifact_path.write_bytes(b"client")
+    image = _get_registered_client_image(artifact_path).model_copy(update={"source_oci_digest": "a" * 64})
+    store = ImageRegistryStore(workspace)
+    store.register(image, verify_before_publish=lambda _image: None)
+    run_root = workspace / "runs" / run_name
+    run_root.mkdir(parents=True)
+    (run_root / "resolved-plan.json").write_text(
+        json.dumps({"deployments": [{"image": {"path": artifact_path.as_posix()}}]})
+    )
+
+    with pytest.raises(ImageConflictError, match="referenced by run"):
+        store.unregister("client", delete_artifact=True)
+
+    assert store.get_by_name("client") == image
+    assert artifact_path.exists()
+
+
+@pytest.mark.parametrize("image_path", (None, "", "relative/image.sqsh", 3))
+def test_unregister_rejects_corrupt_run_image_path(tmp_path: Path, image_path: object) -> None:
+    workspace = tmp_path / "workspace"
+    artifact_path = workspace / "images" / "artifacts" / f"client-{hashlib.sha256(b'client').hexdigest()}.sqsh"
+    artifact_path.parent.mkdir(parents=True)
+    artifact_path.write_bytes(b"client")
+    image = _get_registered_client_image(artifact_path).model_copy(update={"source_oci_digest": "a" * 64})
+    store = ImageRegistryStore(workspace)
+    store.register(image, verify_before_publish=lambda _image: None)
+    run_root = workspace / "runs" / "run-corrupt"
+    run_root.mkdir(parents=True)
+    (run_root / "resolved-plan.json").write_text(json.dumps({"deployments": [{"image": {"path": image_path}}]}))
+
+    with pytest.raises(ImageConflictError, match="run plan cannot be checked"):
+        store.unregister("client", delete_artifact=True)
+
+    assert store.get_by_name("client") == image
+    assert artifact_path.exists()
+
+
+@pytest.mark.parametrize("invalid_plan", ("symlink", "oversized"))
+def test_unregister_keeps_artifact_when_run_plan_cannot_be_safely_read(
+    tmp_path: Path,
+    invalid_plan: str,
+) -> None:
+    workspace = tmp_path / "workspace"
+    artifact_path = workspace / "images" / "artifacts" / f"client-{hashlib.sha256(b'client').hexdigest()}.sqsh"
+    artifact_path.parent.mkdir(parents=True)
+    artifact_path.write_bytes(b"client")
+    image = _get_registered_client_image(artifact_path).model_copy(update={"source_oci_digest": "a" * 64})
+    store = ImageRegistryStore(workspace)
+    store.register(image, verify_before_publish=lambda _image: None)
+    run_root = workspace / "runs" / "run-example"
+    run_root.mkdir(parents=True)
+    plan_path = run_root / "resolved-plan.json"
+    if invalid_plan == "symlink":
+        source = tmp_path / "outside.json"
+        source.write_text(json.dumps({"deployments": []}))
+        plan_path.symlink_to(source)
+    else:
+        with plan_path.open("wb") as plan:
+            plan.truncate(16 * 1024 * 1024 + 1)
+
+    with pytest.raises(ImageConflictError, match="run plan cannot be checked"):
+        store.unregister("client", delete_artifact=True)
+
+    assert store.get_by_name("client") == image
+    assert artifact_path.exists()
+
+
+def test_artifact_removal_waits_for_run_plan_publication(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    artifact_path = workspace / "images" / "artifacts" / f"client-{hashlib.sha256(b'client').hexdigest()}.sqsh"
+    artifact_path.parent.mkdir(parents=True)
+    artifact_path.write_bytes(b"client")
+    image = _get_registered_client_image(artifact_path).model_copy(update={"source_oci_digest": "a" * 64})
+    store = ImageRegistryStore(workspace)
+    store.register(image, verify_before_publish=lambda _image: None)
+    started = Event()
+
+    def remove() -> None:
+        started.set()
+        store.unregister("client", delete_artifact=True)
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        with store.acquire_run_reference_lock():
+            pending = executor.submit(remove)
+            assert started.wait(timeout=2)
+            run_root = workspace / "runs" / "run-concurrent"
+            run_root.mkdir(parents=True)
+            (run_root / "resolved-plan.json").write_text(
+                json.dumps({"deployments": [{"image": {"path": artifact_path.as_posix()}}]})
+            )
+            assert not pending.done()
+        with pytest.raises(ImageConflictError, match="referenced by run"):
+            pending.result(timeout=2)
+
+    assert store.get_by_name("client") == image
+    assert artifact_path.exists()
+
+
+def test_run_reference_lock_allows_concurrent_publishers(tmp_path: Path) -> None:
+    store = ImageRegistryStore(tmp_path / "workspace")
+    entered = Event()
+
+    def publish() -> None:
+        with store.acquire_run_reference_lock():
+            entered.set()
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        with store.acquire_run_reference_lock():
+            pending = executor.submit(publish)
+            assert entered.wait(timeout=2)
+        pending.result(timeout=2)
+
+
+def test_artifact_reference_scan_does_not_block_registry_reads(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    workspace = tmp_path / "workspace"
+    artifact_path = workspace / "images" / "artifacts" / f"client-{hashlib.sha256(b'client').hexdigest()}.sqsh"
+    artifact_path.parent.mkdir(parents=True)
+    artifact_path.write_bytes(b"client")
+    image = _get_registered_client_image(artifact_path).model_copy(update={"source_oci_digest": "a" * 64})
+    store = ImageRegistryStore(workspace)
+    store.register(image, verify_before_publish=lambda _image: None)
+    scanning = Event()
+    resume = Event()
+    scan = store._require_no_persisted_run_reference
+
+    def delayed_scan(path: str) -> None:
+        scanning.set()
+        assert resume.wait(timeout=3)
+        scan(path)
+
+    monkeypatch.setattr(store, "_require_no_persisted_run_reference", delayed_scan)
+    publishing = Event()
+
+    def publish() -> None:
+        with store.acquire_run_reference_lock():
+            publishing.set()
+
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        removal = executor.submit(store.unregister, "client", delete_artifact=True)
+        assert scanning.wait(timeout=2)
+        listing = executor.submit(store.list_images)
+        publisher = executor.submit(publish)
+        try:
+            assert listing.result(timeout=2) == (image,)
+            assert not publishing.wait(timeout=0.05)
+        finally:
+            resume.set()
+        assert removal.result(timeout=2) == image
+        publisher.result(timeout=2)
+        assert publishing.is_set()
+
+
+def test_unregister_refuses_to_delete_shared_or_external_artifacts(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    artifact_path = workspace / "images" / "artifacts" / f"client-{hashlib.sha256(b'client').hexdigest()}.sqsh"
+    artifact_path.parent.mkdir(parents=True)
+    artifact_path.write_bytes(b"client")
+    imported = _get_registered_client_image(artifact_path).model_copy(update={"source_oci_digest": "a" * 64})
+    store = ImageRegistryStore(workspace)
+    store.register(imported, verify_before_publish=lambda _image: None)
+    store.register(imported.model_copy(update={"name": "other"}), verify_before_publish=lambda _image: None)
+
+    with pytest.raises(ImageConflictError, match="another image alias"):
+        store.unregister("client", delete_artifact=True)
+
+    assert len(store.list_images()) == 2
+    assert artifact_path.exists()
+
+    external_path = _write_sqsh(tmp_path / "external.sqsh", b"external")
+    external = _get_registered_client_image(external_path, name="external")
+    store.register(external, verify_before_publish=lambda _image: None)
+    with pytest.raises(ImageConflictError, match="package-owned"):
+        store.unregister("external", delete_artifact=True)
+    assert store.get_by_name("external") == external
+    assert external_path.exists()
+
+
+def test_unregister_reports_partial_artifact_removal_failure(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    artifact_path = workspace / "images" / "artifacts" / f"client-{hashlib.sha256(b'client').hexdigest()}.sqsh"
+    artifact_path.parent.mkdir(parents=True)
+    artifact_path.write_bytes(b"client")
+    image = _get_registered_client_image(artifact_path).model_copy(update={"source_oci_digest": "a" * 64})
+    store = ImageRegistryStore(workspace)
+    store.register(image, verify_before_publish=lambda _image: None)
+    real_unlink = os.unlink
+
+    def fail_artifact_unlink(name: str, *, dir_fd: int | None = None) -> None:
+        if name == artifact_path.name:
+            raise OSError("injected artifact removal failure")
+        real_unlink(name, dir_fd=dir_fd)
+
+    with (
+        patch("data_designer.slurm.images.registry.os.unlink", side_effect=fail_artifact_unlink),
+        pytest.raises(ImageArtifactRemovalError, match="alias was removed"),
+    ):
+        store.unregister("client", delete_artifact=True)
+
+    assert store.list_images() == ()
+    assert artifact_path.exists()
+
+
+def test_unregister_refuses_symlinked_artifact_without_removing_alias(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    content = b"client"
+    artifact_path = workspace / "images" / "artifacts" / f"client-{hashlib.sha256(content).hexdigest()}.sqsh"
+    artifact_path.parent.mkdir(parents=True)
+    artifact_path.write_bytes(content)
+    image = _get_registered_client_image(artifact_path).model_copy(update={"source_oci_digest": "a" * 64})
+    store = ImageRegistryStore(workspace)
+    store.register(image, verify_before_publish=lambda _image: None)
+    outside = _write_sqsh(tmp_path / "outside.sqsh", b"outside")
+    artifact_path.unlink()
+    artifact_path.symlink_to(outside)
+
+    with pytest.raises(ImageConflictError, match="unavailable for deletion"):
+        store.unregister("client", delete_artifact=True)
+
+    assert store.get_by_name("client") == image
+    assert outside.read_bytes() == b"outside"
+
+
+def test_registry_rejects_new_alias_with_conflicting_facts_for_one_path(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    image_path = _write_sqsh(tmp_path / "shared.sqsh", b"shared")
+    client = _get_registered_client_image(image_path, name="client")
+    serving_inspection = _inspect_serving(image_path)
+    serving = RegisteredImage(
+        schema_version=1,
+        name="serving",
+        path=image_path.as_posix(),
+        sqsh_sha256=serving_inspection.sqsh_sha256,
+        inspection=serving_inspection,
+    )
+    store = ImageRegistryStore(workspace)
+    store.register(client, verify_before_publish=lambda _image: None)
+
+    with pytest.raises(ImageConflictError, match="different immutable facts"):
+        store.register(serving, verify_before_publish=lambda _image: None)
+
+
+def test_registry_rejects_symlinked_state_file(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    registry_path = _get_registry_path(workspace)
+    registry_path.parent.mkdir(parents=True)
+    target = tmp_path / "outside.yaml"
+    target.write_text("schema_version: 1\nimages: []\n")
+    registry_path.symlink_to(target)
+
+    with pytest.raises(ImageRegistryError, match="cannot load"):
+        ImageRegistryStore(workspace).list_images()
+
+
+def test_registry_rejects_reads_through_symlinked_image_root(tmp_path: Path) -> None:
+    image_path = _write_sqsh(tmp_path / "client.sqsh", b"client")
+    outside_workspace = tmp_path / "outside-workspace"
+    outside_registry = VerifiedImageRegistry(outside_workspace)
+    outside_registry.register_existing(
+        ImageBuildRequest(name="client", kind="client", source=image_path.as_posix()),
+        _inspect_client(image_path),
+    )
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "images").symlink_to(outside_workspace / "images", target_is_directory=True)
+
+    with pytest.raises(ImageRegistryError, match="cannot load"):
+        ImageRegistryStore(workspace).list_images()
+
+
+def test_registry_rejects_nonregular_state_file_without_blocking(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    registry_path = _get_registry_path(workspace)
+    registry_path.parent.mkdir(parents=True)
+    os.mkfifo(registry_path)
+
+    with pytest.raises(ImageRegistryError, match="cannot load"):
+        ImageRegistryStore(workspace).list_images()
+
+
+def test_registry_rejects_fifo_substituted_between_check_and_open(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    image = _get_registered_client_image(_write_sqsh(tmp_path / "client.sqsh", b"client"))
+    store = ImageRegistryStore(workspace)
+    store.register(image, verify_before_publish=lambda _image: None)
+    registry_path = store.registry_path
+    original_stat = os.stat
+    replaced = False
+
+    def replace_registry_after_stat(path: str, **kwargs: object) -> os.stat_result:
+        nonlocal replaced
+        status = original_stat(path, **kwargs)
+        if path == "registry.yaml" and not replaced:
+            replaced = True
+            registry_path.unlink()
+            os.mkfifo(registry_path)
+        return status
+
+    with (
+        patch("data_designer.slurm.images.filesystem.os.stat", side_effect=replace_registry_after_stat),
+        pytest.raises(ImageRegistryError, match="cannot load"),
+    ):
+        store.list_images()
+
+
+def test_registry_rejects_state_mutated_during_read(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    image = _get_registered_client_image(_write_sqsh(tmp_path / "client.sqsh", b"client"))
+    store = ImageRegistryStore(workspace)
+    store.register(image, verify_before_publish=lambda _image: None)
+    registry_path = store.registry_path
+    registry_inode = registry_path.stat().st_ino
+    original_fstat = os.fstat
+    registry_fstat_count = 0
+
+    def mutate_before_final_registry_fstat(descriptor: int) -> os.stat_result:
+        nonlocal registry_fstat_count
+        status = original_fstat(descriptor)
+        if status.st_ino == registry_inode:
+            registry_fstat_count += 1
+            if registry_fstat_count == 2:
+                registry_path.write_text("mutated")
+                status = original_fstat(descriptor)
+        return status
+
+    with (
+        patch("data_designer.slurm.images.filesystem.os.fstat", side_effect=mutate_before_final_registry_fstat),
+        pytest.raises(ImageRegistryError, match="cannot load"),
+    ):
+        store.list_images()
+
+
+def test_sqsh_reader_rejects_fifo_substituted_between_check_and_open(tmp_path: Path) -> None:
+    image_path = _write_sqsh(tmp_path / "client.sqsh", b"client")
+    original_lstat = Path.lstat
+    replaced = False
+
+    def replace_sqsh_after_lstat(path: Path) -> os.stat_result:
+        nonlocal replaced
+        status = original_lstat(path)
+        if path == image_path and not replaced:
+            replaced = True
+            image_path.unlink()
+            os.mkfifo(image_path)
+        return status
+
+    with (
+        patch.object(Path, "lstat", replace_sqsh_after_lstat),
+        pytest.raises(ImageVerificationError, match="changed while it was being opened"),
+    ):
+        compute_sqsh_file_sha256(image_path)
+
+
+def test_sqsh_reader_rejects_path_replaced_during_hash(tmp_path: Path) -> None:
+    image_path = _write_sqsh(tmp_path / "client.sqsh", b"client")
+    replacement = _write_sqsh(tmp_path / "replacement.sqsh", b"replacement")
+    original_hash_descriptor = image_service._hash_descriptor
+
+    def replace_path_after_hash(descriptor: int) -> str:
+        digest = original_hash_descriptor(descriptor)
+        replacement.replace(image_path)
+        return digest
+
+    with (
+        patch("data_designer.slurm.images.service._hash_descriptor", side_effect=replace_path_after_hash),
+        pytest.raises(ImageVerificationError, match="changed while it was being verified"),
+    ):
+        compute_sqsh_file_sha256(image_path)
+
+
+def test_registry_rejects_symlinked_lock_file_without_changing_target(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    lock_directory = workspace / "images" / ".locks"
+    lock_directory.mkdir(parents=True)
+    target = tmp_path / "outside.lock"
+    target.write_text("outside")
+    target.chmod(0o640)
+    (lock_directory / "alias-client.lock").symlink_to(target)
+    image = _get_registered_client_image(_write_sqsh(tmp_path / "client.sqsh", b"client"))
+
+    with pytest.raises(ImageRegistryError, match="cannot lock"):
+        ImageRegistryStore(workspace).register(image, verify_before_publish=lambda _image: None)
+
+    assert stat.S_IMODE(target.stat().st_mode) == 0o640
+
+
+def test_registry_rejects_nonregular_lock_file(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    lock_directory = workspace / "images" / ".locks"
+    lock_directory.mkdir(parents=True)
+    os.mkfifo(lock_directory / "alias-client.lock")
+    image = _get_registered_client_image(_write_sqsh(tmp_path / "client.sqsh", b"client"))
+
+    with pytest.raises(ImageRegistryError, match="cannot lock"):
+        ImageRegistryStore(workspace).register(image, verify_before_publish=lambda _image: None)
+
+
+def test_registry_lock_preserves_operation_oserror(tmp_path: Path) -> None:
+    lock_directory = tmp_path / "locks"
+    lock_directory.mkdir(mode=0o700)
+    lock_path = lock_directory / "registry.lock"
+
+    with image_filesystem.open_verified_directory(lock_directory) as directory_descriptor:
+        with pytest.raises(OSError, match="registry operation failed") as caught:
+            with image_filesystem.acquire_file_lock(directory_descriptor, lock_path.name, lock_path):
+                raise OSError("registry operation failed")
+
+    assert type(caught.value) is OSError
+
+
+@pytest.mark.parametrize("directory", ("images", "locks"))
+def test_registry_rejects_symlinked_storage_directories(tmp_path: Path, directory: str) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    image_root = workspace / "images"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    if directory == "images":
+        image_root.symlink_to(outside, target_is_directory=True)
+    else:
+        image_root.mkdir()
+        (image_root / ".locks").symlink_to(outside, target_is_directory=True)
+    image = _get_registered_client_image(_write_sqsh(tmp_path / "client.sqsh", b"client"))
+
+    with pytest.raises(ImageRegistryError, match="cannot initialize"):
+        ImageRegistryStore(workspace).register(image, verify_before_publish=lambda _image: None)
+
+    assert tuple(outside.iterdir()) == ()
+
+
+def test_registry_uses_restrictive_atomic_workspace_storage(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    image_root = workspace / "images"
+    lock_directory = image_root / ".locks"
+    lock_directory.mkdir(parents=True)
+    image_root.chmod(0o775)
+    lock_directory.chmod(0o775)
+    image = _get_registered_client_image(_write_sqsh(tmp_path / "client.sqsh", b"client"))
+
+    ImageRegistryStore(workspace).register(image, verify_before_publish=lambda _image: None)
+
+    registry_path = _get_registry_path(workspace)
+    assert stat.S_IMODE(registry_path.stat().st_mode) == 0o600
+    assert stat.S_IMODE(image_root.stat().st_mode) == 0o700
+    assert stat.S_IMODE(lock_directory.stat().st_mode) == 0o700
+    assert not tuple(registry_path.parent.glob(".registry.*.tmp"))
+    assert not (registry_path.parent / ".registry.rollback.yaml").exists()
+    assert not (registry_path.parent / ".registry.committed.yaml").exists()
+
+
+def test_registration_blocks_readers_until_final_verification(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    image = _get_registered_client_image(_write_sqsh(tmp_path / "client.sqsh", b"client"))
+    store = ImageRegistryStore(workspace)
+    verification_started = Event()
+    finish_verification = Event()
+
+    def verify_before_publish(_image: RegisteredImage) -> None:
+        verification_started.set()
+        assert finish_verification.wait(timeout=5)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        writer = executor.submit(
+            store.register,
+            image,
+            verify_before_publish=verify_before_publish,
+        )
+        assert verification_started.wait(timeout=5)
+        reader = executor.submit(ImageRegistryStore(workspace).list_images)
+        assert not reader.done()
+        finish_verification.set()
+        assert writer.result().name == "client"
+        assert tuple(registered.name for registered in reader.result()) == ("client",)
+
+    assert tuple(registered.name for registered in ImageRegistryStore(workspace).list_images()) == ("client",)
+
+
+def test_existing_sqsh_hashing_does_not_block_registry_readers(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    first_path = _write_sqsh(tmp_path / "first.sqsh", b"first")
+    second_path = _write_sqsh(tmp_path / "second.sqsh", b"second")
+    registry = VerifiedImageRegistry(workspace)
+    first = registry.register_existing(
+        ImageBuildRequest(name="first", kind="client", source=first_path.as_posix()),
+        _inspect_client(first_path),
+    )
+    second_inspection = _inspect_client(second_path)
+    hash_started = Event()
+    finish_hash = Event()
+    original_hash_descriptor = image_service._hash_descriptor
+
+    def block_second_hash(descriptor: int) -> str:
+        descriptor_status = os.fstat(descriptor)
+        second_status = second_path.stat()
+        if (descriptor_status.st_dev, descriptor_status.st_ino) == (second_status.st_dev, second_status.st_ino):
+            hash_started.set()
+            assert finish_hash.wait(timeout=5)
+        return original_hash_descriptor(descriptor)
+
+    with (
+        patch("data_designer.slurm.images.service._hash_descriptor", side_effect=block_second_hash),
+        ThreadPoolExecutor(max_workers=2) as executor,
+    ):
+        writer = executor.submit(
+            registry.register_existing,
+            ImageBuildRequest(name="second", kind="client", source=second_path.as_posix()),
+            second_inspection,
+        )
+        assert hash_started.wait(timeout=5)
+        reader = executor.submit(VerifiedImageRegistry(workspace).list_images)
+        assert reader.result(timeout=5) == (first,)
+        finish_hash.set()
+        assert writer.result(timeout=5).name == "second"
+
+
+def test_failed_registration_runs_rollback_before_releasing_target_lock(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    first = _get_registered_client_image(_write_sqsh(tmp_path / "shared.sqsh", b"shared"), name="first")
+    second = first.model_copy(update={"name": "second"})
+    store = ImageRegistryStore(workspace)
+    rollback_started = Event()
+    finish_rollback = Event()
+
+    def fail_after_publish(_image: RegisteredImage) -> None:
+        raise ImageVerificationError("injected post-publication failure")
+
+    def rollback_after_failure(_image: RegisteredImage) -> None:
+        rollback_started.set()
+        assert finish_rollback.wait(timeout=5)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        failed_writer = executor.submit(
+            store.register,
+            first,
+            verify_before_publish=lambda _image: None,
+            verify_after_publish=fail_after_publish,
+            rollback_after_failure=rollback_after_failure,
+        )
+        assert rollback_started.wait(timeout=5)
+        succeeding_writer = executor.submit(
+            store.register,
+            second,
+            verify_before_publish=lambda _image: None,
+        )
+        assert not succeeding_writer.done()
+        finish_rollback.set()
+        with pytest.raises(ImageVerificationError, match="injected post-publication failure"):
+            failed_writer.result()
+        assert succeeding_writer.result() == second
+
+    assert ImageRegistryStore(workspace).list_images() == (second,)
+
+
+def test_fresh_reader_recovers_previous_registry_after_interrupted_publication(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    original = _get_registered_client_image(_write_sqsh(tmp_path / "original.sqsh", b"original"))
+    replacement = _get_registered_client_image(_write_sqsh(tmp_path / "replacement.sqsh", b"replacement"))
+    store = ImageRegistryStore(workspace)
+    store.register(original, verify_before_publish=lambda _image: None)
+    registry_path = store.registry_path
+    previous_content = registry_path.read_bytes()
+    (registry_path.parent / ".registry.rollback.yaml").write_bytes(previous_content)
+    registry_path.write_text(
+        yaml.safe_dump(
+            {"schema_version": 1, "images": [replacement.model_dump(mode="json")]},
+            sort_keys=True,
+        )
+    )
+
+    assert _list_image_names_in_fresh_process(workspace) == (original.name,)
+    assert not (registry_path.parent / ".registry.rollback.yaml").exists()
+    assert ImageRegistryStore(workspace).list_images() == (original,)
+
+
+def test_fresh_reader_keeps_committed_registry_after_interrupted_marker_cleanup(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    original = _get_registered_client_image(_write_sqsh(tmp_path / "original.sqsh", b"original"))
+    replacement = _get_registered_client_image(_write_sqsh(tmp_path / "replacement.sqsh", b"replacement"))
+    store = ImageRegistryStore(workspace)
+    store.register(original, verify_before_publish=lambda _image: None)
+    registry_path = store.registry_path
+    (registry_path.parent / ".registry.committed.yaml").write_bytes(registry_path.read_bytes())
+    registry_path.write_text(
+        yaml.safe_dump(
+            {"schema_version": 1, "images": [replacement.model_dump(mode="json")]},
+            sort_keys=True,
+        )
+    )
+
+    assert _list_image_names_in_fresh_process(workspace) == (replacement.name,)
+    assert not (registry_path.parent / ".registry.committed.yaml").exists()
+    assert ImageRegistryStore(workspace).list_images() == (replacement,)
+
+
+def test_committed_marker_sync_failure_reports_failure_and_keeps_recovery_state(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    image = _get_registered_client_image(_write_sqsh(tmp_path / "client.sqsh", b"client"))
+    store = ImageRegistryStore(workspace)
+    image_root_sync_count = 0
+    original_fsync = os.fsync
+
+    def fail_committed_marker_sync(descriptor: int) -> None:
+        nonlocal image_root_sync_count
+        descriptor_status = os.fstat(descriptor)
+        image_root_status = store.image_root.stat()
+        if (descriptor_status.st_dev, descriptor_status.st_ino) == (
+            image_root_status.st_dev,
+            image_root_status.st_ino,
+        ):
+            image_root_sync_count += 1
+            if image_root_sync_count == 3:
+                raise OSError("injected committed marker sync failure")
+        original_fsync(descriptor)
+
+    with (
+        patch("data_designer.slurm.images.registry.os.fsync", side_effect=fail_committed_marker_sync),
+        pytest.raises(ImageRegistryError, match="commit state requires recovery"),
+    ):
+        store.register(image, verify_before_publish=lambda _image: None)
+
+    committed_marker = store.image_root / ".registry.committed.yaml"
+    assert committed_marker.is_file()
+    assert _list_image_names_in_fresh_process(workspace) == (image.name,)
+    assert not committed_marker.exists()
+    assert store.list_images() == (image,)
+
+
+def test_registry_transaction_stays_bound_when_image_root_path_is_replaced(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    image_root = workspace / "images"
+    detached_image_root = workspace / "detached-images"
+    replacement_image_root = workspace / "replacement-images"
+    replacement_image_root.mkdir(parents=True)
+    image = _get_registered_client_image(_write_sqsh(tmp_path / "client.sqsh", b"client"))
+
+    def replace_image_root(_image: RegisteredImage) -> None:
+        image_root.rename(detached_image_root)
+        replacement_image_root.rename(image_root)
+
+    ImageRegistryStore(workspace).register(image, verify_before_publish=replace_image_root)
+
+    assert not (image_root / "registry.yaml").exists()
+    relocated_registry = yaml.safe_load((detached_image_root / "registry.yaml").read_text())
+    assert relocated_registry["images"][0]["name"] == "client"
+
+
+def test_concurrent_alias_writers_preserve_both_registrations(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    barrier = Barrier(2)
+
+    def register(name: str) -> str:
+        image = _get_registered_client_image(_write_sqsh(tmp_path / f"{name}.sqsh", name.encode()), name=name)
+        barrier.wait()
+        return ImageRegistryStore(workspace).register(image, verify_before_publish=lambda _image: None).name
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        names = tuple(executor.map(register, ("first", "second")))
+
+    assert names == ("first", "second")
+    assert tuple(image.name for image in ImageRegistryStore(workspace).list_images()) == ("first", "second")
+
+
+def test_concurrent_writers_cannot_publish_conflicting_aliases(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    barrier = Barrier(2)
+
+    def register(content: bytes) -> str:
+        image = _get_registered_client_image(_write_sqsh(tmp_path / f"{content.decode()}.sqsh", content), name="shared")
+        barrier.wait()
+        return ImageRegistryStore(workspace).register(image, verify_before_publish=lambda _image: None).path
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = tuple(executor.submit(register, content) for content in (b"first", b"second"))
+
+    failures = tuple(future.exception() for future in futures if future.exception() is not None)
+    outcomes = tuple(future.result() for future in futures if future.exception() is None)
+    assert len(outcomes) == 1
+    assert len(failures) == 1
+    assert isinstance(failures[0], ImageConflictError)
+    assert ImageRegistryStore(workspace).list_images()[0].path == outcomes[0]
+
+
+def _write_registry_content(workspace: Path, content: bytes) -> None:
+    registry_path = _get_registry_path(workspace)
+    registry_path.parent.mkdir(parents=True)
+    registry_path.write_bytes(content)
+
+
+def _list_image_names_in_fresh_process(workspace: Path) -> tuple[str, ...]:
+    completed = subprocess.run(
+        (
+            sys.executable,
+            "-c",
+            (
+                "import json,sys; "
+                "from data_designer.slurm.images.registry import ImageRegistryStore; "
+                "print(json.dumps([image.name for image in ImageRegistryStore(sys.argv[1]).list_images()]))"
+            ),
+            workspace.as_posix(),
+        ),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+    return tuple(json.loads(completed.stdout))
+
+
+def _write_registry_images(workspace: Path, images: tuple[dict[str, object], ...]) -> None:
+    content = yaml.safe_dump({"schema_version": 1, "images": list(images)}, sort_keys=True).encode()
+    _write_registry_content(workspace, content)
+
+
+def _get_registry_path(workspace: Path) -> Path:
+    return workspace / "images" / "registry.yaml"
+
+
+def _write_sqsh(path: Path, content: bytes) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(content)
+    return path
+
+
+def _get_registered_client_image(path: Path, *, name: str = "client") -> RegisteredImage:
+    inspection = _inspect_client(path)
+    return RegisteredImage(
+        schema_version=1,
+        name=name,
+        path=path.as_posix(),
+        sqsh_sha256=inspection.sqsh_sha256,
+        inspection=inspection,
+    )
+
+
+def _inspect_client(path: Path) -> ImageInspectionRecord:
+    environment = FakeInspectionEnvironment(
+        distributions=(
+            InstalledDistribution(name="data-designer", version="0.9.2"),
+            InstalledDistribution(name="data-designer-config", version="0.9.2"),
+            InstalledDistribution(name="data-designer-engine", version="0.9.2"),
+            InstalledDistribution(name="data-designer-slurm", version="0.9.2"),
+            InstalledDistribution(name="pip", version="26.1"),
+        ),
+        distribution_versions={"pip": "26.1"},
+        executables={"pip": "/usr/bin/pip"},
+    )
+    return ClientImageInspector(environment).inspect(compute_sqsh_file_sha256(path))
+
+
+def _inspect_serving(path: Path) -> ImageInspectionRecord:
+    environment = FakeInspectionEnvironment(
+        distribution_versions={"vllm": "0.21.0"},
+        executables={"vllm": "/usr/local/bin/vllm"},
+    )
+    return ServingImageInspector(environment).inspect(compute_sqsh_file_sha256(path))

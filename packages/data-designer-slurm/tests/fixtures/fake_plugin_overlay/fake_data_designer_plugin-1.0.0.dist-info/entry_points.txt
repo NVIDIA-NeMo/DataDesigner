@@ -1,0 +1,2 @@
+[data_designer.plugins]
+fake-slurm-column = fake_data_designer_plugin.plugin:plugin

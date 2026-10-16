@@ -1,0 +1,46 @@
+{
+  "analysis": {
+    "target_runtime": "4h",
+    "target_total_records": 1000000
+  },
+  "base_run": {
+    "inline": null,
+    "source": "run.yaml"
+  },
+  "concurrency_values": [
+    32,
+    64,
+    128
+  ],
+  "deployment_cases": [
+    {
+      "deployments": {
+        "generator": {
+          "nodes": 2,
+          "nodes_per_replica": 1
+        }
+      },
+      "name": "two-independent-replicas"
+    },
+    {
+      "deployments": {
+        "generator": {
+          "nodes": 2,
+          "nodes_per_replica": 2
+        }
+      },
+      "name": "one-two-node-replica"
+    }
+  ],
+  "model_aliases": [
+    "generator"
+  ],
+  "name": "generator-scaling",
+  "record_policy": {
+    "base_records": 1000,
+    "max_records": 5000,
+    "records_per_concurrency": 1.0,
+    "type": "adaptive"
+  },
+  "schema_version": 1
+}
