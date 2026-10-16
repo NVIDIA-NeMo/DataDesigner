@@ -284,7 +284,12 @@ def inspect_distributions(path: Path | None) -> tuple[InstalledDistribution, ...
         name = canonicalize_name(distribution.metadata["Name"] or "")
         version = distribution.version
         if not name or not version or name in names:
-            raise ClientWorkerError(ClientErrorCode.DEPENDENCY_CONFLICT, "installed distribution inventory is invalid")
+            raise ClientWorkerError(
+                ClientErrorCode.DEPENDENCY_CONFLICT,
+                f"installed distribution inventory is invalid: name={name!r}, version={version!r}, "
+                f"duplicate={name in names}, metadata_path={getattr(distribution, '_path', None)!s}, "
+                f"search_paths={search_paths!r}",
+            )
         direct_url = distribution.read_text("direct_url.json")
         if direct_url is not None and _is_mutable_direct_url(direct_url):
             raise ClientWorkerError(

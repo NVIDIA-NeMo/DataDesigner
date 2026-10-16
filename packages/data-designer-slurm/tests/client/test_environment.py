@@ -223,6 +223,22 @@ def test_inspect_distributions_refreshes_overlay_with_unchanged_directory_mtime(
     assert inspect_distributions(tmp_path) == (InstalledDistribution(name="cache-probe", version="1.0.0"),)
 
 
+@pytest.mark.parametrize(("name", "version", "count"), (("", "1.0.0", 1), ("example", "", 1), ("example", "1.0.0", 2)))
+def test_inspect_distributions_reports_invalid_metadata(tmp_path: Path, name: str, version: str, count: int) -> None:
+    for index in range(count):
+        metadata = tmp_path / f"example-{index}.dist-info"
+        metadata.mkdir()
+        (metadata / "METADATA").write_text(f"Metadata-Version: 2.1\nName: {name}\nVersion: {version}\n")
+
+    with pytest.raises(ClientWorkerError) as error:
+        inspect_distributions(tmp_path)
+
+    assert error.value.code is ClientErrorCode.DEPENDENCY_CONFLICT
+    message = error.value.redacted_message
+    assert f"name={name!r}, version={version!r}, duplicate={count == 2}" in message
+    assert f"metadata_path={tmp_path}/example-" in message
+
+
 def test_inspect_distributions_rejects_unhashed_direct_url(monkeypatch: pytest.MonkeyPatch) -> None:
     distribution = Mock(
         metadata={"Name": "example"},
