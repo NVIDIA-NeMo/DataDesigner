@@ -6,9 +6,10 @@ from __future__ import annotations
 import functools
 import logging
 import re
+from collections.abc import Iterator
 from copy import deepcopy
 from decimal import ROUND_HALF_UP, Decimal
-from typing import Any, overload
+from typing import Any, Literal, overload
 
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.engine.processing.gsonschema.exceptions import JSONSchemaValidationError
@@ -25,32 +26,37 @@ logger = logging.getLogger(__name__)
 
 
 def prune_additional_properties(
-    _, allow_additional_properties: bool, instance: DataObjectT, schema: JSONSchemaT
-) -> None:
-    """A JSONSchemaValidtor extension function to prune additional properties.
+    validator: Any, allow_additional_properties: bool | JSONSchemaT, instance: DataObjectT, schema: JSONSchemaT
+) -> Iterator[Any]:
+    """Prune forbidden properties and validate explicitly allowed dictionary values.
 
     Operates on an individual schema in-place.
 
     Args:
-        allow_additional_properties (bool): The value of the `additionalProperties`
+        validator: The active JSON Schema validator.
+        allow_additional_properties: The value of the `additionalProperties`
             field for this schema.
         instance (DataObjectT): The data object being validated.
         schema (JSONSchemaT): The schema for this object.
 
-    Returns:
-        Nothing (in place)
+    Yields:
+        Validation errors for schema-valued additional properties.
     """
-    # Only act if the instance is a dict.
-    if not isinstance(instance, dict) or allow_additional_properties:
+    if allow_additional_properties is not False:
+        yield from lazy.jsonschema.Draft202012Validator.VALIDATORS["additionalProperties"](
+            validator, allow_additional_properties, instance, schema
+        )
+        return
+    if not isinstance(instance, dict):
         return
 
-    # Allowed keys are those defined in the schema's "properties".
+    # Properties matched by a pattern are also declared fields.
     allowed = schema.get("properties", {}).keys()
 
     # Iterate over a copy of keys so we can modify the dict in place.
     n_removed = 0
     for key in list(instance.keys()):
-        if key not in allowed:
+        if key not in allowed and not any(re.search(pattern, key) for pattern in schema.get("patternProperties", {})):
             instance.pop(key)
             n_removed += 1
             logger.info(f"Unspecified property removed from data object: {key}.")
@@ -59,25 +65,67 @@ def prune_additional_properties(
         logger.info(f"{n_removed} unspecified properties removed from data object.")
 
 
+def _validate_alternatives_with_pruning(
+    validator: Any,
+    alternatives: list[JSONSchemaT],
+    instance: DataObjectT,
+    keyword: Literal["anyOf", "oneOf"],
+) -> Iterator[Any]:
+    """Isolate pruning to each candidate and commit only an accepted result."""
+    errors = []
+    matches = []
+    for index, subschema in enumerate(alternatives):
+        candidate = deepcopy(instance)
+        candidate_errors = list(validator.descend(candidate, subschema, schema_path=index))
+        if candidate_errors:
+            errors.extend(candidate_errors)
+        else:
+            matches.append(candidate)
+            if keyword == "anyOf":
+                break
+
+    if not matches:
+        yield lazy.jsonschema.ValidationError(
+            f"{instance!r} is not valid under any of the given schemas", context=errors
+        )
+        return
+    if len(matches) > 1:
+        yield lazy.jsonschema.ValidationError(f"{instance!r} is valid under more than one of the given schemas")
+        return
+
+    if isinstance(instance, dict):
+        instance.clear()
+        instance.update(matches[0])
+    elif isinstance(instance, list):
+        instance[:] = matches[0]
+
+
+def _validate_any_of_with_pruning(
+    validator: Any, any_of: list[JSONSchemaT], instance: DataObjectT, schema: JSONSchemaT
+) -> Iterator[Any]:
+    yield from _validate_alternatives_with_pruning(validator, any_of, instance, "anyOf")
+
+
 def _validate_one_of_with_discriminator(
     validator: Any, one_of: list[JSONSchemaT], instance: DataObjectT, schema: JSONSchemaT
-) -> Any:
+) -> Iterator[Any]:
     """Validate a oneOf using the discriminator to select the correct variant.
 
     Standard oneOf tries all variants, which combined with in-place pruning
     can corrupt the instance (pruning from a failed variant removes properties
     needed by the correct variant). When a discriminator is present, this
-    validator selects the matching variant directly.
+    validator selects the matching variant directly. Without a discriminator,
+    each variant is validated on an independent copy before committing a match.
     """
     discriminator = schema.get("discriminator")
     if not discriminator or not isinstance(discriminator, dict) or not isinstance(instance, dict):
-        yield from lazy.jsonschema.Draft202012Validator.VALIDATORS["oneOf"](validator, one_of, instance, schema)
+        yield from _validate_alternatives_with_pruning(validator, one_of, instance, "oneOf")
         return
 
     prop_name = discriminator.get("propertyName")
     mapping = discriminator.get("mapping", {})
     if not prop_name or prop_name not in instance or not mapping:
-        yield from lazy.jsonschema.Draft202012Validator.VALIDATORS["oneOf"](validator, one_of, instance, schema)
+        yield from _validate_alternatives_with_pruning(validator, one_of, instance, "oneOf")
         return
 
     matched_ref = mapping.get(str(instance[prop_name]))
@@ -100,9 +148,9 @@ def extend_jsonschema_validator_with_pruning(validator):
     extra, unspecified fiends when `additionalProperties: False` is
     set in the validating schema.
 
-    When a oneOf has a discriminator, the discriminator is used to select
-    the correct variant directly, preventing in-place pruning from
-    corrupting the instance during failed variant checks.
+    Alternatives are checked on independent copies so failed candidates cannot
+    prune fields from later candidates. Discriminated oneOf schemas select the
+    correct variant directly.
 
     Args:
         validator (Type[jsonschema.Validator): A validator class
@@ -116,6 +164,7 @@ def extend_jsonschema_validator_with_pruning(validator):
         validator,
         {
             "additionalProperties": prune_additional_properties,
+            "anyOf": _validate_any_of_with_pruning,
             "oneOf": _validate_one_of_with_discriminator,
         },
     )
@@ -220,9 +269,9 @@ def validate(
             Default: `False`.
         no_extra_properties (bool): If set to `True`, then
             `additionalProperties: False` is set on all the schema
-            and all of its sub-schemas. This operation overrides any
-            existing settings of `additionalProperties` within the
-            schema. Default: `False`.
+            and its record sub-schemas where no explicit setting exists.
+            Declared dictionary schemas and explicit `additionalProperties`
+            settings are preserved. Default: `False`.
 
     Raises:
         JSONSchemaValidationError: This exception raised in the

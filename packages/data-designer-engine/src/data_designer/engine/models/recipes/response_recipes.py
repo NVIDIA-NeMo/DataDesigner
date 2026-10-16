@@ -82,8 +82,9 @@ class StructuredResponseRecipe(ResponseRecipe[dict]):
             pruning (bool): If `True`, then any extra fields in the returned
                 JSON object will be removed. Otherwise, they are retained,
                 which could raise validation errors. Default=True
-            no_extra_properties (bool): If `True`, then validation will fail
-                if extra properties are encountered in the returned JSON response.
+            no_extra_properties (bool): If `True`, forbid undeclared record fields,
+                pruning them when `pruning=True`. Explicit `additionalProperties`
+                settings, including dictionary value schemas, are preserved.
                 Default=True.
         """
         super().__init__(**kwargs)

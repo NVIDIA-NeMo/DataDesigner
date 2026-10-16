@@ -1,9 +1,48 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from __future__ import annotations
+
 import pytest
 
 from data_designer.engine.processing.gsonschema.validators import JSONSchemaValidationError, validate
+
+
+@pytest.mark.parametrize("no_extra_properties", [False, True])
+@pytest.mark.parametrize("additional_properties", [{}, {"type": "integer"}, True])
+def test_validate_dictionary_entries(additional_properties: dict | bool, no_extra_properties: bool) -> None:
+    schema = {"type": "object", "additionalProperties": additional_properties}
+    data = {"alpha": 1, "beta": 2}
+    assert validate(data, schema, pruning=True, no_extra_properties=no_extra_properties) == data
+
+
+@pytest.mark.parametrize("no_extra_properties", [False, True])
+@pytest.mark.parametrize("pruning", [False, True])
+def test_reject_invalid_dictionary_value(pruning: bool, no_extra_properties: bool) -> None:
+    schema = {"type": "object", "additionalProperties": {"type": "integer"}}
+    with pytest.raises(JSONSchemaValidationError):
+        validate({"alpha": "invalid"}, schema, pruning=pruning, no_extra_properties=no_extra_properties)
+
+
+def test_prune_record_fields_inside_dictionary() -> None:
+    schema = {
+        "type": "object",
+        "additionalProperties": {
+            "type": "object",
+            "properties": {"value": {"type": "integer"}},
+        },
+    }
+    data = {"alpha": {"value": 1, "extra": 2}}
+    assert validate(data, schema, pruning=True, no_extra_properties=True) == {"alpha": {"value": 1}}
+    assert data == {"alpha": {"value": 1, "extra": 2}}
+
+
+def test_preserve_pattern_properties_during_pruning() -> None:
+    schema = {
+        "type": "object",
+        "patternProperties": {"^item_": {"type": "integer"}},
+    }
+    assert validate({"item_alpha": 1, "extra": 2}, schema, pruning=True, no_extra_properties=True) == {"item_alpha": 1}
 
 
 @pytest.fixture
@@ -271,6 +310,47 @@ def test_non_discriminated_one_of_fallback() -> None:
     assert validate({"value": 42}, schema, pruning=True)["value"] == 42
     with pytest.raises(JSONSchemaValidationError):
         validate({"value": []}, schema, pruning=True)
+
+
+@pytest.mark.parametrize("keyword", ["anyOf", "oneOf"])
+@pytest.mark.parametrize("use_array", [False, True], ids=["object", "array"])
+def test_validate_alternatives_without_mutating_failed_candidates(keyword: str, use_array: bool) -> None:
+    alternatives = [
+        {"type": "object", "properties": {name: {"type": "integer"}}, "required": [name]} for name in ("a", "b")
+    ]
+    if use_array:
+        alternatives = [{"type": "array", "items": alternative} for alternative in alternatives]
+    schema = {keyword: alternatives}
+    data = [{"b": 2, "extra": 3}] if use_array else {"b": 2, "extra": 3}
+    expected = [{"b": 2}] if use_array else {"b": 2}
+    assert validate(data, schema, pruning=True, no_extra_properties=True) == expected
+    assert data == ([{"b": 2, "extra": 3}] if use_array else {"b": 2, "extra": 3})
+
+
+@pytest.mark.parametrize("keyword", ["anyOf", "oneOf"])
+def test_reject_dictionary_value_matching_no_alternative(keyword: str) -> None:
+    schema = {
+        "type": "object",
+        "additionalProperties": {
+            keyword: [
+                {"type": "object", "properties": {name: {"type": "integer"}}, "required": [name]} for name in ("a", "b")
+            ]
+        },
+    }
+    data = {"x": {"a": "invalid", "b": "invalid"}}
+    with pytest.raises(JSONSchemaValidationError):
+        validate(data, schema, pruning=True, no_extra_properties=True)
+    assert data == {"x": {"a": "invalid", "b": "invalid"}}
+
+
+def test_reject_ambiguous_one_of_after_independent_pruning() -> None:
+    schema = {
+        "oneOf": [
+            {"type": "object", "properties": {name: {"type": "integer"}}, "required": [name]} for name in ("a", "b")
+        ]
+    }
+    with pytest.raises(JSONSchemaValidationError):
+        validate({"a": 1, "b": 2}, schema, pruning=True, no_extra_properties=True)
 
 
 def test_normalize_decimal_anyof_fields() -> None:
