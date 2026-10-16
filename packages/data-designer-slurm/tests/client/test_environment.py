@@ -7,6 +7,7 @@ import hashlib
 import importlib
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -207,6 +208,37 @@ def test_inspect_distributions_uses_active_environment_paths(
     assert inspect_distributions(None) == ()
     expected_paths = [interpreter_path, pth_path]
     assert calls == [{"path": expected_paths}]
+
+
+@pytest.mark.parametrize("user_site_enabled", (False, True))
+@pytest.mark.parametrize("path_kind", ("repeated", "symlink", "separate"))
+def test_inspect_distributions_deduplicates_install_paths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, user_site_enabled: bool, path_kind: str
+) -> None:
+    site_path = tmp_path / "site-packages"
+    metadata = site_path / "example-1.0.0.dist-info"
+    metadata.mkdir(parents=True)
+    (metadata / "METADATA").write_text("Metadata-Version: 2.1\nName: example\nVersion: 1.0.0\n")
+    alias_path = tmp_path / "alias"
+    if path_kind == "symlink":
+        alias_path.symlink_to(site_path, target_is_directory=True)
+    elif path_kind == "repeated":
+        alias_path = site_path
+    else:
+        shutil.copytree(site_path, alias_path)
+    paths = [str(site_path), str(alias_path)]
+    monkeypatch.setattr(sys, "path", paths)
+    monkeypatch.setattr(environment_module.site, "ENABLE_USER_SITE", user_site_enabled)
+    monkeypatch.setattr(environment_module.site, "getsitepackages", lambda: paths)
+    monkeypatch.setattr(environment_module.site, "getusersitepackages", lambda: str(tmp_path / "user-site"))
+    monkeypatch.setattr(environment_module.subprocess, "check_output", lambda *args, **kwargs: json.dumps(paths))
+    monkeypatch.delenv("PYTHONPATH", raising=False)
+
+    if path_kind == "separate":
+        with pytest.raises(ClientWorkerError, match="installed distribution inventory is invalid"):
+            inspect_distributions(None)
+    else:
+        assert inspect_distributions(None) == (InstalledDistribution(name="example", version="1.0.0"),)
 
 
 def test_inspect_distributions_refreshes_overlay_with_unchanged_directory_mtime(tmp_path: Path) -> None:
