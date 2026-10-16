@@ -21,12 +21,18 @@ from packaging.tags import interpreter_name, interpreter_version
 from packaging.utils import canonicalize_name, parse_wheel_filename
 
 from data_designer.slurm.client.errors import ClientWorkerError
-from data_designer.slurm.client.filesystem import compute_file_sha256, ensure_private_directory, read_regular_bytes
+from data_designer.slurm.client.filesystem import (
+    compute_file_sha256,
+    ensure_private_directory,
+    read_regular_bytes,
+    replace_private_text,
+)
 from data_designer.slurm.client.records import ClientErrorCode, ClientInstallerOutcome
 from data_designer.slurm.contracts import ArtifactReference, InstalledDistribution, canonical_json
 
 DistributionInventory = Callable[[Path | None], tuple[InstalledDistribution, ...]]
 CommandRunner = Callable[[tuple[str, ...]], None]
+_OVERLAY_INVENTORY_FILENAME = ".data-designer-overlay-files.json"
 
 
 @dataclass(frozen=True)
@@ -239,13 +245,18 @@ class ClientEnvironmentBuilder:
         target: Path,
     ) -> ClientInstallerOutcome:
         ensure_private_directory(target)
+        if not wheels:
+            if any(target.iterdir()):
+                raise ClientWorkerError(
+                    ClientErrorCode.DEPENDENCY_CONFLICT, "attempt overlay contains unexpected files"
+                )
+            return ClientInstallerOutcome.NOT_REQUIRED
         existing = self._inventory(target)
         if existing == expected and any(target.iterdir()):
+            _verify_overlay_files(target)
             return ClientInstallerOutcome.REUSED
         if any(target.iterdir()):
             raise ClientWorkerError(ClientErrorCode.DEPENDENCY_CONFLICT, "attempt overlay contains unexpected files")
-        if not wheels:
-            return ClientInstallerOutcome.NOT_REQUIRED
         try:
             self._command_runner(
                 (
@@ -269,7 +280,54 @@ class ClientEnvironmentBuilder:
             raise ClientWorkerError(
                 ClientErrorCode.DEPENDENCY_INSTALL_FAILED, "installed client dependencies differ from the lock"
             )
+        replace_private_text(
+            target / _OVERLAY_INVENTORY_FILENAME,
+            json.dumps(_overlay_file_hashes(target), sort_keys=True, separators=(",", ":")),
+        )
         return ClientInstallerOutcome.INSTALLED
+
+
+def _overlay_file_hashes(target: Path, *, recorded: dict[str, str] | None = None) -> dict[str, str]:
+    """Fingerprint installed files and discard bytecode generated after installation."""
+    hashes: dict[str, str] = {}
+    try:
+        for path in target.rglob("*"):
+            relative = path.relative_to(target)
+            if path.name == _OVERLAY_INVENTORY_FILENAME and path.parent == target:
+                continue
+            mode = path.lstat().st_mode
+            if stat.S_ISDIR(mode):
+                continue
+            if not stat.S_ISREG(mode):
+                raise ClientWorkerError(ClientErrorCode.DEPENDENCY_CONFLICT, "attempt overlay contains unsafe files")
+            if (
+                recorded is not None
+                and "__pycache__" in relative.parts
+                and path.suffix == ".pyc"
+                and relative.as_posix() not in recorded
+            ):
+                path.unlink()
+                continue
+            hashes[relative.as_posix()] = compute_file_sha256(path, missing_code=ClientErrorCode.DEPENDENCY_CONFLICT)
+    except OSError as error:
+        raise ClientWorkerError(ClientErrorCode.DEPENDENCY_CONFLICT, "attempt overlay cannot be verified") from error
+    return hashes
+
+
+def _verify_overlay_files(target: Path) -> None:
+    marker = target / _OVERLAY_INVENTORY_FILENAME
+    try:
+        recorded = json.loads(read_regular_bytes(marker, missing_code=ClientErrorCode.DEPENDENCY_CONFLICT))
+        if not isinstance(recorded, dict) or not all(
+            isinstance(path, str) and isinstance(digest, str) for path, digest in recorded.items()
+        ):
+            raise ValueError("invalid overlay inventory")
+    except (ClientWorkerError, ValueError, UnicodeError) as error:
+        raise ClientWorkerError(
+            ClientErrorCode.DEPENDENCY_CONFLICT, "attempt overlay has no valid file inventory"
+        ) from error
+    if _overlay_file_hashes(target, recorded=recorded) != recorded:
+        raise ClientWorkerError(ClientErrorCode.DEPENDENCY_CONFLICT, "attempt overlay files differ from the lock")
 
 
 def inspect_distributions(path: Path | None) -> tuple[InstalledDistribution, ...]:

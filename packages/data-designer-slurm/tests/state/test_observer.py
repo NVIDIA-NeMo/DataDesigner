@@ -828,6 +828,54 @@ def test_refresh_rejects_a_concurrent_attempt_change_instead_of_guessing_status(
         SlurmStateReconciler(case.workspace, case.plan.run_id, MutatingClient()).refresh(observed_at=observed_at)
 
 
+def test_refresh_accepts_readiness_published_during_scheduler_query(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    case = _initialized_case(tmp_path, authored_run_single, single_node_plan)
+    scheduler = cast(SchedulerIdentity, case.attempt.scheduler)
+    observed_at = case.created_at + timedelta(minutes=4)
+    ready_at = observed_at + timedelta(seconds=1)
+    deployment = case.plan.deployments[0]
+
+    class MutatingClient:
+        def query_queue(self, selectors: Sequence[SchedulerJobIdentity]) -> tuple[SlurmQueueEntry, ...]:
+            del selectors
+            return (SlurmQueueEntry(job_identity=scheduler, state=SchedulerState.RUNNING),)
+
+        def query_accounting(self, selectors: Sequence[SchedulerJobIdentity]) -> tuple[SlurmAccountingEntry, ...]:
+            del selectors
+            case.writer.write_readiness(
+                AttemptReadiness(
+                    schema_version=1,
+                    run_id=case.plan.run_id,
+                    shard_id=case.shard.shard_id,
+                    attempt_id=case.attempt.attempt_id,
+                    revision=1,
+                    updated_at=ready_at,
+                    started_at=case.attempt.created_at,
+                    state=ReadinessState.PENDING,
+                    deployments=(
+                        DeploymentReadiness(
+                            deployment_id=deployment.deployment_id,
+                            model_alias=deployment.authored.model_alias,
+                            state=ReadinessState.PENDING,
+                            expected_backends=deployment.topology.replica_count,
+                            ready_backends=0,
+                            endpoint_publication=EndpointPublicationState.PENDING,
+                        ),
+                    ),
+                )
+            )
+            return ()
+
+    status = SlurmStateReconciler(case.workspace, case.plan.run_id, MutatingClient()).refresh(observed_at=observed_at)
+
+    assert status.observed_at == ready_at
+    assert status.shards[0].attempts[0].effective_state is EffectiveAttemptState.RUNNING
+
+
 def test_observe_does_not_create_a_missing_shard_lock_or_persist_scheduler_evidence(
     tmp_path: Path,
     authored_run_single: DataDesignerSlurmConfig,

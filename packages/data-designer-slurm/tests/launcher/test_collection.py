@@ -181,9 +181,14 @@ def test_retry_renderer_waits_for_persisted_attempt_before_starting_runtime(
     assert subprocess.run(("bash", "-n"), input=script, text=True, check=False).returncode == 0
 
 
-def test_retry_renderer_uses_profile_slurm_bin_path(multi_node_plan: ResolvedSlurmRunPlan) -> None:
+@pytest.mark.parametrize("gpu_request_mode", ("gres", "visible"))
+def test_retry_renderer_uses_profile_slurm_bin_path(
+    multi_node_plan: ResolvedSlurmRunPlan, gpu_request_mode: str
+) -> None:
     scheduler = multi_node_plan.selected_profile.profile.scheduler.model_copy(update={"bin_path": "/opt/slurm/bin"})
-    profile = multi_node_plan.selected_profile.profile.model_copy(update={"scheduler": scheduler})
+    profile = multi_node_plan.selected_profile.profile.model_copy(
+        update={"scheduler": scheduler, "gpu_request_mode": gpu_request_mode}
+    )
     plan = multi_node_plan.model_copy(update={"selected_profile": injected_profile(profile)})
     retry = RetryPlan(
         schema_version=1,
@@ -208,6 +213,7 @@ def test_retry_renderer_uses_profile_slurm_bin_path(multi_node_plan: ResolvedSlu
     script = render_generation_retry_script(plan, retry)
 
     assert 'export PATH="/opt/slurm/bin:/usr/local/sbin:' in script
+    assert "#SBATCH --exclusive" in script
     assert subprocess.run(("bash", "-n"), input=script, text=True, check=False).returncode == 0
 
 

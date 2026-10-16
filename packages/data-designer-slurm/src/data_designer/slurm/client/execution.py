@@ -121,6 +121,10 @@ class _ProgressWriter:
         self._prepared = prepared
         self._clock = clock
         self._revision = revision
+        self._seen_batches: set[Path] = set()
+        self._pending_batches: set[Path] = set()
+        self._completed_records = 0
+        self._batches_initialized = False
 
     def required(
         self,
@@ -157,10 +161,30 @@ class _ProgressWriter:
             logger.warning("Could not persist client %s progress", phase.value)
 
     def on_batch_complete(self, path: Path) -> None:
-        generated_records = sum(lazy.pq.read_metadata(item).num_rows for item in path.parent.glob("*.parquet"))
+        try:
+            if not self._batches_initialized:
+                batches = tuple(path.parent.glob("*.parquet"))
+                completed = sum(lazy.pq.read_metadata(item).num_rows for item in batches)
+                self._seen_batches = set(batches)
+                self._completed_records = completed
+                self._batches_initialized = True
+        except Exception:
+            logger.warning("Could not read completed batch metadata for progress")
+            return
+        if path not in self._seen_batches:
+            self._pending_batches.add(path)
+        for pending_path in tuple(sorted(self._pending_batches)):
+            try:
+                count = lazy.pq.read_metadata(pending_path).num_rows
+            except Exception:
+                logger.warning("Could not read completed batch metadata for progress")
+                continue
+            self._completed_records += count
+            self._seen_batches.add(pending_path)
+            self._pending_batches.remove(pending_path)
         self.best_effort(
             ClientProgressPhase.GENERATING,
-            completed_records=min(generated_records, self._context.shard.requested_records),
+            completed_records=min(self._completed_records, self._context.shard.requested_records),
         )
 
 
