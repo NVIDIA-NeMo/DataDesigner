@@ -536,6 +536,20 @@ def test_initialize_processors(stub_dataset_builder):
     assert processors[0].config.column_names == ["column_to_drop"]
 
 
+def test_initialize_processors_skips_default_drop_for_glob_targeted_columns(stub_resource_provider, stub_model_configs):
+    config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+    for name in ("keep", "tmp_a", "tmp_b"):
+        config_builder.add_column(SamplerColumnConfig(name=name, sampler_type="uuid", params=UUIDSamplerParams()))
+    config_builder.add_processor(DropColumnsProcessorConfig(name="cleanup", column_names=["tmp_*"]))
+
+    dataset_builder = DatasetBuilder(
+        data_designer_config=config_builder.build(),
+        resource_provider=stub_resource_provider,
+    )
+
+    assert [processor.config.name for processor in dataset_builder.processors] == ["cleanup"]
+
+
 @pytest.mark.parametrize(
     "processor_fn,batch_size,expected_rows,expected_files",
     [

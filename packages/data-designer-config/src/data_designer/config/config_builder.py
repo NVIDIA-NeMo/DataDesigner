@@ -400,42 +400,41 @@ class DataDesignerConfigBuilder:
             processor_config = get_processor_config_from_kwargs(processor_type=processor_type, **kwargs)
 
         self._remove_processor_by_name(processor_config.name)
-
-        # Checks elsewhere fail if DropColumnsProcessor drops a column but it is not marked for drop
-        if processor_config.processor_type == ProcessorType.DROP_COLUMNS:
-            for col in self._resolve_drop_column_names(processor_config.column_names):
-                self._column_configs[col].drop = True
-
         self._processor_configs.append(processor_config)
         return self
 
     def _remove_processor_by_name(self, name: str) -> None:
-        """Remove an existing processor by name and undo its side-effects."""
+        """Remove an existing processor by name."""
         for existing in self._processor_configs:
-            if existing.name != name:
-                continue
-            if existing.processor_type == ProcessorType.DROP_COLUMNS:
-                other_dropped = {
-                    col
-                    for p in self._processor_configs
-                    if p.name != name and p.processor_type == ProcessorType.DROP_COLUMNS
-                    for col in self._resolve_drop_column_names(p.column_names)
-                }
-                for col in self._resolve_drop_column_names(existing.column_names):
-                    if col not in other_dropped:
-                        self._column_configs[col].drop = False
-            self._processor_configs.remove(existing)
-            return
+            if existing.name == name:
+                self._processor_configs.remove(existing)
+                return
 
-    def _resolve_drop_column_names(self, column_names: list[str]) -> list[str]:
-        """Resolve column names, expanding glob patterns against known column configs."""
-        resolved: dict[str, None] = {}
-        for name in column_names:
-            if "*" in name:
-                resolved.update(dict.fromkeys(fnmatch.filter(self._column_configs.keys(), name)))
-            elif name in self._column_configs:
-                resolved[name] = None
-        return list(resolved)
+    def _resolve_processor_dropped_column_names(self) -> set[str]:
+        """Names of known columns targeted by drop processors, expanding glob patterns."""
+        dropped: set[str] = set()
+        for processor_config in self._processor_configs:
+            if processor_config.processor_type != ProcessorType.DROP_COLUMNS:
+                continue
+            for name in processor_config.column_names:
+                if "*" in name:
+                    dropped.update(fnmatch.filter(self._column_configs.keys(), name))
+                elif name in self._column_configs:
+                    dropped.add(name)
+        return dropped
+
+    def _get_columns_with_processor_drops(self) -> list[ColumnConfigT]:
+        """Column configs with `drop=True` applied to columns targeted by a drop processor.
+
+        Resolved from the complete configuration, so the result does not depend on the order
+        in which columns and processors were added. Columns that need the flag are copied;
+        the builder's own column configs are left untouched.
+        """
+        dropped = self._resolve_processor_dropped_column_names()
+        return [
+            column.model_copy(update={"drop": True}) if column.name in dropped and not column.drop else column
+            for column in self._column_configs.values()
+        ]
 
     def add_profiler(self, profiler_config: ColumnProfilerConfigT) -> Self:
         """Add a profiler to the current Data Designer configuration.
@@ -480,7 +479,7 @@ class DataDesignerConfigBuilder:
             model_configs=self._model_configs,
             tool_configs=self._tool_configs,
             seed_config=self._seed_config,
-            columns=list(self._column_configs.values()),
+            columns=self._get_columns_with_processor_drops(),
             constraints=self._constraints or None,
             profilers=self._profilers or None,
             processors=self._processor_configs or None,

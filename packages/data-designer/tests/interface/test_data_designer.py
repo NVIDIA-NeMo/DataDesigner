@@ -1436,6 +1436,44 @@ def test_create_excludes_seed_columns_dropped_by_processor(
     assert "patient_summary" not in profiled_columns
 
 
+@pytest.mark.parametrize("processor_first", [False, True])
+def test_create_sampler_columns_dropped_by_processor_regardless_of_call_order(
+    stub_artifact_path, stub_model_providers, stub_managed_assets_path, processor_first
+):
+    """The drop flag must not depend on whether the processor or the columns were added first.
+
+    With ``preserve_dropped_columns=False`` an unflagged dropped column is gone from the
+    dataset but still handed to the profiler, which used to fail at the end of the run.
+    """
+    config_builder = DataDesignerConfigBuilder()
+    columns = [
+        SamplerColumnConfig(name="keep", sampler_type="uuid", params={}),
+        SamplerColumnConfig(name="tmp", sampler_type="category", params={"values": ["a", "b"]}),
+    ]
+    processor = DropColumnsProcessorConfig(name="drop_tmp", column_names=["tmp"])
+    if processor_first:
+        config_builder.add_processor(processor)
+    for column in columns:
+        config_builder.add_column(column)
+    if not processor_first:
+        config_builder.add_processor(processor)
+
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+    )
+    data_designer.set_run_config(RunConfig(preserve_dropped_columns=False))
+
+    results = data_designer.create(config_builder, num_records=3, dataset_name=f"sampler-drop-{processor_first}")
+    dataset = results.load_dataset()
+    analysis = results.load_analysis()
+
+    assert list(dataset.columns) == ["keep"]
+    assert [stat.column_name for stat in analysis.column_statistics] == ["keep"]
+
+
 def test_preview_excludes_seed_columns_dropped_by_processor(
     stub_artifact_path, stub_model_providers, stub_managed_assets_path
 ):

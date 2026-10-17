@@ -58,8 +58,8 @@ def _mark_processor_dropped_seed_columns(
 ) -> None:
     """Marks seed columns targeted by a drop processor with `drop=True`.
 
-    `DataDesignerConfigBuilder.add_processor` does this for configured columns, but seed
-    columns don't exist yet at that point — they're resolved here. Without this, a
+    `DataDesignerConfigBuilder.build` does this for configured columns, but seed columns
+    aren't known to the builder — they're resolved here. Without this, a
     processor-dropped seed column is still handed to the dataset profiler, which either
     reports a column the emitted dataset no longer has or fails outright when
     `preserve_dropped_columns=False`.
