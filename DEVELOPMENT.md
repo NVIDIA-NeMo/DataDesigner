@@ -29,6 +29,11 @@ make install-dev
 make install-dev-notebooks
 ```
 
+Notebook setup restores nbconvert's HTML stylesheets from a checksum-pinned PyPI wheel without installing its
+Python code. The nh3 source pin remains in use. Existing stylesheets are reused without another download.
+Use `NOTEBOOK_CSS=0` with the notebook setup targets for execution-only environments, which do not support
+nbconvert HTML export. After a direct `uv sync --group notebooks`, run `make install-notebook-css` if you need HTML export.
+
 ### Verify Your Setup
 
 ```bash
