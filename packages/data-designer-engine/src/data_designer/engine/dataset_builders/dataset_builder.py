@@ -328,6 +328,7 @@ class DatasetBuilder:
         if self._post_generation_processed_resume_result(resume, num_records) is not None:
             return self.artifact_storage.final_dataset_path
 
+        self.artifact_storage.create_dataset_directory(resume=resume)
         self._write_builder_config()
 
         # Set media storage mode based on parameters

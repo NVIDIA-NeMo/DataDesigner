@@ -4,8 +4,12 @@
 from __future__ import annotations
 
 import json
+import multiprocessing as mp
 from datetime import datetime
-from unittest.mock import patch
+from multiprocessing.queues import Queue
+from multiprocessing.synchronize import Barrier
+from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 from pyarrow import ArrowNotImplementedError
@@ -502,3 +506,92 @@ def test_clear_partial_results_is_noop_when_no_partial_folder(tmp_path):
     storage = ArtifactStorage(artifact_path=tmp_path)
     assert not storage.partial_results_path.exists()
     storage.clear_partial_results()  # must not raise
+
+
+@pytest.mark.parametrize("existing", [False, True], ids=["fresh", "occupied"])
+@patch("data_designer.engine.storage.artifact_storage.datetime")
+def test_create_dataset_directory_is_exclusive(mock_datetime: MagicMock, tmp_path: Path, existing: bool) -> None:
+    mock_datetime.now.return_value = datetime(2025, 1, 1, 12, 3, 4)
+    if existing:
+        (tmp_path / "dataset").mkdir()
+        (tmp_path / "dataset" / "sentinel").write_text("original")
+    storages = [ArtifactStorage(artifact_path=tmp_path) for _ in range(3)]
+
+    for storage in storages:
+        storage.create_dataset_directory(resume=ResumeMode.NEVER)
+        assert storage.base_dataset_path.is_dir()
+        assert storage.media_storage.base_path == storage.base_dataset_path
+        assert storage.media_storage.images_dir == storage.base_dataset_path / "images"
+
+    assert len({storage.base_dataset_path for storage in storages}) == 3
+    assert len(list(tmp_path.iterdir())) == 3 + existing
+    if existing:
+        assert (tmp_path / "dataset" / "sentinel").read_text() == "original"
+
+
+def test_create_dataset_directory_does_not_reuse_empty_directory(tmp_path: Path) -> None:
+    storage = ArtifactStorage(artifact_path=tmp_path)
+    (tmp_path / "dataset").mkdir()
+
+    storage.create_dataset_directory(resume=ResumeMode.NEVER)
+
+    assert storage.base_dataset_path != tmp_path / "dataset"
+    assert storage.base_dataset_path.is_dir()
+    assert list((tmp_path / "dataset").iterdir()) == []
+
+
+@pytest.mark.parametrize("resume", [ResumeMode.ALWAYS, ResumeMode.IF_POSSIBLE])
+def test_create_dataset_directory_reuses_resumed_directory(tmp_path: Path, resume: ResumeMode) -> None:
+    dataset_path = tmp_path / "dataset"
+    dataset_path.mkdir()
+    (dataset_path / "sentinel").write_text("original")
+    storage = ArtifactStorage(artifact_path=tmp_path, resume=resume)
+
+    storage.create_dataset_directory(resume=resume)
+
+    assert storage.base_dataset_path == dataset_path
+    assert list(tmp_path.iterdir()) == [dataset_path]
+    assert (dataset_path / "sentinel").read_text() == "original"
+
+
+def test_create_dataset_directory_reports_filesystem_error(tmp_path: Path) -> None:
+    storage = ArtifactStorage(artifact_path=tmp_path)
+    with patch.object(Path, "mkdir", side_effect=PermissionError("permission denied")):
+        with pytest.raises(ArtifactStorageError, match="Cannot create dataset directory"):
+            storage.create_dataset_directory(resume=ResumeMode.NEVER)
+
+
+def _claim_dataset_directory(artifact_path: Path, barrier: Barrier, output: Queue) -> None:
+    with patch("data_designer.engine.storage.artifact_storage.datetime") as clock:
+        clock.now.return_value = datetime(2025, 1, 1, 12, 3, 4)
+        storage = ArtifactStorage(artifact_path=artifact_path)
+        barrier.wait(timeout=30)
+        storage.create_dataset_directory(resume=ResumeMode.NEVER)
+        output.put(str(storage.base_dataset_path))
+
+
+@pytest.mark.parametrize("existing", [False, True], ids=["fresh", "occupied"])
+def test_create_dataset_directory_is_exclusive_across_processes(tmp_path: Path, existing: bool) -> None:
+    if existing:
+        (tmp_path / "dataset").mkdir()
+        (tmp_path / "dataset" / "sentinel").write_text("original")
+    context = mp.get_context("spawn")
+    barrier = context.Barrier(2)
+    output = context.Queue()
+    processes = [context.Process(target=_claim_dataset_directory, args=(tmp_path, barrier, output)) for _ in range(2)]
+    try:
+        for process in processes:
+            process.start()
+        for process in processes:
+            process.join(timeout=45)
+            assert process.exitcode == 0
+        paths = [Path(output.get(timeout=5)) for _ in processes]
+        assert len(set(paths)) == 2
+        assert all(path.is_dir() for path in paths)
+    finally:
+        for process in processes:
+            if process.is_alive():
+                process.terminate()
+            process.join(timeout=5)
+        output.close()
+        output.join_thread()
