@@ -187,7 +187,8 @@ class ArtifactStorage(BaseModel):
 
         if dataset_path != self.base_dataset_path:
             logger.info(f"📂 Dataset directory already claimed. This run will be saved to {str(dataset_path)!r}.")
-        self.resolved_dataset_name = dataset_path.name
+        # Pydantic 2.9 does not support assigning to cached properties.
+        self.__dict__["resolved_dataset_name"] = dataset_path.name
         self.refresh_media_storage_path()
 
     @staticmethod
