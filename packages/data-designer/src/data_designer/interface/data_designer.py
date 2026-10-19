@@ -235,11 +235,12 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
                 configuration (columns, constraints, seed data, etc.).
             num_records: Number of records to generate.
             dataset_name: Name of the dataset. This name will be used as the dataset
-                folder name in the artifact path directory. If a non-empty directory with the
+                folder name in the artifact path directory. If a directory with the
                 same name already exists, dataset will be saved to a new directory with
                 a datetime stamp. For example, if the dataset name is "awesome_dataset" and a directory
                 with the same name already exists, the dataset will be saved to a new directory
-                with the name "awesome_dataset_2025-01-01_12-00-00".
+                with the name "awesome_dataset_01-01-2025_120000". A random suffix may be added
+                to avoid collisions.
             resume: Controls how interrupted runs are handled.
 
                 - ``ResumeMode.NEVER`` (default): always start a fresh generation run.
