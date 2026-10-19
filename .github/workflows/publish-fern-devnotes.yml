@@ -105,7 +105,6 @@ jobs:
       - name: Install docs dependencies
         working-directory: website
         # Publishing only converts or restores notebooks; it does not execute them.
-        # Avoid building the Git-pinned nbconvert, which downloads CSS from Jupyter's CDN.
         run: uv sync --frozen --python 3.13 --all-packages --group docs
 
       - name: Restore published notebook snapshot
