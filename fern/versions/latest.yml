@@ -141,6 +141,10 @@ navigation:
         contents:
           - page: Chart Question Answering
             path: ./latest/pages/recipes/chart_qa/chart_qa.mdx
+      - section: Translation
+        contents:
+          - page: Indic Document Translation
+            path: ./latest/pages/recipes/translation/indic_document_translation.mdx
       - section: VLM Long-Document Understanding
         contents:
           - page: Seed Dataset Preparation
@@ -178,7 +182,7 @@ navigation:
       - page: Chart Understanding
         path: ./latest/pages/devnotes/posts/chart-understanding.mdx
       - page: Nemotron Indic Translation
-        path: ./latest/pages/devnotes/posts/nemotron-bharat-translation.mdx
+        path: ./latest/pages/devnotes/posts/nemotron-indic-translation.mdx
       - page: Pause, Inspect, Resume
         path: ./latest/pages/devnotes/posts/annotate-hard-pages-review-gates.mdx
       - page: Image Generation for Multimodal Data Pipelines
