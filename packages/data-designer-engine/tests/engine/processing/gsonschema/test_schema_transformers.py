@@ -1,6 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from __future__ import annotations
+
 from copy import deepcopy
 
 import pytest
@@ -219,7 +221,7 @@ def test_complex_schema_transformations(test_case, schema, expected_additional_p
                 "properties": {"name": {"type": "string"}},
                 "additionalProperties": True,
             },
-            "overwrite_existing",
+            "preserve_existing",
         ),
         (
             "schema_with_properties_but_no_type",
@@ -245,8 +247,8 @@ def test_special_schema_cases(test_case, schema, expected_behavior):
     elif expected_behavior == "not_schema_transformed":
         assert result["additionalProperties"] is False
         assert result["properties"]["data"]["not"]["additionalProperties"] is False
-    elif expected_behavior == "overwrite_existing":
-        assert result["additionalProperties"] is False  # Should be overwritten
+    elif expected_behavior == "preserve_existing":
+        assert result["additionalProperties"] is True
     elif expected_behavior == "add_additional_properties":
         assert result["additionalProperties"] is False
     elif expected_behavior == "no_changes":
@@ -366,3 +368,26 @@ def test_schema_is_not_modified(stub_simple_object_schema):
     original = deepcopy(stub_simple_object_schema)
     forbid_additional_properties(stub_simple_object_schema)
     assert stub_simple_object_schema == original  # Original should be unchanged
+
+
+@pytest.mark.parametrize("additional_properties", [True, False, {}, {"type": "integer"}])
+def test_preserve_explicit_additional_properties(additional_properties: bool | dict) -> None:
+    schema = {"type": "object", "additionalProperties": additional_properties}
+    assert forbid_additional_properties(schema) == schema
+
+
+def test_transform_records_in_dictionary_values() -> None:
+    schema = {
+        "type": "object",
+        "additionalProperties": {
+            "type": "object",
+            "properties": {"value": {"type": "integer"}},
+        },
+    }
+    original = deepcopy(schema)
+    result = forbid_additional_properties(schema)
+    assert result["additionalProperties"] == {
+        **schema["additionalProperties"],
+        "additionalProperties": False,
+    }
+    assert schema == original

@@ -1,9 +1,48 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from __future__ import annotations
+
 import pytest
 
 from data_designer.engine.processing.gsonschema.validators import JSONSchemaValidationError, validate
+
+
+@pytest.mark.parametrize("no_extra_properties", [False, True])
+@pytest.mark.parametrize("additional_properties", [{}, {"type": "integer"}, True])
+def test_validate_dictionary_entries(additional_properties: dict | bool, no_extra_properties: bool) -> None:
+    schema = {"type": "object", "additionalProperties": additional_properties}
+    data = {"alpha": 1, "beta": 2}
+    assert validate(data, schema, pruning=True, no_extra_properties=no_extra_properties) == data
+
+
+@pytest.mark.parametrize("no_extra_properties", [False, True])
+@pytest.mark.parametrize("pruning", [False, True])
+def test_reject_invalid_dictionary_value(pruning: bool, no_extra_properties: bool) -> None:
+    schema = {"type": "object", "additionalProperties": {"type": "integer"}}
+    with pytest.raises(JSONSchemaValidationError):
+        validate({"alpha": "invalid"}, schema, pruning=pruning, no_extra_properties=no_extra_properties)
+
+
+def test_prune_record_fields_inside_dictionary() -> None:
+    schema = {
+        "type": "object",
+        "additionalProperties": {
+            "type": "object",
+            "properties": {"value": {"type": "integer"}},
+        },
+    }
+    data = {"alpha": {"value": 1, "extra": 2}}
+    assert validate(data, schema, pruning=True, no_extra_properties=True) == {"alpha": {"value": 1}}
+    assert data == {"alpha": {"value": 1, "extra": 2}}
+
+
+def test_preserve_pattern_properties_during_pruning() -> None:
+    schema = {
+        "type": "object",
+        "patternProperties": {"^item_": {"type": "integer"}},
+    }
+    assert validate({"item_alpha": 1, "extra": 2}, schema, pruning=True, no_extra_properties=True) == {"item_alpha": 1}
 
 
 @pytest.fixture
@@ -271,6 +310,114 @@ def test_non_discriminated_one_of_fallback() -> None:
     assert validate({"value": 42}, schema, pruning=True)["value"] == 42
     with pytest.raises(JSONSchemaValidationError):
         validate({"value": []}, schema, pruning=True)
+
+
+@pytest.mark.parametrize("keyword", ["anyOf", "oneOf"])
+@pytest.mark.parametrize("use_array", [False, True], ids=["object", "array"])
+def test_validate_alternatives_without_mutating_failed_candidates(keyword: str, use_array: bool) -> None:
+    alternatives = [
+        {"type": "object", "properties": {name: {"type": "integer"}}, "required": [name]} for name in ("a", "b")
+    ]
+    if use_array:
+        alternatives = [{"type": "array", "items": alternative} for alternative in alternatives]
+    schema = {keyword: alternatives}
+    data = [{"b": 2, "extra": 3}] if use_array else {"b": 2, "extra": 3}
+    expected = [{"b": 2}] if use_array else {"b": 2}
+    assert validate(data, schema, pruning=True, no_extra_properties=True) == expected
+    assert data == ([{"b": 2, "extra": 3}] if use_array else {"b": 2, "extra": 3})
+
+
+@pytest.mark.parametrize("keyword", ["anyOf", "oneOf"])
+def test_reject_dictionary_value_matching_no_alternative(keyword: str) -> None:
+    schema = {
+        "type": "object",
+        "additionalProperties": {
+            keyword: [
+                {"type": "object", "properties": {name: {"type": "integer"}}, "required": [name]} for name in ("a", "b")
+            ]
+        },
+    }
+    data = {"x": {"a": "invalid", "b": "invalid"}}
+    with pytest.raises(JSONSchemaValidationError):
+        validate(data, schema, pruning=True, no_extra_properties=True)
+    assert data == {"x": {"a": "invalid", "b": "invalid"}}
+
+
+def test_reject_ambiguous_one_of_after_independent_pruning() -> None:
+    schema = {
+        "oneOf": [
+            {"type": "object", "properties": {name: {"type": "integer"}}, "required": [name]} for name in ("a", "b")
+        ]
+    }
+    with pytest.raises(JSONSchemaValidationError):
+        validate({"a": 1, "b": 2}, schema, pruning=True, no_extra_properties=True)
+
+
+@pytest.mark.parametrize("reverse", [False, True], ids=["original-order", "reversed-order"])
+def test_reject_multiple_unpruned_one_of_matches(reverse: bool) -> None:
+    alternatives = [
+        {"type": "object", "properties": {"text": {"type": "string"}}, "additionalProperties": False},
+        {"type": "object", "required": ["text"], "additionalProperties": True},
+        {"type": "object", "required": ["image"], "additionalProperties": True},
+    ]
+    if reverse:
+        alternatives.reverse()
+    with pytest.raises(JSONSchemaValidationError):
+        validate({"text": "t", "image": "i"}, {"oneOf": alternatives}, pruning=True)
+
+
+@pytest.mark.parametrize("keyword", ["anyOf", "oneOf"])
+def test_prune_alternative_when_no_unpruned_match_exists(keyword: str) -> None:
+    schema = {
+        keyword: [
+            {
+                "type": "object",
+                "properties": {name: {"type": "integer"}},
+                "required": [name],
+                "additionalProperties": False,
+            }
+            for name in ("a", "b")
+        ]
+    }
+    assert validate({"b": 2, "extra": 3}, schema, pruning=True) == {"b": 2}
+
+
+def test_any_of_uses_first_pruned_match_when_no_unpruned_match_exists() -> None:
+    schema = {
+        "anyOf": [
+            {"type": "object", "properties": {name: {"type": "integer"}}, "required": [name]} for name in ("a", "b")
+        ]
+    }
+    assert validate({"a": 1, "b": 2}, schema, pruning=True, no_extra_properties=True) == {"a": 1}
+
+
+@pytest.mark.parametrize("reverse", [False, True], ids=["original-order", "reversed-order"])
+@pytest.mark.parametrize("use_refs", [False, True], ids=["inline", "references"])
+@pytest.mark.parametrize("constraint", ["const", "enum"])
+@pytest.mark.parametrize("literal_value", [1, 2], ids=["ambiguous-result", "exclusive-result"])
+def test_validate_pruned_one_of_result_exclusivity(
+    reverse: bool, use_refs: bool, constraint: str, literal_value: int
+) -> None:
+    record_schema = {
+        "type": "object",
+        "properties": {"a": {"type": "integer"}},
+        "required": ["a"],
+        "additionalProperties": False,
+    }
+    literal = {"a": literal_value}
+    literal_schema = {constraint: literal if constraint == "const" else [literal]}
+    definitions = {"record": record_schema, "literal": literal_schema}
+    alternatives = [{"$ref": f"#/$defs/{name}"} for name in definitions] if use_refs else list(definitions.values())
+    if reverse:
+        alternatives.reverse()
+    schema = {"oneOf": alternatives, "$defs": definitions}
+    data = {"a": 1, "extra": 2}
+    if literal_value == 1:
+        with pytest.raises(JSONSchemaValidationError):
+            validate(data, schema, pruning=True)
+    else:
+        assert validate(data, schema, pruning=True) == {"a": 1}
+    assert data == {"a": 1, "extra": 2}
 
 
 def test_normalize_decimal_anyof_fields() -> None:
