@@ -391,6 +391,35 @@ def test_any_of_uses_first_pruned_match_when_no_unpruned_match_exists() -> None:
     assert validate({"a": 1, "b": 2}, schema, pruning=True, no_extra_properties=True) == {"a": 1}
 
 
+@pytest.mark.parametrize("reverse", [False, True], ids=["original-order", "reversed-order"])
+@pytest.mark.parametrize("use_refs", [False, True], ids=["inline", "references"])
+@pytest.mark.parametrize("constraint", ["const", "enum"])
+@pytest.mark.parametrize("literal_value", [1, 2], ids=["ambiguous-result", "exclusive-result"])
+def test_validate_pruned_one_of_result_exclusivity(
+    reverse: bool, use_refs: bool, constraint: str, literal_value: int
+) -> None:
+    record_schema = {
+        "type": "object",
+        "properties": {"a": {"type": "integer"}},
+        "required": ["a"],
+        "additionalProperties": False,
+    }
+    literal = {"a": literal_value}
+    literal_schema = {constraint: literal if constraint == "const" else [literal]}
+    definitions = {"record": record_schema, "literal": literal_schema}
+    alternatives = [{"$ref": f"#/$defs/{name}"} for name in definitions] if use_refs else list(definitions.values())
+    if reverse:
+        alternatives.reverse()
+    schema = {"oneOf": alternatives, "$defs": definitions}
+    data = {"a": 1, "extra": 2}
+    if literal_value == 1:
+        with pytest.raises(JSONSchemaValidationError):
+            validate(data, schema, pruning=True)
+    else:
+        assert validate(data, schema, pruning=True) == {"a": 1}
+    assert data == {"a": 1, "extra": 2}
+
+
 def test_normalize_decimal_anyof_fields() -> None:
     """Test that Decimal-like anyOf fields are normalized to floats with proper precision."""
     schema = {

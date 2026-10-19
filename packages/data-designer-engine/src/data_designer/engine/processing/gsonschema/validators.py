@@ -97,6 +97,16 @@ def _validate_alternatives_with_pruning(
         yield lazy.jsonschema.ValidationError(f"{instance!r} is valid under more than one of the given schemas")
         return
 
+    if keyword == "oneOf":
+        # An explicit dialect selects the stock validator while evolve retains reference scope.
+        strict_validator = validator.evolve(
+            schema={"$schema": _get_default_validator().META_SCHEMA["$id"], "oneOf": alternatives}
+        )
+        final_errors = list(strict_validator.iter_errors(matches[0]))
+        if final_errors:
+            yield from final_errors
+            return
+
     if isinstance(instance, dict):
         instance.clear()
         instance.update(matches[0])
@@ -155,7 +165,8 @@ def extend_jsonschema_validator_with_pruning(validator):
 
     Alternatives are checked on independent copies so failed candidates cannot
     prune fields from later candidates. Unchanged matches take precedence over
-    pruned matches. Discriminated oneOf schemas select the correct variant directly.
+    pruned matches. Selected oneOf results must match exactly one alternative
+    without further pruning. Discriminated oneOf schemas select the correct variant directly.
 
     Args:
         validator (Type[jsonschema.Validator): A validator class

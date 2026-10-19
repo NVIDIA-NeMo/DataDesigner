@@ -137,6 +137,32 @@ def test_structured_alternatives_prefer_unpruned_match(
     assert recipe.parse(response) == data
 
 
+@pytest.mark.parametrize("reverse", [False, True], ids=["original-order", "reversed-order"])
+@pytest.mark.parametrize("fenced", [False, True], ids=["bare", "fenced"])
+def test_structured_response_rejects_one_of_ambiguity_created_by_pruning(reverse: bool, fenced: bool) -> None:
+    alternatives = [
+        {
+            "type": "object",
+            "properties": {"a": {"type": "integer"}},
+            "required": ["a"],
+            "additionalProperties": False,
+        },
+        {"const": {"a": 1}},
+    ]
+    if reverse:
+        alternatives.reverse()
+    recipe = StructuredResponseRecipe(
+        {
+            "type": "object",
+            "properties": {"fields": {"type": "object", "additionalProperties": {"oneOf": alternatives}}},
+        }
+    )
+    raw = json.dumps({"fields": {"x": {"a": 1, "extra": 2}}})
+    response = f"```json\n{raw}\n```" if fenced else raw
+    with pytest.raises(ParserException, match="Response doesn't match requested <response_schema>"):
+        recipe.parse(response)
+
+
 @pytest.fixture(params=["pydantic", "structured"])
 def json_recipe(request: pytest.FixtureRequest) -> PydanticResponseRecipe | StructuredResponseRecipe:
     if request.param == "pydantic":
