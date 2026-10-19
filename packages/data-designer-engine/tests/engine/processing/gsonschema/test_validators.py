@@ -353,6 +353,44 @@ def test_reject_ambiguous_one_of_after_independent_pruning() -> None:
         validate({"a": 1, "b": 2}, schema, pruning=True, no_extra_properties=True)
 
 
+@pytest.mark.parametrize("reverse", [False, True], ids=["original-order", "reversed-order"])
+def test_reject_multiple_unpruned_one_of_matches(reverse: bool) -> None:
+    alternatives = [
+        {"type": "object", "properties": {"text": {"type": "string"}}, "additionalProperties": False},
+        {"type": "object", "required": ["text"], "additionalProperties": True},
+        {"type": "object", "required": ["image"], "additionalProperties": True},
+    ]
+    if reverse:
+        alternatives.reverse()
+    with pytest.raises(JSONSchemaValidationError):
+        validate({"text": "t", "image": "i"}, {"oneOf": alternatives}, pruning=True)
+
+
+@pytest.mark.parametrize("keyword", ["anyOf", "oneOf"])
+def test_prune_alternative_when_no_unpruned_match_exists(keyword: str) -> None:
+    schema = {
+        keyword: [
+            {
+                "type": "object",
+                "properties": {name: {"type": "integer"}},
+                "required": [name],
+                "additionalProperties": False,
+            }
+            for name in ("a", "b")
+        ]
+    }
+    assert validate({"b": 2, "extra": 3}, schema, pruning=True) == {"b": 2}
+
+
+def test_any_of_uses_first_pruned_match_when_no_unpruned_match_exists() -> None:
+    schema = {
+        "anyOf": [
+            {"type": "object", "properties": {name: {"type": "integer"}}, "required": [name]} for name in ("a", "b")
+        ]
+    }
+    assert validate({"a": 1, "b": 2}, schema, pruning=True, no_extra_properties=True) == {"a": 1}
+
+
 def test_normalize_decimal_anyof_fields() -> None:
     """Test that Decimal-like anyOf fields are normalized to floats with proper precision."""
     schema = {

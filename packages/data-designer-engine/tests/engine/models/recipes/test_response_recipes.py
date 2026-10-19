@@ -105,6 +105,38 @@ def test_structured_dictionary_object_alternatives(keyword: str, reverse: bool, 
     assert recipe.parse(response) == data
 
 
+@pytest.mark.parametrize("keyword", ["anyOf", "oneOf"])
+@pytest.mark.parametrize("reverse", [False, True], ids=["original-order", "reversed-order"])
+@pytest.mark.parametrize("fenced", [False, True], ids=["bare", "fenced"])
+@pytest.mark.parametrize("container", ["record", "dictionary", "array"])
+def test_structured_alternatives_prefer_unpruned_match(
+    keyword: str, reverse: bool, fenced: bool, container: str
+) -> None:
+    alternatives = [
+        {
+            "type": "object",
+            "properties": {name: {"type": "string"} for name in names},
+            "required": names,
+            "additionalProperties": False,
+        }
+        for names in (["text"], ["text", "image"])
+    ]
+    if reverse:
+        alternatives.reverse()
+    schema = {keyword: alternatives}
+    data = {"text": "t", "image": "i"}
+    if container == "dictionary":
+        schema = {"type": "object", "additionalProperties": schema}
+        data = {"x": data}
+    elif container == "array":
+        schema = {"type": "array", "items": schema}
+        data = [data]
+    recipe = StructuredResponseRecipe(schema)
+    raw = json.dumps(data)
+    response = f"```json\n{raw}\n```" if fenced else raw
+    assert recipe.parse(response) == data
+
+
 @pytest.fixture(params=["pydantic", "structured"])
 def json_recipe(request: pytest.FixtureRequest) -> PydanticResponseRecipe | StructuredResponseRecipe:
     if request.param == "pydantic":

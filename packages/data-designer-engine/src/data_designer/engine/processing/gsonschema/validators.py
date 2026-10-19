@@ -71,25 +71,29 @@ def _validate_alternatives_with_pruning(
     instance: DataObjectT,
     keyword: Literal["anyOf", "oneOf"],
 ) -> Iterator[Any]:
-    """Isolate pruning to each candidate and commit only an accepted result."""
+    """Prefer unchanged matches, falling back to isolated pruning candidates."""
     errors = []
-    matches = []
+    unpruned_matches: list[DataObjectT] = []
+    pruned_matches: list[DataObjectT] = []
     for index, subschema in enumerate(alternatives):
         candidate = deepcopy(instance)
         candidate_errors = list(validator.descend(candidate, subschema, schema_path=index))
         if candidate_errors:
             errors.extend(candidate_errors)
-        else:
-            matches.append(candidate)
+        elif candidate == instance:
+            unpruned_matches.append(candidate)
             if keyword == "anyOf":
-                break
+                return
+        else:
+            pruned_matches.append(candidate)
 
+    matches = unpruned_matches or pruned_matches
     if not matches:
         yield lazy.jsonschema.ValidationError(
             f"{instance!r} is not valid under any of the given schemas", context=errors
         )
         return
-    if len(matches) > 1:
+    if keyword == "oneOf" and len(matches) > 1:
         yield lazy.jsonschema.ValidationError(f"{instance!r} is valid under more than one of the given schemas")
         return
 
@@ -115,7 +119,8 @@ def _validate_one_of_with_discriminator(
     can corrupt the instance (pruning from a failed variant removes properties
     needed by the correct variant). When a discriminator is present, this
     validator selects the matching variant directly. Without a discriminator,
-    each variant is validated on an independent copy before committing a match.
+    each variant is validated on an independent copy. Matches that need no
+    pruning take precedence over matches that remove fields.
     """
     discriminator = schema.get("discriminator")
     if not discriminator or not isinstance(discriminator, dict) or not isinstance(instance, dict):
@@ -149,8 +154,8 @@ def extend_jsonschema_validator_with_pruning(validator):
     set in the validating schema.
 
     Alternatives are checked on independent copies so failed candidates cannot
-    prune fields from later candidates. Discriminated oneOf schemas select the
-    correct variant directly.
+    prune fields from later candidates. Unchanged matches take precedence over
+    pruned matches. Discriminated oneOf schemas select the correct variant directly.
 
     Args:
         validator (Type[jsonschema.Validator): A validator class
