@@ -354,7 +354,12 @@ metadata/version/dialect rejection and failed-write preservation. Ruff and inter
 After adding preflight validation, full suites passed with 2,637 engine tests and 1,924 combined config
 and interface tests (3 skips). The final preflight suite passed 51 cases, including the complementary-enum
 regression added after that full run. Tests verify diagnostics and failure before the model readiness
-gate. The full Fern CLI check was unavailable locally; the deterministic internal-link check passed.
+gate. Before opening the draft PR, the branch was rebased onto `main` after #1046 merged. The final
+full suites passed with 2,655 engine tests and 1,944 combined config/interface tests (3 skips). Four
+JSONL regression cases additionally verify exact float/large-integer preservation and null/date handling.
+Ruff and formatting pass on all changed Python files. The pinned Fern CLI check passed with no errors;
+its remote redirects check was skipped because Fern authentication was unavailable. The deterministic
+internal-link check passed across 90 pages.
 
 Remaining compatibility work before release:
 

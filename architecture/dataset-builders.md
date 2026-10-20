@@ -68,6 +68,25 @@ Manages per-row-group DataFrames and persistence:
 - Writes dataset metadata after the first durable row group and at completion
 - Tracks dropped rows and actual record counts for resume
 
+### Schema-directed JSON Storage
+
+Structured columns can mark a schema node with `x-data-designer-storage: json`; any column can opt
+into whole-column encoding with `storage_encoding="json"`. The config-layer storage compiler extracts
+a `JsonStoragePlan` without changing the declared logical schema. Response recipes receive a copy
+without DD storage annotations. Engine config validation reports proven native-storage failures as
+errors and data-dependent risks as warnings before model health checks or generation.
+
+`ArtifactStorage` JSON-encodes selected values in a storage copy and writes explicit UTF-8 leaves.
+Parquet metadata (`data_designer.json_storage`) and run metadata (`json_storage`) persist the versioned
+contract. Shared config IO helpers decode it for results, processors, and workflows; seed readers
+discover the contract before DuckDB discards file metadata and decode materialized batches. Separate
+schema-transform outputs declare their own whole-column contract through `json_storage_columns`.
+
+Resume compares the storage plan as well as the config fingerprint. Files with incompatible contracts
+cannot be combined. Main-dataset processors must preserve declared paths; automatic path remapping is
+unsupported. JSONL exports decode protected leaves after native date/null normalization so pandas does
+not round their numbers. External Parquet readers see JSON text, while DD reads restore logical values.
+
 ### Resume Checkpointing
 
 `DatasetBuilder.build(..., resume=ResumeMode.*)` can continue an interrupted run from the last durable checkpoint:
