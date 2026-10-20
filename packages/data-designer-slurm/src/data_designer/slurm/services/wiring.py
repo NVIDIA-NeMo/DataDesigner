@@ -492,6 +492,15 @@ class _SystemRunBackend:
 
     def _build_export_environment(self, config: DataDesignerSlurmConfig) -> dict[str, str]:
         environment = {"SLURM_EXPORT_ENV": "ALL"}
+        if "NEMO_DEPLOYMENT_TYPE" in self._source_environment:
+            deployment_type = self._source_environment["NEMO_DEPLOYMENT_TYPE"]
+            if type(deployment_type) is not str or "\0" in deployment_type:
+                raise SlurmServiceError(
+                    SlurmServiceErrorCode.INVALID_REQUEST,
+                    SlurmServiceOperation.EXECUTE_RUN,
+                    "NEMO_DEPLOYMENT_TYPE is invalid",
+                )
+            environment["NEMO_DEPLOYMENT_TYPE"] = deployment_type
         if "SLURM_CONF" in self._source_environment:
             slurm_conf = self._source_environment["SLURM_CONF"]
             if type(slurm_conf) is not str or "\0" in slurm_conf:

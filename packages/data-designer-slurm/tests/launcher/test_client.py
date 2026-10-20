@@ -55,7 +55,8 @@ def test_client_holds_submission_until_initial_state_is_recorded() -> None:
     ]
 
 
-def test_client_exports_slurm_deployment_type_without_values_in_argv() -> None:
+def test_client_preserves_explicit_deployment_type_without_values_in_argv(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("NEMO_DEPLOYMENT_TYPE", "nvidia-internal")
     runner = _EnvironmentRunner()
     client = SlurmCommandClient(runner)
 
@@ -71,19 +72,30 @@ def test_client_exports_slurm_deployment_type_without_values_in_argv() -> None:
     )
     assert runner.environment == {
         "HF_TOKEN": "secret-value",
-        "NEMO_DEPLOYMENT_TYPE": "slurm",
+        "NEMO_DEPLOYMENT_TYPE": "library",
         "SLURM_EXPORT_ENV": "ALL",
     }
     assert "secret-value" not in " ".join(runner.command)
 
 
-def test_client_sets_slurm_deployment_type_without_explicit_environment() -> None:
+def test_client_sets_slurm_deployment_type_when_unset(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("NEMO_DEPLOYMENT_TYPE", raising=False)
     runner = _EnvironmentRunner()
 
     SlurmCommandClient(runner).submit_script("#!/usr/bin/env bash\n")
 
     assert runner.command == ("sbatch", "--parsable", "--export=NEMO_DEPLOYMENT_TYPE")
     assert runner.environment == {"NEMO_DEPLOYMENT_TYPE": "slurm"}
+
+
+def test_client_preserves_deployment_type_from_submitter_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("NEMO_DEPLOYMENT_TYPE", "nvidia-internal")
+    runner = _EnvironmentRunner()
+
+    SlurmCommandClient(runner).submit_script("#!/usr/bin/env bash\n")
+
+    assert runner.command == ("sbatch", "--parsable", "--export=NEMO_DEPLOYMENT_TYPE")
+    assert runner.environment == {"NEMO_DEPLOYMENT_TYPE": "nvidia-internal"}
 
 
 def test_script_submission_classifies_scheduler_rejection_as_definite() -> None:

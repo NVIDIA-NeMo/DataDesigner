@@ -289,9 +289,9 @@ class SlurmCommandClient:
 
 
 def _format_export_environment(environment: Mapping[str, str] | None) -> tuple[str, Mapping[str, str]]:
-    """Tag every Slurm submission while exporting only explicitly allowed variables."""
+    """Default Slurm telemetry while preserving an explicitly selected deployment type."""
     exported = dict(environment or {})
-    exported["NEMO_DEPLOYMENT_TYPE"] = "slurm"
+    exported.setdefault("NEMO_DEPLOYMENT_TYPE", os.environ.get("NEMO_DEPLOYMENT_TYPE", "slurm"))
     names = tuple(sorted(exported))
     for name in names:
         if _ENVIRONMENT_NAME_PATTERN.fullmatch(name) is None:

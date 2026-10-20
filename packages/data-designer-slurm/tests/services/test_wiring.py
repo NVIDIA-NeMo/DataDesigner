@@ -683,6 +683,28 @@ def test_production_wiring_exports_referenced_secrets_to_the_allocation(
     assert launcher.exported_environments == [{"SLURM_EXPORT_ENV": "ALL", "SOURCE_TOKEN": "secret-value"}]
 
 
+def test_production_wiring_preserves_selected_deployment_type(
+    tmp_path: Path,
+    profile_catalog: SlurmProfileCatalog,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    _register_images(tmp_path, authored_run_single, single_node_plan)
+    launcher = _Launcher()
+    service = create_slurm_run_service(
+        profile=_profile(tmp_path, profile_catalog),
+        artifact_publisher=_Publisher(),  # type: ignore[arg-type]
+        launcher=launcher,  # type: ignore[arg-type]
+        run_id_factory=lambda: "run-wired",
+        package_version="0.9.2",
+        source_environment={"NEMO_DEPLOYMENT_TYPE": "nvidia-internal"},
+    )
+
+    service.execute(authored_run_single, source_root=tmp_path)
+
+    assert launcher.exported_environments == [{"SLURM_EXPORT_ENV": "ALL", "NEMO_DEPLOYMENT_TYPE": "nvidia-internal"}]
+
+
 def test_production_wiring_rejects_missing_secret_before_publishing(
     tmp_path: Path,
     profile_catalog: SlurmProfileCatalog,
