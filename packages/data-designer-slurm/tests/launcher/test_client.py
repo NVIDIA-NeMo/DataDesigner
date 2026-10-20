@@ -24,7 +24,7 @@ def test_client_submits_and_observes_one_managed_array(fake_slurm_runner: FakeSl
     assert submission.job_id == 4101
     assert tuple(record.state for record in queue) == (SchedulerState.PENDING, SchedulerState.RUNNING)
     assert fake_slurm_runner.calls == [
-        ("sbatch", "--parsable", "--export=NIL", "/workspace/run.sbatch"),
+        ("sbatch", "--parsable", "--export=NEMO_DEPLOYMENT_TYPE", "/workspace/run.sbatch"),
         ("squeue", "--noheader", "--array", "--format=%i|%T", "--jobs=4101"),
     ]
 
@@ -37,7 +37,7 @@ def test_client_submits_verified_script_text_through_standard_input() -> None:
     submission = client.submit_script(script)
 
     assert submission.job_id == 5101
-    assert runner.calls == [("sbatch", "--parsable", "--export=NIL")]
+    assert runner.calls == [("sbatch", "--parsable", "--export=NEMO_DEPLOYMENT_TYPE")]
     assert runner.inputs == [script]
 
 
@@ -50,27 +50,40 @@ def test_client_holds_submission_until_initial_state_is_recorded() -> None:
     client.release(submission.job_id)
 
     assert runner.calls == [
-        ("sbatch", "--parsable", "--hold", "--export=NIL"),
+        ("sbatch", "--parsable", "--hold", "--export=NEMO_DEPLOYMENT_TYPE"),
         ("scontrol", "release", "5101"),
     ]
 
 
-def test_client_exports_only_explicit_environment_names_without_values_in_argv() -> None:
+def test_client_exports_slurm_deployment_type_without_values_in_argv() -> None:
     runner = _EnvironmentRunner()
     client = SlurmCommandClient(runner)
 
     client.submit_script(
         "#!/usr/bin/env bash\n",
-        export_environment={"HF_TOKEN": "secret-value", "SLURM_EXPORT_ENV": "ALL"},
+        export_environment={"HF_TOKEN": "secret-value", "NEMO_DEPLOYMENT_TYPE": "library", "SLURM_EXPORT_ENV": "ALL"},
     )
 
     assert runner.command == (
         "sbatch",
         "--parsable",
-        "--export=HF_TOKEN,SLURM_EXPORT_ENV",
+        "--export=HF_TOKEN,NEMO_DEPLOYMENT_TYPE,SLURM_EXPORT_ENV",
     )
-    assert runner.environment == {"HF_TOKEN": "secret-value", "SLURM_EXPORT_ENV": "ALL"}
+    assert runner.environment == {
+        "HF_TOKEN": "secret-value",
+        "NEMO_DEPLOYMENT_TYPE": "slurm",
+        "SLURM_EXPORT_ENV": "ALL",
+    }
     assert "secret-value" not in " ".join(runner.command)
+
+
+def test_client_sets_slurm_deployment_type_without_explicit_environment() -> None:
+    runner = _EnvironmentRunner()
+
+    SlurmCommandClient(runner).submit_script("#!/usr/bin/env bash\n")
+
+    assert runner.command == ("sbatch", "--parsable", "--export=NEMO_DEPLOYMENT_TYPE")
+    assert runner.environment == {"NEMO_DEPLOYMENT_TYPE": "slurm"}
 
 
 def test_script_submission_classifies_scheduler_rejection_as_definite() -> None:
@@ -744,7 +757,7 @@ def test_script_path_is_one_argument_vector_token(fake_slurm_runner: FakeSlurmRu
     assert fake_slurm_runner.calls[0] == (
         "sbatch",
         "--parsable",
-        "--export=NIL",
+        "--export=NEMO_DEPLOYMENT_TYPE",
         "/workspace/run; touch injected.sbatch",
     )
 

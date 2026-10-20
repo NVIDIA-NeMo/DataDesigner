@@ -9,7 +9,7 @@ import os
 import shutil
 import stat
 import subprocess
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from pathlib import Path
@@ -513,7 +513,7 @@ def test_submit_prepared_image_lifecycle_uses_isolated_sbatch_client(tmp_path: P
         (
             "sbatch",
             "--parsable",
-            "--export=NIL",
+            "--export=NEMO_DEPLOYMENT_TYPE",
         )
     ]
     assert runner.inputs == [render_image_lifecycle_script(prepared.plan)]
@@ -587,7 +587,8 @@ def test_submit_uses_verified_script_bytes_when_path_changes_during_submission(t
     receipt = submit_prepared_image_lifecycle(prepared, SlurmCommandClient(runner))
 
     assert receipt.job_id == 5101
-    assert runner.command == ("sbatch", "--parsable", "--export=NIL")
+    assert runner.command == ("sbatch", "--parsable", "--export=NEMO_DEPLOYMENT_TYPE")
+    assert runner.environment == {"NEMO_DEPLOYMENT_TYPE": "slurm"}
     assert runner.input_text == expected_script
     assert Path(prepared.script_file.path).read_text() == "replaced after verification\n"
 
@@ -1683,15 +1684,18 @@ class _MutatingSubmissionRunner:
         self._script_path = script_path
         self.command: tuple[str, ...] | None = None
         self.input_text: str | None = None
+        self.environment: dict[str, str] = {}
 
     def run(
         self,
         command: Sequence[str],
         *,
         input_text: str | None = None,
+        environment: Mapping[str, str] | None = None,
     ) -> subprocess.CompletedProcess[str]:
         self.command = tuple(command)
         self.input_text = input_text
+        self.environment = dict(environment or {})
         self._script_path.chmod(0o700)
         self._script_path.write_text("replaced after verification\n")
         return subprocess.CompletedProcess(command, 0, stdout="5101\n", stderr="")
