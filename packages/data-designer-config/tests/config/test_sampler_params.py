@@ -1,6 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from __future__ import annotations
+
 import pytest
 from pydantic import ValidationError
 
@@ -128,7 +130,7 @@ def test_person_sampler_with_synthetic_personas_validation():
         ValidationError,
         match="Person sampling from managed datasets is only supported for the following locales:",
     ):
-        PersonSamplerParams(locale="en_GB", with_synthetic_personas=True, age_range=[18, 30])
+        PersonSamplerParams(locale="es_ES", with_synthetic_personas=True, age_range=[18, 30])
 
 
 def test_is_numerical_sampler_type():
@@ -145,3 +147,13 @@ def test_is_numerical_sampler_type():
     assert is_numerical_sampler_type(SamplerType.UUID) is False
     assert is_numerical_sampler_type(SamplerType.PERSON) is False
     assert is_numerical_sampler_type(SamplerType.SUBCATEGORY) is False
+
+
+@pytest.mark.parametrize("locale", ["en_GB", "de_DE"])
+@pytest.mark.parametrize("with_synthetic_personas", [False, True])
+def test_person_sampler_uk_germany_locales(locale: str, with_synthetic_personas: bool) -> None:
+    params = PersonSamplerParams(locale=locale, with_synthetic_personas=with_synthetic_personas)
+    restored = PersonSamplerParams.model_validate_json(params.model_dump_json())
+
+    assert restored == params
+    assert params.people_gen_key == (f"{locale}_with_personas" if with_synthetic_personas else locale)

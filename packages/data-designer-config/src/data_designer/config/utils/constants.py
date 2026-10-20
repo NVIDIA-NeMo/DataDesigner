@@ -394,6 +394,8 @@ PREDEFINED_PROVIDERS_MODEL_MAP = {
 
 # Persona locale metadata - used by the CLI and the person sampler.
 NEMOTRON_PERSONAS_DATASET_SIZES = {
+    "en_GB": "2.03 GB",
+    "de_DE": "2.55 GB",
     "en_US": "1.24 GB",
     "en_IN": "2.39 GB",
     "en_SG": "0.30 GB",

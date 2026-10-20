@@ -67,7 +67,9 @@ def test_get_available_locales(service: DownloadService) -> None:
     locales = service.get_available_locales()
 
     assert isinstance(locales, dict)
-    assert len(locales) == 9
+    assert len(locales) == 11
+    assert "en_GB" in locales
+    assert "de_DE" in locales
     assert "en_US" in locales
     assert "en_IN" in locales
     assert "en_SG" in locales
@@ -304,3 +306,22 @@ def test_download_persona_dataset_lowercase_handling(
     # Verify glob was called with lowercase locale
     expected_pattern = f"{temp_dir_path}/nemotron-personas-dataset-hi_deva_in*/*.parquet"
     mock_glob.assert_called_once_with(expected_pattern)
+
+
+@pytest.mark.parametrize("locale", ["en_GB", "de_DE"])
+def test_download_uk_germany_persona_dataset(service: DownloadService, tmp_path: Path, locale: str) -> None:
+    download_dir = tmp_path / f"nemotron-personas-dataset-{locale.lower()}_v0.0.1"
+    download_dir.mkdir()
+    parquet_file = download_dir / f"{locale}.parquet"
+    parquet_file.write_bytes(b"persona dataset")
+
+    with (
+        patch("data_designer.cli.services.download_service.subprocess.run") as mock_run,
+        patch("data_designer.cli.services.download_service.glob.glob", return_value=[str(parquet_file)]),
+    ):
+        result = service.download_persona_dataset(locale)
+
+    assert (result / f"{locale}.parquet").read_bytes() == b"persona dataset"
+    assert service.is_locale_downloaded(locale)
+    assert not parquet_file.exists()
+    assert mock_run.call_args.args[0][4] == f"nvidia/nemotron-personas/nemotron-personas-dataset-{locale.lower()}"

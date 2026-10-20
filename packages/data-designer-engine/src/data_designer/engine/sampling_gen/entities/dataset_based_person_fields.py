@@ -15,7 +15,7 @@ from __future__ import annotations
 REQUIRED_FIELDS = {"first_name", "last_name", "age", "locale"}
 
 PII_FIELDS = [
-    # Universal demographic fields (present in every managed locale)
+    # Shared demographic fields (availability varies by locale)
     "uuid",
     "first_name",
     "middle_name",
@@ -43,8 +43,9 @@ PII_FIELDS = [
     "national_id",
     # en_US + en_SG
     "ethnic_background",
-    # en_SG-specific
+    # Shared by en_SG, en_GB, and de_DE
     "industry",
+    # en_SG-specific
     "preferred_english_name",
     # fr_FR-specific
     "first_name_heritage",
@@ -67,6 +68,19 @@ PII_FIELDS = [
     "military_status",
     "smoking_status",
     "waist_status",
+    # en_GB-specific
+    "ethnicity",
+    "country_of_birth",
+    "disability",
+    # de_DE-specific
+    "migration_background",
+    "employment_status",
+    "job_position",
+    "occupation_kldb",
+    "last_occupation",
+    "last_occupation_kldb",
+    "kreis_code",
+    "nationality",
     # pt_BR-specific
     "race",
     # India locales (en_IN, hi_Deva_IN, hi_Latn_IN)
@@ -75,7 +89,7 @@ PII_FIELDS = [
     "second_language",
     "third_language",
     "zone",
-    # Shared across India locales, en_SG, and pt_BR
+    # Shared across India locales, en_SG, pt_BR, en_GB, and de_DE
     "religion",
 ]
 
