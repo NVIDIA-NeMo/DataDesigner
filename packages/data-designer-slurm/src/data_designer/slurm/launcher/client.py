@@ -289,7 +289,7 @@ class SlurmCommandClient:
 
 
 def _format_export_environment(environment: Mapping[str, str] | None) -> tuple[str, Mapping[str, str]]:
-    """Default Slurm telemetry while preserving an explicitly selected deployment type."""
+    """Export selected runner values without loading a node login environment."""
     exported = dict(environment or {})
     exported.setdefault("NEMO_DEPLOYMENT_TYPE", os.environ.get("NEMO_DEPLOYMENT_TYPE", "slurm"))
     names = tuple(sorted(exported))
@@ -299,7 +299,7 @@ def _format_export_environment(environment: Mapping[str, str] | None) -> tuple[s
         value = exported[name]
         if type(value) is not str or "\0" in value:
             raise ValueError("exported environment values must be strings without NUL")
-    return f"--export={','.join(names)}", exported
+    return "--export=ALL", exported
 
 
 def _format_selectors(selectors: Sequence[SchedulerJobIdentity]) -> str:

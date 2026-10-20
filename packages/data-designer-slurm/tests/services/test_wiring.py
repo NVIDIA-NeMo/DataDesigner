@@ -589,7 +589,9 @@ def test_production_wiring_submits_after_publisher_initialization(
     profile_catalog: SlurmProfileCatalog,
     authored_run_single: DataDesignerSlurmConfig,
     single_node_plan: ResolvedSlurmRunPlan,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.delenv("NEMO_DEPLOYMENT_TYPE", raising=False)
     _register_images(tmp_path, authored_run_single, single_node_plan)
     launcher = _Launcher()
     publisher = _Publisher()
@@ -1054,7 +1056,9 @@ def test_production_retry_dry_run_and_submission_are_sparse_and_idempotent(
     profile_catalog: SlurmProfileCatalog,
     authored_run_single: DataDesignerSlurmConfig,
     single_node_plan: ResolvedSlurmRunPlan,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setenv("NEMO_DEPLOYMENT_TYPE", "api")
     authored = authored_run_single.model_copy(
         update={
             "array_tasks": authored_run_single.array_tasks.model_copy(update={"count": 2}),
@@ -1070,6 +1074,7 @@ def test_production_retry_dry_run_and_submission_are_sparse_and_idempotent(
         run_id_factory=lambda: "run-wired",
         clock=lambda: now,
         package_version="0.9.2",
+        source_environment={"NEMO_DEPLOYMENT_TYPE": "slurm-nvidia-internal"},
     )
     service.execute(authored, source_root=tmp_path)
     assert SlurmStateWriter(tmp_path, "run-wired").load_resolved_plan().invocation.authored.resume == "if_possible"
@@ -1103,6 +1108,10 @@ def test_production_retry_dry_run_and_submission_are_sparse_and_idempotent(
     assert submitted.shard_ids == ("shard-00000",)
     assert repeated == submitted
     assert len(launcher.submissions) == 2
+    assert launcher.exported_environments == [
+        {"SLURM_EXPORT_ENV": "ALL", "NEMO_DEPLOYMENT_TYPE": "slurm-nvidia-internal"},
+        {"NEMO_DEPLOYMENT_TYPE": "slurm-nvidia-internal"},
+    ]
 
 
 def test_production_retry_preview_recovers_active_pinned_mode(

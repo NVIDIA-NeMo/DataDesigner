@@ -24,7 +24,7 @@ def test_client_submits_and_observes_one_managed_array(fake_slurm_runner: FakeSl
     assert submission.job_id == 4101
     assert tuple(record.state for record in queue) == (SchedulerState.PENDING, SchedulerState.RUNNING)
     assert fake_slurm_runner.calls == [
-        ("sbatch", "--parsable", "--export=NEMO_DEPLOYMENT_TYPE", "/workspace/run.sbatch"),
+        ("sbatch", "--parsable", "--export=ALL", "/workspace/run.sbatch"),
         ("squeue", "--noheader", "--array", "--format=%i|%T", "--jobs=4101"),
     ]
 
@@ -37,7 +37,7 @@ def test_client_submits_verified_script_text_through_standard_input() -> None:
     submission = client.submit_script(script)
 
     assert submission.job_id == 5101
-    assert runner.calls == [("sbatch", "--parsable", "--export=NEMO_DEPLOYMENT_TYPE")]
+    assert runner.calls == [("sbatch", "--parsable", "--export=ALL")]
     assert runner.inputs == [script]
 
 
@@ -50,7 +50,7 @@ def test_client_holds_submission_until_initial_state_is_recorded() -> None:
     client.release(submission.job_id)
 
     assert runner.calls == [
-        ("sbatch", "--parsable", "--hold", "--export=NEMO_DEPLOYMENT_TYPE"),
+        ("sbatch", "--parsable", "--hold", "--export=ALL"),
         ("scontrol", "release", "5101"),
     ]
 
@@ -68,7 +68,7 @@ def test_client_preserves_explicit_deployment_type_without_values_in_argv(monkey
     assert runner.command == (
         "sbatch",
         "--parsable",
-        "--export=HF_TOKEN,NEMO_DEPLOYMENT_TYPE,SLURM_EXPORT_ENV",
+        "--export=ALL",
     )
     assert runner.environment == {
         "HF_TOKEN": "secret-value",
@@ -84,7 +84,7 @@ def test_client_sets_slurm_deployment_type_when_unset(monkeypatch: pytest.Monkey
 
     SlurmCommandClient(runner).submit_script("#!/usr/bin/env bash\n")
 
-    assert runner.command == ("sbatch", "--parsable", "--export=NEMO_DEPLOYMENT_TYPE")
+    assert runner.command == ("sbatch", "--parsable", "--export=ALL")
     assert runner.environment == {"NEMO_DEPLOYMENT_TYPE": "slurm"}
 
 
@@ -94,7 +94,7 @@ def test_client_preserves_deployment_type_from_submitter_environment(monkeypatch
 
     SlurmCommandClient(runner).submit_script("#!/usr/bin/env bash\n")
 
-    assert runner.command == ("sbatch", "--parsable", "--export=NEMO_DEPLOYMENT_TYPE")
+    assert runner.command == ("sbatch", "--parsable", "--export=ALL")
     assert runner.environment == {"NEMO_DEPLOYMENT_TYPE": "slurm-nvidia-internal"}
 
 
@@ -769,7 +769,7 @@ def test_script_path_is_one_argument_vector_token(fake_slurm_runner: FakeSlurmRu
     assert fake_slurm_runner.calls[0] == (
         "sbatch",
         "--parsable",
-        "--export=NEMO_DEPLOYMENT_TYPE",
+        "--export=ALL",
         "/workspace/run; touch injected.sbatch",
     )
 

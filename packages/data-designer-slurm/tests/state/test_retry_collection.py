@@ -15,6 +15,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from threading import Event
 from typing import cast
+from unittest.mock import patch
 
 import pytest
 from slurm_test_fakes import FakeCommandResponse, FakeSlurmArray, FakeSlurmJob, FakeSlurmRunner, FakeSlurmTask
@@ -744,12 +745,20 @@ def test_collection_submits_cpu_job_and_publishes_ordered_winners_atomically(
     case = _initialize_run(tmp_path, authored_run, multi_node_plan)
     _publish_all_winners(case)
     runner = FakeSlurmRunner(jobs=(FakeSlurmJob(5101),))
-    coordinator = SlurmCollectionCoordinator(case.workspace, case.plan.run_id, SlurmCommandClient(runner))
+    scheduler = SlurmCommandClient(runner)
+    coordinator = SlurmCollectionCoordinator(
+        case.workspace,
+        case.plan.run_id,
+        scheduler,
+        {"NEMO_DEPLOYMENT_TYPE": "slurm-nvidia-internal"},
+    )
 
-    submitted = coordinator.submit(submitted_at=case.created_at + timedelta(minutes=10))
+    with patch.object(scheduler, "submit_script", wraps=scheduler.submit_script) as submit_script:
+        submitted = coordinator.submit(submitted_at=case.created_at + timedelta(minutes=10))
 
     assert submitted.state is CollectionState.SUBMITTED
     assert submitted.scheduler == 5101
+    assert submit_script.call_args.kwargs["export_environment"] == {"NEMO_DEPLOYMENT_TYPE": "slurm-nvidia-internal"}
     with pytest.raises(StateConflictError, match="requested destination"):
         coordinator.submit(destination=_output_root(case.plan).parent / "other")
     script = cast(str, runner.inputs[-1])

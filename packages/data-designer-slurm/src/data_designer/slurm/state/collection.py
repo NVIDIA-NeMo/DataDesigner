@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import sys
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from importlib.metadata import version
 from pathlib import Path
@@ -52,7 +53,9 @@ _IDENTIFIER_ADAPTER = TypeAdapter(Identifier)
 class CollectionScheduler(SchedulerObservationClient, Protocol):
     """Scheduler operations required by collection submission and refresh."""
 
-    def submit_script(self, script: str) -> SlurmJobSubmissionReceipt:
+    def submit_script(
+        self, script: str, *, export_environment: Mapping[str, str] | None = None
+    ) -> SlurmJobSubmissionReceipt:
         """Submit one rendered CPU collection job."""
         ...
 
@@ -74,9 +77,11 @@ class SlurmCollectionCoordinator:
         workspace_root: str | Path,
         run_id: Identifier,
         scheduler: CollectionScheduler | None = None,
+        export_environment: Mapping[str, str] | None = None,
     ) -> None:
         root, normalized_run_id = _validate_location(workspace_root, run_id)
         self._scheduler = scheduler if scheduler is not None else SlurmCommandClient()
+        self._export_environment = None if export_environment is None else dict(export_environment)
         self._state = StateStorage(root, normalized_run_id)
         self._reader = StateReader(self._state, normalized_run_id)
         self._collections = CollectionStorage(self._state)
@@ -242,7 +247,11 @@ class SlurmCollectionCoordinator:
         submitted_at: datetime,
     ) -> CollectionStatus:
         try:
-            receipt = self._scheduler.submit_script(script)
+            receipt = (
+                self._scheduler.submit_script(script)
+                if self._export_environment is None
+                else self._scheduler.submit_script(script, export_environment=self._export_environment)
+            )
         except SlurmSubmissionError as error:
             if not error.may_have_succeeded:
                 failed = _updated_status(

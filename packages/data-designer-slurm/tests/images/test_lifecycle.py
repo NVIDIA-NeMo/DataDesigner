@@ -513,7 +513,7 @@ def test_submit_prepared_image_lifecycle_uses_isolated_sbatch_client(tmp_path: P
         (
             "sbatch",
             "--parsable",
-            "--export=NEMO_DEPLOYMENT_TYPE",
+            "--export=ALL",
         )
     ]
     assert runner.inputs == [render_image_lifecycle_script(prepared.plan)]
@@ -575,7 +575,10 @@ def test_submit_rejects_modified_script_even_when_artifact_digest_is_rebound(tmp
         submit_prepared_image_lifecycle(rebound, SlurmCommandClient(FakeSlurmRunner()))
 
 
-def test_submit_uses_verified_script_bytes_when_path_changes_during_submission(tmp_path: Path) -> None:
+def test_submit_uses_verified_script_bytes_when_path_changes_during_submission(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("NEMO_DEPLOYMENT_TYPE", raising=False)
     prepared = prepare_image_lifecycle_job(
         ImageBuildRequest(name="client", kind="client", source=(tmp_path / "client.sqsh").as_posix()),
         _get_selected_profile(tmp_path / "workspace"),
@@ -587,7 +590,7 @@ def test_submit_uses_verified_script_bytes_when_path_changes_during_submission(t
     receipt = submit_prepared_image_lifecycle(prepared, SlurmCommandClient(runner))
 
     assert receipt.job_id == 5101
-    assert runner.command == ("sbatch", "--parsable", "--export=NEMO_DEPLOYMENT_TYPE")
+    assert runner.command == ("sbatch", "--parsable", "--export=ALL")
     assert runner.environment == {"NEMO_DEPLOYMENT_TYPE": "slurm"}
     assert runner.input_text == expected_script
     assert Path(prepared.script_file.path).read_text() == "replaced after verification\n"

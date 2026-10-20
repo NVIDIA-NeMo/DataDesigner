@@ -322,6 +322,7 @@ class _SystemRunBackend:
             selected_profile.profile.workspace_root,
             launcher,
             clock,
+            source_environment,
         )
 
     def execute(
