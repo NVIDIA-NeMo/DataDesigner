@@ -34,8 +34,13 @@ class EmbeddingCellGenerator(ColumnGeneratorWithModel[EmbeddingColumnConfig]):
             return [str(text).strip() for text in deserialized_value]
         if isinstance(deserialized_value, str):
             return parse_list_string(deserialized_value)
+        if not isinstance(cell_value, str):
+            raise ValueError(
+                f"Embedding target column {self.config.target_column!r} must contain text or a list of texts, "
+                f"got {cell_value!r}"
+            )
         # A JSON scalar such as "123" or "true" is embedded as the user wrote it.
-        return [str(cell_value).strip()]
+        return [cell_value.strip()]
 
     def generate(self, data: dict) -> dict:
         input_texts = self._prepare_embedding_inputs(data)

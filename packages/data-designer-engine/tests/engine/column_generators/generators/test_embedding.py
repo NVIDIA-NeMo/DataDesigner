@@ -85,3 +85,33 @@ async def test_embedding_cell_generator_agenerate_input_formats(
         mock_model.agenerate_text_embeddings = AsyncMock(return_value=[[0.1, 0.2]])
         await embedding_cell_generator.agenerate({"test_column": cell_value})
     mock_model.agenerate_text_embeddings.assert_awaited_once_with(input_texts=expected_inputs)
+
+
+@pytest.mark.parametrize("cell_value", [None, float("nan")])
+def test_embedding_cell_generator_generate_rejects_missing_values(
+    stub_embedding_column_config, stub_resource_provider, cell_value
+):
+    with patch.object(
+        stub_resource_provider.model_registry.get_model.return_value, "generate_text_embeddings"
+    ) as mock_generate:
+        embedding_cell_generator = EmbeddingCellGenerator(
+            config=stub_embedding_column_config, resource_provider=stub_resource_provider
+        )
+        with pytest.raises(ValueError, match="must contain text"):
+            embedding_cell_generator.generate(data={"test_column": cell_value})
+        mock_generate.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cell_value", [None, float("nan")])
+async def test_embedding_cell_generator_agenerate_rejects_missing_values(
+    stub_embedding_column_config, stub_resource_provider, cell_value
+):
+    embedding_cell_generator = EmbeddingCellGenerator(
+        config=stub_embedding_column_config, resource_provider=stub_resource_provider
+    )
+    with patch.object(embedding_cell_generator, "model") as mock_model:
+        mock_model.agenerate_text_embeddings = AsyncMock()
+        with pytest.raises(ValueError, match="must contain text"):
+            await embedding_cell_generator.agenerate({"test_column": cell_value})
+    mock_model.agenerate_text_embeddings.assert_not_awaited()
