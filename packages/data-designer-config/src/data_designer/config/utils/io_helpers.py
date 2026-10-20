@@ -18,6 +18,7 @@ import yaml
 
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.errors import InvalidFileFormatError, InvalidFilePathError
+from data_designer.config.utils.storage_encoding import read_encoded_parquet, read_storage_plan, validate_storage_plans
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -124,6 +125,9 @@ def read_parquet_dataset(path: Path) -> pd.DataFrame:
     """
     if path.is_dir() and (parquet_files := sorted(path.glob("*.parquet"))):
         schemas = [lazy.pq.read_schema(file) for file in parquet_files]
+        plan = validate_storage_plans(schemas)
+        if plan.columns:
+            return read_encoded_parquet(path, schemas)
         try:
             unified_schema = lazy.pa.unify_schemas(schemas, promote_options="permissive")
         except (lazy.pa.ArrowInvalid, lazy.pa.ArrowTypeError):
@@ -134,6 +138,9 @@ def read_parquet_dataset(path: Path) -> pd.DataFrame:
             )
         return lazy.pd.read_parquet(path, dtype_backend="pyarrow", schema=unified_schema)
 
+    schema = lazy.pq.read_schema(path)
+    if read_storage_plan(schema).columns:
+        return read_encoded_parquet(path, [schema])
     return lazy.pd.read_parquet(path, dtype_backend="pyarrow")
 
 

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import glob
 import logging
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable, Sequence
@@ -30,6 +31,12 @@ from data_designer.config.seed_source import (
     SeedSource,
 )
 from data_designer.config.seed_source_dataframe import DataFrameSeedSource
+from data_designer.config.utils.storage_encoding import (
+    decode_storage_dataframe,
+    encode_storage_table,
+    validate_storage_plans,
+)
+from data_designer.config.utils.storage_schema import JSON_STORAGE_RUN_KEY, JsonStoragePlan
 from data_designer.config.utils.warning_helpers import warn_at_caller
 from data_designer.engine.resources.agent_rollout import (
     AgentRolloutFormatHandler,
@@ -159,6 +166,21 @@ class DuckDBSeedReaderBatchReader:
         return self._batch_reader.read_next_batch()
 
 
+class DecodingSeedReaderBatchReader:
+    """Restore encoded file values after DuckDB has materialized a batch."""
+
+    def __init__(self, reader: SeedReaderBatchReader, plan: JsonStoragePlan) -> None:
+        self._reader = reader
+        self._plan = plan
+
+    def read_next_batch(self) -> SeedReaderBatch:
+        batch = self._reader.read_next_batch()
+        try:
+            return PandasSeedReaderBatch(decode_storage_dataframe(batch.to_pandas(), self._plan))
+        except (ValueError, TypeError) as exc:
+            raise SeedReaderError(f"Cannot decode JSON storage seed batch: {exc}") from exc
+
+
 class HydratingSeedReaderBatchReader:
     def __init__(
         self,
@@ -235,6 +257,33 @@ class SeedReader(ABC, Generic[SourceT]):
 
     def _reset_attachment_state(self) -> None:
         self._duckdb_conn = None
+        self._json_storage_plan = None
+
+    def get_storage_plan(self) -> JsonStoragePlan:
+        """Discover file contracts before a query engine discards schema metadata."""
+        if self._json_storage_plan is not None:
+            return self._json_storage_plan
+        schemas = []
+        if isinstance(self.source, DataFrameSeedSource):
+            plan = JsonStoragePlan.model_validate(self.source.df.attrs.get(JSON_STORAGE_RUN_KEY, {}))
+        elif isinstance(self.source, LocalFileSeedSource):
+            uri = self.get_dataset_uri()
+            files = (
+                sorted(Path(uri).glob("*.parquet")) if Path(uri).is_dir() else [Path(p) for p in sorted(glob.glob(uri))]
+            )
+            schemas = [lazy.pq.read_schema(file) for file in files if file.suffix.lower() == ".parquet"]
+            plan = validate_storage_plans(schemas)
+        elif isinstance(self.source, HuggingFaceSeedSource) and self.source.path.endswith(".parquet"):
+            token = self.secret_resolver.resolve(self.source.token) if self.source.token else None
+            fs = HfFileSystem(endpoint=self.source.endpoint, token=token, skip_instance_cache=True)
+            for path in sorted(fs.glob(self.source.path)):
+                with fs.open(path, "rb") as file:
+                    schemas.append(lazy.pq.read_schema(file))
+            plan = validate_storage_plans(schemas)
+        else:
+            plan = JsonStoragePlan()
+        self._json_storage_plan = plan
+        return plan
 
     def create_dataframe_duckdb_connection(
         self,
@@ -266,7 +315,9 @@ class SeedReader(ABC, Generic[SourceT]):
             shuffle=shuffle,
         )
         query_result = conn.query(read_query)
-        return DuckDBSeedReaderBatchReader(conn=conn, query_result=query_result, batch_size=batch_size)
+        reader = DuckDBSeedReaderBatchReader(conn=conn, query_result=query_result, batch_size=batch_size)
+        plan = self.get_storage_plan()
+        return DecodingSeedReaderBatchReader(reader, plan) if plan.columns else reader
 
     def get_matching_relative_paths(
         self,
@@ -387,7 +438,11 @@ class DataFrameSeedReader(SeedReader[DataFrameSeedSource]):
     _table_name = "df"
 
     def create_duckdb_connection(self) -> duckdb.DuckDBPyConnection:
-        return self.create_dataframe_duckdb_connection(table_name=self._table_name, dataframe=self.source.df)
+        frame = self.source.df
+        plan = self.get_storage_plan()
+        if plan.columns:
+            frame = encode_storage_table(frame, plan).to_pandas()
+        return self.create_dataframe_duckdb_connection(table_name=self._table_name, dataframe=frame)
 
     def get_dataset_uri(self) -> str:
         return self._table_name

@@ -1,0 +1,161 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any
+from unittest.mock import patch
+
+import pandas as pd
+import pyarrow.parquet as pq
+import pytest
+from pydantic import BaseModel, Field, JsonValue
+
+from data_designer.config.analysis.dataset_profiler import DatasetProfilerResults
+from data_designer.config.column_configs import CustomColumnConfig, LLMStructuredColumnConfig
+from data_designer.config.config_builder import DataDesignerConfigBuilder
+from data_designer.config.custom_column import custom_column_generator
+from data_designer.config.dataset_metadata import DatasetMetadata
+from data_designer.config.errors import InvalidFileFormatError
+from data_designer.config.models import ModelConfig, ModelProvider
+from data_designer.config.run_config import RunConfig
+from data_designer.config.utils.io_helpers import read_parquet_dataset
+from data_designer.config.utils.storage_schema import JSON_STORAGE_METADATA_KEY, JsonStoragePlan
+from data_designer.engine.models.facade import ModelFacade
+from data_designer.engine.secret_resolver import PlaintextResolver
+from data_designer.engine.storage.artifact_storage import ArtifactStorage, BatchStage
+from data_designer.interface.data_designer import DataDesigner
+from data_designer.interface.results import DatasetCreationResults
+
+
+@pytest.fixture
+def json_results(tmp_path: Path, stub_dataset_profiler_results: DatasetProfilerResults) -> DatasetCreationResults:
+    storage = ArtifactStorage(artifact_path=tmp_path, json_storage=JsonStoragePlan(columns={"payload": [[]]}))
+    for batch, value in enumerate([{"alpha": 1}, {"beta": None}, {"mixed": [1, "two", True, None]}]):
+        storage.write_batch_to_parquet_file(batch, pd.DataFrame({"payload": [value]}), BatchStage.FINAL_RESULT)
+    return DatasetCreationResults(
+        artifact_storage=storage,
+        analysis=stub_dataset_profiler_results,
+        config_builder=DataDesignerConfigBuilder(),
+        dataset_metadata=DatasetMetadata(),
+    )
+
+
+def test_result_loading_and_dataframe_seed_keep_logical_values(json_results: DatasetCreationResults) -> None:
+    values = json_results.load_dataset()["payload"].tolist()
+    assert values == [{"alpha": 1}, {"beta": None}, {"mixed": [1, "two", True, None]}]
+    assert json_results.count_records() == 3
+    seed = json_results.to_config_builder()
+    assert seed.build().seed_config.source.df["payload"].tolist() == values
+
+
+def test_jsonl_export_restores_nested_json(json_results: DatasetCreationResults, tmp_path: Path) -> None:
+    output = json_results.export(tmp_path / "export.jsonl")
+    records = [json.loads(line) for line in output.read_text().splitlines()]
+    assert records == [{"payload": value} for value in json_results.load_dataset()["payload"]]
+    assert all(isinstance(record["payload"], dict) for record in records)
+
+
+@pytest.mark.parametrize("nested", [False, True])
+@pytest.mark.parametrize("value", [None, {"precise": 1.2345678901234567, "large": 2**100, "small": 1e-100}])
+def test_jsonl_export_preserves_json_numbers_and_nulls(
+    json_results: DatasetCreationResults, tmp_path: Path, nested: bool, value: Any
+) -> None:
+    storage = json_results.artifact_storage
+    for file in storage.final_dataset_path.glob("*.parquet"):
+        file.unlink()
+    storage.json_storage = JsonStoragePlan(columns={"payload": [["arguments"]] if nested else [[]]})
+    payload = {"arguments": value} if nested else value
+    storage.write_batch_to_parquet_file(
+        0,
+        pd.DataFrame({"payload": [payload], "date": [pd.Timestamp("2026-10-20")], "missing": [float("nan")]}),
+        BatchStage.FINAL_RESULT,
+    )
+    record = json.loads(json_results.export(tmp_path / "precise.jsonl").read_text())
+    assert record == {"payload": payload, "date": "2026-10-20T00:00:00.000", "missing": None}
+
+
+def test_csv_export_has_json_text(json_results: DatasetCreationResults, tmp_path: Path) -> None:
+    output = json_results.export(tmp_path / "export.csv")
+    # CSV is a text export; structured cells must be valid JSON, not Python reprs.
+    values = [json.loads(value) for value in pd.read_csv(output)["payload"]]
+    assert values == json_results.load_dataset()["payload"].tolist()
+
+
+def test_parquet_export_preserves_contract(json_results: DatasetCreationResults, tmp_path: Path) -> None:
+    output = json_results.export(tmp_path / "export.parquet")
+    assert JSON_STORAGE_METADATA_KEY in pq.read_schema(output).metadata
+    assert read_parquet_dataset(output)["payload"].tolist() == json_results.load_dataset()["payload"].tolist()
+    assert all(isinstance(row["payload"], str) for row in pq.read_table(output).to_pylist())
+
+
+def test_parquet_export_rejects_mixed_contracts(json_results: DatasetCreationResults, tmp_path: Path) -> None:
+    pd.DataFrame({"payload": ['{"legacy":1}']}).to_parquet(
+        json_results.artifact_storage.final_dataset_path / "batch_99999.parquet"
+    )
+    with pytest.raises(InvalidFileFormatError, match="Incompatible"):
+        json_results.export(tmp_path / "export.parquet")
+
+
+@custom_column_generator()
+def create_tool_payload(row: dict[str, Any]) -> dict[str, Any]:
+    return {**row, "payload": {"args": {"mixed": [1, "two", True, None]}}}
+
+
+class AnnotatedCall(BaseModel):
+    tool: str
+    arguments: dict[str, JsonValue] = Field(json_schema_extra={"x-data-designer-storage": "json"})
+
+
+class AnnotatedOracle(BaseModel):
+    calls: list[AnnotatedCall]
+
+
+@pytest.mark.parametrize("structured", [False, True], ids=["custom", "structured"])
+def test_public_create_profiles_and_exports_json_storage(
+    tmp_path: Path, stub_model_providers: list[ModelProvider], structured: bool
+) -> None:
+    managed = tmp_path / "managed"
+    managed.mkdir()
+    designer = DataDesigner(
+        artifact_path=tmp_path / "artifacts",
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=managed,
+    )
+    designer.set_run_config(RunConfig(otel_metrics_port=None, buffer_size=2))
+    config = DataDesignerConfigBuilder()
+    expected: dict[str, Any]
+    if structured:
+        config.add_model_config(
+            ModelConfig(
+                alias="test",
+                model="test",
+                provider=stub_model_providers[0].name,
+                skip_health_check=True,
+            )
+        )
+        config.add_column(
+            LLMStructuredColumnConfig(
+                name="payload", prompt="Generate", model_alias="test", output_format=AnnotatedOracle
+            )
+        )
+        expected = {"calls": [{"tool": "search", "arguments": {"query": "weather", "values": [1, "two", None]}}]}
+    else:
+        config.add_column(
+            CustomColumnConfig(name="payload", generator_function=create_tool_payload, storage_encoding="json")
+        )
+        expected = {"args": {"mixed": [1, "two", True, None]}}
+
+    async def model_response(facade: ModelFacade, **kwargs: Any) -> tuple[dict, list]:
+        assert "x-data-designer-storage" not in str(kwargs)
+        return kwargs["parser"](json.dumps(expected)), []
+
+    with patch.object(ModelFacade, "agenerate", autospec=True, side_effect=model_response):
+        results = designer.create(config, num_records=3, dataset_name="tool_calls")
+    assert results.load_dataset()["payload"].tolist() == [expected] * 3
+    assert isinstance(results.load_analysis(), DatasetProfilerResults)
+    output = results.export(tmp_path / "logical.jsonl")
+    assert [json.loads(line)["payload"] for line in output.read_text().splitlines()] == [expected] * 3

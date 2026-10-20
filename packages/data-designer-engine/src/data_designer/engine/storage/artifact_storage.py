@@ -7,17 +7,21 @@ import json
 import logging
 import os
 import shutil
+import uuid
 from datetime import datetime
 from functools import cached_property
 from pathlib import Path
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, PrivateAttr, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator, model_validator
 
 import data_designer.lazy_heavy_imports as lazy
+from data_designer.config.errors import InvalidFileFormatError
 from data_designer.config.run_config import ResumeMode
 from data_designer.config.utils.io_helpers import list_processor_names, load_processor_dataset, read_parquet_dataset
+from data_designer.config.utils.storage_encoding import encode_storage_table
+from data_designer.config.utils.storage_schema import JSON_STORAGE_RUN_KEY, JsonStoragePlan
 from data_designer.config.utils.type_helpers import StrEnum, resolve_string_enum
 from data_designer.engine.dataset_builders.errors import ArtifactStorageError
 from data_designer.engine.storage.media_storage import MediaStorage, StorageMode
@@ -51,6 +55,7 @@ class ArtifactStorage(BaseModel):
     dropped_columns_folder_name: str = "dropped-columns-parquet-files"
     processors_outputs_folder_name: str = PROCESSORS_OUTPUTS_FOLDER_NAME
     resume: ResumeMode = ResumeMode.NEVER
+    json_storage: JsonStoragePlan = Field(default_factory=JsonStoragePlan)
     _media_storage: MediaStorage = PrivateAttr(default=None)
     _metadata_defaults: dict[str, object] = PrivateAttr(default_factory=dict)
 
@@ -271,9 +276,10 @@ class ArtifactStorage(BaseModel):
         dataframe: pd.DataFrame,
         batch_stage: BatchStage,
         subfolder: str | None = None,
+        json_storage: JsonStoragePlan | None = None,
     ) -> Path:
         file_path = self.create_batch_file_path(batch_number, batch_stage=batch_stage)
-        self.write_parquet_file(file_path.name, dataframe, batch_stage, subfolder=subfolder)
+        self.write_parquet_file(file_path.name, dataframe, batch_stage, subfolder=subfolder, json_storage=json_storage)
         return file_path
 
     def write_parquet_file(
@@ -282,12 +288,60 @@ class ArtifactStorage(BaseModel):
         dataframe: pd.DataFrame,
         batch_stage: BatchStage,
         subfolder: str | None = None,
+        json_storage: JsonStoragePlan | None = None,
     ) -> Path:
         subfolder = subfolder or ""
         self.mkdir_if_needed(self._get_stage_path(batch_stage) / subfolder)
         file_path = self._get_stage_path(batch_stage) / subfolder / parquet_file_name
-        dataframe.to_parquet(file_path, index=False)
+        plan = (
+            json_storage
+            if json_storage is not None
+            else (JsonStoragePlan() if batch_stage == BatchStage.PROCESSORS_OUTPUTS else self.json_storage)
+        )
+        active = plan.for_columns(list(dataframe.columns))
+        temporary_path = file_path.with_name(f".{file_path.name}.{uuid.uuid4().hex}.tmp")
+        try:
+            if active.columns:
+                lazy.pq.write_table(encode_storage_table(dataframe, active), temporary_path)
+            else:
+                dataframe.to_parquet(temporary_path, index=False)
+            os.replace(temporary_path, file_path)
+        except InvalidFileFormatError as exc:
+            raise ArtifactStorageError(f"Cannot write artifact {file_path.name}: {exc}") from exc
+        except (
+            lazy.pa.ArrowInvalid,
+            lazy.pa.ArrowTypeError,
+            lazy.pa.ArrowNotImplementedError,
+            ValueError,
+            TypeError,
+        ) as exc:
+            self._raise_serialization_error(dataframe, active, file_path, exc)
+        finally:
+            temporary_path.unlink(missing_ok=True)
         return file_path
+
+    def _raise_serialization_error(
+        self, dataframe: pd.DataFrame, plan: JsonStoragePlan, file_path: Path, error: Exception
+    ) -> None:
+        for name in dataframe.columns:
+            try:
+                table = encode_storage_table(dataframe[[name]], plan.for_columns([name]))
+                lazy.pq.write_table(table, lazy.pa.BufferOutputStream())
+            except (
+                InvalidFileFormatError,
+                lazy.pa.ArrowInvalid,
+                lazy.pa.ArrowTypeError,
+                lazy.pa.ArrowNotImplementedError,
+                ValueError,
+                TypeError,
+            ):
+                raise ArtifactStorageError(
+                    f"Cannot serialize column {name!r} in {file_path.name} to Parquet ({type(error).__name__}). "
+                    "For JSON-compatible values, set storage_encoding='json' on the column or add "
+                    "x-data-designer-storage='json' to the affected output-schema field. "
+                    "Unannotated values must be representable by native Parquet types."
+                ) from error
+        raise ArtifactStorageError(f"Cannot serialize artifact {file_path.name} ({type(error).__name__})") from error
 
     def get_parquet_file_paths(self) -> list[str]:
         """Get list of parquet file paths relative to base_dataset_path.
@@ -357,6 +411,8 @@ class ArtifactStorage(BaseModel):
         """
         self.mkdir_if_needed(self.base_dataset_path)
         metadata = {**self._metadata_defaults, **metadata}
+        if self.json_storage.columns:
+            metadata[JSON_STORAGE_RUN_KEY] = self.json_storage.model_dump()
         tmp_path = self.metadata_file_path.with_name(f"{self.metadata_file_path.name}.tmp.{os.getpid()}")
         try:
             with open(tmp_path, "w") as file:

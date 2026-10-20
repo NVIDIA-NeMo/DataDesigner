@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, get_args
 
@@ -12,6 +13,13 @@ from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.dataset_metadata import DatasetMetadata
 from data_designer.config.errors import InvalidFileFormatError
 from data_designer.config.seed_source_dataframe import DataFrameSeedSource
+from data_designer.config.utils.io_helpers import read_parquet_dataset, serialize_data
+from data_designer.config.utils.storage_encoding import (
+    decode_storage_dataframe,
+    read_storage_plan,
+    validate_storage_plans,
+)
+from data_designer.config.utils.storage_schema import JSON_STORAGE_METADATA_KEY, JSON_STORAGE_RUN_KEY
 from data_designer.config.utils.visualization import WithRecordSamplerMixin
 from data_designer.engine.dataset_builders.errors import ArtifactStorageError
 from data_designer.engine.storage.artifact_storage import ArtifactStorage
@@ -243,16 +251,30 @@ def _export_jsonl(batch_files: list[Path], output: Path) -> None:
     """
     with output.open("w", encoding="utf-8") as f:
         for batch_file in batch_files:
-            chunk = lazy.pd.read_parquet(batch_file)
+            table = lazy.pq.ParquetFile(batch_file).read()
+            plan = read_storage_plan(table.schema)
+            chunk = table.to_pandas()
             content = chunk.to_json(orient="records", lines=True, force_ascii=False, date_format="iso")
-            if content:
+            if content and plan.columns:
+                # Keep encoded leaves as text through pandas' JSON conversion,
+                # which rounds floats. Decode them only after native fields have
+                # received the usual date/null normalization.
+                records = [json.loads(line) for line in content.splitlines()]
+                logical = decode_storage_dataframe(lazy.pd.DataFrame(records, dtype=object), plan)
+                for record in logical.to_dict(orient="records"):
+                    f.write(serialize_data(record, allow_nan=False) + "\n")
+            elif content:
                 f.write(content)
 
 
 def _export_csv(batch_files: list[Path], output: Path) -> None:
     """Write *batch_files* to *output* as CSV with a single header row."""
     for i, batch_file in enumerate(batch_files):
-        chunk = lazy.pd.read_parquet(batch_file)
+        chunk = read_parquet_dataset(batch_file)
+        for name in chunk.attrs.get(JSON_STORAGE_RUN_KEY, {}).get("columns", {}):
+            chunk[name] = chunk[name].map(
+                lambda value: serialize_data(value) if isinstance(value, (dict, list)) else value
+            )
         chunk.to_csv(output, mode="a" if i > 0 else "w", header=(i == 0), index=False)
 
 
@@ -268,11 +290,16 @@ def _export_parquet(batch_files: list[Path], output: Path) -> None:
             types that cannot be unified or cast.
     """
     schemas = [lazy.pq.read_schema(f) for f in batch_files]
+    plan = validate_storage_plans(schemas)
     try:
         # promote_options="permissive" allows minor numeric type drift (e.g. int64 → double)
         unified_schema = lazy.pa.unify_schemas(schemas, promote_options="permissive")
     except (lazy.pa.ArrowInvalid, lazy.pa.ArrowTypeError) as e:
         raise InvalidFileFormatError(f"Cannot unify batch schemas for parquet export: {e}") from e
+    if plan.columns:
+        unified_schema = unified_schema.with_metadata(
+            {**(unified_schema.metadata or {}), JSON_STORAGE_METADATA_KEY: plan.model_dump_json().encode()}
+        )
     with lazy.pq.ParquetWriter(output, unified_schema) as writer:
         for batch_file in batch_files:
             table = lazy.pq.read_table(batch_file)
