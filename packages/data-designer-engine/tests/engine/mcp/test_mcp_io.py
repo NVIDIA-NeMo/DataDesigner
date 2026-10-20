@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import multiprocessing
 from typing import Any, Iterator
 
 import pytest
@@ -1283,3 +1285,36 @@ def test_call_tools_timeout_error_without_timeout_value(
 
     with pytest.raises(MCPToolError, match="Timed out after unknown"):
         mcp_io.call_tools([(stub_stdio_provider, "test_tool", {})], timeout_sec=None)
+
+
+# =============================================================================
+# Fork safety tests
+# =============================================================================
+
+
+async def _ping() -> str:
+    return "pong"
+
+
+def _ping_mcp_loop(queue: multiprocessing.Queue) -> None:
+    queue.put(mcp_io._MCP_IO_SERVICE._run_on_loop(_ping(), timeout_sec=5))
+
+
+@pytest.mark.skipif("fork" not in multiprocessing.get_all_start_methods(), reason="requires the fork start method")
+@pytest.mark.filterwarnings("ignore:This process .* is multi-threaded:DeprecationWarning")
+def test_forked_child_starts_fresh_mcp_loop_after_parent_used_it() -> None:
+    service = mcp_io._MCP_IO_SERVICE
+    assert service._run_on_loop(_ping(), timeout_sec=5) == "pong"
+
+    ctx = multiprocessing.get_context("fork")
+    queue = ctx.Queue()
+    child = ctx.Process(target=_ping_mcp_loop, args=(queue,))
+    child.start()
+    child.join(timeout=20)
+    if child.is_alive():
+        child.kill()
+        child.join()
+        pytest.fail("forked child blocked on the MCP event loop inherited from the parent")
+    assert child.exitcode == 0, "forked child could not use the MCP event loop"
+    assert queue.get(timeout=5) == "pong"
+    assert service._run_on_loop(_ping(), timeout_sec=5) == "pong"
