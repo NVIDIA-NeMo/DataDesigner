@@ -100,6 +100,8 @@ def test_generate_samples_different_locale(stub_reader: Mock) -> None:
     "locale",
     [
         "en_US",
+        "en_GB",
+        "de_DE",
         "ja_JP",
         "en_IN",
     ],

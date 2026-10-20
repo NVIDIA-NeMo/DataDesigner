@@ -56,6 +56,8 @@ The NGC datasets are extended versions of the [open-source Nemotron-Personas dat
 
 Supported locales:
 
+- `en_GB`: United Kingdom (English)
+- `de_DE`: Germany (German)
 - `en_US`: United States
 - `en_IN`: India (English)
 - `en_SG`: Singapore (English)
@@ -119,6 +121,12 @@ data-designer download personas
 
 Use the configured NGC CLI to download the datasets:
 ```bash
+# For Nemotron-Personas UK
+ngc registry resource download-version "nvidia/nemotron-personas/nemotron-personas-dataset-en_gb"
+
+# For Nemotron-Personas Germany
+ngc registry resource download-version "nvidia/nemotron-personas/nemotron-personas-dataset-de_de"
+
 # For Nemotron-Personas USA
 ngc registry resource download-version "nvidia/nemotron-personas/nemotron-personas-dataset-en_us"
 
@@ -171,7 +179,9 @@ Use `SamplerColumnConfig` with `PersonSamplerParams` when you need richer person
 
 ### Available Data Fields
 
-**Core Fields (all locales):**
+Fields vary by locale. UK and Germany personas do not include synthetic street addresses or postcodes; phone numbers and national IDs are not generated for these locales. Use `select_field_values` with `municipality` (UK) or `kreis` / `bundesland` (Germany) for geographic filtering rather than `city`.
+
+**Common Fields (where available):**
 
 | Field | Type | Notes |
 |-------|------|-------|
@@ -205,6 +215,28 @@ Use `SamplerColumnConfig` with `PersonSamplerParams` when you need richer person
 - `name_heritage` - Cultural, linguistic, or geographic origin of the surname
 - `is_first_gen_immigrant` - Whether the individual is a first-generation immigrant to France
 
+**UK Fields (`en_GB`):**
+
+- `municipality` - Local authority district, council area, or local government district
+- `region` - English region, Wales, Scotland, or Northern Ireland
+- `ethnicity` - Census-reported ethnic group
+- `country_of_birth` - Country of birth
+- `disability` - Disability status
+- `household_type` - Household composition
+- `industry` - Industry of employment
+
+**Germany Fields (`de_DE`):**
+
+- `kreis` - District or independent city
+- `bundesland` - Federal state
+- `migration_background` - Migration background
+- `nationality` - Nationality
+- `employment_status` - Employment status
+- `job_position` - Position in employment
+- `household_type` - Household composition
+- `housing_tenure` - Housing tenure
+- `industry` - Industry of employment
+
 **Japan-Specific Fields (`ja_JP`):**
 
 - `area`
@@ -237,7 +269,7 @@ Use `SamplerColumnConfig` with `PersonSamplerParams` when you need richer person
 
 - `ethnic_background` - Self-identified ethnic background
 
-**Religion Fields (`en_IN`, `hi_Deva_IN`, `hi_Latn_IN`, `en_SG`, `pt_BR`):**
+**Religion Fields (`en_IN`, `hi_Deva_IN`, `hi_Latn_IN`, `en_SG`, `pt_BR`, `en_GB`, `de_DE`):**
 
 - `religion` - Census-reported religion
 
@@ -281,7 +313,7 @@ Use `SamplerColumnConfig` with `PersonSamplerParams` when you need richer person
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `locale` | str | Language/region code - must be one of: "en_US", "en_IN", "en_SG", "fr_FR", "hi_Deva_IN", "hi_Latn_IN", "ja_JP", "ko_KR", "pt_BR" |
+| `locale` | str | Language/region code - must be one of: "en_GB", "de_DE", "en_US", "en_IN", "en_SG", "fr_FR", "hi_Deva_IN", "hi_Latn_IN", "ja_JP", "ko_KR", "pt_BR" |
 | `sex` | str (optional) | Filter by "Male" or "Female" |
 | `city` | str or list[str] (optional) | Filter by specific city or cities within locale |
 | `age_range` | list[int] (optional) | Two-element list [min_age, max_age] (default: [18, 114]) |
