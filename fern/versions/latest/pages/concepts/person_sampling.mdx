@@ -179,7 +179,9 @@ Use `SamplerColumnConfig` with `PersonSamplerParams` when you need richer person
 
 ### Available Data Fields
 
-Fields vary by locale. UK and Germany personas do not include synthetic street addresses or postcodes; phone numbers and national IDs are not generated for these locales. Use `select_field_values` with `district` or `region` for geographic filtering in both locales; `city` is unavailable. For Germany, `district` contains the Kreis and `region` contains the Bundesland.
+Field availability varies across the managed datasets. Some locales do not include synthetic street addresses, cities, or postcodes. Source fields that are absent or entirely null are omitted from sampled output. Phone numbers and national IDs are generated only for `en_US`.
+
+For UK and Germany personas, use `select_field_values` with `district` or `region` for geographic filtering; `city` is unavailable. For Germany, `district` contains the Kreis and `region` contains the Bundesland.
 
 **Common Fields (where available):**
 
@@ -215,7 +217,7 @@ Fields vary by locale. UK and Germany personas do not include synthetic street a
 - `name_heritage` - Cultural, linguistic, or geographic origin of the surname
 - `is_first_gen_immigrant` - Whether the individual is a first-generation immigrant to France
 
-**UK Fields (`en_GB`):**
+**UK-Specific Fields (`en_GB`):**
 
 - `district` - Local authority district, council area, or local government district
 - `region` - English region, Wales, Scotland, or Northern Ireland
@@ -225,7 +227,7 @@ Fields vary by locale. UK and Germany personas do not include synthetic street a
 - `household_type` - Household composition
 - `industry` - Industry of employment
 
-**Germany Fields (`de_DE`):**
+**Germany-Specific Fields (`de_DE`):**
 
 The managed reader normalizes `Weiblich` / `Männlich` to `Female` / `Male`, so the `sex` filter and sampled output use the same values as other locales.
 
