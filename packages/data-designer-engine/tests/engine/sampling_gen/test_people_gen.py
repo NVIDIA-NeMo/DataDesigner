@@ -113,7 +113,7 @@ def test_managed_uk_germany_sampling(
         "first_name": "Alex",
         "last_name": "Smith",
         "age": 35,
-        "sex": "Female",
+        "sex": "Weiblich" if locale == "de_DE" else "Female",
         "persona": "Enjoys learning languages.",
         "finance_persona": "Saves regularly.",
         "healthcare_persona": "Exercises daily.",
@@ -141,6 +141,7 @@ def test_managed_uk_germany_sampling(
     person = people[0]
     assert person["locale"] == locale
     assert person["age"] == 35
+    assert person["sex"] == "Female"
     assert person["birth_date"]
     assert person["email_address"]
     assert person["phone_number"] is None
