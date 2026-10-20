@@ -89,13 +89,13 @@ def test_client_sets_slurm_deployment_type_when_unset(monkeypatch: pytest.Monkey
 
 
 def test_client_preserves_deployment_type_from_submitter_environment(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("NEMO_DEPLOYMENT_TYPE", "nvidia-internal")
+    monkeypatch.setenv("NEMO_DEPLOYMENT_TYPE", "slurm-nvidia-internal")
     runner = _EnvironmentRunner()
 
     SlurmCommandClient(runner).submit_script("#!/usr/bin/env bash\n")
 
     assert runner.command == ("sbatch", "--parsable", "--export=NEMO_DEPLOYMENT_TYPE")
-    assert runner.environment == {"NEMO_DEPLOYMENT_TYPE": "nvidia-internal"}
+    assert runner.environment == {"NEMO_DEPLOYMENT_TYPE": "slurm-nvidia-internal"}
 
 
 def test_script_submission_classifies_scheduler_rejection_as_definite() -> None:

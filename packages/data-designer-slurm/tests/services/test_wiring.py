@@ -697,12 +697,14 @@ def test_production_wiring_preserves_selected_deployment_type(
         launcher=launcher,  # type: ignore[arg-type]
         run_id_factory=lambda: "run-wired",
         package_version="0.9.2",
-        source_environment={"NEMO_DEPLOYMENT_TYPE": "nvidia-internal"},
+        source_environment={"NEMO_DEPLOYMENT_TYPE": "slurm-nvidia-internal"},
     )
 
     service.execute(authored_run_single, source_root=tmp_path)
 
-    assert launcher.exported_environments == [{"SLURM_EXPORT_ENV": "ALL", "NEMO_DEPLOYMENT_TYPE": "nvidia-internal"}]
+    assert launcher.exported_environments == [
+        {"SLURM_EXPORT_ENV": "ALL", "NEMO_DEPLOYMENT_TYPE": "slurm-nvidia-internal"}
+    ]
 
 
 def test_production_wiring_rejects_missing_secret_before_publishing(

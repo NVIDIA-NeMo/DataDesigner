@@ -18,7 +18,10 @@ from data_designer.engine.models.telemetry import (
 )
 
 
-@pytest.mark.parametrize("deployment_type", (DeploymentTypeEnum.NVIDIA_INTERNAL, DeploymentTypeEnum.SLURM))
+@pytest.mark.parametrize(
+    "deployment_type",
+    (DeploymentTypeEnum.NVIDIA_INTERNAL, DeploymentTypeEnum.SLURM, DeploymentTypeEnum.SLURM_NVIDIA_INTERNAL),
+)
 def test_supported_deployment_type_uses_schema_version_1_9(deployment_type: DeploymentTypeEnum) -> None:
     event = InferenceEvent(
         nemo_source=NemoSourceEnum.DATADESIGNER,
@@ -36,10 +39,16 @@ def test_supported_deployment_type_uses_schema_version_1_9(deployment_type: Depl
     assert payload["events"][0]["parameters"]["deploymentType"] == deployment_type.value
 
 
-def test_slurm_environment_deployment_type_is_recognized(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("NEMO_DEPLOYMENT_TYPE", "slurm")
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    (("slurm", DeploymentTypeEnum.SLURM), ("Slurm-nvidia-internal", DeploymentTypeEnum.SLURM_NVIDIA_INTERNAL)),
+)
+def test_slurm_environment_deployment_type_is_recognized(
+    monkeypatch: pytest.MonkeyPatch, value: str, expected: DeploymentTypeEnum
+) -> None:
+    monkeypatch.setenv("NEMO_DEPLOYMENT_TYPE", value)
 
-    assert get_nemo_deployment_type() is DeploymentTypeEnum.SLURM
+    assert get_nemo_deployment_type() is expected
 
 
 def test_unrecognized_env_deployment_type_defaults_to_undefined(monkeypatch: pytest.MonkeyPatch) -> None:
