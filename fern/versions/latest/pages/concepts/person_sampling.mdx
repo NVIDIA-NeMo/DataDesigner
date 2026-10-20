@@ -179,7 +179,7 @@ Use `SamplerColumnConfig` with `PersonSamplerParams` when you need richer person
 
 ### Available Data Fields
 
-Fields vary by locale. UK and Germany personas do not include synthetic street addresses or postcodes; phone numbers and national IDs are not generated for these locales. Use `select_field_values` with `municipality` (UK) or `kreis` / `bundesland` (Germany) for geographic filtering rather than `city`.
+Fields vary by locale. UK and Germany personas do not include synthetic street addresses or postcodes; phone numbers and national IDs are not generated for these locales. Use `select_field_values` with `district` or `region` for geographic filtering in both locales; `city` is unavailable. For Germany, `district` contains the Kreis and `region` contains the Bundesland.
 
 **Common Fields (where available):**
 
@@ -217,7 +217,7 @@ Fields vary by locale. UK and Germany personas do not include synthetic street a
 
 **UK Fields (`en_GB`):**
 
-- `municipality` - Local authority district, council area, or local government district
+- `district` - Local authority district, council area, or local government district
 - `region` - English region, Wales, Scotland, or Northern Ireland
 - `ethnicity` - Census-reported ethnic group
 - `country_of_birth` - Country of birth
@@ -227,12 +227,16 @@ Fields vary by locale. UK and Germany personas do not include synthetic street a
 
 **Germany Fields (`de_DE`):**
 
-- `kreis` - District or independent city
-- `bundesland` - Federal state
+- `district` - District or independent city (Kreis)
+- `region` - Federal state (Bundesland)
+- `kreis_code` - District code
 - `migration_background` - Migration background
 - `nationality` - Nationality
 - `employment_status` - Employment status
 - `job_position` - Position in employment
+- `occupation_kldb` - Occupation code in the KldB classification
+- `last_occupation` - Previous occupation
+- `last_occupation_kldb` - Previous occupation code in the KldB classification
 - `household_type` - Household composition
 - `housing_tenure` - Housing tenure
 - `industry` - Industry of employment

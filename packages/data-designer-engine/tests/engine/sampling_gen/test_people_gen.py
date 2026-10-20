@@ -73,7 +73,7 @@ def test_people_with_personas_pgm(stub_people_gen_with_personas):
         (
             "en_GB",
             {
-                "municipality": "Camden",
+                "district": "Camden",
                 "ethnicity": "White British",
                 "country_of_birth": "United Kingdom",
                 "disability": "Not disabled",
@@ -88,8 +88,12 @@ def test_people_with_personas_pgm(stub_people_gen_with_personas):
                 "migration_background": "No migration background",
                 "employment_status": "Employed",
                 "job_position": "Employee",
-                "kreis": "Berlin",
-                "bundesland": "Berlin",
+                "district": "Berlin",
+                "region": "Berlin",
+                "occupation_kldb": "831",
+                "last_occupation": "Teacher",
+                "last_occupation_kldb": "841",
+                "kreis_code": "11000",
                 "nationality": "German",
                 "household_type": "Single person",
                 "housing_tenure": "Rented",
@@ -117,7 +121,7 @@ def test_managed_uk_germany_sampling(
         "internal_metadata": "excluded",
         **demographics,
     }
-    geography_field = "municipality" if locale == "en_GB" else "bundesland"
+    geography_field = "district"
     other_record = {**record, geography_field: "Elsewhere"}
     lazy.pd.DataFrame([record, other_record]).to_parquet(dataset_dir / f"{locale}.parquet")
     engine = load_person_data_sampler(LocalPersonReader(tmp_path), locale)

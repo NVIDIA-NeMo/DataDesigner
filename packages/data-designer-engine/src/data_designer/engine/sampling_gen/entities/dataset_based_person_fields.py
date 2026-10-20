@@ -15,7 +15,7 @@ from __future__ import annotations
 REQUIRED_FIELDS = {"first_name", "last_name", "age", "locale"}
 
 PII_FIELDS = [
-    # Universal demographic fields (present in every managed locale)
+    # Shared demographic fields (availability varies by locale)
     "uuid",
     "first_name",
     "middle_name",
@@ -69,7 +69,6 @@ PII_FIELDS = [
     "smoking_status",
     "waist_status",
     # en_GB-specific
-    "municipality",
     "ethnicity",
     "country_of_birth",
     "disability",
@@ -77,8 +76,10 @@ PII_FIELDS = [
     "migration_background",
     "employment_status",
     "job_position",
-    "kreis",
-    "bundesland",
+    "occupation_kldb",
+    "last_occupation",
+    "last_occupation_kldb",
+    "kreis_code",
     "nationality",
     # pt_BR-specific
     "race",
