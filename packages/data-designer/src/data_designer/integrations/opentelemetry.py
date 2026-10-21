@@ -272,6 +272,8 @@ class OpenTelemetryRuntime:
             return
         server, _thread, _provider, handler = self._detach_state()
         if handler is not None:
+            # Safe to take the logging lock: logging registers its own after_in_child hook at
+            # import, before this one, and CPython runs those hooks in registration order.
             logging.getLogger("data_designer").removeHandler(handler)
         if server is not None:
             with contextlib.suppress(Exception):
