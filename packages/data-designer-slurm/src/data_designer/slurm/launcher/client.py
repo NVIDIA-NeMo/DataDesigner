@@ -288,17 +288,18 @@ class SlurmCommandClient:
         return stdout
 
 
-def _format_export_environment(environment: Mapping[str, str] | None) -> tuple[str, Mapping[str, str] | None]:
-    if not environment:
-        return "--export=NIL", None
-    names = tuple(sorted(environment))
+def _format_export_environment(environment: Mapping[str, str] | None) -> tuple[str, Mapping[str, str]]:
+    """Export selected runner values without loading a node login environment."""
+    exported = dict(environment or {})
+    exported.setdefault("NEMO_DEPLOYMENT_TYPE", os.environ.get("NEMO_DEPLOYMENT_TYPE", "slurm"))
+    names = tuple(sorted(exported))
     for name in names:
         if _ENVIRONMENT_NAME_PATTERN.fullmatch(name) is None:
             raise ValueError("exported environment names must be valid identifiers")
-        value = environment[name]
+        value = exported[name]
         if type(value) is not str or "\0" in value:
             raise ValueError("exported environment values must be strings without NUL")
-    return f"--export={','.join(names)}", environment
+    return "--export=ALL", exported
 
 
 def _format_selectors(selectors: Sequence[SchedulerJobIdentity]) -> str:
