@@ -66,11 +66,31 @@ class RowGroupBufferManager:
     def has_row_group(self, row_group: int) -> bool:
         return row_group in self._buffers
 
-    def get_dataframe(self, row_group: int) -> pd.DataFrame:
-        """Return the row group as a DataFrame (excluding dropped rows, stripping skip metadata)."""
-        dropped = self._dropped.get(row_group, set())
-        rows = [row for i, row in enumerate(self._buffers[row_group]) if i not in dropped]
-        return lazy.pd.DataFrame(strip_skip_metadata_from_records(rows))
+    def get_dataframe(self, row_group: int, *, row_indices: list[int] | None = None) -> pd.DataFrame:
+        """Materialize logical rows, stripping skip metadata and preserving JSON cell types.
+
+        By default, exclude dropped rows and use a fresh index. Explicit row indices
+        select the requested slots and retain their indices for batch generators.
+        """
+        buffer = self._buffers[row_group]
+        if row_indices is None:
+            dropped = self._dropped.get(row_group, set())
+            rows = [row for i, row in enumerate(buffer) if i not in dropped]
+        else:
+            rows = [buffer[i] for i in row_indices]
+        records = strip_skip_metadata_from_records(rows)
+        protected = [
+            name for name in self._artifact_storage.json_storage.columns if any(name in row for row in records)
+        ]
+        if not protected:
+            return lazy.pd.DataFrame(records, index=row_indices)
+        column_names = list(dict.fromkeys(name for row in records for name in row))
+        # Infer only native columns: inference can replace JSON nulls, round integers, or overflow.
+        values = {name: [row.pop(name, None) for row in records] for name in protected}
+        frame = lazy.pd.DataFrame(records, index=row_indices)
+        for name, column_values in values.items():
+            frame[name] = lazy.pd.Series(column_values, index=frame.index, dtype=object)
+        return frame.loc[:, column_names]
 
     def replace_dataframe(self, row_group: int, df: pd.DataFrame) -> None:
         """Replace the buffer for a row group from a DataFrame (non-dropped rows only).

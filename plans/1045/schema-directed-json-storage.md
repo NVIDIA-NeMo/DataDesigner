@@ -391,6 +391,8 @@ committed with regression tests before another stable review cycle.
   concatenation cannot discard metadata needed for later seed handoffs.
 - Carry active encoding contracts through processed previews and preview-to-seed projections, including
   inherited seed policies, while removing policies for dropped columns.
+- Preserve Python object cells for protected columns at every engine row-buffer and batch snapshot,
+  before pandas inference can coerce JSON nulls or round mixed integer/float values.
 - Restore partitioned directory reads, normalize overflow and malformed-metadata recursion errors,
   preserve native null semantics, and keep CSV structured cells valid JSON without rounding protected
   numbers.

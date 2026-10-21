@@ -15,13 +15,20 @@ import pytest
 from pydantic import BaseModel, Field, JsonValue
 
 from data_designer.config.analysis.dataset_profiler import DatasetProfilerResults
-from data_designer.config.column_configs import CustomColumnConfig, ExpressionColumnConfig, LLMStructuredColumnConfig
+from data_designer.config.column_configs import (
+    CustomColumnConfig,
+    ExpressionColumnConfig,
+    GenerationStrategy,
+    LLMStructuredColumnConfig,
+)
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.custom_column import custom_column_generator
 from data_designer.config.dataset_metadata import DatasetMetadata
 from data_designer.config.errors import InvalidFileFormatError
 from data_designer.config.models import ModelConfig, ModelProvider
 from data_designer.config.run_config import RunConfig
+from data_designer.config.seed_source import LocalFileSeedSource
+from data_designer.config.seed_source_dataframe import DataFrameSeedSource
 from data_designer.config.utils.io_helpers import read_parquet_dataset
 from data_designer.config.utils.storage_schema import JSON_STORAGE_METADATA_KEY, JSON_STORAGE_RUN_KEY, JsonStoragePlan
 from data_designer.engine.models.facade import ModelFacade
@@ -287,3 +294,72 @@ def test_preview_seed_projection_preserves_source_and_does_not_encode_reused_nam
 
 def _reject_nonfinite_json_constant(value: str) -> None:
     pytest.fail(f"Structured CSV cell contains invalid JSON constant {value}")
+
+
+class ScalarPayloadParams(BaseModel):
+    values: list[JsonValue]
+
+
+@custom_column_generator(required_columns=["id"])
+def create_scalar_payload(row: dict[str, Any], generator_params: ScalarPayloadParams) -> dict[str, Any]:
+    return {**row, "payload": generator_params.values[row["id"]]}
+
+
+@custom_column_generator(required_columns=["payload"])
+def inspect_scalar_payload(df: pd.DataFrame) -> pd.DataFrame:
+    df["observed"] = [json.dumps(value, allow_nan=False) for value in df["payload"]]
+    return df
+
+
+@pytest.mark.parametrize(
+    "values",
+    [[None, 1], [1.25, None], [2**60 + 1, 1.25], [2**1024, 1.25], [None, None]],
+    ids=["null-integer", "float-null", "precise-integer-float", "huge-integer-float", "all-null"],
+)
+def test_public_generation_preserves_json_scalar_types_before_batch_generators_and_storage(
+    tmp_path: Path, stub_model_providers: list[ModelProvider], values: list[JsonValue]
+) -> None:
+    managed = tmp_path / "managed"
+    managed.mkdir()
+    designer = DataDesigner(
+        artifact_path=tmp_path / "artifacts",
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=managed,
+    )
+    designer.set_run_config(RunConfig(otel_metrics_port=None, buffer_size=len(values)))
+    config = DataDesignerConfigBuilder().with_seed_dataset(DataFrameSeedSource(df=pd.DataFrame({"id": [0, 1]})))
+    config.add_column(
+        CustomColumnConfig(
+            name="payload",
+            generator_function=create_scalar_payload,
+            generator_params=ScalarPayloadParams(values=values),
+            storage_encoding="json",
+        )
+    )
+    config.add_column(
+        CustomColumnConfig(
+            name="observed",
+            generator_function=inspect_scalar_payload,
+            generation_strategy=GenerationStrategy.FULL_COLUMN,
+        )
+    )
+
+    preview = designer.preview(config, num_records=len(values))
+    results = designer.create(config, num_records=len(values), dataset_name="scalar_json")
+    for frame in (preview.dataset, results.load_dataset()):
+        assert [(type(value), value) for value in frame["payload"]] == [(type(value), value) for value in values]
+        assert frame["observed"].tolist() == [json.dumps(value, allow_nan=False) for value in values]
+    preview_seed = preview.to_config_builder()
+    preview_seed.add_column(ExpressionColumnConfig(name="question", expr="hi", dtype="str"))
+    handoff = designer.create(preview_seed, num_records=len(values), dataset_name="scalar_preview_seed")
+    assert [(type(value), value) for value in handoff.load_dataset()["payload"]] == [
+        (type(value), value) for value in values
+    ]
+    exported = results.export(tmp_path / "scalars.parquet")
+    file_config = DataDesignerConfigBuilder().with_seed_dataset(LocalFileSeedSource(path=str(exported)))
+    file_config.add_column(ExpressionColumnConfig(name="question", expr="hi", dtype="str"))
+    file_preview = designer.preview(file_config, num_records=len(values))
+    file_results = designer.create(file_config, num_records=len(values), dataset_name="scalar_file_seed")
+    for frame in (file_preview.dataset, file_results.load_dataset()):
+        assert [(type(value), value) for value in frame["payload"]] == [(type(value), value) for value in values]

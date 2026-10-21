@@ -92,6 +92,8 @@ Loading main and dropped-column artifacts together merges their encoding contrac
 concatenation, so the combined logical DataFrame remains safe to reuse as a seed.
 Processed previews carry the active contract too; preview projections filter it before seed handoffs,
 and processors that drop an encoded column remove its carried policy.
+Row-buffer and batch-generator DataFrames preserve protected columns as Python objects, preventing
+pandas inference from replacing JSON nulls or rounding integers before encoding.
 Annotated DataFrame seeds register the encoded Arrow table directly with DuckDB after combining
 chunks, avoiding pandas schema re-inference and mismatched nested/native chunk boundaries.
 
