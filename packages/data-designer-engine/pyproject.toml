@@ -35,6 +35,7 @@ bump = true
 dependencies = [
     "anyascii>=0.3.3,<1",
     "asciichartpy>=1.5.25,<2",
+    "certifi>=2026.10.19", # Updated CA bundle for the eMudhra compromise
     "data-designer-config=={{ version }}",
     "duckdb>=1.5.0,<2",
     "faker>=20.1.0,<21",
