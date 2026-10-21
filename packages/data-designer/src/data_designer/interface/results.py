@@ -16,6 +16,7 @@ from data_designer.config.seed_source_dataframe import DataFrameSeedSource
 from data_designer.config.utils.io_helpers import read_parquet_dataset, serialize_data
 from data_designer.config.utils.storage_encoding import (
     decode_storage_dataframe,
+    read_dataframe_storage_plan,
     read_storage_plan,
     validate_storage_plans,
 )
@@ -103,6 +104,8 @@ class DatasetCreationResults(WithRecordSamplerMixin):
         df = self.load_dataset()
         if columns is not None:
             df = df.loc[:, columns]
+        if JSON_STORAGE_RUN_KEY in df.attrs:
+            df.attrs[JSON_STORAGE_RUN_KEY] = read_dataframe_storage_plan(df).model_dump()
         return DataDesignerConfigBuilder(
             model_configs=self._config_builder.model_configs,
             tool_configs=self._config_builder.tool_configs,

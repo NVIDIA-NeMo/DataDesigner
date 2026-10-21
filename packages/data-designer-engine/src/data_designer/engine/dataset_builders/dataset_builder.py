@@ -207,7 +207,12 @@ class DatasetBuilder:
         if resource_provider.seed_reader is not None:
             seed_plan = resource_provider.seed_reader.get_storage_plan()
             if isinstance(seed_plan, JsonStoragePlan):
-                columns.update(seed_plan.columns)
+                seed_column_names = [
+                    column.name
+                    for column in self.single_column_configs
+                    if column.column_type == DataDesignerColumnType.SEED_DATASET
+                ]
+                columns.update(seed_plan.for_columns(seed_column_names).columns)
         for column in self.single_column_configs:
             if column.storage_encoding == "json":
                 columns[column.name] = [[]]

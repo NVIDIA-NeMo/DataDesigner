@@ -5,14 +5,14 @@ from __future__ import annotations
 
 import subprocess
 import sys
-from typing import Any
+from typing import Any, Literal
 
 import pytest
 import yaml
 from pydantic import BaseModel
 
 from data_designer.config.analysis.column_profilers import JudgeScoreProfilerConfig
-from data_designer.config.base import SkipConfig
+from data_designer.config.base import ProcessorConfig, SkipConfig
 from data_designer.config.column_configs import (
     CustomColumnConfig,
     LLMTextColumnConfig,
@@ -47,6 +47,22 @@ def test_fingerprint_shape(stub_data_designer_config: DataDesignerConfig) -> Non
     digest = fp["config_hash"].split(":", 1)[1]
     assert len(digest) == 64  # sha256 hex
     assert all(c in "0123456789abcdef" for c in digest)
+
+
+def test_plugin_storage_named_fields_remain_part_of_fingerprint() -> None:
+    class FutureProcessorConfig(ProcessorConfig):
+        processor_type: Literal["future_encoder"] = "future_encoder"
+        json_storage_columns: list[str] | None = None
+
+    class PluginWorkload(DataDesignerConfig):
+        processors: list[FutureProcessorConfig]
+
+    columns = [SamplerColumnConfig(name="x", sampler_type="uniform", params=UniformSamplerParams(low=0, high=1))]
+    all_columns = PluginWorkload(columns=columns, processors=[FutureProcessorConfig(name="encoder")])
+    no_columns = PluginWorkload(
+        columns=columns, processors=[FutureProcessorConfig(name="encoder", json_storage_columns=[])]
+    )
+    assert all_columns.fingerprint() != no_columns.fingerprint()
 
 
 def test_fingerprint_deterministic_within_process(

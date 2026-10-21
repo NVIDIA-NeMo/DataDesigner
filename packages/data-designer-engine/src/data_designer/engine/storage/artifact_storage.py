@@ -314,6 +314,7 @@ class ArtifactStorage(BaseModel):
             lazy.pa.ArrowNotImplementedError,
             ValueError,
             TypeError,
+            OverflowError,
         ) as exc:
             self._raise_serialization_error(dataframe, active, file_path, exc)
         finally:
@@ -334,6 +335,7 @@ class ArtifactStorage(BaseModel):
                 lazy.pa.ArrowNotImplementedError,
                 ValueError,
                 TypeError,
+                OverflowError,
             ):
                 raise ArtifactStorageError(
                     f"Cannot serialize column {name!r} in {file_path.name} to Parquet ({type(error).__name__}). "

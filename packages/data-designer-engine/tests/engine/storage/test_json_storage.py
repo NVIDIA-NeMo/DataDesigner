@@ -207,3 +207,62 @@ def test_failed_write_preserves_existing_artifact_and_cleans_temporary_files(tmp
         storage.write_batch_to_parquet_file(0, pd.DataFrame({"payload": [bad]}), BatchStage.FINAL_RESULT)
     assert storage.load_dataset().iloc[0]["payload"] == good
     assert list(file.parent.iterdir()) == [file]
+
+
+@pytest.mark.parametrize("source_kind", ["file", "dataframe"])
+@pytest.mark.parametrize("paths", [[[]], [["arguments"]], [["calls", None, "arguments"]]])
+def test_seed_readers_preserve_null_encoded_values(
+    tmp_path: Path, source_kind: str, paths: list[list[str | None]]
+) -> None:
+    storage = ArtifactStorage(artifact_path=tmp_path, json_storage=JsonStoragePlan(columns={"payload": paths}))
+    if paths == [[]]:
+        values = [None, PAYLOAD, None]
+    elif paths == [["arguments"]]:
+        values = [None, {"arguments": None}, {"arguments": PAYLOAD}]
+    else:
+        values = [None, {"calls": None}, {"calls": [None, {"arguments": None}, {"arguments": PAYLOAD}]}]
+    file = storage.write_batch_to_parquet_file(
+        0, pd.DataFrame({"payload": pd.Series(values, dtype=object)}), BatchStage.FINAL_RESULT
+    )
+    if source_kind == "file":
+        reader = LocalFileSeedReader()
+        reader.attach(LocalFileSeedSource(path=str(file)), PlaintextResolver())
+    else:
+        reader = DataFrameSeedReader()
+        reader.attach(DataFrameSeedSource(df=storage.load_dataset()), PlaintextResolver())
+    batches = reader.create_batch_reader(batch_size=1, index_range=None, shuffle=False)
+    restored = [batches.read_next_batch().to_pandas().iloc[0]["payload"] for _ in values]
+    assert restored == values
+
+
+@pytest.mark.parametrize("source_kind", ["file", "dataframe"])
+@pytest.mark.parametrize("nested", [False, True])
+def test_seed_readers_preserve_all_null_encoded_columns(tmp_path: Path, source_kind: str, nested: bool) -> None:
+    storage = ArtifactStorage(
+        artifact_path=tmp_path,
+        json_storage=JsonStoragePlan(columns={"payload": [["arguments"]] if nested else [[]]}),
+    )
+    file = storage.write_batch_to_parquet_file(
+        0, pd.DataFrame({"payload": pd.Series([None], dtype=object)}), BatchStage.FINAL_RESULT
+    )
+    if source_kind == "file":
+        reader = LocalFileSeedReader()
+        reader.attach(LocalFileSeedSource(path=str(file)), PlaintextResolver())
+    else:
+        reader = DataFrameSeedReader()
+        reader.attach(DataFrameSeedSource(df=storage.load_dataset()), PlaintextResolver())
+    batch = reader.create_batch_reader(batch_size=1, index_range=None, shuffle=False).read_next_batch().to_pandas()
+    assert batch["payload"].tolist() == [None]
+
+
+@pytest.mark.parametrize("encoded_sibling", [False, True])
+@pytest.mark.parametrize("value", [2**64, 2**100, -(2**100)])
+def test_native_integer_overflow_has_actionable_column_error(tmp_path: Path, encoded_sibling: bool, value: int) -> None:
+    storage = ArtifactStorage(
+        artifact_path=tmp_path,
+        json_storage=JsonStoragePlan(columns={"encoded": [[]]}) if encoded_sibling else JsonStoragePlan(),
+    )
+    frame = pd.DataFrame({"payload": pd.Series([value], dtype=object), "encoded": [{"value": 1}]})
+    with pytest.raises(ArtifactStorageError, match="column 'payload'.*storage_encoding='json'"):
+        storage.write_batch_to_parquet_file(0, frame, BatchStage.FINAL_RESULT)
+    assert not list(storage.final_dataset_path.iterdir())

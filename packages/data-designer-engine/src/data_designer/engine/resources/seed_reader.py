@@ -34,9 +34,10 @@ from data_designer.config.seed_source_dataframe import DataFrameSeedSource
 from data_designer.config.utils.storage_encoding import (
     decode_storage_dataframe,
     encode_storage_table,
+    read_dataframe_storage_plan,
     validate_storage_plans,
 )
-from data_designer.config.utils.storage_schema import JSON_STORAGE_RUN_KEY, JsonStoragePlan
+from data_designer.config.utils.storage_schema import JsonStoragePlan
 from data_designer.config.utils.warning_helpers import warn_at_caller
 from data_designer.engine.resources.agent_rollout import (
     AgentRolloutFormatHandler,
@@ -265,7 +266,7 @@ class SeedReader(ABC, Generic[SourceT]):
             return self._json_storage_plan
         schemas = []
         if isinstance(self.source, DataFrameSeedSource):
-            plan = JsonStoragePlan.model_validate(self.source.df.attrs.get(JSON_STORAGE_RUN_KEY, {}))
+            plan = read_dataframe_storage_plan(self.source.df)
         elif isinstance(self.source, LocalFileSeedSource):
             uri = self.get_dataset_uri()
             files = (

@@ -30,6 +30,7 @@ from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any
 
 from data_designer.config.column_configs import CustomColumnConfig
+from data_designer.config.processors import ProcessorType
 
 if TYPE_CHECKING:
     from data_designer.config.data_designer_config import DataDesignerConfig
@@ -198,6 +199,8 @@ def _normalize_config_dict(config_dict: dict[str, Any], config: DataDesignerConf
     if normalized.get("processors"):
         normalized["processors"] = [
             {key: value for key, value in processor.items() if key != "json_storage_columns" or value}
+            if processor.get("processor_type") == ProcessorType.SCHEMA_TRANSFORM
+            else processor
             for processor in normalized["processors"]
         ]
 

@@ -11,7 +11,12 @@ from pydantic import BaseModel, Field, JsonValue, ValidationError
 
 from data_designer.config.column_configs import LLMStructuredColumnConfig, LLMTextColumnConfig
 from data_designer.config.errors import InvalidConfigError
-from data_designer.config.utils.storage_schema import JSON_STORAGE_KEY, JsonStoragePlan, compile_json_storage_schema
+from data_designer.config.utils.storage_schema import (
+    JSON_STORAGE_KEY,
+    JsonStoragePlan,
+    compile_json_storage_schema,
+    resolve_local_json_pointer,
+)
 
 
 class ToolCall(BaseModel):
@@ -138,3 +143,120 @@ def test_storage_annotation_rejects_unsupported_dialect() -> None:
 def test_storage_plan_version_is_not_coerced_from_boolean() -> None:
     with pytest.raises(ValidationError):
         JsonStoragePlan.model_validate({"version": True, "columns": {}})
+
+
+def test_storage_paths_are_canonical_for_reordered_schema_properties() -> None:
+    fields = {"z": {JSON_STORAGE_KEY: "json"}, "a": {JSON_STORAGE_KEY: "json"}}
+    first = compile_json_storage_schema({"type": "object", "properties": fields})[1]
+    second = compile_json_storage_schema({"type": "object", "properties": dict(reversed(fields.items()))})[1]
+    assert first == second == [["a"], ["z"]]
+    assert JsonStoragePlan(columns={"value": list(reversed(first))}) == JsonStoragePlan(columns={"value": first})
+
+
+@pytest.mark.parametrize("paths", [[[None], ["field"]], [["a", None, "x"], ["a", "field"]]])
+def test_storage_contract_rejects_conflicting_container_shapes(paths: list[list[str | None]]) -> None:
+    with pytest.raises(ValidationError, match="Conflicting list/object"):
+        JsonStoragePlan(columns={"payload": paths})
+
+
+@pytest.mark.parametrize(
+    "schema",
+    [
+        {"properties": {"args": {JSON_STORAGE_KEY: "json"}}},
+        {"items": {JSON_STORAGE_KEY: "json"}},
+        {"type": ["object", "string"], "properties": {"args": {JSON_STORAGE_KEY: "json"}}},
+        {"type": ["array", "string"], "items": {JSON_STORAGE_KEY: "json"}},
+        {
+            "type": ["object", "array"],
+            "properties": {"args": {JSON_STORAGE_KEY: "json"}},
+            "items": {JSON_STORAGE_KEY: "json"},
+        },
+    ],
+)
+def test_descendant_storage_requires_an_unambiguous_container(schema: dict[str, Any]) -> None:
+    with pytest.raises(InvalidConfigError, match="ambiguous-container.*enclosing"):
+        compile_json_storage_schema(schema)
+
+
+@pytest.mark.parametrize("nullable", [False, True])
+@pytest.mark.parametrize("container,keyword,step", [("object", "properties", "args"), ("array", "items", None)])
+def test_typed_and_nullable_containers_allow_descendant_storage(
+    nullable: bool, container: str, keyword: str, step: str | None
+) -> None:
+    child = {JSON_STORAGE_KEY: "json"}
+    schema = {"type": [container, "null"] if nullable else container, keyword: {step: child} if step else child}
+    assert compile_json_storage_schema(schema)[1] == [[step]]
+
+
+@pytest.mark.parametrize("type_at_reference", [False, True])
+def test_reference_and_sibling_types_constrain_the_same_container(type_at_reference: bool) -> None:
+    properties = {"args": {JSON_STORAGE_KEY: "json"}}
+    schema = {"$ref": "#/$defs/Record", "$defs": {"Record": {}}}
+    if type_at_reference:
+        schema["type"] = "object"
+        schema["$defs"]["Record"]["properties"] = properties
+    else:
+        schema["properties"] = properties
+        schema["$defs"]["Record"]["type"] = "object"
+    assert compile_json_storage_schema(schema)[1] == [["args"]]
+
+
+@pytest.mark.parametrize("reference", ["#/$defs/a%20b/anyOf/0", "#/$defs/a%20b/$defs/"])
+def test_local_pointer_decodes_uri_fragments_and_array_indices(reference: str) -> None:
+    annotation = {JSON_STORAGE_KEY: "json"}
+    target = {"$defs": {"": annotation}} if reference.endswith("/") else {"anyOf": [annotation]}
+    schema = {"$ref": reference, "$defs": {"a b": target}}
+    assert compile_json_storage_schema(schema)[1] == [[]]
+    assert resolve_local_json_pointer(schema, reference) is annotation
+
+
+@pytest.mark.parametrize("reference", ["#/$defs/%E9%9B%AA", "#/$defs/~0~1"])
+def test_local_pointer_supports_unicode_and_json_pointer_escapes(reference: str) -> None:
+    annotation = {JSON_STORAGE_KEY: "json"}
+    schema = {"$ref": reference, "$defs": {"雪" if "%" in reference else "~/": annotation}}
+    assert compile_json_storage_schema(schema)[1] == [[]]
+
+
+@pytest.mark.parametrize(
+    "reference",
+    [
+        "#/$defs/values/-1",
+        "#/$defs/values/01",
+        "#/$defs/values/-",
+        "#/$defs/values/1",
+        "#/$defs/bad~2",
+        "#/$defs/%ZZ",
+        "#/$defs/%FF",
+        "#anchor",
+    ],
+)
+def test_local_pointer_rejects_invalid_indices_fragments_and_escapes(reference: str) -> None:
+    schema = {"$defs": {"values": [{JSON_STORAGE_KEY: "json"}]}}
+    with pytest.raises(InvalidConfigError):
+        resolve_local_json_pointer(schema, reference)
+
+
+def test_root_pointer_is_valid_and_recursive_traversal_fails_explicitly() -> None:
+    schema = {"type": "object", "properties": {"child": {"$ref": "#"}, "args": {JSON_STORAGE_KEY: "json"}}}
+    assert resolve_local_json_pointer(schema, "#") is schema
+    with pytest.raises(InvalidConfigError, match="Recursive"):
+        compile_json_storage_schema(schema)
+
+
+def test_nested_schema_resources_require_an_encoded_ancestor() -> None:
+    child = {"$id": "https://example.com/child", "type": "object", "properties": {"args": {JSON_STORAGE_KEY: "json"}}}
+    schema = {"type": "object", "properties": {"child": child}}
+    with pytest.raises(InvalidConfigError, match=r"Nested \$id"):
+        compile_json_storage_schema(schema)
+    child["properties"]["args"].pop(JSON_STORAGE_KEY)
+    child[JSON_STORAGE_KEY] = "json"
+    assert compile_json_storage_schema(schema)[1] == [["child"]]
+
+
+def test_pointer_cannot_cross_a_nested_resource_to_infer_storage_paths() -> None:
+    schema = {
+        "$ref": "#/$defs/Resource/$defs/Inner",
+        "$defs": {"Resource": {"$id": "https://example.com/child", "$defs": {"Inner": {JSON_STORAGE_KEY: "json"}}}},
+    }
+    with pytest.raises(InvalidConfigError, match=r"Nested \$id"):
+        compile_json_storage_schema(schema)

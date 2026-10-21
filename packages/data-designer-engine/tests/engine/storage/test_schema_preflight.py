@@ -206,3 +206,82 @@ def test_warning_allows_builder_and_shows_actionable_diagnostic(
     output = capsys.readouterr().out
     assert "PARQUET_STORAGE" in output and "x-data-designer-storage" in output
     assert "oracle" in output and "arguments" in output
+
+
+@pytest.mark.parametrize("min_items,definite", [(0, False), (1, False), (2, True)])
+def test_trailing_items_are_required_only_beyond_prefix_items(min_items: int, definite: bool) -> None:
+    schema = {
+        "type": "array",
+        "minItems": min_items,
+        "prefixItems": [{"type": "integer"}],
+        "items": {"type": "object", "additionalProperties": False},
+    }
+    risks = find_storage_schema_risks(schema)
+    assert any(risk.definite for risk in risks) is definite
+    if not definite:
+        with pa.BufferOutputStream() as sink:
+            pq.write_table(pa.Table.from_pydict({"value": [[1]]}), sink)
+
+
+@pytest.mark.parametrize("dialect", ["http://json-schema.org/draft-07/schema#", "https://example.com/future-draft"])
+def test_unverified_dialects_warn_without_interpreting_ref_siblings(dialect: str) -> None:
+    schema = {
+        "$schema": dialect,
+        "$ref": "#/definitions/Text",
+        "type": "object",
+        "additionalProperties": False,
+        "definitions": {"Text": {"type": "string"}},
+    }
+    risks = find_storage_schema_risks(schema)
+    assert risks and all(not risk.definite and "dialect" in risk.reason for risk in risks)
+
+
+def test_nested_resource_references_cannot_produce_a_false_fatal_proof() -> None:
+    schema = {
+        "type": "object",
+        "$defs": {"Value": {"type": "object", "additionalProperties": False}},
+        "properties": {
+            "wrapper": {
+                "$id": "https://example.com/child",
+                "$defs": {"Value": {"type": "integer"}},
+                "type": "object",
+                "properties": {"value": {"$ref": "#/$defs/Value"}},
+                "required": ["value"],
+            }
+        },
+        "required": ["wrapper"],
+    }
+    risks = find_storage_schema_risks(schema)
+    assert risks and all(not risk.definite for risk in risks)
+    assert any(risk.path == ("wrapper",) and "$id" in risk.reason for risk in risks)
+
+
+def test_reference_crossing_a_nested_resource_warns_instead_of_guessing_scope() -> None:
+    schema = {
+        "$ref": "#/$defs/Resource/$defs/Value",
+        "$defs": {
+            "Resource": {
+                "$id": "https://example.com/child",
+                "$defs": {"Value": {"type": "object", "additionalProperties": False}},
+            }
+        },
+    }
+    risks = find_storage_schema_risks(schema)
+    assert risks and all(not risk.definite for risk in risks)
+
+
+@pytest.mark.parametrize("reference", ["#/$defs/a%20b/anyOf/0", "#/$defs/a~1b~0c"])
+def test_preflight_uses_the_shared_local_pointer_semantics(reference: str) -> None:
+    schema = {
+        "$ref": reference,
+        "$defs": {
+            "a b": {"anyOf": [{"type": "object", "additionalProperties": False}]},
+            "a/b~c": {"type": "object", "additionalProperties": False},
+        },
+    }
+    assert any(risk.definite for risk in find_storage_schema_risks(schema))
+
+
+def test_root_recursive_reference_warns_without_recursing_forever() -> None:
+    risks = find_storage_schema_risks({"type": "object", "properties": {"child": {"$ref": "#"}}})
+    assert risks and all(not risk.definite for risk in risks)

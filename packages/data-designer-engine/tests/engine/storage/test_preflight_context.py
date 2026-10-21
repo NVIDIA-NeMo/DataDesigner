@@ -1,0 +1,121 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+from __future__ import annotations
+
+import json
+from typing import TYPE_CHECKING, Literal
+from unittest.mock import Mock
+
+import pytest
+
+from data_designer.config.base import ProcessorConfig, SkipConfig
+from data_designer.config.column_configs import ExpressionColumnConfig, LLMStructuredColumnConfig
+from data_designer.config.config_builder import DataDesignerConfigBuilder
+from data_designer.config.data_designer_config import DataDesignerConfig
+from data_designer.config.errors import InvalidConfigError
+from data_designer.config.models import ModelConfig
+from data_designer.config.processors import DropColumnsProcessorConfig, SchemaTransformProcessorConfig
+from data_designer.config.run_config import RunConfig
+from data_designer.engine.dataset_builders.dataset_builder import DatasetBuilder
+from data_designer.engine.processing.processors.base import Processor
+from data_designer.engine.registry.data_designer_registry import DataDesignerRegistry
+from data_designer.engine.validation import ViolationLevel, validate_parquet_storage
+
+if TYPE_CHECKING:
+    import pandas as pd
+
+
+class FutureEncoderConfig(ProcessorConfig):
+    processor_type: Literal["future_encoder"] = "future_encoder"
+
+
+class FutureEncoder(Processor[FutureEncoderConfig]):
+    def process_after_batch(self, data: pd.DataFrame, *, current_batch_number: int | None) -> pd.DataFrame:
+        return data.assign(temporary=data["temporary"].map(json.dumps))
+
+
+class FutureWorkload(DataDesignerConfig):
+    processors: list[FutureEncoderConfig]
+
+
+def _column(*, drop: bool = False, skip: SkipConfig | None = None) -> LLMStructuredColumnConfig:
+    return LLMStructuredColumnConfig(
+        name="temporary", model_alias="test_model", prompt="Generate", output_format={"const": {}}, drop=drop, skip=skip
+    )
+
+
+@pytest.mark.parametrize("processor_drop", [False, True])
+def test_discarded_values_are_not_checked_for_native_storage(processor_drop: bool) -> None:
+    column = _column(drop=not processor_drop)
+    processors = [DropColumnsProcessorConfig(name="drop", column_names=["temp*"])] if processor_drop else []
+    assert validate_parquet_storage([column], processor_configs=processors, preserve_dropped_columns=False) == []
+    assert any(
+        violation.level == ViolationLevel.ERROR
+        for violation in validate_parquet_storage([column], processor_configs=processors, preserve_dropped_columns=True)
+    )
+
+
+def test_unknown_processor_turns_schema_proofs_into_warnings() -> None:
+    violations = validate_parquet_storage([_column()], processor_configs=[FutureEncoderConfig(name="encoder")])
+    assert violations and all(violation.level == ViolationLevel.WARNING for violation in violations)
+
+
+def test_known_non_mutating_processor_does_not_hide_native_failure() -> None:
+    violations = validate_parquet_storage(
+        [_column()], processor_configs=[SchemaTransformProcessorConfig(name="copy", template={"copy": "ok"})]
+    )
+    assert any(violation.level == ViolationLevel.ERROR for violation in violations)
+
+
+def test_skipped_generation_can_store_a_native_compatible_value() -> None:
+    violations = validate_parquet_storage([_column(skip=SkipConfig(when="{{ condition }}", value="skipped"))])
+    assert violations and all(violation.level == ViolationLevel.WARNING for violation in violations)
+
+
+@pytest.mark.parametrize("preserve", [False, True])
+def test_compiler_uses_the_artifact_policy(
+    stub_resource_provider: Mock, stub_model_configs: list, preserve: bool
+) -> None:
+    provider = stub_resource_provider
+    provider.seed_reader = None
+    provider.run_config = RunConfig(preserve_dropped_columns=preserve)
+    provider.model_registry.get_model.return_value.agenerate.return_value = ({}, [])
+    provider.model_registry.get_model_config.return_value = ModelConfig(
+        alias="test_model", model="test", provider="test_provider", skip_health_check=True
+    )
+    provider.model_registry.get_model_provider.return_value.name = "test_provider"
+    config = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+    config.add_column(_column(drop=True))
+    config.add_column(ExpressionColumnConfig(name="output", expr="ok", dtype="str"))
+    if preserve:
+        with pytest.raises(InvalidConfigError, match="validation errors"):
+            DatasetBuilder(config.build(), provider)
+    else:
+        builder = DatasetBuilder(config.build(), provider)
+        builder.build(num_records=2)
+        assert builder.artifact_storage.load_dataset().to_dict("records") == [{"output": "ok"}] * 2
+
+
+def test_post_batch_plugin_can_repair_generated_values_before_storage(
+    stub_resource_provider: Mock, stub_model_configs: list
+) -> None:
+    provider = stub_resource_provider
+    provider.seed_reader = None
+    provider.run_config = RunConfig(buffer_size=2, max_concurrent_row_groups=1)
+    provider.model_registry.get_model.return_value.agenerate.return_value = ({}, [])
+    provider.model_registry.get_model_config.return_value = ModelConfig(
+        alias="test_model", model="test", provider="test_provider", skip_health_check=True
+    )
+    provider.model_registry.get_model_provider.return_value.name = "test_provider"
+    config = FutureWorkload(
+        columns=[_column()], model_configs=stub_model_configs, processors=[FutureEncoderConfig(name="encoder")]
+    )
+    registry = DataDesignerRegistry()
+    registry.processors.register("future_encoder", FutureEncoder, FutureEncoderConfig, False)
+    builder = DatasetBuilder(config, provider, registry)
+    # This test declares its plugin on a typed workload subclass rather than
+    # changing the process-global plugin discovery union used by BuilderConfig.
+    with pytest.warns(UserWarning, match="Pydantic serializer warnings"):
+        builder.build(num_records=2)
+    assert builder.artifact_storage.load_dataset()["temporary"].tolist() == ["{}", "{}"]

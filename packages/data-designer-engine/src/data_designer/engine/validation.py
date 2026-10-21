@@ -66,6 +66,8 @@ def validate_data_designer_config(
     columns: list[ColumnConfigT],
     processor_configs: list[ProcessorConfigT],
     allowed_references: list[str],
+    *,
+    preserve_dropped_columns: bool = True,
 ) -> list[Violation]:
     violations = []
     violations.extend(validate_prompt_templates(columns=columns, allowed_references=allowed_references))
@@ -75,33 +77,62 @@ def validate_data_designer_config(
     violations.extend(validate_columns_not_all_dropped(columns=columns, processor_configs=processor_configs))
     violations.extend(validate_drop_columns_processor(columns=columns, processor_configs=processor_configs))
     violations.extend(validate_schema_transform_processor(columns=columns, processor_configs=processor_configs))
-    violations.extend(validate_parquet_storage(columns=columns))
+    violations.extend(
+        validate_parquet_storage(
+            columns=columns,
+            processor_configs=processor_configs,
+            preserve_dropped_columns=preserve_dropped_columns,
+        )
+    )
     if not can_run_data_designer_locally():
         violations.extend(validate_local_only_columns(columns=columns))
     return violations
 
 
-def validate_parquet_storage(columns: list[ColumnConfigT]) -> list[Violation]:
+def validate_parquet_storage(
+    columns: list[ColumnConfigT],
+    *,
+    processor_configs: list[ProcessorConfigT] | None = None,
+    preserve_dropped_columns: bool = True,
+) -> list[Violation]:
     """Flag storage problems before model health checks or generation spend."""
     violations = []
+    processors = processor_configs or []
+    discarded = (
+        {column.name for column in columns if column.drop} | resolve_processor_dropped_columns(columns, processors)
+        if not preserve_dropped_columns
+        else set()
+    )
+    # Unknown processors may reshape generated values before checkpointing.
+    # Conditional generation can likewise replace the declared value with a skip
+    # value. Neither permits a proof about every stored row from this schema alone.
+    uncertain_output = any(
+        processor.processor_type not in (ProcessorType.DROP_COLUMNS, ProcessorType.SCHEMA_TRANSFORM)
+        for processor in processors
+    ) or any(column.skip is not None for column in columns)
     for column in columns:
-        if column.column_type != DataDesignerColumnType.LLM_STRUCTURED or column.storage_encoding == "json":
+        if (
+            column.name in discarded
+            or column.column_type != DataDesignerColumnType.LLM_STRUCTURED
+            or column.storage_encoding == "json"
+        ):
             continue
         for risk in find_storage_schema_risks(column.output_format):
+            definite = risk.definite and not uncertain_output
             location = "$" + "".join("[]" if part is None else f"[{part!r}]" for part in risk.path)
             message = (
                 f"Native Parquet storage at {location} {risk.reason}. "
                 "Add 'x-data-designer-storage': 'json' to this field or an enclosing schema node, "
                 "or set storage_encoding='json' on the column. "
             )
-            if not risk.definite:
+            if not definite:
                 message += "This is a schema risk, not a prediction that every generated batch will fail."
             violations.append(
                 Violation(
                     column=column.name,
                     type=ViolationType.PARQUET_STORAGE,
                     message=message,
-                    level=ViolationLevel.ERROR if risk.definite else ViolationLevel.WARNING,
+                    level=ViolationLevel.ERROR if definite else ViolationLevel.WARNING,
                 )
             )
     return violations

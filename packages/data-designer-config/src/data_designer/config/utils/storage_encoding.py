@@ -30,11 +30,29 @@ def read_storage_plan(schema: pa.Schema) -> JsonStoragePlan:
         if not isinstance(data, dict) or type(data.get("version")) is not int or data["version"] != 1:
             raise ValueError("Unsupported JSON storage contract version")
         plan = JsonStoragePlan.model_validate(data)
+        if len(schema.names) != len(set(schema.names)):
+            raise ValueError("JSON storage metadata requires unique column names")
         if set(plan.columns) - set(schema.names):
             raise ValueError("JSON storage metadata references missing columns")
+        for name, paths in plan.columns.items():
+            for path in paths:
+                _validate_storage_path(schema.field(name).type, path)
         return plan
     except (ValueError, TypeError, ValidationError) as exc:
         raise InvalidFileFormatError("Invalid or unsupported DD JSON storage metadata") from exc
+
+
+def read_dataframe_storage_plan(dataframe: pd.DataFrame) -> JsonStoragePlan:
+    """Validate a logical DataFrame's carried contract and keep its present columns.
+
+    Raises:
+        InvalidFileFormatError: If the carried JSON storage contract is malformed.
+    """
+    try:
+        plan = JsonStoragePlan.model_validate(dataframe.attrs.get(JSON_STORAGE_RUN_KEY, {}))
+    except (ValueError, TypeError) as exc:
+        raise InvalidFileFormatError("Invalid or unsupported DD JSON storage metadata in DataFrame") from exc
+    return plan.for_columns(list(dataframe.columns))
 
 
 def validate_storage_plans(schemas: list[pa.Schema]) -> JsonStoragePlan:
@@ -115,16 +133,21 @@ def decode_storage_dataframe(dataframe: pd.DataFrame, plan: JsonStoragePlan) -> 
 def read_encoded_parquet(path: Path, schemas: list[pa.Schema]) -> pd.DataFrame:
     """Read annotated files individually to retain and validate each file's metadata."""
     plan = validate_storage_plans(schemas)
-    files = sorted(path.glob("*.parquet")) if path.is_dir() else [path]
-    frame = lazy.pd.concat(
-        [decode_storage_table(lazy.pq.ParquetFile(file).read()) for file in files], ignore_index=True
-    )
+    dataset = lazy.pq.ParquetDataset(path)
+    frames = []
+    for fragment in sorted(dataset.fragments, key=lambda item: item.path):
+        schema = fragment.physical_schema
+        for field in dataset.schema:
+            if field.name not in schema.names:
+                schema = schema.append(field)
+        frames.append(decode_storage_table(fragment.to_table(schema=schema)))
+    frame = lazy.pd.concat(frames, ignore_index=True)
     frame.attrs[JSON_STORAGE_RUN_KEY] = plan.model_dump()
     return frame
 
 
 def _transform_value(value: Any, path: list[str | None], *, encode: bool) -> Any:
-    if value is None or value is lazy.pd.NA:
+    if value is None or value is lazy.pd.NA or (not encode and isinstance(value, float) and math.isnan(value)):
         return None
     if not path:
         if encode:
@@ -150,6 +173,25 @@ def _transform_value(value: Any, path: list[str | None], *, encode: bool) -> Any
     if head in result:
         result[head] = _transform_value(result[head], tail, encode=encode)
     return result
+
+
+def _validate_storage_path(dtype: pa.DataType, path: list[str | None]) -> None:
+    if not path:
+        if not (lazy.pa.types.is_string(dtype) or lazy.pa.types.is_large_string(dtype)):
+            raise ValueError("JSON storage leaves must have an Arrow UTF-8 string type")
+        return
+    head, *tail = path
+    if head is None:
+        if not (lazy.pa.types.is_list(dtype) or lazy.pa.types.is_large_list(dtype)):
+            raise ValueError("JSON storage traversal requires an Arrow list")
+        _validate_storage_path(dtype.value_type, tail)
+        return
+    if not lazy.pa.types.is_struct(dtype):
+        raise ValueError("JSON storage traversal requires an Arrow struct")
+    indices = [index for index, field in enumerate(dtype) if field.name == head]
+    if len(indices) != 1:
+        raise ValueError("JSON storage traversal references a missing or duplicate struct field")
+    _validate_storage_path(dtype.field(indices[0]).type, tail)
 
 
 def _validate_json_value(value: Any) -> None:

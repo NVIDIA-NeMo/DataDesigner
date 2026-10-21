@@ -9,7 +9,8 @@ from dataclasses import dataclass
 from typing import Any
 
 import data_designer.lazy_heavy_imports as lazy
-from data_designer.config.utils.storage_schema import compile_json_storage_schema
+from data_designer.config.errors import InvalidConfigError
+from data_designer.config.utils.storage_schema import compile_json_storage_schema, resolve_local_json_pointer
 
 
 @dataclass(frozen=True)
@@ -27,6 +28,9 @@ def find_storage_schema_risks(schema: dict[str, Any]) -> list[StorageSchemaRisk]
     values, optional properties, and union branches receive warnings instead.
     """
     _, paths = compile_json_storage_schema(schema)
+    dialect = schema.get("$schema", "https://json-schema.org/draft/2020-12/schema")
+    if not isinstance(dialect, str) or dialect.rstrip("#") != "https://json-schema.org/draft/2020-12/schema":
+        return [StorageSchemaRisk((), "uses a schema dialect whose native storage cannot be verified")]
     encoded = [tuple(path) for path in paths]
     risks: dict[tuple[str | None, ...], StorageSchemaRisk] = {}
 
@@ -43,17 +47,18 @@ def find_storage_schema_risks(schema: dict[str, Any]) -> list[StorageSchemaRisk]
             return
         if not isinstance(node, dict):
             return
+        if node is not schema and "$id" in node:
+            report(path, "uses a nested $id schema resource whose native storage cannot be verified")
+            return
 
         reference = node.get("$ref")
         if reference is not None:
-            if not isinstance(reference, str) or not reference.startswith("#/") or reference in refs:
+            if not isinstance(reference, str) or reference in refs:
                 report(path, "uses a recursive or unresolved schema whose native storage cannot be verified")
                 return
-            target: Any = schema
             try:
-                for part in reference[2:].split("/"):
-                    target = target[part.replace("~1", "/").replace("~0", "~")]
-            except (KeyError, TypeError):
+                target = resolve_local_json_pointer(schema, reference)
+            except InvalidConfigError:
                 report(path, "uses a reference whose native storage cannot be verified")
                 return
             visit(target, path, required, (*refs, reference))
@@ -111,7 +116,7 @@ def find_storage_schema_risks(schema: dict[str, Any]) -> list[StorageSchemaRisk]
 
         if "array" in types or "items" in node or "prefixItems" in node:
             # Empty arrays are valid unless minItems says otherwise.
-            items_required = certain and node.get("minItems", 0) > 0
+            items_required = certain and node.get("minItems", 0) > len(node.get("prefixItems", []))
             if "items" in node:
                 visit(node["items"], (*path, None), items_required, refs)
             elif "prefixItems" not in node:

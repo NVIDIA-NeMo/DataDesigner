@@ -14,7 +14,7 @@ import pytest
 from pydantic import BaseModel, Field, JsonValue
 
 from data_designer.config.analysis.dataset_profiler import DatasetProfilerResults
-from data_designer.config.column_configs import CustomColumnConfig, LLMStructuredColumnConfig
+from data_designer.config.column_configs import CustomColumnConfig, ExpressionColumnConfig, LLMStructuredColumnConfig
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.custom_column import custom_column_generator
 from data_designer.config.dataset_metadata import DatasetMetadata
@@ -22,7 +22,7 @@ from data_designer.config.errors import InvalidFileFormatError
 from data_designer.config.models import ModelConfig, ModelProvider
 from data_designer.config.run_config import RunConfig
 from data_designer.config.utils.io_helpers import read_parquet_dataset
-from data_designer.config.utils.storage_schema import JSON_STORAGE_METADATA_KEY, JsonStoragePlan
+from data_designer.config.utils.storage_schema import JSON_STORAGE_METADATA_KEY, JSON_STORAGE_RUN_KEY, JsonStoragePlan
 from data_designer.engine.models.facade import ModelFacade
 from data_designer.engine.secret_resolver import PlaintextResolver
 from data_designer.engine.storage.artifact_storage import ArtifactStorage, BatchStage
@@ -49,6 +49,36 @@ def test_result_loading_and_dataframe_seed_keep_logical_values(json_results: Dat
     assert json_results.count_records() == 3
     seed = json_results.to_config_builder()
     assert seed.build().seed_config.source.df["payload"].tolist() == values
+
+
+def test_result_seed_projection_does_not_encode_reused_column_name(
+    json_results: DatasetCreationResults, tmp_path: Path, stub_model_providers: list[ModelProvider]
+) -> None:
+    storage = json_results.artifact_storage
+    for file in storage.final_dataset_path.glob("*.parquet"):
+        file.unlink()
+    storage.write_batch_to_parquet_file(
+        0, pd.DataFrame({"payload": [{"alpha": 1}], "question": ["hi"]}), BatchStage.FINAL_RESULT
+    )
+    config = json_results.to_config_builder(columns=["question"])
+    assert config.build().seed_config.source.df.attrs[JSON_STORAGE_RUN_KEY] == JsonStoragePlan().model_dump()
+    config.add_column(ExpressionColumnConfig(name="payload", expr="new", dtype="str"))
+    managed = tmp_path / "managed"
+    managed.mkdir()
+    designer = DataDesigner(
+        artifact_path=tmp_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=managed,
+    )
+    designer.set_run_config(RunConfig(otel_metrics_port=None))
+
+    results = designer.create(config, num_records=1, dataset_name="projected")
+    assert pq.read_table(results.artifact_storage.final_dataset_path).to_pylist() == [
+        {"question": "hi", "payload": "new"}
+    ]
+    assert not results.artifact_storage.json_storage.columns
+    assert JSON_STORAGE_RUN_KEY not in results.artifact_storage.read_metadata()
 
 
 def test_jsonl_export_restores_nested_json(json_results: DatasetCreationResults, tmp_path: Path) -> None:
