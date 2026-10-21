@@ -101,6 +101,7 @@ def _prepare(arguments: argparse.Namespace, environment: Mapping[str, str]) -> N
     validate_allocation_layout(context.plan, layout)
     SystemAllocationPreflight.verify_attempt_directory(arguments.attempt_dir)
     SystemAllocationPreflight.verify_client_runtime(context)
+    SystemAllocationPreflight.verify_artifacts(context)
     SystemAllocationPreflight.verify_ports(context, environment)
     readiness = _begin_attempt(context, writer, environment)
     log_directory = execution_log_directory(context.attempt_directory, readiness.revision)

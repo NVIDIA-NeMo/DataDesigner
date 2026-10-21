@@ -64,26 +64,6 @@ dd_read_container_path() {
     ' "${plan}")
 }
 
-dd_read_artifacts() {
-    local plan=$1
-    local task_id=$2
-    dd_read_null_values DD_ARTIFACT_FIELDS < <(
-        jq -j --argjson task_id "${task_id}" '
-            [
-                .runtime_bundle,
-                .client.dependency_lock,
-                (.deployments[] | {path: .image.path, sha256: .image.sha256}),
-                .builder.source,
-                (.shards[] | select(.array_task_index == $task_id) | .input_partition)
-            ]
-            | map(select(. != null))
-            | unique_by([.path, .sha256])
-            | .[]
-            | .path, "\u0000", .sha256, "\u0000"
-        ' "${plan}"
-    )
-}
-
 dd_read_plan_secret_names() {
     local plan=$1
     dd_read_null_values DD_REQUIRED_SECRET_NAMES < <(

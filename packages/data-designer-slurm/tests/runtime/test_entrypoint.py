@@ -236,6 +236,28 @@ def test_succeed_phase_stops_runtime_and_finalizes_winner(
     assert state.winners[0].attempt_id == state.attempt.attempt_id
 
 
+def test_prepare_rejects_unverified_artifacts_before_starting_attempt(
+    monkeypatch: pytest.MonkeyPatch,
+    runtime_case: RuntimeCase,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    state = FakeStateStore(runtime_case.context.attempt)
+    verify_artifacts = entrypoint.SystemAllocationPreflight.verify_artifacts
+    _patch_runtime_context(monkeypatch, runtime_case, state)
+    monkeypatch.setattr(entrypoint.SystemAllocationPreflight, "verify_artifacts", verify_artifacts)
+    runtime_root = runtime_case.context.attempt_directory / "runtime"
+    manifest_path = runtime_case.context.attempt_directory / "runtime-manifest.json"
+
+    assert entrypoint.main(_phase_arguments("prepare", runtime_case, runtime_root, manifest_path)) == 64
+
+    assert state.attempt.state is AttemptLifecycleState.SUBMITTED
+    assert not state.readiness
+    assert not manifest_path.exists()
+    captured = capsys.readouterr()
+    assert "preflight_failed" in captured.err
+    assert "Traceback" not in captured.err
+
+
 def test_succeed_phase_does_not_strand_success_when_winner_finalization_fails(
     monkeypatch: pytest.MonkeyPatch,
     runtime_case: RuntimeCase,
@@ -276,6 +298,7 @@ def _patch_runtime_context(
 ) -> None:
     monkeypatch.setattr(entrypoint, "load_allocation_context", lambda *args, **kwargs: (runtime_case.context, state))
     monkeypatch.setattr(entrypoint.SystemAllocationPreflight, "verify_client_runtime", lambda context: None)
+    monkeypatch.setattr(entrypoint.SystemAllocationPreflight, "verify_artifacts", lambda context: None)
     monkeypatch.setenv("SLURM_JOB_GPUS", "0")
 
 
