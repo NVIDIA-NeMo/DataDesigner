@@ -459,7 +459,7 @@ def test_error_person_with_state_and_non_en_us_locale(stub_schema_builder):
         stub_schema_builder.add_column(
             name="some_dude",
             sampler_type="person",
-            params={"locale": "en_GB", "sex": "Male", "select_field_values": {"state": ["CA", "NV", "DC"]}},
+            params={"locale": "es_ES", "sex": "Male", "select_field_values": {"state": ["CA", "NV", "DC"]}},
         )
 
 

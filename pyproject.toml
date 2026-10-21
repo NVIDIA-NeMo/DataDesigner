@@ -30,12 +30,16 @@ members = [
 [tool.uv]
 # IMPORTANT: This root is NOT a package. It only defines workspace configuration.
 package = false
-required-version = ">=0.7.10"
+required-version = ">=0.9.5"
 
 [tool.uv.sources]
 # Temporary immutable pin to jupyter/nbconvert#2300, which replaces the EOL
 # Bleach dependency with nh3. Return to PyPI after the upstream fix is released.
 nbconvert = { git = "https://github.com/jupyter/nbconvert.git", rev = "1fab6813f44f89017e7bcad27578571447b5b9c2" }
+
+[tool.uv.extra-build-variables]
+# Execution does not need CSS. The notebook setup targets restore HTML assets from a verified PyPI wheel.
+nbconvert = { HATCH_BUILD_NO_HOOKS = "true" }
 
 [dependency-groups]
 dev = [
