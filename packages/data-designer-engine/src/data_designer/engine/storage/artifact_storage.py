@@ -20,7 +20,7 @@ import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.errors import InvalidFileFormatError
 from data_designer.config.run_config import ResumeMode
 from data_designer.config.utils.io_helpers import list_processor_names, load_processor_dataset, read_parquet_dataset
-from data_designer.config.utils.storage_encoding import encode_storage_table
+from data_designer.config.utils.storage_encoding import encode_storage_table, read_dataframe_storage_plan
 from data_designer.config.utils.storage_schema import JSON_STORAGE_RUN_KEY, JsonStoragePlan
 from data_designer.config.utils.type_helpers import StrEnum, resolve_string_enum
 from data_designer.engine.dataset_builders.errors import ArtifactStorageError
@@ -253,7 +253,13 @@ class ArtifactStorage(BaseModel):
                     "🛑 The indexes of the main and dropped columns DataFrames are not aligned. "
                     "Something unexpected must have happened to the dataset builder's artifacts."
                 )
+            storage_columns = {
+                **read_dataframe_storage_plan(df).columns,
+                **read_dataframe_storage_plan(df_dropped).columns,
+            }
             df = lazy.pd.concat([df, df_dropped], axis=1)
+            if storage_columns:
+                df.attrs[JSON_STORAGE_RUN_KEY] = JsonStoragePlan(columns=storage_columns).model_dump()
         return df
 
     def clear_partial_results(self) -> None:

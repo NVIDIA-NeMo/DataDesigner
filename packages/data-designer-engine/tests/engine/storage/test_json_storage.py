@@ -209,6 +209,48 @@ def test_failed_write_preserves_existing_artifact_and_cleans_temporary_files(tmp
     assert list(file.parent.iterdir()) == [file]
 
 
+@pytest.mark.parametrize("encoded", ["main", "dropped", "both", "neither"])
+def test_combined_main_and_dropped_load_preserves_contract_for_dataframe_seeds(tmp_path: Path, encoded: str) -> None:
+    columns = {}
+    if encoded in ("main", "both"):
+        columns["main_value"] = [[]]
+    if encoded in ("dropped", "both"):
+        columns["dropped_value"] = [[]]
+    plan = JsonStoragePlan(columns=columns)
+    main_values = [None, {"args": [1, "two", True, None]}, {}] if "main_value" in columns else ["one", None, "three"]
+    dropped_values = (
+        [None, {"nested": {"alpha": 1, "mixed": [True, "two", None]}}, {}]
+        if "dropped_value" in columns
+        else ["id0", None, "id2"]
+    )
+    main = pd.DataFrame({"main_value": pd.Series(main_values, dtype=object)})
+    dropped = pd.DataFrame({"dropped_value": pd.Series(dropped_values, dtype=object)})
+    expected = [
+        {"main_value": main_value, "dropped_value": dropped_value}
+        for main_value, dropped_value in zip(main_values, dropped_values)
+    ]
+    storage = ArtifactStorage(artifact_path=tmp_path, json_storage=plan)
+    storage.write_batch_to_parquet_file(0, main, BatchStage.FINAL_RESULT)
+    storage.write_batch_to_parquet_file(0, dropped, BatchStage.DROPPED_COLUMNS)
+
+    combined = storage.load_dataset_with_dropped_columns()
+    assert combined.to_dict("records") == expected
+    if columns:
+        assert combined.attrs[JSON_STORAGE_RUN_KEY] == plan.model_dump()
+    else:
+        assert JSON_STORAGE_RUN_KEY not in combined.attrs
+
+    reader = DataFrameSeedReader()
+    reader.attach(DataFrameSeedSource(df=combined), PlaintextResolver())
+    assert reader.get_storage_plan() == plan
+    restored = reader.create_batch_reader(batch_size=3, index_range=None, shuffle=False).read_next_batch().to_pandas()
+    assert restored.astype(object).where(restored.notna(), None).to_dict("records") == expected
+    for name in columns:
+        assert restored[name].tolist() == combined[name].tolist()
+    assert main["main_value"].tolist() == main_values
+    assert dropped["dropped_value"].tolist() == dropped_values
+
+
 @pytest.mark.parametrize("source_kind", ["file", "dataframe"])
 @pytest.mark.parametrize("paths", [[[]], [["arguments"]], [["calls", None, "arguments"]]])
 def test_seed_readers_preserve_null_encoded_values(

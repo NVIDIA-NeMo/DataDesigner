@@ -88,6 +88,8 @@ Physical field paths and string leaves are validated even for empty/null-only fi
 seed handoffs retain their contract through `from_dataframe`; projections restrict it to retained seed
 columns so reusing an output name cannot inherit unrelated encoding. Contract paths are canonicalized
 before comparing batches or resume metadata.
+Loading main and dropped-column artifacts together merges their encoding contracts after column
+concatenation, so the combined logical DataFrame remains safe to reuse as a seed.
 Annotated DataFrame seeds register the encoded Arrow table directly with DuckDB after combining
 chunks, avoiding pandas schema re-inference and mismatched nested/native chunk boundaries.
 

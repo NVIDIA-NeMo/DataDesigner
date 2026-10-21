@@ -387,6 +387,8 @@ committed with regression tests before another stable review cycle.
   transformations when determining whether a storage error is proven.
 - Preserve nullable and projected DataFrame/file seeds, carry metadata through `from_dataframe`, and
   register combined Arrow tables for annotated DataFrame seeds to avoid nested multichunk data loss.
+- Merge encoding contracts when loading main and dropped columns together, so horizontal DataFrame
+  concatenation cannot discard metadata needed for later seed handoffs.
 - Restore partitioned directory reads, normalize overflow and malformed-metadata recursion errors,
   preserve native null semantics, and keep CSV structured cells valid JSON without rounding protected
   numbers.
