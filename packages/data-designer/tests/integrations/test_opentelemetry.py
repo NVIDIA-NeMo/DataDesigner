@@ -5,10 +5,12 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import multiprocessing
 import re
 import socket
 import subprocess
 import sys
+import textwrap
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -994,3 +996,135 @@ def test_concurrent_data_designer_creates_share_one_exporter(
     )
     assert generated_line.endswith(" 2.0")
     assert completed_line.endswith(" 2.0")
+
+
+_FORK_PRELUDE = r"""
+import multiprocessing
+import re
+import socket
+import sys
+import urllib.request
+
+from data_designer.integrations import opentelemetry
+
+runtime = opentelemetry.get_open_telemetry_runtime()
+ctx = multiprocessing.get_context("fork")
+
+
+def free_port():
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
+def create_count(url):
+    with urllib.request.urlopen(url, timeout=5) as response:
+        text = response.read().decode()
+    match = re.search(r"^data_designer_create_duration_seconds_count\{[^}]*\} (\S+)$", text, re.MULTILINE)
+    return float(match.group(1))
+
+
+def finish(child):
+    child.join(timeout=20)
+    if child.is_alive():
+        child.kill()
+        child.join()
+        sys.exit("forked child hung")
+    if child.exitcode != 0:
+        sys.exit(f"forked child exited with code {child.exitcode}")
+
+
+def observe_create_and_check(port):
+    with runtime.observe_create(port):
+        pass
+    url = f"http://127.0.0.1:{port}/metrics"
+    assert runtime.metrics_url == url
+    assert create_count(url) == 1.0, "forked child inherited the parent's metric values"
+    runtime.shutdown()
+
+
+with runtime.observe_create(free_port()):
+    pass
+parent_url = runtime.metrics_url
+"""
+
+# Binding a server in the forked child resolves its address (getaddrinfo, getfqdn), which can
+# hang on macOS after forking a multi-threaded process.
+requires_safe_fork = pytest.mark.skipif(
+    "fork" not in multiprocessing.get_all_start_methods() or sys.platform == "darwin",
+    reason="requires a fork start method that is safe with resolver calls",
+)
+
+
+def _run_fork_probe(body: str) -> None:
+    """Run ``body`` in a fresh interpreter after a parent run that bound a metrics server.
+
+    A fresh parent avoids forking the pytest worker and whatever earlier tests left in it.
+    """
+    result = subprocess.run(
+        [sys.executable, "-c", _FORK_PRELUDE + textwrap.dedent(body)],
+        capture_output=True,
+        text=True,
+        timeout=90,
+    )
+    assert result.returncode == 0, f"fork probe failed:\n{result.stderr}"
+
+
+@requires_safe_fork
+def test_forked_child_starts_fresh_metrics_runtime() -> None:
+    _run_fork_probe(
+        """
+        child = ctx.Process(target=observe_create_and_check, args=(free_port(),))
+        child.start()
+        finish(child)
+        assert runtime.metrics_url == parent_url
+        assert create_count(parent_url) == 1.0
+        runtime.shutdown()
+        """
+    )
+
+
+@requires_safe_fork
+def test_forked_child_does_not_keep_parent_metrics_port_bound() -> None:
+    _run_fork_probe(
+        """
+        port = runtime._port
+        release = ctx.Event()
+        child = ctx.Process(target=release.wait, args=(20,))
+        child.start()
+        try:
+            runtime.shutdown()
+            with runtime.observe_create(port):
+                pass
+            assert runtime.metrics_url == parent_url, "parent could not rebind its port while a forked child lived"
+        finally:
+            release.set()
+        finish(child)
+        runtime.shutdown()
+        """
+    )
+
+
+@requires_safe_fork
+def test_forked_child_does_not_inherit_held_metrics_sdk_locks() -> None:
+    _run_fork_probe(
+        """
+        histogram = runtime._create_duration
+        locks = []
+        for storage in histogram._measurement_consumer._reader_storages.values():
+            for match in storage._instrument_view_instrument_matches.get(histogram, []):
+                locks.append(match._lock)
+                locks.extend(aggregation._lock for aggregation in match._attributes_aggregation.values())
+        assert locks, "OpenTelemetry SDK internals changed; update this probe"
+        for lock in locks:
+            lock.acquire()
+        try:
+            child = ctx.Process(target=observe_create_and_check, args=(free_port(),))
+            child.start()
+            finish(child)
+        finally:
+            for lock in locks:
+                lock.release()
+        runtime.shutdown()
+        """
+    )
