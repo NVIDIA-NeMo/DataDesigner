@@ -1128,3 +1128,89 @@ def test_forked_child_does_not_inherit_held_metrics_sdk_locks() -> None:
         runtime.shutdown()
         """
     )
+
+
+@requires_safe_fork
+def test_forked_child_closes_socket_of_server_being_stopped() -> None:
+    _run_fork_probe(
+        """
+        import threading
+
+        port = runtime._port
+        stopping, resume = threading.Event(), threading.Event()
+        original_stop_server = opentelemetry._stop_server
+
+
+        def blocking_stop_server(server, thread):
+            stopping.set()
+            resume.wait(20)
+            original_stop_server(server, thread)
+
+
+        # Fork after shutdown() has detached the server but before it closed the socket.
+        opentelemetry._stop_server = blocking_stop_server
+        shutdown_thread = threading.Thread(target=runtime.shutdown)
+        shutdown_thread.start()
+        assert stopping.wait(20)
+        release = ctx.Event()
+        child = ctx.Process(target=release.wait, args=(20,))
+        child.start()
+        resume.set()
+        shutdown_thread.join(20)
+        opentelemetry._stop_server = original_stop_server
+        try:
+            with runtime.observe_create(port):
+                pass
+            assert runtime.metrics_url == parent_url, "parent could not rebind its port while a forked child lived"
+        finally:
+            release.set()
+        finish(child)
+        runtime.shutdown()
+        """
+    )
+
+
+@requires_safe_fork
+def test_forked_child_drops_log_handler_attached_during_initialization() -> None:
+    _run_fork_probe(
+        """
+        import logging
+        import threading
+
+        runtime.shutdown()
+        data_designer_logger = logging.getLogger("data_designer")
+        original_add_handler = data_designer_logger.addHandler
+        attached, resume = threading.Event(), threading.Event()
+
+
+        def blocking_add_handler(handler):
+            original_add_handler(handler)
+            if isinstance(handler, opentelemetry._MetricLogHandler):
+                attached.set()
+                resume.wait(20)
+
+
+        def check_metric_log_handlers(port):
+            with runtime.observe_create(port):
+                pass
+            handlers = [h for h in data_designer_logger.handlers if isinstance(h, opentelemetry._MetricLogHandler)]
+            assert len(handlers) == 1, f"forked child has {len(handlers)} metric log handlers"
+            runtime.shutdown()
+
+
+        # Fork after _initialize() attached its log handler but before it recorded it.
+        data_designer_logger.addHandler = blocking_add_handler
+        init_thread = threading.Thread(target=runtime._activate_run, args=("run-init", free_port()))
+        init_thread.start()
+        assert attached.wait(20)
+        del data_designer_logger.addHandler
+        child = ctx.Process(target=check_metric_log_handlers, args=(free_port(),))
+        child.start()
+        try:
+            finish(child)
+        finally:
+            resume.set()
+            init_thread.join(20)
+        runtime.shutdown()
+        """
+    )

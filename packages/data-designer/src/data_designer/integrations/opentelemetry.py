@@ -89,6 +89,9 @@ class OpenTelemetryRuntime:
         self._meter_provider: Any = None
         self._server: Any = None
         self._server_thread: threading.Thread | None = None
+        # Servers detached from the runtime whose sockets are not closed yet; the fork hook
+        # closes the child's copies of these too.
+        self._closing_servers: list[Any] = []
         self._start_http_server: Callable[..., Any] | None = None
         self._create_duration: Any = None
         self._dataset_records: Any = None
@@ -255,7 +258,7 @@ class OpenTelemetryRuntime:
         if handler is not None:
             logging.getLogger("data_designer").removeHandler(handler)
             handler.close()
-        _stop_server(server, thread)
+        self._release_server(server, thread)
         if provider is not None:
             with contextlib.suppress(Exception):
                 provider.shutdown()
@@ -264,25 +267,38 @@ class OpenTelemetryRuntime:
         # Only the forking thread survives, so any lock another parent thread held (this
         # runtime's, or one inside the SDK provider and instruments) stays locked in the child.
         # Drop all inherited state without calling into it; the next active run initializes
-        # fresh state. Close only this process's copy of the listening socket so a long-lived
-        # child does not keep the parent's metrics port bound. server.shutdown() would wait
-        # forever for a serve_forever() thread that does not exist here.
+        # fresh state. Close only this process's copies of the listening sockets, including
+        # servers another thread was still stopping, so a long-lived child does not keep the
+        # parent's metrics port bound. server.shutdown() would wait forever for a
+        # serve_forever() thread that does not exist here.
         self._lock = threading.RLock()
-        if not self._initialized:
-            return
-        server, _thread, _provider, handler = self._detach_state()
-        if handler is not None:
-            # Safe to take the logging lock: logging registers its own after_in_child hook at
-            # import, before this one, and CPython runs those hooks in registration order.
-            logging.getLogger("data_designer").removeHandler(handler)
-        if server is not None:
+        if self._initialized:
+            self._detach_state()
+        # Remove every handler for this runtime, not only _log_handler: a fork during
+        # _initialize() can leave one attached before _log_handler is assigned. Taking the
+        # logging lock is safe: logging registers its own after_in_child hook at import, before
+        # this one, and CPython runs those hooks in registration order.
+        data_designer_logger = logging.getLogger("data_designer")
+        for handler in list(data_designer_logger.handlers):
+            if isinstance(handler, _MetricLogHandler) and handler._runtime is self:
+                data_designer_logger.removeHandler(handler)
+        servers, self._closing_servers = self._closing_servers, []
+        for server in servers:
             with contextlib.suppress(Exception):
                 server.socket.close()
+
+    def _release_server(self, server: Any, thread: threading.Thread | None) -> None:
+        _stop_server(server, thread)
+        if server is not None:
+            with self._lock, contextlib.suppress(ValueError):
+                self._closing_servers.remove(server)
 
     def _detach_state(self) -> tuple[Any, threading.Thread | None, Any, logging.Handler | None]:
         """Reset to the uninitialized state and return the resources the caller must release."""
         server, thread = self._server, self._server_thread
         provider, handler = self._meter_provider, self._log_handler
+        if server is not None:
+            self._closing_servers.append(server)
         self._active_run_ids.clear()
         self._active_dataset_runs.clear()
         self._dataset_progress_value = None
@@ -328,7 +344,7 @@ class OpenTelemetryRuntime:
             logger.warning("OpenTelemetry metrics are unavailable; continuing without them.", exc_info=True)
             return False
 
-        _stop_server(old_server, old_thread)
+        self._release_server(old_server, old_thread)
         if bound_url is not None:
             logger.info("OpenTelemetry metrics available at %s", bound_url)
         if reused_url is not None:
@@ -437,6 +453,8 @@ class OpenTelemetryRuntime:
         server, thread = self._start_http_server(port=port, addr=_HOST, registry=self._registry)
         old_server, old_thread = self._server, self._server_thread
         self._server, self._server_thread, self._port = server, thread, port
+        if old_server is not None:
+            self._closing_servers.append(old_server)
         return old_server, old_thread
 
     @staticmethod
