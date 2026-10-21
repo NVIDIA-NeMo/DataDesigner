@@ -1,6 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from __future__ import annotations
+
 import pytest
 
 from data_designer.cli.repositories.persona_repository import PersonaLocale, PersonaRepository
@@ -15,7 +17,7 @@ def repository() -> PersonaRepository:
 def test_init(repository: PersonaRepository) -> None:
     """Test repository initialization creates registry."""
     assert repository._registry is not None
-    assert len(repository._registry.locales) == 9
+    assert len(repository._registry.locales) == 11
     assert repository._registry.dataset_prefix == "nemotron-personas-dataset-"
 
 
@@ -24,11 +26,13 @@ def test_list_all(repository: PersonaRepository) -> None:
     locales = repository.list_all()
 
     assert isinstance(locales, list)
-    assert len(locales) == 9
+    assert len(locales) == 11
 
     # Verify all expected locales are present
     locale_codes = {locale.code for locale in locales}
     assert locale_codes == {
+        "en_GB",
+        "de_DE",
         "en_US",
         "en_IN",
         "en_SG",
@@ -61,6 +65,8 @@ def test_get_by_code_valid_locale(repository: PersonaRepository) -> None:
 def test_get_by_code_all_locales(repository: PersonaRepository) -> None:
     """Test getting each locale by code."""
     test_cases = [
+        ("en_GB", "2.03 GB", "nemotron-personas-dataset-en_gb"),
+        ("de_DE", "2.55 GB", "nemotron-personas-dataset-de_de"),
         ("en_US", "1.24 GB", "nemotron-personas-dataset-en_us"),
         ("en_IN", "2.39 GB", "nemotron-personas-dataset-en_in"),
         ("hi_Deva_IN", "4.14 GB", "nemotron-personas-dataset-hi_deva_in"),

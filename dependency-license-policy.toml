@@ -37,7 +37,10 @@ reports = [{ version = "1.0.4", license = "Mozilla Public License 2.0 (MPL 2.0)"
 
 [exceptions.pillow]
 reason = "Core image dependency under the permissive MIT-CMU license."
-reports = [{ version = "12.3.0", license = "MIT-CMU" }]
+reports = [
+    { version = "12.3.0", license = "MIT-CMU" },
+    { version = "13.0.0", license = "MIT-CMU" },
+]
 
 [exceptions.regex]
 reason = "Existing regex dependency containing code under the CNRI Python license."
