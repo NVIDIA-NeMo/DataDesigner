@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from contextlib import ExitStack, contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -48,7 +48,9 @@ _IDENTIFIER_ADAPTER = TypeAdapter(Identifier)
 class RetryScheduler(SchedulerObservationClient, Protocol):
     """Scheduler operations required by fresh-process retry."""
 
-    def submit_script(self, script: str) -> SlurmJobSubmissionReceipt:
+    def submit_script(
+        self, script: str, *, export_environment: Mapping[str, str] | None = None
+    ) -> SlurmJobSubmissionReceipt:
         """Submit one rendered retry array."""
         ...
 
@@ -70,9 +72,11 @@ class SlurmRetryCoordinator:
         workspace_root: str | Path,
         run_id: Identifier,
         scheduler: RetryScheduler | None = None,
+        export_environment: Mapping[str, str] | None = None,
     ) -> None:
         root, normalized_run_id = _validate_location(workspace_root, run_id)
         self._scheduler = scheduler if scheduler is not None else SlurmCommandClient()
+        self._export_environment = None if export_environment is None else dict(export_environment)
         self._state = StateStorage(root, normalized_run_id)
         self._reader = StateReader(self._state, normalized_run_id)
         self._retries = RetryStorage(self._state)
@@ -337,7 +341,11 @@ class SlurmRetryCoordinator:
 
     def _submit(self, plan: RetryPlan, script: str, timestamp: datetime) -> SlurmJobSubmissionReceipt:
         try:
-            receipt = self._scheduler.submit_script(script)
+            receipt = (
+                self._scheduler.submit_script(script)
+                if self._export_environment is None
+                else self._scheduler.submit_script(script, export_environment=self._export_environment)
+            )
         except SlurmSubmissionError as error:
             if not error.may_have_succeeded:
                 self._fail_retry(plan, timestamp)

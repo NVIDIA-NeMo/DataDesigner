@@ -589,7 +589,9 @@ def test_production_wiring_submits_after_publisher_initialization(
     profile_catalog: SlurmProfileCatalog,
     authored_run_single: DataDesignerSlurmConfig,
     single_node_plan: ResolvedSlurmRunPlan,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.delenv("NEMO_DEPLOYMENT_TYPE", raising=False)
     _register_images(tmp_path, authored_run_single, single_node_plan)
     launcher = _Launcher()
     publisher = _Publisher()
@@ -612,7 +614,7 @@ def test_production_wiring_submits_after_publisher_initialization(
     assert len(launcher.submissions) == 1
     assert launcher.held_submissions == [True]
     assert launcher.releases == [42]
-    assert launcher.exported_environments == [{"SLURM_EXPORT_ENV": "ALL"}]
+    assert launcher.exported_environments == [{"SLURM_EXPORT_ENV": "ALL", "NEMO_DEPLOYMENT_TYPE": "slurm"}]
     assert (tmp_path / "managed-assets").is_dir()
 
 
@@ -680,7 +682,33 @@ def test_production_wiring_exports_referenced_secrets_to_the_allocation(
 
     service.execute(authored, source_root=tmp_path)
 
-    assert launcher.exported_environments == [{"SLURM_EXPORT_ENV": "ALL", "SOURCE_TOKEN": "secret-value"}]
+    assert launcher.exported_environments == [
+        {"SLURM_EXPORT_ENV": "ALL", "NEMO_DEPLOYMENT_TYPE": "slurm", "SOURCE_TOKEN": "secret-value"}
+    ]
+
+
+def test_production_wiring_preserves_selected_deployment_type(
+    tmp_path: Path,
+    profile_catalog: SlurmProfileCatalog,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    _register_images(tmp_path, authored_run_single, single_node_plan)
+    launcher = _Launcher()
+    service = create_slurm_run_service(
+        profile=_profile(tmp_path, profile_catalog),
+        artifact_publisher=_Publisher(),  # type: ignore[arg-type]
+        launcher=launcher,  # type: ignore[arg-type]
+        run_id_factory=lambda: "run-wired",
+        package_version="0.9.2",
+        source_environment={"NEMO_DEPLOYMENT_TYPE": "slurm-nvidia-internal"},
+    )
+
+    service.execute(authored_run_single, source_root=tmp_path)
+
+    assert launcher.exported_environments == [
+        {"SLURM_EXPORT_ENV": "ALL", "NEMO_DEPLOYMENT_TYPE": "slurm-nvidia-internal"}
+    ]
 
 
 def test_production_wiring_rejects_missing_secret_before_publishing(
@@ -1025,12 +1053,23 @@ def test_status_does_not_expire_requeue_window_from_another_attempt_clock(
     assert requeued.shards[0].attempts[0].attempt.state is AttemptLifecycleState.PENDING
 
 
+@pytest.mark.parametrize(
+    ("source_environment", "expected_deployment_type"),
+    (
+        pytest.param({"NEMO_DEPLOYMENT_TYPE": "slurm-nvidia-internal"}, "slurm-nvidia-internal", id="selected"),
+        pytest.param({}, "slurm", id="unset"),
+    ),
+)
 def test_production_retry_dry_run_and_submission_are_sparse_and_idempotent(
     tmp_path: Path,
     profile_catalog: SlurmProfileCatalog,
     authored_run_single: DataDesignerSlurmConfig,
     single_node_plan: ResolvedSlurmRunPlan,
+    monkeypatch: pytest.MonkeyPatch,
+    source_environment: Mapping[str, str],
+    expected_deployment_type: str,
 ) -> None:
+    monkeypatch.setenv("NEMO_DEPLOYMENT_TYPE", "api")
     authored = authored_run_single.model_copy(
         update={
             "array_tasks": authored_run_single.array_tasks.model_copy(update={"count": 2}),
@@ -1046,6 +1085,7 @@ def test_production_retry_dry_run_and_submission_are_sparse_and_idempotent(
         run_id_factory=lambda: "run-wired",
         clock=lambda: now,
         package_version="0.9.2",
+        source_environment=source_environment,
     )
     service.execute(authored, source_root=tmp_path)
     assert SlurmStateWriter(tmp_path, "run-wired").load_resolved_plan().invocation.authored.resume == "if_possible"
@@ -1079,6 +1119,10 @@ def test_production_retry_dry_run_and_submission_are_sparse_and_idempotent(
     assert submitted.shard_ids == ("shard-00000",)
     assert repeated == submitted
     assert len(launcher.submissions) == 2
+    assert launcher.exported_environments == [
+        {"SLURM_EXPORT_ENV": "ALL", "NEMO_DEPLOYMENT_TYPE": expected_deployment_type},
+        {"NEMO_DEPLOYMENT_TYPE": expected_deployment_type},
+    ]
 
 
 def test_production_retry_preview_recovers_active_pinned_mode(

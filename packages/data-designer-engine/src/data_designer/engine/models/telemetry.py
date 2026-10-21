@@ -52,6 +52,8 @@ class DeploymentTypeEnum(str, Enum):
     LIBRARY = "library"
     API = "api"
     NVIDIA_INTERNAL = "nvidia-internal"
+    SLURM = "slurm"
+    SLURM_NVIDIA_INTERNAL = "slurm-nvidia-internal"
     UNDEFINED = "undefined"
 
 

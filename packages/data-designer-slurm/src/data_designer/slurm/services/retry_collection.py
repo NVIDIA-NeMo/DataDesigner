@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import datetime
 from pathlib import Path
 from typing import Literal
@@ -38,10 +38,17 @@ _IDENTIFIER_ADAPTER = TypeAdapter(Identifier)
 class RunRetryCollectionBackend:
     """Adapt public run operations to persisted retry and collection capabilities."""
 
-    def __init__(self, workspace_root: str, launcher: SlurmCommandClient, clock: Callable[[], datetime]) -> None:
+    def __init__(
+        self,
+        workspace_root: str,
+        launcher: SlurmCommandClient,
+        clock: Callable[[], datetime],
+        source_environment: Mapping[str, str],
+    ) -> None:
         self._workspace_root = workspace_root
         self._launcher = launcher
         self._clock = clock
+        self._export_environment = {"NEMO_DEPLOYMENT_TYPE": source_environment.get("NEMO_DEPLOYMENT_TYPE", "slurm")}
 
     def retry(
         self,
@@ -56,7 +63,7 @@ class RunRetryCollectionBackend:
         run_id = self._resolve_run_reference(run_or_job_id, operation)
         try:
             observed_at = self._clock()
-            coordinator = SlurmRetryCoordinator(self._workspace_root, run_id, self._launcher)
+            coordinator = SlurmRetryCoordinator(self._workspace_root, run_id, self._launcher, self._export_environment)
             resolved_plan = SlurmStateWriter(self._workspace_root, run_id).load_resolved_plan()
             effective_resume_mode = self._resolve_retry_resume_mode(resolved_plan, resume)
             preview = coordinator.preview_active(shard_ids=shard_ids, observed_at=observed_at)
@@ -151,7 +158,9 @@ class RunRetryCollectionBackend:
                     operation,
                     "num_partitions must not exceed requested records",
                 )
-            status = SlurmCollectionCoordinator(self._workspace_root, run_id, self._launcher).submit(
+            status = SlurmCollectionCoordinator(
+                self._workspace_root, run_id, self._launcher, self._export_environment
+            ).submit(
                 destination=destination,
                 num_partitions=num_partitions,
                 submitted_at=self._clock(),
