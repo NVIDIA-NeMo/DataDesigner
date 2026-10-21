@@ -32,14 +32,15 @@ def _is_bare_dictionary_schema(schema_part: Any) -> bool:
 
 
 def forbid_additional_properties(schema: JSONSchemaT) -> JSONSchemaT:
-    """Transform the provided schema into one which forbids additional properties.
+    """Forbid undeclared record fields while preserving explicit dictionary schemas.
 
     Args:
         schema (JSONSchemaT): A JSONSchema to transform.
 
     Returns:
         JSONSchemaT: A new JSONSchema matching the provided one, but
-            with `additionalProperties: False` set everywhere.
+            with `additionalProperties: False` added to records that do not
+            declare it. Explicit settings and bare dictionaries are preserved.
     """
     new_schema = deepcopy(schema)
 
@@ -50,7 +51,7 @@ def forbid_additional_properties(schema: JSONSchemaT) -> JSONSchemaT:
                 ## dictionary. In those cases, the implication is that _all_ dictionaries
                 ## are valid, so we should not forbid extra properties in that case.
                 allow_additional_properties = _is_bare_dictionary_schema(schema_part)
-                schema_part["additionalProperties"] = allow_additional_properties
+                schema_part.setdefault("additionalProperties", allow_additional_properties)
 
             # Traverse into nested schemas.
             for key, value in schema_part.items():
@@ -68,7 +69,7 @@ def forbid_additional_properties(schema: JSONSchemaT) -> JSONSchemaT:
                     if isinstance(value, list):
                         for item in value:
                             _enforce(item)
-                elif key in ("not", "if", "then", "else"):
+                elif key in ("not", "if", "then", "else", "additionalProperties"):
                     if isinstance(value, dict):
                         _enforce(value)
                 elif key == "$defs":

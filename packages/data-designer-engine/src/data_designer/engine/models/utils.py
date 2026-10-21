@@ -7,6 +7,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Literal
 
+from pydantic import BaseModel
+
 if TYPE_CHECKING:
     from data_designer.engine.models.clients.types import ChatCompletionResponse
 
@@ -58,6 +60,27 @@ def merge_conversation_truncation_reason(
     if GenerationTruncationReason.MODEL_CONTEXT_WINDOW_EXCEEDED in (accumulated, current):
         return GenerationTruncationReason.MODEL_CONTEXT_WINDOW_EXCEEDED
     return current or accumulated
+
+
+class FormattedLLMErrorMessage(BaseModel):
+    """User-facing LLM error text: the cause, a suggested solution, and the provider message if any."""
+
+    cause: str
+    solution: str
+    provider_message: str | None = None
+
+    def __str__(self) -> str:
+        lines = ["  |----------"]
+        if self.provider_message is not None:
+            lines.append(f"  | Provider message: {self.provider_message}")
+        lines.append(f"  | Cause: {self.cause}")
+        lines.extend(
+            [
+                f"  | Solution: {self.solution}",
+                "  |----------",
+            ]
+        )
+        return "\n".join(lines)
 
 
 @dataclass

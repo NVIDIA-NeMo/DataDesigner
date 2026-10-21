@@ -39,6 +39,18 @@ Conditional Sampling
 Samplers support **conditional parameters** that change behavior based on other columns. Want age distributions that vary by country? Income ranges that depend on occupation? Just define conditions on existing column values.
 </Tip>
 
+#### Numeric precision
+
+Numeric samplers that support `decimal_places` apply rounding during each sampling attempt, before checking constraints and generating dependent columns. Constraints and downstream conditions therefore use the rounded values. If rounding makes a constraint impossible to satisfy, generation raises a rejection-sampling error after reaching the retry limit.
+
+Each branch controls its own precision: `params.decimal_places` applies to the default branch, and each entry in `conditional_params` uses its own `decimal_places`. A conditional branch that omits `decimal_places` or sets it to `None` (or `null` in YAML/JSON) skips decimal-place rounding; it does not inherit the default branch's precision.
+
+Type conversion still applies: `convert_to="int"` rounds to whole numbers before decimal-place rounding, while `convert_to="str"` converts the values to strings after rounding.
+
+<Note>
+Previously, the default branch's precision was applied to the entire column after sampling. Existing configurations may therefore produce different values for conditional branches. For example, with default precision `2`, a value of `0.416` from an unrounded conditional branch now remains `0.416` instead of becoming `0.42`. To round that branch to two decimal places, explicitly set `decimal_places=2` in its conditional parameters.
+</Note>
+
 ### 📝 LLM-Text Columns
 
 LLM-Text columns generate natural language text: product descriptions, customer reviews, narrative summaries, email threads, or anything requiring semantic understanding and creativity.

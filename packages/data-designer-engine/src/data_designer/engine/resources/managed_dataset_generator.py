@@ -23,7 +23,13 @@ class ManagedDatasetGenerator:
     ) -> pd.DataFrame:
         parameters = []
         uri = self._person_reader.get_dataset_uri(self._locale)
-        query = f"select * from '{uri}'"
+        source = f"'{uri}'"
+        if self._locale == "de_DE":
+            source = (
+                "(select * replace (case sex when 'Weiblich' then 'Female' "
+                f"when 'Männlich' then 'Male' else sex end as sex) from {source})"
+            )
+        query = f"select * from {source}"
         if evidence:
             where_conditions = []
             for column, values in evidence.items():

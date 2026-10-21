@@ -27,8 +27,14 @@ from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.errors import InvalidConfigError
 from data_designer.config.models import ChatCompletionInferenceParams, ModelConfig, ModelProvider
 from data_designer.config.processors import DropColumnsProcessorConfig
-from data_designer.config.run_config import JinjaRenderingEngine, RequestAdmissionTuningConfig, RunConfig
-from data_designer.config.sampler_params import CategorySamplerParams, DatetimeSamplerParams, SamplerType
+from data_designer.config.run_config import JinjaRenderingEngine, RequestAdmissionTuningConfig, ResumeMode, RunConfig
+from data_designer.config.sampler_constraints import ScalarInequalityConstraint
+from data_designer.config.sampler_params import (
+    CategorySamplerParams,
+    DatetimeSamplerParams,
+    SamplerType,
+    UniformSamplerParams,
+)
 from data_designer.config.seed import IndexRange, PartitionBlock, SamplingStrategy
 from data_designer.config.seed_source import (
     AgentRolloutFormat,
@@ -678,6 +684,42 @@ def test_create_dataset_e2e_using_only_sampler_columns(
 
     # display report with no errors
     analysis.to_report()
+
+
+@pytest.mark.parametrize("preview", [False, True], ids=["create", "preview"])
+def test_rounded_sampler_constraints_and_conditions_e2e(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    preview: bool,
+) -> None:
+    builder = DataDesignerConfigBuilder(model_configs=[])
+    builder.add_column(
+        SamplerColumnConfig(
+            name="value", sampler_type="uniform", params=UniformSamplerParams(low=0, high=1, decimal_places=0)
+        )
+    )
+    builder.add_column(
+        SamplerColumnConfig(
+            name="label",
+            sampler_type="category",
+            params=CategorySamplerParams(values=["low"]),
+            conditional_params={"value > 0.75": CategorySamplerParams(values=["high"])},
+        )
+    )
+    builder.add_constraint(ScalarInequalityConstraint(target_column="value", operator="gt", rhs=0.25))
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path, model_providers=stub_model_providers, secret_resolver=PlaintextResolver()
+    )
+    data_designer.set_run_config(RunConfig(buffer_size=16, display_tui=False))
+
+    if preview:
+        frame = data_designer.preview(builder, num_records=64).dataset
+    else:
+        frame = data_designer.create(builder, num_records=64).load_dataset()
+
+    assert len(frame) == 64
+    assert (frame["value"] == 1).all()
+    assert (frame["label"] == "high").all()
 
 
 def test_create_with_drop_true_can_skip_dropped_column_artifacts(
@@ -2426,3 +2468,39 @@ def test_create_raises_error_when_all_trace_files_are_skipped(
 
     with pytest.raises(DataDesignerGenerationError, match="did not produce any rows"):
         data_designer.create(builder, num_records=1, dataset_name="invalid-trace-seed")
+
+
+@pytest.mark.parametrize("resume", [ResumeMode.NEVER, ResumeMode.IF_POSSIBLE])
+@patch("data_designer.engine.storage.artifact_storage.datetime")
+def test_create_same_timestamp_keeps_runs_isolated(
+    mock_datetime: MagicMock, tmp_path: Path, stub_model_providers: list[ModelProvider], resume: ResumeMode
+) -> None:
+    mock_datetime.now.return_value = datetime(2025, 1, 1, 12, 3, 4)
+    designer = DataDesigner(artifact_path=tmp_path, model_providers=stub_model_providers, auto_configure_logging=False)
+    designer.set_run_config(RunConfig(buffer_size=10, display_tui=False))
+    results = []
+    for tag, num_records in [("A", 20), ("B", 10), ("C", 10)]:
+        builder = DataDesignerConfigBuilder(model_configs=[])
+        builder.add_column(
+            SamplerColumnConfig(name="tag", sampler_type="category", params=CategorySamplerParams(values=[tag]))
+        )
+        result = designer.create(builder, num_records=num_records, resume=resume)
+        results.append((tag, num_records, result))
+
+    assert len({result.artifact_storage.base_dataset_path for _, _, result in results}) == 3
+    assert len(list(tmp_path.iterdir())) == 3
+    for tag, num_records, result in results:
+        assert result.load_dataset()["tag"].tolist() == [tag] * num_records
+        assert result.artifact_storage.media_storage.base_path == result.artifact_storage.base_dataset_path
+
+
+def test_preview_does_not_claim_dataset_directory(tmp_path: Path, stub_model_providers: list[ModelProvider]) -> None:
+    builder = DataDesignerConfigBuilder(model_configs=[])
+    builder.add_column(
+        SamplerColumnConfig(name="tag", sampler_type="category", params=CategorySamplerParams(values=["A"]))
+    )
+    designer = DataDesigner(artifact_path=tmp_path, model_providers=stub_model_providers, auto_configure_logging=False)
+    designer.set_run_config(RunConfig(display_tui=False))
+
+    assert designer.preview(builder, num_records=1).dataset["tag"].tolist() == ["A"]
+    assert list(tmp_path.iterdir()) == []

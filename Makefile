@@ -5,6 +5,9 @@
 REPO_PATH := $(shell pwd)
 PRE_COMMIT ?= .venv/bin/pre-commit
 LICENSE_PYTHON_VERSION ?= 3.11
+GRAPHIFY_PYTHON ?= 3.11
+GRAPHIFY_VENV ?= $(REPO_PATH)/.scratch/graphify-venv
+GRAPHIFY_REQUIREMENTS ?= $(REPO_PATH)/.agents/requirements-graphify.txt
 
 # Package directories
 CONFIG_PKG := packages/data-designer-config
@@ -43,11 +46,13 @@ help:
 	@echo "📦 Installation (uv workspace - all packages in editable mode):"
 	@echo "  install                   - Install all packages (config → engine → interface)"
 	@echo "  install-dev               - Install all packages + dev tools (pytest, etc.)"
+	@echo "  install-graphify          - Install isolated Graphify CI dependencies"
 	@echo "  install-dev-notebooks     - Install all packages + dev + docs + notebook tools"
 	@echo "  install-dev-recipes       - Install all packages + dev + recipe dependencies"
 	@echo ""
 	@echo "🧪 Testing (all packages):"
 	@echo "  test                      - Run all unit tests"
+	@echo "  test-graphify             - Run Graphify CLI compatibility tests"
 	@echo "  coverage                  - Run tests with coverage report"
 	@echo "  test-e2e                  - Run e2e plugin tests"
 	@echo "  health-checks             - Run provider health checks"
@@ -82,6 +87,7 @@ help:
 	@echo "  generate-fern-notebooks   - Convert docs/notebook_source/*.py → fern/components/notebooks/{json,ts}"
 	@echo "  generate-fern-notebooks-with-outputs - Full pipeline: execute notebooks (needs API key), colabify, convert to Fern"
 	@echo "  install-docs-deps        - Install docs and notebook dependencies"
+	@echo "  install-notebook-css     - Restore nbconvert HTML export stylesheets"
 	@echo "  prepare-fern-release VERSION=X.Y.Z - Add or refresh Fern version files for release preview"
 	@echo "  check-fern-release-version VERSION=X.Y.Z - Verify Fern has a version entry for release publishing"
 	@echo "  prepare-fern-docs         - Generate local Fern artifacts"
@@ -156,11 +162,23 @@ install-dev:
 	@echo "   make lint               - Lint all code"
 	@echo "   make build              - Build all package wheels"
 
+install-graphify:
+	uv --no-config venv --no-project --clear --python "$(GRAPHIFY_PYTHON)" "$(GRAPHIFY_VENV)"
+	uv --no-config pip sync --python "$(GRAPHIFY_VENV)/bin/python" "$(GRAPHIFY_REQUIREMENTS)"
+
+lock-graphify:
+	uv --no-config pip compile .agents/requirements-graphify.in --python-version "$(GRAPHIFY_PYTHON)" \
+		--no-header --no-annotate --output-file "$(GRAPHIFY_REQUIREMENTS)"
+
+test-graphify: install-graphify
+	GRAPHIFY_VENV="$(GRAPHIFY_VENV)" .venv/bin/pytest -q .agents/tests/test_structural_impact.py
+
 install-dev-notebooks:
 	@echo "📦 Installing DataDesigner workspace with notebook dependencies..."
 	@echo "   Packages: data-designer-config → data-designer-engine → data-designer"
 	@echo "   Groups: dev + docs + notebooks (Jupyter, jupytext, etc.)"
 	uv sync --all-packages --group dev --group docs --group notebooks
+	@$(MAKE) install-notebook-css
 	$(call install-pre-commit-hooks)
 	@echo "✅ Dev + docs + notebooks installation complete!"
 	@echo ""
@@ -479,6 +497,7 @@ update-license-headers:
 DOCS_PYTHON_VERSION ?= 3.13
 DOCS_PYTHON ?= .venv/bin/python
 DOCS_JUPYTEXT ?= .venv/bin/jupytext
+NOTEBOOK_CSS ?= 1
 FERN_VERSION ?= $(shell jq -r .version fern/fern.config.json)
 FERN ?= npx -y fern-api@$(FERN_VERSION)
 FERN_ORG ?= $(shell jq -r .organization fern/fern.config.json)
@@ -493,6 +512,16 @@ DOCS_CERTS = SSL_CERT_FILE=$$($(DOCS_PYTHON) -c "import certifi; print(certifi.w
 install-docs-deps:
 	@echo "📦 Installing docs dependencies (Python $(DOCS_PYTHON_VERSION))..."
 	uv sync --python $(DOCS_PYTHON_VERSION) --all-packages --group docs --group notebooks
+	@$(MAKE) install-notebook-css
+
+install-notebook-css:
+ifeq ($(NOTEBOOK_CSS),1)
+	$(DOCS_CERTS) $(DOCS_PYTHON) docs/scripts/prepare_nbconvert_css.py
+else ifeq ($(NOTEBOOK_CSS),0)
+	@echo "Skipping nbconvert CSS (notebook execution only)."
+else
+	$(error NOTEBOOK_CSS must be 0 or 1)
+endif
 
 prepare-fern-release:
 ifndef VERSION
@@ -775,11 +804,11 @@ clean-test-coverage:
         format format-check format-check-config format-check-engine format-check-interface \
         format-config format-engine format-interface \
         generate-colab-notebooks generate-fern-notebooks generate-fern-notebooks-with-outputs help \
-        install install-dev install-dev-notebooks install-dev-recipes install-docs-deps \
-        lint lint-config lint-engine lint-fix lint-fix-config lint-fix-engine lint-fix-interface lint-interface \
+        install install-dev install-dev-notebooks install-dev-recipes install-docs-deps install-graphify install-notebook-css \
+        lint lint-config lint-engine lint-fix lint-fix-config lint-fix-engine lint-fix-interface lint-interface lock-graphify \
         perf-import perf-import-runtime prepare-fern-docs prepare-fern-release publish serve-fern-docs-dev serve-fern-docs-local-theme serve-fern-docs-locally show-versions \
         health-checks \
         test test-config test-config-isolated test-e2e test-engine test-engine-isolated \
-        test-interface test-interface-isolated test-isolated \
+        test-graphify test-interface test-interface-isolated test-isolated \
         test-run-all-examples test-run-recipes test-run-tutorials \
         update-license-headers verify-imports

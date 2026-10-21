@@ -15,18 +15,20 @@ import argparse
 import json
 import time
 from dataclasses import dataclass
+from importlib.metadata import version
 from pathlib import Path
 from typing import Any
 
 from graphify.analyze import god_nodes, graph_diff
 from graphify.build import build_from_json
 from graphify.cluster import cluster, score_all
-from graphify.export import to_json
+from graphify.export import GRAPH_SCHEMA_VERSION, to_json
 from graphify.extract import extract
 from networkx.readwrite import json_graph
 
 _REPO_ROOT_DEFAULT = Path(__file__).resolve().parent.parent.parent
 _REPO_ROOT = _REPO_ROOT_DEFAULT
+_GRAPHIFY_VERSION = version("graphifyy")
 
 # DD layering: interface -> engine -> config (left depends on right).
 _LEGAL_DIRECTIONS = {("interface", "engine"), ("interface", "config"), ("engine", "config")}
@@ -107,7 +109,9 @@ class _Analysis:
 
 def _build_graph(files: list[Path]) -> _Analysis:
     """Extract, build directed graph, cluster, and find god nodes."""
-    ext = extract(files)
+    if not files:
+        raise ValueError(f"No Python source files found under {_REPO_ROOT}")
+    ext = extract(files, root=_REPO_ROOT, cache_root=_REPO_ROOT)
     G = build_from_json(ext, directed=True)
     comms = cluster(G)
     return _Analysis(graph=G, communities=comms, cohesion=score_all(G, comms), god_nodes=god_nodes(G, top_n=15))
@@ -225,7 +229,11 @@ def _changed_files_mode(changed_files: list[Path], deleted_files: list[Path] | N
     G, communities, gods = analysis.graph, analysis.communities, analysis.god_nodes
 
     changed_paths = {str(p.resolve()) for p in changed_files}
-    changed_node_ids = {nid for nid in G.nodes() if G.nodes[nid].get("source_file") in changed_paths}
+    changed_node_ids = {
+        nid
+        for nid, data in G.nodes(data=True)
+        if data.get("source_file") and str((_REPO_ROOT / data["source_file"]).resolve()) in changed_paths
+    }
 
     node_to_community = {n: cid for cid, nodes in communities.items() for n in nodes}
     affected_gods = [{"rank": gods.index(g) + 1, **g} for g in gods if g["id"] in changed_node_ids]
@@ -278,7 +286,7 @@ def _changed_files_mode(changed_files: list[Path], deleted_files: list[Path] | N
     file_count = len(changed_files) + n_deleted
     unknown_pkgs = _unknown_package_dirs(list(changed_files) + list(deleted_files or []))
     lines = [
-        f"### Structural Impact _(graphify, {elapsed:.1f}s)_",
+        f"### Structural Impact _(graphify {_GRAPHIFY_VERSION}, {elapsed:.1f}s)_",
         "",
         f"**Risk: {risk}** ({risk_reason})",
         f"- {file_count} Python files, {len(changed_node_ids)} AST entities, "
@@ -313,7 +321,7 @@ def _full_mode(previous_graph_path: str | None = None) -> str:
     unique_violations = _dedup(violations)
 
     lines = [
-        f"### Structural Analysis _(graphify, {elapsed:.1f}s)_",
+        f"### Structural Analysis _(graphify {_GRAPHIFY_VERSION}, {elapsed:.1f}s)_",
         "",
         f"Codebase: {G.number_of_nodes()} entities, {G.number_of_edges()} relationships, {len(communities)} clusters",
         "",
@@ -333,29 +341,42 @@ def _full_mode(previous_graph_path: str | None = None) -> str:
     if previous_graph_path and Path(previous_graph_path).exists():
         try:
             prev_data = json.loads(Path(previous_graph_path).read_text(encoding="utf-8"))
-            try:
-                G_prev = json_graph.node_link_graph(prev_data, edges="links")
-            except TypeError:
-                G_prev = json_graph.node_link_graph(prev_data)
-            diff = graph_diff(G_prev, G)
-            lines += ["#### Changes Since Last Run", "", f"**{diff['summary']}**", ""]
-            for key, label in [("new_nodes", "New entities"), ("removed_nodes", "Removed entities")]:
-                if diff[key]:
-                    names = [n["label"] for n in diff[key][:8]]
-                    lines.append(f"{label}: {', '.join(f'`{l}`' for l in names)}")
-                    if len(diff[key]) > 8:
-                        lines.append(f"  +{len(diff[key]) - 8} more")
-            lines.append("")
+            metadata = prev_data.get("graph") if isinstance(prev_data, dict) else None
+            if (
+                not isinstance(metadata, dict)
+                or metadata.get("graphify_version") != _GRAPHIFY_VERSION
+                or metadata.get("schema_version") != GRAPH_SCHEMA_VERSION
+            ):
+                lines += ["_Graphify version or schema changed; structural baseline reset._", ""]
+                prev_data = None
+            if prev_data is not None:
+                try:
+                    G_prev = json_graph.node_link_graph(prev_data, edges="links")
+                except TypeError:
+                    G_prev = json_graph.node_link_graph(prev_data)
+                diff = graph_diff(G_prev, G)
+                lines += ["#### Changes Since Last Run", "", f"**{diff['summary']}**", ""]
+                for key, label in [("new_nodes", "New entities"), ("removed_nodes", "Removed entities")]:
+                    if diff[key]:
+                        names = [n["label"] for n in diff[key][:8]]
+                        lines.append(f"{label}: {', '.join(f'`{l}`' for l in names)}")
+                        if len(diff[key]) > 8:
+                            lines.append(f"  +{len(diff[key]) - 8} more")
+                lines.append("")
         except (json.JSONDecodeError, KeyError, TypeError, OSError) as exc:
             lines += [f"_Could not diff against previous graph: {exc}_", ""]
 
     # Save graph + baselines for next run.
     out_dir = _REPO_ROOT / "graphify-out"
     out_dir.mkdir(exist_ok=True)
-    to_json(G, communities, str(out_dir / "graph.json"))
+    # This is a complete source snapshot, so deletions must replace the old graph.
+    if not to_json(G, communities, str(out_dir / "graph.json"), force=True):
+        raise RuntimeError("Could not save the structural graph; baselines were not updated")
     (out_dir / "baselines.json").write_text(
         json.dumps(
             {
+                "graphify_version": _GRAPHIFY_VERSION,
+                "schema_version": GRAPH_SCHEMA_VERSION,
                 "total_nodes": G.number_of_nodes(),
                 "total_edges": G.number_of_edges(),
                 "total_communities": len(communities),

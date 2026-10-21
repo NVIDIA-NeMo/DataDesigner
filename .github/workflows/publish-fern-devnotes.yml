@@ -94,7 +94,7 @@ jobs:
 
       - name: Install uv
         # Keep v8.1.0 until manual workflow dispatch is verified on newer releases.
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           version: "0.9.5"
           prune-cache: true
@@ -104,7 +104,8 @@ jobs:
 
       - name: Install docs dependencies
         working-directory: website
-        run: uv sync --python 3.13 --all-packages --group docs --group notebooks
+        # Publishing only converts or restores notebooks; it does not execute them.
+        run: uv sync --frozen --python 3.13 --all-packages --group docs
 
       - name: Restore published notebook snapshot
         env:

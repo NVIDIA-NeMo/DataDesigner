@@ -34,6 +34,10 @@ The main entry point for sampler-based generation. Given a `DataSchema` (or `Sam
 
 Rejection sampling retries generation when constraints are violated, up to a configurable limit.
 
+Numeric samplers apply each selected branch's `decimal_places` on every sampling attempt, before checking constraints
+or generating dependent columns. Integer conversion retains its existing precedence over precision rounding; string
+conversion follows rounding. Constraints that become unsatisfiable after rounding fail at the same rejection limit.
+
 ### Person/Entity Generation
 
 `PeopleGen` (abstract) → `PeopleGenFaker` (Faker-based) provides locale-aware person data:
@@ -54,9 +58,10 @@ The engine-side generator for sampler columns. Extends `FromScratchColumnGenerat
 2. `SamplerColumnGenerator` creates a `DatasetGenerator` with the schema
 3. `DatasetGenerator` topologically sorts columns, then for each:
    - Samples values from the configured distribution
+   - Rounds numeric samples using the selected branch's precision and applies type conversion
    - Applies constraint checking via rejection sampling
    - For person columns, delegates to `PeopleGen` with the configured locale
-4. Returns a DataFrame with all sampler columns populated
+4. Applies final type conversion and datetime formatting, then returns a DataFrame with all sampler columns populated
 
 ## Design Decisions
 

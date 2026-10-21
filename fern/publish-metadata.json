@@ -1,11 +1,12 @@
 {
   "schema_version": 1,
   "kind": "fern-docs-website",
-  "action": "devnotes-patch",
+  "action": "release-snapshot",
   "source": {
     "repository": "NVIDIA-NeMo/DataDesigner",
-    "ref": "refs/heads/main",
-    "sha": "78adb9610efaa73cd36aebd2be622678d974eafe"
+    "ref": "v0.9.6",
+    "sha": "e824af46cb08e7a0e64f7b4c38ce2a8adc9c0811"
   },
+  "release_tag": "v0.9.6",
   "published_branch": "docs-website"
 }

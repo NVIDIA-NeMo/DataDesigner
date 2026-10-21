@@ -31,6 +31,9 @@ versions:
 - display-name: "Latest"
   path: versions/latest.yml
   slug: latest
+- display-name: "v0.9.6"
+  path: versions/v0.9.6.yml
+  slug: v0.9.6
 - display-name: "v0.9.5"
   path: versions/v0.9.5.yml
   slug: v0.9.5

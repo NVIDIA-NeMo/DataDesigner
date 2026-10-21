@@ -11,6 +11,7 @@ from datetime import datetime
 from functools import cached_property
 from pathlib import Path
 from typing import TYPE_CHECKING
+from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, PrivateAttr, field_validator, model_validator
 
@@ -164,6 +165,31 @@ class ArtifactStorage(BaseModel):
         images_subdir = self._media_storage.images_dir.name
         self._media_storage.base_path = self.base_dataset_path
         self._media_storage.images_dir = self.base_dataset_path / images_subdir
+
+    def create_dataset_directory(self, *, resume: ResumeMode) -> None:
+        """Exclusively claim a fresh dataset directory, or reuse it when resuming."""
+        if resume != ResumeMode.NEVER:
+            self.mkdir_if_needed(self.base_dataset_path)
+            return
+
+        dataset_path = self.base_dataset_path
+        while True:
+            try:
+                dataset_path.mkdir(exist_ok=False)
+            except FileExistsError:
+                dataset_path = self.artifact_path / (
+                    f"{self.dataset_name}_{datetime.now().strftime('%m-%d-%Y_%H%M%S')}_{uuid4().hex[:8]}"
+                )
+            except OSError as exc:
+                raise ArtifactStorageError(f"Cannot create dataset directory {str(dataset_path)!r}: {exc}") from exc
+            else:
+                break
+
+        if dataset_path != self.base_dataset_path:
+            logger.info(f"📂 Dataset directory already claimed. This run will be saved to {str(dataset_path)!r}.")
+        # Pydantic 2.9 does not support assigning to cached properties.
+        self.__dict__["resolved_dataset_name"] = dataset_path.name
+        self.refresh_media_storage_path()
 
     @staticmethod
     def mkdir_if_needed(path: Path | str) -> Path:

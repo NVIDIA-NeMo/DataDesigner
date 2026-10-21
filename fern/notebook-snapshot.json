@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "release_tag": "v0.9.5",
-  "asset": "fern-notebooks-38757248948-1-executed.tar.gz",
-  "sha256": "f45a13a4c2eec524a44b0eeb872449f9dffe48378965634c0495c2247e7d1057",
-  "mode": "executed",
-  "run_id": "38757248948",
+  "release_tag": "v0.9.6",
+  "asset": "fern-notebooks-39526342643-1-source-fallback.tar.gz",
+  "sha256": "6ddd0ae8f88f3792443c13b2fd4ed69e15a915b9d547fdca2b8d2d7501d12c84",
+  "mode": "source-fallback",
+  "run_id": "39526342643",
   "run_attempt": "1"
 }
