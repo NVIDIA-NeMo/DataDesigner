@@ -1047,7 +1047,13 @@ class DatasetBuilder:
 
     def process_preview(self, dataset: pd.DataFrame) -> pd.DataFrame:
         df = self._processor_runner.run_post_batch(dataset.copy(), current_batch_number=None)
-        return self._processor_runner.run_after_generation_on_df(df)
+        df = self._processor_runner.run_after_generation_on_df(df)
+        storage_plan = self.artifact_storage.json_storage.for_columns(list(df.columns))
+        if storage_plan.columns:
+            df.attrs[JSON_STORAGE_RUN_KEY] = storage_plan.model_dump()
+        else:
+            df.attrs.pop(JSON_STORAGE_RUN_KEY, None)
+        return df
 
     def _has_image_columns(self) -> bool:
         """Check if config has any image generation columns."""

@@ -226,10 +226,63 @@ def test_public_create_profiles_and_exports_json_storage(
 
     with patch.object(ModelFacade, "agenerate", autospec=True, side_effect=model_response):
         results = designer.create(config, num_records=3, dataset_name="tool_calls")
+        preview = designer.preview(config, num_records=3)
     assert results.load_dataset()["payload"].tolist() == [expected] * 3
     assert isinstance(results.load_analysis(), DatasetProfilerResults)
     output = results.export(tmp_path / "logical.jsonl")
     assert [json.loads(line)["payload"] for line in output.read_text().splitlines()] == [expected] * 3
+    assert preview.dataset["payload"].tolist() == [expected] * 3
+    assert preview.dataset.attrs[JSON_STORAGE_RUN_KEY] == results.artifact_storage.json_storage.model_dump()
+    seeded = preview.to_config_builder()
+    seeded.add_column(ExpressionColumnConfig(name="question", expr="hi", dtype="str"))
+    reseeded = designer.create(seeded, num_records=3, dataset_name="preview_seed")
+    assert reseeded.load_dataset()["payload"].tolist() == [expected] * 3
+    assert reseeded.artifact_storage.json_storage == results.artifact_storage.json_storage
+    inherited_preview = designer.preview(seeded, num_records=3)
+    assert inherited_preview.dataset["payload"].tolist() == [expected] * 3
+    assert inherited_preview.dataset.attrs[JSON_STORAGE_RUN_KEY] == preview.dataset.attrs[JSON_STORAGE_RUN_KEY]
+
+
+@pytest.mark.parametrize("drop_payload", [False, True], ids=["projected", "dropped"])
+def test_preview_seed_projection_preserves_source_and_does_not_encode_reused_name(
+    tmp_path: Path, stub_model_providers: list[ModelProvider], drop_payload: bool
+) -> None:
+    managed = tmp_path / "managed"
+    managed.mkdir()
+    designer = DataDesigner(
+        artifact_path=tmp_path / "artifacts",
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=managed,
+    )
+    designer.set_run_config(RunConfig(otel_metrics_port=None))
+    config = DataDesignerConfigBuilder()
+    config.add_column(
+        CustomColumnConfig(
+            name="payload", generator_function=create_tool_payload, storage_encoding="json", drop=drop_payload
+        )
+    )
+    config.add_column(ExpressionColumnConfig(name="question", expr="hi", dtype="str"))
+
+    preview = designer.preview(config, num_records=1)
+    expected_plan = JsonStoragePlan(columns={} if drop_payload else {"payload": [[]]})
+    if drop_payload:
+        assert JSON_STORAGE_RUN_KEY not in preview.dataset.attrs
+        assert "payload" not in preview.dataset.columns
+    else:
+        assert preview.dataset.attrs[JSON_STORAGE_RUN_KEY] == expected_plan.model_dump()
+    original_attrs = preview.dataset.attrs.copy()
+    seeded = preview.to_config_builder(columns=["question"])
+    assert preview.dataset.attrs == original_attrs
+    seeded_plan = seeded.build().seed_config.source.df.attrs.get(JSON_STORAGE_RUN_KEY, {})
+    assert JsonStoragePlan.model_validate(seeded_plan) == JsonStoragePlan()
+    seeded.add_column(ExpressionColumnConfig(name="payload", expr="new", dtype="str"))
+
+    results = designer.create(seeded, num_records=1, dataset_name="projected_preview")
+    assert not results.artifact_storage.json_storage.columns
+    assert pq.read_table(results.artifact_storage.final_dataset_path).to_pylist() == [
+        {"question": "hi", "payload": "new"}
+    ]
 
 
 def _reject_nonfinite_json_constant(value: str) -> None:

@@ -90,6 +90,8 @@ columns so reusing an output name cannot inherit unrelated encoding. Contract pa
 before comparing batches or resume metadata.
 Loading main and dropped-column artifacts together merges their encoding contracts after column
 concatenation, so the combined logical DataFrame remains safe to reuse as a seed.
+Processed previews carry the active contract too; preview projections filter it before seed handoffs,
+and processors that drop an encoded column remove its carried policy.
 Annotated DataFrame seeds register the encoded Arrow table directly with DuckDB after combining
 chunks, avoiding pandas schema re-inference and mismatched nested/native chunk boundaries.
 
