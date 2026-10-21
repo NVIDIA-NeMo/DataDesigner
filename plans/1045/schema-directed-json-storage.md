@@ -393,6 +393,8 @@ committed with regression tests before another stable review cycle.
   inherited seed policies, while removing policies for dropped columns.
 - Preserve Python object cells for protected columns at every engine row-buffer and batch snapshot,
   before pandas inference can coerce JSON nulls or round mixed integer/float values.
+- Reuse protected logical materialization for schema-transform outputs and keep object cells during
+  CSV normalization, preserving scalar nulls and exact integers through processor artifacts and exports.
 - Restore partitioned directory reads, normalize overflow and malformed-metadata recursion errors,
   preserve native null semantics, and keep CSV structured cells valid JSON without rounding protected
   numbers.

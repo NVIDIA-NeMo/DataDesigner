@@ -6,7 +6,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, Callable
 
-import data_designer.lazy_heavy_imports as lazy
+from data_designer.config.utils.storage_encoding import create_logical_dataframe
 from data_designer.engine.dataset_builders.utils.skip_tracker import strip_skip_metadata_from_records
 
 if TYPE_CHECKING:
@@ -78,19 +78,9 @@ class RowGroupBufferManager:
             rows = [row for i, row in enumerate(buffer) if i not in dropped]
         else:
             rows = [buffer[i] for i in row_indices]
-        records = strip_skip_metadata_from_records(rows)
-        protected = [
-            name for name in self._artifact_storage.json_storage.columns if any(name in row for row in records)
-        ]
-        if not protected:
-            return lazy.pd.DataFrame(records, index=row_indices)
-        column_names = list(dict.fromkeys(name for row in records for name in row))
-        # Infer only native columns: inference can replace JSON nulls, round integers, or overflow.
-        values = {name: [row.pop(name, None) for row in records] for name in protected}
-        frame = lazy.pd.DataFrame(records, index=row_indices)
-        for name, column_values in values.items():
-            frame[name] = lazy.pd.Series(column_values, index=frame.index, dtype=object)
-        return frame.loc[:, column_names]
+        return create_logical_dataframe(
+            strip_skip_metadata_from_records(rows), list(self._artifact_storage.json_storage.columns), index=row_indices
+        )
 
     def replace_dataframe(self, row_group: int, df: pd.DataFrame) -> None:
         """Replace the buffer for a row group from a DataFrame (non-dropped rows only).

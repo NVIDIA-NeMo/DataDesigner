@@ -350,6 +350,13 @@ def test_public_generation_preserves_json_scalar_types_before_batch_generators_a
     for frame in (preview.dataset, results.load_dataset()):
         assert [(type(value), value) for value in frame["payload"]] == [(type(value), value) for value in values]
         assert frame["observed"].tolist() == [json.dumps(value, allow_nan=False) for value in values]
+    with results.export(tmp_path / "scalars.csv").open(newline="") as stream:
+        assert [row["payload"] for row in csv.DictReader(stream)] == [
+            "" if value is None else str(value) for value in values
+        ]
+    exported_jsonl = results.export(tmp_path / "scalars.jsonl")
+    json_values = [json.loads(line)["payload"] for line in exported_jsonl.read_text().splitlines()]
+    assert [(type(value), value) for value in json_values] == [(type(value), value) for value in values]
     preview_seed = preview.to_config_builder()
     preview_seed.add_column(ExpressionColumnConfig(name="question", expr="hi", dtype="str"))
     handoff = designer.create(preview_seed, num_records=len(values), dataset_name="scalar_preview_seed")

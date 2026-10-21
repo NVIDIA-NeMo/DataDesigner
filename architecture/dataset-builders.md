@@ -94,6 +94,8 @@ Processed previews carry the active contract too; preview projections filter it 
 and processors that drop an encoded column remove its carried policy.
 Row-buffer and batch-generator DataFrames preserve protected columns as Python objects, preventing
 pandas inference from replacing JSON nulls or rounding integers before encoding.
+Schema-transform outputs use the same logical materialization helper, and CSV normalization preserves
+object cells to retain protected scalar numbers and nulls through export.
 Annotated DataFrame seeds register the encoded Arrow table directly with DuckDB after combining
 chunks, avoiding pandas schema re-inference and mismatched nested/native chunk boundaries.
 

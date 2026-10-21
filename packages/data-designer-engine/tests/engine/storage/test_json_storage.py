@@ -194,6 +194,32 @@ def test_processor_outputs_have_independent_encoding(stub_resource_provider: Moc
     assert saved.iloc[0]["new_payload"] == {"values": [1, "two"], "alpha": "1"}
 
 
+@pytest.mark.parametrize("batch_number", [None, 0], ids=["preview", "batch"])
+@pytest.mark.parametrize("value", [1.25, 2**60 + 1, 2**1024], ids=["float", "precise-integer", "huge-integer"])
+def test_processor_json_scalar_output_bypasses_pandas_inference(
+    stub_resource_provider: Mock, batch_number: int | None, value: float | int
+) -> None:
+    config = SchemaTransformProcessorConfig(
+        name="transformed_scalars",
+        template={
+            "{{ 'payload' if id == 0 else 'other' }}": value,
+            "{{ 'other' if id == 0 else 'payload' }}": None,
+            "native": 7,
+        },
+        json_storage_columns=["payload", "other"],
+    )
+    processor = SchemaTransformProcessor(config, stub_resource_provider)
+    original = pd.DataFrame({"id": [0, 1]})
+
+    assert processor.process_after_batch(original, current_batch_number=batch_number) is original
+    saved = stub_resource_provider.artifact_storage.load_processor_dataset("transformed_scalars")
+
+    assert [(type(item), item) for item in saved["payload"]] == [(type(value), value), (type(None), None)]
+    assert [(type(item), item) for item in saved["other"]] == [(type(None), None), (type(value), value)]
+    assert saved["native"].tolist() == [7, 7]
+    assert original.to_dict(orient="records") == [{"id": 0}, {"id": 1}]
+
+
 @pytest.mark.parametrize("encoded", [False, True])
 def test_failed_write_preserves_existing_artifact_and_cleans_temporary_files(tmp_path: Path, encoded: bool) -> None:
     storage = ArtifactStorage(

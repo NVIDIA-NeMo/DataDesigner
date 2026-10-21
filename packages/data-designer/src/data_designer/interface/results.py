@@ -276,12 +276,15 @@ def _export_csv(batch_files: list[Path], output: Path) -> None:
     for i, batch_file in enumerate(batch_files):
         chunk = read_parquet_dataset(batch_file)
         for name in chunk.attrs.get(JSON_STORAGE_RUN_KEY, {}).get("columns", {}):
-            chunk[name] = chunk[name].map(
-                lambda value: (
+            chunk[name] = lazy.pd.Series(
+                [
                     serialize_data(_normalize_csv_json_value(value), allow_nan=False)
                     if isinstance(value, (dict, list))
                     else value
-                )
+                    for value in chunk[name]
+                ],
+                index=chunk.index,
+                dtype=object,
             )
         chunk.to_csv(output, mode="a" if i > 0 else "w", header=(i == 0), index=False)
 

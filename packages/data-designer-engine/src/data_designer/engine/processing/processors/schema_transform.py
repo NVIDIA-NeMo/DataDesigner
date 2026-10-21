@@ -7,8 +7,8 @@ import json
 import logging
 from typing import TYPE_CHECKING, Any
 
-import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.processors import SchemaTransformProcessorConfig
+from data_designer.config.utils.storage_encoding import create_logical_dataframe
 from data_designer.config.utils.storage_schema import JsonStoragePlan
 from data_designer.engine.processing.ginja.environment import WithJinja2UserTemplateRendering
 from data_designer.engine.processing.processors.base import Processor
@@ -84,4 +84,4 @@ class SchemaTransformProcessor(WithJinja2UserTemplateRendering, Processor[Schema
             deserialized = deserialize_json_values(record)
             rendered = self.render_template(deserialized)
             formatted_records.append(json.loads(rendered))
-        return lazy.pd.DataFrame(formatted_records)
+        return create_logical_dataframe(formatted_records, self.config.json_storage_columns)

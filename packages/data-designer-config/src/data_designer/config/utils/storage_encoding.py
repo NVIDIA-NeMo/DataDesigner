@@ -66,6 +66,25 @@ def validate_storage_plans(schemas: list[pa.Schema]) -> JsonStoragePlan:
     return expected or JsonStoragePlan()
 
 
+def create_logical_dataframe(
+    records: list[dict[str, Any]], json_columns: list[str], *, index: list[int] | None = None
+) -> pd.DataFrame:
+    """Create logical rows without inferring types for declared JSON columns.
+
+    Preserve the input records and column order. Native columns retain normal
+    pandas inference; JSON columns keep their original Python values and types.
+    """
+    protected = [name for name in json_columns if any(name in row for row in records)]
+    if not protected:
+        return lazy.pd.DataFrame(records, index=index)
+    column_names = list(dict.fromkeys(name for row in records for name in row))
+    native_records = [{name: value for name, value in row.items() if name not in protected} for row in records]
+    frame = lazy.pd.DataFrame(native_records, index=index)
+    for name in protected:
+        frame[name] = lazy.pd.Series([row.get(name) for row in records], index=frame.index, dtype=object)
+    return frame.loc[:, column_names]
+
+
 def encode_storage_table(dataframe: pd.DataFrame, plan: JsonStoragePlan) -> pa.Table:
     """Encode a storage copy, fixing leaf types even for empty/null-only batches."""
     active = plan.for_columns(list(dataframe.columns))
