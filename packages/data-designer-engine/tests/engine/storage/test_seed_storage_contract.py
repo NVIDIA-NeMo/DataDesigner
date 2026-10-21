@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import Mock
 
 import pandas as pd
+import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
@@ -108,3 +109,42 @@ def test_builder_inherits_storage_only_for_actual_seed_columns(stub_resource_pro
         {"question": "hi", "payload": "new"}
     ]
     assert JSON_STORAGE_RUN_KEY not in builder.artifact_storage.read_metadata()
+
+
+@pytest.mark.parametrize("pipeline", [False, True], ids=["reader", "next-pipeline"])
+def test_multibatch_dataframe_seed_preserves_populated_json_after_null_batch(
+    tmp_path: Path, stub_resource_provider: Mock, pipeline: bool
+) -> None:
+    values = [
+        {"outer": {"calls": [{"args": None}]}},
+        {"outer": {"calls": [{"args": {"x": 1}}]}},
+    ]
+    storage = ArtifactStorage(
+        artifact_path=tmp_path,
+        dataset_name="source",
+        json_storage=JsonStoragePlan(columns={"payload": [["outer", "calls", None, "args"]]}),
+    )
+    for batch, value in enumerate(values):
+        storage.write_batch_to_parquet_file(
+            batch, pd.DataFrame({"payload": [value], "id": [batch]}), BatchStage.FINAL_RESULT
+        )
+    frame = storage.load_dataset()
+    assert pa.Table.from_pandas(frame[["id"]]).column("id").num_chunks == 2
+    source = DataFrameSeedSource(df=frame)
+    reader = DataFrameSeedReader()
+    reader.attach(source, PlaintextResolver())
+
+    if pipeline:
+        provider = stub_resource_provider
+        provider.seed_reader = reader
+        provider.artifact_storage = ArtifactStorage(artifact_path=tmp_path, dataset_name="next")
+        config = DataDesignerConfigBuilder().with_seed_dataset(source)
+        config.add_column(ExpressionColumnConfig(name="copied", expr="{{ id + 1 }}", dtype="int"))
+        builder = DatasetBuilder(config.build(), provider)
+        builder.build(num_records=2)
+        result = builder.artifact_storage.load_dataset()
+        assert result["copied"].tolist() == [1, 2]
+    else:
+        result = reader.create_batch_reader(batch_size=2, index_range=None, shuffle=False).read_next_batch().to_pandas()
+    assert result["payload"].tolist() == values
+    assert result["id"].tolist() == [0, 1]

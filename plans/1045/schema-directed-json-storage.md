@@ -372,6 +372,33 @@ Remaining compatibility work before release:
 - Live Hub publication and independent external-engine interpretation have not been exercised.
 - Review the public annotation/config names and metadata migration promise before release.
 
+## Post-draft review hardening
+
+Three independent reviewers each performed ten substantive passes per review cycle. The first two
+cycles found and reproduced edge cases using real codec files and public pipeline runs; fixes were
+committed with regression tests before another stable review cycle.
+
+- Canonicalize path operations, reject contradictory/ambiguous container traversal, and validate
+  physical metadata paths and string leaves before reading any rows.
+- Resolve local URI-fragment pointers correctly, including escaped tokens and array indices; reject
+  nested resource traversal and keep unsupported preflight dialects/scopes warning-only.
+- Match constant probes to the actual pandas writer, ignore inactive type-specific schema keywords,
+  respect positional array limits, discarded-column policy, conditional generation, and processor
+  transformations when determining whether a storage error is proven.
+- Preserve nullable and projected DataFrame/file seeds, carry metadata through `from_dataframe`, and
+  register combined Arrow tables for annotated DataFrame seeds to avoid nested multichunk data loss.
+- Restore partitioned directory reads, normalize overflow and malformed-metadata recursion errors,
+  preserve native null semantics, and keep CSV structured cells valid JSON without rounding protected
+  numbers.
+- Reject impossible literal processor output-storage names before generation while leaving dynamic
+  template-key checks conservative. Keep similarly named plugin fields opaque to fingerprint rules.
+
+The first hardened candidate passed 2,696 engine tests and 2,010 config/interface tests (3 skips).
+The full config suite also passed 803 tests with Pydantic 2.9.2 and jsonschema 4.0.0 in an isolated
+environment. The engine cannot import with that older Pydantic because of an unchanged telemetry
+class-variable incompatibility; this review did not modify that unrelated subsystem. Feature lifecycle
+tests with the current Pydantic and minimum jsonschema passed separately.
+
 ## References
 
 - [Storage issue #1045](https://github.com/NVIDIA-NeMo/DataDesigner/issues/1045)

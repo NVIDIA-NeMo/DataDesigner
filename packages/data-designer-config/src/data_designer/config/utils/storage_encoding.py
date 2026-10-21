@@ -38,7 +38,7 @@ def read_storage_plan(schema: pa.Schema) -> JsonStoragePlan:
             for path in paths:
                 _validate_storage_path(schema.field(name).type, path)
         return plan
-    except (ValueError, TypeError, ValidationError) as exc:
+    except (ValueError, TypeError, ValidationError, RecursionError) as exc:
         raise InvalidFileFormatError("Invalid or unsupported DD JSON storage metadata") from exc
 
 
@@ -85,7 +85,9 @@ def encode_storage_table(dataframe: pd.DataFrame, plan: JsonStoragePlan) -> pa.T
         index = table.schema.get_field_index(name)
         field = table.schema.field(index)
         dtype = _storage_type(field.type, paths)
-        table = table.set_column(index, field.with_type(dtype), lazy.pa.array(frame[name].tolist(), type=dtype))
+        table = table.set_column(
+            index, field.with_type(dtype), lazy.pa.array(frame[name].tolist(), type=dtype, from_pandas=True)
+        )
     if active.columns:
         table = table.replace_schema_metadata(
             {

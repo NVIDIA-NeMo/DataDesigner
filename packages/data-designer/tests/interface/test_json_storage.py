@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import csv
 import json
 from pathlib import Path
 from typing import Any
@@ -114,6 +115,46 @@ def test_csv_export_has_json_text(json_results: DatasetCreationResults, tmp_path
     assert values == json_results.load_dataset()["payload"].tolist()
 
 
+@pytest.mark.parametrize("nonfinite", [float("nan"), float("inf"), float("-inf")], ids=["nan", "inf", "-inf"])
+def test_csv_structured_cells_normalize_native_nonfinite_siblings_without_rounding_json(
+    json_results: DatasetCreationResults, tmp_path: Path, nonfinite: float
+) -> None:
+    storage = json_results.artifact_storage
+    for file in storage.final_dataset_path.glob("*.parquet"):
+        file.unlink()
+    storage.json_storage = JsonStoragePlan(columns={"payload": [["arguments"]]})
+    exact = {"precise": 1.2345678901234567, "large": 2**100, "small": 1e-100, "text": "NaN"}
+    storage.write_batch_to_parquet_file(
+        0,
+        pd.DataFrame(
+            {
+                "payload": [
+                    {"arguments": exact, "native": {"value": nonfinite, "items": [nonfinite]}},
+                    {"arguments": {}, "native": {"value": 1.0, "items": [1.0]}},
+                ],
+                "ordinary": ["NaN", "Infinity"],
+                "native_scalar": [nonfinite, 1.0],
+            }
+        ),
+        BatchStage.FINAL_RESULT,
+    )
+    output = json_results.export(tmp_path / "strict.csv")
+    with output.open(newline="") as stream:
+        rows = list(csv.DictReader(stream))
+
+    restored = [json.loads(row["payload"], parse_constant=_reject_nonfinite_json_constant) for row in rows]
+    assert restored == [
+        {"arguments": exact, "native": {"value": None, "items": [None]}},
+        {"arguments": {}, "native": {"value": 1.0, "items": [1.0]}},
+    ]
+    assert [row["ordinary"] for row in rows] == ["NaN", "Infinity"]
+    baseline = tmp_path / "native-baseline.csv"
+    json_results.load_dataset()[["native_scalar"]].to_csv(baseline, index=False)
+    with baseline.open(newline="") as stream:
+        expected_native = [row["native_scalar"] for row in csv.DictReader(stream)]
+    assert [row["native_scalar"] for row in rows] == expected_native
+
+
 def test_parquet_export_preserves_contract(json_results: DatasetCreationResults, tmp_path: Path) -> None:
     output = json_results.export(tmp_path / "export.parquet")
     assert JSON_STORAGE_METADATA_KEY in pq.read_schema(output).metadata
@@ -189,3 +230,7 @@ def test_public_create_profiles_and_exports_json_storage(
     assert isinstance(results.load_analysis(), DatasetProfilerResults)
     output = results.export(tmp_path / "logical.jsonl")
     assert [json.loads(line)["payload"] for line in output.read_text().splitlines()] == [expected] * 3
+
+
+def _reject_nonfinite_json_constant(value: str) -> None:
+    pytest.fail(f"Structured CSV cell contains invalid JSON constant {value}")

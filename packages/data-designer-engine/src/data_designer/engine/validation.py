@@ -413,6 +413,28 @@ def validate_schema_transform_processor(
     all_column_names = {c.name for c in columns}
     for processor_config in processor_configs:
         if processor_config.processor_type == ProcessorType.SCHEMA_TRANSFORM:
+            literal_outputs = {
+                name for name in processor_config.template if not any(marker in name for marker in ("{{", "{%", "{#"))
+            }
+            missing_storage_columns = set(processor_config.json_storage_columns) - literal_outputs
+            if missing_storage_columns:
+                dynamic_outputs = len(literal_outputs) != len(processor_config.template)
+                message = (
+                    f"Schema-transform processor {processor_config.name!r} declares JSON storage for output "
+                    f"columns {sorted(missing_storage_columns)!r}, which are not literal template output names. "
+                )
+                message += (
+                    "Dynamic output names cannot be verified until the template is rendered."
+                    if dynamic_outputs
+                    else "Use output names from the template in json_storage_columns."
+                )
+                violations.append(
+                    Violation(
+                        type=ViolationType.PARQUET_STORAGE,
+                        message=message,
+                        level=ViolationLevel.WARNING if dynamic_outputs else ViolationLevel.ERROR,
+                    )
+                )
             for col, template in processor_config.template.items():
                 template_keywords = extract_keywords_from_jinja2_template(template)
                 invalid_keywords = set(template_keywords) - all_column_names

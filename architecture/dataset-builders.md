@@ -88,11 +88,16 @@ Physical field paths and string leaves are validated even for empty/null-only fi
 seed handoffs retain their contract through `from_dataframe`; projections restrict it to retained seed
 columns so reusing an output name cannot inherit unrelated encoding. Contract paths are canonicalized
 before comparing batches or resume metadata.
+Annotated DataFrame seeds register the encoded Arrow table directly with DuckDB after combining
+chunks, avoiding pandas schema re-inference and mismatched nested/native chunk boundaries.
 
 Resume compares the storage plan as well as the config fingerprint. Files with incompatible contracts
 cannot be combined. Main-dataset processors must preserve declared paths; automatic path remapping is
 unsupported. JSONL exports decode protected leaves after native date/null normalization so pandas does
 not round their numbers. External Parquet readers see JSON text, while DD reads restore logical values.
+CSV structured cells keep protected JSON numbers exact and normalize non-finite native siblings to
+JSON null. Statically impossible schema-transform storage output names fail config validation;
+dynamic template keys receive warnings and retain runtime checks.
 
 ### Resume Checkpointing
 

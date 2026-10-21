@@ -4,8 +4,9 @@
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, get_args
+from typing import TYPE_CHECKING, Any, Literal, get_args
 
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.analysis.dataset_profiler import DatasetProfilerResults
@@ -276,9 +277,23 @@ def _export_csv(batch_files: list[Path], output: Path) -> None:
         chunk = read_parquet_dataset(batch_file)
         for name in chunk.attrs.get(JSON_STORAGE_RUN_KEY, {}).get("columns", {}):
             chunk[name] = chunk[name].map(
-                lambda value: serialize_data(value) if isinstance(value, (dict, list)) else value
+                lambda value: (
+                    serialize_data(_normalize_csv_json_value(value), allow_nan=False)
+                    if isinstance(value, (dict, list))
+                    else value
+                )
             )
         chunk.to_csv(output, mode="a" if i > 0 else "w", header=(i == 0), index=False)
+
+
+def _normalize_csv_json_value(value: Any) -> Any:
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    if isinstance(value, dict):
+        return {key: _normalize_csv_json_value(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_normalize_csv_json_value(item) for item in value]
+    return value
 
 
 def _export_parquet(batch_files: list[Path], output: Path) -> None:

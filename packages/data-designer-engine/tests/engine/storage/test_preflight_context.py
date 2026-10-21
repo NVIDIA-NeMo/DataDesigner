@@ -20,7 +20,11 @@ from data_designer.config.run_config import RunConfig
 from data_designer.engine.dataset_builders.dataset_builder import DatasetBuilder
 from data_designer.engine.processing.processors.base import Processor
 from data_designer.engine.registry.data_designer_registry import DataDesignerRegistry
-from data_designer.engine.validation import ViolationLevel, validate_parquet_storage
+from data_designer.engine.validation import (
+    ViolationLevel,
+    validate_parquet_storage,
+    validate_schema_transform_processor,
+)
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -71,6 +75,37 @@ def test_known_non_mutating_processor_does_not_hide_native_failure() -> None:
 def test_skipped_generation_can_store_a_native_compatible_value() -> None:
     violations = validate_parquet_storage([_column(skip=SkipConfig(when="{{ condition }}", value="skipped"))])
     assert violations and all(violation.level == ViolationLevel.WARNING for violation in violations)
+
+
+@pytest.mark.parametrize("template_key", ["actual", "{{ output_name }}", "{# comment #}actual"])
+def test_processor_storage_names_are_checked_without_guessing_dynamic_outputs(template_key: str) -> None:
+    processor = SchemaTransformProcessorConfig(
+        name="copy", template={template_key: "ok"}, json_storage_columns=["typo"]
+    )
+    violations = validate_schema_transform_processor(columns=[], processor_configs=[processor])
+    assert len(violations) == 1
+    expected = ViolationLevel.ERROR if template_key == "actual" else ViolationLevel.WARNING
+    assert violations[0].level == expected
+    assert "copy" in violations[0].message and "typo" in violations[0].message
+
+
+def test_literal_processor_storage_name_is_valid_with_other_dynamic_keys() -> None:
+    processor = SchemaTransformProcessorConfig(
+        name="copy", template={"actual": "ok", "{{ output_name }}": "ok"}, json_storage_columns=["actual"]
+    )
+    assert validate_schema_transform_processor(columns=[], processor_configs=[processor]) == []
+
+
+def test_impossible_processor_storage_names_fail_before_generation(stub_resource_provider: Mock) -> None:
+    stub_resource_provider.seed_reader = None
+    config = DataDesignerConfigBuilder()
+    config.add_column(ExpressionColumnConfig(name="source", expr="ok", dtype="str"))
+    config.add_processor(
+        SchemaTransformProcessorConfig(name="copy", template={"actual": "{{ source }}"}, json_storage_columns=["typo"])
+    )
+    with pytest.raises(InvalidConfigError, match="validation errors"):
+        DatasetBuilder(config.build(), stub_resource_provider)
+    stub_resource_provider.model_registry.arun_health_check.assert_not_called()
 
 
 @pytest.mark.parametrize("preserve", [False, True])

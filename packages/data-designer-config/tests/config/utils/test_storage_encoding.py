@@ -252,3 +252,35 @@ def test_partitioned_directory_validates_every_fragment_contract(tmp_path: Path)
     )
     with pytest.raises(InvalidFileFormatError, match="Incompatible"):
         read_parquet_dataset(tmp_path)
+
+
+def test_deeply_malformed_metadata_has_canonical_format_error() -> None:
+    payload = b'{"version":1,"columns":' + b"[" * 10000 + b"0" + b"]" * 10000 + b"}"
+    schema = pa.schema([("payload", pa.string())], metadata={JSON_STORAGE_METADATA_KEY: payload})
+    with pytest.raises(InvalidFileFormatError, match="metadata"):
+        read_storage_plan(schema)
+
+
+@pytest.mark.parametrize("mixed", [False, True])
+def test_native_nan_siblings_keep_pandas_null_semantics(mixed: bool) -> None:
+    values = [{"arguments": {"x": 1}, "native": float("nan")}]
+    if mixed:
+        values.append({"arguments": {"x": 2}, "native": 1.0})
+    frame = pd.DataFrame({"payload": values})
+    plan = JsonStoragePlan(columns={"payload": [["arguments"]]})
+    table = encode_storage_table(frame, plan)
+    stream = io.BytesIO()
+    pq.write_table(table, stream)
+    stream.seek(0)
+    restored = decode_storage_table(pq.read_table(stream))["payload"].tolist()
+    expected = [{"arguments": {"x": 1}, "native": None}]
+    if mixed:
+        expected.append({"arguments": {"x": 2}, "native": 1.0})
+    assert restored == expected
+    assert pd.isna(frame.iloc[0]["payload"]["native"])
+
+
+def test_native_null_normalization_does_not_relax_annotated_json_values() -> None:
+    frame = pd.DataFrame({"payload": [{"arguments": {"x": float("nan")}, "native": float("nan")}]})
+    with pytest.raises(InvalidFileFormatError, match="column 'payload', row 0"):
+        encode_storage_table(frame, JsonStoragePlan(columns={"payload": [["arguments"]]}))

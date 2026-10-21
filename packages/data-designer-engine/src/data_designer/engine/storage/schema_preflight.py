@@ -98,25 +98,30 @@ def find_storage_schema_risks(schema: dict[str, Any]) -> list[StorageSchemaRisk]
         if branches.intersection(node):
             certain = False
 
-        is_object = "object" in types or "properties" in node or "additionalProperties" in node
+        is_object = (not types or "object" in types) and (
+            "object" in types or "properties" in node or "additionalProperties" in node
+        )
         if is_object:
+            object_certain = certain and nonnull_types == {"object"}
             properties = node.get("properties", {})
             closed_empty = (
                 node.get("additionalProperties") is False and not properties and not node.get("patternProperties")
             )
             if node.get("maxProperties") == 0 or closed_empty:
-                report(path, "requires an empty object, which native Parquet cannot store as a struct", certain)
+                report(path, "requires an empty object, which native Parquet cannot store as a struct", object_certain)
             elif (
                 not properties or node.get("additionalProperties", False) is not False or node.get("patternProperties")
             ):
                 report(path, "allows dynamic object keys that native struct storage may normalize or fail to serialize")
             required_names = node.get("required", [])
             for name, child in properties.items():
-                visit(child, (*path, name), certain and name in required_names, refs)
+                visit(child, (*path, name), object_certain and name in required_names, refs)
 
-        if "array" in types or "items" in node or "prefixItems" in node:
+        if (not types or "array" in types) and ("array" in types or "items" in node or "prefixItems" in node):
             # Empty arrays are valid unless minItems says otherwise.
-            items_required = certain and node.get("minItems", 0) > len(node.get("prefixItems", []))
+            items_required = (
+                certain and nonnull_types == {"array"} and node.get("minItems", 0) > len(node.get("prefixItems", []))
+            )
             if "items" in node:
                 visit(node["items"], (*path, None), items_required, refs)
             elif "prefixItems" not in node:
@@ -168,9 +173,8 @@ def _constant_cannot_write(value: Any) -> bool:
     if isinstance(value, int) and -(2**63) <= value < 2**63:
         return False
     try:
-        table = lazy.pa.Table.from_pydict({"value": [value]})
         with lazy.pa.BufferOutputStream() as sink:
-            lazy.pq.write_table(table, sink)
+            lazy.pd.DataFrame({"value": [value]}).to_parquet(sink, index=False)
     except (lazy.pa.ArrowException, ValueError, TypeError, OverflowError):
         return True
     return False

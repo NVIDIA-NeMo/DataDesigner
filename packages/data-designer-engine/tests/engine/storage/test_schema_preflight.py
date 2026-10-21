@@ -6,6 +6,7 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import Mock, patch
 
+import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
@@ -284,4 +285,53 @@ def test_preflight_uses_the_shared_local_pointer_semantics(reference: str) -> No
 
 def test_root_recursive_reference_warns_without_recursing_forever() -> None:
     risks = find_storage_schema_risks({"type": "object", "properties": {"child": {"$ref": "#"}}})
+    assert risks and all(not risk.definite for risk in risks)
+
+
+@pytest.mark.parametrize("value", [-(2**63), 2**63 - 1, 2**63, 2**64 - 1])
+def test_native_scalar_integer_boundaries_match_the_pandas_writer(value: int) -> None:
+    with pa.BufferOutputStream() as sink:
+        pd.DataFrame({"value": [value]}).to_parquet(sink, index=False)
+    assert find_storage_schema_risks({"const": value}) == []
+    assert find_storage_schema_risks({"enum": [value]}) == []
+
+
+@pytest.mark.parametrize("value", [-(2**63) - 1, 2**64])
+def test_constants_beyond_native_integer_ranges_remain_fatal(value: int) -> None:
+    with pa.BufferOutputStream() as sink:
+        with pytest.raises((OverflowError, pa.ArrowException)):
+            pd.DataFrame({"value": [value]}).to_parquet(sink, index=False)
+    risks = find_storage_schema_risks({"const": value})
+    assert risks and any(risk.definite for risk in risks)
+
+
+@pytest.mark.parametrize("kind", ["string", "integer", "number", "boolean", "null"])
+@pytest.mark.parametrize(
+    "keywords",
+    [
+        {"additionalProperties": False},
+        {"maxProperties": 0},
+        {"properties": {"bad": {"const": {}}}, "required": ["bad"]},
+        {"items": {"const": {}}, "minItems": 1},
+        {"prefixItems": [{"const": {}}], "minItems": 1},
+    ],
+)
+def test_inactive_container_keywords_do_not_warn_for_scalar_or_null_types(kind: str, keywords: dict[str, Any]) -> None:
+    assert find_storage_schema_risks({"type": kind, **keywords}) == []
+
+
+@pytest.mark.parametrize(
+    "types",
+    [None, ["object", "null"], ["object", "integer"], ["array", "null"], ["array", "string"]],
+)
+def test_unknown_nullable_and_heterogeneous_container_types_cannot_prove_failure(types: list[str] | None) -> None:
+    schema = {
+        "properties": {"bad": {"const": {}}},
+        "required": ["bad"],
+        "items": {"const": {}},
+        "minItems": 1,
+    }
+    if types is not None:
+        schema["type"] = types
+    risks = find_storage_schema_risks(schema)
     assert risks and all(not risk.definite for risk in risks)

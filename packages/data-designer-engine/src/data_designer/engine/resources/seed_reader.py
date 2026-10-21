@@ -442,7 +442,10 @@ class DataFrameSeedReader(SeedReader[DataFrameSeedSource]):
         frame = self.source.df
         plan = self.get_storage_plan()
         if plan.columns:
-            frame = encode_storage_table(frame, plan).to_pandas()
+            conn = lazy.duckdb.connect()
+            # Align native and encoded chunks before DuckDB scans nested null values.
+            conn.register(self._table_name, encode_storage_table(frame, plan).combine_chunks())
+            return conn
         return self.create_dataframe_duckdb_connection(table_name=self._table_name, dataframe=frame)
 
     def get_dataset_uri(self) -> str:

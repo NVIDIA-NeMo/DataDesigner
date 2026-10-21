@@ -178,6 +178,8 @@ DD saves encoded leaves as UTF-8 JSON text with versioned Parquet metadata. DD r
 logical values; external Parquet readers see strings and must decode them explicitly. JSONL exports
 restore nested JSON. CSV exports use JSON text for structured cells. Keep the metadata when copying
 or combining files. Mixed encoding contracts cannot be combined or appended during resume.
+Non-finite native numbers alongside an annotated subtree become JSON null in structured CSV cells;
+the protected subtree itself accepts finite JSON numbers only.
 
 The codec accepts JSON-compatible values only: string-keyed dictionaries, lists, strings, booleans,
 finite numbers, and null. Convert dates, decimals, bytes, or custom classes explicitly before storage.
@@ -188,6 +190,9 @@ config to encode its entire value. For a schema-transform processor's separate a
 `json_storage_columns=["output_column"]` on its config. These output contracts are independent of
 the input dataset's annotations. Processors that reshape the main dataset must preserve the declared
 paths, or declare JSON storage for a containing column before generation.
+Processor JSON-storage names are checked against literal template output names before generation.
+When template keys are dynamic, DD warns if it cannot verify a requested name and checks the rendered
+output when writing.
 
 ### ⚖️ LLM-Judge Columns
 
