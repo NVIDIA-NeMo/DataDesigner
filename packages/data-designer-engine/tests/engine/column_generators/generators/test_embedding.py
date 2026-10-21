@@ -115,3 +115,12 @@ async def test_embedding_cell_generator_agenerate_rejects_missing_values(
         with pytest.raises(ValueError, match="must contain text"):
             await embedding_cell_generator.agenerate({"test_column": cell_value})
     mock_model.agenerate_text_embeddings.assert_not_awaited()
+
+
+def test_embedding_cell_generator_error_omits_cell_contents(stub_embedding_column_config, stub_resource_provider):
+    embedding_cell_generator = EmbeddingCellGenerator(
+        config=stub_embedding_column_config, resource_provider=stub_resource_provider
+    )
+    with pytest.raises(ValueError, match="got dict") as exc_info:
+        embedding_cell_generator.generate(data={"test_column": {"secret": "sentinel-7f3a"}})
+    assert "sentinel-7f3a" not in str(exc_info.value)

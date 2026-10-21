@@ -37,7 +37,7 @@ class EmbeddingCellGenerator(ColumnGeneratorWithModel[EmbeddingColumnConfig]):
         if not isinstance(cell_value, str):
             raise ValueError(
                 f"Embedding target column {self.config.target_column!r} must contain text or a list of texts, "
-                f"got {cell_value!r}"
+                f"got {type(cell_value).__name__}"
             )
         # A JSON scalar such as "123" or "true" is embedded as the user wrote it.
         return [cell_value.strip()]
