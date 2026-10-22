@@ -74,9 +74,11 @@ def test_display_sample_record_twice_no_errors(
     display_sample_record(record_series, config_builder_with_validation)
 
 
-def test_display_sample_record_skips_columns_dropped_by_processor() -> None:
+def test_display_sample_record_skips_columns_dropped_by_processor(
+    stub_empty_builder: DataDesignerConfigBuilder,
+) -> None:
     """A column dropped by a drop processor is absent from the record and must not be looked up."""
-    builder = DataDesignerConfigBuilder()
+    builder = stub_empty_builder
     builder.add_column(SamplerColumnConfig(name="keep", sampler_type="uuid", params=UUIDSamplerParams()))
     builder.add_column(SamplerColumnConfig(name="tmp", sampler_type="uuid", params=UUIDSamplerParams()))
     builder.add_processor(DropColumnsProcessorConfig(name="cleanup", column_names=["tmp"]))
