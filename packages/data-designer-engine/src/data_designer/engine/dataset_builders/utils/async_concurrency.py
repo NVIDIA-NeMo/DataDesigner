@@ -19,12 +19,19 @@ Startup handshake:
     ``_loop.is_running() == False`` before the first loop has entered
     ``run_forever()``, which would create a duplicate loop. On timeout,
     globals are reset and the orphaned loop is cleaned up before raising.
+
+Fork safety:
+    Only the forking thread survives ``os.fork()``, but the copied loop
+    object still reports ``is_running() == True``. An ``after_in_child``
+    hook drops the inherited loop, thread, and lock so the child's first
+    call starts a fresh loop instead of waiting on one nothing drives.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import threading
 
 logger = logging.getLogger(__name__)
@@ -40,6 +47,19 @@ def _run_loop(loop: asyncio.AbstractEventLoop, ready: threading.Event) -> None:
     asyncio.set_event_loop(loop)
     loop.call_soon(ready.set)
     loop.run_forever()
+
+
+def _reset_after_fork() -> None:
+    # Drop, never close(), the inherited loop: the child shares the parent's epoll
+    # instance, and close() would unregister the parent loop's wakeup pipe from it.
+    global _loop, _thread, _lock
+    _loop = None
+    _thread = None
+    _lock = threading.Lock()
+
+
+if hasattr(os, "register_at_fork"):
+    os.register_at_fork(after_in_child=_reset_after_fork)
 
 
 def ensure_async_engine_loop() -> asyncio.AbstractEventLoop:
