@@ -31,6 +31,10 @@ members = [
 # IMPORTANT: This root is NOT a package. It only defines workspace configuration.
 package = false
 required-version = ">=0.13.4"
+# Minimum versions for transitive dependencies with known security vulnerabilities.
+constraint-dependencies = [
+    "certifi>=2026.10.19",
+]
 
 [tool.uv.sources]
 # Temporary immutable pin to jupyter/nbconvert#2300, which replaces the EOL

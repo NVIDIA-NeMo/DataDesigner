@@ -21,6 +21,7 @@ members = [
     "data-designer-engine",
     "data-designer-workspace",
 ]
+constraints = [{ name = "certifi", specifier = ">=2026.10.19" }]
 
 [[package]]
 name = "aiohappyeyeballs"
@@ -874,7 +875,6 @@ source = { editable = "packages/data-designer-engine" }
 dependencies = [
     { name = "anyascii" },
     { name = "asciichartpy" },
-    { name = "certifi" },
     { name = "data-designer-config" },
     { name = "duckdb" },
     { name = "faker" },
@@ -910,7 +910,6 @@ dependencies = [
 requires-dist = [
     { name = "anyascii", specifier = ">=0.3.3,<1" },
     { name = "asciichartpy", specifier = ">=1.5.25,<2" },
-    { name = "certifi", specifier = ">=2026.10.19" },
     { name = "data-designer-config", editable = "packages/data-designer-config" },
     { name = "duckdb", specifier = ">=1.5.0,<2" },
     { name = "faker", specifier = ">=20.1.0,<21" },

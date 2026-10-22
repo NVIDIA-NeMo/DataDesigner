@@ -17,7 +17,7 @@ allowed_licenses = [
 # version, and exact reported license. A version or license metadata change must
 # be reviewed explicitly.
 [exceptions.certifi]
-reason = "Unmodified TLS certificate bundle installed as a separate runtime dependency."
+reason = "Unmodified TLS certificate bundle installed as a separate transitive dependency."
 reports = [{ version = "2026.10.19", license = "Mozilla Public License 2.0 (MPL 2.0)" }]
 
 [exceptions.chardet]
