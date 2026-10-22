@@ -992,10 +992,6 @@ def builder_with_columns(stub_empty_builder: DataDesignerConfigBuilder) -> DataD
     return stub_empty_builder
 
 
-def _get_built_drop_flags(builder: DataDesignerConfigBuilder) -> dict[str, bool]:
-    return {column.name: column.drop for column in builder.build().columns}
-
-
 def make_sampler_column(name: str) -> SamplerColumnConfig:
     return SamplerColumnConfig(name=name, sampler_type="uuid", params=UUIDSamplerParams())
 
@@ -1263,3 +1259,7 @@ def test_reloaded_builder_recomputes_processor_drops_after_replace(
     expected = {"col_a": False, "col_b": True, "other": False, "authored": True}
     assert _get_built_drop_flags(builder_with_columns) == expected
     assert _get_built_drop_flags(reloaded) == expected
+
+
+def _get_built_drop_flags(builder: DataDesignerConfigBuilder) -> dict[str, bool]:
+    return {column.name: column.drop for column in builder.build().columns}
