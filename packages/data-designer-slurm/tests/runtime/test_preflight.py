@@ -124,6 +124,52 @@ def test_artifact_verification_checks_exact_bytes_and_rejects_symlink(tmp_path: 
         _verify_artifact(reference)
 
 
+@pytest.fixture
+def artifact_context(tmp_path: Path) -> AllocationContext:
+    artifact = tmp_path / "runtime.tar.gz"
+    artifact.write_bytes(b"runtime")
+    reference = ArtifactReference(path=artifact.as_posix(), sha256=hashlib.sha256(b"runtime").hexdigest())
+    image = tmp_path / "serving.sqsh"
+    content = b"serving image"
+    image.write_bytes(content)
+    image_reference = ArtifactReference(path=image.as_posix(), sha256=hashlib.sha256(content).hexdigest())
+    plan_path = tmp_path / "resolved-plan.json"
+    plan_path.write_text("{}")
+    plan = SimpleNamespace(
+        authored_config=SimpleNamespace(path=(tmp_path / "run.yaml").as_posix()),
+        compute_sha256=lambda: hashlib.sha256(b"{}").hexdigest(),
+        runtime_bundle=reference,
+        client=SimpleNamespace(dependency_lock=reference),
+        deployments=(SimpleNamespace(image=image_reference), SimpleNamespace(image=image_reference)),
+        builder=SimpleNamespace(source=reference),
+    )
+    return cast(AllocationContext, SimpleNamespace(plan=plan, shard=SimpleNamespace(input_partition=reference)))
+
+
+def test_artifact_preflight_accepts_shared_artifacts(artifact_context: AllocationContext) -> None:
+    SystemAllocationPreflight.verify_artifacts(artifact_context)
+
+
+@pytest.mark.parametrize("damage", ("contents", "missing", "symlink"))
+def test_artifact_preflight_rejects_changed_serving_image(
+    artifact_context: AllocationContext,
+    damage: str,
+    tmp_path: Path,
+) -> None:
+    image = Path(artifact_context.plan.deployments[0].image.path)
+    if damage == "contents":
+        image.write_bytes(b"changed image")
+    else:
+        image.unlink()
+        if damage == "symlink":
+            target = tmp_path / "target.sqsh"
+            target.write_bytes(b"serving image")
+            image.symlink_to(target)
+
+    with pytest.raises(SlurmRuntimeError, match="could not verify launch inputs"):
+        SystemAllocationPreflight.verify_artifacts(artifact_context)
+
+
 def test_artifact_verification_rejects_path_replacement_during_read(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

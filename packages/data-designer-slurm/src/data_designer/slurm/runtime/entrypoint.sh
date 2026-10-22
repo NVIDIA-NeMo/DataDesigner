@@ -149,17 +149,6 @@ dd_verify_host_context() {
     [[ ${SLURM_NODEID:-} == "${DD_CLIENT_NODE_INDEX}" ]]
     dd_resolve_allocation_hosts
     dd_verify_gpu_count
-    dd_read_artifacts "${DD_PLAN_PATH}" "${SLURM_ARRAY_TASK_ID}"
-    local index path digest actual
-    for ((index = 0; index < ${#DD_ARTIFACT_FIELDS[@]}; index += 2)); do
-        path=${DD_ARTIFACT_FIELDS[index]}
-        digest=${DD_ARTIFACT_FIELDS[index + 1]}
-        actual=$(sha256sum < "${path}")
-        [[ ${actual%% *} == "${digest}" ]] || {
-            printf 'allocation artifact digest mismatch: %s\n' "${path}" >&2
-            return 65
-        }
-    done
 }
 
 dd_resolve_allocation_hosts() {

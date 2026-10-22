@@ -93,7 +93,7 @@ class SystemAllocationPreflight:
             attempt_directory = context.attempt_directory
             self.verify_attempt_directory(attempt_directory)
             self.verify_client_runtime(context)
-            self._verify_artifacts(context)
+            self.verify_artifacts(context)
             self.verify_ports(context, environment)
         except SlurmRuntimeError:
             raise
@@ -161,7 +161,8 @@ class SystemAllocationPreflight:
             )
 
     @staticmethod
-    def _verify_artifacts(context: AllocationContext) -> None:
+    def verify_artifacts(context: AllocationContext) -> None:
+        """Verify unique launch artifacts against their planned SHA-256 digests."""
         plan = context.plan
         references = [
             ArtifactReference(
@@ -181,8 +182,14 @@ class SystemAllocationPreflight:
         ]
         references.extend(reference for reference in optional_references if reference is not None)
         unique_references = {(reference.path, reference.sha256): reference for reference in references}
-        for reference in unique_references.values():
-            _verify_artifact(reference)
+        try:
+            for reference in unique_references.values():
+                _verify_artifact(reference)
+        except (OSError, ValueError) as error:
+            raise SlurmRuntimeError(
+                SlurmRuntimeErrorCode.PREFLIGHT_FAILED,
+                "allocation preflight could not verify launch inputs",
+            ) from error
 
     @staticmethod
     def verify_ports(context: AllocationContext, environment: Mapping[str, str]) -> None:
