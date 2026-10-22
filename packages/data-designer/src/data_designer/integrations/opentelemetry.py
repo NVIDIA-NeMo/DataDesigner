@@ -254,34 +254,41 @@ class OpenTelemetryRuntime:
             if not self._initialized:
                 return
             server, thread, provider, handler = self._detach_state()
+            if handler is not None:
+                logging.getLogger("data_designer").removeHandler(handler)
+                handler.close()
 
-        if handler is not None:
-            logging.getLogger("data_designer").removeHandler(handler)
-            handler.close()
         self._release_server(server, thread)
         if provider is not None:
             with contextlib.suppress(Exception):
                 provider.shutdown()
 
+    def _before_fork(self) -> None:
+        # Hold the runtime lock across fork so a child never inherits a half-done transition,
+        # such as a server that is bound but not yet recorded, or a log handler attached during
+        # _initialize(). Initialization, server startup and log handler removal hold this lock;
+        # stopping a server does not, so detached servers stay on _closing_servers until closed.
+        self._lock.acquire()
+
+    def _after_fork_in_parent(self) -> None:
+        self._lock.release()
+
     def _reset_after_fork(self) -> None:
-        # Only the forking thread survives, so any lock another parent thread held (this
-        # runtime's, or one inside the SDK provider and instruments) stays locked in the child.
-        # Drop all inherited state without calling into it; the next active run initializes
-        # fresh state. Close only this process's copies of the listening sockets, including
-        # servers another thread was still stopping, so a long-lived child does not keep the
-        # parent's metrics port bound. server.shutdown() would wait forever for a
-        # serve_forever() thread that does not exist here.
+        # Only the forking thread survives, so any lock another parent thread held inside the SDK
+        # provider and instruments stays locked in the child. Drop all inherited state without
+        # calling into it; the next active run initializes fresh state. Close only this
+        # process's copies of the listening sockets, including servers another thread was still
+        # stopping, so a long-lived child does not keep the parent's metrics port bound.
+        # server.shutdown() would wait forever for a serve_forever() thread that does not exist
+        # here.
         self._lock = threading.RLock()
+        handler = None
         if self._initialized:
-            self._detach_state()
-        # Remove every handler for this runtime, not only _log_handler: a fork during
-        # _initialize() can leave one attached before _log_handler is assigned. Taking the
-        # logging lock is safe: logging registers its own after_in_child hook at import, before
-        # this one, and CPython runs those hooks in registration order.
-        data_designer_logger = logging.getLogger("data_designer")
-        for handler in list(data_designer_logger.handlers):
-            if isinstance(handler, _MetricLogHandler) and handler._runtime is self:
-                data_designer_logger.removeHandler(handler)
+            _, _, _, handler = self._detach_state()
+        if handler is not None:
+            # Taking the logging lock is safe: logging registers its own fork hooks at import,
+            # before this one, so it reinitializes its locks in the child before this hook runs.
+            logging.getLogger("data_designer").removeHandler(handler)
         servers, self._closing_servers = self._closing_servers, []
         for server in servers:
             with contextlib.suppress(Exception):
@@ -563,7 +570,11 @@ def _log_severity(level: int) -> str:
 _RUNTIME = OpenTelemetryRuntime()
 atexit.register(_RUNTIME.shutdown)
 if hasattr(os, "register_at_fork"):
-    os.register_at_fork(after_in_child=_RUNTIME._reset_after_fork)
+    os.register_at_fork(
+        before=_RUNTIME._before_fork,
+        after_in_parent=_RUNTIME._after_fork_in_parent,
+        after_in_child=_RUNTIME._reset_after_fork,
+    )
 
 
 def get_open_telemetry_runtime() -> OpenTelemetryRuntime:

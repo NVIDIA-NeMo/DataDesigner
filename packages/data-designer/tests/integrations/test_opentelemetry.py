@@ -1003,6 +1003,8 @@ import multiprocessing
 import re
 import socket
 import sys
+import threading
+import time
 import urllib.request
 
 from data_designer.integrations import opentelemetry
@@ -1032,6 +1034,22 @@ def finish(child):
         sys.exit("forked child hung")
     if child.exitcode != 0:
         sys.exit(f"forked child exited with code {child.exitcode}")
+
+
+# Set resume from a timer, for a fork that may wait until the blocked thread resumes. Call the
+# returned function after the fork; it fails if the timer fired before the fork began, since the
+# test then did not fork during the blocked window.
+def resume_from_timer(resume):
+    resumed_at = []
+    timer = threading.Timer(0.5, lambda: (resumed_at.append(time.monotonic()), resume.set()))
+    fork_started_at = time.monotonic()
+    timer.start()
+
+    def check():
+        timer.join()
+        assert fork_started_at < resumed_at[0], "timer resumed the blocked thread before the fork"
+
+    return check
 
 
 def observe_create_and_check(port):
@@ -1198,19 +1216,116 @@ def test_forked_child_drops_log_handler_attached_during_initialization() -> None
             runtime.shutdown()
 
 
-        # Fork after _initialize() attached its log handler but before it recorded it.
+        # Fork after _initialize() attached its log handler but before it recorded it. The fork
+        # may wait for initialization to finish, so resume it from a timer instead of after it.
         data_designer_logger.addHandler = blocking_add_handler
         init_thread = threading.Thread(target=runtime._activate_run, args=("run-init", free_port()))
         init_thread.start()
         assert attached.wait(20)
         del data_designer_logger.addHandler
+        resume_after_fork = resume_from_timer(resume)
         child = ctx.Process(target=check_metric_log_handlers, args=(free_port(),))
         child.start()
+        resume_after_fork()
         try:
             finish(child)
         finally:
             resume.set()
             init_thread.join(20)
         runtime.shutdown()
+        """
+    )
+
+
+@requires_safe_fork
+def test_forked_child_closes_socket_of_server_being_started() -> None:
+    _run_fork_probe(
+        """
+        import threading
+
+        import prometheus_client
+
+        runtime.shutdown()
+        port = free_port()
+        original_start_http_server = prometheus_client.start_http_server
+        started, resume = threading.Event(), threading.Event()
+
+
+        def blocking_start_http_server(*args, **kwargs):
+            result = original_start_http_server(*args, **kwargs)
+            started.set()
+            resume.wait(20)
+            return result
+
+
+        # Fork after the server bound its socket but before the runtime recorded it. The fork
+        # may wait for startup to finish, so resume startup from a timer instead of after it.
+        prometheus_client.start_http_server = blocking_start_http_server
+        start_thread = threading.Thread(target=runtime._activate_run, args=("run-start", port))
+        start_thread.start()
+        assert started.wait(20)
+        prometheus_client.start_http_server = original_start_http_server
+        resume_after_fork = resume_from_timer(resume)
+        release = ctx.Event()
+        child = ctx.Process(target=release.wait, args=(20,))
+        child.start()
+        resume_after_fork()
+        start_thread.join(20)
+        try:
+            runtime.shutdown()
+            with runtime.observe_create(port):
+                pass
+            url = f"http://127.0.0.1:{port}/metrics"
+            assert runtime.metrics_url == url, "parent could not rebind its port while a forked child lived"
+        finally:
+            release.set()
+        finish(child)
+        runtime.shutdown()
+        """
+    )
+
+
+@requires_safe_fork
+def test_forked_child_drops_log_handler_removed_during_shutdown() -> None:
+    _run_fork_probe(
+        """
+        import logging
+        import threading
+
+        data_designer_logger = logging.getLogger("data_designer")
+        original_remove_handler = data_designer_logger.removeHandler
+        removing, resume = threading.Event(), threading.Event()
+
+
+        def blocking_remove_handler(handler):
+            if isinstance(handler, opentelemetry._MetricLogHandler):
+                removing.set()
+                resume.wait(20)
+            original_remove_handler(handler)
+
+
+        def check_metric_log_handlers(port):
+            with runtime.observe_create(port):
+                pass
+            handlers = [h for h in data_designer_logger.handlers if isinstance(h, opentelemetry._MetricLogHandler)]
+            assert len(handlers) == 1, f"forked child has {len(handlers)} metric log handlers"
+            runtime.shutdown()
+
+
+        # Fork after shutdown() detached its log handler but before it removed it.
+        data_designer_logger.removeHandler = blocking_remove_handler
+        shutdown_thread = threading.Thread(target=runtime.shutdown)
+        shutdown_thread.start()
+        assert removing.wait(20)
+        del data_designer_logger.removeHandler
+        resume_after_fork = resume_from_timer(resume)
+        child = ctx.Process(target=check_metric_log_handlers, args=(free_port(),))
+        child.start()
+        resume_after_fork()
+        try:
+            finish(child)
+        finally:
+            resume.set()
+            shutdown_thread.join(20)
         """
     )
