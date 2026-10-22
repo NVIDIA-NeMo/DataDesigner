@@ -47,6 +47,8 @@ from data_designer.engine.testing import InMemoryAdmissionEventSink
 if TYPE_CHECKING:
     import pandas as pd
 
+    from data_designer.config.models import ModelConfig
+
 
 def _replace_processors(builder: DatasetBuilder, processors: list[Processor]) -> None:
     builder._processor_runner = ProcessorRunner(processors=processors, artifact_storage=builder.artifact_storage)
@@ -536,7 +538,9 @@ def test_initialize_processors(stub_dataset_builder):
     assert processors[0].config.column_names == ["column_to_drop"]
 
 
-def test_initialize_processors_skips_default_drop_for_glob_targeted_columns(stub_resource_provider, stub_model_configs):
+def test_initialize_processors_skips_default_drop_for_glob_targeted_columns(
+    stub_resource_provider: Mock, stub_model_configs: list[ModelConfig]
+) -> None:
     config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
     for name in ("keep", "tmp_a", "tmp_b"):
         config_builder.add_column(SamplerColumnConfig(name=name, sampler_type="uuid", params=UUIDSamplerParams()))

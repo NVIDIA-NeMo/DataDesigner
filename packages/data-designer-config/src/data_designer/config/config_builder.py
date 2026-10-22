@@ -410,32 +410,6 @@ class DataDesignerConfigBuilder:
                 self._processor_configs.remove(existing)
                 return
 
-    def _resolve_processor_dropped_column_names(self) -> set[str]:
-        """Names of known columns targeted by drop processors, expanding glob patterns."""
-        dropped: set[str] = set()
-        for processor_config in self._processor_configs:
-            if processor_config.processor_type != ProcessorType.DROP_COLUMNS:
-                continue
-            for name in processor_config.column_names:
-                if "*" in name:
-                    dropped.update(fnmatch.filter(self._column_configs.keys(), name))
-                elif name in self._column_configs:
-                    dropped.add(name)
-        return dropped
-
-    def _get_columns_with_processor_drops(self) -> list[ColumnConfigT]:
-        """Column configs with `drop=True` applied to columns targeted by a drop processor.
-
-        Resolved from the complete configuration, so the result does not depend on the order
-        in which columns and processors were added. Columns that need the flag are copied;
-        the builder's own column configs are left untouched.
-        """
-        dropped = self._resolve_processor_dropped_column_names()
-        return [
-            column.model_copy(update={"drop": True}) if column.name in dropped and not column.drop else column
-            for column in self._column_configs.values()
-        ]
-
     def add_profiler(self, profiler_config: ColumnProfilerConfigT) -> Self:
         """Add a profiler to the current Data Designer configuration.
 
@@ -753,6 +727,32 @@ class DataDesignerConfigBuilder:
         highlighted_html = highlight(repr_string, PythonLexer(), formatter)
         css = formatter.get_style_defs(".code")
         return REPR_HTML_TEMPLATE.format(css=css, highlighted_html=highlighted_html)
+
+    def _resolve_processor_dropped_column_names(self) -> set[str]:
+        """Names of known columns targeted by drop processors, expanding glob patterns."""
+        dropped: set[str] = set()
+        for processor_config in self._processor_configs:
+            if processor_config.processor_type != ProcessorType.DROP_COLUMNS:
+                continue
+            for name in processor_config.column_names:
+                if "*" in name:
+                    dropped.update(fnmatch.filter(self._column_configs.keys(), name))
+                elif name in self._column_configs:
+                    dropped.add(name)
+        return dropped
+
+    def _get_columns_with_processor_drops(self) -> list[ColumnConfigT]:
+        """Column configs with `drop=True` applied to columns targeted by a drop processor.
+
+        Resolved from the complete configuration, so the result does not depend on the order
+        in which columns and processors were added. Columns that need the flag are copied;
+        the builder's own column configs are left untouched.
+        """
+        dropped = self._resolve_processor_dropped_column_names()
+        return [
+            column.model_copy(update={"drop": True}) if column.name in dropped and not column.drop else column
+            for column in self._column_configs.values()
+        ]
 
 
 def _load_model_configs(model_configs: list[ModelConfig] | str | Path | None = None) -> list[ModelConfig]:

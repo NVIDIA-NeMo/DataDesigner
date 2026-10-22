@@ -125,7 +125,7 @@ def test_from_config_recomputes_drop_column_processor_side_effects(stub_model_co
 
     assert loaded_builder.get_processor_configs() == [processor_config]
     assert loaded_builder.get_column_config("col_a").drop is False
-    assert _built_drop_flags(loaded_builder) == {"col_a": True, "col_b": True, "other": False}
+    assert _get_built_drop_flags(loaded_builder) == {"col_a": True, "col_b": True, "other": False}
 
 
 def test_from_config_round_trips_all_data_designer_config_fields(stub_model_configs: list[ModelConfig]) -> None:
@@ -986,27 +986,33 @@ def test_cannot_write_config_with_dataframe_seed(stub_model_configs):
 
 
 @pytest.fixture
-def builder_with_columns(stub_empty_builder):
+def builder_with_columns(stub_empty_builder: DataDesignerConfigBuilder) -> DataDesignerConfigBuilder:
     for name in ("col_a", "col_b", "other"):
         stub_empty_builder.add_column(SamplerColumnConfig(name=name, sampler_type="uuid", params=UUIDSamplerParams()))
     return stub_empty_builder
 
 
-def _built_drop_flags(builder: DataDesignerConfigBuilder) -> dict[str, bool]:
+def _get_built_drop_flags(builder: DataDesignerConfigBuilder) -> dict[str, bool]:
     return {column.name: column.drop for column in builder.build().columns}
 
 
+def make_sampler_column(name: str) -> SamplerColumnConfig:
+    return SamplerColumnConfig(name=name, sampler_type="uuid", params=UUIDSamplerParams())
+
+
 @pytest.mark.parametrize("first_drop", [["col_a"], ["col_*"]])
-def test_add_processor_upsert_replaces_drop_targets(builder_with_columns, first_drop):
+def test_add_processor_upsert_replaces_drop_targets(
+    builder_with_columns: DataDesignerConfigBuilder, first_drop: list[str]
+) -> None:
     builder_with_columns.add_processor(DropColumnsProcessorConfig(name="cleanup", column_names=first_drop))
-    assert _built_drop_flags(builder_with_columns)["col_a"] is True
+    assert _get_built_drop_flags(builder_with_columns)["col_a"] is True
 
     builder_with_columns.add_processor(DropColumnsProcessorConfig(name="cleanup", column_names=["col_b"]))
     assert len(builder_with_columns.get_processor_configs()) == 1
-    assert _built_drop_flags(builder_with_columns) == {"col_a": False, "col_b": True, "other": False}
+    assert _get_built_drop_flags(builder_with_columns) == {"col_a": False, "col_b": True, "other": False}
 
 
-def test_add_processor_different_names_appends(builder_with_columns):
+def test_add_processor_different_names_appends(builder_with_columns: DataDesignerConfigBuilder) -> None:
     builder_with_columns.add_processor(DropColumnsProcessorConfig(name="drop", column_names=["col_a"]))
     builder_with_columns.add_processor(SchemaTransformProcessorConfig(name="transform", template={"x": "{{ col_a }}"}))
     assert len(builder_with_columns.get_processor_configs()) == 2
@@ -1019,62 +1025,69 @@ def test_add_processor_replaces_non_drop_processor(stub_empty_builder):
     assert stub_empty_builder.get_processor_configs()[0].template == {"x": "new"}
 
 
-def test_build_glob_marks_matching_columns_as_drop(builder_with_columns):
+def test_build_glob_marks_matching_columns_as_drop(builder_with_columns: DataDesignerConfigBuilder) -> None:
     builder_with_columns.add_processor(DropColumnsProcessorConfig(name="cleanup", column_names=["col_*"]))
-    assert _built_drop_flags(builder_with_columns) == {"col_a": True, "col_b": True, "other": False}
+    assert _get_built_drop_flags(builder_with_columns) == {"col_a": True, "col_b": True, "other": False}
 
 
-def test_replace_preserves_drop_from_other_processor(builder_with_columns):
+def test_replace_preserves_drop_from_other_processor(builder_with_columns: DataDesignerConfigBuilder) -> None:
     builder_with_columns.add_processor(DropColumnsProcessorConfig(name="drop1", column_names=["col_a"]))
     builder_with_columns.add_processor(DropColumnsProcessorConfig(name="drop2", column_names=["col_a"]))
-    assert _built_drop_flags(builder_with_columns)["col_a"] is True
+    assert _get_built_drop_flags(builder_with_columns)["col_a"] is True
 
     builder_with_columns.add_processor(DropColumnsProcessorConfig(name="drop1", column_names=[]))
-    assert _built_drop_flags(builder_with_columns)["col_a"] is True
+    assert _get_built_drop_flags(builder_with_columns)["col_a"] is True
     assert len(builder_with_columns.get_processor_configs()) == 2
 
 
-def test_build_drop_flags_do_not_depend_on_call_order(stub_empty_builder, stub_model_configs):
-    def sampler(name: str) -> SamplerColumnConfig:
-        return SamplerColumnConfig(name=name, sampler_type="uuid", params=UUIDSamplerParams())
-
+def test_build_drop_flags_do_not_depend_on_call_order(stub_model_configs: list[ModelConfig]) -> None:
     processor = DropColumnsProcessorConfig(name="cleanup", column_names=["tmp"])
 
     columns_first = DataDesignerConfigBuilder(model_configs=stub_model_configs)
-    columns_first.add_column(sampler("keep")).add_column(sampler("tmp")).add_processor(processor)
+    columns_first.add_column(make_sampler_column("keep")).add_column(make_sampler_column("tmp")).add_processor(
+        processor
+    )
 
     processor_first = DataDesignerConfigBuilder(model_configs=stub_model_configs)
-    processor_first.add_processor(processor).add_column(sampler("keep")).add_column(sampler("tmp"))
+    processor_first.add_processor(processor).add_column(make_sampler_column("keep")).add_column(
+        make_sampler_column("tmp")
+    )
 
-    assert _built_drop_flags(columns_first) == {"keep": False, "tmp": True}
-    assert _built_drop_flags(processor_first) == _built_drop_flags(columns_first)
+    assert _get_built_drop_flags(columns_first) == {"keep": False, "tmp": True}
+    assert _get_built_drop_flags(processor_first) == _get_built_drop_flags(columns_first)
 
 
-def test_build_keeps_drop_flag_when_targeted_column_is_readded(builder_with_columns):
+def test_build_keeps_drop_flag_when_targeted_column_is_readded(
+    builder_with_columns: DataDesignerConfigBuilder,
+) -> None:
     builder_with_columns.add_processor(DropColumnsProcessorConfig(name="cleanup", column_names=["col_a"]))
     builder_with_columns.add_column(SamplerColumnConfig(name="col_a", sampler_type="uuid", params=UUIDSamplerParams()))
 
-    assert _built_drop_flags(builder_with_columns) == {"col_a": True, "col_b": False, "other": False}
+    assert _get_built_drop_flags(builder_with_columns) == {"col_a": True, "col_b": False, "other": False}
 
 
-def test_build_resolves_glob_targets_added_before_columns(stub_empty_builder):
+def test_build_resolves_glob_targets_added_before_columns(stub_empty_builder: DataDesignerConfigBuilder) -> None:
     stub_empty_builder.add_processor(DropColumnsProcessorConfig(name="cleanup", column_names=["col_*"]))
     for name in ("col_a", "col_b", "other"):
         stub_empty_builder.add_column(SamplerColumnConfig(name=name, sampler_type="uuid", params=UUIDSamplerParams()))
 
-    assert _built_drop_flags(stub_empty_builder) == {"col_a": True, "col_b": True, "other": False}
+    assert _get_built_drop_flags(stub_empty_builder) == {"col_a": True, "col_b": True, "other": False}
 
 
-def test_build_does_not_leak_derived_drop_flags_into_builder(builder_with_columns):
+def test_build_does_not_leak_derived_drop_flags_into_builder(
+    builder_with_columns: DataDesignerConfigBuilder,
+) -> None:
     builder_with_columns.add_processor(DropColumnsProcessorConfig(name="cleanup", column_names=["col_a"]))
-    assert _built_drop_flags(builder_with_columns)["col_a"] is True
+    assert _get_built_drop_flags(builder_with_columns)["col_a"] is True
     assert builder_with_columns.get_column_config("col_a").drop is False
 
     builder_with_columns.add_processor(DropColumnsProcessorConfig(name="cleanup", column_names=["col_b"]))
-    assert _built_drop_flags(builder_with_columns) == {"col_a": False, "col_b": True, "other": False}
+    assert _get_built_drop_flags(builder_with_columns) == {"col_a": False, "col_b": True, "other": False}
 
 
-def test_build_preserves_explicit_drop_when_processor_is_replaced(stub_empty_builder):
+def test_build_preserves_explicit_drop_when_processor_is_replaced(
+    stub_empty_builder: DataDesignerConfigBuilder,
+) -> None:
     stub_empty_builder.add_column(
         SamplerColumnConfig(name="col_a", sampler_type="uuid", params=UUIDSamplerParams(), drop=True)
     )
@@ -1082,7 +1095,7 @@ def test_build_preserves_explicit_drop_when_processor_is_replaced(stub_empty_bui
     stub_empty_builder.add_processor(DropColumnsProcessorConfig(name="cleanup", column_names=["col_a"]))
     stub_empty_builder.add_processor(DropColumnsProcessorConfig(name="cleanup", column_names=["col_b"]))
 
-    assert _built_drop_flags(stub_empty_builder) == {"col_a": True, "col_b": True}
+    assert _get_built_drop_flags(stub_empty_builder) == {"col_a": True, "col_b": True}
 
 
 class TestToolConfigDuplicateValidation:
@@ -1227,7 +1240,9 @@ class TestToolConfigDuplicateValidation:
 
 
 @pytest.mark.parametrize("suffix", [".yaml", ".json"])
-def test_reloaded_builder_recomputes_processor_drops_after_replace(builder_with_columns, tmp_path, suffix):
+def test_reloaded_builder_recomputes_processor_drops_after_replace(
+    builder_with_columns: DataDesignerConfigBuilder, tmp_path: Path, suffix: str
+) -> None:
     builder_with_columns.add_column(
         SamplerColumnConfig(name="authored", sampler_type="uuid", params=UUIDSamplerParams(), drop=True)
     )
@@ -1239,12 +1254,12 @@ def test_reloaded_builder_recomputes_processor_drops_after_replace(builder_with_
     path = tmp_path / f"config{suffix}"
     builder_with_columns.write_config(path)
     reloaded = DataDesignerConfigBuilder.from_config(path)
-    assert _built_drop_flags(reloaded) == _built_drop_flags(builder_with_columns)
+    assert _get_built_drop_flags(reloaded) == _get_built_drop_flags(builder_with_columns)
 
     replacement = DropColumnsProcessorConfig(name="cleanup", column_names=["col_b"])
     builder_with_columns.add_processor(replacement)
     reloaded.add_processor(replacement)
 
     expected = {"col_a": False, "col_b": True, "other": False, "authored": True}
-    assert _built_drop_flags(builder_with_columns) == expected
-    assert _built_drop_flags(reloaded) == expected
+    assert _get_built_drop_flags(builder_with_columns) == expected
+    assert _get_built_drop_flags(reloaded) == expected

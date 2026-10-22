@@ -1438,8 +1438,11 @@ def test_create_excludes_seed_columns_dropped_by_processor(
 
 @pytest.mark.parametrize("processor_first", [False, True])
 def test_create_sampler_columns_dropped_by_processor_regardless_of_call_order(
-    stub_artifact_path, stub_model_providers, stub_managed_assets_path, processor_first
-):
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_managed_assets_path: Path,
+    processor_first: bool,
+) -> None:
     """The drop flag must not depend on whether the processor or the columns were added first.
 
     With ``preserve_dropped_columns=False`` an unflagged dropped column is gone from the
