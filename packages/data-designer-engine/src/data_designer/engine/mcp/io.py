@@ -32,6 +32,7 @@ import asyncio
 import atexit
 import json
 import logging
+import os
 import re
 import threading
 from collections.abc import Callable, Coroutine, Iterable
@@ -393,6 +394,14 @@ class MCPIOService:
     def _all_tools_keys(self) -> set[str]:
         return set(self._tools_cache) | set(self._inflight_tools) | set(self._tools_cache_epoch)
 
+    def _reset_after_fork(self) -> None:
+        # Same as async_concurrency._reset_after_fork: the loop thread did not survive
+        # the fork, and every session and in-flight task is bound to that dead loop.
+        self._loop = None
+        self._thread = None
+        self._loop_lock = threading.Lock()
+        self._reset_state()
+
     def _reset_state(self) -> None:
         self._sessions.clear()
         self._session_contexts.clear()
@@ -404,6 +413,8 @@ class MCPIOService:
 
 _MCP_IO_SERVICE = MCPIOService()
 atexit.register(_MCP_IO_SERVICE.shutdown)
+if hasattr(os, "register_at_fork"):
+    os.register_at_fork(after_in_child=_MCP_IO_SERVICE._reset_after_fork)
 
 
 def list_tools(provider: MCPProviderT, timeout_sec: float | None = None) -> tuple[MCPToolDefinition, ...]:
