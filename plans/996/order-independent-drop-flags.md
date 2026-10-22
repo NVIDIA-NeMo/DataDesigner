@@ -77,9 +77,11 @@ Follows the direction in the maintainer's comment on #996.
 ## Behaviour change to be aware of
 
 `builder.get_column_config(name).drop` no longer turns `True` as a side effect of `add_processor`. It reflects only
-what the user declared. `build()` (and anything derived from it, such as `get_builder_config()`) carries the effective
-flag. A config serialized from a build and loaded again with `from_config` therefore holds those flags as explicit
-declarations.
+what the user declared. `build()` carries the effective flag. `get_builder_config()` and `write_config()` export the
+authored column flags, so a builder reloaded with `from_config` recomputes processor-derived drops and a later processor
+replacement behaves the same as on the original builder. Directly serializing the output of `build()` has snapshot
+semantics: its drop flags are the effective ones and will load as explicit declarations. Compiled run artifacts stay
+effective execution snapshots, which the resume fingerprint checks compare.
 
 ## Alternatives considered
 

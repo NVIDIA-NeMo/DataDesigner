@@ -702,10 +702,15 @@ class DataDesignerConfigBuilder:
     def get_builder_config(self) -> BuilderConfig:
         """Get the builder config for the current Data Designer configuration.
 
+        Column `drop` flags are exported as authored, not with processor-derived drops applied, so a
+        reloaded builder recomputes them from its processors. `build()` returns the effective snapshot.
+
         Returns:
             The builder config.
         """
-        return BuilderConfig(data_designer=self.build())
+        config = self.build()
+        authored_config = config.model_copy(update={"columns": list(self._column_configs.values())})
+        return BuilderConfig(data_designer=authored_config)
 
     def __repr__(self) -> str:
         """Generates a string representation of the DataDesignerConfigBuilder instance.

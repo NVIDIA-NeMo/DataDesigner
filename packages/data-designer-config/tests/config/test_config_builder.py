@@ -113,7 +113,7 @@ def test_from_config_restores_processors_and_profilers(stub_model_configs: list[
     assert loaded_builder.get_profilers() == [profiler_config]
 
 
-def test_from_config_restores_drop_column_processor_side_effects(stub_model_configs: list[ModelConfig]) -> None:
+def test_from_config_recomputes_drop_column_processor_side_effects(stub_model_configs: list[ModelConfig]) -> None:
     builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
     for column_name in ("col_a", "col_b", "other"):
         builder.add_column(SamplerColumnConfig(name=column_name, sampler_type="uuid", params=UUIDSamplerParams()))
@@ -124,9 +124,8 @@ def test_from_config_restores_drop_column_processor_side_effects(stub_model_conf
     loaded_builder = DataDesignerConfigBuilder.from_config(builder.get_builder_config())
 
     assert loaded_builder.get_processor_configs() == [processor_config]
-    assert loaded_builder.get_column_config("col_a").drop is True
-    assert loaded_builder.get_column_config("col_b").drop is True
-    assert loaded_builder.get_column_config("other").drop is False
+    assert loaded_builder.get_column_config("col_a").drop is False
+    assert _built_drop_flags(loaded_builder) == {"col_a": True, "col_b": True, "other": False}
 
 
 def test_from_config_round_trips_all_data_designer_config_fields(stub_model_configs: list[ModelConfig]) -> None:
@@ -1225,3 +1224,27 @@ class TestToolConfigDuplicateValidation:
         # Should not raise
         config = builder.build()
         assert len(config.tool_configs) == 2
+
+
+@pytest.mark.parametrize("suffix", [".yaml", ".json"])
+def test_reloaded_builder_recomputes_processor_drops_after_replace(builder_with_columns, tmp_path, suffix):
+    builder_with_columns.add_column(
+        SamplerColumnConfig(name="authored", sampler_type="uuid", params=UUIDSamplerParams(), drop=True)
+    )
+    builder_with_columns.add_processor(DropColumnsProcessorConfig(name="cleanup", column_names=["col_a"]))
+
+    exported = {column.name: column.drop for column in builder_with_columns.get_builder_config().data_designer.columns}
+    assert exported == {"col_a": False, "col_b": False, "other": False, "authored": True}
+
+    path = tmp_path / f"config{suffix}"
+    builder_with_columns.write_config(path)
+    reloaded = DataDesignerConfigBuilder.from_config(path)
+    assert _built_drop_flags(reloaded) == _built_drop_flags(builder_with_columns)
+
+    replacement = DropColumnsProcessorConfig(name="cleanup", column_names=["col_b"])
+    builder_with_columns.add_processor(replacement)
+    reloaded.add_processor(replacement)
+
+    expected = {"col_a": False, "col_b": True, "other": False, "authored": True}
+    assert _built_drop_flags(builder_with_columns) == expected
+    assert _built_drop_flags(reloaded) == expected
