@@ -12,6 +12,7 @@ from data_designer.config.mcp import LocalStdioMCPProvider, MCPProvider
 from data_designer.engine.mcp import io as mcp_io
 from data_designer.engine.mcp.errors import MCPToolError
 from data_designer.engine.mcp.registry import MCPToolDefinition, MCPToolResult
+from tests.engine.fork_probe import requires_fork, run_fork_probe
 
 
 @pytest.fixture(autouse=True)
@@ -1283,3 +1284,28 @@ def test_call_tools_timeout_error_without_timeout_value(
 
     with pytest.raises(MCPToolError, match="Timed out after unknown"):
         mcp_io.call_tools([(stub_stdio_provider, "test_tool", {})], timeout_sec=None)
+
+
+# =============================================================================
+# Fork safety tests
+# =============================================================================
+
+
+@requires_fork
+def test_forked_child_starts_fresh_mcp_loop_after_parent_used_it() -> None:
+    run_fork_probe(
+        """
+        from data_designer.engine.mcp import io as mcp_io
+
+        service = mcp_io._MCP_IO_SERVICE
+
+
+        def child(queue):
+            queue.put(service._run_on_loop(ping(), timeout_sec=5))
+
+
+        assert service._run_on_loop(ping(), timeout_sec=5) == "pong"
+        assert run_forked_child(child) == "pong"
+        assert service._run_on_loop(ping(), timeout_sec=5) == "pong"
+        """
+    )

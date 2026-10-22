@@ -46,7 +46,7 @@ DATA_DESIGNER_DISTRIBUTION_NAMES = (
 DATA_DESIGNER_PROJECT_NAMES = (*DATA_DESIGNER_DISTRIBUTION_NAMES, "data-designer-workspace")
 PIP_DATA_DESIGNER_CONSTRAINT_FILE_NAME = "data-designer-constraint.txt"
 DATA_DESIGNER_CONSTRAINT_PLACEHOLDER = "<temporary-data-designer-constraint-file>"
-UV_PLUGIN_INSTALL_MIN_VERSION = Version("0.10.0")
+UV_PLUGIN_INSTALL_MIN_VERSION = Version("0.13.4")
 
 try:
     import tomllib

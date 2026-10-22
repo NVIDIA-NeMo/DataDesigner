@@ -375,7 +375,7 @@ commands, the CLI points them to the owning package.
 In an active virtual environment with a user `pyproject.toml`, `uv` uses
 `uv add` so the plugin package is recorded in the project. Otherwise the CLI
 installs into the current Python environment with `uv pip install` or `pip`.
-Plugin package commands that use `uv` require `uv >= 0.10.0`; auto mode uses
+Plugin package commands that use `uv` require `uv >= 0.13.4`; auto mode uses
 `pip` when `uv` is not on `PATH` or does not meet that version requirement. If
 an older `uv` is present, the CLI includes a warning in the plan and tells the
 user how to upgrade. The CLI verifies that `python -m pip` works before

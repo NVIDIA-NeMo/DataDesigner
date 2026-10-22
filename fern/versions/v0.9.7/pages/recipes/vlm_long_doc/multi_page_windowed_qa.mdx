@@ -1,0 +1,770 @@
+---
+title: "Multi-Page Windowed QA"
+description: ""
+---
+<Info title="Download Recipe">
+  [Download the complete recipe script](https://github.com/NVIDIA-NeMo/DataDesigner/blob/main/docs/assets/recipes/vlm_long_doc/07-multi-page-windowed-qa-sdg.py)
+</Info>
+
+```python
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#     "data-designer>=0.5.6",
+# ]
+# ///
+"""Long-Document Understanding Multi-Page Windowed QA Recipe
+
+Generate multi-page question-answer pairs from a sliding window of consecutive
+PDF pages. Each question requires combining information from at least 2 pages
+within the window, with strong anchoring so it remains unambiguous when
+collated into a full-document training sample.
+
+For each seed record the pipeline:
+
+  1. Samples a question type (multiple choice, yes/no, string, layout,
+     numerical int/float/percentage, list, not answerable)
+  2. Generates a question that requires examining 2+ pages within the window
+  3. Generates an answer with chain-of-thought reasoning (captured separately)
+  4. Evaluates overall quality including multi-page requirement, anchor quality,
+     answer correctness, reasoning thoroughness, and format compliance (0/1/2)
+
+Prerequisites:
+    - A seed parquet file containing:
+        * `png_images_base64` – JSON array of base64-encoded PNGs for the
+          pages in each window (produced by 01-seed-dataset-preparation.py as
+          ``seed_windowed.parquet``).
+    - A vLLM-compatible deployment of the VLM
+      (default: Qwen/Qwen3-VL-235B-A22B-Thinking-FP8).
+      Recommended vLLM launch flags:
+        --tensor-parallel-size 4
+        --max-model-len 50000
+        --gpu-memory-utilization 0.90
+        --reasoning-parser deepseek_r1
+        --limit-mm-per-prompt '{"video": 0}'
+        --trust-remote-code
+
+      Example launch script for 4× H100:
+        docker run --gpus all \
+            -p 8000:8000 \
+            vllm/vllm-openai:latest \
+            --model Qwen/Qwen3-VL-235B-A22B-Thinking-FP8 \
+            --tensor-parallel-size 4 \
+            --max-model-len 50000 \
+            --gpu-memory-utilization 0.90 \
+            --reasoning-parser deepseek_r1 \
+            --limit-mm-per-prompt '{"video": 0}' \
+            --trust-remote-code
+
+Run:
+    # Basic usage (generates 5 records by default)
+    uv run 07-multi-page-windowed-qa-sdg.py --vllm-endpoint http://localhost:8000/v1 --seed-path seed_data/seed_windowed.parquet
+
+    # Custom model and record count
+    uv run 07-multi-page-windowed-qa-sdg.py --vllm-endpoint http://localhost:8000/v1 --seed-path seed_data/seed_windowed.parquet --num-records 100
+
+    # For help message and available options
+    uv run 07-multi-page-windowed-qa-sdg.py --help
+"""
+
+from pathlib import Path
+
+import data_designer.config as dd
+from data_designer.interface import DataDesigner, DatasetCreationResults
+
+DEFAULT_VLM_MODEL = "Qwen/Qwen3-VL-235B-A22B-Thinking-FP8"
+VLLM_PROVIDER_NAME = "vllm"
+
+
+def _inference_params(model_id: str, reasoning: bool = True) -> dd.ChatCompletionInferenceParams:
+    """Select inference parameters based on model and reasoning mode."""
+    if "Qwen/Qwen3.5-397B-A17B" in model_id:
+        extra_body = {
+            "temperature": 0.6,
+            "top_p": 0.95,
+            "top_k": 20,
+            "min_p": 0.0,
+            "presence_penalty": 0.0,
+            "repetition_penalty": 1.0,
+        }
+        temperature = 0.6
+        top_p = 0.95
+    elif "Qwen/Qwen3.5-122B-A10B" in model_id:
+        if reasoning:
+            extra_body = {
+                "temperature": 1.0,
+                "top_p": 0.95,
+                "top_k": 20,
+                "min_p": 0.0,
+                "presence_penalty": 1.5,
+                "repetition_penalty": 1.0,
+            }
+            temperature = 1.0
+            top_p = 0.95
+        else:
+            extra_body = {
+                "temperature": 0.7,
+                "top_p": 0.8,
+                "top_k": 20,
+                "min_p": 0.0,
+                "presence_penalty": 1.5,
+                "repetition_penalty": 1.0,
+            }
+            temperature = 1.0
+            top_p = 0.95
+    else:
+        extra_body = {
+            "top_k": 20,
+            "min_p": 0.0,
+            "presence_penalty": 1.5,
+            "repetition_penalty": 1.0,
+        }
+        temperature = 1.0
+        top_p = 0.95
+
+    return dd.ChatCompletionInferenceParams(
+        timeout=1200,
+        temperature=temperature,
+        top_p=top_p,
+        max_parallel_requests=32,
+        extra_body=extra_body,
+    )
+
+
+# =============================================================================
+# Image context helper
+# =============================================================================
+
+IMAGE_CONTEXT = [
+    dd.ImageContext(
+        column_name="png_images_base64",
+        data_type=dd.ModalityDataType.BASE64,
+        image_format=dd.ImageFormat.PNG,
+    ),
+]
+
+# =============================================================================
+# Prompt templates
+# =============================================================================
+
+PROMPT_QUESTION = """
+<question-type>
+{{ question_type }}
+</question-type>
+
+You are given images of a WINDOW of 2-16 consecutive pages from a longer PDF. Create one
+question of the given <question-type> that can only be answered by examining these pages.
+
+Before finalizing the question, verify that EVERY fact needed to answer it is contained inside
+the current window. If any required fact is outside the window, reject that question idea and
+choose another.
+
+At training time your question is collated with ALL pages of the full document, so every
+reference must be unambiguous within the full document (see GROUNDING below).
+
+CORE RULES
+- The question MUST require information from at least 2 different pages. 2-4 evidence pages
+  is the sweet spot — focus on DEPTH of reasoning (computation, comparison, lookup chain)
+  rather than breadth (touching many pages). Do not force artificial connections just to span
+  more pages.
+- Prefer questions where the model must continue scanning AFTER the first relevant page.
+- If multiple pages in the window share the same template/layout (repeated profiles, repeated
+  entries, repeated charts/cards/tables), prefer questions that require exhaustive scanning
+  across all matching pages.
+- Reject questions that can be answered correctly by looking only at the first matching page.
+- Prefer tables, charts, figures, and infographics over plain text.
+- Do NOT include the answer in the question. ONLY output the question text.
+- Do NOT mention <question-type> or the page window. The trainee sees the full document.
+- At training time the trainee sees the FULL document (potentially 50-100+ pages), not your
+  window. Strong anchoring (page numbers, element titles) is critical so the trainee can
+  LOCATE the 2-3 relevant pages among many.
+- Reject questions where a plausible but wrong shortcut answer exists on the first relevant page
+  unless the question wording explicitly forces the model to use the later page(s) as well.
+
+WINDOW-INTERNAL REASONING CHAIN (critical)
+Before writing the question, identify which page(s) in the current window provide:
+- the lookup key / entity / subgroup
+- the target value
+- any denominator or comparison value
+- any final filtering or aggregation criterion
+Prefer questions where this chain is explicit and distributed across 2-4 pages.
+Good patterns:
+- page A identifies the entity, page B gives the metric
+- page A gives a percentage, page B gives a sample size, answer is a count
+- page A and page B show the same metric for different groups/years, answer is a difference
+- page A contains the first half of a sentence/table/figure and page B contains the completion
+
+HIGH-VALUE QUESTION TARGETS (based on model failure analysis)
+These question types expose the biggest model weaknesses — prioritize them:
+- VISUAL PERCEPTION: questions about icon colors, line colors in charts, small labels on maps,
+  visual groupings separated by brackets/braces (e.g., "What are the four Business Analytics
+  activities in the chart titled 'Levels of Analytics'?" where the model must read the correct
+  section divider).
+- COUNTING across pages: "How many X on pages N through M?" where X are scattered small
+  elements (map markers, icons, figures, organizations). The model undercounts by ~2x, so these
+  questions are high-value training signal. Require objective, unambiguous counting criteria.
+- CROSS-PAGE COMPUTATION: financial ratios, sums, or comparisons requiring values from different
+  pages/tables (e.g., inventory turnover from Income Statement + Balance Sheet).
+- INFOGRAPHIC SPATIAL: binding numbers/labels to their correct spatial region on maps,
+  flowcharts, or diagrams (the model confuses which number belongs to which region).
+- LOOKUP CHAIN / CROSS-PAGE BINDING: page A identifies the correct entity/series/subgroup,
+  page B provides the target value, and optionally page C provides a denominator or comparison.
+- EXHAUSTIVE MULTI-PAGE AGGREGATION: repeated page layouts where the answer requires scanning
+  every matching page in the window (cover-page models, museum entries, FAQ cards, chart panels,
+  guidebook cards), not stopping after the first hit.
+- PAGE-BREAK CONTINUATION: the answer requires continuing a sentence, paragraph, table row,
+  or figure explanation from one page to the next.
+
+QUALIFIER FIDELITY (critical)
+- If multiple nearby answers exist, the question MUST include the qualifier that makes the target unique.
+- Prefer qualifiers like: strongly / somewhat / overall / net, displayed / shown vs listed / mentioned,
+  exact row / column / year / fiscal year / subgroup / legend item.
+- The question must not be answerable by selecting a nearby but broader fact.
+
+GROUNDING & ANCHORING (critical)
+Anchor priority (use the first available):
+  1. Page number: "On page 42, ..." — read the PRINTED page number from the image.
+  2. Numbered element: "In Table 3 on page 42, ..." / "In Figure 7, ..."
+  3. Element title: "In the chart titled 'X', ..."
+  4. Named statement: "In the Consolidated Balance Sheets, ..."
+  5. Section heading: "In the section titled 'Methodology', ..."
+  6. Structural fallback: "In the bar chart with y-axis 'Revenue ($M)', ..."
+BANNED — these are ambiguous in the full document:
+  "the document/report/paper/slides" without anchor;
+  "the table/chart/figure" without title or page number;
+  "across the pages" / "in the provided pages".
+For charts: always use FULL TITLE + distinguishing axis/column. If a chart has a "Change"
+column, reference it explicitly. For maps/infographics: bind numbers to their labeled regions.
+
+QUESTION-TYPE TEMPLATES (use the pages and random number {{ range(1, 1001) | random }} in choosing)
+
+{% if "not answerable" in question_type %}
+Create a question relevant to the visible window whose answer is NOT present anywhere in this window.
+IMPORTANT:
+- The question must be rejectable using ONLY the current window.
+- Do NOT create a "not answerable" question only because the required page is outside the window.
+- Build near-miss negatives by changing exactly ONE required qualifier from a visible multi-page fact:
+  - wrong year/date
+  - wrong subgroup/series
+  - wrong legend item
+  - wrong row/column
+  - wrong position
+  - wrong displayed-vs-mentioned relation
+  - wrong denominator/base requirement
+Templates:
+  - "Using Table 2 on page X and the chart on page Y, what is [METRIC] for [YEAR not shown in either page]?"
+  - "In Figure N on page X and its continuation on page Y, what is [ATTRIBUTE not labeled anywhere in the window]?"
+  - "Across pages X-Y, which [ENTITY] satisfies [CONDITION not met by any item in the visible window]?"
+
+{% elif "numerical" in question_type %}
+Use visible numbers from tables/charts/text. Require arithmetic or counting across pages.
+{% if "int" in question_type %}
+Add "Answer with an integer." to the question.
+Templates:
+  - "How many organisations are introduced in detail (at least one paragraph) on pages X through Y?" [count across pages]
+  - "In Figure N, how many distinct icons/nodes/colors are shown?" [visual counting]
+  - "How many charts on pages X through Y have their horizontal axis set as year?" [cross-page chart counting]
+  - "What is the sum of [METRIC] in Table A on page X and Table B on page Y?"
+  - "How many rows in Table N on page X have [COLUMN] above [THRESHOLD]?"
+  - "In the map on page X, how many [MARKERS/SYMBOLS] are shown?"
+  - "How many [SMALL ELEMENTS: WC markers, logos, footnote symbols] appear on pages X through Y?" [dense scattered counting]"
+  - "Across pages X-Y that share the same template/layout, how many entries satisfy [CONDITION]?" [exhaustive repeated-layout counting]
+  - "Using the percentage on page X and the sample size on page Y, how many [GROUP] does that correspond to? Round to the nearest hundred and answer with an integer." [cross-page denominator binding]
+  - "How many total [ITEMS] are introduced across pages X-Y? Count every numbered entry exactly once." [avoid early stopping]
+{% elif "float" in question_type %}
+Specify rounding (e.g., "Round to two decimal places.").
+Templates:
+  - "What is inventory turnover (Cost of Sales / Average Inventory) for FY2021? Use the Income Statement on page X and Balance Sheet on page Y. Round to two decimal places."
+  - "What is the sum of the two smallest file sizes in the table on page X?"
+  - "How much did [METRIC] change between Table A on page X and Table B on page Y?"
+  - "What is the ratio of [CELL in Table A] to [CELL in Table B]?"
+{% elif "percentage" in question_type %}
+Add "Answer with a % sign.".
+Templates:
+  - "What is the percentage difference between [GROUP A] and [GROUP B] in the chart titled 'X'?"
+  - "What percentage of [ENTITY] have [ATTRIBUTE] according to Tables on pages X and Y?"
+  - "In the chart titled 'X', how much higher is [SERIES A] than [SERIES B] in [YEAR]?"
+  - "What is [METRIC A on page X] as a percentage of [METRIC B on page Y]?"
+  - "Using the count on page X and the total on page Y, what percentage does this represent? Answer with a % sign." [cross-page denominator binding]
+  - "Using the values on pages X and Y, what is the percentage-point difference between [SERIES A] and [SERIES B]? Answer with a % sign." [cross-page comparison]
+{% endif %}
+
+{% elif "list" in question_type %}
+Answer should be 2-8 short items. Add "Return a JSON array of strings, e.g., ["A", "B"]."
+Do not list the items in the question.
+The question itself must be a natural language sentence — NEVER output a JSON array as the question.
+Templates:
+  - "What are the uses of [SYSTEM] described in the section titled 'X' on pages N-M?" [text list]
+  - "In the chart titled 'X', what are the four [CATEGORY] activities?" [chart label list]
+  - "In Figure N's demonstration, what are the colors of the nodes that appear in more than one cluster?" [visual list]
+  - "List all items in Table N on page X that meet [CONDITION]." [filtered table list]
+  - "What are the [FIELD] values for [ENTITY] in Tables on pages X and Y?" [cross-page list]
+  - "What are the colors of the icons that perform [ACTION A] and [ACTION B] on page X?" [UI element list]
+  - "Across pages X-Y that share the same layout, which entries satisfy [CONDITION]? Return a JSON array of strings." [exhaustive repeated-layout list]
+  - "Across pages X-Y, which schools/colleges/sections use a [QUALIFIER] cover-page model? Return a JSON array of strings." [avoid early stopping after first hit]
+
+{% elif "yes" in question_type %}
+Templates:
+  - "In Table A on page X, is [METRIC for ENTITY A] greater than [METRIC for ENTITY B] in Table B on page Y?"
+  - "In the chart titled 'X', was [SERIES A] higher than [SERIES B] in [YEAR]?"
+  - "Does the table on page X have more rows than the table on page Y?"
+
+{% elif "multiple choice" in question_type %}
+Provide exactly 4 options (A-D), plausible and mutually exclusive.
+Templates:
+  - "In the chart titled 'X', which [ENTITY] has the highest [METRIC]? A. ... B. ... C. ... D. ..."
+  - "Based on Table A (page X) and Table B (page Y), which statement is true? A. ... B. ... C. ... D. ..."
+
+{% elif "string:" in question_type %}
+Answer is a word, phrase, or short sentence.
+Templates:
+  - "In the chart titled 'X', in the 'Change' column, which subgroup shows the largest increase?" [chart with derived column]
+  - "In Figure N on page X, which element has the highest/lowest [METRIC]?" [figure reading]
+  - "In the world map on page X, which region has the largest number of [ENTITY]?" [infographic spatial]
+  - "Using the definition in Section 'X' on page A and the data in Table N on page B, what is [DERIVED FACT]?" [cross-page reasoning]
+  - "In Table N, which [ENTITY] has [SUPERLATIVE] [ATTRIBUTE]?" [table lookup]
+  - "What is the paper's full title referenced in Table N on page X for the method with [ATTRIBUTE]?" [cross-reference]
+  - "Using the statement on page X and its continuation on page Y, what is the missing/full condition?" [page-break continuation]
+  - "Using the chart on page X to identify the subgroup and the table on page Y to find its count, what is the resulting rounded answer?" [lookup chain]
+
+{% elif "layout" in question_type %}
+Answer requires understanding visual/spatial structure. Answer is a number, word, or phrase.
+Templates:
+  - "What range does [COLOR] represent in the legend of the chart titled 'X' on page N?" [legend reading]
+  - "What is the URL/email in the [COLOR] box on page N?" [spatial anchor]
+  - "In Figure N on page X, which nodes are connected to node [LABEL]?" [graph structure]
+  - "What text appears inside the [COLOR/POSITION] box on page N?" [spatial extraction]
+  - "In the flowchart in Figure N, what step follows [LABEL]?" [process flow]
+  - "On page X, what is the heading directly above Table/Figure N?" [structural navigation]
+  - "What are the colors of the icons for [ACTION A] and [ACTION B] on page N?" [icon color perception]
+  - "In the chart titled 'X', which group of activities is labeled [SECTION] (above/below the bracket)?" [visual grouping]
+{% endif %}
+
+These templates are for inspiration. Create a question specific to the actual visible content.
+ONLY output the question text, nothing else.
+"""
+
+
+PROMPT_ANSWER = """\
+<question-type>
+{{ question_type }}
+</question-type>
+
+<question>
+{{ question }}
+</question>
+
+You are given images of pages extracted from a PDF document. Answer using ONLY information visible in the pages.
+
+You MUST use this exact output structure:
+<think>
+[all reasoning here]
+</think>
+[bare final answer here — no explanation, no labels, no extra text]
+
+In your THINKING (inside <think> tags), follow this thinking protocol.
+
+QUALIFIER LOCK (critical)
+Before extracting any answer, copy the restrictive qualifiers from the question and keep them fixed:
+- page / section / table / figure / chart identity
+- year / date / fiscal year
+- subgroup / series / legend item
+- exact metric (count vs percentage vs percentage-point difference)
+- displayed / shown / visible vs listed / mentioned
+- first / second / last / nearest / highest / lowest
+
+Do NOT substitute a nearby year, nearby subgroup, nearby series, nearby row, or nearby fact.
+If the question asks for a specific subgroup or metric, read exactly that one and no other.
+
+THINKING PROTOCOL — scan-locate-synthesize (follow in order)
+
+Use PRINTED page numbers (e.g., "page 42"), never ordinal positions ("image 1", "the first page").
+Your reasoning trace becomes training data for a model that sees the full document — ordinals are meaningless there.
+
+1) PARSE: Decompose the question into concrete lookup targets.
+2) SCAN: First, read the PRINTED page number from each page (usually at the top or bottom
+   margin) and build a mapping. Then note relevant elements:
+   "Page 31 (printed at bottom): Income Statement. Page 59 (printed at bottom): Balance Sheets."
+   If a page has no printed number, use its heading instead: "Untitled page with 'Methodology' heading."
+   Use ONLY these printed page numbers for the rest of your reasoning — never "image 1" etc.
+3) LOCATE: State where each target was found:
+   "Target A found on page 31 in the Income Statement."
+   "Target B found on page 59 in the Balance Sheets."
+   Keep track of each target.
+4) MATCH: Match elements by TITLE or CAPTION, not position.
+   - Charts: match TITLE + axis labels. If a chart has a "Change" column, read it directly.
+   - Tables: match by caption/heading (e.g., "Consolidated Balance Sheets").
+   - Maps/infographics: match each number to its spatially closest labeled region.
+   - Visual groupings: charts may use brackets or dividers to separate sections
+     (e.g., "Business Analytics" vs "Business Intelligence") — read the correct group.
+   - Colors: look carefully at actual colors of icons, lines, and legends.
+     Do NOT assume a page is grayscale. Describe what you see before answering.
+
+PAGE-BREAK CONTINUATION
+If a sentence, paragraph, table row, caption, or figure explanation appears to continue onto the next page,
+combine the text before deciding the answer is missing.
+
+5) READ: Extract values from the matched element.
+   - Tables: correct column for the fiscal year; parentheses = negative; check unit scale.
+   - Charts: read the exact value from labels, not approximations.
+
+UNIT DISCIPLINE
+- Preserve units exactly when present or requested (%, $, million, etc.).
+- Financial: parentheses = negative; check table header for unit scale; "how much higher" = positive.
+
+6) SYNTHESIZE: Combine information from multiple pages. Show the cross-page chain:
+   "From page 31: Cost of Sales = 24,576. From page 59: Avg Inventory = 7,110.5.
+    Turnover = 24,576 / 7,110.5 = 3.46."
+
+UNIT DISCIPLINE
+- Preserve units exactly when present or requested (%, $, million, etc.).
+- Financial reports: parentheses = negative; check table header for unit scale (e.g., "In millions");
+  "how much higher/more" = positive number; "change" = positive for increase, negative for decrease.
+
+COUNT / PERCENT / DENOMINATOR DISCIPLINE
+- If one page provides a percentage and another page provides a sample size, the percentage is NOT the final answer until it is converted using the sample size.
+- Distinguish carefully between count, percentage, percentage-point difference, and ratio.
+- Only round after the final computation, never before.
+
+EXHAUSTIVE REPEATED-LAYOUT SCAN
+If multiple pages in the window share the same layout or template, scan ALL matching pages before concluding.
+Do not stop after the first valid hit.
+For counts/lists, maintain a running page-by-page tally or item list until the last relevant page in the window.
+Bad: "I see items 14-29 on pages 28-31. Count = 29 - 14 + 1 = 16." (stopped early, missed pages 32-34)
+Good: "Page 28: items 14-21 (running total: 8). Page 30: items 22-29 (running total: 16). Page 32: items 30-37 (running total: 24). Page 34: items 38-44 (running total: 31). Final count: 31."
+
+7) VERIFY: Re-check your extraction against the pages.
+   - COUNTING (models undercount by ~2x): count PER PAGE with a running total.
+     Enumerate each item explicitly. Re-scan for missed items on each page.
+   - LISTS: re-check each page for missed items.
+   - VALUES: re-read the specific cell/label to confirm.
+
+THINKING STABILITY (critical)
+- Follow the protocol once from top to bottom. Do NOT restart from step 1 after you already found the relevant pages.
+- Do at most one scan pass and one verification pass.
+- Be concise: go directly to pages matching the question's anchor. Do NOT describe every page —
+  skip irrelevant pages silently. Only mention pages that contain evidence.
+- If there are two plausible candidates, compare them once using the question's qualifiers, choose the best-supported one, and continue. Do NOT keep generating new alternatives.
+- Do NOT repeat the same scan, recount, or conclusion more than once.
+- As soon as the answer is found and verified, stop thinking and produce the final answer.
+- Do NOT use filler loops such as repeating a phrase, title, entity name, or page reference many times.
+- If you have a complete answer supported by the required pages and qualifiers, commit to it. Do not reopen the search.
+
+REASONING TRACE REQUIREMENTS
+In your reasoning, always:
+- Use the printed page numbers from your SCAN mapping. NEVER write "image 1", "image 2",
+  "the first/second/third page", or any ordinal reference. These will be rejected.
+- Cite element titles: "In the Income Statement on page 31" not "in the table".
+- Quote the specific values you extracted.
+- For multi-page synthesis, explicitly connect values from different pages.
+- For computations, show the formula with named sources and page numbers.
+
+REFUSAL POLICY
+{% if "not answerable" in question_type %}
+- Output exactly: Not answerable
+- Only if the page(s) lack the exact requested qualifier.
+- In your thinking, briefly name what is missing.
+  Bad: "The information is not available in the provided pages."
+  Good: "Page 31 shows the Balance Sheet for 2020 and 2021, but the question asks for 2018. Year 2018 is not present on any page."
+  Good: "Pages 10-11 list subsections A, B, C, but none match 'Generative Retrieval'. Subsection missing."
+{% else %}
+- NEVER output "Not answerable", "Cannot determine", "Fail to answer", or any refusal.
+- If the question uses a term (e.g., "receive turnover") that does not appear verbatim,
+  look for the underlying data needed to compute it. The term not appearing does not mean
+  the answer is unavailable.
+- If you found partial evidence, provide what you found — partial > refusal.
+- If the answer requires inference or computation from visible data, do it.
+{% endif %}
+
+FINAL ANSWER:
+- Put ALL reasoning inside <think>...</think>.
+- After </think>, output ONLY the final answer.
+- Do NOT repeat reasoning outside <think> tags.
+- Do NOT output protocol labels, explanations, or extra text after </think>.
+
+OUTPUT FORMAT
+{% if "multiple choice" in question_type %}
+- Output: "<LETTER>. <option text>", e.g., "B. 92%"
+{% elif "yes" in question_type %}
+- Output exactly "Yes" or "No".
+{% elif "numerical (percentage)" in question_type %}
+- Output a number WITH a percent sign, e.g., "29%".
+{% elif "numerical (int)" in question_type %}
+- Output an integer only (digits, optional commas).
+{% elif "numerical (float)" in question_type %}
+- Output a decimal number only, unless the question requests a unit.
+{% elif "string:" in question_type %}
+- Output a short phrase/sentence only.
+{% elif "layout" in question_type %}
+- Output only the extracted content (string/number/list).
+{% elif "list" in question_type %}
+- Output a JSON array on ONE line: ["gray", "red"].
+- NEVER use comma-separated plain text. ALWAYS use ["..."] syntax.
+{% elif "not answerable" in question_type %}
+- Output exactly: Not answerable
+{% else %}
+- Output a short, direct answer.
+{% endif %}
+"""
+
+
+PROMPT_QUALITY_SCORE = """\
+<question-type>
+{{ question_type }}
+</question-type>
+
+<question>
+{{ question }}
+</question>
+
+<answer>
+{{ answer }}
+</answer>
+
+<answer_reasoning_trace>
+{{ answer__reasoning_content }}
+</answer_reasoning_trace>
+
+You are given images of pages extracted from a PDF document. Evaluate the QUALITY of this (question, answer) pair.
+
+Be STRICT. Any check failure => score 0.
+
+CHECKS
+
+1. DOCUMENT QUALITY: Are the document pages clear, readable, and not low quality?
+
+2. RELEVANCE: Is the question relevant to the content visible in the pages?
+   {% if "not answerable" in question_type %}For "not answerable" questions, the question should be relevant but the answer must NOT be present anywhere in the visible window.
+   Score 0 if the question is unanswerable ONLY because it refers to a page outside the window or the whole document. The question must be a near-miss negative where a specific qualifier (year, subgroup, row, region, etc.) is absent from the visible pages.{% endif %}
+
+3. ANSWER CORRECTNESS: Is the answer correct given the pages?
+   {% if "not answerable" in question_type %}The correct answer should be "Not answerable".{% endif %}
+
+4. QUESTION QUALITY: Is the question challenging, unambiguous, and well-formed?
+   - If the question includes the answer, give a score of 0.
+   - The question must genuinely require information from multiple pages.
+   - Score 0 if a plausible shortcut answer exists on the first relevant page and the question does not force use of the later page(s).
+
+5. FORMAT COMPLIANCE: Does the answer match the expected format?
+- Score 0 if the answer contains <think> tags, reasoning steps, protocol labels, explanations, or anything beyond the bare final result.
+{% if "multiple choice" in question_type %}
+   - Answer must be exactly "<LETTER>. <option text>" (A-D). Reject digit-only ("2") or letter-only ("B").
+{% elif "yes" in question_type %}
+   - Answer must be exactly "Yes" or "No".
+{% elif "numerical (percentage)" in question_type %}
+   - Answer MUST include a percent sign (e.g., "29%").
+{% elif "numerical (int)" in question_type %}
+   - Answer must be an integer only (digits, optional commas), no extra words.
+{% elif "numerical (float)" in question_type %}
+   - Answer must be a decimal number only, no extra words.
+{% elif "list" in question_type %}
+   - Answer must be a ONE-LINE JSON array (e.g., ["gray", "red"]).
+   - Score 0 if comma-separated text instead of JSON array.
+{% elif "not answerable" in question_type %}
+   - Answer must be exactly "Not answerable".
+{% else %}
+   - Answer MUST NOT be "Not answerable" or any refusal.
+{% endif %}
+
+6. ANCHOR QUALITY (critical — questions are generated from a page window but collated into
+   the FULL document at training time. Vague references become ambiguous in the full document):
+   - Score 0 if the question uses any of these vague phrases:
+     "the document", "the report", "the paper", "the slides", "the table" (unqualified),
+     "the chart" (unqualified), "across the pages", "in the provided pages".
+   - Score 0 if the <answer_reasoning_trace> does not use explicit anchors such as page numbers, chart/table titles, or section headings.
+     Ordinal positions ("image 1", "the first page") are not allowed as anchors.
+   - Score 0 if the question lacks a specific anchor. Must have at least one of:
+     page number, chart/table title, numbered element (Table 3, Figure 7), named financial
+     statement, or section heading that uniquely identifies the target in the full document.
+   - Ask: "If a reader saw the full 50-page document, would they know EXACTLY which
+     table/chart/section this question refers to?" If not, score 0.
+
+7. MULTI-PAGE REQUIREMENT:
+   - The answer must genuinely require information from at least 2 different pages.
+   - Score 0 if the answer can be determined from a single page alone.
+
+8. REASONING QUALITY (critical — reasoning is used as chain-of-thought training data):
+   Score 0 if any of the following hold:
+   - The reasoning does NOT use explicit anchors such as page numbers, chart/table titles, or section headings.
+   - It uses ordinal references like "image 1", "the first page", etc.
+   - It does NOT quote the specific values extracted.
+   - If computation is required, it does NOT show the operation with named sources.
+   - It repeats the same scan, recount, candidate answer, page reference, title, entity name, or conclusion without adding new evidence.
+   - It restarts the reasoning process after already finding the relevant page(s) or elements.
+   - It contains obvious loop markers such as repeated "Wait, let me", "Actually", or "Let's look again".
+   - It keeps generating new alternatives after already having enough evidence to answer.
+   - It ends in an unfinished or truncated way, or appears to stop mid-thought.
+   - For count/list questions, it does not maintain a page-by-page tally or explicit item list.
+   - For repeated-layout or repeated-entry questions, it stops after the first valid hit instead of scanning all matching pages in the visible window.
+   - For cross-page computations, it does not clearly distinguish which page provides the key, target value, denominator, or comparison value.
+   - It confuses count vs percentage vs percentage-point difference vs ratio, or rounds before the final computation rather than after it.
+
+9. VISUAL PERCEPTION (if applicable):
+   - If the question asks about colors, icons, or small visual elements, verify the answer
+     correctly describes what is visible. Score 0 if the answer claims the page is grayscale
+     when it is in color, or misidentifies a visual grouping.
+   - If the question involves counting scattered elements (markers, icons, figures across pages),
+     verify the count is plausible. Score 0 if the count is clearly too low (e.g., 3 when many
+     more are visible) or if the reasoning doesn't enumerate items.
+
+SCORING
+- Score 0: Any check fails.
+- Score 1: All checks pass.
+- Score 2: All checks pass AND the question involves at least one high-value signal: visual
+  perception (icon colors, chart groupings), counting scattered elements, financial computation
+  across statements, chart disambiguation, infographic spatial reasoning, or cross-page
+  table operation. Must still be unambiguous.
+
+Respond with ONLY the score as a single digit: 0, 1, or 2.
+"""
+
+
+# =============================================================================
+# Pipeline configuration
+# =============================================================================
+
+
+def build_config(
+    seed_path: str = "seed.parquet",
+    model_alias: str = "vl",
+    model_id: str = DEFAULT_VLM_MODEL,
+    reasoning: bool = True,
+) -> dd.DataDesignerConfigBuilder:
+    model_configs = [
+        dd.ModelConfig(
+            alias=model_alias,
+            model=model_id,
+            provider=VLLM_PROVIDER_NAME,
+            inference_parameters=_inference_params(model_id, reasoning=reasoning),
+        ),
+    ]
+
+    config_builder = dd.DataDesignerConfigBuilder(model_configs=model_configs)
+
+    config_builder.with_seed_dataset(
+        dd.LocalFileSeedSource(path=seed_path),
+        sampling_strategy=dd.SamplingStrategy.SHUFFLE,
+    )
+
+    config_builder.add_column(
+        dd.SamplerColumnConfig(
+            name="question_type",
+            sampler_type=dd.SamplerType.CATEGORY,
+            params=dd.CategorySamplerParams(
+                values=[
+                    "multiple choice",
+                    "yes or no",
+                    "string: word, phrase or short sentence",
+                    "layout",
+                    "numerical (int)",
+                    "numerical (float)",
+                    "numerical (percentage)",
+                    "list of items (int, string, float or mixed)",
+                    "not answerable",
+                ],
+                weights=[0.025, 0.025, 2, 2, 2, 2, 2, 2, 0.2],
+            ),
+        )
+    )
+
+    config_builder.add_column(
+        dd.LLMTextColumnConfig(
+            name="question",
+            model_alias=model_alias,
+            prompt=PROMPT_QUESTION,
+            multi_modal_context=IMAGE_CONTEXT,
+        )
+    )
+
+    config_builder.add_column(
+        dd.LLMTextColumnConfig(
+            name="answer",
+            model_alias=model_alias,
+            prompt=PROMPT_ANSWER,
+            multi_modal_context=IMAGE_CONTEXT,
+            extract_reasoning_content=True,
+        )
+    )
+
+    config_builder.add_column(
+        dd.LLMTextColumnConfig(
+            name="quality_score",
+            model_alias=model_alias,
+            prompt=PROMPT_QUALITY_SCORE,
+            multi_modal_context=IMAGE_CONTEXT,
+        )
+    )
+
+    return config_builder
+
+
+def create_dataset(
+    config_builder: dd.DataDesignerConfigBuilder,
+    num_records: int,
+    vllm_endpoint: str,
+    artifact_path: Path | str | None = None,
+) -> DatasetCreationResults:
+    model_providers = [
+        dd.ModelProvider(
+            name=VLLM_PROVIDER_NAME,
+            endpoint=vllm_endpoint,
+        ),
+    ]
+    data_designer = DataDesigner(
+        artifact_path=artifact_path,
+        model_providers=model_providers,
+    )
+    data_designer.set_run_config(dd.RunConfig(display_tui=True, disable_early_shutdown=True))
+    results = data_designer.create(config_builder, num_records=num_records, dataset_name="multi_page_windowed_qa")
+    return results
+
+
+if __name__ == "__main__":
+    from argparse import ArgumentParser
+
+    parser = ArgumentParser()
+    parser.add_argument(
+        "--vllm-endpoint",
+        type=str,
+        required=True,
+        help="Base URL of the vLLM server hosting the VLM (e.g. http://localhost:8000/v1)",
+    )
+    parser.add_argument("--seed-path", type=str, required=True, help="Path to the seed parquet file")
+    parser.add_argument("--model-alias", type=str, default="vl")
+    parser.add_argument("--model-id", type=str, default=DEFAULT_VLM_MODEL)
+    parser.add_argument("--num-records", type=int, default=5)
+    parser.add_argument(
+        "--reasoning",
+        action="store_true",
+        default=True,
+        help="Use reasoning-mode inference parameters (default: True)",
+    )
+    parser.add_argument(
+        "--no-reasoning",
+        dest="reasoning",
+        action="store_false",
+        help="Use non-reasoning inference parameters",
+    )
+    parser.add_argument("--artifact-path", type=str, default=None)
+    args = parser.parse_args()
+
+    config_builder = build_config(
+        seed_path=args.seed_path,
+        model_alias=args.model_alias,
+        model_id=args.model_id,
+        reasoning=args.reasoning,
+    )
+    results = create_dataset(
+        config_builder,
+        num_records=args.num_records,
+        vllm_endpoint=args.vllm_endpoint,
+        artifact_path=args.artifact_path,
+    )
+
+    print(f"Dataset saved to: {results.artifact_storage.final_dataset_path}")
+
+    results.load_analysis().to_report()
+
+```

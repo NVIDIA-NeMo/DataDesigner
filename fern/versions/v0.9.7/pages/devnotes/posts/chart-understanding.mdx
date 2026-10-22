@@ -1,0 +1,138 @@
+---
+title: "How we improved Nemotron’s chart understanding"
+description: "An iterative data-development story: diverse charts, useful questions, and reasoning grounded in visual evidence."
+---
+
+import { Authors } from "@/components/Authors";
+
+<Authors ids={["trintamaki", "asohrabizadeh"]} />
+
+
+
+When you ask an AI assistant to help with reports, slides, research papers, or other documents, some of the most important information is in the charts. Which approach performs best? How has the trend changed? Answering these kinds of questions requires reading values accurately, following flows, and comparing patterns across panels, as the examples in Figure 1 illustrate.
+
+Chart understanding is therefore an essential part of document understanding and knowledge work. We improved Nemotron Super 3.5 VL’s chart understanding through iterative development of its training data. In this post, we explain the chart sourcing and data generation pipelines behind these improvements.
+
+{/* more */}
+
+<div dangerouslySetInnerHTML={{__html: `<style>
+.chart-example-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 1.5rem; row-gap: 1rem; }
+.chart-example-pair > div { min-width: 0; display: grid; grid-row: span 4; grid-template-rows: subgrid; }
+.chart-example-pair h3, .chart-example-pair p { margin: 0; }
+.chart-example-visual { align-self: start; }
+.chart-example-pair img { height: auto; }
+.chart-emissions-frame { overflow: hidden; }
+.chart-emissions-frame img { width: 120.4819%; max-width: none; margin-left: -20.4819%; height: auto; }
+@media (max-width: 700px) { .chart-example-pair { grid-template-columns: 1fr; } }
+</style>`}} />
+
+*Click either chart to enlarge.*
+
+<div className="chart-example-pair">
+<div>
+
+### Industrial emissions
+
+**What is the second-largest direct source of industrial CO₂ emissions in this chart?**
+
+<div className="chart-example-visual chart-emissions-frame">
+
+![LLNL Sankey diagram of U.S. carbon emissions, with natural gas, petroleum, and coal flowing into the industrial sector.](/assets/chart-understanding/industrial-emissions.png)
+
+</div>
+
+**Answer: Petroleum, 338 million metric tons.** [LLNL and DOE.](https://flowcharts.llnl.gov/commodities/carbon)
+
+</div>
+<div>
+
+### Groundwater monitoring
+
+**Which monitoring well shows rising benzene alongside a sharp xylene spike around 2005?**
+
+<div className="chart-example-visual">
+
+![Groundwater measurements across eleven monitoring wells; MW-11 shows rising benzene and a sharp xylene spike around 2005.](/assets/chart-understanding/groundwater-monitoring.png)
+
+</div>
+
+**Answer: MW-11.** [GWSDAT, Figure 6.](https://arxiv.org/abs/1310.8158)
+
+</div>
+</div>
+
+**Figure 1: Trace industrial emissions and compare pollution trends across eleven sites.** *Questions shortened.*
+
+## Results
+
+To measure progress on chart understanding skills, we evaluate our models on three public chart-understanding benchmarks: [CharXiv](https://arxiv.org/abs/2406.18521), [ChartQA Pro](https://arxiv.org/abs/2504.05506), and [ChartMuseum](https://arxiv.org/abs/2505.13444), as well as internal chart tasks. Figure 2 shows improvements over the course of development. The resulting dataset was incorporated into the Super 3.5 VL training recipe.
+
+![Nano development milestones and Super 3.5 VL scores with default inference and Python code interpretation, alongside Qwen3.8 Flash-Next reference scores across three chart evaluations.](/assets/chart-understanding/chart-development-progress-flash-next-81-60.png)
+
+**Figure 2: Chart understanding through Nano development and Super 3.5 VL training, including Python code interpretation (CI), with Qwen3.8 Flash-Next for reference.** *Python CI scores use a separate tool-assisted evaluation setup; Flash-Next CharXiv scores are model-card reported.*
+
+With Python code interpretation, the model can inspect a crop, measure visual marks, or calculate from values it reads. Successful traces show the model separating overlapping markers, counting cells in a dense grid, and enlarging small labels before adding their values. Failures reveal that a script can count the wrong visual feature or calculate from data that is not relevant to the question.
+
+In a separate controlled training comparison, we started with a baseline model that had not been trained on the chart dataset and fine-tuned it exclusively on this dataset to assess its broader impact. As shown in Figure 3, the chart data improved not only chart understanding but also mathematics, OCR, document understanding, and video understanding. This is because it generally helps improve the model’s perception, encourages more structured reasoning, and reduces reasoning errors.
+
+![Baseline and chart-only fine-tuned scores across fourteen vision benchmarks. Most improve; OCRBenchV2 EN declines from 66.1 to 63.7.](/assets/chart-understanding/benchmark-comparison-web.svg)
+
+**Figure 3: Impact of the chart data on representative vision benchmarks.**
+
+The following sections describe how we sourced the charts and generated the training data behind these improvements.
+
+## Sourcing diverse charts
+
+Charts vary widely in their appearance, from flows to monitoring-site panels, as Figure 1 illustrates. To support chart understanding across real documents, we need training data that covers different chart types, domains, levels of visual complexity, resolutions and aspect ratios.
+
+We start from a large pool of unlabeled images from sources such as arXiv and gradually filter, select, and rank a diverse, high-quality set of charts. First, we remove duplicates, low-quality images, and unsafe content. We then use image embeddings to retrieve charts matching a diverse set of queries. Additionally, clustering and statistical analysis help us identify underrepresented chart types, domains, and visual features to create a more balanced dataset that also includes rare examples.
+
+We also screened training images for overlap with public benchmark images using image-embedding models. We manually reviewed candidate matches near a similarity threshold and found no confirmed benchmark-image overlap.
+
+## Turning charts into training examples
+
+We use [NVIDIA Data Designer](https://github.com/NVIDIA-NeMo/DataDesigner) to turn sourced chart images into training examples, each consisting of a question, an answer, and a reasoning trace grounded in visual evidence. Our data generation is part of an iterative training loop, in which we examine where our student model fails. This can include whether it confuses visual elements, struggles with a particular chart domain, makes reasoning errors, etc. We use these findings to guide the next round of data generation. Specifically, our pipeline looks for diverse and high-quality images relevant to those failures, draws on a set of candidate question categories to propose a suitable question and answer for the chart, and then generates a reasoning trace that can demonstrate how the question can be answered based on the extracted visual evidence.
+
+![The chart-data development loop: source charts, generate examples, check quality, train Nemotron, evaluate, and analyze failures to guide the next round.](/assets/chart-understanding/chart-development-loop.png)
+
+**Figure 4: Iterative chart data development including sourcing, data generation, evaluation and failure analysis.**
+
+## Asking useful questions
+
+We design questions around what people want to learn from charts when using AI assistants to understand documents. Answering a question often requires several skills together: finding relevant information, connecting legends and axes to the plotted data, and distinguishing similar colors, lines, bars, etc. Model failures help us identify which of these skills need more training.
+
+We develop a broad collection of seed questions at different difficulty levels to help teacher models generate questions suited to each chart. These range from matching a plotted point to its label to comparing trends and finding every item that meets a condition. For example, identifying which tasks begin before another task ends in a Gantt chart requires matching labels to bars, reading their positions on the time axis, and checking each task against the condition.
+
+To target fine visual distinctions, we also give the teacher access to the chart’s plotting code or underlying CSV. This helps verify small differences between values, identify ties, and establish which series a point or curve belongs to. We use this information to generate challenging questions, while checking that each remains answerable from the image alone. The student receives only the image and question. Gathering examples that the student model answers incorrectly helps us target specific weaknesses in subsequent training.
+
+## Grounding reasoning in visual evidence
+
+We want the reasoning trace to show how visible evidence should be used to lead to the answer. Specifically, it should identify the requested comparison or task, locate the relevant panels and series, evaluate the complete candidate set, and verify the conclusion against the chart. For example, if the question asks how many of the four panels show the blue curve crossing the red curve after midpoint. If the trace only says “The curves cross twice, so the answer is 2”, it omits the essential comparison needed to justify the final answer. Without that, the model may fail to learn the underlying reasoning process, making it more prone to confusion and hallucination at inference time. A useful trace would identify panels (a)-(d), report that the crossing occurs after the midpoint in (b) and (d) but not in (a) or (c), and then give the bare answer 2. We therefore guide generation with a flexible structure. The goal is to make each trace a clear demonstration of how to read the chart and reach the final conclusion. The following code snippet shows the reasoning template that the model is instructed to loosely follow:
+
+**Reasoning-Style Template**
+
+```text
+<think>
+1. Parse & Plan: Filter candidates.
+2. Map evidence: Extract panels, axes.
+3. Enumerate: Evaluate candidates.
+4. Decide: Verify against visual cues.
+</think>
+[bare final answer]
+```
+
+## Checking training data quality
+
+A generated example is useful only if its question has a defensible answer and the image supports the evidence needed to reach it. For this purpose, we use a set of heuristic- and model-based quality checks. Heuristic checks remove malformed answers and reasoning traces. Model-based checks use separate teacher models to check for broader quality issues that would make an example a poor training target.
+
+Each check addresses a specific source of unreliable supervision. Image readability checks identify clipping, overlapping elements, broken geometry, and unclear associations between marks and categories. Question checks flag ambiguous wording or references to nonexistent labels. Reasoning checks verify that the trace identifies the correct panels, marks, axes, and candidates, while screening for contradictory claims, repetitive loops, and excessive self-talk.
+
+Additionally, for a set of synthetic data and human-labeled data, we use our own student model in pass@K analysis to gather an RL training set by filtering out samples that our student model can already solve consistently, to focus on tasks that still challenge the model.
+
+## What comes next
+
+We are continuing to expand the diversity and improve the quality of our training data to strengthen Nemotron’s chart and document understanding. The tool-use examples point to another direction: training models to choose useful tool calls and verify their measurements against the chart.
+
+## Try for yourself
+
+To generate examples for your own charts, start with our [Data Designer recipe](/recipes/chart-qa/chart-question-answering). The [runnable script](https://github.com/NVIDIA-NeMo/DataDesigner/blob/main/docs/assets/recipes/chart_qa/chart_qa.py) includes question and answer generation, reasoning traces, and quality checks.
