@@ -244,10 +244,13 @@ class OpenTelemetryRuntime:
         correlation = runtime_correlation_provider.current()
         if correlation is None:
             return
-        with self._lock:
-            if correlation.run_id not in self._active_run_ids:
-                return
-            self._log_records.add(1, {"log.severity": _log_severity(level)})
+        # Runs inside logging's handler lock, so it must not wait on the runtime lock: lifecycle
+        # steps and the fork hook hold the runtime lock while taking logging's locks. A counter
+        # detached concurrently still accepts the add; its provider is no longer exported.
+        log_records = self._log_records
+        if log_records is None or correlation.run_id not in self._active_run_ids:
+            return
+        log_records.add(1, {"log.severity": _log_severity(level)})
 
     def shutdown(self) -> None:
         with self._lock:
@@ -518,9 +521,12 @@ class OpenTelemetryRuntime:
         return failures
 
     def _record_create_duration(self, duration: float, error_type: str | None = None) -> None:
+        create_duration = self._create_duration
+        if create_duration is None:  # shut down while the run was active
+            return
         attributes = {"error.type": _bounded_attribute(error_type)} if error_type is not None else None
         try:
-            self._create_duration.record(duration, attributes)
+            create_duration.record(duration, attributes)
         except Exception:
             logger.warning("Failed to record OpenTelemetry create duration.", exc_info=True)
 
