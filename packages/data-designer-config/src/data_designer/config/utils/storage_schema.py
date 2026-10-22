@@ -180,6 +180,7 @@ def _collect_paths(
     unsupported: bool,
     paths: list[list[str | None]],
     inherited_types: set[str] | None = None,
+    inherited_prefix_items: bool = False,
 ) -> None:
     if not isinstance(node, dict):
         return
@@ -201,13 +202,14 @@ def _collect_paths(
         )
     reference = node.get("$ref")
     types = _get_possible_types(node, root, references)
+    has_prefix_items = inherited_prefix_items or _has_prefix_items(node, root, references)
     if inherited_types is not None:
         types = inherited_types if types is None else types & inherited_types
     if reference is not None:
         if reference in references:
             raise InvalidConfigError("Recursive JSON storage traversal requires an enclosing JSON-encoded field")
         target = resolve_local_json_pointer(root, reference)
-        _collect_paths(target, root, path, (*references, reference), unsupported, paths, types)
+        _collect_paths(target, root, path, (*references, reference), unsupported, paths, types, has_prefix_items)
     for key, value in node.items():
         if key == "properties" and isinstance(value, dict):
             for name, child in value.items():
@@ -225,7 +227,7 @@ def _collect_paths(
                 root,
                 [*path, None],
                 references,
-                unsupported or types is None or types - {"null"} != {"array"},
+                unsupported or has_prefix_items or types is None or types - {"null"} != {"array"},
                 paths,
             )
         elif key in _SCHEMA_ARRAYS and isinstance(value, list):
@@ -254,3 +256,13 @@ def _get_possible_types(node: dict[str, Any], root: dict[str, Any], references: 
             if target_types is not None:
                 types = target_types if types is None else types & target_types
     return types
+
+
+def _has_prefix_items(node: dict[str, Any], root: dict[str, Any], references: tuple[str, ...]) -> bool:
+    if node.get("prefixItems"):
+        return True
+    reference = node.get("$ref")
+    if reference is None or reference in references:
+        return False
+    target = resolve_local_json_pointer(root, reference)
+    return isinstance(target, dict) and _has_prefix_items(target, root, (*references, reference))

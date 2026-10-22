@@ -53,6 +53,8 @@ class SchemaTransformProcessor(WithJinja2UserTemplateRendering, Processor[Schema
         return json.dumps(self.config.template)
 
     def process_after_batch(self, data: pd.DataFrame, *, current_batch_number: int | None) -> pd.DataFrame:
+        if len(data) == 0:
+            return data
         formatted_data = self._transform(data)
         missing = set(self.config.json_storage_columns) - set(formatted_data.columns)
         if missing:

@@ -79,6 +79,51 @@ def test_reject_branch_dependent_encoding(keyword: str) -> None:
         compile_json_storage_schema({keyword: [{JSON_STORAGE_KEY: "json"}]})
 
 
+@pytest.mark.parametrize("reference_location", ["none", "prefix", "items"])
+@pytest.mark.parametrize("encode_item", [False, True], ids=["nested-field", "whole-item"])
+def test_positional_array_items_require_encoding_the_enclosing_array(
+    reference_location: str, encode_item: bool
+) -> None:
+    item = (
+        {"type": "object", JSON_STORAGE_KEY: "json"}
+        if encode_item
+        else {"type": "object", "properties": {"args": {JSON_STORAGE_KEY: "json"}}}
+    )
+    prefix: dict[str, Any] = {"type": "array", "prefixItems": [{"type": "integer"}], "minItems": 2}
+    tail: dict[str, Any] = {"type": "array", "items": item}
+    if reference_location == "prefix":
+        schema = {**tail, "$ref": "#/$defs/Prefix", "$defs": {"Prefix": prefix}}
+    elif reference_location == "items":
+        schema = {**prefix, "$ref": "#/$defs/Tail", "$defs": {"Tail": tail}}
+    else:
+        schema = {**prefix, **tail}
+
+    with pytest.raises(InvalidConfigError, match="enclosing"):
+        LLMStructuredColumnConfig(name="payload", prompt="Generate", model_alias="test", output_format=schema)
+
+
+def test_positional_array_can_encode_the_whole_array() -> None:
+    schema = {
+        "type": "array",
+        "prefixItems": [{"type": "integer"}],
+        "items": {"type": "object", "properties": {"args": {"type": "object"}}},
+        JSON_STORAGE_KEY: "json",
+    }
+    cleaned, paths = compile_json_storage_schema(schema)
+    assert paths == [[]]
+    assert JSON_STORAGE_KEY not in cleaned
+    assert cleaned["prefixItems"] == [{"type": "integer"}]
+
+
+def test_inactive_positional_array_keyword_does_not_block_object_fields() -> None:
+    schema = {
+        "type": "object",
+        "prefixItems": [{"type": "integer"}],
+        "properties": {"args": {JSON_STORAGE_KEY: "json"}},
+    }
+    assert compile_json_storage_schema(schema)[1] == [["args"]]
+
+
 @pytest.mark.parametrize("keyword", ["additionalProperties", "if", "then", "else", "not", "contains"])
 def test_reject_unsupported_encoding_locations(keyword: str) -> None:
     with pytest.raises(InvalidConfigError, match="enclosing"):

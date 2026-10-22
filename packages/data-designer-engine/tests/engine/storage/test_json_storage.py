@@ -194,6 +194,28 @@ def test_processor_outputs_have_independent_encoding(stub_resource_provider: Moc
     assert saved.iloc[0]["new_payload"] == {"values": [1, "two"], "alpha": "1"}
 
 
+@pytest.mark.parametrize("preview", [False, True], ids=["batch", "preview"])
+@pytest.mark.parametrize("dynamic", [False, True], ids=["literal-name", "dynamic-name"])
+def test_processor_skips_empty_input_and_writes_later_healthy_batches(
+    stub_resource_provider: Mock, preview: bool, dynamic: bool
+) -> None:
+    config = SchemaTransformProcessorConfig(
+        name="empty_then_healthy",
+        template={"{{ 'payload' }}" if dynamic else "payload": {"k": "v"}},
+        json_storage_columns=["payload"],
+    )
+    processor = SchemaTransformProcessor(config, stub_resource_provider)
+    empty = pd.DataFrame({"id": []})
+    storage = stub_resource_provider.artifact_storage
+
+    assert processor.process_after_batch(empty, current_batch_number=None if preview else 0) is empty
+    assert list(storage.processors_outputs_path.rglob("*.parquet")) == []
+
+    healthy = pd.DataFrame({"id": [1]})
+    assert processor.process_after_batch(healthy, current_batch_number=None if preview else 1) is healthy
+    assert storage.load_processor_dataset("empty_then_healthy").to_dict(orient="records") == [{"payload": {"k": "v"}}]
+
+
 @pytest.mark.parametrize("batch_number", [None, 0], ids=["preview", "batch"])
 @pytest.mark.parametrize("value", [1.25, 2**60 + 1, 2**1024], ids=["float", "precise-integer", "huge-integer"])
 def test_processor_json_scalar_output_bypasses_pandas_inference(

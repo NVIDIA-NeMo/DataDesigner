@@ -96,6 +96,29 @@ def test_jsonl_export_restores_nested_json(json_results: DatasetCreationResults,
     assert all(isinstance(record["payload"], dict) for record in records)
 
 
+@pytest.mark.parametrize(
+    "separator", ["\u0085", "\u2028", "\u2029"], ids=["nel", "line-separator", "paragraph-separator"]
+)
+@pytest.mark.parametrize("nested", [False, True], ids=["root", "nested"])
+def test_jsonl_export_preserves_unicode_separators_in_protected_and_native_strings(
+    json_results: DatasetCreationResults, tmp_path: Path, separator: str, nested: bool
+) -> None:
+    storage = json_results.artifact_storage
+    for file in storage.final_dataset_path.glob("*.parquet"):
+        file.unlink()
+    storage.json_storage = JsonStoragePlan(columns={"payload": [["arguments"]] if nested else [[]]})
+    text = f"before{separator}after\nnewline"
+    payload = {"arguments": {"text": text}} if nested else {"text": text}
+    expected = [{"payload": payload, "native": text}, {"payload": payload, "native": "last"}]
+    for batch, record in enumerate(expected):
+        storage.write_batch_to_parquet_file(batch, pd.DataFrame([record]), BatchStage.FINAL_RESULT)
+
+    output = json_results.export(tmp_path / "unicode.jsonl")
+
+    with output.open(encoding="utf-8") as stream:
+        assert [json.loads(line) for line in stream] == expected
+
+
 @pytest.mark.parametrize("nested", [False, True])
 @pytest.mark.parametrize("value", [None, {"precise": 1.2345678901234567, "large": 2**100, "small": 1e-100}])
 def test_jsonl_export_preserves_json_numbers_and_nulls(

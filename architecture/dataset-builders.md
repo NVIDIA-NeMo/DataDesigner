@@ -78,6 +78,9 @@ errors and data-dependent risks as warnings before model health checks or genera
 The check respects dropped-column artifact policy and downgrades findings when plugin processors or
 conditional generation can change the eventual representation. Local-pointer traversal supports URI
 escapes and array indices; nested schema resources remain explicit unsupported boundaries.
+JSON storage within positional arrays with `prefixItems` requires encoding the enclosing array, since
+item wildcards visit prefix entries too; this also applies when the prefix and trailing items are split
+across local references.
 
 `ArtifactStorage` JSON-encodes selected values in a storage copy and writes explicit UTF-8 leaves.
 Parquet metadata (`data_designer.json_storage`) and run metadata (`json_storage`) persist the versioned
@@ -96,6 +99,9 @@ Row-buffer and batch-generator DataFrames preserve protected columns as Python o
 pandas inference from replacing JSON nulls or rounding integers before encoding.
 Schema-transform outputs use the same logical materialization helper, and CSV normalization preserves
 object cells to retain protected scalar numbers and nulls through export.
+Schema transforms skip batches with no rows before checking output storage names, allowing later
+healthy batches to produce their artifacts. JSONL record splitting uses only newline delimiters so
+Unicode separators inside string values remain intact.
 Annotated DataFrame seeds register the encoded Arrow table directly with DuckDB after combining
 chunks, avoiding pandas schema re-inference and mismatched nested/native chunk boundaries.
 

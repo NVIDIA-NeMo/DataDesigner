@@ -263,7 +263,7 @@ def _export_jsonl(batch_files: list[Path], output: Path) -> None:
                 # Keep encoded leaves as text through pandas' JSON conversion,
                 # which rounds floats. Decode them only after native fields have
                 # received the usual date/null normalization.
-                records = [json.loads(line) for line in content.splitlines()]
+                records = [json.loads(line) for line in content.split("\n") if line]
                 logical = decode_storage_dataframe(lazy.pd.DataFrame(records, dtype=object), plan)
                 for record in logical.to_dict(orient="records"):
                     f.write(serialize_data(record, allow_nan=False) + "\n")
