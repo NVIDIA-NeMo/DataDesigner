@@ -29,7 +29,7 @@ def mock_data_designer_version() -> Iterator[None]:
         ),
         patch(
             "data_designer.cli.services.plugin_install_service.subprocess.run",
-            return_value=SimpleNamespace(returncode=0, stdout="uv 0.10.0\n", stderr=""),
+            return_value=SimpleNamespace(returncode=0, stdout="uv 0.13.4\n", stderr=""),
         ),
     ):
         yield
@@ -372,15 +372,15 @@ def test_build_auto_install_plan_chooses_pip_when_uv_is_unavailable(mock_which: 
     mock_which.assert_called_once_with("uv")
 
 
-@patch(
-    "data_designer.cli.services.plugin_install_service.subprocess.run",
-    return_value=SimpleNamespace(returncode=0, stdout="uv 0.7.22\n", stderr=""),
-)
+@pytest.mark.parametrize("uv_version", ["0.7.22", "0.13.3", "0.13.4rc1"])
+@patch("data_designer.cli.services.plugin_install_service.subprocess.run")
 @patch("data_designer.cli.services.plugin_install_service.shutil.which", return_value="/usr/bin/uv")
 def test_build_auto_install_plan_uses_pip_with_warning_when_uv_is_too_old(
     mock_which: Mock,
     mock_run: Mock,
+    uv_version: str,
 ) -> None:
+    mock_run.return_value = SimpleNamespace(returncode=0, stdout=f"uv {uv_version}\n", stderr="")
     entry = _entry(package_name="data-designer-template", install={"requirement": "data-designer-template"})
     catalog = PluginCatalogConfig(alias="local", url="/catalog/plugins.json")
     service = PluginInstallService()
@@ -399,8 +399,8 @@ def test_build_auto_install_plan_uses_pip_with_warning_when_uv_is_too_old(
         "data-designer-template",
     ]
     message = plan.source_warning or ""
-    assert "Found uv 0.7.22" in message
-    assert "uv >= 0.10.0" in message
+    assert f"Found uv {uv_version}" in message
+    assert "uv >= 0.13.4" in message
     assert "uv self update" in message
     assert "Auto mode will use pip for this plan" in message
     assert "--manager pip" not in message
@@ -508,15 +508,15 @@ def test_build_auto_uninstall_plan_chooses_uv_when_available(mock_which: Mock) -
     mock_which.assert_called_once_with("uv")
 
 
-@patch(
-    "data_designer.cli.services.plugin_install_service.subprocess.run",
-    return_value=SimpleNamespace(returncode=0, stdout="uv 0.7.22\n", stderr=""),
-)
+@pytest.mark.parametrize("uv_version", ["0.7.22", "0.13.3", "0.13.4rc1"])
+@patch("data_designer.cli.services.plugin_install_service.subprocess.run")
 @patch("data_designer.cli.services.plugin_install_service.shutil.which", return_value="/usr/bin/uv")
 def test_build_auto_uninstall_plan_uses_pip_with_warning_when_uv_is_too_old(
     mock_which: Mock,
     mock_run: Mock,
+    uv_version: str,
 ) -> None:
+    mock_run.return_value = SimpleNamespace(returncode=0, stdout=f"uv {uv_version}\n", stderr="")
     entry = _entry(package_name="data-designer-template", install={"requirement": "data-designer-template"})
     catalog = PluginCatalogConfig(alias="local", url="/catalog/plugins.json")
     service = PluginInstallService()
@@ -534,8 +534,8 @@ def test_build_auto_uninstall_plan_uses_pip_with_warning_when_uv_is_too_old(
         "data-designer-template",
     ]
     message = plan.source_warning or ""
-    assert "Found uv 0.7.22" in message
-    assert "uv >= 0.10.0" in message
+    assert f"Found uv {uv_version}" in message
+    assert "uv >= 0.13.4" in message
     assert "Auto mode will use pip for this plan" in message
     mock_which.assert_called_once_with("uv")
     assert mock_run.call_count == 2
@@ -842,15 +842,15 @@ def test_build_pip_install_plan_raises_when_pip_is_unavailable(mock_run: Mock) -
     mock_run.assert_called_once()
 
 
-@patch(
-    "data_designer.cli.services.plugin_install_service.subprocess.run",
-    return_value=SimpleNamespace(returncode=0, stdout="uv 0.7.22\n", stderr=""),
-)
+@pytest.mark.parametrize("uv_version", ["0.7.22", "0.13.3", "0.13.4rc1"])
+@patch("data_designer.cli.services.plugin_install_service.subprocess.run")
 @patch("data_designer.cli.services.plugin_install_service.shutil.which", return_value="/usr/bin/uv")
 def test_build_uv_install_plan_raises_when_uv_is_too_old(
     mock_which: Mock,
     mock_run: Mock,
+    uv_version: str,
 ) -> None:
+    mock_run.return_value = SimpleNamespace(returncode=0, stdout=f"uv {uv_version}\n", stderr="")
     entry = _entry(package_name="data-designer-template", install={"requirement": "data-designer-template"})
     catalog = PluginCatalogConfig(alias="local", url="/catalog/plugins.json")
     service = PluginInstallService()
@@ -859,8 +859,8 @@ def test_build_uv_install_plan_raises_when_uv_is_too_old(
         service.build_install_plan(entry, catalog, manager="uv")
 
     message = str(exc_info.value)
-    assert "Found uv 0.7.22" in message
-    assert "uv >= 0.10.0" in message
+    assert f"Found uv {uv_version}" in message
+    assert "uv >= 0.13.4" in message
     assert "uv self update" in message
     assert "--manager pip" in message
     mock_which.assert_called_once_with("uv")
