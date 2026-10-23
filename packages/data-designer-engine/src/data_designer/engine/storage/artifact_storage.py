@@ -304,7 +304,7 @@ class ArtifactStorage(BaseModel):
             if json_storage is not None
             else (JsonStoragePlan() if batch_stage == BatchStage.PROCESSORS_OUTPUTS else self.json_storage)
         )
-        active = plan.for_columns(list(dataframe.columns))
+        active = plan.restrict_to_columns(list(dataframe.columns))
         temporary_path = file_path.with_name(f".{file_path.name}.{uuid.uuid4().hex}.tmp")
         try:
             if active.columns:
@@ -332,7 +332,7 @@ class ArtifactStorage(BaseModel):
     ) -> None:
         for name in dataframe.columns:
             try:
-                table = encode_storage_table(dataframe[[name]], plan.for_columns([name]))
+                table = encode_storage_table(dataframe[[name]], plan.restrict_to_columns([name]))
                 lazy.pq.write_table(table, lazy.pa.BufferOutputStream())
             except (
                 InvalidFileFormatError,

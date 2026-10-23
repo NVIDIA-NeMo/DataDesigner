@@ -77,10 +77,10 @@ def test_dataframe_seed_projection_restricts_storage_contract() -> None:
     reader = DataFrameSeedReader()
     reader.attach(DataFrameSeedSource(df=original[["kept"]]), PlaintextResolver())
 
-    assert reader.get_storage_plan() == plan.for_columns(["kept"])
+    assert reader.get_storage_plan() == plan.restrict_to_columns(["kept"])
     batch = reader.create_batch_reader(batch_size=1, index_range=None, shuffle=False).read_next_batch().to_pandas()
     assert batch.to_dict("records") == [{"kept": {"arguments": [1, "two"]}}]
-    assert batch.attrs[JSON_STORAGE_RUN_KEY] == plan.for_columns(["kept"]).model_dump()
+    assert batch.attrs[JSON_STORAGE_RUN_KEY] == plan.restrict_to_columns(["kept"]).model_dump()
     assert original.attrs[JSON_STORAGE_RUN_KEY] == plan.model_dump()
 
 

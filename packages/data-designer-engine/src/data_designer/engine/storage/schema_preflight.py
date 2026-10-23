@@ -80,7 +80,7 @@ def find_storage_schema_risks(schema: dict[str, Any]) -> list[StorageSchemaRisk]
                     # constant proves that every batch has the same failure.
                     required and len(constants) == 1,
                 )
-            if len({_literal_kind(value) for value in constants}) > 1:
+            if len({_get_literal_kind(value) for value in constants}) > 1:
                 report(path, "permits different literal types that may fail native Parquet inference")
             if len(constants) > len(failures) and any(isinstance(value, (dict, list)) for value in constants):
                 report(path, "has a large structured enum whose native storage was not fully checked")
@@ -187,5 +187,5 @@ def _constant_cannot_write(value: Any) -> bool:
     return False
 
 
-def _literal_kind(value: Any) -> type:
+def _get_literal_kind(value: Any) -> type:
     return float if isinstance(value, (int, float)) and not isinstance(value, bool) else type(value)

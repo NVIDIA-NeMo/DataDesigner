@@ -67,7 +67,7 @@ class JsonStoragePlan(ConfigBase):
             self.columns[name] = sorted(paths, key=_storage_path_sort_key)
         return self
 
-    def for_columns(self, names: list[str]) -> JsonStoragePlan:
+    def restrict_to_columns(self, names: list[str]) -> JsonStoragePlan:
         """Restrict a contract to the columns present in an artifact."""
         return JsonStoragePlan(columns={name: self.columns[name] for name in names if name in self.columns})
 

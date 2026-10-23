@@ -52,7 +52,7 @@ def read_dataframe_storage_plan(dataframe: pd.DataFrame) -> JsonStoragePlan:
         plan = JsonStoragePlan.model_validate(dataframe.attrs.get(JSON_STORAGE_RUN_KEY, {}))
     except (ValueError, TypeError) as exc:
         raise InvalidFileFormatError("Invalid or unsupported DD JSON storage metadata in DataFrame") from exc
-    return plan.for_columns(list(dataframe.columns))
+    return plan.restrict_to_columns(list(dataframe.columns))
 
 
 def validate_storage_plans(schemas: list[pa.Schema]) -> JsonStoragePlan:
@@ -87,7 +87,7 @@ def create_logical_dataframe(
 
 def encode_storage_table(dataframe: pd.DataFrame, plan: JsonStoragePlan) -> pa.Table:
     """Encode a storage copy, fixing leaf types even for empty/null-only batches."""
-    active = plan.for_columns(list(dataframe.columns))
+    active = plan.restrict_to_columns(list(dataframe.columns))
     frame = dataframe.copy(deep=False)
     for name, paths in active.columns.items():
         values = []
@@ -103,7 +103,7 @@ def encode_storage_table(dataframe: pd.DataFrame, plan: JsonStoragePlan) -> pa.T
     for name, paths in active.columns.items():
         index = table.schema.get_field_index(name)
         field = table.schema.field(index)
-        dtype = _storage_type(field.type, paths)
+        dtype = _build_storage_type(field.type, paths)
         table = table.set_column(
             index, field.with_type(dtype), lazy.pa.array(frame[name].tolist(), type=dtype, from_pandas=True)
         )
@@ -139,7 +139,7 @@ def decode_storage_table(table: pa.Table) -> pd.DataFrame:
 def decode_storage_dataframe(dataframe: pd.DataFrame, plan: JsonStoragePlan) -> pd.DataFrame:
     """Decode query-engine batches after their file metadata has been discovered."""
     frame = dataframe.copy(deep=False)
-    for name, paths in plan.for_columns(list(frame.columns)).columns.items():
+    for name, paths in plan.restrict_to_columns(list(frame.columns)).columns.items():
         values = []
         for value in frame[name]:
             for path in paths:
@@ -231,7 +231,7 @@ def _validate_json_value(value: Any) -> None:
     raise TypeError("JSON storage requires string-keyed objects, lists, and finite JSON scalar values")
 
 
-def _storage_type(dtype: pa.DataType, paths: list[list[str | None]]) -> pa.DataType:
+def _build_storage_type(dtype: pa.DataType, paths: list[list[str | None]]) -> pa.DataType:
     if [] in paths:
         return lazy.pa.string()
     if any(path[0] is None for path in paths):
@@ -243,7 +243,7 @@ def _storage_type(dtype: pa.DataType, paths: list[list[str | None]]) -> pa.DataT
             child = dtype.value_type
         else:
             raise InvalidFileFormatError("JSON storage path expects an Arrow list")
-        return lazy.pa.list_(_storage_type(child, [path[1:] for path in paths]))
+        return lazy.pa.list_(_build_storage_type(child, [path[1:] for path in paths]))
     if lazy.pa.types.is_null(dtype):
         fields: dict[str, Any] = {}
     elif lazy.pa.types.is_struct(dtype):
@@ -252,5 +252,5 @@ def _storage_type(dtype: pa.DataType, paths: list[list[str | None]]) -> pa.DataT
         raise InvalidFileFormatError("JSON storage path expects an Arrow struct")
     for name in dict.fromkeys(path[0] for path in paths):
         field = fields.get(name, lazy.pa.field(name, lazy.pa.null()))
-        fields[name] = field.with_type(_storage_type(field.type, [path[1:] for path in paths if path[0] == name]))
+        fields[name] = field.with_type(_build_storage_type(field.type, [path[1:] for path in paths if path[0] == name]))
     return lazy.pa.struct(list(fields.values()))

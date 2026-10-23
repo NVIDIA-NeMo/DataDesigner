@@ -219,7 +219,7 @@ class DatasetBuilder:
                     for column in self.single_column_configs
                     if column.column_type == DataDesignerColumnType.SEED_DATASET
                 ]
-                columns.update(seed_plan.for_columns(seed_column_names).columns)
+                columns.update(seed_plan.restrict_to_columns(seed_column_names).columns)
         for column in self.single_column_configs:
             if column.storage_encoding == "json":
                 columns[column.name] = [[]]
@@ -1055,7 +1055,7 @@ class DatasetBuilder:
     def process_preview(self, dataset: pd.DataFrame) -> pd.DataFrame:
         df = self._processor_runner.run_post_batch(dataset.copy(), current_batch_number=None)
         df = self._processor_runner.run_after_generation_on_df(df)
-        storage_plan = self.artifact_storage.json_storage.for_columns(list(df.columns))
+        storage_plan = self.artifact_storage.json_storage.restrict_to_columns(list(df.columns))
         if storage_plan.columns:
             df.attrs[JSON_STORAGE_RUN_KEY] = storage_plan.model_dump()
         else:
