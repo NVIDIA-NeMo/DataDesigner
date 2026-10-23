@@ -9,8 +9,9 @@ import functools
 import hashlib
 import logging
 from abc import ABC, abstractmethod
+from collections.abc import Coroutine
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Coroutine, TypeVar, overload
+from typing import TYPE_CHECKING, Any, TypeVar, overload
 
 from data_designer.config.column_configs import GenerationStrategy
 from data_designer.config.scheduling import SchedulingMetadata, SchedulingMetadataError

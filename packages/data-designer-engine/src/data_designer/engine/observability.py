@@ -9,12 +9,12 @@ import json
 import logging
 import math
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass, field, fields, is_dataclass
 from enum import Enum
 from os import PathLike
 from threading import Lock
-from typing import Callable, Literal, Protocol, TextIO, runtime_checkable
+from typing import Literal, Protocol, TextIO, runtime_checkable
 
 logger = logging.getLogger(__name__)
 
