@@ -1,0 +1,394 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+"""Authored Data Designer run, client, deployment, and submission configuration."""
+
+from __future__ import annotations
+
+import posixpath
+import re
+from typing import Annotated, Literal
+from urllib.parse import urlsplit
+
+from packaging.requirements import InvalidRequirement, Requirement
+from packaging.utils import canonicalize_name
+from pydantic import (
+    Field,
+    JsonValue,
+    NonNegativeInt,
+    PositiveInt,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
+
+from data_designer.config import RunConfig
+from data_designer.slurm.config.environment import (
+    EnvironmentBinding,
+    LiteralEnvironmentBinding,
+    SecretRef,
+    is_secret_bearing_name,
+    validate_environment_bindings,
+    validate_no_plaintext_secrets,
+)
+from data_designer.slurm.config.vllm import QueueBackpressureConfig, VllmServerConfig
+from data_designer.slurm.contracts import (
+    AuthoredConfig,
+    validate_absolute_path,
+    validate_local_config_path,
+    validate_plain_text,
+    validate_url,
+)
+from data_designer.slurm.types import EnvironmentName, Identifier, PartitionSelection, SchemaVersion
+
+__all__ = [
+    "ArrayTasksConfig",
+    "BuilderInput",
+    "ClientConfig",
+    "ClientDependencies",
+    "DataDesignerSlurmConfig",
+    "DeploymentResources",
+    "DeploymentTopology",
+    "EnvironmentBinding",
+    "InputBindings",
+    "InvocationConfig",
+    "LiteralEnvironmentBinding",
+    "LocalStdioMCPProviderConfig",
+    "MCPProviderConfig",
+    "QueueBackpressureConfig",
+    "RemoteMCPProviderConfig",
+    "SecretRef",
+    "ServerDeploymentConfig",
+    "SubmissionConfig",
+    "VllmServerConfig",
+]
+
+
+class BuilderInput(AuthoredConfig):
+    source: str | None = None
+    inline: dict[str, JsonValue] | None = None
+
+    @field_validator("source")
+    @classmethod
+    def validate_source(cls, value: str | None) -> str | None:
+        return None if value is None else validate_local_config_path(value)
+
+    @model_validator(mode="after")
+    def validate_input(self) -> BuilderInput:
+        if (self.source is None) == (self.inline is None):
+            raise ValueError("builder requires exactly one of source or inline")
+        if self.inline is not None:
+            if not self.inline:
+                raise ValueError("inline builder input must not be empty")
+            validate_no_plaintext_secrets(self.inline, field_name="inline builder input")
+            retired = {"dependencies", "sandbox_config", "server_configs"}.intersection(self.inline)
+            if retired:
+                raise ValueError(f"builder input contains retired fields: {', '.join(sorted(retired))}")
+            if "data_designer" in self.inline:
+                unknown = set(self.inline).difference({"data_designer", "library_version"})
+                library_version = self.inline.get("library_version")
+                valid = not unknown and isinstance(self.inline["data_designer"], dict)
+                valid = valid and (library_version is None or isinstance(library_version, str))
+            else:
+                valid = isinstance(self.inline.get("columns"), list)
+            if not valid:
+                raise ValueError("inline builder input must be one complete serialized Data Designer config")
+        return self
+
+
+class InputBindings(AuthoredConfig):
+    seed_path: str | None = None
+    managed_assets_path: str | None = None
+
+    @field_validator("seed_path", "managed_assets_path")
+    @classmethod
+    def validate_paths(cls, value: str | None) -> str | None:
+        return None if value is None else validate_absolute_path(value)
+
+
+class RemoteMCPProviderConfig(AuthoredConfig):
+    provider_type: Literal["sse", "streamable_http"]
+    name: Identifier
+    endpoint: str
+    api_key: SecretRef | None = None
+
+    @field_validator("endpoint")
+    @classmethod
+    def validate_endpoint(cls, value: str) -> str:
+        validate_url(value, field_name="MCP endpoint")
+        parsed = urlsplit(value)
+        if parsed.username is not None or parsed.password is not None or parsed.query or parsed.fragment:
+            raise ValueError("MCP endpoint must not embed credentials, query parameters, or fragments")
+        return value
+
+
+class LocalStdioMCPProviderConfig(AuthoredConfig):
+    provider_type: Literal["stdio"]
+    name: Identifier
+    command: str
+    args: list[str] = Field(default_factory=list)
+    environment: dict[EnvironmentName, EnvironmentBinding] = Field(default_factory=dict)
+
+    @field_validator("command")
+    @classmethod
+    def validate_command(cls, value: str) -> str:
+        validate_plain_text(value, field_name="MCP command")
+        if any(character.isspace() for character in value):
+            raise ValueError("MCP command must be one executable token")
+        return value
+
+    @field_validator("args")
+    @classmethod
+    def validate_args(cls, values: list[str]) -> list[str]:
+        for value in values:
+            validate_plain_text(value, field_name="MCP argument")
+            option = re.split(r"[=\s]", value.lstrip(), maxsplit=1)[0].lstrip("-")
+            if is_secret_bearing_name(option):
+                raise ValueError("secret-shaped MCP arguments must use an environment secret reference")
+        return values
+
+    @field_validator("environment")
+    @classmethod
+    def validate_environment(
+        cls, values: dict[EnvironmentName, EnvironmentBinding]
+    ) -> dict[EnvironmentName, EnvironmentBinding]:
+        validate_environment_bindings(values)
+        return values
+
+
+MCPProviderConfig = Annotated[
+    RemoteMCPProviderConfig | LocalStdioMCPProviderConfig,
+    Field(discriminator="provider_type"),
+]
+
+
+class InvocationConfig(AuthoredConfig):
+    num_records: PositiveInt
+    dataset_name: Identifier
+    resume: Literal["never", "always", "if_possible"] = "never"
+    run_config: dict[str, JsonValue] = Field(default_factory=dict)
+    input_bindings: InputBindings = Field(default_factory=InputBindings)
+    mcp_providers: list[MCPProviderConfig] = Field(default_factory=list)
+    model_concurrency: dict[str, PositiveInt] = Field(default_factory=dict)
+
+    @field_validator("run_config")
+    @classmethod
+    def validate_run_config_keys(cls, value: dict[str, JsonValue]) -> dict[str, JsonValue]:
+        unknown = set(value).difference(RunConfig.model_fields.keys() - {"display_tui"})
+        if unknown:
+            raise ValueError(f"unknown Data Designer RunConfig fields: {', '.join(sorted(unknown))}")
+        RunConfig.model_validate(value)
+        return value
+
+    @model_validator(mode="after")
+    def validate_mcp_providers(self) -> InvocationConfig:
+        names = [provider.name for provider in self.mcp_providers]
+        if len(names) != len(set(names)):
+            raise ValueError("MCP provider names must be unique")
+        return self
+
+
+class ClientDependencies(AuthoredConfig):
+    requirements: list[str] | None = Field(default_factory=list)
+    lock_file: str | None = None
+    index_credentials: dict[str, SecretRef] = Field(default_factory=dict)
+
+    @field_validator("requirements")
+    @classmethod
+    def validate_requirements(cls, values: list[str] | None) -> list[str] | None:
+        if values is None:
+            return None
+        names: list[str] = []
+        for value in values:
+            validate_plain_text(value, field_name="dependency requirement")
+            if value != value.strip() or value.startswith(("-e ", "/", "./", "../")) or "git+" in value:
+                raise ValueError("dependency requirement must identify a package or immutable wheel")
+            try:
+                requirement = Requirement(value)
+            except InvalidRequirement as error:
+                raise ValueError("invalid dependency requirement") from error
+            if requirement.marker is not None:
+                raise ValueError("dependency requirement environment markers are not supported")
+            if requirement.url is not None:
+                validate_url(requirement.url, field_name="direct dependency URL")
+                parsed = urlsplit(requirement.url)
+                valid_wheel = (
+                    parsed.scheme == "https"
+                    and parsed.hostname is not None
+                    and parsed.username is None
+                    and parsed.password is None
+                    and not parsed.query
+                    and parsed.path.endswith(".whl")
+                    and re.fullmatch(r"sha256=[0-9a-f]{64}", parsed.fragment) is not None
+                )
+                if not valid_wheel:
+                    raise ValueError("direct dependency URLs must be HTTPS wheels with a SHA-256 fragment")
+            names.append(canonicalize_name(requirement.name))
+        if len(names) != len(set(names)):
+            raise ValueError("dependency requirements must have unique normalized names")
+        return values
+
+    @field_validator("lock_file")
+    @classmethod
+    def validate_lock_file(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        validate_plain_text(value, field_name="dependency lock path")
+        if "://" in value or ".." in value.split("/"):
+            raise ValueError("dependency lock must be a normalized local path")
+        normalized = posixpath.normpath(value)
+        if not normalized.endswith(".json"):
+            raise ValueError("dependency lock path must end in .json")
+        return normalized
+
+    @model_validator(mode="after")
+    def validate_source(self) -> ClientDependencies:
+        if self.lock_file is None and self.requirements is None:
+            raise ValueError("client dependencies require requirements or lock_file")
+        if self.lock_file is not None and self.requirements is not None:
+            raise ValueError("client dependencies cannot contain both requirements and lock_file")
+        return self
+
+
+class ClientConfig(AuthoredConfig):
+    cpus: PositiveInt = 16
+    dependencies: ClientDependencies = Field(default_factory=ClientDependencies)
+
+
+class DeploymentResources(AuthoredConfig):
+    nodes: PositiveInt = 1
+    shared_node: Identifier | None = Field(default=None, exclude_if=lambda value: value is None)
+    gpus_per_node: PositiveInt | None = Field(default=None, exclude_if=lambda value: value is None)
+    gpu_start_index: NonNegativeInt | None = Field(default=None, exclude_if=lambda value: value is None)
+
+    @model_validator(mode="after")
+    def validate_shared_node(self) -> DeploymentResources:
+        if (self.shared_node is None) != (self.gpus_per_node is None):
+            raise ValueError("shared_node and gpus_per_node must be provided together")
+        if self.shared_node is not None and self.nodes != 1:
+            raise ValueError("shared_node requires exactly one deployment node")
+        if self.gpu_start_index is not None and self.shared_node is None:
+            raise ValueError("gpu_start_index requires shared_node")
+        return self
+
+
+class DeploymentTopology(AuthoredConfig):
+    tensor_parallel: PositiveInt = 1
+    nodes_per_replica: PositiveInt = 1
+
+
+class ServerDeploymentConfig(AuthoredConfig):
+    model_alias: str
+    served_model_name: str | None = None
+    model: str
+    server: VllmServerConfig
+    resources: DeploymentResources = Field(default_factory=DeploymentResources)
+    topology: DeploymentTopology = Field(default_factory=DeploymentTopology)
+
+    @field_validator("model")
+    @classmethod
+    def validate_model(cls, value: str) -> str:
+        validate_plain_text(value, field_name="model")
+        if value.startswith("/"):
+            return validate_absolute_path(value)
+        if any(character.isspace() for character in value):
+            raise ValueError("Hugging Face model identifiers must not contain whitespace")
+        return value
+
+    @field_validator("served_model_name")
+    @classmethod
+    def validate_served_model_name(cls, value: str | None) -> str | None:
+        return None if value is None else validate_plain_text(value, field_name="served model name")
+
+    @model_validator(mode="after")
+    def validate_topology(self) -> ServerDeploymentConfig:
+        if self.resources.shared_node is not None:
+            if self.topology.nodes_per_replica != 1:
+                raise ValueError("shared_node supports only single-node replicas")
+            quota = self.resources.gpus_per_node
+            assert quota is not None
+            if quota % self.topology.tensor_parallel:
+                raise ValueError("tensor_parallel must divide the deployment GPU quota")
+        if self.resources.nodes % self.topology.nodes_per_replica:
+            raise ValueError("nodes_per_replica must divide deployment nodes")
+        if self.server.enable_expert_parallel and self.topology.nodes_per_replica > 1:
+            raise ValueError("multi-node expert parallel is not supported in v1")
+        return self
+
+
+class ArrayTasksConfig(AuthoredConfig):
+    count: PositiveInt = 1
+    max_concurrent: PositiveInt | None = None
+
+    @model_validator(mode="after")
+    def validate_concurrency(self) -> ArrayTasksConfig:
+        if self.max_concurrent is not None and self.max_concurrent > self.count:
+            raise ValueError("array task concurrency must not exceed task count")
+        return self
+
+
+class SubmissionConfig(AuthoredConfig):
+    account: Identifier | None = None
+    partition: PartitionSelection | None = None
+    job_name: Identifier = "data-designer"
+    time_limit: Annotated[str, StringConstraints(pattern=r"^(?:[0-9]+-)?[0-9]{2}:[0-9]{2}:[0-9]{2}$")] = "03:55:00"
+    comment: Annotated[str, StringConstraints(max_length=256)] | None = None
+
+    @field_validator("time_limit")
+    @classmethod
+    def validate_time_limit(cls, value: str) -> str:
+        clock = value.rsplit("-", maxsplit=1)[-1]
+        _, minutes, seconds = (int(part) for part in clock.split(":"))
+        if minutes >= 60 or seconds >= 60:
+            raise ValueError("time_limit minutes and seconds must be below 60")
+        return value
+
+    @field_validator("comment")
+    @classmethod
+    def validate_comment(cls, value: str | None) -> str | None:
+        return None if value is None else validate_plain_text(value, field_name="submission comment")
+
+
+class DataDesignerSlurmConfig(AuthoredConfig):
+    """Complete portable intent for one Data Designer Slurm run."""
+
+    schema_version: SchemaVersion
+    name: Identifier
+    builder: BuilderInput
+    invocation: InvocationConfig
+    client: ClientConfig = Field(default_factory=ClientConfig)
+    deployments: list[ServerDeploymentConfig] = Field(min_length=1)
+    array_tasks: ArrayTasksConfig = Field(default_factory=ArrayTasksConfig)
+    submission: SubmissionConfig = Field(default_factory=SubmissionConfig)
+
+    @model_validator(mode="after")
+    def validate_run(self) -> DataDesignerSlurmConfig:
+        if self.array_tasks.count > self.invocation.num_records:
+            raise ValueError("array task count must not exceed requested records")
+        aliases = [deployment.model_alias for deployment in self.deployments]
+        if len(aliases) != len(set(aliases)):
+            raise ValueError("deployment model aliases must be unique")
+        groups: dict[str, list[ServerDeploymentConfig]] = {}
+        for deployment in self.deployments:
+            if deployment.resources.shared_node is not None:
+                groups.setdefault(deployment.resources.shared_node, []).append(deployment)
+        if groups and (
+            len(groups) != 1 or any(deployment.resources.shared_node is None for deployment in self.deployments)
+        ):
+            raise ValueError("shared_node requires one group covering all deployments")
+        for members in groups.values():
+            if len(members) < 2:
+                raise ValueError("shared_node requires at least two deployments in each group")
+            first = members[0].server
+            if any(
+                member.server.environment != first.environment
+                or member.server.queue_backpressure != first.queue_backpressure
+                for member in members[1:]
+            ):
+                raise ValueError("shared_node requires matching server environment and queue backpressure")
+        unknown_concurrency = set(self.invocation.model_concurrency).difference(aliases)
+        if unknown_concurrency:
+            raise ValueError(
+                f"model concurrency references undeclared aliases: {', '.join(sorted(unknown_concurrency))}"
+            )
+        return self

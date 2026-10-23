@@ -1,0 +1,1273 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+from __future__ import annotations
+
+import json
+import stat
+from collections.abc import Sequence
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import cast
+
+import pytest
+from slurm_test_fakes import FakeCommandResponse, FakeSlurmArray, FakeSlurmRunner, FakeSlurmTask
+
+from data_designer.slurm.benchmark.analysis import BenchmarkObservationFailure
+from data_designer.slurm.benchmark.observer import PersistedBenchmarkRunObserver
+from data_designer.slurm.benchmark.records import BenchmarkOutcome
+from data_designer.slurm.client import ClientOutcome, ClientResult
+from data_designer.slurm.config import DataDesignerSlurmConfig, SlurmProfile
+from data_designer.slurm.contracts import ArtifactReference, compute_canonical_json_sha256
+from data_designer.slurm.launcher.client import SlurmCommandClient
+from data_designer.slurm.launcher.models import SlurmAccountingEntry, SlurmProcessExitCode, SlurmQueueEntry
+from data_designer.slurm.planning import ResolvedSlurmRunPlan
+from data_designer.slurm.state import (
+    AttemptLifecycleState,
+    AttemptManifest,
+    AttemptReadiness,
+    AttemptTerminalClassification,
+    CandidateOutcome,
+    CandidateOutputFile,
+    CandidateOutputManifest,
+    DeploymentReadiness,
+    EffectiveAttemptState,
+    EffectiveRunState,
+    EndpointPublicationState,
+    GenerationState,
+    ProbeEvidence,
+    ProbeOutcome,
+    ReadinessState,
+    RunManifest,
+    SchedulerIdentity,
+    SchedulerJobIdentity,
+    SchedulerObservation,
+    SchedulerObservationCollector,
+    SchedulerState,
+    ShardManifest,
+    ShardWinner,
+    SlurmStateError,
+    SlurmStateReconciler,
+    SlurmStateWriter,
+    StateConflictError,
+    StateCorruptionError,
+)
+
+
+@dataclass(frozen=True, slots=True)
+class _ReconciliationCase:
+    workspace: Path
+    plan: ResolvedSlurmRunPlan
+    run: RunManifest
+    shard: ShardManifest
+    attempt: AttemptManifest
+    writer: SlurmStateWriter
+    created_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class _StaticSchedulerClient:
+    queue: tuple[SlurmQueueEntry, ...]
+    accounting: tuple[SlurmAccountingEntry, ...]
+
+    def query_queue(self, selectors: Sequence[SchedulerJobIdentity]) -> tuple[SlurmQueueEntry, ...]:
+        del selectors
+        return self.queue
+
+    def query_accounting(self, selectors: Sequence[SchedulerJobIdentity]) -> tuple[SlurmAccountingEntry, ...]:
+        del selectors
+        return self.accounting
+
+
+def test_collector_prefers_terminal_accounting_for_array_and_collection_jobs() -> None:
+    task = SchedulerIdentity(array_job_id=4101, array_task_id=0)
+    queue = (
+        SlurmQueueEntry(job_identity=task, state=SchedulerState.RUNNING),
+        SlurmQueueEntry(job_identity=5101, state=SchedulerState.RUNNING),
+    )
+    accounting = (
+        _accounting(task, SchedulerState.NODE_FAILED),
+        _accounting(5101, SchedulerState.COMPLETED),
+    )
+    observed_at = datetime(2026, 9, 2, 12, tzinfo=timezone.utc)
+
+    observations = SchedulerObservationCollector(_StaticSchedulerClient(queue, accounting)).collect(
+        (task, 5101),
+        observed_at=observed_at,
+    )
+
+    assert tuple(observation.state for observation in observations) == (
+        SchedulerState.NODE_FAILED,
+        SchedulerState.COMPLETED,
+    )
+    assert tuple(observation.scheduler for observation in observations) == (task, 5101)
+
+
+@pytest.mark.parametrize("transient_state", (SchedulerState.PREEMPTED, SchedulerState.REQUEUED))
+def test_collector_allows_transient_scheduler_states_to_advance(
+    transient_state: SchedulerState,
+) -> None:
+    task = SchedulerIdentity(array_job_id=4101, array_task_id=0)
+    first_time = datetime(2026, 9, 2, 12, tzinfo=timezone.utc)
+    previous = SchedulerObservationCollector(
+        _StaticSchedulerClient(
+            (SlurmQueueEntry(job_identity=task, state=transient_state),),
+            (_accounting(task, transient_state),),
+        )
+    ).collect((task,), observed_at=first_time)[0]
+
+    pending = SchedulerObservationCollector(
+        _StaticSchedulerClient((SlurmQueueEntry(job_identity=task, state=SchedulerState.PENDING),), ())
+    ).collect((task,), observed_at=first_time + timedelta(minutes=1), previous={task: previous})[0]
+    completed = SchedulerObservationCollector(
+        _StaticSchedulerClient((), (_accounting(task, SchedulerState.COMPLETED),))
+    ).collect((task,), observed_at=first_time + timedelta(minutes=2), previous={task: pending})[0]
+
+    assert previous.state is transient_state
+    assert pending.state is SchedulerState.PENDING
+    assert completed.state is SchedulerState.COMPLETED
+
+
+def test_collector_keeps_active_queue_preemption_nonterminal() -> None:
+    task = SchedulerIdentity(array_job_id=4101, array_task_id=0)
+    first_time = datetime(2026, 9, 2, 12, tzinfo=timezone.utc)
+    client = _StaticSchedulerClient(
+        (SlurmQueueEntry(job_identity=task, state=SchedulerState.PREEMPTED),),
+        (),
+    )
+
+    first = SchedulerObservationCollector(client).collect((task,), observed_at=first_time)[0]
+    second = SchedulerObservationCollector(client).collect(
+        (task,), observed_at=first_time + timedelta(minutes=1), previous={task: first}
+    )[0]
+    later = SchedulerObservationCollector(client).collect(
+        (task,), observed_at=first_time + timedelta(minutes=6), previous={task: second}
+    )[0]
+
+    assert first.reconciliation_deadline is None
+    assert second.reconciliation_deadline is None
+    assert later.state is SchedulerState.PREEMPTED
+    assert later.reconciliation_deadline is None
+
+
+def test_collector_reads_accounting_when_queue_no_longer_knows_job() -> None:
+    task = SchedulerIdentity(array_job_id=4101, array_task_id=0)
+    runner = FakeSlurmRunner()
+    runner.script_next(
+        "squeue",
+        FakeCommandResponse(stderr="slurm_load_jobs error: Invalid job id specified\n", returncode=1),
+    )
+    runner.script_next("sacct", FakeCommandResponse(stdout="4101_0|COMPLETED|0:0\n"))
+
+    observation = SchedulerObservationCollector(SlurmCommandClient(runner)).collect(
+        (task,),
+        observed_at=datetime(2026, 9, 2, 12, tzinfo=timezone.utc),
+    )[0]
+
+    assert observation.state is SchedulerState.COMPLETED
+    assert tuple(call[0] for call in runner.calls) == ("squeue", "sacct")
+
+
+def test_fresh_process_refresh_persists_one_fixed_accounting_lag_deadline(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+    fake_slurm_runner: FakeSlurmRunner,
+) -> None:
+    case = _initialized_case(tmp_path, authored_run_single, single_node_plan)
+    SlurmCommandClient(fake_slurm_runner).submit("run.sbatch")
+    scheduler = cast(SchedulerIdentity, case.attempt.scheduler)
+    fake_slurm_runner.set_task_state(scheduler, queue_state=None, accounting_state=None)
+    first_time = case.created_at + timedelta(minutes=3)
+
+    first = SlurmStateReconciler(case.workspace, case.plan.run_id, SlurmCommandClient(fake_slurm_runner)).refresh(
+        observed_at=first_time
+    )
+    second = SlurmStateReconciler(case.workspace, case.plan.run_id, SlurmCommandClient(fake_slurm_runner)).refresh(
+        observed_at=first_time + timedelta(minutes=1)
+    )
+    expired = SlurmStateReconciler(case.workspace, case.plan.run_id, SlurmCommandClient(fake_slurm_runner)).refresh(
+        observed_at=first_time + timedelta(minutes=6)
+    )
+
+    first_scheduler = first.shards[0].attempts[0].scheduler
+    second_scheduler = second.shards[0].attempts[0].scheduler
+    assert first.effective_state is EffectiveRunState.ACCOUNTING_LAG
+    assert second.effective_state is EffectiveRunState.ACCOUNTING_LAG
+    assert expired.effective_state is EffectiveRunState.UNKNOWN
+    assert first_scheduler is not None and second_scheduler is not None
+    assert first_scheduler.reconciliation_deadline == second_scheduler.reconciliation_deadline
+    scheduler_path = case.writer.run_root / "shards/shard-00000/attempts/attempt-0001/scheduler.json"
+    assert stat.S_IMODE(scheduler_path.stat().st_mode) == 0o600
+
+
+def test_benchmark_observer_refreshes_from_a_fresh_process(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+    fake_slurm_runner: FakeSlurmRunner,
+) -> None:
+    case = _initialized_case(tmp_path, authored_run_single, single_node_plan)
+    SlurmCommandClient(fake_slurm_runner).submit("run.sbatch")
+    scheduler = cast(SchedulerIdentity, case.attempt.scheduler)
+    fake_slurm_runner.set_task_state(scheduler, queue_state=None, accounting_state=None)
+    observed_at = case.created_at + timedelta(minutes=3)
+
+    observation = PersistedBenchmarkRunObserver(
+        case.workspace,
+        SlurmCommandClient(fake_slurm_runner),
+        lambda: observed_at,
+    ).observe(case.plan.run_id, refresh_state=True)
+
+    assert observation.outcome is BenchmarkOutcome.ACCOUNTING_LAG
+    assert observation.authored_config == authored_run_single
+    assert observation.resolved_plan == case.plan
+
+
+def test_benchmark_observer_preserves_missing_and_tampered_child_state(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    case = _initialized_case(tmp_path, authored_run_single, single_node_plan, submitted=False)
+    observer = PersistedBenchmarkRunObserver(case.workspace, _StaticSchedulerClient((), ()), lambda: case.created_at)
+
+    with pytest.raises(BenchmarkObservationFailure) as missing:
+        observer.observe("run-missing", refresh_state=False)
+    assert missing.value.outcome is BenchmarkOutcome.MISSING
+
+    authored_path = case.writer.run_root / "authored-config.json"
+    authored_path.write_text("{}\n")
+    with pytest.raises(BenchmarkObservationFailure) as stale:
+        observer.observe(case.plan.run_id, refresh_state=False)
+    assert stale.value.outcome is BenchmarkOutcome.STALE
+
+
+@pytest.mark.parametrize(
+    ("attempt_state", "terminal_classification", "expected"),
+    [
+        (AttemptLifecycleState.SUBMITTED, None, BenchmarkOutcome.PENDING),
+        (
+            AttemptLifecycleState.FAILED,
+            AttemptTerminalClassification.FAILED,
+            BenchmarkOutcome.FAILED,
+        ),
+    ],
+)
+def test_benchmark_observer_reconstructs_persisted_non_success_outcomes(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+    attempt_state: AttemptLifecycleState,
+    terminal_classification: AttemptTerminalClassification | None,
+    expected: BenchmarkOutcome,
+) -> None:
+    case = _initialized_case(tmp_path, authored_run_single, single_node_plan)
+    if attempt_state is not AttemptLifecycleState.SUBMITTED:
+        case.writer.update_attempt(
+            _copy_attempt(
+                case.attempt,
+                state=attempt_state,
+                terminal_classification=terminal_classification,
+            )
+        )
+
+    observation = PersistedBenchmarkRunObserver(
+        case.workspace,
+        _StaticSchedulerClient((), ()),
+        lambda: case.created_at,
+    ).observe(case.plan.run_id, refresh_state=False)
+
+    assert observation.outcome is expected
+    assert observation.measurements is None
+
+
+def test_benchmark_observer_requires_measurements_for_persisted_winner(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    case = _initialized_case(tmp_path, authored_run_single, single_node_plan)
+    _publish_winner_state(case)
+
+    observation = PersistedBenchmarkRunObserver(
+        case.workspace,
+        _StaticSchedulerClient((), ()),
+        lambda: case.created_at,
+    ).observe(case.plan.run_id, refresh_state=False)
+
+    assert observation.outcome is BenchmarkOutcome.SUCCEEDED
+    assert observation.measurements is None
+
+
+def test_benchmark_observer_reads_complete_measurements_from_ordinary_state(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+    fake_slurm_runner: FakeSlurmRunner,
+) -> None:
+    case = _initialized_case(tmp_path, authored_run_single, single_node_plan)
+    ready_at = case.created_at + timedelta(minutes=2)
+    deployment = case.plan.deployments[0]
+    case.writer.write_readiness(
+        AttemptReadiness(
+            schema_version=1,
+            run_id=case.plan.run_id,
+            shard_id=case.shard.shard_id,
+            attempt_id=case.attempt.attempt_id,
+            revision=1,
+            updated_at=ready_at,
+            started_at=case.attempt.created_at,
+            state=ReadinessState.PENDING,
+            deployments=(
+                DeploymentReadiness(
+                    deployment_id=deployment.deployment_id,
+                    model_alias=deployment.authored.model_alias,
+                    state=ReadinessState.PENDING,
+                    expected_backends=deployment.topology.replica_count,
+                    ready_backends=0,
+                    endpoint_publication=EndpointPublicationState.PENDING,
+                ),
+            ),
+        )
+    )
+    case.writer.write_readiness(
+        AttemptReadiness(
+            schema_version=1,
+            run_id=case.plan.run_id,
+            shard_id=case.shard.shard_id,
+            attempt_id=case.attempt.attempt_id,
+            revision=2,
+            updated_at=ready_at,
+            started_at=case.attempt.created_at,
+            state=ReadinessState.STARTING,
+            deployments=(
+                DeploymentReadiness(
+                    deployment_id=deployment.deployment_id,
+                    model_alias=deployment.authored.model_alias,
+                    state=ReadinessState.STARTING,
+                    expected_backends=deployment.topology.replica_count,
+                    ready_backends=0,
+                    endpoint_publication=EndpointPublicationState.PENDING,
+                ),
+            ),
+        )
+    )
+    case.writer.write_readiness(
+        AttemptReadiness(
+            schema_version=1,
+            run_id=case.plan.run_id,
+            shard_id=case.shard.shard_id,
+            attempt_id=case.attempt.attempt_id,
+            revision=3,
+            updated_at=ready_at,
+            started_at=case.attempt.created_at,
+            state=ReadinessState.READY,
+            deployments=(
+                DeploymentReadiness(
+                    deployment_id=deployment.deployment_id,
+                    model_alias=deployment.authored.model_alias,
+                    state=ReadinessState.READY,
+                    expected_backends=deployment.topology.replica_count,
+                    ready_backends=deployment.topology.replica_count,
+                    endpoint_publication=EndpointPublicationState.PUBLISHED,
+                    last_probe=ProbeEvidence(
+                        observed_at=ready_at,
+                        outcome=ProbeOutcome.SUCCESS,
+                        reason_code="backend_ready",
+                        redacted_message="Backend is ready",
+                    ),
+                ),
+            ),
+        )
+    )
+    _publish_winner_state(case)
+    SlurmCommandClient(fake_slurm_runner).submit("run.sbatch")
+    scheduler = cast(SchedulerIdentity, case.attempt.scheduler)
+    fake_slurm_runner.set_task_state(scheduler, queue_state=None, accounting_state="COMPLETED")
+
+    observation = PersistedBenchmarkRunObserver(
+        case.workspace,
+        SlurmCommandClient(fake_slurm_runner),
+        lambda: case.created_at + timedelta(minutes=8),
+    ).observe(case.plan.run_id, refresh_state=True)
+
+    assert observation.outcome is BenchmarkOutcome.SUCCEEDED
+    assert observation.measurements is not None
+    assert observation.measurements.actual_records == authored_run_single.invocation.num_records
+    assert observation.measurements.boot_seconds == 60
+    assert observation.measurements.generation_seconds == 180
+    assert observation.measurements.wall_seconds == 300
+
+
+def test_benchmark_observer_excludes_queue_stagger_from_cross_shard_timings(
+    tmp_path: Path,
+    authored_run: DataDesignerSlurmConfig,
+    multi_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    cases = _initialized_cases(tmp_path, authored_run, multi_node_plan)
+    for index, case in enumerate(cases):
+        started_at = case.created_at + timedelta(minutes=2, hours=index)
+        _publish_ready_state(case, case.attempt, started_at=started_at)
+        _publish_winner_state(
+            case,
+            completed_at=started_at + timedelta(minutes=5),
+            stopped_at=started_at + timedelta(minutes=6),
+        )
+
+    observation = PersistedBenchmarkRunObserver(
+        cases[0].workspace,
+        _StaticSchedulerClient((), ()),
+        lambda: cases[-1].created_at + timedelta(hours=2),
+    ).observe(cases[0].plan.run_id, refresh_state=False)
+
+    assert observation.measurements is not None
+    assert observation.measurements.actual_records == authored_run.invocation.num_records
+    assert observation.measurements.boot_seconds == 60
+    assert observation.measurements.generation_seconds == 240
+    assert observation.measurements.wall_seconds == 360
+
+
+def test_benchmark_observer_ignores_superseded_attempt_evidence_after_retry_wins(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    case = _initialized_case(tmp_path, authored_run_single, single_node_plan)
+    case.writer.update_attempt(
+        _copy_attempt(
+            case.attempt,
+            state=AttemptLifecycleState.FAILED,
+            terminal_classification=AttemptTerminalClassification.PREEMPTED,
+            updated_at=case.attempt.created_at + timedelta(minutes=2),
+        )
+    )
+    retry = AttemptManifest(
+        schema_version=1,
+        run_id=case.plan.run_id,
+        shard_id=case.shard.shard_id,
+        attempt_id="attempt-0002",
+        attempt_ordinal=2,
+        resolved_plan=case.run.resolved_plan,
+        state=AttemptLifecycleState.SUBMITTED,
+        scheduler=SchedulerIdentity(array_job_id=4102, array_task_id=0),
+        created_at=case.attempt.created_at + timedelta(minutes=3),
+        updated_at=case.attempt.created_at + timedelta(minutes=3),
+    )
+    case.writer.create_attempt(retry)
+    _publish_ready_state(case, retry)
+    _, winner = _publish_winner_state(case, retry)
+    runner = FakeSlurmRunner(
+        arrays=(
+            FakeSlurmArray(tasks=(FakeSlurmTask(SchedulerIdentity(array_job_id=4101, array_task_id=0)),)),
+            FakeSlurmArray(tasks=(FakeSlurmTask(SchedulerIdentity(array_job_id=4102, array_task_id=0)),)),
+        )
+    )
+    observer = PersistedBenchmarkRunObserver(
+        case.workspace,
+        SlurmCommandClient(runner),
+        lambda: winner.published_at + timedelta(minutes=1),
+    )
+
+    persisted = observer.observe(case.plan.run_id, refresh_state=False)
+    first_scheduler = cast(SchedulerIdentity, case.attempt.scheduler)
+    retry_scheduler = cast(SchedulerIdentity, retry.scheduler)
+    SlurmCommandClient(runner).submit("first.sbatch")
+    SlurmCommandClient(runner).submit("retry.sbatch")
+    runner.set_task_state(first_scheduler, queue_state=None, accounting_state="PREEMPTED")
+    runner.set_task_state(retry_scheduler, queue_state=None, accounting_state="COMPLETED")
+    refreshed = observer.observe(case.plan.run_id, refresh_state=True)
+
+    assert persisted.outcome is BenchmarkOutcome.SUCCEEDED
+    assert persisted.measurements is not None
+    assert persisted.measurements.boot_seconds == 60
+    assert refreshed.outcome is BenchmarkOutcome.SUCCEEDED
+    assert refreshed.measurements == persisted.measurements
+
+
+def test_refresh_uses_terminal_accounting_over_stale_active_queue_state(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+    fake_slurm_runner: FakeSlurmRunner,
+) -> None:
+    case = _initialized_case(tmp_path, authored_run_single, single_node_plan)
+    SlurmCommandClient(fake_slurm_runner).submit("run.sbatch")
+    scheduler = cast(SchedulerIdentity, case.attempt.scheduler)
+    fake_slurm_runner.set_task_state(
+        scheduler,
+        queue_state="RUNNING",
+        accounting_state="FAILED",
+        exit_code="1:0",
+    )
+
+    status = SlurmStateReconciler(
+        case.workspace,
+        case.plan.run_id,
+        SlurmCommandClient(fake_slurm_runner),
+    ).refresh(observed_at=case.created_at + timedelta(minutes=3))
+
+    attempt = status.shards[0].attempts[0]
+    assert attempt.scheduler is not None and attempt.scheduler.state is SchedulerState.FAILED
+    assert attempt.effective_state is EffectiveAttemptState.FAILED
+    assert attempt.generation_state is GenerationState.FAILED
+    assert status.effective_state is EffectiveRunState.FAILED
+
+
+def test_refresh_ignores_uncommitted_partial_client_output_from_failed_attempt(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+    fake_slurm_runner: FakeSlurmRunner,
+) -> None:
+    case = _initialized_case(tmp_path, authored_run_single, single_node_plan)
+    running = _copy_attempt(
+        case.attempt,
+        state=AttemptLifecycleState.RUNNING,
+        updated_at=case.attempt.created_at + timedelta(minutes=2),
+    )
+    case.writer.update_attempt(running)
+    failed = _copy_attempt(
+        running,
+        state=AttemptLifecycleState.FAILED,
+        terminal_classification=AttemptTerminalClassification.FAILED,
+        updated_at=case.attempt.created_at + timedelta(minutes=3),
+    )
+    case.writer.update_attempt(failed)
+
+    attempt_dir = case.writer.run_root / f"shards/{failed.shard_id}/attempts/{failed.attempt_id}"
+    candidate_path = attempt_dir / "output-manifest.json"
+    dataset_path = attempt_dir / "dataset"
+    requested = case.plan.shards[case.shard.shard_index].requested_records
+    candidate = CandidateOutputManifest(
+        schema_version=1,
+        run_id=case.plan.run_id,
+        shard_id=failed.shard_id,
+        attempt_id=failed.attempt_id,
+        attempt_ordinal=failed.attempt_ordinal,
+        created_at=failed.updated_at,
+        dataset_path=dataset_path.as_posix(),
+        requested_records=requested,
+        actual_records=requested - 1,
+        outcome=CandidateOutcome.PARTIAL,
+        files=(
+            CandidateOutputFile(
+                relative_path="part-00000.parquet",
+                sha256="a" * 64,
+                byte_size=1,
+                record_count=requested - 1,
+            ),
+        ),
+        dataset_schema_digest="b" * 64,
+        provenance_digest=case.plan.compute_sha256(),
+    )
+    result = ClientResult(
+        schema_version=1,
+        run_id=case.plan.run_id,
+        shard_id=failed.shard_id,
+        attempt_id=failed.attempt_id,
+        completed_at=failed.updated_at,
+        requested_records=requested,
+        actual_records=requested - 1,
+        outcome=ClientOutcome.PARTIAL,
+        dataset_path=dataset_path.as_posix(),
+        early_shutdown=False,
+        requested_resume_mode=case.plan.invocation.authored.resume,
+        effective_resume_mode="never",
+        candidate_output_manifest=ArtifactReference(
+            path=candidate_path.as_posix(),
+            sha256=candidate.compute_sha256(),
+        ),
+    )
+    candidate_path.write_text(candidate.serialize_json())
+    (attempt_dir / "client-result.json").write_text(result.serialize_json())
+
+    SlurmCommandClient(fake_slurm_runner).submit("run.sbatch")
+    scheduler = cast(SchedulerIdentity, failed.scheduler)
+    fake_slurm_runner.set_task_state(scheduler, queue_state=None, accounting_state="FAILED", exit_code="70:0")
+    status = SlurmStateReconciler(
+        case.workspace,
+        case.plan.run_id,
+        SlurmCommandClient(fake_slurm_runner),
+    ).refresh(observed_at=case.created_at + timedelta(minutes=5))
+
+    attempt = status.shards[0].attempts[0]
+    assert attempt.effective_state is EffectiveAttemptState.FAILED
+    assert attempt.generation_state is GenerationState.FAILED
+    assert attempt.client_result is None
+    assert attempt.candidate_output is None
+
+
+def test_refresh_marks_unrequeued_preemption_as_failure_after_fixed_deadline(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+    fake_slurm_runner: FakeSlurmRunner,
+) -> None:
+    case = _initialized_case(tmp_path, authored_run_single, single_node_plan)
+    SlurmCommandClient(fake_slurm_runner).submit("run.sbatch")
+    scheduler = cast(SchedulerIdentity, case.attempt.scheduler)
+    fake_slurm_runner.set_task_state(
+        scheduler,
+        queue_state=None,
+        accounting_state="PREEMPTED",
+        exit_code="0:15",
+    )
+    first_time = case.created_at + timedelta(minutes=3)
+
+    first = SlurmStateReconciler(
+        case.workspace,
+        case.plan.run_id,
+        SlurmCommandClient(fake_slurm_runner),
+    ).refresh(observed_at=first_time)
+    fake_slurm_runner.set_task_state(scheduler, queue_state=None, accounting_state=None)
+    second = SlurmStateReconciler(
+        case.workspace,
+        case.plan.run_id,
+        SlurmCommandClient(fake_slurm_runner),
+    ).refresh(observed_at=first_time + timedelta(minutes=1))
+    expired = SlurmStateReconciler(
+        case.workspace,
+        case.plan.run_id,
+        SlurmCommandClient(fake_slurm_runner),
+    ).refresh(observed_at=first_time + timedelta(minutes=6))
+
+    first_attempt = first.shards[0].attempts[0]
+    second_attempt = second.shards[0].attempts[0]
+    attempt = expired.shards[0].attempts[0]
+    assert first_attempt.effective_state is EffectiveAttemptState.PENDING
+    assert second_attempt.effective_state is EffectiveAttemptState.PENDING
+    assert first_attempt.scheduler is not None and second_attempt.scheduler is not None
+    assert first_attempt.scheduler.reconciliation_deadline == second_attempt.scheduler.reconciliation_deadline
+    assert attempt.scheduler is not None and attempt.scheduler.state is SchedulerState.FAILED
+    assert attempt.effective_state is EffectiveAttemptState.FAILED
+    assert attempt.generation_state is GenerationState.FAILED
+    assert expired.effective_state is EffectiveRunState.FAILED
+
+
+def test_refresh_allows_accounting_preemption_to_reappear_in_queue(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+    fake_slurm_runner: FakeSlurmRunner,
+) -> None:
+    case = _initialized_case(tmp_path, authored_run_single, single_node_plan)
+    SlurmCommandClient(fake_slurm_runner).submit("run.sbatch")
+    scheduler = cast(SchedulerIdentity, case.attempt.scheduler)
+    fake_slurm_runner.set_task_state(
+        scheduler,
+        queue_state=None,
+        accounting_state="PREEMPTED",
+        exit_code="0:15",
+    )
+    first_time = case.created_at + timedelta(minutes=3)
+    first = SlurmStateReconciler(
+        case.workspace,
+        case.plan.run_id,
+        SlurmCommandClient(fake_slurm_runner),
+    ).refresh(observed_at=first_time)
+
+    fake_slurm_runner.set_task_state(
+        scheduler,
+        queue_state="PREEMPTED",
+        accounting_state="PREEMPTED",
+        exit_code="0:15",
+    )
+    still_preempted = SlurmStateReconciler(
+        case.workspace,
+        case.plan.run_id,
+        SlurmCommandClient(fake_slurm_runner),
+    ).refresh(observed_at=first_time + timedelta(seconds=30))
+
+    fake_slurm_runner.set_task_state(
+        scheduler,
+        queue_state="PENDING",
+        accounting_state="PREEMPTED",
+        exit_code="0:15",
+    )
+    requeued = SlurmStateReconciler(
+        case.workspace,
+        case.plan.run_id,
+        SlurmCommandClient(fake_slurm_runner),
+    ).refresh(observed_at=first_time + timedelta(minutes=1))
+
+    first_attempt = first.shards[0].attempts[0]
+    still_preempted_attempt = still_preempted.shards[0].attempts[0]
+    requeued_attempt = requeued.shards[0].attempts[0]
+    assert first_attempt.scheduler is not None and still_preempted_attempt.scheduler is not None
+    assert first_attempt.scheduler.state is SchedulerState.PREEMPTED
+    assert first_attempt.effective_state is EffectiveAttemptState.PENDING
+    assert still_preempted_attempt.scheduler.reconciliation_deadline is None
+    assert requeued_attempt.scheduler is not None
+    assert requeued_attempt.scheduler.state is SchedulerState.PENDING
+    assert requeued_attempt.effective_state is EffectiveAttemptState.PENDING
+    assert requeued.effective_state is EffectiveRunState.PENDING
+
+
+def test_refresh_rejects_winner_that_conflicts_with_terminal_scheduler_evidence(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+    fake_slurm_runner: FakeSlurmRunner,
+) -> None:
+    case = _initialized_case(tmp_path, authored_run_single, single_node_plan)
+    SlurmCommandClient(fake_slurm_runner).submit("run.sbatch")
+    completed, winner = _publish_winner_state(case)
+    scheduler = cast(SchedulerIdentity, completed.scheduler)
+    fake_slurm_runner.set_task_state(
+        scheduler,
+        queue_state="RUNNING",
+        accounting_state="NODE_FAIL",
+        exit_code="1:0",
+    )
+
+    with pytest.raises(StateCorruptionError, match="winner conflicts"):
+        SlurmStateReconciler(
+            case.workspace,
+            case.plan.run_id,
+            SlurmCommandClient(fake_slurm_runner),
+        ).refresh(observed_at=winner.published_at + timedelta(minutes=1))
+
+    observer = PersistedBenchmarkRunObserver(
+        case.workspace,
+        SlurmCommandClient(fake_slurm_runner),
+        lambda: winner.published_at + timedelta(minutes=1),
+    )
+    with pytest.raises(BenchmarkObservationFailure) as conflict:
+        observer.observe(case.plan.run_id, refresh_state=True)
+    assert conflict.value.outcome is BenchmarkOutcome.SCHEDULER_INCONSISTENT
+
+
+def test_refresh_reports_a_validated_winner_as_succeeded(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+    fake_slurm_runner: FakeSlurmRunner,
+) -> None:
+    case = _initialized_case(tmp_path, authored_run_single, single_node_plan)
+    SlurmCommandClient(fake_slurm_runner).submit("run.sbatch")
+    completed, winner = _publish_winner_state(case)
+    scheduler = cast(SchedulerIdentity, completed.scheduler)
+    fake_slurm_runner.set_task_state(
+        scheduler,
+        queue_state=None,
+        accounting_state="COMPLETED",
+        exit_code="0:0",
+    )
+
+    status = SlurmStateReconciler(
+        case.workspace,
+        case.plan.run_id,
+        SlurmCommandClient(fake_slurm_runner),
+    ).refresh(observed_at=winner.published_at + timedelta(minutes=1))
+
+    attempt = status.shards[0].attempts[0]
+    assert attempt.client_result is not None
+    assert attempt.candidate_output is not None
+    assert attempt.effective_state is EffectiveAttemptState.SUCCEEDED
+    assert attempt.generation_state is GenerationState.WON
+    assert status.shards[0].winner == winner
+    assert status.effective_state is EffectiveRunState.SUCCEEDED
+
+
+def test_refresh_does_not_succeed_a_winnerless_persisted_candidate(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+    fake_slurm_runner: FakeSlurmRunner,
+) -> None:
+    case = _initialized_case(tmp_path, authored_run_single, single_node_plan)
+    SlurmCommandClient(fake_slurm_runner).submit("run.sbatch")
+    completed, winner = _publish_winner_state(case)
+    (case.writer.run_root / "shards/shard-00000/winner.json").unlink()
+    scheduler = cast(SchedulerIdentity, completed.scheduler)
+    fake_slurm_runner.set_task_state(
+        scheduler,
+        queue_state=None,
+        accounting_state="COMPLETED",
+        exit_code="0:0",
+    )
+
+    status = SlurmStateReconciler(
+        case.workspace,
+        case.plan.run_id,
+        SlurmCommandClient(fake_slurm_runner),
+    ).refresh(observed_at=winner.published_at + timedelta(minutes=1))
+
+    attempt = status.shards[0].attempts[0]
+    assert attempt.effective_state is EffectiveAttemptState.SUCCEEDED
+    assert attempt.generation_state is GenerationState.CANDIDATE_READY
+    assert status.shards[0].winner is None
+    assert status.shards[0].effective_state is EffectiveAttemptState.UNKNOWN
+    assert status.effective_state is EffectiveRunState.UNKNOWN
+
+
+def test_refresh_rejects_a_concurrent_attempt_change_instead_of_guessing_status(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    case = _initialized_case(tmp_path, authored_run_single, single_node_plan)
+    scheduler = cast(SchedulerIdentity, case.attempt.scheduler)
+    observed_at = case.created_at + timedelta(minutes=4)
+
+    class MutatingClient:
+        def query_queue(self, selectors: Sequence[SchedulerJobIdentity]) -> tuple[SlurmQueueEntry, ...]:
+            del selectors
+            return (SlurmQueueEntry(job_identity=scheduler, state=SchedulerState.RUNNING),)
+
+        def query_accounting(self, selectors: Sequence[SchedulerJobIdentity]) -> tuple[SlurmAccountingEntry, ...]:
+            del selectors
+            case.writer.update_attempt(
+                _copy_attempt(case.attempt, state=AttemptLifecycleState.RUNNING, updated_at=observed_at)
+            )
+            return ()
+
+    with pytest.raises(StateConflictError, match="changed during reconciliation"):
+        SlurmStateReconciler(case.workspace, case.plan.run_id, MutatingClient()).refresh(observed_at=observed_at)
+
+
+def test_refresh_accepts_readiness_published_during_scheduler_query(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    case = _initialized_case(tmp_path, authored_run_single, single_node_plan)
+    scheduler = cast(SchedulerIdentity, case.attempt.scheduler)
+    observed_at = case.created_at + timedelta(minutes=4)
+    ready_at = observed_at + timedelta(seconds=1)
+    deployment = case.plan.deployments[0]
+
+    class MutatingClient:
+        def query_queue(self, selectors: Sequence[SchedulerJobIdentity]) -> tuple[SlurmQueueEntry, ...]:
+            del selectors
+            return (SlurmQueueEntry(job_identity=scheduler, state=SchedulerState.RUNNING),)
+
+        def query_accounting(self, selectors: Sequence[SchedulerJobIdentity]) -> tuple[SlurmAccountingEntry, ...]:
+            del selectors
+            case.writer.write_readiness(
+                AttemptReadiness(
+                    schema_version=1,
+                    run_id=case.plan.run_id,
+                    shard_id=case.shard.shard_id,
+                    attempt_id=case.attempt.attempt_id,
+                    revision=1,
+                    updated_at=ready_at,
+                    started_at=case.attempt.created_at,
+                    state=ReadinessState.PENDING,
+                    deployments=(
+                        DeploymentReadiness(
+                            deployment_id=deployment.deployment_id,
+                            model_alias=deployment.authored.model_alias,
+                            state=ReadinessState.PENDING,
+                            expected_backends=deployment.topology.replica_count,
+                            ready_backends=0,
+                            endpoint_publication=EndpointPublicationState.PENDING,
+                        ),
+                    ),
+                )
+            )
+            return ()
+
+    status = SlurmStateReconciler(case.workspace, case.plan.run_id, MutatingClient()).refresh(observed_at=observed_at)
+
+    assert status.observed_at == ready_at
+    assert status.shards[0].attempts[0].effective_state is EffectiveAttemptState.RUNNING
+
+
+def test_observe_does_not_create_a_missing_shard_lock_or_persist_scheduler_evidence(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    case = _initialized_case(tmp_path, authored_run_single, single_node_plan)
+    scheduler = cast(SchedulerIdentity, case.attempt.scheduler)
+    shard_root = case.writer.run_root / "shards/shard-00000"
+    (shard_root / "shard.lock").unlink()
+    client = _StaticSchedulerClient(
+        (SlurmQueueEntry(job_identity=scheduler, state=SchedulerState.RUNNING),),
+        (),
+    )
+
+    status = SlurmStateReconciler(case.workspace, case.plan.run_id, client).observe(
+        observed_at=case.created_at + timedelta(minutes=3)
+    )
+
+    assert status.shards[0].attempts[0].effective_state is EffectiveAttemptState.RUNNING
+    assert not (shard_root / "shard.lock").exists()
+    assert not (shard_root / "attempts/attempt-0001/scheduler.json").exists()
+
+
+def test_terminal_observation_remains_authoritative_during_later_accounting_gap() -> None:
+    task = SchedulerIdentity(array_job_id=4101, array_task_id=0)
+    first_time = datetime(2026, 9, 2, 12, tzinfo=timezone.utc)
+    first = SchedulerObservationCollector(
+        _StaticSchedulerClient((), (_accounting(task, SchedulerState.COMPLETED),))
+    ).collect((task,), observed_at=first_time)[0]
+    later = SchedulerObservationCollector(
+        _StaticSchedulerClient((SlurmQueueEntry(job_identity=task, state=SchedulerState.RUNNING),), ())
+    ).collect((task,), observed_at=first_time + timedelta(minutes=1), previous={task: first})[0]
+
+    assert later.state is SchedulerState.COMPLETED
+
+
+def test_collector_rejects_conflicting_terminal_accounting_evidence() -> None:
+    task = SchedulerIdentity(array_job_id=4101, array_task_id=0)
+    first_time = datetime(2026, 9, 2, 12, tzinfo=timezone.utc)
+    previous = SchedulerObservationCollector(
+        _StaticSchedulerClient((), (_accounting(task, SchedulerState.COMPLETED),))
+    ).collect((task,), observed_at=first_time)[0]
+
+    with pytest.raises(SlurmStateError, match="violates persisted chronology"):
+        SchedulerObservationCollector(_StaticSchedulerClient((), (_accounting(task, SchedulerState.FAILED),))).collect(
+            (task,), observed_at=first_time + timedelta(minutes=1), previous={task: previous}
+        )
+
+
+def test_refresh_normalizes_scheduler_query_failures(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    case = _initialized_case(tmp_path, authored_run_single, single_node_plan)
+    calls: list[str] = []
+
+    class FailingClient:
+        def query_queue(self, selectors: Sequence[SchedulerJobIdentity]) -> tuple[SlurmQueueEntry, ...]:
+            del selectors
+            calls.append("queue")
+            raise RuntimeError("scheduler unavailable")
+
+        def query_accounting(self, selectors: Sequence[SchedulerJobIdentity]) -> tuple[SlurmAccountingEntry, ...]:
+            del selectors
+            calls.append("accounting")
+            return ()
+
+    with pytest.raises(SlurmStateError, match="cannot query normalized scheduler observations"):
+        SlurmStateReconciler(case.workspace, case.plan.run_id, FailingClient()).refresh(
+            observed_at=case.created_at + timedelta(minutes=3)
+        )
+
+    assert calls == ["queue", "accounting"]
+
+
+def test_refresh_keeps_an_unsubmitted_attempt_pending_without_querying_slurm(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    case = _initialized_case(tmp_path, authored_run_single, single_node_plan, submitted=False)
+
+    class UnexpectedClient:
+        def query_queue(self, selectors: Sequence[SchedulerJobIdentity]) -> tuple[SlurmQueueEntry, ...]:
+            raise AssertionError(f"unexpected queue query for {selectors!r}")
+
+        def query_accounting(self, selectors: Sequence[SchedulerJobIdentity]) -> tuple[SlurmAccountingEntry, ...]:
+            raise AssertionError(f"unexpected accounting query for {selectors!r}")
+
+    status = SlurmStateReconciler(case.workspace, case.plan.run_id, UnexpectedClient()).refresh(
+        observed_at=case.created_at + timedelta(minutes=3)
+    )
+
+    attempt = status.shards[0].attempts[0]
+    assert attempt.scheduler is None
+    assert attempt.effective_state is EffectiveAttemptState.PENDING
+    assert attempt.generation_state is GenerationState.NOT_STARTED
+    assert status.effective_state is EffectiveRunState.PENDING
+
+
+def test_fresh_process_refresh_rejects_mismatched_persisted_scheduler_evidence(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+    fake_slurm_runner: FakeSlurmRunner,
+) -> None:
+    case = _initialized_case(tmp_path, authored_run_single, single_node_plan)
+    SlurmCommandClient(fake_slurm_runner).submit("run.sbatch")
+    scheduler = cast(SchedulerIdentity, case.attempt.scheduler)
+    fake_slurm_runner.set_task_state(scheduler, queue_state="RUNNING", accounting_state=None)
+    observed_at = case.created_at + timedelta(minutes=3)
+    SlurmStateReconciler(case.workspace, case.plan.run_id, SlurmCommandClient(fake_slurm_runner)).refresh(
+        observed_at=observed_at
+    )
+    scheduler_path = case.writer.run_root / "shards/shard-00000/attempts/attempt-0001/scheduler.json"
+    mismatched = SchedulerObservation(
+        schema_version=1,
+        scheduler=SchedulerIdentity(array_job_id=9999, array_task_id=0),
+        observed_at=observed_at,
+        state=SchedulerState.RUNNING,
+    )
+    scheduler_path.write_text(mismatched.serialize_json())
+
+    with pytest.raises(StateCorruptionError, match="mismatched scheduler evidence"):
+        SlurmStateReconciler(
+            case.workspace,
+            case.plan.run_id,
+            SlurmCommandClient(fake_slurm_runner),
+        ).refresh(observed_at=observed_at + timedelta(minutes=1))
+
+
+def _accounting(identity: SchedulerJobIdentity, state: SchedulerState) -> SlurmAccountingEntry:
+    return SlurmAccountingEntry(
+        job_identity=identity,
+        state=state,
+        process_exit_code=SlurmProcessExitCode(exit_status=0, termination_signal=0),
+    )
+
+
+def _initialized_case(
+    tmp_path: Path,
+    authored_config: DataDesignerSlurmConfig,
+    plan: ResolvedSlurmRunPlan,
+    *,
+    submitted: bool = True,
+) -> _ReconciliationCase:
+    cases = _initialized_cases(tmp_path, authored_config, plan, submitted=submitted)
+    assert len(cases) == 1
+    return cases[0]
+
+
+def _initialized_cases(
+    tmp_path: Path,
+    authored_config: DataDesignerSlurmConfig,
+    plan: ResolvedSlurmRunPlan,
+    *,
+    submitted: bool = True,
+) -> tuple[_ReconciliationCase, ...]:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    relocated_plan = _relocate_plan(plan, workspace)
+    created_at = datetime(2026, 9, 1, 12, tzinfo=timezone.utc)
+    run_root = workspace / "runs" / relocated_plan.run_id
+    run = RunManifest(
+        schema_version=1,
+        run_id=relocated_plan.run_id,
+        created_at=created_at,
+        authored_config=relocated_plan.authored_config,
+        resolved_plan=ArtifactReference(
+            path=(run_root / "resolved-plan.json").as_posix(),
+            sha256=relocated_plan.compute_sha256(),
+        ),
+        shard_count=len(relocated_plan.shards),
+    )
+    shards = tuple(
+        ShardManifest(
+            schema_version=1,
+            run_id=relocated_plan.run_id,
+            shard_id=planned_shard.shard_id,
+            shard_index=planned_shard.shard_index,
+            record_range=planned_shard.record_range,
+            input_partition=planned_shard.input_partition,
+            resume_workspace=planned_shard.resume_workspace,
+            created_at=created_at,
+        )
+        for planned_shard in relocated_plan.shards
+    )
+    writer = SlurmStateWriter(workspace, relocated_plan.run_id)
+    writer.initialize_run(authored_config, relocated_plan, run, shards)
+    attempts = tuple(
+        AttemptManifest(
+            schema_version=1,
+            run_id=relocated_plan.run_id,
+            shard_id=shard.shard_id,
+            attempt_id="attempt-0001",
+            attempt_ordinal=1,
+            resolved_plan=run.resolved_plan,
+            state=AttemptLifecycleState.SUBMITTED if submitted else AttemptLifecycleState.CREATED,
+            scheduler=(SchedulerIdentity(array_job_id=4101, array_task_id=shard.shard_index) if submitted else None),
+            created_at=created_at + timedelta(minutes=1),
+            updated_at=created_at + timedelta(minutes=2),
+        )
+        for shard in shards
+    )
+    for attempt in attempts:
+        writer.create_attempt(attempt)
+    return tuple(
+        _ReconciliationCase(workspace, relocated_plan, run, shard, attempt, writer, created_at)
+        for shard, attempt in zip(shards, attempts, strict=True)
+    )
+
+
+def _relocate_plan(plan: ResolvedSlurmRunPlan, workspace: Path) -> ResolvedSlurmRunPlan:
+    previous_workspace = plan.selected_profile.profile.workspace_root
+    payload = cast(
+        dict[str, object],
+        json.loads(plan.serialize_json().replace(previous_workspace, workspace.as_posix())),
+    )
+    selected_profile = cast(dict[str, object], payload["selected_profile"])
+    profile = SlurmProfile.model_validate_json(json.dumps(selected_profile["profile"]))
+    selected_profile["profile_sha256"] = compute_canonical_json_sha256(profile.model_dump(mode="json"))
+    return ResolvedSlurmRunPlan.model_validate_json(json.dumps(payload))
+
+
+def _publish_winner_state(
+    case: _ReconciliationCase,
+    attempt: AttemptManifest | None = None,
+    *,
+    completed_at: datetime | None = None,
+    stopped_at: datetime | None = None,
+) -> tuple[AttemptManifest, ShardWinner]:
+    attempt = case.attempt if attempt is None else attempt
+    result_completed_at = completed_at or attempt.created_at + timedelta(minutes=4)
+    attempt_stopped_at = stopped_at or attempt.created_at + timedelta(minutes=5)
+    running = _copy_attempt(
+        attempt,
+        state=AttemptLifecycleState.RUNNING,
+        updated_at=attempt.created_at + timedelta(minutes=2),
+    )
+    case.writer.update_attempt(running)
+    candidate_path = (
+        case.writer.run_root / f"shards/{attempt.shard_id}/attempts/{attempt.attempt_id}/output-manifest.json"
+    )
+    dataset_path = candidate_path.parent / "dataset"
+    requested = next(shard.requested_records for shard in case.plan.shards if shard.shard_id == case.shard.shard_id)
+    candidate = CandidateOutputManifest(
+        schema_version=1,
+        run_id=case.plan.run_id,
+        shard_id=running.shard_id,
+        attempt_id=running.attempt_id,
+        attempt_ordinal=running.attempt_ordinal,
+        created_at=(
+            result_completed_at - timedelta(minutes=1) if completed_at else attempt.created_at + timedelta(minutes=3)
+        ),
+        dataset_path=dataset_path.as_posix(),
+        requested_records=requested,
+        actual_records=requested,
+        outcome=CandidateOutcome.COMPLETE,
+        files=(
+            CandidateOutputFile(
+                relative_path="part-00000.parquet",
+                sha256="a" * 64,
+                byte_size=1,
+                record_count=requested,
+            ),
+        ),
+        dataset_schema_digest="b" * 64,
+        provenance_digest=case.plan.compute_sha256(),
+    )
+    candidate_reference = ArtifactReference(path=candidate_path.as_posix(), sha256=candidate.compute_sha256())
+    result = ClientResult(
+        schema_version=1,
+        run_id=case.plan.run_id,
+        shard_id=running.shard_id,
+        attempt_id=running.attempt_id,
+        completed_at=result_completed_at,
+        requested_records=requested,
+        actual_records=requested,
+        outcome=ClientOutcome.COMPLETE,
+        dataset_path=dataset_path.as_posix(),
+        early_shutdown=False,
+        requested_resume_mode=case.plan.invocation.authored.resume,
+        effective_resume_mode="never",
+        candidate_output_manifest=candidate_reference,
+    )
+    case.writer.publish_attempt_result(result, candidate)
+    completed = _copy_attempt(
+        running,
+        state=AttemptLifecycleState.SUCCEEDED,
+        terminal_classification=AttemptTerminalClassification.SUCCEEDED,
+        candidate_output=candidate_reference,
+        updated_at=attempt_stopped_at,
+    )
+    case.writer.update_attempt(completed)
+    winner = ShardWinner(
+        schema_version=1,
+        run_id=case.plan.run_id,
+        shard_id=completed.shard_id,
+        attempt_id=completed.attempt_id,
+        attempt_ordinal=completed.attempt_ordinal,
+        candidate_manifest=candidate_reference,
+        published_at=attempt_stopped_at + timedelta(minutes=1),
+    )
+    winner_path = case.writer.run_root / f"shards/{attempt.shard_id}/winner.json"
+    winner_path.write_text(winner.serialize_json())
+    winner_path.chmod(0o600)
+    return completed, winner
+
+
+def _publish_ready_state(
+    case: _ReconciliationCase,
+    attempt: AttemptManifest,
+    *,
+    started_at: datetime | None = None,
+) -> None:
+    started_at = started_at or attempt.created_at + timedelta(minutes=2)
+    ready_at = started_at + timedelta(minutes=1)
+    pending = AttemptReadiness(
+        schema_version=1,
+        run_id=case.plan.run_id,
+        shard_id=attempt.shard_id,
+        attempt_id=attempt.attempt_id,
+        revision=1,
+        updated_at=started_at,
+        started_at=started_at,
+        state=ReadinessState.PENDING,
+        deployments=tuple(
+            DeploymentReadiness(
+                deployment_id=deployment.deployment_id,
+                model_alias=deployment.authored.model_alias,
+                state=ReadinessState.PENDING,
+                expected_backends=deployment.topology.replica_count,
+                ready_backends=0,
+                endpoint_publication=EndpointPublicationState.PENDING,
+            )
+            for deployment in case.plan.deployments
+        ),
+    )
+    case.writer.write_readiness(pending)
+    case.writer.write_readiness(
+        pending.model_copy(
+            update={
+                "revision": 2,
+                "state": ReadinessState.STARTING,
+                "deployments": tuple(
+                    deployment.model_copy(update={"state": ReadinessState.STARTING})
+                    for deployment in pending.deployments
+                ),
+            }
+        )
+    )
+    case.writer.write_readiness(
+        AttemptReadiness(
+            schema_version=1,
+            run_id=case.plan.run_id,
+            shard_id=attempt.shard_id,
+            attempt_id=attempt.attempt_id,
+            revision=3,
+            updated_at=ready_at,
+            started_at=started_at,
+            state=ReadinessState.READY,
+            deployments=tuple(
+                DeploymentReadiness(
+                    deployment_id=deployment.deployment_id,
+                    model_alias=deployment.authored.model_alias,
+                    state=ReadinessState.READY,
+                    expected_backends=deployment.topology.replica_count,
+                    ready_backends=deployment.topology.replica_count,
+                    endpoint_publication=EndpointPublicationState.PUBLISHED,
+                    last_probe=ProbeEvidence(
+                        observed_at=ready_at,
+                        outcome=ProbeOutcome.SUCCESS,
+                        reason_code="backend_ready",
+                        redacted_message="Backend is ready",
+                    ),
+                )
+                for deployment in case.plan.deployments
+            ),
+        )
+    )
+
+
+def _copy_attempt(attempt: AttemptManifest, **updates: object) -> AttemptManifest:
+    payload = attempt.model_dump(mode="json")
+    payload.update(updates)
+    return AttemptManifest.model_validate_json(json.dumps(payload, default=_json_value))
+
+
+def _json_value(value: object) -> object:
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if hasattr(value, "model_dump"):
+        return value.model_dump(mode="json")
+    raise TypeError(f"unsupported test value: {type(value).__name__}")

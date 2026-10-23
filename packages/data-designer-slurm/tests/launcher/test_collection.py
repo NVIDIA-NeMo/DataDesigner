@@ -1,0 +1,304 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+from __future__ import annotations
+
+import json
+import shlex
+import subprocess
+from datetime import datetime, timezone
+from pathlib import Path
+
+import pytest
+from pydantic import ValidationError
+
+from data_designer.slurm.config import ContainerMount, injected_profile
+from data_designer.slurm.contracts import ArtifactReference, compute_canonical_json_sha256
+from data_designer.slurm.launcher.collection import render_collection_script
+from data_designer.slurm.launcher.renderer import render_generation_retry_script
+from data_designer.slurm.planning import ResolvedSlurmRunPlan
+from data_designer.slurm.state import CollectionPlan, CollectionShard, RetryPlan, RetryShard
+from data_designer.slurm.state.destinations import CollectionDestinationResolver
+from data_designer.slurm.state.errors import StateConflictError
+
+
+def test_collection_renderer_uses_plan_bound_native_python_and_no_gpu_directives(
+    multi_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    workspace_mount = ContainerMount(source="/workspace", target="/workspace", read_only=False)
+    output_mount = ContainerMount(
+        source="/workspace/primary/runs/run-001",
+        target="/exports",
+        read_only=False,
+    )
+    mounts = (workspace_mount, output_mount)
+    profile = multi_node_plan.selected_profile.profile.model_copy(update={"container_mounts": list(mounts)})
+    selection = multi_node_plan.selected_profile.model_copy(
+        update={
+            "profile": profile,
+            "profile_sha256": compute_canonical_json_sha256(profile.model_dump(mode="json")),
+        }
+    )
+    plan = ResolvedSlurmRunPlan.model_validate_json(
+        json.dumps(
+            multi_node_plan.model_copy(update={"container_mounts": mounts, "selected_profile": selection}).model_dump(
+                mode="json"
+            )
+        )
+    )
+    destination = CollectionDestinationResolver().resolve(plan)
+    collection = CollectionPlan(
+        schema_version=1,
+        collection_id="collection-0001",
+        run_id=plan.run_id,
+        created_at=datetime(2026, 9, 2, tzinfo=timezone.utc),
+        resolved_plan=ArtifactReference(
+            path="/workspace/primary/runs/run-001/resolved-plan.json",
+            sha256=plan.compute_sha256(),
+        ),
+        planned_shards=(
+            CollectionShard(
+                shard_id="shard-00000",
+                winner_manifest=ArtifactReference(
+                    path="/workspace/primary/runs/run-001/shards/shard-00000/winner.json",
+                    sha256="a" * 64,
+                ),
+            ),
+        ),
+        python_executable="/shared/data-designer/bin/python",
+        package_version="0.9.9",
+        runtime_bundle=ArtifactReference(path="/workspace/primary/runtime/collection.tar.gz", sha256="b" * 64),
+        host_destination=destination.host_path,
+        num_partitions=1,
+    )
+
+    script = render_collection_script(plan, collection, destination)
+
+    assert f"#SBATCH --job-name={collection.submission_job_name}" in script
+    assert "#SBATCH --partition=cpu" in script
+    assert "#SBATCH --partition=batch" not in script
+    assert f"dd-collect-{plan.run_id}" not in script
+    assert (
+        'readonly DD_COLLECTION_PLAN="/workspace/primary/runs/run-001/collections/collection-0001/plan.json"' in script
+    )
+    assert 'readonly DD_COLLECTION_PYTHON="/shared/data-designer/bin/python"' in script
+    assert 'readonly DD_PACKAGE_VERSION="0.9.9"' in script
+    assert f'readonly DD_RUNTIME_ARCHIVE="{collection.runtime_bundle.path}"' in script
+    assert f'readonly DD_RUNTIME_SHA256="{collection.runtime_bundle.sha256}"' in script
+    assert 'export PYTHONPATH="${DD_SCRATCH_ROOT}/runtime"' in script
+    assert "data_designer.slurm.state.collection_worker" in script
+    assert '"${DD_COLLECTION_PYTHON}" -m data_designer.slurm.state.collection_worker' in script
+    assert "enroot start" not in script
+    assert "DD_CLIENT_IMAGE" not in script
+    assert "DD_ENROOT_MOUNTS" not in script
+    assert "#SBATCH --gres=" not in script
+    assert "#SBATCH --gpus=" not in script
+    assert script.index("trap 'exit 143' TERM") < script.index("\ndd_initialize_local_scratch\n")
+    assert subprocess.run(("bash", "-n"), input=script, text=True, check=False).returncode == 0
+
+    legacy = CollectionPlan.model_validate(
+        collection.model_dump(mode="python", exclude={"package_version", "runtime_bundle"})
+    )
+    legacy_script = render_collection_script(plan, legacy, destination)
+    assert 'readonly DD_PACKAGE_VERSION="0.9.2"' in legacy_script
+    assert f'readonly DD_RUNTIME_ARCHIVE="{plan.runtime_bundle.path}"' in legacy_script
+    assert f'readonly DD_RUNTIME_SHA256="{plan.runtime_bundle.sha256}"' in legacy_script
+    with pytest.raises(ValidationError, match="package version and runtime bundle must be set together"):
+        CollectionPlan.model_validate(legacy.model_dump(mode="python") | {"package_version": "0.9.9"})
+
+
+def test_retry_renderer_waits_for_persisted_attempt_before_starting_runtime(
+    multi_node_plan: ResolvedSlurmRunPlan,
+    tmp_path: Path,
+) -> None:
+    retry = RetryPlan(
+        schema_version=1,
+        retry_id="retry-0001",
+        run_id=multi_node_plan.run_id,
+        created_at=datetime(2026, 9, 2, tzinfo=timezone.utc),
+        resolved_plan=ArtifactReference(
+            path="/workspace/primary/runs/run-001/resolved-plan.json",
+            sha256=multi_node_plan.compute_sha256(),
+        ),
+        planned_shards=(
+            RetryShard(
+                shard_id="shard-00001",
+                attempt_id="attempt-0002",
+                attempt_ordinal=2,
+                array_task_index=1,
+            ),
+        ),
+        effective_resume_mode="never",
+    )
+
+    script = render_generation_retry_script(multi_node_plan, retry)
+
+    assert f"#SBATCH --job-name={retry.submission_job_name}" in script
+    assert "#SBATCH --cpus-per-gpu=4\n" in script
+    assert "#SBATCH --cpus-per-task=" not in script
+    assert multi_node_plan.submission.job_name not in script
+    assert "#SBATCH --array=1%2" in script
+    assert 'DD_ATTEMPT_ORDINAL="0002"' in script
+    assert 'readonly DD_ATTEMPT_MANIFEST="${DD_ATTEMPT_DIR}/attempt.json"' in script
+    assert f'readonly DD_RETRY_ID="{retry.retry_id}"' in script
+    assert f'readonly DD_RETRY_PLAN_SHA256="{retry.compute_sha256()}"' in script
+    assert 'readonly DD_EFFECTIVE_RESUME_MODE="never"' in script
+    assert script.index("DD_ATTEMPT_MANIFEST") < script.index("DD_RUNTIME_ROOT")
+    assert "data_designer.slurm.state.attempt_identity" in script
+    assert "enroot start" not in script
+    assert "--container-image=" not in script
+    assert "--container-mounts=" not in script
+    assert "--container-env=" not in script
+    binding = next(line for line in script.splitlines() if line.partition("=")[0].endswith("DD_CLIENT_PYTHON"))
+    plan_path = tmp_path / "resolved-plan.json"
+    plan_path.write_text(multi_node_plan.serialize_json())
+    reader = Path(__file__).parents[2] / "src/data_designer/slurm/runtime/plan_reader.sh"
+    completed = subprocess.run(
+        (
+            "bash",
+            "-c",
+            f'set -e\n{binding}\nsource {shlex.quote(str(reader))}\ndd_read_control_plan "$1"\n'
+            'printf "%s\\n" "$DD_CLIENT_PYTHON"',
+            "retry",
+            str(plan_path),
+        ),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert completed.stdout.strip() == multi_node_plan.client.runtime.python_executable
+    assert 'export PYTHONPATH="${DD_RUNTIME_ROOT}"' in script
+    assert "--gres=none" in script
+    assert "--export=ALL" in script
+    assert '"${DD_CLIENT_PYTHON}" -m data_designer.slurm.state.attempt_identity' in script
+    assert '--array-job-id "${DD_ARRAY_JOB_ID}" --array-task-id "${DD_ARRAY_TASK_ID}"' in script
+    assert script.index("dd_stage_allocation_runtime") < script.index("data_designer.slurm.state.attempt_identity")
+    assert script.index("trap 'exit 143' TERM") < script.index("\ndd_initialize_local_scratch\n")
+    assert f'#SBATCH --output="/workspace/primary/runs/run-001/retries/{retry.retry_id}/slurm-%A_%a.out"' in script
+    assert f'#SBATCH --error="/workspace/primary/runs/run-001/retries/{retry.retry_id}/slurm-%A_%a.err"' in script
+    assert '"${DD_RETRY_PLAN_SHA256}" "${DD_EFFECTIVE_RESUME_MODE}"' in script
+    assert subprocess.run(("bash", "-n"), input=script, text=True, check=False).returncode == 0
+
+
+@pytest.mark.parametrize("gpu_request_mode", ("gres", "visible"))
+def test_retry_renderer_uses_profile_slurm_bin_path(
+    multi_node_plan: ResolvedSlurmRunPlan, gpu_request_mode: str
+) -> None:
+    scheduler = multi_node_plan.selected_profile.profile.scheduler.model_copy(update={"bin_path": "/opt/slurm/bin"})
+    profile = multi_node_plan.selected_profile.profile.model_copy(
+        update={"scheduler": scheduler, "gpu_request_mode": gpu_request_mode}
+    )
+    plan = multi_node_plan.model_copy(update={"selected_profile": injected_profile(profile)})
+    retry = RetryPlan(
+        schema_version=1,
+        retry_id="retry-0001",
+        run_id=plan.run_id,
+        created_at=datetime(2026, 9, 2, tzinfo=timezone.utc),
+        resolved_plan=ArtifactReference(
+            path="/workspace/primary/runs/run-001/resolved-plan.json",
+            sha256=plan.compute_sha256(),
+        ),
+        planned_shards=(
+            RetryShard(
+                shard_id="shard-00001",
+                attempt_id="attempt-0002",
+                attempt_ordinal=2,
+                array_task_index=1,
+            ),
+        ),
+        effective_resume_mode="never",
+    )
+
+    script = render_generation_retry_script(plan, retry)
+
+    assert 'export PATH="/opt/slurm/bin:/usr/local/sbin:' in script
+    assert "#SBATCH --exclusive" in script
+    assert subprocess.run(("bash", "-n"), input=script, text=True, check=False).returncode == 0
+
+
+def test_destination_reauthorizes_explicit_path_through_workspace_mapping(
+    multi_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    workspace_root = multi_node_plan.selected_profile.profile.workspace_root
+    requested = (Path(workspace_root) / "explicit" / "collected").as_posix()
+    plan = multi_node_plan.model_copy(update={"container_mounts": ()})
+    resolver = CollectionDestinationResolver()
+    destination = resolver.resolve(plan, requested)
+    collection = CollectionPlan(
+        schema_version=1,
+        collection_id="collection-0001",
+        run_id=plan.run_id,
+        created_at=datetime(2026, 9, 2, tzinfo=timezone.utc),
+        resolved_plan=ArtifactReference(
+            path="/workspace/primary/runs/run-001/resolved-plan.json",
+            sha256=plan.compute_sha256(),
+        ),
+        planned_shards=(
+            CollectionShard(
+                shard_id="shard-00000",
+                winner_manifest=ArtifactReference(
+                    path="/workspace/primary/runs/run-001/shards/shard-00000/winner.json",
+                    sha256="a" * 64,
+                ),
+            ),
+        ),
+        python_executable="/shared/data-designer/bin/python",
+        package_version="0.9.9",
+        runtime_bundle=ArtifactReference(path="/workspace/primary/runtime/collection.tar.gz", sha256="b" * 64),
+        host_destination=requested,
+        num_partitions=1,
+    )
+
+    assert destination.authorized_root == workspace_root
+    assert resolver.validate_persisted(plan, collection) == destination
+
+
+@pytest.mark.parametrize(
+    ("destination_suffix", "error"),
+    [
+        ("images/collected", "package-managed workspace state"),
+        ("runtime/collected", "package-managed workspace state"),
+        ("benchmarks/collected", "package-managed workspace state"),
+        ("managed-assets/collected", "managed assets"),
+        ("runs/run-001/collections", "package-managed run state"),
+        ("runs/run-001/retries", "package-managed run state"),
+        ("runs/other-run/output", "package-managed run state"),
+        ("runs/other-run/merge-output", "package-managed run state"),
+    ],
+)
+def test_destination_rejects_package_managed_paths(
+    multi_node_plan: ResolvedSlurmRunPlan,
+    destination_suffix: str,
+    error: str,
+) -> None:
+    workspace_root = multi_node_plan.selected_profile.profile.workspace_root
+    requested = (Path(workspace_root) / destination_suffix).as_posix()
+
+    with pytest.raises(StateConflictError, match=error):
+        CollectionDestinationResolver().resolve(multi_node_plan, requested)
+
+
+def test_destination_allows_current_run_merge_output_subtree(multi_node_plan: ResolvedSlurmRunPlan) -> None:
+    requested = (
+        Path(multi_node_plan.selected_profile.profile.workspace_root)
+        / "runs"
+        / multi_node_plan.run_id
+        / "merge-output"
+        / "collected"
+    ).as_posix()
+
+    assert CollectionDestinationResolver().resolve(multi_node_plan, requested).host_path == requested
+
+
+def test_destination_ignores_duplicate_container_targets_for_one_host_root(
+    multi_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    requested = "/host/exports/run-001"
+    mounts = (
+        ContainerMount(source="/host/exports", target="/container/a", read_only=False),
+        ContainerMount(source="/host/exports", target="/container/b", read_only=False),
+    )
+    plan = multi_node_plan.model_copy(update={"container_mounts": mounts})
+
+    assert CollectionDestinationResolver().resolve(plan, requested).authorized_root == "/host/exports"

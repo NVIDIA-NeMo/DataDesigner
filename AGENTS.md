@@ -7,15 +7,16 @@ If you are an agent helping a user **build a dataset**, use the [`data-designer`
 
 ## The Layering Is Structural
 
-The `data_designer` namespace is split across three installable packages that merge at runtime via PEP 420 implicit namespace packages (no top-level `__init__.py`).
+The `data_designer` namespace is split across four installable packages that merge at runtime via PEP 420 implicit namespace packages (no top-level `__init__.py`).
 
 | Package | Path | Owns |
 |---------|------|------|
 | `data-designer-config` | `packages/data-designer-config/` | `data_designer.config` — column configs, model configs, sampler params, builder API, plugin system, lazy imports |
 | `data-designer-engine` | `packages/data-designer-engine/` | `data_designer.engine` — column generators, dataset builders, DAG execution, model facade, validators, sampling |
 | `data-designer` | `packages/data-designer/` | `data_designer.interface` — public `DataDesigner` class, results, errors; `data_designer.cli` — CLI entry point; `data_designer.integrations` |
+| `data-designer-slurm` | `packages/data-designer-slurm/` | `data_designer.slurm` — optional Slurm execution |
 
-**Dependency direction (left depends on right):** interface → engine → config. Never import against this flow.
+**Import direction (left imports right):** Slurm → interface → engine → config. The `data-designer[slurm]` extra creates a packaging-only reverse edge; no code may import against this flow.
 
 ## Core Concepts
 
@@ -34,7 +35,7 @@ The `data_designer` namespace is split across three installable packages that me
 
 ## Structural Invariants
 
-- **Import direction** — interface → engine → config (left depends on right). No reverse imports.
+- **Import direction** — Slurm → interface → engine → config (left imports right). No reverse imports.
 - **Fast imports** — heavy third-party libraries are lazy-loaded via `data_designer.lazy_heavy_imports`. See [STYLEGUIDE.md](STYLEGUIDE.md) for the pattern.
 - **No relative imports** — absolute imports only, enforced by ruff rule `TID`.
 - **Typed code** — all functions, methods, and class attributes require type annotations. Modern syntax: `list[str]`, `str | None`.

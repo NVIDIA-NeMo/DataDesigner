@@ -1,0 +1,293 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+from __future__ import annotations
+
+import hashlib
+import os
+from pathlib import Path
+from types import SimpleNamespace
+from typing import cast
+
+import pytest
+from conftest import RuntimeCase
+
+from data_designer.slurm.config import ContainerMount
+from data_designer.slurm.contracts import ArtifactReference
+from data_designer.slurm.runtime import preflight as runtime_preflight
+from data_designer.slurm.runtime.errors import SlurmRuntimeError
+from data_designer.slurm.runtime.models import AllocationContext
+from data_designer.slurm.runtime.preflight import AllocationLayout, SystemAllocationPreflight, _verify_artifact
+
+
+def test_allocation_layout_rejects_invalid_hosts_and_indices() -> None:
+    layout = AllocationLayout(("compute-001", "compute-002"))
+
+    with pytest.raises(SlurmRuntimeError, match="outside"):
+        layout.get_host(-1)
+    with pytest.raises(SlurmRuntimeError, match="identity"):
+        AllocationLayout(("compute-001", "--invalid"))
+
+
+def test_scheduler_preflight_accepts_complete_multi_node_plan() -> None:
+    context = cast(
+        AllocationContext,
+        SimpleNamespace(
+            plan=SimpleNamespace(
+                client=SimpleNamespace(host_node_index=0),
+                deployments=(SimpleNamespace(node_indices=(0, 1)), SimpleNamespace(node_indices=(2,))),
+                resolved_gpus_per_node=8,
+            ),
+            attempt=SimpleNamespace(scheduler=SimpleNamespace(array_job_id=4101)),
+            shard=SimpleNamespace(array_task_index=0),
+        ),
+    )
+    environment = {
+        "SLURM_ARRAY_JOB_ID": "4101",
+        "SLURM_ARRAY_TASK_ID": "0",
+        "SLURM_JOB_NUM_NODES": "3",
+        "SLURM_NODEID": "0",
+        "CUDA_VISIBLE_DEVICES": "0,1,2,3,4,5,6,7",
+    }
+
+    SystemAllocationPreflight._verify_scheduler(context, environment)
+
+
+def test_scheduler_preflight_accepts_exact_one_node_gpu_shape(runtime_case: RuntimeCase) -> None:
+    environment = {
+        "SLURM_ARRAY_JOB_ID": "4101",
+        "SLURM_ARRAY_TASK_ID": "0",
+        "SLURM_JOB_NUM_NODES": "1",
+        "SLURM_NODEID": "0",
+        "CUDA_VISIBLE_DEVICES": "0,1,2,3,4,5,6,7",
+    }
+
+    SystemAllocationPreflight._verify_scheduler(runtime_case.context, environment)
+
+
+def test_scheduler_preflight_accepts_exclusive_allocation_gpu_superset(runtime_case: RuntimeCase) -> None:
+    environment = {
+        "SLURM_ARRAY_JOB_ID": "4101",
+        "SLURM_ARRAY_TASK_ID": "0",
+        "SLURM_JOB_NUM_NODES": "1",
+        "SLURM_NODEID": "0",
+        "CUDA_VISIBLE_DEVICES": "0,1,2,3,4,5,6,7,8",
+    }
+
+    SystemAllocationPreflight._verify_scheduler(runtime_case.context, environment)
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    (
+        ("SLURM_ARRAY_TASK_ID", "1"),
+        ("SLURM_ARRAY_JOB_ID", "4102"),
+        ("SLURM_JOB_NUM_NODES", "2"),
+        ("SLURM_NODEID", "1"),
+        ("CUDA_VISIBLE_DEVICES", "0,1"),
+    ),
+)
+def test_scheduler_preflight_rejects_mismatched_allocation_fact(
+    runtime_case: RuntimeCase,
+    name: str,
+    value: str,
+) -> None:
+    environment = {
+        "SLURM_ARRAY_JOB_ID": "4101",
+        "SLURM_ARRAY_TASK_ID": "0",
+        "SLURM_JOB_NUM_NODES": "1",
+        "SLURM_NODEID": "0",
+        "CUDA_VISIBLE_DEVICES": "0,1,2,3,4,5,6,7",
+    }
+    environment[name] = value
+
+    with pytest.raises(SlurmRuntimeError, match="does not match|GPU visibility"):
+        SystemAllocationPreflight._verify_scheduler(runtime_case.context, environment)
+
+
+def test_artifact_verification_checks_exact_bytes_and_rejects_symlink(tmp_path: Path) -> None:
+    artifact = tmp_path / "artifact.bin"
+    content = b"reviewed artifact"
+    artifact.write_bytes(content)
+    reference = ArtifactReference(path=artifact.as_posix(), sha256=hashlib.sha256(content).hexdigest())
+
+    _verify_artifact(reference)
+    artifact.write_bytes(b"changed")
+    with pytest.raises(OSError, match="digest"):
+        _verify_artifact(reference)
+
+    target = tmp_path / "target.bin"
+    target.write_bytes(content)
+    artifact.unlink()
+    artifact.symlink_to(target)
+    with pytest.raises(OSError, match="regular file"):
+        _verify_artifact(reference)
+
+
+@pytest.fixture
+def artifact_context(tmp_path: Path) -> AllocationContext:
+    artifact = tmp_path / "runtime.tar.gz"
+    artifact.write_bytes(b"runtime")
+    reference = ArtifactReference(path=artifact.as_posix(), sha256=hashlib.sha256(b"runtime").hexdigest())
+    image = tmp_path / "serving.sqsh"
+    content = b"serving image"
+    image.write_bytes(content)
+    image_reference = ArtifactReference(path=image.as_posix(), sha256=hashlib.sha256(content).hexdigest())
+    plan_path = tmp_path / "resolved-plan.json"
+    plan_path.write_text("{}")
+    plan = SimpleNamespace(
+        authored_config=SimpleNamespace(path=(tmp_path / "run.yaml").as_posix()),
+        compute_sha256=lambda: hashlib.sha256(b"{}").hexdigest(),
+        runtime_bundle=reference,
+        client=SimpleNamespace(dependency_lock=reference),
+        deployments=(SimpleNamespace(image=image_reference), SimpleNamespace(image=image_reference)),
+        builder=SimpleNamespace(source=reference),
+    )
+    return cast(AllocationContext, SimpleNamespace(plan=plan, shard=SimpleNamespace(input_partition=reference)))
+
+
+def test_artifact_preflight_accepts_shared_artifacts(artifact_context: AllocationContext) -> None:
+    SystemAllocationPreflight.verify_artifacts(artifact_context)
+
+
+@pytest.mark.parametrize("damage", ("contents", "missing", "symlink"))
+def test_artifact_preflight_rejects_changed_serving_image(
+    artifact_context: AllocationContext,
+    damage: str,
+    tmp_path: Path,
+) -> None:
+    image = Path(artifact_context.plan.deployments[0].image.path)
+    if damage == "contents":
+        image.write_bytes(b"changed image")
+    else:
+        image.unlink()
+        if damage == "symlink":
+            target = tmp_path / "target.sqsh"
+            target.write_bytes(b"serving image")
+            image.symlink_to(target)
+
+    with pytest.raises(SlurmRuntimeError, match="could not verify launch inputs"):
+        SystemAllocationPreflight.verify_artifacts(artifact_context)
+
+
+def test_artifact_verification_rejects_path_replacement_during_read(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    artifact = tmp_path / "artifact.bin"
+    content = b"reviewed artifact"
+    artifact.write_bytes(content)
+    reference = ArtifactReference(path=artifact.as_posix(), sha256=hashlib.sha256(content).hexdigest())
+    replacement = tmp_path / "replacement.bin"
+    replacement.write_bytes(b"different artifact")
+    original_fstat = runtime_preflight.os.fstat
+    fstat_calls = 0
+    replaced = False
+
+    def replace_after_descriptor_validation(descriptor: int) -> os.stat_result:
+        nonlocal fstat_calls, replaced
+        status = original_fstat(descriptor)
+        fstat_calls += 1
+        if fstat_calls == 2:
+            replaced = True
+            os.replace(replacement, artifact)
+        return status
+
+    monkeypatch.setattr(runtime_preflight.os, "fstat", replace_after_descriptor_validation)
+    with pytest.raises(OSError, match="replaced while it was verified"):
+        _verify_artifact(reference)
+    assert replaced
+
+
+def test_port_preflight_detects_collision_before_launch(
+    runtime_case: RuntimeCase,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _UnavailableSocket:
+        closed: bool = False
+
+        def __init__(self, *arguments: object) -> None:
+            del arguments
+
+        def setsockopt(self, *arguments: object) -> None:
+            del arguments
+
+        def bind(self, address: tuple[str, int]) -> None:
+            del address
+            raise OSError("injected port collision")
+
+        def close(self) -> None:
+            type(self).closed = True
+
+    monkeypatch.setattr("data_designer.slurm.runtime.preflight.socket.socket", _UnavailableSocket)
+
+    with pytest.raises(SlurmRuntimeError, match="ports are unavailable"):
+        SystemAllocationPreflight.verify_ports(runtime_case.context, {"SLURM_JOB_GPUS": "0"})
+    assert _UnavailableSocket.closed
+
+
+def test_attempt_directory_must_be_restrictive(runtime_case: RuntimeCase) -> None:
+    runtime_case.context.attempt_directory.chmod(0o755)
+
+    with pytest.raises(SlurmRuntimeError, match="restrictive directory"):
+        SystemAllocationPreflight.verify_attempt_directory(runtime_case.context.attempt_directory)
+
+
+def test_client_runtime_preflight_accepts_exact_resolved_runtime(
+    runtime_case: RuntimeCase,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        runtime_preflight.ClientRuntimeInspector,
+        "inspect",
+        lambda self: runtime_case.context.plan.client.runtime,
+    )
+
+    SystemAllocationPreflight.verify_client_runtime(runtime_case.context)
+
+
+def test_client_runtime_preflight_rejects_compute_node_drift(
+    runtime_case: RuntimeCase,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime = runtime_case.context.plan.client.runtime.model_copy(update={"python_version": "3.12.1"})
+    monkeypatch.setattr(runtime_preflight.ClientRuntimeInspector, "inspect", lambda self: runtime)
+
+    with pytest.raises(SlurmRuntimeError, match="differs from the resolved plan"):
+        SystemAllocationPreflight.verify_client_runtime(runtime_case.context)
+
+
+def test_preflight_uses_host_paths_without_container_translation(
+    runtime_case: RuntimeCase,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    logical_attempt = runtime_case.context.attempt_directory
+    container_workspace = tmp_path / "container-workspace"
+    plan = runtime_case.context.plan.model_copy(
+        update={
+            "container_mounts": (
+                ContainerMount(
+                    source=runtime_case.workspace.as_posix(),
+                    target=container_workspace.as_posix(),
+                ),
+            )
+        }
+    )
+    context = AllocationContext(
+        plan=plan,
+        shard=runtime_case.context.shard,
+        attempt=runtime_case.context.attempt,
+        attempt_directory=logical_attempt,
+    )
+    verified_paths: list[str] = []
+    monkeypatch.setattr(SystemAllocationPreflight, "_verify_scheduler", lambda *args: None)
+    monkeypatch.setattr(SystemAllocationPreflight, "verify_client_runtime", lambda *args: None)
+    monkeypatch.setattr(SystemAllocationPreflight, "verify_ports", lambda *args: None)
+    monkeypatch.setattr(runtime_preflight, "_verify_artifact", lambda reference: verified_paths.append(reference.path))
+
+    SystemAllocationPreflight().verify(context, {})
+
+    assert verified_paths
+    assert any(path.startswith(runtime_case.workspace.as_posix()) for path in verified_paths)
+    assert not any(path.startswith(container_workspace.as_posix()) for path in verified_paths)
