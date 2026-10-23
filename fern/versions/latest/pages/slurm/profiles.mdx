@@ -85,7 +85,9 @@ scheduler:
 
 The CLI also accepts `--partition gpu-a,gpu-b` during profile initialization. Slurm chooses a partition when scheduling the job; the CPU `image_build.partition` remains a single partition.
 
-`gpus_per_node` is both the GPU count used for deployment topology and, in `gres` mode, the count requested from Slurm on each job node. `auto` queries eligible nodes and uses their reported count, so an eight-GPU partition produces `--gres=gpu:8`. Set an explicit smaller count, such as `1`, for partial-node allocations when the cluster permits them. Use `auto` only when requesting every GPU on each selected node is intended, and use an explicit count when eligible nodes are heterogeneous.
+For runs with local deployments, `gpus_per_node` is both the GPU count used for deployment topology and, in `gres` mode, the count requested from Slurm on each job node. `auto` queries eligible nodes and uses their reported count, so an eight-GPU partition produces `--gres=gpu:8`. Set an explicit smaller count, such as `1`, for partial-node allocations when the cluster permits them. Use `auto` only when requesting every GPU on each selected node is intended, and use an explicit count when eligible nodes are heterogeneous.
+
+[Hosted-only runs](/slurm/run-configuration#hosted-only-cpu-runs) skip GPU discovery and ignore the profile's GPU count and `mem_per_gpu`. Select a CPU partition with `submission.partition` in the run file. Each task requests one node, `--gres=none`, and `client.cpus` CPUs.
 
 Multi-node generation jobs request exclusive nodes, including in `gres` mode. This keeps serving ports isolated because Slurm reports batch-job GPU IDs for the first node only. A partial-node `gpus_per_node` setting still limits the GPUs used per node, but other jobs cannot share those nodes during the run.
 

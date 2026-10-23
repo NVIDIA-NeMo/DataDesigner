@@ -1,6 +1,6 @@
 # Data Designer on Slurm
 
-Data Designer Slurm runs Data Designer clients and vLLM model servers in batch allocations. The optional extension owns profile selection, image inspection, submission, status, retry, result collection, and benchmark workflows.
+Data Designer Slurm runs Data Designer clients and optional vLLM model servers in batch allocations. Recipes can combine local models with external providers, or use CPU allocations for hosted-only generation. The optional extension owns profile selection, image inspection, submission, status, retry, result collection, and benchmark workflows.
 
 Start with [Getting Started](/slurm/getting-started). Use [Dependencies and tools](/slurm/dependencies-and-tools) for plugins, MCP providers, and secrets, and keep the [CLI reference](/slurm/cli-reference) nearby for automation.
 
@@ -12,7 +12,7 @@ The submit environment needs:
 - `sbatch`, `squeue`, `sacct`, `scancel`, `scontrol`, and `sinfo`
 - Access to a shared workspace that is visible from the submit host and every eligible compute node
 
-Compute nodes need access to the same shared Python environment at the exact path used by the submit command. Enroot 3.5 or later is required for both digest-pinned OCI imports and existing SQSH inspection. Serving images must contain vLLM.
+Compute nodes need access to the same shared Python environment at the exact path used by the submit command. Local serving requires Enroot 3.5 or later for both digest-pinned OCI imports and existing SQSH inspection, and serving images must contain vLLM. Hosted-only runs require access to their external endpoints and do not need serving images or Enroot.
 
 Your Slurm administrator can confirm the account, GPU partition, CPU image-build partition, GPU request mode, and shared filesystem paths for your cluster.
 
@@ -34,6 +34,6 @@ Runtime bundle extraction, the client dependency overlay, Data Designer home and
 
 ## Supported in v1
 
-The public v1 surface supports named cluster profiles, serving image aliases, one or more vLLM deployments, independent replicas, multi-node replicas, Slurm arrays, bounded array concurrency, durable status, cancellation, sparse retry, winner-driven collection, dependencies, plugins, MCP providers, and benchmarks.
+The public v1 surface supports named cluster profiles, serving image aliases, vLLM deployments, external model providers, hosted-only CPU runs, independent replicas, multi-node replicas, Slurm arrays, bounded array concurrency, durable status, cancellation, sparse retry, winner-driven collection, dependencies, plugins, MCP providers, and benchmarks. See [External model providers](/slurm/run-configuration#external-model-providers) for mixed and hosted-only configuration.
 
 Interactive allocations, code-sandbox sidecars, NeMo Run, SGLang, Dynamo, Kubernetes, Ray, and platform-specific orchestration are not part of the v1 Slurm extension.
