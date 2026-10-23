@@ -100,6 +100,9 @@ select = [
     "TID",   # flake8-tidy-imports (ban relative imports)
     "UP006", # List[A] -> list[A]
     "UP007", # Union[A, B] -> A | B
+    "UP017", # datetime.timezone.utc -> datetime.UTC
+    "UP035", # Deprecated typing aliases -> standard-library imports
+    "UP041", # asyncio.TimeoutError -> TimeoutError
     "UP045", # Optional[A] -> A | None
 ]
 ignore = [

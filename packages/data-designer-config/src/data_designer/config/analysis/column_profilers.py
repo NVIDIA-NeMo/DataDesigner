@@ -5,11 +5,11 @@ from __future__ import annotations
 
 from abc import ABC
 from enum import Enum
+from typing import TypeAlias
 
 from pydantic import BaseModel, Field
 from rich.panel import Panel
 from rich.table import Column, Table
-from typing_extensions import TypeAlias
 
 from data_designer.config.analysis.column_statistics import (
     CategoricalDistribution,

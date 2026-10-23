@@ -10,13 +10,12 @@ from copy import copy
 from dataclasses import dataclass
 from fnmatch import fnmatchcase
 from pathlib import Path, PurePath, PurePosixPath
-from typing import TYPE_CHECKING, Any, ClassVar, Generic, Protocol, TypeVar, get_args, get_origin
+from typing import TYPE_CHECKING, Any, ClassVar, Generic, Protocol, Self, TypeVar, get_args, get_origin
 
 from fsspec.implementations.dirfs import DirFileSystem
 from fsspec.implementations.local import LocalFileSystem
 from fsspec.spec import AbstractFileSystem
 from huggingface_hub import HfFileSystem
-from typing_extensions import Self
 
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.seed import IndexRange

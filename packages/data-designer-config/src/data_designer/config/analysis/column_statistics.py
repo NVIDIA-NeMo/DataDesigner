@@ -5,10 +5,9 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, Self, TypeAlias
 
 from pydantic import BaseModel, ConfigDict, create_model, field_validator, model_validator
-from typing_extensions import Self, TypeAlias
 
 from data_designer.config.column_types import DataDesignerColumnType
 from data_designer.config.sampler_params import SamplerType

@@ -5,8 +5,9 @@ from __future__ import annotations
 
 import logging
 import random
+from collections.abc import Callable
 from functools import partial
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING
 
 from data_designer.config.utils.constants import LOCALES_WITH_MANAGED_DATASETS
 from data_designer.engine.column_generators.generators.base import FromScratchColumnGenerator, GenerationStrategy
