@@ -22,6 +22,8 @@ qualification before considering separate generation and judging allocations.
   that the cluster otherwise reserves all node memory for a four-CPU job.
 - Let DD exclusively create a fresh dataset after the state writer has prepared
   its empty directory. Preserve nonempty directories and reject symlink targets.
+- Restrict the generated dataset directory before publishing it as a candidate,
+  and validate native DD outputs with the state's real artifact verifier.
 
 ## Validation
 

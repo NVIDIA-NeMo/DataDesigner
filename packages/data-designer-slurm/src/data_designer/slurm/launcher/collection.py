@@ -32,6 +32,8 @@ def render_collection_script(
         collection_plan.collection_id,
     )
     collection_plan_path = posixpath.join(collection_root, "plan.json")
+    memory = resolved_plan.submission.memory
+    memory_directives = () if memory is None else (("mem", memory),)
     directives = render_batch_directives(
         (
             ("job-name", collection_plan.submission_job_name),
@@ -41,6 +43,7 @@ def render_collection_script(
             ("ntasks", "1"),
             ("cpus-per-task", str(resolved_plan.client.authored.cpus)),
             ("time", resolved_plan.submission.time_limit),
+            *memory_directives,
             ("chdir", collection_root),
             ("output", f"{collection_root}/slurm-%j.out"),
             ("error", f"{collection_root}/slurm-%j.err"),

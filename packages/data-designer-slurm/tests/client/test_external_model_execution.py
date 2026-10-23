@@ -20,6 +20,8 @@ from data_designer.slurm.contracts import compute_serialized_json_sha256
 from data_designer.slurm.planning import ResolvedSlurmRunPlan
 from data_designer.slurm.planning.compiler import SlurmRunCompiler
 from data_designer.slurm.planning.resolution import resolve_slurm_config
+from data_designer.slurm.state.artifacts import CandidateArtifactVerifier
+from data_designer.slurm.state.outputs import CandidateOutputManifest
 
 
 @pytest.fixture
@@ -229,6 +231,11 @@ def test_native_dd_generates_through_managed_and_external_endpoints(
     (case.attempt_dir / "dataset").mkdir(exist_ok=True)
     result = worker.run(case.plan_path, prepared=case.prepared, endpoints=case.endpoints, plugins=())
     assert result.actual_records == plan.shards[0].requested_records
+    assert result.candidate_output_manifest is not None
+    candidate = CandidateOutputManifest.model_validate_json(Path(result.candidate_output_manifest.path).read_text())
+    with CandidateArtifactVerifier().verify(candidate) as artifacts:
+        assert sum(artifacts.record_counts) == result.actual_records
+        artifacts.rebind()
     table = pq.read_table(case.attempt_dir / "dataset/parquet-files")
     assert table["answer"].to_pylist() == ["hello"] * result.actual_records
     if seeded:

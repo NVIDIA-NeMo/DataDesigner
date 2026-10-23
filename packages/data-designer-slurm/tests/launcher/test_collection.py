@@ -22,8 +22,10 @@ from data_designer.slurm.state.destinations import CollectionDestinationResolver
 from data_designer.slurm.state.errors import StateConflictError
 
 
+@pytest.mark.parametrize("memory", (None, "16G"))
 def test_collection_renderer_uses_plan_bound_native_python_and_no_gpu_directives(
     multi_node_plan: ResolvedSlurmRunPlan,
+    memory: str | None,
 ) -> None:
     workspace_mount = ContainerMount(source="/workspace", target="/workspace", read_only=False)
     output_mount = ContainerMount(
@@ -46,6 +48,7 @@ def test_collection_renderer_uses_plan_bound_native_python_and_no_gpu_directives
             )
         )
     )
+    plan = plan.model_copy(update={"submission": plan.submission.model_copy(update={"memory": memory})})
     destination = CollectionDestinationResolver().resolve(plan)
     collection = CollectionPlan(
         schema_version=1,
@@ -77,6 +80,7 @@ def test_collection_renderer_uses_plan_bound_native_python_and_no_gpu_directives
     assert f"#SBATCH --job-name={collection.submission_job_name}" in script
     assert "#SBATCH --partition=cpu" in script
     assert "#SBATCH --partition=batch" not in script
+    assert ("#SBATCH --mem=16G" in script) == (memory is not None)
     assert f"dd-collect-{plan.run_id}" not in script
     assert (
         'readonly DD_COLLECTION_PLAN="/workspace/primary/runs/run-001/collections/collection-0001/plan.json"' in script

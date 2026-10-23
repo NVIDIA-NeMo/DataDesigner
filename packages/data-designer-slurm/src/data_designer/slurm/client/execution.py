@@ -681,6 +681,7 @@ class ClientWorker:
             dataset_path = creation.expected_path
         if dataset_path != creation.expected_path:
             raise ClientWorkerError(ClientErrorCode.OUTPUT_INVALID, "Data Designer dataset path is invalid")
+        ensure_private_directory(dataset_path)
         return dataset_path, output_paths
 
     @staticmethod
