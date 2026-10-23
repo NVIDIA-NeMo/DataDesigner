@@ -99,7 +99,14 @@ class ValidationColumnGenerator(ColumnGeneratorFullColumn[ValidationColumnConfig
             else:
                 outputs_as_dicts = [output.model_dump(mode="json") for output in concatenated_outputs]
 
-        validation_results = lazy.pd.DataFrame({self.config.name: outputs_as_dicts})
+        if len(outputs_as_dicts) != len(data):
+            raise DataDesignerRuntimeError(
+                f"Validator for column {self.config.name!r} returned {len(outputs_as_dicts)} results "
+                f"for {len(data)} records."
+            )
+
+        # Match the input index so results stay aligned when upstream rows were dropped.
+        validation_results = lazy.pd.DataFrame({self.config.name: outputs_as_dicts}, index=data.index)
         return lazy.pd.concat([data, validation_results], axis=1)
 
     def _validate_in_parallel(self, validator: BaseValidator, batched_records: list[list[dict]]) -> pd.DataFrame:
