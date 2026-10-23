@@ -29,6 +29,11 @@ make install-dev
 make install-dev-notebooks
 ```
 
+Notebook setup restores nbconvert's HTML stylesheets from a checksum-pinned PyPI wheel without installing its
+Python code. The nh3 source pin remains in use. Existing stylesheets are reused without another download.
+Use `NOTEBOOK_CSS=0` with the notebook setup targets for execution-only environments, which do not support
+nbconvert HTML export. After a direct `uv sync --group notebooks`, run `make install-notebook-css` if you need HTML export.
+
 ### Verify Your Setup
 
 ```bash
@@ -216,3 +221,36 @@ make perf-import CLEAN=1
 ```
 
 There is also a CI test (`test_import_performance` in `packages/data-designer/tests/test_import_perf.py`) that runs 5 import cycles (1 cold + 4 warm) and fails if the average exceeds **3 seconds**. If your dependency causes a regression, add it to `lazy_heavy_imports.py` — see [STYLEGUIDE.md](STYLEGUIDE.md) for the lazy loading pattern.
+
+---
+
+## Security
+
+### Transitive dependencies
+
+Don't add transitive dependencies to `packages/*/pyproject.toml` just to set a security floor.
+Instead, bump transitive dependencies in the `uv.lock` file only via:
+
+```bash
+uv lock --upgrade-package <pkg>
+```
+
+If a constraint impacts this such that a new security floor for a package does not survive re-resolution,
+add a `[tool.uv] constraint-dependencies` section to the workspace root `pyproject.toml`.
+
+Both approaches only protect installs from this workspace (development and CI). Neither `uv.lock` nor `[tool.uv]` settings are part of the published package metadata, so users who `pip install` the packages can still resolve a transitive dependency below the floor.
+This is intentional: security floors for transitive dependencies belong in each application's lockfile.
+List recommended minimum versions in the release notes so users can apply them.
+
+#### CA trust remediation exception
+
+For the eMudhra CA compromise, require `certifi>=2026.10.19` in the published
+`data-designer-config` dependencies. This exception ensures that normal package
+installs and upgrades enforce the patched CA bundle for config-only users and
+for users of the engine and interface, which depend on config. Workspace and E2E
+constraints remain in place, but cannot enforce this minimum for PyPI users or
+downstream applications.
+
+Keep other transitive security floors in application lockfiles as described above.
+This exception does not update pip's vendored certificate bundle or system and
+custom CA stores; those require separate updates in the deployment environment.

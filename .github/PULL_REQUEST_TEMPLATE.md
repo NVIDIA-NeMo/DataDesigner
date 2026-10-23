@@ -2,7 +2,7 @@
 <!-- 1-3 sentences: what this PR does and why -->
 
 ## 🔗 Related Issue
-<!-- Link to the issue this addresses: Fixes #NNN or Closes #NNN -->
+<!-- External contributors: link an existing, open issue labeled `triaged` by a maintainer before submitting. Use Fixes #NNN, Closes #NNN, or Resolves #NNN. PRs without one are closed. See CONTRIBUTING.md. -->
 
 ## 🔄 Changes
 <!--
@@ -24,4 +24,5 @@
 ## ✅ Checklist
 - [ ] Follows commit message conventions
 - [ ] Commits are signed off (DCO)
+- [ ] If I am an external contributor, the linked issue is open and labeled `triaged`
 - [ ] Architecture docs updated (if applicable)

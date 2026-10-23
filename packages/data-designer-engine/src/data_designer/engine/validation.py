@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import re
 from enum import Enum
 from fnmatch import fnmatch
 from string import Formatter
@@ -260,7 +261,7 @@ def validate_columns_not_all_dropped(
     processor_configs: list[ProcessorConfigT] | None = None,
 ) -> list[Violation]:
     processor_configs = processor_configs or []
-    processor_dropped_columns = _resolve_processor_dropped_columns(columns, processor_configs)
+    processor_dropped_columns = resolve_processor_dropped_columns(columns, processor_configs)
     remaining_cols = [
         c
         for c in columns
@@ -287,10 +288,11 @@ def validate_columns_not_all_dropped(
     return []
 
 
-def _resolve_processor_dropped_columns(
+def resolve_processor_dropped_columns(
     columns: list[ColumnConfigT],
     processor_configs: list[ProcessorConfigT],
 ) -> set[str]:
+    """Return the column names targeted by drop processors, expanding globs against `columns`."""
     column_names = {c.name for c in columns}
     dropped_columns: set[str] = set()
     for processor_config in processor_configs:
@@ -450,9 +452,28 @@ def validate_skip_references(
     return violations
 
 
+_FORMAT_FIELD_REFERENCE_PATTERN = re.compile(
+    r"(?<!\{)\{"
+    r"([^{}!:]+)"
+    r"(?:![sra])?"
+    r"(?::[^{}]*(?:\{[^{}]*\}[^{}]*)*)?"
+    r"\}"
+)
+
+
 def _get_string_formatter_references(template: str, allowed_references: list[str]) -> list[str]:
-    return [
-        k[1].strip()
-        for k in Formatter().parse(template)
-        if len(k) > 1 and k[1] is not None and k[1].strip() in allowed_references
-    ]
+    try:
+        return [
+            k[1].strip()
+            for k in Formatter().parse(template)
+            if len(k) > 1 and k[1] is not None and k[1].strip() in allowed_references
+        ]
+    except ValueError:
+        # Unmatched literal braces (e.g. JSON examples like 'output format: }') are
+        # invalid f-string syntax but valid Jinja text, so ``Formatter().parse`` can
+        # raise ``ValueError``. Fall back to a tolerant regex scan that skips Jinja
+        # ``{{ ... }}`` expressions so the advisory check still detects ``{column}``
+        # references without crashing validation.
+        return [
+            ref for m in _FORMAT_FIELD_REFERENCE_PATTERN.findall(template) if (ref := m.strip()) in allowed_references
+        ]

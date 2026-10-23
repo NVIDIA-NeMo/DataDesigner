@@ -72,6 +72,11 @@ export const authors: Record<string, Author> = {
     description: "Researcher at NVIDIA",
     avatar: "https://avatars.githubusercontent.com/u/5551931?v=4",
   },
+  asohrabizadeh: {
+    name: "Atefeh Sohrabizadeh",
+    description: "Researcher at NVIDIA",
+    avatar: "https://avatars.githubusercontent.com/u/23662345?v=4",
+  },
   trintamaki: {
     name: "Tuomas Rintamaki",
     description: "Researcher at NVIDIA",
@@ -86,5 +91,30 @@ export const authors: Record<string, Author> = {
     name: "Daniel van Strien",
     description: "Machine Learning Librarian at Hugging Face",
     avatar: "https://avatars.githubusercontent.com/u/8995957?v=4",
+  },
+  kipraveen: {
+    name: "Kiran Praveen",
+    description: "Researcher at NVIDIA",
+    avatar: "https://avatars.githubusercontent.com/u/204656351?v=4",
+  },
+  sniverty: {
+    name: "Sriharsha Niverty",
+    description: "Devtech Engineer at NVIDIA",
+    avatar: "https://avatars.githubusercontent.com/u/10280516?v=4",
+  },
+  uvaidya: {
+    name: "Utkarsh Vaidya",
+    description: "Applied Research & Engineering Manager at NVIDIA",
+    avatar: "https://avatars.githubusercontent.com/u/15611525?v=4",
+  },
+  niketa: {
+    name: "Niket Agarwal",
+    description: "Senior Distinguished Engineer at NVIDIA",
+    avatar: "https://avatars.githubusercontent.com/u/2584050?v=4",
+  },
+  ravirajj: {
+    name: "Raviraj Joshi",
+    description: "Researcher at NVIDIA",
+    avatar: "https://avatars.githubusercontent.com/u/3112692?v=4",
   },
 };

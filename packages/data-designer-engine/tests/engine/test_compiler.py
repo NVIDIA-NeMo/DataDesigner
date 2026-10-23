@@ -495,3 +495,57 @@ def test_pre_batch_cannot_remove_generated_columns(resource_provider: ResourcePr
     builder.add_processor(SeedTransformConfig(name="transform", columns_removed=["output"]))
     with pytest.raises(InvalidConfigError, match="can only remove seed columns"):
         compile_data_designer_config(builder.build(), resource_provider)
+
+
+def _seed_column(config, name: str):
+    return next(col for col in config.columns if col.name == name)
+
+
+def test_seed_columns_are_not_dropped_without_a_drop_processor(resource_provider: ResourceProvider):
+    builder = DataDesignerConfigBuilder()
+    builder.add_column(SamplerColumnConfig(name="row_id", sampler_type=SamplerType.UUID, params=UUIDSamplerParams()))
+    builder.with_seed_dataset(HuggingFaceSeedSource(path="hf://datasets/test/data.csv"))
+
+    config = compile_data_designer_config(builder.build(), resource_provider)
+
+    assert _seed_column(config, "age").drop is False
+    assert _seed_column(config, "city").drop is False
+
+
+def test_marks_seed_columns_named_by_drop_processor(resource_provider: ResourceProvider):
+    """A drop processor naming a seed column must mark it dropped so the profiler skips it."""
+    builder = DataDesignerConfigBuilder()
+    builder.add_column(SamplerColumnConfig(name="row_id", sampler_type=SamplerType.UUID, params=UUIDSamplerParams()))
+    builder.with_seed_dataset(HuggingFaceSeedSource(path="hf://datasets/test/data.csv"))
+    builder.add_processor(DropColumnsProcessorConfig(name="drop_age", column_names=["age"]))
+
+    config = compile_data_designer_config(builder.build(), resource_provider)
+
+    assert _seed_column(config, "age").drop is True
+    assert _seed_column(config, "city").drop is False
+
+
+def test_marks_seed_columns_matched_by_drop_processor_glob(resource_provider: ResourceProvider):
+    builder = DataDesignerConfigBuilder()
+    builder.add_column(SamplerColumnConfig(name="row_id", sampler_type=SamplerType.UUID, params=UUIDSamplerParams()))
+    builder.with_seed_dataset(HuggingFaceSeedSource(path="hf://datasets/test/data.csv"))
+    builder.add_processor(DropColumnsProcessorConfig(name="drop_c", column_names=["c*"]))
+
+    config = compile_data_designer_config(builder.build(), resource_provider)
+
+    assert _seed_column(config, "city").drop is True
+    assert _seed_column(config, "age").drop is False
+
+
+@pytest.mark.parametrize("target", ["state", "st*"])
+def test_marks_processor_added_seed_columns_for_drop(resource_provider: ResourceProvider, target: str) -> None:
+    builder = DataDesignerConfigBuilder()
+    builder.with_seed_dataset(HuggingFaceSeedSource(path="hf://datasets/test/data.csv"))
+    builder.add_processor(SeedTransformConfig(name="add_state", columns_added=["state"]))
+    builder.add_column(ExpressionColumnConfig(name="derived", expr="{{ state }}"))
+    builder.add_processor(DropColumnsProcessorConfig(name="drop_state", column_names=[target]))
+
+    config = compile_data_designer_config(builder.build(), resource_provider)
+
+    assert _seed_column(config, "state").drop is True
+    assert _seed_column(config, "city").drop is False

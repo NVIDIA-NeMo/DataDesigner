@@ -25,6 +25,7 @@ from data_designer.engine.models.errors import (
     ModelQuotaExceededError,
     ModelRateLimitError,
     ModelRequestAdmissionTimeoutError,
+    ModelRequestRejectedError,
     ModelTimeoutError,
     ModelUnprocessableEntityError,
     ModelUnsupportedCapabilityError,
@@ -51,7 +52,7 @@ stub_purpose = "running generation for column 'test'"
             ),
             ModelBadRequestError,
             (
-                f"Provider message: Unexpected field 'foo' in request payload.\n  | Cause: The request for model "
+                "Provider message: Unexpected field 'foo' in request payload.\n  | Cause: The request for model "
                 f"'{stub_model_name}' was found to be malformed or missing required parameters while {stub_purpose}."
             ),
         ),
@@ -169,9 +170,23 @@ stub_purpose = "running generation for column 'test'"
         ),
         (
             ProviderError(
+                kind=ProviderErrorKind.CLIENT_ERROR,
+                message="Backend returned 404: 404 page not found",
+                status_code=424,
+            ),
+            ModelRequestRejectedError,
+            (
+                "Provider message: Backend returned 404: 404 page not found\n  | Cause: Model provider "
+                f"'{stub_model_provider_name}' rejected the request for model "
+                f"'{stub_model_name}' with HTTP status 424 while {stub_purpose}.\n  | Solution: Verify the model name, "
+                "credentials, and model configuration."
+            ),
+        ),
+        (
+            ProviderError(
                 kind=ProviderErrorKind.API_ERROR,
                 message="Unknown API error",
-                status_code=418,
+                status_code=302,
             ),
             ModelAPIError,
             f"Cause: An unexpected API error occurred with model '{stub_model_name}' while {stub_purpose}.",
@@ -218,6 +233,7 @@ stub_purpose = "running generation for column 'test'"
         "not_found",
         "internal_server",
         "unprocessable_entity",
+        "client_error",
         "api_error",
         "bad_request_multimodal",
         "generation_validation_failure",
@@ -230,6 +246,19 @@ def test_handle_llm_exceptions(
 ) -> None:
     with pytest.raises(expected_exception, match=re.escape(expected_error_msg)):
         handle_llm_exceptions(exception, stub_model_name, stub_model_provider_name, stub_purpose)
+
+
+def test_handle_llm_exceptions_does_not_attach_provider_message_for_server_error() -> None:
+    exception = ProviderError(
+        kind=ProviderErrorKind.INTERNAL_SERVER,
+        message="Gateway temporarily unavailable",
+        status_code=502,
+    )
+
+    with pytest.raises(ModelInternalServerError) as exc_info:
+        handle_llm_exceptions(exception, stub_model_name, stub_model_provider_name, stub_purpose)
+
+    assert "Provider message:" not in str(exc_info.value)
 
 
 def test_generation_validation_failure_error_stores_truncation_reason() -> None:

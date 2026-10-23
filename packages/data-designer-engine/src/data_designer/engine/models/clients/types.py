@@ -61,6 +61,7 @@ class ChatCompletionRequest:
     model: str
     messages: list[dict[str, Any]]
     tools: list[dict[str, Any]] | None = None
+    tool_choice: str | dict[str, Any] | None = None
     n: int | None = None
     temperature: float | None = None
     top_p: float | None = None

@@ -186,6 +186,18 @@ dd.ModelConfig(
 ```
 
 
+## Extra Body Precedence
+
+Chat completion, embedding, and image requests can each receive `extra_body` from three places, merged key by key in this order:
+
+1. The model config's `inference_parameters.extra_body`
+2. The call itself, for example an `extra_body` passed to `generate()`, `generate_text_embeddings()`, or `generate_image()` in a [custom column generator](/concepts/custom-columns)
+3. The [model provider's](/concepts/models/model-providers) `extra_body`
+
+A later source wins only for the keys it sets, so a call can add a parameter without losing the configured ones, but it cannot remove one. Nested values are replaced rather than merged: a per-call `chat_template_kwargs` replaces the configured one as a whole.
+
+`extra_body` keys are sent as they are, without translation for the provider, and take precedence over request fields of the same name, such as `top_p` or `tool_choice`.
+
 ## See Also
 
 - **[Default Model Settings](/concepts/models/default-model-settings)**: Pre-configured model settings included with Data Designer

@@ -262,10 +262,13 @@ def create_rich_histogram_table(
     table.add_column(column_names[0], justify="right", style=name_style)
     table.add_column(column_names[1], justify="left", style=value_style)
 
-    max_count = max(data.values())
+    max_count = max(data.values(), default=0)
     for name, value in data.items():
         bar = "" if max_count <= 0 else "█" * int((value / max_count) * 20)
         table.add_row(str(name), f"{bar} {value:.1f}")
+
+    if not data:
+        table.add_row(Text("no data", style="dim"), "")
 
     return table
 
@@ -296,6 +299,9 @@ def display_sample_record(
             "The record must be a single record in a dictionary, pandas Series, "
             f"or pandas DataFrame. You provided: {type(record)}."
         )
+
+    # drop flags that come from drop processors only exist on the built config, not on the builder's columns
+    dropped_column_names = {col.name for col in config_builder.build().columns if col.drop}
 
     render_list = []
     in_notebook = is_notebook_environment()
@@ -330,7 +336,7 @@ def display_sample_record(
         table.add_column("Name")
         table.add_column("Value")
         for col in non_code_columns:
-            if not col.drop:
+            if col.name not in dropped_column_names:
                 if col.column_type == DataDesignerColumnType.EMBEDDING:
                     record[col.name]["embeddings"] = [
                         get_truncated_list_as_string(embd) for embd in record[col.name].get("embeddings")
@@ -365,7 +371,7 @@ def display_sample_record(
         table.add_column("Preview")
 
         for col in image_columns:
-            if col.drop:
+            if col.name in dropped_column_names:
                 continue
             image_data = record[col.name]
 
@@ -428,7 +434,7 @@ def display_sample_record(
         table.add_column("Name")
         table.add_column("Value", ratio=1)
         for col in validation_columns:
-            if not col.drop:
+            if col.name not in dropped_column_names:
                 # Add is_valid before other fields
                 if "is_valid" in record[col.name]:
                     value_to_display = {"is_valid": record[col.name].get("is_valid")} | record[col.name]
@@ -445,7 +451,7 @@ def display_sample_record(
     llm_judge_columns = config_builder.get_columns_of_type(DataDesignerColumnType.LLM_JUDGE)
     if len(llm_judge_columns) > 0:
         for col in llm_judge_columns:
-            if col.drop:
+            if col.name in dropped_column_names:
                 continue
             table = Table(title=f"LLM-as-a-Judge: {col.name}", **table_kws)
             row = []

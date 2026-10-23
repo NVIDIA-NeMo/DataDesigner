@@ -8,6 +8,7 @@ import email.utils
 import time
 from enum import Enum
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.engine.models.clients.types import HttpResponse
 
 
@@ -15,6 +16,7 @@ class ProviderErrorKind(str, Enum):
     API_ERROR = "api_error"
     API_CONNECTION = "api_connection"
     AUTHENTICATION = "authentication"
+    CLIENT_ERROR = "client_error"
     CONTEXT_WINDOW_EXCEEDED = "context_window_exceeded"
     QUOTA_EXCEEDED = "quota_exceeded"
     UNSUPPORTED_PARAMS = "unsupported_params"
@@ -101,6 +103,8 @@ def map_http_status_to_provider_error_kind(status_code: int, body_text: str = ""
         return ProviderErrorKind.BAD_REQUEST
     if 500 <= status_code <= 599:
         return ProviderErrorKind.INTERNAL_SERVER
+    if 400 <= status_code <= 499:
+        return ProviderErrorKind.CLIENT_ERROR
     return ProviderErrorKind.API_ERROR
 
 
@@ -201,11 +205,18 @@ def _parse_http_date_as_delay(value: str) -> float | None:
 
 
 def infer_error_kind_from_exception(exc: Exception) -> ProviderErrorKind:
-    """Infer a ``ProviderErrorKind`` from an exception's type name.
+    """Infer a ``ProviderErrorKind`` from HTTPX types or an exception's type name.
 
     Used by adapters to classify transport-level exceptions (timeouts,
     connection failures, etc.) that don't carry an HTTP status code.
     """
+    # Include stale keep-alive failures so the request executor can retry them.
+    # These can also occur after a POST was processed. We accept possible duplicate
+    # generation or billing to recover from transient failures, matching the
+    # existing transport retry policy.
+    # Local protocol errors are client mistakes and should not be retried.
+    if isinstance(exc, (lazy.httpx.NetworkError, lazy.httpx.RemoteProtocolError)):
+        return ProviderErrorKind.API_CONNECTION
     type_name = type(exc).__name__.lower()
     if "timeout" in type_name:
         return ProviderErrorKind.TIMEOUT

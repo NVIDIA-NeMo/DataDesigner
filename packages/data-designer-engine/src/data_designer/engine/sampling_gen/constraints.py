@@ -6,8 +6,6 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
-from numpy.typing import NDArray
-
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.base import ConfigBase
 from data_designer.config.sampler_constraints import (
@@ -21,6 +19,7 @@ from data_designer.config.sampler_constraints import (
 if TYPE_CHECKING:
     import numpy as np
     import pandas as pd
+    from numpy.typing import NDArray
 
 
 class ConstraintChecker(ConfigBase, ABC):

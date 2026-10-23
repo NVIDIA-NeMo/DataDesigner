@@ -119,7 +119,7 @@ class ValidationColumnGenerator(ColumnGeneratorFullColumn[ValidationColumnConfig
             column_name=self.config.name,
             result_callback=result_callback,
             error_callback=error_callback,
-            shutdown_error_rate=settings.shutdown_error_rate,
+            shutdown_error_rate=settings.effective_shutdown_error_rate,
             shutdown_error_window=settings.shutdown_error_window,
             disable_early_shutdown=settings.disable_early_shutdown,
         ) as executor:

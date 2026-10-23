@@ -1,8 +1,12 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from __future__ import annotations
+
+import json
+
 import pytest
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, JsonValue
 
 from data_designer.engine.models.parsers.errors import ParserException
 from data_designer.engine.models.recipes.response_recipes import (
@@ -43,6 +47,178 @@ class Bar(BaseModel):
 
 class Foo(BaseModel):
     bar: Bar
+
+
+class DictionaryResponse(BaseModel):
+    fields: dict[str, int]
+
+
+class FlexibleDictionaryResponse(BaseModel):
+    fields: dict[str, JsonValue]
+
+
+@pytest.mark.parametrize("fenced", [False, True], ids=["bare", "fenced"])
+@pytest.mark.parametrize(
+    "model,data",
+    [
+        (DictionaryResponse, {"fields": {"alpha": 1, "beta": 2}}),
+        (
+            FlexibleDictionaryResponse,
+            {"fields": {"alpha": 1, "beta": None, "nested": {"values": [1, "two", {"three": True}]}}},
+        ),
+    ],
+    ids=["typed-dictionary", "flexible-json"],
+)
+def test_structured_response_preserves_dictionary_entries(model: type[BaseModel], data: dict, fenced: bool) -> None:
+    recipe = StructuredResponseRecipe(model.model_json_schema())
+    raw = json.dumps({**data, "extra": "prune me"})
+    response = f"```json\n{raw}\n```" if fenced else raw
+    assert recipe.parse(response) == data
+
+
+@pytest.mark.parametrize("fenced", [False, True], ids=["bare", "fenced"])
+def test_structured_response_rejects_invalid_dictionary_value(fenced: bool) -> None:
+    recipe = StructuredResponseRecipe(DictionaryResponse.model_json_schema())
+    raw = json.dumps({"fields": {"alpha": "invalid"}})
+    response = f"```json\n{raw}\n```" if fenced else raw
+    with pytest.raises(ParserException, match="Response doesn't match requested <response_schema>"):
+        recipe.parse(response)
+
+
+@pytest.mark.parametrize("keyword", ["anyOf", "oneOf"])
+@pytest.mark.parametrize("reverse", [False, True], ids=["original-order", "reversed-order"])
+@pytest.mark.parametrize("fenced", [False, True], ids=["bare", "fenced"])
+def test_structured_dictionary_object_alternatives(keyword: str, reverse: bool, fenced: bool) -> None:
+    alternatives = [
+        {"type": "object", "properties": {name: {"type": "integer"}}, "required": [name]} for name in ("a", "b")
+    ]
+    if reverse:
+        alternatives.reverse()
+    schema = {
+        "type": "object",
+        "properties": {"fields": {"type": "object", "additionalProperties": {keyword: alternatives}}},
+    }
+    recipe = StructuredResponseRecipe(schema)
+    data = {"fields": {"x": {"b": 2}, "y": {"a": 1}}}
+    raw = json.dumps({"fields": {key: {**value, "extra": "drop me"} for key, value in data["fields"].items()}})
+    response = f"```json\n{raw}\n```" if fenced else raw
+    assert recipe.parse(response) == data
+
+
+@pytest.mark.parametrize("keyword", ["anyOf", "oneOf"])
+@pytest.mark.parametrize("reverse", [False, True], ids=["original-order", "reversed-order"])
+@pytest.mark.parametrize("fenced", [False, True], ids=["bare", "fenced"])
+@pytest.mark.parametrize("container", ["record", "dictionary", "array"])
+def test_structured_alternatives_prefer_unpruned_match(
+    keyword: str, reverse: bool, fenced: bool, container: str
+) -> None:
+    alternatives = [
+        {
+            "type": "object",
+            "properties": {name: {"type": "string"} for name in names},
+            "required": names,
+            "additionalProperties": False,
+        }
+        for names in (["text"], ["text", "image"])
+    ]
+    if reverse:
+        alternatives.reverse()
+    schema = {keyword: alternatives}
+    data = {"text": "t", "image": "i"}
+    if container == "dictionary":
+        schema = {"type": "object", "additionalProperties": schema}
+        data = {"x": data}
+    elif container == "array":
+        schema = {"type": "array", "items": schema}
+        data = [data]
+    recipe = StructuredResponseRecipe(schema)
+    raw = json.dumps(data)
+    response = f"```json\n{raw}\n```" if fenced else raw
+    assert recipe.parse(response) == data
+
+
+@pytest.mark.parametrize("reverse", [False, True], ids=["original-order", "reversed-order"])
+@pytest.mark.parametrize("fenced", [False, True], ids=["bare", "fenced"])
+def test_structured_response_rejects_one_of_ambiguity_created_by_pruning(reverse: bool, fenced: bool) -> None:
+    alternatives = [
+        {
+            "type": "object",
+            "properties": {"a": {"type": "integer"}},
+            "required": ["a"],
+            "additionalProperties": False,
+        },
+        {"const": {"a": 1}},
+    ]
+    if reverse:
+        alternatives.reverse()
+    recipe = StructuredResponseRecipe(
+        {
+            "type": "object",
+            "properties": {"fields": {"type": "object", "additionalProperties": {"oneOf": alternatives}}},
+        }
+    )
+    raw = json.dumps({"fields": {"x": {"a": 1, "extra": 2}}})
+    response = f"```json\n{raw}\n```" if fenced else raw
+    with pytest.raises(ParserException, match="Response doesn't match requested <response_schema>"):
+        recipe.parse(response)
+
+
+@pytest.fixture(params=["pydantic", "structured"])
+def json_recipe(request: pytest.FixtureRequest) -> PydanticResponseRecipe | StructuredResponseRecipe:
+    if request.param == "pydantic":
+        return PydanticResponseRecipe(Foo)
+    return StructuredResponseRecipe(Foo.model_json_schema())
+
+
+@pytest.mark.parametrize("padding", ["", " \n\t", "    "])
+def test_json_recipe_accepts_bare_json(
+    json_recipe: PydanticResponseRecipe | StructuredResponseRecipe, padding: str
+) -> None:
+    example = Foo(bar=Bar(baz=42, unicode_math=f"<b>**value**</b> &amp; `code` {UNICODE_MATH_STRING}"))
+    response = padding + example.model_dump_json() + padding
+    result = json_recipe.parse(response)
+    assert (result.model_dump() if isinstance(result, BaseModel) else result) == example.model_dump()
+
+
+@pytest.mark.parametrize("response", ["{}", '{"bar": {"baz": "hello"}}'])
+def test_json_recipe_validates_bare_json(
+    json_recipe: PydanticResponseRecipe | StructuredResponseRecipe, response: str
+) -> None:
+    with pytest.raises(ParserException, match="Response doesn't match requested <response_schema>"):
+        json_recipe.parse(response)
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        '{"bar": {"baz": 42}',
+        '{"bar": {"baz": 42,}}',
+        "{bar: {baz: 42}}",
+        'Here is the JSON: {"bar": {"baz": 42}}',
+        '{"bar": {"baz": 42}} trailing text',
+        '{"bar": {"baz": 42}} {"bar": {"baz": 43}}',
+    ],
+)
+def test_json_recipe_rejects_malformed_or_embedded_bare_json(
+    json_recipe: PydanticResponseRecipe | StructuredResponseRecipe, response: str
+) -> None:
+    with pytest.raises(ParserException, match="No parsable JSON found"):
+        json_recipe.parse(response)
+
+
+def test_json_recipe_preserves_fenced_json_precedence(
+    json_recipe: PydanticResponseRecipe | StructuredResponseRecipe,
+) -> None:
+    example = Foo(bar=Bar(baz=42))
+    response = f'{example.model_dump_json()}\n\n```json\n{{"bar": {{"baz": "invalid"}}}}\n```'
+    with pytest.raises(ParserException, match="Response doesn't match requested <response_schema>"):
+        json_recipe.parse(response)
+
+
+def test_structured_response_prunes_bare_json_extra_fields() -> None:
+    recipe = StructuredResponseRecipe(Foo.model_json_schema())
+    example = Foo(bar=Bar(baz=42)).model_dump()
+    assert recipe.parse(json.dumps({**example, "extra": "drop me"})) == example
 
 
 def test_pydantic_response():
@@ -177,7 +353,6 @@ def test_structured_response_patched_case_single_lb():
         "```json\n{}\n```\n",
         '```json\n{"foo": 2}\n```\n',
         '```json\n{"bar": {"baz": "hello"}}\n```\n',
-        '{"bar": {"baz": 42}}',
     ],
 )
 def test_pydantic_response_failure_cases(bad_response):
@@ -199,7 +374,6 @@ def test_pydantic_response_failure_cases(bad_response):
         "```json\n{}\n```\n",
         '```json\n{"foo": 2}\n```\n',
         '```json\n{"bar": {"baz": "hello"}}\n```\n',
-        '{"bar": {"baz": 42}}',
     ],
 )
 def test_structured_response_failure_cases(bad_response):

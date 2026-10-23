@@ -30,12 +30,20 @@ members = [
 [tool.uv]
 # IMPORTANT: This root is NOT a package. It only defines workspace configuration.
 package = false
-required-version = ">=0.7.10"
+required-version = ">=0.13.4"
+# Minimum versions for transitive dependencies with known security vulnerabilities.
+constraint-dependencies = [
+    "certifi>=2026.10.19",
+]
 
 [tool.uv.sources]
 # Temporary immutable pin to jupyter/nbconvert#2300, which replaces the EOL
 # Bleach dependency with nh3. Return to PyPI after the upstream fix is released.
 nbconvert = { git = "https://github.com/jupyter/nbconvert.git", rev = "1fab6813f44f89017e7bcad27578571447b5b9c2" }
+
+[tool.uv.extra-build-variables]
+# Execution does not need CSS. The notebook setup targets restore HTML assets from a verified PyPI wheel.
+nbconvert = { HATCH_BUILD_NO_HOOKS = "true" }
 
 [dependency-groups]
 dev = [
@@ -56,17 +64,17 @@ docs = [
 ]
 notebooks = [
     "aiohttp>=3.14.3,<4", # 3.14.3 fixes aiohttp security advisories
-    "datasets>=4.0.0,<5",
+    "datasets>=5.0.1,<6", # 5.0.1 fixes CVE-2026-66007
     "ipykernel>=6.29.0,<7",
     "jupyter>=1.0.0,<2",
     "jupyter-server>=2.20.0,<3", # 2.20.0 fixes jupyter-server security advisory
-    "jupyterlab>=4.6.0a5,<5", # 4.6.0a5 fixes security advisory pulled in by jupyter
+    "jupyterlab>=4.6.4,<5", # 4.6.4 fixes CVE-2026-102831
     "mistune>=3.3.3,<4", # 3.3.3 fixes security advisory pulled in by nbconvert
     "nbconvert>=7.17.1,<8", # commit pin above removes the vulnerable Bleach dependency
-    "notebook>=7.6.0a5,<8", # 7.6.0a5 fixes security advisory pulled in by jupyter
-    "setuptools>=83.0.0,<84", # 83.0.0 fixes setuptools security advisories pulled in by jupyterlab
+    "notebook>=7.6.3,<8", # 7.6.3 fixes CVE-2026-102831
+    "setuptools>=83.0.0,<84", # 83.0.0 fixes setuptools security advisories pulled in by asciichartpy
     "soupsieve>=2.9.1,<3", # 2.9.1 fixes soupsieve security advisories pulled in by nbconvert
-    "tornado>=6.5.8,<7", # 6.5.8 fixes security advisories pulled in by jupyterlab
+    "tornado>=6.5.10,<7", # 6.5.9 fixes advisories; 6.5.10 restores Jupyter compatibility
 ]
 recipes = [
     "bm25s>=0.2.0,<1",

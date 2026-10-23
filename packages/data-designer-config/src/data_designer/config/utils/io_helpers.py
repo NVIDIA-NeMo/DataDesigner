@@ -178,7 +178,7 @@ def smart_load_yaml(yaml_in: str | Path | dict) -> dict:
     """Return the yaml config as a dict given flexible input types.
 
     Args:
-        config: The config as a dict, yaml string, or yaml file path.
+        yaml_in: The config as a dict, yaml string, or yaml file path.
 
     Returns:
         The config as a dict.

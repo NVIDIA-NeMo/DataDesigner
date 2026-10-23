@@ -13,7 +13,12 @@ from data_designer.engine.processing.processors.base import Processor
 from data_designer.engine.processing.processors.registry import ProcessorRegistry, create_default_processor_registry
 from data_designer.engine.resources.resource_provider import ResourceProvider
 from data_designer.engine.resources.seed_reader import SeedReader, SeedReaderConfigError
-from data_designer.engine.validation import ViolationLevel, rich_print_violations, validate_data_designer_config
+from data_designer.engine.validation import (
+    ViolationLevel,
+    resolve_processor_dropped_columns,
+    rich_print_violations,
+    validate_data_designer_config,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +45,9 @@ def compile_data_designer_config(
     """
     _resolve_and_add_seed_columns(config, resource_provider.seed_reader)
     _apply_processor_column_modifications(config, processor_registry or create_default_processor_registry())
+    _mark_processor_dropped_seed_columns(
+        config, [column for column in config.columns if isinstance(column, SeedDatasetColumnConfig)]
+    )
     _add_internal_row_id_column_if_needed(config)
     _validate(config)
     return config
@@ -104,7 +112,25 @@ def _resolve_and_add_seed_columns(config: DataDesignerConfig, seed_reader: SeedR
             "Please remove the conflicting columns or use a seed dataset with different column names."
         )
 
-    config.columns.extend([SeedDatasetColumnConfig(name=col_name) for col_name in seed_col_names])
+    seed_columns = [SeedDatasetColumnConfig(name=col_name) for col_name in seed_col_names]
+    config.columns.extend(seed_columns)
+
+
+def _mark_processor_dropped_seed_columns(
+    config: DataDesignerConfig, seed_columns: list[SeedDatasetColumnConfig]
+) -> None:
+    """Marks seed columns targeted by a drop processor with `drop=True`.
+
+    `DataDesignerConfigBuilder.build` does this for configured columns, but seed columns
+    aren't known to the builder — they're resolved here. Without this, a
+    processor-dropped seed column is still handed to the dataset profiler, which either
+    reports a column the emitted dataset no longer has or fails outright when
+    `preserve_dropped_columns=False`.
+    """
+    dropped_column_names = resolve_processor_dropped_columns(config.columns, config.processors or [])
+    for column in seed_columns:
+        if column.name in dropped_column_names:
+            column.drop = True
 
 
 def _add_internal_row_id_column_if_needed(config: DataDesignerConfig) -> None:

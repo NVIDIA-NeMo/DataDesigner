@@ -128,7 +128,7 @@ PREV_GRAPH=""
 if [ -f "graphify-out/graph.json" ]; then
   PREV_GRAPH="--previous-graph graphify-out/graph.json"
 fi
-/tmp/graphify-venv/bin/python .agents/tools/structural_impact.py --full $PREV_GRAPH \
+"${GRAPHIFY_VENV:-.scratch/graphify-venv}/bin/python" .agents/tools/structural_impact.py --full $PREV_GRAPH \
   --output /tmp/graphify-structure.md
 ```
 
@@ -145,6 +145,8 @@ Read `/tmp/graphify-structure.md` and incorporate relevant findings:
 
 After the audit, update `baselines` in runner memory with the current god
 node list and cross-package edge counts from `graphify-out/baselines.json`.
+Compare structural baselines only when `graphify_version` and `schema_version`
+match. Otherwise start a new baseline, preserving finding and fix history.
 
 ### 5. Dead exports
 

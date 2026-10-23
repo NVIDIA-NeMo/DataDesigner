@@ -2,9 +2,11 @@
 
 [![CI](https://github.com/NVIDIA-NeMo/DataDesigner/actions/workflows/ci.yml/badge.svg)](https://github.com/NVIDIA-NeMo/DataDesigner/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Python 3.10 - 3.14](https://img.shields.io/badge/🐍_Python-3.10_|_3.11_|_3.12_|_3.13_|_3.14-blue.svg)](https://www.python.org/downloads/) [![NeMo Platform](https://img.shields.io/badge/NeMo-Platform-76b900)](https://docs.nvidia.com/nemo-platform/documentation/design-synthetic-data) [![Code](https://img.shields.io/badge/Code-Documentation-8A2BE2.svg)](https://docs.nvidia.com/nemo/datadesigner/) ![Tokens](https://img.shields.io/badge/20T+-Tokens_Processed-76b900.svg?logo=nvidia&logoColor=white)
+[![Python 3.10 - 3.14](https://img.shields.io/badge/🐍_Python-3.10_|_3.11_|_3.12_|_3.13_|_3.14-blue.svg)](https://www.python.org/downloads/) [![NeMo Platform](https://img.shields.io/badge/NeMo-Platform-76b900)](https://docs.nvidia.com/nemo-platform/documentation/design-synthetic-data) [![Code](https://img.shields.io/badge/Code-Documentation-8A2BE2.svg)](https://docs.nvidia.com/nemo/datadesigner/) ![Tokens](https://img.shields.io/badge/25T+-Tokens_Processed-76b900.svg?logo=nvidia&logoColor=white)
 
 **Generate high-quality synthetic datasets from scratch or using your own seed data.**
+
+📄 **[Read the technical report](https://arxiv.org/abs/2609.17699)** — Architecture, programming model, and case studies for multimodal synthetic data generation.
 
 ---
 
@@ -19,7 +21,7 @@ Data Designer helps you create synthetic datasets that go beyond simple LLM prom
 - **Connect generation to external tools** through local or remote MCP servers and capture interaction traces
 - **Control relationships** between fields with dependency-aware generation
 - **Validate and score outputs** with Python, SQL, custom validators, and LLM judges
-- **Extend Data Designer** with plugins for custom columns, seed readers, and processors
+- **[Extend Data Designer with plugins](#do-more-with-data-designer-plugins)** for specialized data sources, generation capabilities, and processing steps
 - **Preview, resume, and monitor generation** from small experiments to large runs
 
 ---
@@ -95,6 +97,33 @@ config_builder.add_column(
 preview = data_designer.preview(config_builder=config_builder)
 preview.display_sample_record()
 ```
+---
+
+## Do more with Data Designer plugins
+
+Plugins extend the data sources, generation capabilities, and processing steps available in your Data Designer workflows. The [DataDesignerPlugins repository](https://github.com/NVIDIA-NeMo/DataDesignerPlugins) contains optional NVIDIA-maintained packages that add these capabilities.
+
+| What you want to do | Plugin package |
+| --- | --- |
+| Use files from GitHub or local Git repositories as seed data | [GitHub seed reader](https://github.com/NVIDIA-NeMo/DataDesignerPlugins/blob/main/plugins/data-designer-github/README.md) |
+| Generate question-answer data for retriever training, with document chunking, embedding-based deduplication, and export to Automodel-compatible training formats | [Retrieval SDG toolkit](https://github.com/NVIDIA-NeMo/DataDesignerPlugins/blob/main/plugins/data-designer-retrieval-sdg/README.md) |
+
+Data Designer provides the generation framework. Plugin packages add specialized capabilities to your existing workflow and can also provide ready-made workflows with their own CLI.
+
+After installing Data Designer, browse and install compatible packages from the default NVIDIA catalog:
+
+```bash
+data-designer plugin list
+data-designer plugin info github
+data-designer plugin install github
+data-designer plugin installed
+```
+
+The NVIDIA catalog is configured by default. Install plugin packages in the same Python environment as Data Designer. Their extensions are discovered automatically after installation; follow each package’s usage guide to configure them in your workflow.
+
+[Browse available plugins](https://nvidia-nemo.github.io/DataDesignerPlugins/plugins/) · [Discovery and installation guide](https://docs.nvidia.com/nemo/datadesigner/plugins/discover) · [Build your own plugin](https://docs.nvidia.com/nemo/datadesigner/plugins/example-plugin)
+
+---
 
 ---
 
@@ -139,7 +168,7 @@ After installation, invoke the `data-designer` skill or describe the dataset you
 
 This repository supports agent-assisted development — see [CONTRIBUTING.md](CONTRIBUTING.md) for the recommended workflow.
 
-- **[Contributing Guide](CONTRIBUTING.md)** – How to contribute, including agent-assisted workflows
+- **[Contributing Guide](CONTRIBUTING.md)** – How to contribute, including issue triage before external PRs and agent-assisted workflows
 - **[GitHub Issues](https://github.com/NVIDIA-NeMo/DataDesigner/issues)** – Report bugs or make a feature request
 
 ---
@@ -168,15 +197,17 @@ Apache License 2.0 – see [LICENSE](LICENSE) for details.
 
 ## Citation
 
-If you use NeMo Data Designer in your research, please cite it using the following BibTeX entry:
+If you use NeMo Data Designer in your research, please cite our [technical report](https://arxiv.org/abs/2609.17699):
 
 ```bibtex
-@misc{nemo-data-designer,
-  author = {The NeMo Data Designer Team, NVIDIA},
-  title = {NeMo Data Designer: A framework for generating synthetic data from scratch or based on your own seed data},
-  howpublished = {\url{https://github.com/NVIDIA-NeMo/DataDesigner}},
-  year = {2025},
-  note = {GitHub Repository},
+@misc{greco2026nemodatadesignerextensible,
+  title = {NeMo Data Designer: An Extensible Framework for Multimodal Synthetic Data Generation},
+  author = {Johnny Greco and Nabin Mulepati and Andre Manoel and Eric Tramel and Kirit Thadaka and Mike Knepper and Dhruv Nathawani and Dane Corneil and Yev Meyer and Alex Watson and Maarten Van Segbroeck},
+  year = {2026},
+  eprint = {2609.17699},
+  archivePrefix = {arXiv},
+  primaryClass = {cs.AI},
+  url = {https://arxiv.org/abs/2609.17699},
 }
 ```
 

@@ -9,6 +9,7 @@ import pytest
 
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.column_configs import ValidationColumnConfig
+from data_designer.config.run_config import RunConfig
 from data_designer.config.utils.code_lang import CodeLang
 from data_designer.config.validator_params import (
     CodeValidatorParams,
@@ -203,8 +204,16 @@ def test_validation_column_generator_generate_with_different_strategies(
     assert len(result["validation_column"]) == len(df)
 
 
+@pytest.mark.parametrize(
+    ("disable", "rate", "expected_rate"),
+    [(True, 0.2, 1.0), (False, 0.2, 0.2)],
+    ids=["disabled-passes-effective-rate", "enabled-passes-configured-rate"],
+)
 @patch("data_designer.engine.column_generators.generators.validation.get_validator_from_params", autospec=True)
-def test_validation_column_generator_validate_in_parallel_failure(mock_get_validator, stub_resource_provider):
+def test_validation_column_generator_validate_in_parallel_failure(
+    mock_get_validator: Mock, stub_resource_provider: Mock, disable: bool, rate: float, expected_rate: float
+) -> None:
+    stub_resource_provider.run_config = RunConfig(disable_early_shutdown=disable, shutdown_error_rate=rate)
     mock_validator = Mock()
     mock_validator.run_validation.return_value = ValidationResult(data=[ValidationOutput(is_valid=True)])
     mock_get_validator.return_value = mock_validator
@@ -242,3 +251,4 @@ def test_validation_column_generator_validate_in_parallel_failure(mock_get_valid
 
         call_kwargs = mock_executor_class.call_args[1]
         assert call_kwargs["disable_early_shutdown"] == stub_resource_provider.run_config.disable_early_shutdown
+        assert call_kwargs["shutdown_error_rate"] == expected_rate

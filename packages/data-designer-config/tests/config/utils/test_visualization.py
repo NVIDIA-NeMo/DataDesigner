@@ -10,14 +10,18 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 import data_designer.lazy_heavy_imports as lazy
+from data_designer.config.column_configs import SamplerColumnConfig
 from data_designer.config.column_types import get_column_display_order
 from data_designer.config.config_builder import DataDesignerConfigBuilder
+from data_designer.config.processors import DropColumnsProcessorConfig
+from data_designer.config.sampler_params import UUIDSamplerParams
 from data_designer.config.utils.code_lang import CodeLang
 from data_designer.config.utils.errors import DatasetSampleDisplayError
 from data_designer.config.utils.visualization import (
     WithRecordSamplerMixin,
     apply_html_post_processing,
     convert_to_row_element,
+    create_rich_histogram_table,
     display_sample_record,
     get_truncated_list_as_string,
     mask_api_key,
@@ -68,6 +72,18 @@ def test_display_sample_record_twice_no_errors(
     """Test that calling display_sample_record twice on validation output produces no errors."""
     display_sample_record(record_series, config_builder_with_validation)
     display_sample_record(record_series, config_builder_with_validation)
+
+
+def test_display_sample_record_skips_columns_dropped_by_processor(
+    stub_empty_builder: DataDesignerConfigBuilder,
+) -> None:
+    """A column dropped by a drop processor is absent from the record and must not be looked up."""
+    builder = stub_empty_builder
+    builder.add_column(SamplerColumnConfig(name="keep", sampler_type="uuid", params=UUIDSamplerParams()))
+    builder.add_column(SamplerColumnConfig(name="tmp", sampler_type="uuid", params=UUIDSamplerParams()))
+    builder.add_processor(DropColumnsProcessorConfig(name="cleanup", column_names=["tmp"]))
+
+    display_sample_record({"keep": "abc"}, builder)
 
 
 def test_mask_api_key() -> None:
@@ -336,3 +352,17 @@ def test_mixin_out_of_bounds_raises_display_error(
 
     with pytest.raises(DatasetSampleDisplayError, match="out of bounds"):
         results.display_sample_record(index=999)
+
+
+@pytest.mark.parametrize(
+    ("data", "expected_rows", "expected_bars"),
+    [({}, 1, [""]), ({"a": 0, "b": 0}, 2, ["", ""]), ({"a": 1, "b": 3}, 2, ["\u2588" * 6, "\u2588" * 20])],
+    ids=["empty", "all-zero", "populated"],
+)
+def test_create_rich_histogram_table_handles_empty_and_zero_counts(
+    data: dict[str, int], expected_rows: int, expected_bars: list[str]
+) -> None:
+    """Test that histogram rendering survives an empty mapping and all-zero counts."""
+    table = create_rich_histogram_table(data, ("score", "count"))
+    assert table.row_count == expected_rows
+    assert [str(cell).split(" ")[0] for cell in table.columns[1].cells] == expected_bars

@@ -42,8 +42,8 @@ TYPE_FROM_SYMBOL = {
     "PLE": "error",
     "PLR": "refactor",
     "PLW": "warning",
-    "SyntaxError": "fatal",
 }
+SYNTAX_ERROR_CODES = {"invalid-syntax", "E999", "SyntaxError"}
 
 PYTHON_MESSAGES_FIELD = "python_linter_messages"
 RECORD_ID_COLUMN_NAME = "internal_code_record_id"
@@ -215,18 +215,20 @@ class PythonValidator(BaseValidator):
 
         for diagnostic in diagnostics:
             filename = diagnostic["filename"]
-            code = diagnostic["code"]
+            code = diagnostic.get("code")
             location = diagnostic["location"]
             message = diagnostic["message"]
 
-            # Extract alphabetic prefix from code for type mapping
-            alpha_prefix = "".join(c for c in code if c.isalpha())
-            error_type = TYPE_FROM_SYMBOL.get(alpha_prefix, "warning")
+            if code is None or code in SYNTAX_ERROR_CODES:
+                error_type = "fatal"
+            else:
+                alpha_prefix = "".join(c for c in code if c.isalpha())
+                error_type = TYPE_FROM_SYMBOL.get(alpha_prefix, "warning")
 
             processed[Path(filename).stem].add(
                 PythonLinterMessage(
                     type=error_type,
-                    symbol=code,
+                    symbol=str(code),
                     line=location["row"],
                     column=location["column"],
                     message=message,

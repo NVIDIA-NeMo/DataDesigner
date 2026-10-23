@@ -25,7 +25,6 @@ from data_designer.config.data_designer_config import DataDesignerConfig
 from data_designer.config.processors import (
     DropColumnsProcessorConfig,
     ProcessorConfig,
-    ProcessorType,
 )
 from data_designer.config.utils.type_helpers import StrEnum
 from data_designer.config.version import get_library_version
@@ -67,6 +66,7 @@ from data_designer.engine.storage.artifact_storage import (
     ResumeMode,
 )
 from data_designer.engine.storage.media_storage import StorageMode
+from data_designer.engine.validation import resolve_processor_dropped_columns
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -335,6 +335,7 @@ class DatasetBuilder:
         if self._post_generation_processed_resume_result(resume, num_records) is not None:
             return self.artifact_storage.final_dataset_path
 
+        self.artifact_storage.create_dataset_directory(resume=resume)
         self._write_builder_config()
 
         # Set media storage mode based on parameters
@@ -850,7 +851,7 @@ class DatasetBuilder:
                 num_records,
                 buffer_size,
                 on_finalize_row_group=finalize_row_group,
-                shutdown_error_rate=settings.shutdown_error_rate,
+                shutdown_error_rate=settings.effective_shutdown_error_rate,
                 shutdown_error_window=settings.shutdown_error_window,
                 disable_early_shutdown=settings.disable_early_shutdown,
                 trace=trace_enabled,
@@ -1062,6 +1063,9 @@ class DatasetBuilder:
     def _initialize_processors(self, processor_configs: list[ProcessorConfig]) -> list[Processor]:
         # Check columns marked for drop
         columns_to_drop = [config.name for config in self.single_column_configs if config.drop]
+        # Columns an explicit "drop columns" processor already handles take precedence, including glob targets
+        explicitly_dropped = resolve_processor_dropped_columns(self.single_column_configs, processor_configs)
+        columns_to_drop = [name for name in columns_to_drop if name not in explicitly_dropped]
 
         processors: list[Processor] = []
         for config in processor_configs:
@@ -1071,12 +1075,6 @@ class DatasetBuilder:
                     resource_provider=self._resource_provider,
                 )
             )
-
-            # Manually included "drop columns" processor takes precedence
-            if config.processor_type == ProcessorType.DROP_COLUMNS:
-                for column in config.column_names:
-                    if column in columns_to_drop:
-                        columns_to_drop.remove(column)
 
         # If there are still columns marked for drop, add the "drop columns" processor to drop them
         if len(columns_to_drop) > 0:

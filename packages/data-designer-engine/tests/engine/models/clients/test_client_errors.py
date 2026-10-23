@@ -5,14 +5,47 @@ from __future__ import annotations
 
 from typing import Any
 
+import httpx
 import pytest
 
 from data_designer.engine.models.clients.errors import (
     ProviderError,
     ProviderErrorKind,
+    infer_error_kind_from_exception,
     map_http_error_to_provider_error,
     map_http_status_to_provider_error_kind,
 )
+
+
+class PeerDropped(httpx.ReadError):
+    pass
+
+
+@pytest.mark.parametrize(
+    "exception_type,expected_kind",
+    [
+        (httpx.NetworkError, ProviderErrorKind.API_CONNECTION),
+        (httpx.ConnectError, ProviderErrorKind.API_CONNECTION),
+        (httpx.ReadError, ProviderErrorKind.API_CONNECTION),
+        (httpx.WriteError, ProviderErrorKind.API_CONNECTION),
+        (httpx.CloseError, ProviderErrorKind.API_CONNECTION),
+        (httpx.RemoteProtocolError, ProviderErrorKind.API_CONNECTION),
+        (PeerDropped, ProviderErrorKind.API_CONNECTION),
+        (httpx.ConnectTimeout, ProviderErrorKind.TIMEOUT),
+        (httpx.ReadTimeout, ProviderErrorKind.TIMEOUT),
+        (httpx.WriteTimeout, ProviderErrorKind.TIMEOUT),
+        (httpx.PoolTimeout, ProviderErrorKind.TIMEOUT),
+        (httpx.LocalProtocolError, ProviderErrorKind.API_ERROR),
+        (httpx.UnsupportedProtocol, ProviderErrorKind.API_ERROR),
+        (httpx.DecodingError, ProviderErrorKind.API_ERROR),
+        (ConnectionError, ProviderErrorKind.API_CONNECTION),
+        (TimeoutError, ProviderErrorKind.TIMEOUT),
+        (RuntimeError, ProviderErrorKind.API_ERROR),
+    ],
+    ids=lambda value: value.__name__ if isinstance(value, type) else value.value,
+)
+def test_infer_error_kind_from_exception(exception_type: type[Exception], expected_kind: ProviderErrorKind) -> None:
+    assert infer_error_kind_from_exception(exception_type("Server disconnected")) == expected_kind
 
 
 class StubHttpResponse:
@@ -59,7 +92,9 @@ class StubHttpResponse:
         (400, "maximum context length exceeded", ProviderErrorKind.CONTEXT_WINDOW_EXCEEDED),
         (500, "", ProviderErrorKind.INTERNAL_SERVER),
         (503, "", ProviderErrorKind.INTERNAL_SERVER),
-        (418, "", ProviderErrorKind.API_ERROR),
+        (418, "", ProviderErrorKind.CLIENT_ERROR),
+        (424, "", ProviderErrorKind.CLIENT_ERROR),
+        (302, "", ProviderErrorKind.API_ERROR),
     ],
 )
 def test_map_http_status_to_provider_error_kind(

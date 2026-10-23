@@ -22,12 +22,19 @@ from data_designer.config.column_configs import (
     LLMTextColumnConfig,
     SamplerColumnConfig,
 )
+from data_designer.config.column_types import DataDesignerColumnType
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.errors import InvalidConfigError
 from data_designer.config.models import ChatCompletionInferenceParams, ModelConfig, ModelProvider
 from data_designer.config.processors import DropColumnsProcessorConfig
-from data_designer.config.run_config import JinjaRenderingEngine, RequestAdmissionTuningConfig, RunConfig
-from data_designer.config.sampler_params import CategorySamplerParams, DatetimeSamplerParams, SamplerType
+from data_designer.config.run_config import JinjaRenderingEngine, RequestAdmissionTuningConfig, ResumeMode, RunConfig
+from data_designer.config.sampler_constraints import ScalarInequalityConstraint
+from data_designer.config.sampler_params import (
+    CategorySamplerParams,
+    DatetimeSamplerParams,
+    SamplerType,
+    UniformSamplerParams,
+)
 from data_designer.config.seed import IndexRange, PartitionBlock, SamplingStrategy
 from data_designer.config.seed_source import (
     AgentRolloutFormat,
@@ -36,6 +43,7 @@ from data_designer.config.seed_source import (
     FileContentsSeedSource,
     HuggingFaceSeedSource,
 )
+from data_designer.config.seed_source_dataframe import DataFrameSeedSource
 from data_designer.engine.models.clients.adapters.http_model_client import ClientConcurrencyMode
 from data_designer.engine.models.errors import (
     RETRYABLE_MODEL_ERRORS,
@@ -491,7 +499,8 @@ def test_run_config_setting_persists(stub_artifact_path, stub_model_providers):
         )
     )
     assert data_designer.run_config.disable_early_shutdown is True
-    assert data_designer.run_config.shutdown_error_rate == 1.0  # normalized when disabled
+    assert data_designer.run_config.shutdown_error_rate == 0.8
+    assert data_designer.run_config.effective_shutdown_error_rate == 1.0
     assert data_designer.run_config.shutdown_error_window == 25
     assert data_designer.run_config.buffer_size == 500
     assert data_designer.run_config.max_in_flight_tasks == 1536
@@ -561,8 +570,8 @@ def test_resource_provider_uses_otel_sink_only_when_enabled(
         assert create_provider.call_args.kwargs["scheduler_event_sink"] is None
 
 
-def test_run_config_normalizes_error_rate_when_disabled(stub_artifact_path, stub_model_providers):
-    """Test that shutdown_error_rate is normalized to 1.0 when disabled."""
+def test_run_config_keeps_error_rate_when_disabled(stub_artifact_path, stub_model_providers):
+    """Test that shutdown_error_rate round-trips and only the effective rate is 1.0 when disabled."""
     data_designer = DataDesigner(artifact_path=stub_artifact_path, model_providers=stub_model_providers)
 
     # When enabled (default), shutdown_error_rate should use the configured value
@@ -574,14 +583,15 @@ def test_run_config_normalizes_error_rate_when_disabled(stub_artifact_path, stub
     )
     assert data_designer.run_config.shutdown_error_rate == 0.7
 
-    # When disabled, shutdown_error_rate should be normalized to 1.0
+    # When disabled, shutdown_error_rate keeps the configured value; the effective rate is 1.0
     data_designer.set_run_config(
         RunConfig(
             disable_early_shutdown=True,
             shutdown_error_rate=0.7,
         )
     )
-    assert data_designer.run_config.shutdown_error_rate == 1.0
+    assert data_designer.run_config.shutdown_error_rate == 0.7
+    assert data_designer.run_config.effective_shutdown_error_rate == 1.0
 
 
 def test_get_models_uses_sync_clients(stub_artifact_path, stub_model_providers):
@@ -674,6 +684,42 @@ def test_create_dataset_e2e_using_only_sampler_columns(
 
     # display report with no errors
     analysis.to_report()
+
+
+@pytest.mark.parametrize("preview", [False, True], ids=["create", "preview"])
+def test_rounded_sampler_constraints_and_conditions_e2e(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    preview: bool,
+) -> None:
+    builder = DataDesignerConfigBuilder(model_configs=[])
+    builder.add_column(
+        SamplerColumnConfig(
+            name="value", sampler_type="uniform", params=UniformSamplerParams(low=0, high=1, decimal_places=0)
+        )
+    )
+    builder.add_column(
+        SamplerColumnConfig(
+            name="label",
+            sampler_type="category",
+            params=CategorySamplerParams(values=["low"]),
+            conditional_params={"value > 0.75": CategorySamplerParams(values=["high"])},
+        )
+    )
+    builder.add_constraint(ScalarInequalityConstraint(target_column="value", operator="gt", rhs=0.25))
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path, model_providers=stub_model_providers, secret_resolver=PlaintextResolver()
+    )
+    data_designer.set_run_config(RunConfig(buffer_size=16, display_tui=False))
+
+    if preview:
+        frame = data_designer.preview(builder, num_records=64).dataset
+    else:
+        frame = data_designer.create(builder, num_records=64).load_dataset()
+
+    assert len(frame) == 64
+    assert (frame["value"] == 1).all()
+    assert (frame["label"] == "high").all()
 
 
 def test_create_with_drop_true_can_skip_dropped_column_artifacts(
@@ -1303,6 +1349,160 @@ def test_preview_with_dropped_columns(
     )
 
 
+def test_preview_profiles_seed_dataset_columns(stub_artifact_path, stub_model_providers, stub_managed_assets_path):
+    """Seed columns are part of the emitted dataset, so the profile must cover them."""
+    seed = lazy.pd.DataFrame({"diagnosis": ["flu", "cold", "strep"], "patient_summary": ["a", "b", "c"]})
+
+    config_builder = DataDesignerConfigBuilder()
+    config_builder.with_seed_dataset(DataFrameSeedSource(df=seed))
+    config_builder.add_column(SamplerColumnConfig(name="patient_id", sampler_type="uuid", params={}))
+
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+    )
+
+    preview_results = data_designer.preview(config_builder, num_records=3)
+    analysis = preview_results.analysis
+
+    profiled_columns = [stat.column_name for stat in analysis.column_statistics]
+    assert sorted(profiled_columns) == sorted(preview_results.dataset.columns)
+    assert analysis.side_effect_column_names == []
+    assert DataDesignerColumnType.SEED_DATASET in analysis.column_types
+
+    seed_stats = analysis.get_column_statistics_by_type(DataDesignerColumnType.SEED_DATASET)
+    assert sorted(stat.column_name for stat in seed_stats) == ["diagnosis", "patient_summary"]
+
+
+def test_create_profiles_seed_dataset_columns(stub_artifact_path, stub_model_providers, stub_managed_assets_path):
+    """The create path profiles seed columns too, so the reported column count matches the dataset."""
+    seed = lazy.pd.DataFrame({"diagnosis": ["flu", "cold", "strep"], "patient_summary": ["a", "b", "c"]})
+
+    config_builder = DataDesignerConfigBuilder()
+    config_builder.with_seed_dataset(DataFrameSeedSource(df=seed))
+    config_builder.add_column(SamplerColumnConfig(name="patient_id", sampler_type="uuid", params={}))
+
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+    )
+
+    results = data_designer.create(config_builder, num_records=3, dataset_name="seed-profile-test")
+    dataset = results.load_dataset()
+    analysis = results.load_analysis()
+
+    profiled_columns = [stat.column_name for stat in analysis.column_statistics]
+    assert sorted(profiled_columns) == sorted(dataset.columns)
+    assert len(analysis.column_statistics) == dataset.shape[1]
+    assert analysis.side_effect_column_names == []
+
+
+@pytest.mark.parametrize("preserve_dropped_columns", [True, False])
+def test_create_excludes_seed_columns_dropped_by_processor(
+    stub_artifact_path, stub_model_providers, stub_managed_assets_path, preserve_dropped_columns
+):
+    """A drop processor targeting a seed column keeps it out of the profile.
+
+    With ``preserve_dropped_columns=True`` the column survives in the dropped-columns
+    parquet and must not be reported as part of the dataset; with ``False`` it is gone
+    entirely and profiling it would raise.
+    """
+    seed = lazy.pd.DataFrame({"diagnosis": ["flu", "cold", "strep"], "patient_summary": ["a", "b", "c"]})
+
+    config_builder = DataDesignerConfigBuilder()
+    config_builder.with_seed_dataset(DataFrameSeedSource(df=seed))
+    config_builder.add_column(SamplerColumnConfig(name="patient_id", sampler_type="uuid", params={}))
+    config_builder.add_processor(DropColumnsProcessorConfig(name="drop_summary", column_names=["patient_summary"]))
+
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+    )
+    data_designer.set_run_config(RunConfig(preserve_dropped_columns=preserve_dropped_columns))
+
+    results = data_designer.create(config_builder, num_records=3, dataset_name=f"seed-drop-{preserve_dropped_columns}")
+    dataset = results.load_dataset()
+    analysis = results.load_analysis()
+
+    assert "patient_summary" not in dataset.columns
+    profiled_columns = [stat.column_name for stat in analysis.column_statistics]
+    assert sorted(profiled_columns) == sorted(dataset.columns)
+    assert "patient_summary" not in profiled_columns
+
+
+@pytest.mark.parametrize("processor_first", [False, True])
+def test_create_sampler_columns_dropped_by_processor_regardless_of_call_order(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_managed_assets_path: Path,
+    processor_first: bool,
+) -> None:
+    """The drop flag must not depend on whether the processor or the columns were added first.
+
+    With ``preserve_dropped_columns=False`` an unflagged dropped column is gone from the
+    dataset but still handed to the profiler, which used to fail at the end of the run.
+    """
+    config_builder = DataDesignerConfigBuilder()
+    columns = [
+        SamplerColumnConfig(name="keep", sampler_type="uuid", params={}),
+        SamplerColumnConfig(name="tmp", sampler_type="category", params={"values": ["a", "b"]}),
+    ]
+    processor = DropColumnsProcessorConfig(name="drop_tmp", column_names=["tmp"])
+    if processor_first:
+        config_builder.add_processor(processor)
+    for column in columns:
+        config_builder.add_column(column)
+    if not processor_first:
+        config_builder.add_processor(processor)
+
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+    )
+    data_designer.set_run_config(RunConfig(preserve_dropped_columns=False))
+
+    results = data_designer.create(config_builder, num_records=3, dataset_name=f"sampler-drop-{processor_first}")
+    dataset = results.load_dataset()
+    analysis = results.load_analysis()
+
+    assert list(dataset.columns) == ["keep"]
+    assert [stat.column_name for stat in analysis.column_statistics] == ["keep"]
+
+
+def test_preview_excludes_seed_columns_dropped_by_processor(
+    stub_artifact_path, stub_model_providers, stub_managed_assets_path
+):
+    seed = lazy.pd.DataFrame({"diagnosis": ["flu", "cold", "strep"], "patient_summary": ["a", "b", "c"]})
+
+    config_builder = DataDesignerConfigBuilder()
+    config_builder.with_seed_dataset(DataFrameSeedSource(df=seed))
+    config_builder.add_column(SamplerColumnConfig(name="patient_id", sampler_type="uuid", params={}))
+    config_builder.add_processor(DropColumnsProcessorConfig(name="drop_summary", column_names=["patient_summary"]))
+
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+    )
+
+    preview_results = data_designer.preview(config_builder, num_records=3)
+    analysis = preview_results.analysis
+
+    assert "patient_summary" not in preview_results.dataset.columns
+    profiled_columns = [stat.column_name for stat in analysis.column_statistics]
+    assert sorted(profiled_columns) == sorted(preview_results.dataset.columns)
+    assert analysis.side_effect_column_names == ["patient_summary"]
+
+
 @pytest.fixture
 def stub_check_models_model_configs() -> list[ModelConfig]:
     """Model configs whose ``provider`` field matches the local ``stub_model_providers`` fixture.
@@ -1553,6 +1753,45 @@ def test_validate_raises_error_when_seed_collides(
 
     with pytest.raises(InvalidConfigError):
         data_designer.validate(config_builder)
+
+
+def test_validate_with_literal_braces_in_prompts(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_check_models_model_configs: list[ModelConfig],
+    stub_managed_assets_path: Path,
+) -> None:
+    """Literal braces that are valid Jinja text must not crash validation.
+
+    Regression test for #904: an unmatched ``}`` in a prompt or an unmatched ``{``
+    in a system prompt is invalid f-string syntax but valid Jinja text, so the
+    f-string advisory check must not leak ``ValueError`` from ``string.Formatter``.
+    """
+    config_builder = DataDesignerConfigBuilder(model_configs=stub_check_models_model_configs)
+    config_builder.add_column(
+        SamplerColumnConfig(
+            name="topic",
+            sampler_type=SamplerType.CATEGORY,
+            params=CategorySamplerParams(values=["science"]),
+        )
+    )
+    config_builder.add_column(
+        LLMTextColumnConfig(
+            name="story",
+            model_alias="stub-model",
+            prompt="Write about {{ topic }}. End with a literal } brace.",
+            system_prompt="Open every answer with a literal { brace.",
+        )
+    )
+
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+    )
+
+    assert data_designer.validate(config_builder) is None
 
 
 def test_init_auto_configures_logging_by_default(
@@ -2270,3 +2509,39 @@ def test_create_raises_error_when_all_trace_files_are_skipped(
 
     with pytest.raises(DataDesignerGenerationError, match="did not produce any rows"):
         data_designer.create(builder, num_records=1, dataset_name="invalid-trace-seed")
+
+
+@pytest.mark.parametrize("resume", [ResumeMode.NEVER, ResumeMode.IF_POSSIBLE])
+@patch("data_designer.engine.storage.artifact_storage.datetime")
+def test_create_same_timestamp_keeps_runs_isolated(
+    mock_datetime: MagicMock, tmp_path: Path, stub_model_providers: list[ModelProvider], resume: ResumeMode
+) -> None:
+    mock_datetime.now.return_value = datetime(2025, 1, 1, 12, 3, 4)
+    designer = DataDesigner(artifact_path=tmp_path, model_providers=stub_model_providers, auto_configure_logging=False)
+    designer.set_run_config(RunConfig(buffer_size=10, display_tui=False))
+    results = []
+    for tag, num_records in [("A", 20), ("B", 10), ("C", 10)]:
+        builder = DataDesignerConfigBuilder(model_configs=[])
+        builder.add_column(
+            SamplerColumnConfig(name="tag", sampler_type="category", params=CategorySamplerParams(values=[tag]))
+        )
+        result = designer.create(builder, num_records=num_records, resume=resume)
+        results.append((tag, num_records, result))
+
+    assert len({result.artifact_storage.base_dataset_path for _, _, result in results}) == 3
+    assert len(list(tmp_path.iterdir())) == 3
+    for tag, num_records, result in results:
+        assert result.load_dataset()["tag"].tolist() == [tag] * num_records
+        assert result.artifact_storage.media_storage.base_path == result.artifact_storage.base_dataset_path
+
+
+def test_preview_does_not_claim_dataset_directory(tmp_path: Path, stub_model_providers: list[ModelProvider]) -> None:
+    builder = DataDesignerConfigBuilder(model_configs=[])
+    builder.add_column(
+        SamplerColumnConfig(name="tag", sampler_type="category", params=CategorySamplerParams(values=["A"]))
+    )
+    designer = DataDesigner(artifact_path=tmp_path, model_providers=stub_model_providers, auto_configure_logging=False)
+    designer.set_run_config(RunConfig(display_tui=False))
+
+    assert designer.preview(builder, num_records=1).dataset["tag"].tolist() == ["A"]
+    assert list(tmp_path.iterdir()) == []

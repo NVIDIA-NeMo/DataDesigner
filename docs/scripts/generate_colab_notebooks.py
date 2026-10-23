@@ -30,7 +30,7 @@ Run the cells below to install the dependencies and set up the API key. If you d
 """
 
 ADDITIONAL_DEPENDENCIES = {
-    "4-providing-images-as-context.py": '"pillow>=12.0.0,<13" "datasets>=4.0.0,<5"',
+    "4-providing-images-as-context.py": '"pillow>=12.0.0,<13" "datasets>=5.0.1,<6"',
 }
 
 COLAB_INSTALL_CELL = """\

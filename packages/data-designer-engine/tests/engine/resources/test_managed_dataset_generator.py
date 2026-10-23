@@ -3,13 +3,14 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
 
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.engine.resources.managed_dataset_generator import ManagedDatasetGenerator
-from data_designer.engine.resources.person_reader import PersonReader
+from data_designer.engine.resources.person_reader import LocalPersonReader, PersonReader
 from data_designer.engine.sampling_gen.entities.person import load_person_data_sampler
 from data_designer.engine.sampling_gen.errors import DatasetNotAvailableForLocaleError
 
@@ -100,6 +101,8 @@ def test_generate_samples_different_locale(stub_reader: Mock) -> None:
     "locale",
     [
         "en_US",
+        "en_GB",
+        "de_DE",
         "ja_JP",
         "en_IN",
     ],
@@ -117,3 +120,16 @@ def test_load_person_data_sampler_invalid_locale() -> None:
     mock_reader = Mock(spec=PersonReader)
     with pytest.raises(DatasetNotAvailableForLocaleError, match="Locale invalid_locale is not supported"):
         load_person_data_sampler(mock_reader, locale="invalid_locale")
+
+
+@pytest.mark.parametrize("sex", [None, "Female", "Male"])
+def test_german_sex_labels_are_normalized_before_filtering(tmp_path: Path, sex: str | None) -> None:
+    dataset_dir = tmp_path / "datasets"
+    dataset_dir.mkdir()
+    lazy.pd.DataFrame({"sex": ["Weiblich", "Männlich"], "age": [30, 40]}).to_parquet(dataset_dir / "de_DE.parquet")
+    generator = load_person_data_sampler(LocalPersonReader(tmp_path), "de_DE")
+
+    result = generator.generate_samples(size=2, evidence={"sex": sex} if sex else None)
+
+    assert set(result["sex"]) == ({sex} if sex else {"Female", "Male"})
+    assert set(result["age"]) == ({30} if sex == "Female" else {40} if sex == "Male" else {30, 40})

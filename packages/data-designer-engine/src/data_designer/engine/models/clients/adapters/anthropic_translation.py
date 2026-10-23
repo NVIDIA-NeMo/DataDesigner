@@ -33,6 +33,12 @@ _UNSUPPORTED_MEDIA_BLOCK_MODALITIES: dict[str, str] = {
     "video_url": "video",
     "input_video": "video",
 }
+_OPENAI_TOOL_CHOICE_TO_ANTHROPIC_TYPE: dict[str, str] = {
+    "auto": "auto",
+    "required": "any",
+    "none": "none",
+}
+_ANTHROPIC_TOOL_CHOICE_TYPES = frozenset({"auto", "any", "none", "tool"})
 
 
 class UnsupportedAnthropicMediaBlockError(ValueError):
@@ -76,6 +82,9 @@ def build_anthropic_payload(request: ChatCompletionRequest) -> dict[str, Any]:
 
     if request.tools:
         payload["tools"] = [translate_tool_definition(tool) for tool in request.tools]
+
+    if request.tool_choice is not None:
+        payload["tool_choice"] = translate_tool_choice(request.tool_choice)
 
     if request.stop is not None:
         if isinstance(request.stop, str):
@@ -274,6 +283,43 @@ def translate_tool_definition(tool: dict[str, Any]) -> dict[str, Any]:
     if isinstance(description, str) and description:
         translated_tool["description"] = description
     return translated_tool
+
+
+def translate_tool_choice(tool_choice: Any) -> dict[str, Any]:
+    """Translate an OpenAI-style ``tool_choice`` into Anthropic's format.
+
+    Anthropic-native values (``{"type": "auto" | "any" | "none"}`` or
+    ``{"type": "tool", "name": ...}``) pass through unchanged.
+
+    Raises:
+        ValueError: If the value has no Anthropic equivalent.
+    """
+    if isinstance(tool_choice, str):
+        choice_type = _OPENAI_TOOL_CHOICE_TO_ANTHROPIC_TYPE.get(tool_choice)
+        if choice_type is None:
+            raise ValueError(
+                f"Anthropic tool_choice must be 'auto', 'required', 'none', or a named function, got: {tool_choice!r}"
+            )
+        return {"type": choice_type}
+
+    if not isinstance(tool_choice, dict):
+        raise ValueError(f"Anthropic tool_choice must be a string or an object, got: {tool_choice!r}")
+
+    choice_type = tool_choice.get("type")
+    if choice_type == "function":
+        function = tool_choice.get("function")
+        name = function.get("name") if isinstance(function, dict) else None
+        if not isinstance(name, str) or not name:
+            raise ValueError(f"Anthropic tool_choice is missing a function name, got: {tool_choice!r}")
+        return {"type": "tool", "name": name}
+
+    if not isinstance(choice_type, str) or choice_type not in _ANTHROPIC_TOOL_CHOICE_TYPES:
+        raise ValueError(f"Anthropic tool_choice has an unsupported type, got: {tool_choice!r}")
+    if choice_type == "tool":
+        name = tool_choice.get("name")
+        if not isinstance(name, str) or not name:
+            raise ValueError(f"Anthropic tool_choice is missing a tool name, got: {tool_choice!r}")
+    return dict(tool_choice)
 
 
 def translate_tool_calls(tool_calls: Any) -> list[dict[str, Any]]:

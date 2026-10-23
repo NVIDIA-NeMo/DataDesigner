@@ -235,11 +235,12 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
                 configuration (columns, constraints, seed data, etc.).
             num_records: Number of records to generate.
             dataset_name: Name of the dataset. This name will be used as the dataset
-                folder name in the artifact path directory. If a non-empty directory with the
+                folder name in the artifact path directory. If a directory with the
                 same name already exists, dataset will be saved to a new directory with
                 a datetime stamp. For example, if the dataset name is "awesome_dataset" and a directory
                 with the same name already exists, the dataset will be saved to a new directory
-                with the name "awesome_dataset_2025-01-01_12-00-00".
+                with the name "awesome_dataset_01-01-2025_120000". A random suffix may be added
+                to avoid collisions.
             resume: Controls how interrupted runs are handled.
 
                 - ``ResumeMode.NEVER`` (default): always start a fresh generation run.
@@ -354,11 +355,10 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             )
 
         try:
-            profiler_column_configs = config_builder.get_column_configs() or builder.data_designer_config.columns
             profiler = self._create_dataset_profiler(
                 config_builder,
                 resource_provider,
-                column_configs=profiler_column_configs,
+                column_configs=builder.data_designer_config.columns,
             )
             analysis = profiler.profile_dataset(num_records, dataset_for_profiler)
         except Exception as e:
@@ -457,7 +457,11 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             dataset_for_profiler = processed_dataset
 
         try:
-            profiler = self._create_dataset_profiler(config_builder, resource_provider)
+            profiler = self._create_dataset_profiler(
+                config_builder,
+                resource_provider,
+                column_configs=builder.data_designer_config.columns,
+            )
             analysis = profiler.profile_dataset(num_records, dataset_for_profiler)
         except Exception as e:
             raise DataDesignerProfilingError(f"🛑 Error profiling preview dataset: {e}") from e
@@ -623,11 +627,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         """Get the runtime configuration applied to dataset generation.
 
         Returns:
-            The active RunConfig instance. Note that ``RunConfig`` normalizes
-            some fields on construction (e.g., ``shutdown_error_rate`` becomes
-            ``1.0`` when ``disable_early_shutdown=True``), so the returned
-            object may not exactly equal the one originally passed to
-            ``set_run_config``.
+            The active RunConfig instance.
         """
         return self._run_config
 
