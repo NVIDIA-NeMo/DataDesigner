@@ -7,11 +7,11 @@ from pathlib import Path
 
 import pytest
 
+from data_designer.config.models import ModelProvider
 from data_designer.slurm.config import (
     BuilderInput,
     DataDesignerSlurmConfig,
     DataDesignerSlurmConfigBuilder,
-    ExternalModelProviderConfig,
     InvocationConfig,
     SubmissionConfig,
     injected_profile,
@@ -20,7 +20,12 @@ from data_designer.slurm.config import (
 from data_designer.slurm.launcher.renderer import render_generation_attempt_script
 from data_designer.slurm.planning import ResolvedDependencyLock, ResolvedSlurmRunPlan
 from data_designer.slurm.planning.compiler import SlurmRunCompiler
-from data_designer.slurm.planning.errors import SlurmPlanCompilationError, SlurmPlanContractError
+from data_designer.slurm.planning.errors import SlurmPlanContractError
+from data_designer.slurm.planning.model_providers import (
+    load_hosted_model_providers,
+    resolve_hosted_model_providers,
+    validate_hosted_model_providers,
+)
 from data_designer.slurm.planning.resolution import resolve_slurm_config
 from data_designer.slurm.planning.validation import validate_resolved_plan
 from data_designer.slurm.runtime.ports import resolve_allocation_plan
@@ -30,7 +35,7 @@ from data_designer.slurm.runtime.ports import resolve_allocation_plan
 def test_external_provider_examples_load(name: str) -> None:
     path = Path(__file__).parents[2] / "examples" / name
     config = load_run_config(path)
-    assert config.invocation.model_providers[0].name == "hosted"
+    assert "model_providers" not in config.invocation.model_dump()
     assert {deployment.model_alias for deployment in config.deployments} == (
         {"generator"} if name == "mixed-providers.yaml" else set()
     )
@@ -54,6 +59,7 @@ def test_external_models_compile_and_round_trip(
     plan = SlurmRunCompiler.compile(
         resolve_slurm_config(
             config,
+            hosted_model_providers=load_hosted_model_providers(external_plan.hosted_model_providers),
             selected_profile=external_plan.selected_profile,
             client_runtime=external_plan.client.runtime,
             deployment_images=tuple(deployment.image for deployment in external_plan.deployments),
@@ -90,12 +96,11 @@ def test_builder_accepts_external_providers_without_deployments(external_run: Da
     builder = DataDesignerSlurmConfigBuilder(external_run.builder).with_invocation(
         num_records=8,
         dataset_name="hosted",
-        model_providers=external_run.invocation.model_providers,
     )
     builder.with_submission(memory="16G")
     config = builder.build()
     assert config.deployments == []
-    assert config.invocation.model_providers == external_run.invocation.model_providers
+    assert "model_providers" not in config.invocation.model_dump()
     assert config.submission.memory == "16G"
 
 
@@ -152,28 +157,28 @@ def test_submission_memory_is_bound_to_authored_config(
 )
 def test_external_provider_rejects_credential_bearing_endpoints(endpoint: str) -> None:
     with pytest.raises(ValueError):
-        ExternalModelProviderConfig(name="external", endpoint=endpoint)
+        validate_hosted_model_providers((ModelProvider(name="external", endpoint=endpoint),))
 
 
 @pytest.mark.parametrize(
     "values",
     (
-        {"api_key": "plaintext"},
-        {"extra_body": {"api_key": "plaintext"}},
-        {"extra_headers": {"Authorization": {"type": "literal", "value": "Bearer plaintext"}}},
-        {"extra_headers": {"X-Api-Key": {"type": "literal", "value": "plaintext"}}},
-        {"extra_headers": {"X-Bad\r\nHeader": {"type": "literal", "value": "test"}}},
+        {"api_key": "sk-plaintext-key"},
+        {"extra_body": {"api_key": "sk-plaintext-key"}},
+        {"extra_headers": {"Authorization": "Bearer plaintext"}},
+        {"extra_headers": {"X-Api-Key": "plaintext"}},
+        {"extra_headers": {"X-Bad\r\nHeader": "test"}},
     ),
 )
 def test_external_provider_rejects_plaintext_credentials_and_invalid_headers(values: dict[str, object]) -> None:
     with pytest.raises(ValueError):
-        ExternalModelProviderConfig.model_validate(
-            {"name": "external", "endpoint": "https://models.example/v1", **values}
+        validate_hosted_model_providers(
+            (ModelProvider.model_validate({"name": "external", "endpoint": "https://models.example/v1", **values}),)
         )
 
 
 def test_external_provider_retains_extension_parameters() -> None:
-    config = ExternalModelProviderConfig(
+    config = ModelProvider(
         name="custom",
         endpoint="https://models.example/v1",
         provider_type="future-client",
@@ -184,9 +189,9 @@ def test_external_provider_retains_extension_parameters() -> None:
 
 
 def test_external_provider_names_are_unique() -> None:
-    provider = ExternalModelProviderConfig(name="external", endpoint="https://models.example/v1")
+    provider = ModelProvider(name="external", endpoint="https://models.example/v1")
     with pytest.raises(ValueError, match="model provider names must be unique"):
-        InvocationConfig(num_records=8, dataset_name="hosted", model_providers=[provider, provider])
+        validate_hosted_model_providers((provider, provider))
 
 
 def test_external_model_binding_cannot_be_forged(external_plan: ResolvedSlurmRunPlan) -> None:
@@ -203,17 +208,57 @@ def test_unknown_hosted_concurrency_is_rejected(
 ) -> None:
     payload = external_run.model_dump(mode="python")
     payload["invocation"]["model_concurrency"]["typo"] = 4
-    authored = DataDesignerSlurmConfig.model_validate(payload)
-    with pytest.raises(SlurmPlanCompilationError, match="undeclared aliases"):
-        SlurmRunCompiler.compile(
-            resolve_slurm_config(
-                authored,
-                selected_profile=external_plan.selected_profile,
-                client_runtime=external_plan.client.runtime,
-                deployment_images=tuple(deployment.image for deployment in external_plan.deployments),
-                dependency_lock=dependency_lock_single,
-                runtime_bundle=external_plan.runtime_bundle,
-                run_id=external_plan.run_id,
-                package_version=external_plan.package_version,
-            )
+    with pytest.raises(ValueError, match="undeclared aliases"):
+        DataDesignerSlurmConfig.model_validate(payload)
+
+
+def test_slurm_invocation_rejects_parallel_provider_configuration() -> None:
+    with pytest.raises(ValueError):
+        InvocationConfig.model_validate({"num_records": 2, "dataset_name": "native", "model_providers": []})
+
+
+def test_provider_snapshot_keeps_only_required_settings_and_is_detached(external_run: DataDesignerSlurmConfig) -> None:
+    assert external_run.builder.inline is not None
+    provider = ModelProvider(
+        name="external", endpoint="https://models.example/v1", api_key="API_KEY", extra_body={"policy": "original"}
+    )
+    unused = ModelProvider(name="unused", endpoint="https://unused.example/v1", api_key="UNUSED_KEY")
+    captured = resolve_hosted_model_providers(
+        external_run.builder.inline, {d.model_alias for d in external_run.deployments}, (unused, provider)
+    )
+    provider.extra_body["policy"] = "edited"
+    assert len(captured) == 1
+    assert captured[0].name == "external"
+    assert captured[0].api_key == "API_KEY"
+    assert captured[0].extra_body == {"policy": "original"}
+
+
+@pytest.mark.parametrize(
+    "providers",
+    (
+        (),
+        (
+            ModelProvider(name="external", endpoint="https://one.example/v1"),
+            ModelProvider(name="external", endpoint="https://two.example/v1"),
+        ),
+    ),
+)
+def test_unresolved_or_ambiguous_hosted_provider_is_rejected(
+    external_run: DataDesignerSlurmConfig, providers: tuple[ModelProvider, ...]
+) -> None:
+    assert external_run.builder.inline is not None
+    with pytest.raises(ValueError, match="exactly one"):
+        resolve_hosted_model_providers(
+            external_run.builder.inline, {d.model_alias for d in external_run.deployments}, providers
         )
+
+
+@pytest.mark.parametrize("external_run", ("mixed",), indirect=True)
+def test_local_deployment_wins_when_models_share_a_provider(
+    external_run: DataDesignerSlurmConfig, hosted_model_providers: tuple[ModelProvider, ...]
+) -> None:
+    assert external_run.builder.inline is not None
+    payload = external_run.builder.model_dump(mode="json")["inline"]
+    payload["data_designer"]["model_configs"][0]["provider"] = "external"
+    captured = resolve_hosted_model_providers(payload, {"generator"}, hosted_model_providers)
+    assert captured == hosted_model_providers

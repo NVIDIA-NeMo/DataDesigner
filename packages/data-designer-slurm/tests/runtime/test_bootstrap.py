@@ -45,7 +45,7 @@ def test_external_providers_only_reach_native_clients(
         log_directory=context.attempt_directory / "logs/execution-00000002",
         layout=AllocationLayout(("compute-001",)),
     )
-    assert manifest.all_secret_environment_names == ("EXTERNAL_API_KEY", "EXTERNAL_HEADER_TOKEN")
+    assert manifest.all_secret_environment_names == ("MODEL_API_KEY",)
     clients = tuple(
         step
         for step in manifest.steps
@@ -59,12 +59,11 @@ def test_external_providers_only_reach_native_clients(
     assert all(
         step.secret_environment
         == {
-            "EXTERNAL_API_KEY": "EXTERNAL_API_KEY",
-            "EXTERNAL_HEADER_TOKEN": "EXTERNAL_HEADER_TOKEN",
+            "MODEL_API_KEY": "MODEL_API_KEY",
         }
         for step in clients
     )
-    assert all("EXTERNAL_API_KEY" not in step.secret_environment for step in manifest.steps if step not in clients)
+    assert all("MODEL_API_KEY" not in step.secret_environment for step in manifest.steps if step not in clients)
     if not plan.deployments:
         assert len(manifest.steps) == 2
         assert all(step.execution == "native" and not step.gpu_indices for step in manifest.steps)

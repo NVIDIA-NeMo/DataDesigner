@@ -16,6 +16,7 @@ from data_designer.slurm.contracts import Identifier, ShardId
 from data_designer.slurm.launcher.client import SlurmCommandClient
 from data_designer.slurm.launcher.errors import SlurmLauncherError
 from data_designer.slurm.planning import ResolvedSlurmRunPlan
+from data_designer.slurm.services.environment import build_run_export_environment
 from data_designer.slurm.services.errors import SlurmServiceError, SlurmServiceErrorCode, SlurmServiceOperation
 from data_designer.slurm.services.results import SlurmCollectionExecution, SlurmRetryExecution
 from data_designer.slurm.state import (
@@ -48,6 +49,7 @@ class RunRetryCollectionBackend:
         self._workspace_root = workspace_root
         self._launcher = launcher
         self._clock = clock
+        self._source_environment = dict(source_environment)
         self._export_environment = {"NEMO_DEPLOYMENT_TYPE": source_environment.get("NEMO_DEPLOYMENT_TYPE", "slurm")}
 
     def retry(
@@ -63,8 +65,13 @@ class RunRetryCollectionBackend:
         run_id = self._resolve_run_reference(run_or_job_id, operation)
         try:
             observed_at = self._clock()
-            coordinator = SlurmRetryCoordinator(self._workspace_root, run_id, self._launcher, self._export_environment)
             resolved_plan = SlurmStateWriter(self._workspace_root, run_id).load_resolved_plan()
+            export_environment = (
+                self._export_environment
+                if dry_run
+                else build_run_export_environment(resolved_plan, self._source_environment, operation)
+            )
+            coordinator = SlurmRetryCoordinator(self._workspace_root, run_id, self._launcher, export_environment)
             effective_resume_mode = self._resolve_retry_resume_mode(resolved_plan, resume)
             preview = coordinator.preview_active(shard_ids=shard_ids, observed_at=observed_at)
             if preview is not None and effective_resume_mode not in {None, preview[0].effective_resume_mode}:

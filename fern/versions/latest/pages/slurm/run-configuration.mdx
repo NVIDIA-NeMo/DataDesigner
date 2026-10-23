@@ -36,7 +36,7 @@ submission:
 
 `builder` accepts exactly one complete serialized Data Designer config through `source` or `inline`. Relative source paths resolve from the run file directory. `invocation.run_config` accepts public `RunConfig` fields except `display_tui`, which is disabled for Slurm jobs. `input_bindings.seed_path` and `managed_assets_path` accept absolute compute-visible paths.
 
-Every builder model alias must have either one deployment or a provider declared in `invocation.model_providers`. These assignments must not overlap. `model_concurrency` accepts any declared alias, including external models. Deployment aliases must be unique. `model` selects the Hugging Face model ID or absolute model path loaded by the serving container. `served_model_name` is the name exposed to the client and defaults to `model`; set it explicitly when `model` is a container-visible path but the builder uses a stable model name. Shard and collected output files are Parquet. Choose the destination and partition count with `slurm merge` after the run completes.
+Each builder model alias listed in `deployments` is served locally. Every remaining alias must reference a provider in DD's normal `model_providers.yaml` settings. `model_concurrency` accepts any declared alias, including external models. Deployment aliases must be unique. `model` selects the Hugging Face model ID or absolute model path loaded by the serving container. `served_model_name` is the name exposed to the client and defaults to `model`; set it explicitly when `model` is a container-visible path but the builder uses a stable model name. Shard and collected output files are Parquet. Choose the destination and partition count with `slurm merge` after the run completes.
 
 The client runs from the same shared Python environment as the CLI on the first allocated node. Its step requests no GPUs; local serving steps use the GPUs and their registered images. The `client` block is optional; `client.cpus` defaults to 16. It sets the client step's CPU request and contributes to the batch allocation's CPU request.
 
@@ -51,7 +51,17 @@ Slurm schedules the job in one of the selected partitions. For runs with local d
 
 ## External model providers
 
-Use `invocation.model_providers` for endpoints managed outside this allocation. The builder keeps its normal model declarations:
+Configure hosted endpoints through DD's normal `model_providers.yaml`, outside the Slurm run file:
+
+```yaml
+providers:
+  - name: hosted
+    endpoint: https://models.example/v1
+    provider_type: openai
+    api_key: MODEL_API_KEY
+```
+
+Export `MODEL_API_KEY` in the submit environment. Keep its value out of configuration files. The recipe references the provider through its normal `ModelConfig`:
 
 ```yaml
 data_designer:
@@ -65,33 +75,26 @@ data_designer:
   # Keep the recipe's columns and inference parameters here.
 ```
 
-The run file declares the external provider and deploys only `generator`:
+The Slurm run deploys only `generator`. There is no separate hosted-provider block in the run file:
 
 ```yaml
 invocation:
   num_records: 1000
   dataset_name: judged-output
-  model_providers:
-    - name: hosted
-      endpoint: https://models.example/v1
-      provider_type: openai
-      api_key:
-        type: secret
-        environment: MODEL_API_KEY
   model_concurrency:
     generator: 64
     judge: 16
 ```
 
-The provider name must match the builder model's `provider`. Slurm preserves external model names and inference parameters; an explicit `model_concurrency` value overrides that alias's request concurrency. Provider names must not collide with generated local names such as `slurm-generator`.
+Submission captures only the required hosted providers in the resolved run inputs, using DD's native provider representation. Later edits to submit-side settings do not change that run, and compute nodes do not need access to the submit host's settings directory. Missing or ambiguous providers and collisions with generated names such as `slurm-generator` fail before submission. Only locally deployed aliases receive generated endpoints; hosted model names and inference settings stay intact. An explicit `model_concurrency` value overrides the selected alias's request concurrency.
 
-`api_key` is an optional `SecretRef`. Set the referenced variable in the submit environment; Slurm forwards it only to native client steps. Provider `extra_body` accepts non-secret request parameters. `extra_headers` maps header names to `type: literal` / `value` or `type: secret` / `environment` bindings. Authentication headers require secret bindings. Credential values are never written into the run configuration or resolved plan.
+API keys must reference environment variables. Slurm forwards their values only to native client steps through runtime credential transport, including retries. Values stay out of persisted plans and generated scripts. Plaintext API keys, sensitive headers, and custom secret resolvers are not supported for hosted Slurm providers. Non-secret `extra_body` parameters and static headers use the normal DD provider fields.
 
 Both local and external requests use DD's existing async engine. Ready requests for different records and models can overlap. Async overlap does not guarantee continuous GPU utilization: slow external calls and the final judging tail can still retain an idle GPU allocation. Measure utilization against the cluster's policy when deciding whether to use separate recipe stages.
 
 ### Hosted-only CPU runs
 
-For a builder whose models all use declared external providers, omit local deployments or set `deployments: []`. Select the cluster's CPU partition:
+For a builder whose models all reference configured hosted providers, omit local deployments or set `deployments: []`. Select the cluster's CPU partition:
 
 ```yaml
 schema_version: 1
@@ -101,12 +104,6 @@ builder:
 invocation:
   num_records: 1000
   dataset_name: hosted-judging
-  model_providers:
-    - name: hosted
-      endpoint: https://models.example/v1
-      api_key:
-        type: secret
-        environment: MODEL_API_KEY
 client:
   cpus: 4
 deployments: []

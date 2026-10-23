@@ -36,17 +36,13 @@ def get_persisted_builder_identity(
     return get_declared_model_aliases(builder), compute_serialized_json_sha256(builder)
 
 
-def get_external_model_aliases(
-    builder: dict[str, JsonValue], provider_names: Collection[str]
-) -> tuple[ModelAlias, ...]:
-    """Return explicitly external aliases in their authored builder order."""
+def get_external_model_aliases(builder: dict[str, JsonValue], local_aliases: Collection[str]) -> tuple[ModelAlias, ...]:
+    """Return aliases not deployed locally in their authored builder order."""
     get_declared_model_aliases(builder)
     data_designer = builder.get("data_designer", builder)
     assert isinstance(data_designer, dict)
     configs = data_designer.get("model_configs") or []
     assert isinstance(configs, list)
     return tuple(
-        config["alias"]
-        for config in configs
-        if isinstance(config, dict) and isinstance(config.get("provider"), str) and config["provider"] in provider_names
+        config["alias"] for config in configs if isinstance(config, dict) and config["alias"] not in local_aliases
     )

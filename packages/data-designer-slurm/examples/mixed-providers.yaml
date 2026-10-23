@@ -22,12 +22,6 @@ builder:
 invocation:
   num_records: 100
   dataset_name: judged-descriptions
-  model_providers:
-    - name: hosted
-      endpoint: https://models.example/v1
-      api_key:
-        type: secret
-        environment: MODEL_API_KEY
   model_concurrency:
     generator: 32
     judge: 16

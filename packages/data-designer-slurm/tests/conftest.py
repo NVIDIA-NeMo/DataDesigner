@@ -19,6 +19,7 @@ from slurm_test_fakes import (
     FakeVllmBackend,
 )
 
+from data_designer.config.models import ModelProvider
 from data_designer.slurm.benchmark import BenchmarkManifest, BenchmarkReport
 from data_designer.slurm.client import ClientResult
 from data_designer.slurm.config import (
@@ -103,19 +104,6 @@ def external_run(
             },
         }
     )
-    payload["invocation"]["model_providers"] = [
-        {
-            "name": "external",
-            "endpoint": "https://models.example/v1",
-            "provider_type": "openai",
-            "api_key": {"type": "secret", "environment": "EXTERNAL_API_KEY"},
-            "extra_body": {"routing": {"version": 2}},
-            "extra_headers": {
-                "X-Project": {"type": "literal", "value": "test"},
-                "X-Token": {"type": "secret", "environment": "EXTERNAL_HEADER_TOKEN"},
-            },
-        }
-    ]
     payload["invocation"]["model_concurrency"]["judge"] = 3
     if request.param == "hosted-only":
         models.pop(0)
@@ -125,7 +113,21 @@ def external_run(
 
 
 @pytest.fixture
+def hosted_model_providers() -> tuple[ModelProvider, ...]:
+    return (
+        ModelProvider(
+            name="external",
+            endpoint="https://models.example/v1",
+            api_key="MODEL_API_KEY",
+            extra_body={"routing": {"version": 2}},
+            extra_headers={"X-Project": "test"},
+        ),
+    )
+
+
+@pytest.fixture
 def external_plan(
+    hosted_model_providers: tuple[ModelProvider, ...],
     external_run: DataDesignerSlurmConfig,
     single_node_plan: ResolvedSlurmRunPlan,
     dependency_lock_single: ResolvedDependencyLock,
@@ -133,6 +135,7 @@ def external_plan(
     return SlurmRunCompiler.compile(
         resolve_slurm_config(
             external_run,
+            hosted_model_providers=hosted_model_providers,
             selected_profile=single_node_plan.selected_profile,
             client_runtime=single_node_plan.client.runtime,
             deployment_images=tuple(single_node_plan.deployments[0].image for _ in external_run.deployments),

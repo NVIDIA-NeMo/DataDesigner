@@ -48,15 +48,9 @@ def test_bash_controller_scopes_secrets_cleans_steps_and_never_runs_host_python(
     if hosted_only:
         plan["deployments"] = []
         plan["resolved_gpus_per_node"] = 0
-        plan["invocation"] = {
-            "authored": {
-                "model_providers": [
-                    {
-                        "api_key": {"type": "secret", "environment": "SOURCE_TOKEN"},
-                    }
-                ]
-            }
-        }
+        plan["hosted_model_providers"] = [
+            {"name": "hosted", "endpoint": "https://models.example/v1", "api_key": "SOURCE_TOKEN"}
+        ]
         manifest["steps"] = [step for step in manifest["steps"] if step["role"] in {"client_preflight", "client"}]
         manifest["all_secret_environment_names"] = ["SOURCE_TOKEN"]
     plan_path.write_text(json.dumps(plan))

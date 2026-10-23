@@ -10,6 +10,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Literal
 
+from data_designer.config.models import ModelProvider
 from data_designer.slurm.config.environment import (
     SecretRef,
     collect_secret_environment_names,
@@ -158,7 +159,7 @@ def _build_client_step(
         (
             plan.client.authored.dependencies.index_credentials,
             plan.invocation.authored.mcp_providers,
-            plan.invocation.authored.model_providers,
+            *(ModelProvider.model_validate(value) for value in plan.hosted_model_providers),
         )
     )
     allocation_environment = (

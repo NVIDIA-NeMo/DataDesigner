@@ -12,6 +12,7 @@ from conftest import ClientWorkerCase, FakeDataDesigner
 from pytest_httpx import HTTPXMock
 
 from data_designer.config import DataDesignerConfigBuilder
+from data_designer.config.models import ModelProvider
 from data_designer.config.seed_source import LocalFileSeedSource
 from data_designer.slurm.client.errors import ClientWorkerError
 from data_designer.slurm.client.execution import ClientWorker
@@ -26,6 +27,7 @@ from data_designer.slurm.state.outputs import CandidateOutputManifest
 
 @pytest.fixture
 def external_client_case(
+    hosted_model_providers: tuple[ModelProvider, ...],
     external_run: DataDesignerSlurmConfig,
     client_worker_case: ClientWorkerCase,
 ) -> ClientWorkerCase:
@@ -33,6 +35,7 @@ def external_client_case(
     plan = SlurmRunCompiler.compile(
         resolve_slurm_config(
             external_run,
+            hosted_model_providers=hosted_model_providers,
             selected_profile=case.plan.selected_profile,
             client_runtime=case.plan.client.runtime,
             deployment_images=tuple(case.plan.deployments[0].image for _ in external_run.deployments),
@@ -59,8 +62,7 @@ def test_worker_preserves_hosted_models_and_scopes_secrets(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     case = external_client_case
-    monkeypatch.setenv("EXTERNAL_API_KEY", "fake-provider-secret")
-    monkeypatch.setenv("EXTERNAL_HEADER_TOKEN", "fake-header-secret")
+    monkeypatch.setenv("MODEL_API_KEY", "fake-provider-secret")
     designers: list[FakeDataDesigner] = []
 
     def factory(**kwargs: object) -> FakeDataDesigner:
@@ -78,9 +80,9 @@ def test_worker_preserves_hosted_models_and_scopes_secrets(
     assert model.inference_parameters.max_parallel_requests == 3
     providers = {provider.name: provider for provider in designers[0].initialization["model_providers"]}
     assert providers["external"].endpoint == "https://models.example/v1"
-    assert providers["external"].api_key == "fake-provider-secret"
+    assert providers["external"].api_key == "MODEL_API_KEY"
     assert providers["external"].extra_body == {"routing": {"version": 2}}
-    assert providers["external"].extra_headers == {"X-Project": "test", "X-Token": "fake-header-secret"}
+    assert providers["external"].extra_headers == {"X-Project": "test"}
     if case.plan.deployments:
         assert providers["slurm-generator"].endpoint == case.endpoints["generator"]
     else:
@@ -93,14 +95,13 @@ def test_worker_preserves_hosted_models_and_scopes_secrets(
         assert "fake-header-secret" not in content
 
 
-@pytest.mark.parametrize("missing", ("EXTERNAL_API_KEY", "EXTERNAL_HEADER_TOKEN"))
+@pytest.mark.parametrize("missing", ("MODEL_API_KEY",))
 def test_worker_rejects_unavailable_hosted_credentials(
     external_client_case: ClientWorkerCase,
     monkeypatch: pytest.MonkeyPatch,
     missing: str,
 ) -> None:
-    monkeypatch.setenv("EXTERNAL_API_KEY", "fake-provider-secret")
-    monkeypatch.setenv("EXTERNAL_HEADER_TOKEN", "fake-header-secret")
+    monkeypatch.setenv("MODEL_API_KEY", "fake-provider-secret")
     monkeypatch.delenv(missing)
     case = external_client_case
     with pytest.raises(ClientWorkerError, match="required client secret is unavailable"):
@@ -119,8 +120,7 @@ def test_hosted_only_worker_needs_no_scheduler_gpu_environment(
 ) -> None:
     monkeypatch.delenv("SLURM_JOB_GPUS", raising=False)
     monkeypatch.delenv("CUDA_VISIBLE_DEVICES", raising=False)
-    monkeypatch.setenv("EXTERNAL_API_KEY", "fake-provider-secret")
-    monkeypatch.setenv("EXTERNAL_HEADER_TOKEN", "fake-header-secret")
+    monkeypatch.setenv("MODEL_API_KEY", "fake-provider-secret")
     case = external_client_case
     worker = ClientWorker(data_designer_factory=FakeDataDesigner, environment={})
     worker.preflight(case.plan_path, prepared=case.prepared, endpoints={}, plugins=())
@@ -140,8 +140,7 @@ def test_worker_preserves_existing_dataset_paths(
     existing_kind: str,
 ) -> None:
     case = external_client_case
-    monkeypatch.setenv("EXTERNAL_API_KEY", "fake-provider-secret")
-    monkeypatch.setenv("EXTERNAL_HEADER_TOKEN", "fake-header-secret")
+    monkeypatch.setenv("MODEL_API_KEY", "fake-provider-secret")
     worker = ClientWorker(data_designer_factory=FakeDataDesigner)
     worker.preflight(case.plan_path, prepared=case.prepared, endpoints=case.endpoints, plugins=())
     dataset = case.attempt_dir / "dataset"
@@ -183,8 +182,7 @@ def test_native_dd_generates_through_managed_and_external_endpoints(
 ) -> None:
     case = external_client_case
     monkeypatch.setattr("data_designer.engine.models.telemetry.TELEMETRY_ENABLED", False)
-    monkeypatch.setenv("EXTERNAL_API_KEY", "fake-provider-secret")
-    monkeypatch.setenv("EXTERNAL_HEADER_TOKEN", "fake-header-secret")
+    monkeypatch.setenv("MODEL_API_KEY", "fake-provider-secret")
     payload = case.plan.model_dump(mode="python")
     payload["builder"]["inline"]["data_designer"]["columns"] = [
         {
@@ -243,7 +241,7 @@ def test_native_dd_generates_through_managed_and_external_endpoints(
     requests = httpx_mock.get_requests(url=hosted_url)
     assert requests
     assert all(request.headers["Authorization"] == "Bearer fake-provider-secret" for request in requests)
-    assert all(request.headers["X-Token"] == "fake-header-secret" for request in requests)
+    assert all(request.headers["X-Project"] == "test" for request in requests)
     assert all(json.loads(request.content)["model"] == "example/hosted-judge" for request in requests)
     for endpoint in case.endpoints.values():
         local_requests = httpx_mock.get_requests(url=endpoint + "/chat/completions")

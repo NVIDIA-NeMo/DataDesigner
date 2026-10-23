@@ -21,7 +21,6 @@ from data_designer.slurm.config.run import (
     ClientConfig,
     ClientDependencies,
     DataDesignerSlurmConfig,
-    ExternalModelProviderConfig,
     InputBindings,
     InvocationConfig,
     MCPProviderConfig,
@@ -73,7 +72,6 @@ class DataDesignerSlurmConfigBuilder:
         run_config: Mapping[str, object] | None = None,
         input_bindings: InputBindings | Mapping[str, object] | None = None,
         mcp_providers: Sequence[MCPProviderConfig | Mapping[str, object]] = (),
-        model_providers: Sequence[ExternalModelProviderConfig | Mapping[str, object]] = (),
         model_concurrency: Mapping[str, int] | None = None,
     ) -> DataDesignerSlurmConfigBuilder:
         """Set typed Data Designer invocation intent."""
@@ -86,7 +84,6 @@ class DataDesignerSlurmConfigBuilder:
                 "run_config": {} if run_config is None else dict(run_config),
                 "input_bindings": {} if input_bindings is None else input_bindings,
                 "mcp_providers": list(mcp_providers),
-                "model_providers": list(model_providers),
                 "model_concurrency": {} if model_concurrency is None else dict(model_concurrency),
             },
         )

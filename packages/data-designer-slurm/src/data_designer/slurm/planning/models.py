@@ -48,6 +48,11 @@ from data_designer.slurm.contracts import (
     validate_plain_text,
 )
 from data_designer.slurm.planning.builder_identity import get_declared_model_aliases, get_external_model_aliases
+from data_designer.slurm.planning.model_providers import (
+    dump_hosted_model_providers,
+    load_hosted_model_providers,
+    resolve_hosted_model_providers,
+)
 from data_designer.slurm.types import NetworkPort, PartitionSelection
 
 
@@ -410,6 +415,12 @@ class ResolvedSlurmRunPlan(ContractRecord):
     submission: ResolvedSubmission
     container_mounts: tuple[ContainerMount, ...] = ()
     runtime_bundle: ArtifactReference
+    hosted_model_providers: tuple[dict[str, JsonValue], ...] = Field(default=(), exclude_if=lambda value: not value)
+
+    @field_validator("hosted_model_providers", mode="before")
+    @classmethod
+    def validate_hosted_providers(cls, value: tuple[dict[str, JsonValue], ...]) -> tuple[dict[str, JsonValue], ...]:
+        return dump_hosted_model_providers(load_hosted_model_providers(value))
 
     @field_validator("scheduler_bin_path")
     @classmethod
@@ -480,15 +491,20 @@ class ResolvedSlurmRunPlan(ContractRecord):
         external = set(self.builder.external_model_aliases)
         if external.intersection(aliases) or set(aliases) | external != set(self.builder.model_aliases):
             raise ValueError("resolved deployment aliases must exactly cover Data Designer model aliases")
-        provider_names = {provider.name for provider in self.invocation.authored.model_providers}
+        providers = load_hosted_model_providers(self.hosted_model_providers)
+        provider_names = {provider.name for provider in providers}
         if external and not provider_names:
-            raise ValueError("external model aliases require external providers")
+            raise ValueError("resolved deployment aliases must exactly cover Data Designer model aliases")
         if provider_names.intersection(f"slurm-{alias}" for alias in aliases):
             raise ValueError("external provider names must not collide with managed providers")
         if self.builder.inline is not None and self.builder.external_model_aliases != get_external_model_aliases(
-            self.builder.inline, provider_names
+            self.builder.inline, aliases
         ):
             raise ValueError("resolved external model aliases do not match the inline builder")
+        if self.builder.inline is not None and providers != resolve_hosted_model_providers(
+            self.builder.inline, aliases, providers
+        ):
+            raise ValueError("hosted model provider snapshot does not match the builder")
         if set(self.invocation.authored.model_concurrency).difference(self.builder.model_aliases):
             raise ValueError("model concurrency references undeclared aliases")
 

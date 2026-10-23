@@ -11,6 +11,7 @@ from typing import Annotated
 from pydantic import JsonValue, NonNegativeInt, StringConstraints, TypeAdapter, ValidationError
 
 from data_designer.config import RunConfig
+from data_designer.config.models import ModelProvider
 from data_designer.slurm._errors import format_validation_error
 from data_designer.slurm.config.images import ImageKind
 from data_designer.slurm.config.profiles import SelectedSlurmProfile
@@ -30,6 +31,9 @@ from data_designer.slurm.planning.builder_identity import (
     get_persisted_builder_identity,
 )
 from data_designer.slurm.planning.errors import SlurmConfigResolutionError
+from data_designer.slurm.planning.model_providers import (
+    dump_hosted_model_providers,
+)
 from data_designer.slurm.planning.models import (
     ResolvedBuilderInput,
     ResolvedClientRuntime,
@@ -89,6 +93,7 @@ class EffectiveDataDesignerSlurmConfig(ContractValue):
     resolved_gpus_per_node: NonNegativeInt
     builder: ResolvedBuilderInput
     builder_payload: dict[str, JsonValue] | None = None
+    hosted_model_providers: tuple[dict[str, JsonValue], ...] = ()
     invocation: ResolvedInvocation
     client_runtime: ResolvedClientRuntime
     deployment_images: tuple[ResolvedImage, ...]
@@ -110,6 +115,7 @@ def resolve_slurm_config(
     scheduler_bin_path: str | None = None,
     resolved_gpus_per_node: int | None = None,
     builder_payload: dict[str, JsonValue] | None = None,
+    hosted_model_providers: tuple[ModelProvider, ...] = (),
 ) -> EffectiveDataDesignerSlurmConfig:
     """Materialize all non-secret defaults from explicitly supplied resolved inputs."""
     try:
@@ -137,6 +143,7 @@ def resolve_slurm_config(
             resolved_gpus_per_node=gpus_per_node,
             builder=builder,
             builder_payload=resolved_builder_payload,
+            hosted_model_providers=dump_hosted_model_providers(hosted_model_providers),
             invocation=_materialize_invocation(authored, workspace_root),
             client_runtime=client_runtime,
             deployment_images=deployment_images,
@@ -238,7 +245,7 @@ def _resolve_builder(
     run_root: str,
     builder_payload: dict[str, JsonValue] | None,
 ) -> tuple[ResolvedBuilderInput, dict[str, JsonValue] | None]:
-    provider_names = {provider.name for provider in authored.invocation.model_providers}
+    local_aliases = {deployment.model_alias for deployment in authored.deployments}
     if authored.builder.inline is not None:
         if builder_payload is not None:
             raise SlurmConfigResolutionError("inline builder input must not provide a separate payload")
@@ -247,7 +254,7 @@ def _resolve_builder(
                 inline=authored.builder.inline,
                 content_sha256=compute_serialized_json_sha256(authored.builder.inline),
                 model_aliases=get_declared_model_aliases(authored.builder.inline),
-                external_model_aliases=get_external_model_aliases(authored.builder.inline, provider_names),
+                external_model_aliases=get_external_model_aliases(authored.builder.inline, local_aliases),
             ),
             None,
         )
@@ -266,7 +273,7 @@ def _resolve_builder(
             source=source,
             content_sha256=source.sha256,
             model_aliases=aliases,
-            external_model_aliases=get_external_model_aliases(validated_payload, provider_names),
+            external_model_aliases=get_external_model_aliases(validated_payload, local_aliases),
         ),
         validated_payload,
     )

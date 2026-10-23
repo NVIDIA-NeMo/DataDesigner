@@ -12,6 +12,7 @@ from data_designer.slurm.config.run import DataDesignerSlurmConfig
 from data_designer.slurm.contracts import derive_managed_assets_path
 from data_designer.slurm.planning.builder_identity import get_external_model_aliases, get_persisted_builder_identity
 from data_designer.slurm.planning.errors import SlurmPlanContractError
+from data_designer.slurm.planning.model_providers import load_hosted_model_providers, resolve_hosted_model_providers
 from data_designer.slurm.planning.models import (
     ResolvedDependencyLock,
     ResolvedSlurmRunPlan,
@@ -79,8 +80,17 @@ def validate_resolved_plan(
     assert payload is not None
     _require(
         plan.builder.external_model_aliases
-        == get_external_model_aliases(payload, {provider.name for provider in authored.invocation.model_providers}),
+        == get_external_model_aliases(payload, {deployment.model_alias for deployment in authored.deployments}),
         "resolved external aliases do not match the builder",
+    )
+    _require(
+        load_hosted_model_providers(plan.hosted_model_providers)
+        == resolve_hosted_model_providers(
+            payload,
+            {deployment.model_alias for deployment in authored.deployments},
+            load_hosted_model_providers(plan.hosted_model_providers),
+        ),
+        "hosted model provider snapshot does not match the builder",
     )
 
     expected_account = authored.submission.account or plan.selected_profile.profile.scheduler.account

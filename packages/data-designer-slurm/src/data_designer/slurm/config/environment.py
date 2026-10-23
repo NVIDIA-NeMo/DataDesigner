@@ -11,6 +11,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, JsonValue, StringConstraints, field_validator
 
+from data_designer.config.models import ModelProvider
 from data_designer.slurm.contracts import AuthoredConfig, validate_plain_text
 from data_designer.slurm.types import EnvironmentName
 
@@ -125,9 +126,17 @@ def _secret_name_segments(value: str) -> list[str]:
 def _collect_secret_environment_names(value: object, names: set[str]) -> None:
     if isinstance(value, SecretRef):
         names.add(value.environment)
+    elif isinstance(value, ModelProvider):
+        if value.api_key is not None:
+            names.add(value.api_key)
     elif isinstance(value, BaseModel):
         for field_name in type(value).model_fields:
-            _collect_secret_environment_names(getattr(value, field_name), names)
+            child = getattr(value, field_name)
+            if field_name == "hosted_model_providers":
+                for snapshot in child:
+                    _collect_secret_environment_names(ModelProvider.model_validate(snapshot), names)
+            else:
+                _collect_secret_environment_names(child, names)
     elif isinstance(value, Mapping):
         for child in value.values():
             _collect_secret_environment_names(child, names)

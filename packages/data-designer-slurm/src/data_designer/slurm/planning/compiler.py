@@ -77,6 +77,7 @@ class SlurmRunCompiler:
                 resolved_gpus_per_node=effective.resolved_gpus_per_node,
                 builder=effective.builder,
                 invocation=effective.invocation,
+                hosted_model_providers=effective.hosted_model_providers,
                 client=client,
                 deployments=deployments,
                 array_tasks=effective.authored.array_tasks,
