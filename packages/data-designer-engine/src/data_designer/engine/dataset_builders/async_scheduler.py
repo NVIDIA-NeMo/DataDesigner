@@ -10,10 +10,10 @@ import logging
 import time
 import uuid
 from collections import Counter, defaultdict, deque
-from collections.abc import Coroutine, Mapping
+from collections.abc import Callable, Coroutine, Mapping
 from dataclasses import dataclass
 from threading import Event
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any
 
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.column_configs import ExpressionColumnConfig, GenerationStrategy
@@ -1560,7 +1560,7 @@ class AsyncTaskScheduler:
     async def _wait_before_retryable_resalvage(self) -> None:
         """Pace repeated preserved retryable salvage cycles to avoid a hot loop."""
         self._wake_event.clear()
-        with contextlib.suppress(asyncio.TimeoutError):
+        with contextlib.suppress(TimeoutError):
             await asyncio.wait_for(self._wake_event.wait(), timeout=self._retryable_resalvage_delay_seconds())
         self._raise_if_fatal_worker_error()
 

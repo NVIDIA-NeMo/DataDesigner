@@ -7,12 +7,12 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from functools import cached_property
+from typing import Self
 
 from jinja2 import meta as jinja2_meta
 from jinja2.exceptions import TemplateSyntaxError
 from jinja2.sandbox import ImmutableSandboxedEnvironment
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from typing_extensions import Self
 
 # Shared env for Jinja2 AST parsing (syntax checks + variable extraction).
 # Cannot reuse misc.py helpers because base.py must not import data_designer.*.

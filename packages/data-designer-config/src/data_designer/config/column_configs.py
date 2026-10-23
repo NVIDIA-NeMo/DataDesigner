@@ -4,10 +4,9 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, Self
 
 from pydantic import BaseModel, Discriminator, Field, field_serializer, field_validator, model_validator
-from typing_extensions import Self
 
 from data_designer.config.base import ConfigBase, SingleColumnConfig
 from data_designer.config.errors import InvalidConfigError

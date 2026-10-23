@@ -3,10 +3,9 @@
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, TypeAlias
 
 from pydantic import Field
-from typing_extensions import TypeAlias
 
 from data_designer.config.seed_source import (
     AgentRolloutSeedSource,
