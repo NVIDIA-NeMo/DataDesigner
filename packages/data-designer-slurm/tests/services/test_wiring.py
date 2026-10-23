@@ -85,6 +85,7 @@ def hosted_settings(
         json.dumps({"providers": [provider.model_dump(mode="json") for provider in hosted_model_providers]})
     )
     monkeypatch.setattr(default_model_settings, "MODEL_PROVIDERS_FILE_PATH", path)
+    monkeypatch.setenv("MODEL_API_KEY", "fake-provider-secret")
     yield path
 
 
@@ -1850,3 +1851,25 @@ def test_missing_native_hosted_provider_is_rejected_before_submission(
     with pytest.raises(SlurmServiceError):
         service.execute(external_run, source_root=tmp_path)
     assert launcher.submissions == []
+
+
+@pytest.mark.parametrize("external_run", ("hosted-only",), indirect=True)
+@pytest.mark.parametrize("key", ("plaintext", "PLAINTEXT_SECRET", "sk-plaintext-key"))
+def test_plaintext_native_provider_keys_are_rejected_without_echoing_or_capturing_the_value(
+    tmp_path: Path,
+    profile_catalog: SlurmProfileCatalog,
+    external_run: DataDesignerSlurmConfig,
+    hosted_settings: Path,
+    key: str,
+) -> None:
+    hosted_settings.write_text(
+        json.dumps({"providers": [{"name": "external", "endpoint": "https://models.example/v1", "api_key": key}]})
+    )
+    service = create_slurm_run_service(
+        profile=_profile(tmp_path, profile_catalog),
+        launcher=_Launcher(),
+        source_environment={"MODEL_API_KEY": "fake-provider-secret"},
+    )
+    with pytest.raises(SlurmServiceError) as error:
+        service.plan(external_run, source_root=tmp_path)
+    assert key not in str(error.value)
