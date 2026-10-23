@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import numbers
+import os
+import sys
 
 import data_designer.lazy_heavy_imports as lazy
 
@@ -40,3 +42,21 @@ def check_random_state(seed):
     if isinstance(seed, lazy.np.random.RandomState):
         return seed
     raise ValueError("%r cannot be used to seed a numpy.random.RandomState instance" % seed)
+
+
+def _reseed_shared_rngs_after_fork() -> None:
+    # Samplers draw from numpy's global RandomState (check_random_state(None)) and Faker's
+    # shared Random. CPython reseeds the stdlib random module in a forked child but not these,
+    # so children forked after a run would all draw the same samples. Reseed them from OS
+    # entropy, as CPython does for random; a child that needs reproducible draws seeds itself.
+    # Only reseed modules already imported, to keep the hook from importing them.
+    numpy = sys.modules.get("numpy")
+    if numpy is not None:
+        numpy.random.seed()
+    faker_generator = sys.modules.get("faker.generator")
+    if faker_generator is not None:
+        faker_generator.random.seed()
+
+
+if hasattr(os, "register_at_fork"):
+    os.register_at_fork(after_in_child=_reseed_shared_rngs_after_fork)
