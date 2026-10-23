@@ -276,6 +276,8 @@ class _RunPreparer:
         authored: DataDesignerSlurmConfig,
         operation: SlurmServiceOperation,
     ) -> int | None:
+        if not authored.deployments:
+            return 0
         if self._profile.profile.gpus_per_node != "auto":
             return None
         partition = authored.submission.partition or self._profile.profile.scheduler.partition

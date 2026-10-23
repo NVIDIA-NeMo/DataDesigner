@@ -50,6 +50,7 @@ __all__ = [
     "DeploymentResources",
     "DeploymentTopology",
     "EnvironmentBinding",
+    "ExternalModelProviderConfig",
     "InputBindings",
     "InvocationConfig",
     "LiteralEnvironmentBinding",
@@ -104,6 +105,53 @@ class InputBindings(AuthoredConfig):
     @classmethod
     def validate_paths(cls, value: str | None) -> str | None:
         return None if value is None else validate_absolute_path(value)
+
+
+class ExternalModelProviderConfig(AuthoredConfig):
+    """A model endpoint managed outside this Slurm allocation.
+
+    Attributes:
+        name: Provider name referenced by the builder's model configurations.
+        endpoint: Provider API URL without embedded credentials.
+        provider_type: Native Data Designer client type, such as ``openai``.
+        api_key: Optional environment secret reference for authentication.
+        extra_body: Additional non-secret request parameters.
+        extra_headers: Header values expressed as literal or secret bindings.
+    """
+
+    name: Identifier
+    endpoint: str
+    provider_type: Identifier = "openai"
+    api_key: SecretRef | None = None
+    extra_body: dict[str, JsonValue] | None = None
+    extra_headers: dict[str, EnvironmentBinding] = Field(default_factory=dict)
+
+    @field_validator("endpoint")
+    @classmethod
+    def validate_endpoint(cls, value: str) -> str:
+        validate_url(value, field_name="model provider endpoint")
+        parsed = urlsplit(value)
+        if parsed.username is not None or parsed.password is not None or parsed.query or parsed.fragment:
+            raise ValueError("model provider endpoint must not embed credentials, query parameters, or fragments")
+        return value
+
+    @field_validator("extra_body")
+    @classmethod
+    def validate_extra_body(cls, value: dict[str, JsonValue] | None) -> dict[str, JsonValue] | None:
+        validate_no_plaintext_secrets(value, field_name="model provider extra_body")
+        return value
+
+    @field_validator("extra_headers")
+    @classmethod
+    def validate_headers(cls, values: dict[str, EnvironmentBinding]) -> dict[str, EnvironmentBinding]:
+        validate_environment_bindings(values)
+        for name, binding in values.items():
+            if re.fullmatch(r"[!#$%&'*+.^_`|~0-9A-Za-z-]+", name) is None:
+                raise ValueError("model provider headers require valid HTTP field names")
+            if isinstance(binding, LiteralEnvironmentBinding):
+                if name.casefold() in {"authorization", "proxy-authorization", "cookie"}:
+                    raise ValueError("authentication headers require external secret references")
+        return values
 
 
 class RemoteMCPProviderConfig(AuthoredConfig):
@@ -169,6 +217,7 @@ class InvocationConfig(AuthoredConfig):
     run_config: dict[str, JsonValue] = Field(default_factory=dict)
     input_bindings: InputBindings = Field(default_factory=InputBindings)
     mcp_providers: list[MCPProviderConfig] = Field(default_factory=list)
+    model_providers: list[ExternalModelProviderConfig] = Field(default_factory=list, exclude_if=lambda value: not value)
     model_concurrency: dict[str, PositiveInt] = Field(default_factory=dict)
 
     @field_validator("run_config")
@@ -185,6 +234,9 @@ class InvocationConfig(AuthoredConfig):
         names = [provider.name for provider in self.mcp_providers]
         if len(names) != len(set(names)):
             raise ValueError("MCP provider names must be unique")
+        model_names = [provider.name for provider in self.model_providers]
+        if len(model_names) != len(set(model_names)):
+            raise ValueError("model provider names must be unique")
         return self
 
 
@@ -357,7 +409,7 @@ class DataDesignerSlurmConfig(AuthoredConfig):
     builder: BuilderInput
     invocation: InvocationConfig
     client: ClientConfig = Field(default_factory=ClientConfig)
-    deployments: list[ServerDeploymentConfig] = Field(min_length=1)
+    deployments: list[ServerDeploymentConfig] = Field(default_factory=list)
     array_tasks: ArrayTasksConfig = Field(default_factory=ArrayTasksConfig)
     submission: SubmissionConfig = Field(default_factory=SubmissionConfig)
 
@@ -368,6 +420,9 @@ class DataDesignerSlurmConfig(AuthoredConfig):
         aliases = [deployment.model_alias for deployment in self.deployments]
         if len(aliases) != len(set(aliases)):
             raise ValueError("deployment model aliases must be unique")
+        provider_names = {provider.name for provider in self.invocation.model_providers}
+        if provider_names.intersection(f"slurm-{alias}" for alias in aliases):
+            raise ValueError("external provider names must not collide with managed providers")
         groups: dict[str, list[ServerDeploymentConfig]] = {}
         for deployment in self.deployments:
             if deployment.resources.shared_node is not None:
@@ -387,7 +442,7 @@ class DataDesignerSlurmConfig(AuthoredConfig):
             ):
                 raise ValueError("shared_node requires matching server environment and queue backpressure")
         unknown_concurrency = set(self.invocation.model_concurrency).difference(aliases)
-        if unknown_concurrency:
+        if unknown_concurrency and not self.invocation.model_providers:
             raise ValueError(
                 f"model concurrency references undeclared aliases: {', '.join(sorted(unknown_concurrency))}"
             )

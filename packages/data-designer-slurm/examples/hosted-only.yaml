@@ -1,0 +1,30 @@
+schema_version: 1
+name: hosted-judging
+builder:
+  inline:
+    data_designer:
+      model_configs:
+        - alias: judge
+          model: example/hosted-judge
+          provider: hosted
+      columns:
+        - name: review
+          column_type: llm-text
+          model_alias: judge
+          prompt: Explain one property of a useful product description.
+invocation:
+  num_records: 100
+  dataset_name: hosted-judging
+  model_providers:
+    - name: hosted
+      endpoint: https://models.example/v1
+      api_key:
+        type: secret
+        environment: MODEL_API_KEY
+  model_concurrency:
+    judge: 16
+client:
+  cpus: 4
+deployments: []
+submission:
+  partition: cpu

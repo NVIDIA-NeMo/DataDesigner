@@ -36,9 +36,9 @@ submission:
 
 `builder` accepts exactly one complete serialized Data Designer config through `source` or `inline`. Relative source paths resolve from the run file directory. `invocation.run_config` accepts public `RunConfig` fields except `display_tui`, which is disabled for Slurm jobs. `input_bindings.seed_path` and `managed_assets_path` accept absolute compute-visible paths.
 
-Every `model_alias` in `model_concurrency` and the builder must have one deployment. Deployment aliases must be unique. `model` selects the Hugging Face model ID or absolute model path loaded by the serving container. `served_model_name` is the name exposed to the client and defaults to `model`; set it explicitly when `model` is a container-visible path but the builder uses a stable model name. Shard and collected output files are Parquet. Choose the destination and partition count with `slurm merge` after the run completes.
+Every builder model alias must have either one deployment or a provider declared in `invocation.model_providers`. These assignments must not overlap. `model_concurrency` accepts any declared alias, including external models. Deployment aliases must be unique. `model` selects the Hugging Face model ID or absolute model path loaded by the serving container. `served_model_name` is the name exposed to the client and defaults to `model`; set it explicitly when `model` is a container-visible path but the builder uses a stable model name. Shard and collected output files are Parquet. Choose the destination and partition count with `slurm merge` after the run completes.
 
-The client runs from the same shared Python environment as the CLI on the first allocated GPU node. Its step requests no GPUs; the serving steps use the GPUs and their registered images. The `client` block is optional; `client.cpus` defaults to 16. It sets the client step's CPU request and contributes to the batch allocation's CPU request.
+The client runs from the same shared Python environment as the CLI on the first allocated node. Its step requests no GPUs; local serving steps use the GPUs and their registered images. The `client` block is optional; `client.cpus` defaults to 16. It sets the client step's CPU request and contributes to the batch allocation's CPU request.
 
 Use `submission.partition` to override the profile's GPU partition selection for one run. It accepts a comma-separated value or a YAML list, such as:
 
@@ -47,7 +47,74 @@ submission:
   partition: [gpu-a, gpu-b]
 ```
 
-Slurm schedules the job in one of the selected partitions. With `gpus_per_node: auto`, every selected partition must report GPU resources with one consistent count.
+Slurm schedules the job in one of the selected partitions. For runs with local deployments and `gpus_per_node: auto`, every selected partition must report GPU resources with one consistent count.
+
+## External model providers
+
+Use `invocation.model_providers` for endpoints managed outside this allocation. The builder keeps its normal model declarations:
+
+```yaml
+data_designer:
+  model_configs:
+    - alias: generator
+      model: example/generator
+      provider: openai
+    - alias: judge
+      model: example/hosted-judge
+      provider: hosted
+  # Keep the recipe's columns and inference parameters here.
+```
+
+The run file declares the external provider and deploys only `generator`:
+
+```yaml
+invocation:
+  num_records: 1000
+  dataset_name: judged-output
+  model_providers:
+    - name: hosted
+      endpoint: https://models.example/v1
+      provider_type: openai
+      api_key:
+        type: secret
+        environment: MODEL_API_KEY
+  model_concurrency:
+    generator: 64
+    judge: 16
+```
+
+The provider name must match the builder model's `provider`. Slurm preserves external model names and inference parameters; an explicit `model_concurrency` value overrides that alias's request concurrency. Provider names must not collide with generated local names such as `slurm-generator`.
+
+`api_key` is an optional `SecretRef`. Set the referenced variable in the submit environment; Slurm forwards it only to native client steps. Provider `extra_body` accepts non-secret request parameters. `extra_headers` maps header names to `type: literal` / `value` or `type: secret` / `environment` bindings. Authentication headers require secret bindings. Credential values are never written into the run configuration or resolved plan.
+
+Both local and external requests use DD's existing async engine. Ready requests for different records and models can overlap. Async overlap does not guarantee continuous GPU utilization: slow external calls and the final judging tail can still retain an idle GPU allocation. Measure utilization against the cluster's policy when deciding whether to use separate recipe stages.
+
+### Hosted-only CPU runs
+
+For a builder whose models all use declared external providers, omit local deployments or set `deployments: []`. Select the cluster's CPU partition:
+
+```yaml
+schema_version: 1
+name: hosted-judging
+builder:
+  source: hosted-builder.yaml
+invocation:
+  num_records: 1000
+  dataset_name: hosted-judging
+  model_providers:
+    - name: hosted
+      endpoint: https://models.example/v1
+      api_key:
+        type: secret
+        environment: MODEL_API_KEY
+client:
+  cpus: 4
+deployments: []
+submission:
+  partition: cpu
+```
+
+Each array task requests one node with `--gres=none` and `--cpus-per-task` set to `client.cpus`. It does not discover GPUs, reserve exclusive nodes, require serving images, or start serving containers and proxies. The profile's GPU facts and GPU memory request are unused for this run. Sharding, status, retry, resume, and collection use the same commands as local-model runs.
 
 ## Configure vLLM
 
@@ -169,7 +236,7 @@ Increasing `resources.nodes` at TP=1 creates more independent one-GPU servers; i
 
 ### Multiple models and images
 
-Add one deployment per builder model alias. Each deployment may use a different registered serving image:
+Add one deployment per locally served builder model alias. Each deployment may use a different registered serving image:
 
 ```yaml
 deployments:

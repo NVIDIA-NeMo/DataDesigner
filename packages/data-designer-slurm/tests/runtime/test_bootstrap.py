@@ -24,6 +24,53 @@ from data_designer.slurm.serving.vllm import ResolvedVllmProcess
 from data_designer.slurm.state import RetryPlan, RetryShard
 
 
+def test_external_providers_only_reach_native_clients(
+    runtime_case: RuntimeCase,
+    external_plan: ResolvedSlurmRunPlan,
+) -> None:
+    plan = relocate_plan(external_plan, runtime_case.workspace)
+    attempt = runtime_case.context.attempt.model_copy(
+        update={
+            "resolved_plan": ArtifactReference(
+                path=runtime_case.context.attempt.resolved_plan.path,
+                sha256=plan.compute_sha256(),
+            ),
+        }
+    )
+    context = replace(runtime_case.context, plan=plan, shard=plan.shards[0], attempt=attempt)
+    manifest = build_runtime_manifest(
+        context,
+        {"SLURM_JOB_GPUS": "0"} if plan.deployments else {},
+        runtime_root=Path("/tmp/data-designer-slurm-4101-0/runtime"),
+        log_directory=context.attempt_directory / "logs/execution-00000002",
+        layout=AllocationLayout(("compute-001",)),
+    )
+    assert manifest.all_secret_environment_names == ("EXTERNAL_API_KEY", "EXTERNAL_HEADER_TOKEN")
+    clients = tuple(
+        step
+        for step in manifest.steps
+        if step.role
+        in {
+            RuntimeStepRole.CLIENT_PREFLIGHT,
+            RuntimeStepRole.CLIENT,
+        }
+    )
+    assert len(clients) == 2
+    assert all(
+        step.secret_environment
+        == {
+            "EXTERNAL_API_KEY": "EXTERNAL_API_KEY",
+            "EXTERNAL_HEADER_TOKEN": "EXTERNAL_HEADER_TOKEN",
+        }
+        for step in clients
+    )
+    assert all("EXTERNAL_API_KEY" not in step.secret_environment for step in manifest.steps if step not in clients)
+    if not plan.deployments:
+        assert len(manifest.steps) == 2
+        assert all(step.execution == "native" and not step.gpu_indices for step in manifest.steps)
+        assert all("SLURM_JOB_GPUS" not in step.literal_environment for step in manifest.steps)
+
+
 def test_bootstrap_manifest_builds_typed_one_node_steps_without_secret_values(runtime_case: RuntimeCase) -> None:
     context = runtime_case.context
     runtime_root = Path("/tmp/data-designer-slurm-4101-0/runtime")

@@ -77,20 +77,22 @@ dd_slurm_run_allocation() {
     ((${#DD_STEP_IDS[@]} == 1))
     dd_run_step "${DD_RUNTIME_MANIFEST}" "${DD_STEP_IDS[0]}"
 
-    DD_RUNTIME_PHASE=server_preflight
-    dd_runtime_log 'Running serving preflight...'
-    dd_run_role_steps server_preflight
-    DD_RUNTIME_PHASE=start_servers
-    dd_runtime_log 'Starting vLLM servers...'
-    dd_start_servers
-    DD_RUNTIME_PHASE=server_readiness
-    dd_runtime_log 'Waiting for vLLM servers to become ready...'
-    dd_wait_for_role_readiness server
-    dd_runtime_log 'vLLM servers are ready.'
-    DD_RUNTIME_PHASE=start_endpoints
-    dd_start_endpoints
-    DD_RUNTIME_PHASE=endpoint_readiness
-    dd_wait_for_role_readiness endpoint
+    if ((DD_EXPECTED_GPUS > 0)); then
+        DD_RUNTIME_PHASE=server_preflight
+        dd_runtime_log 'Running serving preflight...'
+        dd_run_role_steps server_preflight
+        DD_RUNTIME_PHASE=start_servers
+        dd_runtime_log 'Starting vLLM servers...'
+        dd_start_servers
+        DD_RUNTIME_PHASE=server_readiness
+        dd_runtime_log 'Waiting for vLLM servers to become ready...'
+        dd_wait_for_role_readiness server
+        dd_runtime_log 'vLLM servers are ready.'
+        DD_RUNTIME_PHASE=start_endpoints
+        dd_start_endpoints
+        DD_RUNTIME_PHASE=endpoint_readiness
+        dd_wait_for_role_readiness endpoint
+    fi
     dd_require_running
     DD_RUNTIME_PHASE=ready
     dd_run_bound_control_phase ready
@@ -170,6 +172,10 @@ dd_resolve_allocation_hosts() {
 }
 
 dd_verify_gpu_count() {
+    [[ ${DD_EXPECTED_GPUS} =~ ^(0|[1-9][0-9]*)$ ]] || return 65
+    if [[ ${DD_EXPECTED_GPUS} == 0 ]]; then
+        return 0
+    fi
     local visible=${CUDA_VISIBLE_DEVICES:-${SLURM_JOB_GPUS:-}}
     local count=0 item
     local -A devices=()

@@ -404,10 +404,29 @@ class ClientWorker:
         if set(endpoints) != set(aliases):
             raise ClientWorkerError(ClientErrorCode.CONFIG_INVALID, "runtime endpoints do not match model aliases")
         configs = {config.alias: config for config in builder.model_configs}
-        if set(configs) != set(aliases):
+        if set(configs) != set(plan.builder.model_aliases):
             raise ClientWorkerError(ClientErrorCode.CONFIG_INVALID, "builder model aliases do not match the plan")
-        updated = []
-        providers = []
+        external_providers = plan.invocation.authored.model_providers
+        external_names = {provider.name for provider in external_providers}
+        external_aliases = tuple(config.alias for config in configs.values() if config.provider in external_names)
+        if external_aliases != plan.builder.external_model_aliases:
+            raise ClientWorkerError(ClientErrorCode.CONFIG_INVALID, "external model aliases do not match the plan")
+        updated = dict(configs)
+        providers = [
+            ModelProvider(
+                name=provider.name,
+                endpoint=provider.endpoint,
+                provider_type=provider.provider_type,
+                api_key=_resolve_secret(provider.api_key) if provider.api_key is not None else None,
+                extra_body=provider.extra_body,
+                extra_headers={
+                    name: binding.value if isinstance(binding, LiteralEnvironmentBinding) else _resolve_secret(binding)
+                    for name, binding in provider.extra_headers.items()
+                }
+                or None,
+            )
+            for provider in external_providers
+        ]
         for deployment, port in zip(plan.deployments, plan.client.ports, strict=True):
             alias = deployment.authored.model_alias
             endpoint = endpoints[alias]
@@ -417,23 +436,22 @@ class ClientWorker:
                 raise ClientWorkerError(ClientErrorCode.CONFIG_INVALID, "runtime model endpoint is invalid")
             provider_name = f"slurm-{alias}"
             model_config = configs[alias]
-            inference = model_config.inference_parameters
-            concurrency = plan.invocation.authored.model_concurrency.get(alias)
-            if concurrency is not None:
-                inference = inference.model_copy(update={"max_parallel_requests": concurrency})
-            updated.append(
-                model_config.model_copy(
-                    update={
-                        "model": deployment.served_model_name,
-                        "provider": provider_name,
-                        "inference_parameters": inference,
-                    }
-                )
+            updated[alias] = model_config.model_copy(
+                update={"model": deployment.served_model_name, "provider": provider_name}
             )
             providers.append(ModelProvider(name=provider_name, endpoint=endpoint, provider_type="openai"))
         for model_config in tuple(builder.model_configs):
             builder.delete_model_config(model_config.alias)
-        for model_config in updated:
+        for alias, model_config in updated.items():
+            concurrency = plan.invocation.authored.model_concurrency.get(alias)
+            if concurrency is not None:
+                model_config = model_config.model_copy(
+                    update={
+                        "inference_parameters": model_config.inference_parameters.model_copy(
+                            update={"max_parallel_requests": concurrency}
+                        )
+                    }
+                )
             builder.add_model_config(model_config)
         return providers
 

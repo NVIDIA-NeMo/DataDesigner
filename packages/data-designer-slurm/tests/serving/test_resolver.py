@@ -298,6 +298,11 @@ def _multi_group_plan(plan: ResolvedSlurmRunPlan) -> ResolvedSlurmRunPlan:
         "model_configs"
     ][:1]
     payload["builder"]["model_aliases"] = ["generator"]
+    payload["invocation"]["authored"]["model_concurrency"] = {
+        alias: value
+        for alias, value in payload["invocation"]["authored"]["model_concurrency"].items()
+        if alias == "generator"
+    }
     payload["builder"]["content_sha256"] = compute_serialized_json_sha256(payload["builder"]["inline"])
     deployment = payload["deployments"][0]
     deployment["authored"]["resources"]["nodes"] = 4

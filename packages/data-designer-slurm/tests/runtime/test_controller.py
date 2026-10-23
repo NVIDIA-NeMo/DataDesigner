@@ -177,6 +177,43 @@ def _supervisor(
     )
 
 
+@pytest.mark.parametrize("external_run", ("hosted-only",), indirect=True)
+def test_controller_finishes_hosted_only_run_without_serving_steps(
+    runtime_case: RuntimeCase,
+    external_plan: ResolvedSlurmRunPlan,
+) -> None:
+    plan = relocate_plan(external_plan, runtime_case.workspace)
+    attempt = runtime_case.context.attempt.model_copy(
+        update={
+            "resolved_plan": ArtifactReference(
+                path=runtime_case.context.attempt.resolved_plan.path,
+                sha256=plan.compute_sha256(),
+            ),
+        }
+    )
+    context = replace(runtime_case.context, plan=plan, shard=plan.shards[0], attempt=attempt)
+    case = replace(runtime_case, context=context)
+    clock = FakeClock(case.created_at.replace(second=10), monotonic_time=100)
+    state = FakeStateStore(context.attempt)
+    runner = _FakeRunner(generation_hook=lambda: _write_complete_result(case, clock))
+    controller = OneNodeAllocationController(
+        context,
+        runtime_proxy_path=context.attempt_directory / "runtime/proxy.py",
+        state=state,
+        supervisor=_supervisor(runner, clock),
+        preflight=FakePreflight(),
+        client_steps=FakeClientStepBuilder(),
+        prober=_FakeProber(ready=True, clock=clock),
+        clock=clock,
+        environment={},
+    )
+    result = controller.run()
+    assert result.state is AttemptLifecycleState.SUCCEEDED
+    assert [step.role for step in runner.steps] == [RuntimeStepRole.CLIENT_PREFLIGHT, RuntimeStepRole.CLIENT]
+    assert all(not snapshot.deployments for snapshot in state.readiness)
+    assert state.winners[0].attempt_id == result.attempt_id
+
+
 def test_controller_runs_preflight_servers_endpoint_client_and_cleanup(runtime_case: RuntimeCase) -> None:
     clock = FakeClock(runtime_case.created_at.replace(second=10), monotonic_time=100)
     state = FakeStateStore(runtime_case.context.attempt)

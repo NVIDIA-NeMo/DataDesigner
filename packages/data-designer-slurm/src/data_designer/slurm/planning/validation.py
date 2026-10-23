@@ -10,7 +10,7 @@ from pydantic import JsonValue
 from data_designer.config import RunConfig
 from data_designer.slurm.config.run import DataDesignerSlurmConfig
 from data_designer.slurm.contracts import derive_managed_assets_path
-from data_designer.slurm.planning.builder_identity import get_persisted_builder_identity
+from data_designer.slurm.planning.builder_identity import get_external_model_aliases, get_persisted_builder_identity
 from data_designer.slurm.planning.errors import SlurmPlanContractError
 from data_designer.slurm.planning.models import (
     ResolvedDependencyLock,
@@ -74,6 +74,14 @@ def validate_resolved_plan(
         _require(plan.builder.model_aliases == model_aliases, "resolved model aliases do not match builder source")
         _require(plan.builder.source.sha256 == digest, "resolved builder digest does not match builder source")
         _require(plan.builder.content_sha256 == digest, "resolved builder digest does not match builder source")
+
+    payload = authored.builder.inline if authored.builder.inline is not None else builder_payload
+    assert payload is not None
+    _require(
+        plan.builder.external_model_aliases
+        == get_external_model_aliases(payload, {provider.name for provider in authored.invocation.model_providers}),
+        "resolved external aliases do not match the builder",
+    )
 
     expected_account = authored.submission.account or plan.selected_profile.profile.scheduler.account
     expected_partition = authored.submission.partition or plan.selected_profile.profile.scheduler.partition

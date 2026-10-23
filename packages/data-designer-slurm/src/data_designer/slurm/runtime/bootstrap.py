@@ -155,11 +155,15 @@ def _build_client_step(
             *endpoint_arguments,
         )
     secret_names = collect_secret_environment_names(
-        (plan.client.authored.dependencies.index_credentials, plan.invocation.authored.mcp_providers)
+        (
+            plan.client.authored.dependencies.index_credentials,
+            plan.invocation.authored.mcp_providers,
+            plan.invocation.authored.model_providers,
+        )
     )
     allocation_environment = (
         {"SLURM_JOB_GPUS": environment["SLURM_JOB_GPUS"]}
-        if plan.selected_profile.profile.gpu_request_mode == "gres"
+        if plan.deployments and plan.selected_profile.profile.gpu_request_mode == "gres"
         else {}
     )
     return _step(

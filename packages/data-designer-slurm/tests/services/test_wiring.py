@@ -248,6 +248,28 @@ def test_production_wiring_dry_run_resolves_and_renders_without_submission(
     assert launcher.submissions == []
 
 
+@pytest.mark.parametrize("external_run", ("hosted-only",), indirect=True)
+def test_hosted_only_planning_needs_no_gpu_discovery_or_registered_images(
+    tmp_path: Path,
+    profile_catalog: SlurmProfileCatalog,
+    external_run: DataDesignerSlurmConfig,
+) -> None:
+    profile = _profile(tmp_path, profile_catalog).model_copy(update={"gpus_per_node": "auto"})
+    launcher = _Launcher()
+    service = create_slurm_run_service(
+        profile=profile,
+        launcher=launcher,
+        run_id_factory=lambda: "run-hosted",
+        package_version="0.9.2",
+    )
+    plan = service.plan(external_run, source_root=tmp_path)
+    assert plan.resolved_gpus_per_node == 0
+    assert plan.deployments == ()
+    result = service.execute(external_run, source_root=tmp_path, dry_run=True)
+    assert "#SBATCH --gres=none" in result.batch_script
+    assert launcher.submissions == []
+
+
 def test_missing_srun_fails_before_submission(
     tmp_path: Path,
     profile_catalog: SlurmProfileCatalog,

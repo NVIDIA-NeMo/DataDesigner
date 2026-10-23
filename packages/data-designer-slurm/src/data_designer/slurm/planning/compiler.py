@@ -184,7 +184,7 @@ def _compile_client(
     effective: EffectiveDataDesignerSlurmConfig,
     deployments: tuple[ResolvedDeployment, ...],
 ) -> ResolvedClient:
-    host_node_index = deployments[0].node_indices[0]
+    host_node_index = deployments[0].node_indices[0] if deployments else 0
     ports = tuple(
         PortClaim(
             name=f"{deployment.deployment_id}-logical-endpoint",

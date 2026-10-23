@@ -127,7 +127,7 @@ class RuntimeBootstrapManifest(ContractRecord):
     attempt_id: Identifier
     plan_sha256: Sha256Digest
     all_secret_environment_names: tuple[EnvironmentName, ...]
-    steps: tuple[RuntimeStepSpec, ...] = Field(min_length=4)
+    steps: tuple[RuntimeStepSpec, ...] = Field(min_length=2)
 
     @model_validator(mode="after")
     def validate_steps(self) -> RuntimeBootstrapManifest:
@@ -137,7 +137,8 @@ class RuntimeBootstrapManifest(ContractRecord):
         roles = tuple(step.role for step in self.steps)
         if roles.count(RuntimeStepRole.CLIENT_PREFLIGHT) != 1 or roles.count(RuntimeStepRole.CLIENT) != 1:
             raise ValueError("runtime manifest requires one preflight and generation step")
-        if RuntimeStepRole.SERVER not in roles or RuntimeStepRole.ENDPOINT not in roles:
+        managed_roles = {RuntimeStepRole.SERVER_PREFLIGHT, RuntimeStepRole.SERVER, RuntimeStepRole.ENDPOINT}
+        if managed_roles.intersection(roles) and not {RuntimeStepRole.SERVER, RuntimeStepRole.ENDPOINT}.issubset(roles):
             raise ValueError("runtime manifest requires server and endpoint steps")
         return self
 
