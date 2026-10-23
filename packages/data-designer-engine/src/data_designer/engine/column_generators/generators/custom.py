@@ -128,7 +128,7 @@ class _AsyncBridgedModelFacade:
                 return future.result(timeout=max(0.0, min(_BRIDGE_CANCEL_POLL_S, deadline - time.monotonic())))
             except concurrent.futures.CancelledError as exc:
                 raise asyncio.CancelledError from exc
-            except concurrent.futures.TimeoutError as exc:
+            except TimeoutError as exc:
                 if is_run_cancellation_requested():
                     future.cancel()
                     raise asyncio.CancelledError from exc

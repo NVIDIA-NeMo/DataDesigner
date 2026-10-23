@@ -69,7 +69,7 @@ def _run_coroutine_sync(coro: Coroutine[Any, Any, _T]) -> _T:
     timed_out = False
     try:
         result = future.result(timeout=SYNC_BRIDGE_TIMEOUT)
-    except concurrent.futures.TimeoutError as exc:
+    except TimeoutError as exc:
         timed_out = True
         logger.warning(f"⚠️ Sync bridge timed out after {SYNC_BRIDGE_TIMEOUT}s; background thread still running")
         raise TimeoutError(f"_run_coroutine_sync timed out after {SYNC_BRIDGE_TIMEOUT}s") from exc
