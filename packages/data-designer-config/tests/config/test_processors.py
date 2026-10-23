@@ -1,6 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from __future__ import annotations
+
 import pytest
 from pydantic import ValidationError
 
@@ -108,13 +110,13 @@ def test_get_processor_config_from_kwargs():
     assert result is None
 
 
-def test_processor_config_columns_added_and_removed_defaults():
+def test_processor_config_columns_added_and_removed_defaults() -> None:
     config = DropColumnsProcessorConfig(name="drop_proc", column_names=["col1"])
     assert config.columns_added == []
     assert config.columns_removed == []
 
 
-def test_processor_config_columns_added_and_removed_custom():
+def test_processor_config_columns_added_and_removed_custom() -> None:
     class CustomProcessorConfig(ProcessorConfig):
         processor_type: str = "custom"
 

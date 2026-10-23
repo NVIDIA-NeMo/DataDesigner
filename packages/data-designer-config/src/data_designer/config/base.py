@@ -198,9 +198,9 @@ class ProcessorConfig(ConfigBase, ABC):
     processor_type: str
     columns_added: list[str] = Field(
         default_factory=list,
-        description="List of column names added to the dataset by this processor.",
+        description="Columns added during process_before_batch, available to downstream generation. Ignored for processors without a pre-batch callback.",
     )
     columns_removed: list[str] = Field(
         default_factory=list,
-        description="List of column names removed from the dataset by this processor.",
+        description="Seed columns removed during process_before_batch, unavailable to downstream generation. Ignored for processors without a pre-batch callback.",
     )
