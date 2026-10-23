@@ -64,6 +64,7 @@ _TOP_LEVEL_OPTIONAL_COLLECTIONS: frozenset[str] = frozenset(
     {"model_configs", "tool_configs", "constraints", "processors"}
 )
 _TOOL_CONFIG_OPTIONAL_COLLECTIONS: frozenset[str] = frozenset({"allow_tools"})
+_PROCESSOR_OPTIONAL_COLLECTIONS: frozenset[str] = frozenset({"columns_added", "columns_removed"})
 
 
 # ---------------------------------------------------------------------------
@@ -217,6 +218,11 @@ def _normalize_config_dict(config_dict: dict[str, Any], config: DataDesignerConf
             (_normalize_tool_config(tc) for tc in tool_configs),
             key=lambda tc: tc.get("tool_alias", ""),
         )
+
+    processors = normalized.get("processors")
+    if processors:
+        # Preserve fingerprints from before processor column declarations were added.
+        normalized["processors"] = [_drop_empty_optional(pc, _PROCESSOR_OPTIONAL_COLLECTIONS) for pc in processors]
 
     seed_config = normalized.get("seed_config")
     if seed_config:

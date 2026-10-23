@@ -201,3 +201,11 @@ class ProcessorConfig(ConfigBase, ABC):
         description="The name of the processor, used to identify the processor in the results and to write the artifacts to disk.",
     )
     processor_type: str
+    columns_added: list[str] = Field(
+        default_factory=list,
+        description="Columns added during process_before_batch, available to downstream generation. Ignored for processors without a pre-batch callback.",
+    )
+    columns_removed: list[str] = Field(
+        default_factory=list,
+        description="Seed columns removed during process_before_batch, unavailable to downstream generation. Ignored for processors without a pre-batch callback.",
+    )
