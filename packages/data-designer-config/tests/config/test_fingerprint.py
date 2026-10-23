@@ -15,6 +15,7 @@ from data_designer.config.analysis.column_profilers import JudgeScoreProfilerCon
 from data_designer.config.base import SkipConfig
 from data_designer.config.column_configs import (
     CustomColumnConfig,
+    ExpressionColumnConfig,
     LLMTextColumnConfig,
     SamplerColumnConfig,
 )
@@ -192,6 +193,19 @@ def test_changing_top_level_processor_changes_hash() -> None:
     a = _make_minimal_config()
     b = _make_minimal_config(processors=[DropColumnsProcessorConfig(name="drop", column_names=["x"])])
     assert _compute_hash(a) != _compute_hash(b)
+
+
+@pytest.mark.parametrize("field", ["columns_added", "columns_removed"])
+def test_changing_processor_column_declarations_changes_hash(field: str) -> None:
+    hashes = {
+        _compute_hash(
+            _make_minimal_config(
+                processors=[DropColumnsProcessorConfig(name="drop", column_names=["x"], **{field: names})]
+            )
+        )
+        for names in ([], ["state"], ["region"])
+    }
+    assert len(hashes) == 3
 
 
 def test_changing_extra_body_changes_hash() -> None:
@@ -433,6 +447,21 @@ def test_tool_config_allow_tools_none_vs_empty_match() -> None:
     a = _make_minimal_config(tool_configs=[ToolConfig(tool_alias="t", providers=["p"], allow_tools=None)])
     b = _make_minimal_config(tool_configs=[ToolConfig(tool_alias="t", providers=["p"], allow_tools=[])])
     assert _compute_hash(a) == _compute_hash(b)
+
+
+@pytest.mark.parametrize("declarations", [{}, {"columns_added": [], "columns_removed": []}])
+def test_processor_empty_column_declarations_preserve_historical_hash(declarations: dict[str, list[str]]) -> None:
+    config = DataDesignerConfig(
+        columns=[ExpressionColumnConfig(name="a", expr="1"), ExpressionColumnConfig(name="b", expr="2")],
+        processors=[DropColumnsProcessorConfig(name="drop", column_names=["a"], **declarations)],
+    )
+
+    # Captured before columns_added and columns_removed became processor fields.
+    assert config.fingerprint() == {
+        "config_hash": "sha256:d08c41352d62e1d0c4691d8273d6b3ca3a755ff339f15d062ae00d1c0a7ed991",
+        "config_hash_algo": "sha256",
+        "config_hash_version": 2,
+    }
 
 
 # ---------------------------------------------------------------------------

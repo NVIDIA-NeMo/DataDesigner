@@ -194,8 +194,15 @@ class DatasetBuilder:
         # when a run produces 0 records due to deterministic failures.
         self._first_non_retryable_error: Exception | None = None
 
-        self._data_designer_config = compile_data_designer_config(data_designer_config, resource_provider)
-        self._column_configs = compile_dataset_builder_column_configs(self._data_designer_config)
+        self._data_designer_config = compile_data_designer_config(
+            data_designer_config, resource_provider, self._registry.processors
+        )
+        self._column_configs = compile_dataset_builder_column_configs(
+            self._data_designer_config,
+            seed_column_names=(
+                resource_provider.seed_reader.get_column_names() if resource_provider.seed_reader is not None else None
+            ),
+        )
         processors = self._initialize_processors(self._data_designer_config.processors or [])
         self._processor_runner = ProcessorRunner(
             processors=processors,
