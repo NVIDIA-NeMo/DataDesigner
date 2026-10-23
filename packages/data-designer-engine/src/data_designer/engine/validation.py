@@ -104,12 +104,13 @@ def validate_parquet_storage(
         else set()
     )
     # Unknown processors may reshape generated values before checkpointing.
-    # Conditional generation can likewise replace the declared value with a skip
-    # value. Neither permits a proof about every stored row from this schema alone.
+    # Conditional generation only changes certainty for columns that can
+    # actually skip, directly or through their data dependencies.
     uncertain_output = any(
         processor.processor_type not in (ProcessorType.DROP_COLUMNS, ProcessorType.SCHEMA_TRANSFORM)
         for processor in processors
-    ) or any(column.skip is not None for column in columns)
+    )
+    potentially_skipped = _find_potentially_skipped_columns(columns)
     for column in columns:
         if (
             column.name in discarded
@@ -118,7 +119,7 @@ def validate_parquet_storage(
         ):
             continue
         for risk in find_storage_schema_risks(column.output_format):
-            definite = risk.definite and not uncertain_output
+            definite = risk.definite and not uncertain_output and column.name not in potentially_skipped
             location = "$" + "".join("[]" if part is None else f"[{part!r}]" for part in risk.path)
             message = (
                 f"Native Parquet storage at {location} {risk.reason}. "
@@ -541,6 +542,23 @@ _FORMAT_FIELD_REFERENCE_PATTERN = re.compile(
     r"(?::[^{}]*(?:\{[^{}]*\}[^{}]*)*)?"
     r"\}"
 )
+
+
+def _find_potentially_skipped_columns(columns: list[ColumnConfigT]) -> set[str]:
+    """Follow runtime skip propagation without requiring a valid execution graph.
+
+    Validation also reports unresolved references and cycles, so this analysis
+    must tolerate those inputs and converge independently of column order.
+    """
+    skipped: set[str] = set()
+    while True:
+        previous_count = len(skipped)
+        for column in columns:
+            if column.skip is not None or (column.propagate_skip and not skipped.isdisjoint(column.required_columns)):
+                skipped.add(column.name)
+                skipped.update(column.side_effect_columns)
+        if len(skipped) == previous_count:
+            return skipped
 
 
 def _get_string_formatter_references(template: str, allowed_references: list[str]) -> list[str]:

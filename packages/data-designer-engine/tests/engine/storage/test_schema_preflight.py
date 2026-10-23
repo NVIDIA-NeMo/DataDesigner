@@ -10,13 +10,15 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
+from jsonschema import Draft202012Validator
 from pydantic import BaseModel, Field, JsonValue
 
 from data_designer.config.column_configs import CustomColumnConfig, LLMStructuredColumnConfig
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.custom_column import custom_column_generator
 from data_designer.config.errors import InvalidConfigError
-from data_designer.config.utils.storage_schema import JSON_STORAGE_KEY
+from data_designer.config.utils.storage_encoding import encode_storage_table
+from data_designer.config.utils.storage_schema import JSON_STORAGE_KEY, JsonStoragePlan, compile_json_storage_schema
 from data_designer.engine.dataset_builders.dataset_builder import DatasetBuilder
 from data_designer.engine.storage.schema_preflight import find_storage_schema_risks
 from data_designer.engine.validation import (
@@ -209,8 +211,8 @@ def test_warning_allows_builder_and_shows_actionable_diagnostic(
     assert "oracle" in output and "arguments" in output
 
 
-@pytest.mark.parametrize("min_items,definite", [(0, False), (1, False), (2, True)])
-def test_trailing_items_are_required_only_beyond_prefix_items(min_items: int, definite: bool) -> None:
+@pytest.mark.parametrize("min_items", [0, 1, 2])
+def test_positional_array_item_risks_are_warning_only(min_items: int) -> None:
     schema = {
         "type": "array",
         "minItems": min_items,
@@ -218,8 +220,8 @@ def test_trailing_items_are_required_only_beyond_prefix_items(min_items: int, de
         "items": {"type": "object", "additionalProperties": False},
     }
     risks = find_storage_schema_risks(schema)
-    assert any(risk.definite for risk in risks) is definite
-    if not definite:
+    assert risks and all(not risk.definite for risk in risks)
+    if min_items < 2:
         with pa.BufferOutputStream() as sink:
             pq.write_table(pa.Table.from_pydict({"value": [[1]]}), sink)
 
@@ -335,3 +337,44 @@ def test_unknown_nullable_and_heterogeneous_container_types_cannot_prove_failure
         schema["type"] = types
     risks = find_storage_schema_risks(schema)
     assert risks and all(not risk.definite for risk in risks)
+
+
+@pytest.mark.parametrize("location", ["root", "nested", "reference"])
+def test_encoded_descendants_make_empty_object_schemas_writable(location: str) -> None:
+    empty = {
+        "type": "object",
+        "maxProperties": 0,
+        "properties": {"args": {JSON_STORAGE_KEY: "json"}},
+    }
+    value: dict[str, Any] = {}
+    if location == "nested":
+        schema = {"type": "object", "properties": {"result": empty}, "required": ["result"]}
+        value = {"result": {}}
+    elif location == "reference":
+        schema = {"$ref": "#/$defs/Empty", "$defs": {"Empty": empty}}
+    else:
+        schema = empty
+    Draft202012Validator(schema).validate(value)
+    _, paths = compile_json_storage_schema(schema)
+    plan = JsonStoragePlan(columns={"oracle": paths})
+    table = encode_storage_table(pd.DataFrame({"oracle": [value]}), plan)
+    with pa.BufferOutputStream() as sink:
+        pq.write_table(table, sink)
+    assert validate_parquet_storage([_column(schema)]) == []
+
+
+@pytest.mark.parametrize("min_items", [2, 3])
+def test_positional_array_elements_can_supply_fields_for_empty_trailing_items(min_items: int) -> None:
+    schema = {
+        "type": "array",
+        "prefixItems": [{"type": "object", "properties": {"x": {"type": "integer"}}, "required": ["x"]}],
+        "items": {"const": {}},
+        "minItems": min_items,
+    }
+    value = [{"x": 1}, *[{} for _ in range(min_items - 1)]]
+    Draft202012Validator(schema).validate(value)
+    with pa.BufferOutputStream() as sink:
+        pd.DataFrame({"oracle": [value]}).to_parquet(sink, index=False)
+    violations = validate_parquet_storage([_column(schema)])
+    assert violations
+    assert all(violation.level == ViolationLevel.WARNING for violation in violations)

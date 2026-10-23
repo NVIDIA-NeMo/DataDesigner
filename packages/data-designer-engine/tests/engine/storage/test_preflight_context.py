@@ -10,7 +10,7 @@ from unittest.mock import Mock
 import pytest
 
 from data_designer.config.base import ProcessorConfig, SkipConfig
-from data_designer.config.column_configs import ExpressionColumnConfig, LLMStructuredColumnConfig
+from data_designer.config.column_configs import ExpressionColumnConfig, LLMStructuredColumnConfig, LLMTextColumnConfig
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.data_designer_config import DataDesignerConfig
 from data_designer.config.errors import InvalidConfigError
@@ -154,3 +154,46 @@ def test_post_batch_plugin_can_repair_generated_values_before_storage(
     with pytest.warns(UserWarning, match="Pydantic serializer warnings"):
         builder.build(num_records=2)
     assert builder.artifact_storage.load_dataset()["temporary"].tolist() == ["{}", "{}"]
+
+
+@pytest.mark.parametrize(
+    "prompt,propagate_skip,expected",
+    [
+        ("Generate", True, ViolationLevel.ERROR),
+        ("{{ source }}", True, ViolationLevel.WARNING),
+        ("{{ source }}", False, ViolationLevel.ERROR),
+    ],
+    ids=["unrelated", "propagated", "propagation-disabled"],
+)
+def test_storage_certainty_only_changes_for_skippable_columns(
+    prompt: str, propagate_skip: bool, expected: ViolationLevel
+) -> None:
+    source = ExpressionColumnConfig(name="source", expr="ok", dtype="str", skip=SkipConfig(when="{{ condition }}"))
+    output = _column().model_copy(update={"prompt": prompt, "propagate_skip": propagate_skip})
+    violations = validate_parquet_storage([output, source])
+    assert violations and all(violation.level == expected for violation in violations)
+
+
+@pytest.mark.parametrize("propagate_bridge", [False, True])
+def test_storage_skip_uncertainty_follows_transitive_dependencies(propagate_bridge: bool) -> None:
+    source = ExpressionColumnConfig(name="source", expr="ok", dtype="str", skip=SkipConfig(when="{{ condition }}"))
+    bridge = ExpressionColumnConfig(name="bridge", expr="{{ source }}", dtype="str", propagate_skip=propagate_bridge)
+    output = _column().model_copy(update={"prompt": "{{ bridge }}"})
+    violations = validate_parquet_storage([output, bridge, source])
+    expected = ViolationLevel.WARNING if propagate_bridge else ViolationLevel.ERROR
+    assert violations and all(violation.level == expected for violation in violations)
+
+
+@pytest.mark.parametrize("use_side_effect", [False, True])
+def test_storage_skip_uncertainty_resolves_producer_side_effects(use_side_effect: bool) -> None:
+    source = LLMTextColumnConfig(
+        name="source",
+        model_alias="test_model",
+        prompt="Generate",
+        extract_reasoning_content=True,
+        skip=SkipConfig(when="{{ condition }}"),
+    )
+    dependency = "source__reasoning_content" if use_side_effect else "source"
+    output = _column().model_copy(update={"prompt": "{{ " + dependency + " }}"})
+    violations = validate_parquet_storage([output, source])
+    assert violations and all(violation.level == ViolationLevel.WARNING for violation in violations)

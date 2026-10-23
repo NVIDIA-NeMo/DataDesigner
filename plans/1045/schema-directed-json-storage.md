@@ -1,8 +1,10 @@
 ---
 date: 2026-10-19
-status: draft-pr
+status: implemented-pending-merge
+updated: 2026-10-23
 issue: https://github.com/NVIDIA-NeMo/DataDesigner/issues/1045
-related_pr: https://github.com/NVIDIA-NeMo/DataDesigner/pull/1046
+related_pr: https://github.com/NVIDIA-NeMo/DataDesigner/pull/1062
+dependency_pr: https://github.com/NVIDIA-NeMo/DataDesigner/pull/1046
 ---
 
 # Plan: Schema-directed JSON storage for flexible column values
@@ -21,9 +23,10 @@ calls begin. Persist a versioned plan with each artifact and enforce it across b
 Start with JSON encoding of whole annotated subtrees. Preserve legacy behavior for unannotated data.
 Native map compilation and automatic storage selection are separate follow-ups.
 
-The implementation is available on `codex/schema-json-storage`, based on `main` after parsing fix
-PR #1046 merged. The sections below describe the design and its limits; the implementation status
-records what was verified.
+The implementation is available in [PR #1062](https://github.com/NVIDIA-NeMo/DataDesigner/pull/1062)
+on `codex/schema-json-storage`, based on `main` after parsing fix PR #1046 merged. This document records
+the delivered design and its limits while the PR awaits merge. Historical validation results are labeled
+below; they are evidence for their recorded revisions rather than a claim about every later commit.
 
 ## Problem and motivating use case
 
@@ -107,7 +110,7 @@ stable encoding contract for new writes and correct logical reads wherever saved
 Native fixed-record handling retains its existing missing-field normalization. Strict dictionary-key
 presence preservation is promised inside explicitly JSON-encoded subtrees, not for all unannotated data.
 
-## Proposed authoring API
+## Authoring API
 
 ### Schema-level declaration
 
@@ -163,8 +166,10 @@ partial coverage of the issue. Per-field custom schemas can be considered separa
    Use emitted property names/aliases, not Python attribute names or generated `$defs` naming conventions.
 
 For `oracle: Oracle`, the plan means: select column `oracle`, property `calls`, each list item, property
-`arguments`, then apply codec `json-v1`. Represent properties and list traversal with distinct typed
-operations; do not use ambiguous dotted paths or unrestricted string wildcard matching.
+`arguments`, then apply the JSON codec defined by storage contract version 1. The implemented
+`JsonStoragePlan` represents property steps as strings and list traversal as `None` in path lists,
+for example `{"version": 1, "columns": {"oracle": [["calls", None, "arguments"]]}}` in Python.
+These become JSON `null` steps when serialized; dotted names and string wildcard matching are not used.
 
 ### Supported schema subset
 
@@ -185,7 +190,8 @@ serializer recursion/resource limits still apply. Unsupported cases get errors b
 
 ## Encoding and decoding behavior
 
-`json-v1` accepts JSON-compatible values: string-keyed objects, lists, strings, booleans, finite numbers,
+The JSON codec in contract version 1 accepts JSON-compatible values: string-keyed objects, lists, strings,
+booleans, finite numbers,
 and null. Reject non-string dictionary keys rather than silently stringifying them. Reject NaN/infinity,
 unsupported Python objects, and implicit `default=str` conversions. Non-JSON types need an explicit
 future codec or deterministic user normalization.
@@ -214,9 +220,11 @@ pandas and DuckDB. A future standard JSON logical annotation can be evaluated se
 
 ## Artifact contract and migration
 
-Persist a storage-format version, canonical encoding operations, codec versions, and a fingerprint of
-the encoding contract. Embed the relevant plan in each Parquet file and record the run/stage identity in
-metadata before publishing the first batch. Reads should not require the original Pydantic model.
+The persisted `JsonStoragePlan` contains `version: 1` and canonical paths keyed by column name.
+Parquet files carry it under the schema metadata key `data_designer.json_storage`; run metadata and
+logical DataFrame attributes use `json_storage`. The format version defines the JSON codec semantics;
+there is no separately persisted codec version or storage-plan fingerprint. Reads do not require the
+original Pydantic model.
 
 - Metadata absent: use legacy behavior. Ordinary external Parquet strings are not auto-decoded.
 - Recognized metadata: validate it, then decode according to its version.
@@ -228,10 +236,12 @@ metadata before publishing the first batch. Reads should not require the origina
 - Merged/exported Parquet: explicitly preserve the encoding contract and verify input contracts match.
   Existing permissive schema-unification code must not choose one file's metadata arbitrarily.
 
-Fingerprint the logical config and canonical storage plan separately. A missing legacy plan and an empty
-new plan are compatible only under a documented version rule; do not invalidate all old resumes by default.
-Batch publication and metadata persistence must remain safe across crashes between file writes and run
-metadata updates. This work does not promise atomic replacement of all after-generation output files.
+The existing config fingerprint includes non-default storage declarations. Default storage settings
+retain the previous config identity. Resume checks the stored plan against the requested
+`JsonStoragePlan` directly, separately from config-fingerprint compatibility; an absent legacy plan is
+interpreted as the empty version-1 plan. Individual batch and metadata writes use temporary files and
+atomic replacement. This does not make a sequence of batch rewrites one atomic transaction, and export
+destinations have the separate failure-handling limitation described below.
 
 ## Readers, processors, and stage handoffs
 
@@ -239,8 +249,10 @@ Introduce shared low-level decoding/metadata utilities in the config package's I
 config-side storage-contract module). Engine and interface callers can use them without reverse imports.
 These helpers operate on explicit plans and values; config DTOs do not call the engine.
 
-The engine owns schema compilation and write orchestration. ArtifactStorage accepts the compiled plan
-and is the primary write boundary. Generic IO helpers recognize plans when reading DD artifacts.
+Schema annotation extraction and path compilation live in the config package, in
+`config/utils/storage_schema.py`. The engine assembles column and inherited seed plans during dataset
+builder initialization and owns write orchestration. ArtifactStorage accepts the assembled plan and is
+the primary write boundary. Generic IO helpers recognize plans when reading DD artifacts.
 Keep PyArrow/pandas imports lazy and avoid an extensible codec registry until another codec requires it.
 
 Audit result reads, profiling, dropped-column loads, processor outputs, and composite-workflow helpers.
@@ -271,6 +283,14 @@ No silent change to existing exports or default storage. Document loss of native
 inside JSON-encoded subtrees, encoding/decoding CPU cost, and potential changes in compression/size.
 External readers see UTF-8 JSON text. PyArrow/pandas/DuckDB paths are tested; live Hub publication and
 independent external-engine compatibility have not been exercised.
+
+Export publication is not atomic: JSONL and CSV write directly to the destination. If a later batch
+cannot be decoded, the call raises after earlier batches have already replaced any existing file.
+This pre-existing weakness was reproduced with malformed encoded JSON and is tracked separately in
+[issue #1082](https://github.com/NVIDIA-NeMo/DataDesigner/issues/1082). That follow-up proposes a shared
+temporary-file-and-replace boundary for all export formats; a corresponding Parquet export failure was
+not reproduced in this validation. Until then, export to a fresh filename and replace prior output only
+after success. The atomic batch-write guarantee does not extend to exports.
 
 ## Dependency/version considerations
 
@@ -329,7 +349,8 @@ Unannotated behavior is unchanged; the opt-in feature does not make every schema
 Implemented the schema compiler, logical/physical codec, versioned contracts, artifact writes/reads,
 resume policy checking, seed/workflow handoffs, processor reads and outputs, result exports, and user docs.
 Config fingerprints preserve the previous identity when the new settings retain their defaults.
-Artifact writes use a temporary file and atomic replacement so failed serialization preserves prior files.
+Batch artifact writes use a temporary file and atomic replacement so failed serialization preserves
+prior batch files. JSONL/CSV export destinations do not have this protection; see #1082 above.
 
 Thom clarified that he wants preflight validation to avoid spending on LLM calls before discovering
 storage issues ([clarification](https://nvidia.slack.com/archives/C090G8EHX16/p1792437437428629)). The
@@ -351,8 +372,8 @@ Verified full config, engine, and interface suites, plus targeted feature tests.
 execution outside the sandbox; their complete test files passed on rerun. The targeted final run covers
 metadata/version/dialect rejection and failed-write preservation. Ruff and internal Fern links also pass.
 
-After adding preflight validation, full suites passed with 2,637 engine tests and 1,924 combined config
-and interface tests (3 skips). The final preflight suite passed 51 cases, including the complementary-enum
+Historical implementation-stage validation: after adding preflight validation, full suites passed
+with 2,637 engine tests and 1,924 combined config and interface tests (3 skips). The final preflight suite passed 51 cases, including the complementary-enum
 regression added after that full run. Tests verify diagnostics and failure before the model readiness
 gate. Before opening the draft PR, the branch was rebased onto `main` after #1046 merged. The final
 full suites passed with 2,655 engine tests and 1,944 combined config/interface tests (3 skips). Four
@@ -367,12 +388,15 @@ Remaining compatibility work before release:
   dynamic dictionary, and recursive traversal require encoding an enclosing node. Arbitrary JSON depth
   inside that encoded node is supported within Python's usual recursion limits.
 - Main-dataset processors must preserve encoded paths. Automatic output-path remapping is not provided.
-- Dependency checks used the current environment. Minimum-version matrix checks and representative
-  performance benchmarks remain follow-ups; no cross-version or throughput guarantee is claimed.
+- Dependency checks include current-environment runs and partial minimum-version checks recorded
+  below. The complete minimum-version engine matrix and representative performance benchmarks remain
+  follow-ups; no complete cross-version or throughput guarantee is claimed.
 - Live Hub publication and independent external-engine interpretation have not been exercised.
 - Review the public annotation/config names and metadata migration promise before release.
 
 ## Post-draft review hardening
+
+The following records earlier review revisions; the latest independent validation is recorded afterward.
 
 Three independent reviewers each performed ten substantive passes per review cycle. The first two
 cycles found and reproduced edge cases using real codec files and public pipeline runs; fixes were
@@ -407,10 +431,64 @@ environment. The engine cannot import with that older Pydantic because of an unc
 class-variable incompatibility; this review did not modify that unrelated subsystem. Feature lifecycle
 tests with the current Pydantic and minimum jsonschema passed separately.
 
+## Independent validation recorded on 2026-10-23
+
+At commit `95d9b153d427fbf94af901fa35fb828dd826e3b0`, the complete local test run passed
+**4,831 tests with 3 skipped**: 823 config, 2,776 engine, and 1,232 interface/CLI/docs tests passed.
+The skips require the opt-in live plugin catalog or the Nemotron Indic translation plugin. All 31
+changed Python files passed Ruff lint and formatting, and the diff passed `git diff --check`.
+
+Fifteen independent demo checks passed through real create/preview, storage, processor, seed, and export
+paths. They include whole-column mixed JSON, nested schema annotations, exact scalar types, absent keys,
+large integers and precise floats, Unicode separators, independent processor output contracts, and
+DataFrame/Parquet seed handoffs. A deterministic randomized test round-tripped 1,000 JSON values across
+28 batches. Structured-model responses were stubbed at the model facade; the response parser and the
+rest of the pipeline ran normally. CSV checks verify structured cells; ordinary CSV scalar/null text
+semantics are not a lossless JSON round-trip contract.
+
+Failure-path checks produced **one passing control and two failing assertions**: failed batch
+serialization preserved an existing Parquet artifact, while failed JSONL and CSV exports overwrote an
+existing destination with partial output. These two export failures are one pre-existing issue, #1082,
+not a newly introduced regression or a claim that normal exports fail.
+
+Mixed logical JSON also triggered existing profiler warnings when Arrow conversion or comparisons of
+mixed scalar types failed. Generation and exact storage round trips completed, but preserving logical
+values does not guarantee complete profiling statistics for every JSON shape.
+
+This run used Python 3.13.3, Pydantic 2.12.5, jsonschema 4.26.0, pandas 3.0.5, PyArrow 24.0.0,
+DuckDB 1.5.0, and pytest 9.0.3. Live-provider/Hub end-to-end tests, the complete dependency matrix, and
+performance benchmarks were not run. The plan was reconciled at PR revision `ef1c08d7`; the test counts
+above remain tied to `95d9b153` and do not represent a new full-suite run on that later merge commit.
+
+## Greptile preflight corrections
+
+Follow-up validation on PR revision `646829ed` plus the corrections described here reproduced and
+fixed three outstanding Greptile findings:
+
+- Empty logical objects with encoded descendants can be writable because the storage encoder supplies
+  explicit physical fields. Preflight no longer declares those ancestors unwritable solely because
+  they require an empty object.
+- Positional array prefixes can supply struct fields for otherwise unwritable trailing elements.
+  Findings about trailing elements remain warning-only when a nonempty `prefixItems` is present;
+  inspecting the trailing schema alone cannot prove that the entire array is unwritable.
+- Skip-based uncertainty is scoped to columns that can actually skip. It follows transitive data
+  dependencies and producer side effects, respects `propagate_skip=False`, and does not downgrade
+  an independent structured column because some unrelated column has a skip gate. Unknown processor
+  transformations retain the existing conservative downgrade.
+
+Twelve added regression cases cover writable empty objects at root, nested, and referenced locations;
+complementary positional array elements; unrelated and propagated skips; propagation barriers; and
+side-effect dependencies. The schema cases validate actual sample values and write real Parquet data.
+Eight of the new cases failed before the corrections. The two targeted preflight/context suites now
+pass all **122 tests**. The complete config, engine, and interface run on the corrected checkout passed
+**4,875 tests with 3 skipped**. Ruff lint/format and `git diff --check` also pass.
+
 ## References
 
 - [Storage issue #1045](https://github.com/NVIDIA-NeMo/DataDesigner/issues/1045)
+- [Implementation PR #1062](https://github.com/NVIDIA-NeMo/DataDesigner/pull/1062)
 - [Parsing fix PR #1046](https://github.com/NVIDIA-NeMo/DataDesigner/pull/1046)
+- [Atomic export follow-up #1082](https://github.com/NVIDIA-NeMo/DataDesigner/issues/1082)
 - [Pydantic schema metadata and merging](https://docs.pydantic.dev/latest/concepts/json_schema/#using-json_schema_extra)
 - [JSON Schema reference behavior](https://json-schema.org/understanding-json-schema/structuring#ref)
 - [Arrow JSON extension type](https://arrow.apache.org/docs/python/generated/pyarrow.json_.html)

@@ -108,7 +108,12 @@ def find_storage_schema_risks(schema: dict[str, Any]) -> list[StorageSchemaRisk]
                 node.get("additionalProperties") is False and not properties and not node.get("patternProperties")
             )
             if node.get("maxProperties") == 0 or closed_empty:
-                report(path, "requires an empty object, which native Parquet cannot store as a struct", object_certain)
+                # Encoded descendants supply explicit physical fields even when
+                # the logical object is empty.
+                if not has_encoded_child:
+                    report(
+                        path, "requires an empty object, which native Parquet cannot store as a struct", object_certain
+                    )
             elif (
                 not properties or node.get("additionalProperties", False) is not False or node.get("patternProperties")
             ):
@@ -118,9 +123,11 @@ def find_storage_schema_risks(schema: dict[str, Any]) -> list[StorageSchemaRisk]
                 visit(child, (*path, name), object_certain and name in required_names, refs)
 
         if (not types or "array" in types) and ("array" in types or "items" in node or "prefixItems" in node):
-            # Empty arrays are valid unless minItems says otherwise.
+            # Prefix elements can supply struct fields for otherwise
+            # unwritable trailing items, so inspecting those items alone
+            # cannot prove the entire array will fail.
             items_required = (
-                certain and nonnull_types == {"array"} and node.get("minItems", 0) > len(node.get("prefixItems", []))
+                certain and nonnull_types == {"array"} and node.get("minItems", 0) > 0 and not node.get("prefixItems")
             )
             if "items" in node:
                 visit(node["items"], (*path, None), items_required, refs)
