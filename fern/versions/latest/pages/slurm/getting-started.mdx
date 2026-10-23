@@ -8,10 +8,10 @@ Obtain these site-specific values from your Slurm or platform administrator befo
 
 - A Python 3.10 or later executable
 - An account, GPU partition, CPU image-build partition, and shared workspace path
-- A supported official vLLM release tag, a digest-qualified custom serving OCI image, or an absolute SQSH path containing a supported vLLM installation
+- An official vLLM release tag, a digest-qualified custom serving OCI image, or an absolute SQSH path containing a vLLM installation compatible with your model
 - A model available to the serving image and compute nodes
 
-The site values and `example/generator` model below are placeholders. The official vLLM tag is a real image reference; select a supported release your site can access.
+The site values and `example/generator` model below are placeholders. The official vLLM tag is a real image reference; select a release that supports your model and that your site can access.
 
 ## 1. Create and activate an environment
 
@@ -84,7 +84,7 @@ data-designer slurm image add \
   --name vllm
 ```
 
-Replace the tag with a supported release available to your site. The CLI pins the tag to a registry digest before submission, then submits a CPU Slurm job, waits for it to finish, checks the installed vLLM version, and only then publishes the alias. Keep the terminal open. You can instead import a custom digest-pinned OCI image or register an existing absolute `.sqsh` path. No Data Designer client image is needed. See [Images](/slurm/images).
+Replace the tag with a release that supports your model and is available to your site. The CLI pins the tag to a registry digest before submission, then submits a CPU Slurm job, waits for it to finish, checks the installed vLLM version, and only then publishes the alias. Keep the terminal open. You can instead import a custom digest-pinned OCI image or register an existing absolute `.sqsh` path. No Data Designer client image is needed. See [Images](/slurm/images).
 
 ## 7. Create a Data Designer builder config
 
