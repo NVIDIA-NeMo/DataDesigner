@@ -385,6 +385,11 @@ class SubmissionConfig(AuthoredConfig):
     job_name: Identifier = "data-designer"
     time_limit: Annotated[str, StringConstraints(pattern=r"^(?:[0-9]+-)?[0-9]{2}:[0-9]{2}:[0-9]{2}$")] = "03:55:00"
     comment: Annotated[str, StringConstraints(max_length=256)] | None = None
+    memory: Annotated[str, StringConstraints(pattern=r"^[1-9][0-9]*(?:K|M|G|T)$")] | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+        description="Memory requested per allocated node, such as 16G; overrides profile mem_per_gpu.",
+    )
 
     @field_validator("time_limit")
     @classmethod

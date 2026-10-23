@@ -4,12 +4,15 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pyarrow.parquet as pq
 import pytest
 from conftest import ClientWorkerCase, FakeDataDesigner
 from pytest_httpx import HTTPXMock
 
+from data_designer.config import DataDesignerConfigBuilder
+from data_designer.config.seed_source import LocalFileSeedSource
 from data_designer.slurm.client.errors import ClientWorkerError
 from data_designer.slurm.client.execution import ClientWorker
 from data_designer.slurm.config import DataDesignerSlurmConfig
@@ -128,11 +131,53 @@ def test_hosted_only_worker_needs_no_scheduler_gpu_environment(
     assert result.actual_records == case.plan.shards[0].requested_records
 
 
+@pytest.mark.parametrize("existing_kind", ("nonempty", "symlink", "dangling-symlink", "raced"))
+def test_worker_preserves_existing_dataset_paths(
+    external_client_case: ClientWorkerCase,
+    monkeypatch: pytest.MonkeyPatch,
+    existing_kind: str,
+) -> None:
+    case = external_client_case
+    monkeypatch.setenv("EXTERNAL_API_KEY", "fake-provider-secret")
+    monkeypatch.setenv("EXTERNAL_HEADER_TOKEN", "fake-header-secret")
+    worker = ClientWorker(data_designer_factory=FakeDataDesigner)
+    worker.preflight(case.plan_path, prepared=case.prepared, endpoints=case.endpoints, plugins=())
+    dataset = case.attempt_dir / "dataset"
+    if existing_kind in {"nonempty", "raced"}:
+        dataset.mkdir()
+        if existing_kind == "nonempty":
+            (dataset / "retained.txt").write_text("retain")
+        else:
+            rmdir = type(dataset).rmdir
+
+            def racing_rmdir(path: Path) -> None:
+                if path == dataset:
+                    (dataset / "retained.txt").write_text("retain")
+                rmdir(path)
+
+            monkeypatch.setattr(type(dataset), "rmdir", racing_rmdir)
+    else:
+        target = case.plan_path.parent / "unrelated"
+        if existing_kind == "symlink":
+            target.mkdir()
+        dataset.symlink_to(target, target_is_directory=True)
+    message = "unavailable" if existing_kind == "raced" else "not empty"
+    with pytest.raises(ClientWorkerError, match=f"attempt dataset workspace is {message}"):
+        worker.run(case.plan_path, prepared=case.prepared, endpoints=case.endpoints, plugins=())
+    if existing_kind in {"nonempty", "raced"}:
+        assert (dataset / "retained.txt").read_text() == "retain"
+    else:
+        assert dataset.is_symlink()
+        assert not target.exists() or list(target.iterdir()) == []
+
+
 @pytest.mark.httpx_mock(can_send_already_matched_responses=True)
+@pytest.mark.parametrize("seeded", (False, True))
 def test_native_dd_generates_through_managed_and_external_endpoints(
     external_client_case: ClientWorkerCase,
     monkeypatch: pytest.MonkeyPatch,
     httpx_mock: HTTPXMock,
+    seeded: bool,
 ) -> None:
     case = external_client_case
     monkeypatch.setattr("data_designer.engine.models.telemetry.TELEMETRY_ENABLED", False)
@@ -157,6 +202,12 @@ def test_native_dd_generates_through_managed_and_external_endpoints(
                 "prompt": "Say hello.",
             },
         )
+    if seeded:
+        seed_path = case.plan_path.parent / "seed.jsonl"
+        seed_path.write_text("".join(json.dumps({"seed_id": index}) + "\n" for index in range(8)))
+        builder = DataDesignerConfigBuilder.from_config(payload["builder"]["inline"])
+        builder.with_seed_dataset(LocalFileSeedSource(path=str(seed_path)), sampling_strategy="ordered")
+        payload["builder"]["inline"]["data_designer"]["seed_config"] = builder.get_seed_config().model_dump(mode="json")
     payload["builder"]["content_sha256"] = compute_serialized_json_sha256(payload["builder"]["inline"])
     plan = ResolvedSlurmRunPlan.model_validate(payload)
     case.plan_path.write_text(plan.serialize_json())
@@ -174,10 +225,14 @@ def test_native_dd_generates_through_managed_and_external_endpoints(
         httpx_mock.add_response(url=endpoint + "/chat/completions", json=response)
     worker = ClientWorker(environment={"SLURM_JOB_GPUS": "0"} if case.plan.deployments else {})
     worker.preflight(case.plan_path, prepared=case.prepared, endpoints=case.endpoints, plugins=())
+    # The allocation controller claims the dataset directory before running DD.
+    (case.attempt_dir / "dataset").mkdir(exist_ok=True)
     result = worker.run(case.plan_path, prepared=case.prepared, endpoints=case.endpoints, plugins=())
     assert result.actual_records == plan.shards[0].requested_records
     table = pq.read_table(case.attempt_dir / "dataset/parquet-files")
     assert table["answer"].to_pylist() == ["hello"] * result.actual_records
+    if seeded:
+        assert sorted(table["seed_id"].to_pylist()) == list(range(8))
     requests = httpx_mock.get_requests(url=hosted_url)
     assert requests
     assert all(request.headers["Authorization"] == "Bearer fake-provider-secret" for request in requests)

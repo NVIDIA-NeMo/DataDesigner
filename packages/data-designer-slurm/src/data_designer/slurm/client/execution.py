@@ -565,9 +565,22 @@ class ClientWorker:
         execution_resume = context.requested_resume if context.retry_resume is None else context.retry_resume
         if execution_resume is not ResumeMode.NEVER:
             ensure_private_directory(context.dataset_path)
-        if execution_resume is ResumeMode.NEVER and context.dataset_path.exists():
-            if not context.dataset_path.is_dir() or any(context.dataset_path.iterdir()):
+        if execution_resume is ResumeMode.NEVER and (
+            context.dataset_path.exists() or context.dataset_path.is_symlink()
+        ):
+            if (
+                context.dataset_path.is_symlink()
+                or not context.dataset_path.is_dir()
+                or any(context.dataset_path.iterdir())
+            ):
                 raise ClientWorkerError(ClientErrorCode.OUTPUT_INVALID, "attempt dataset workspace is not empty")
+            # The state writer prepares an empty directory; DD must claim it exclusively.
+            try:
+                context.dataset_path.rmdir()
+            except OSError as error:
+                raise ClientWorkerError(
+                    ClientErrorCode.OUTPUT_INVALID, "attempt dataset workspace is unavailable"
+                ) from error
 
     @staticmethod
     def _generate_dataset(

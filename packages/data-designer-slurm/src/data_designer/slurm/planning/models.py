@@ -384,6 +384,7 @@ class ResolvedSubmission(ContractValue):
     job_name: Identifier
     time_limit: str
     comment: str | None = None
+    memory: str | None = Field(default=None, exclude_if=lambda value: value is None)
 
     @model_validator(mode="after")
     def validate_submission(self) -> ResolvedSubmission:

@@ -112,9 +112,12 @@ client:
 deployments: []
 submission:
   partition: cpu
+  memory: 16G
 ```
 
 Each array task requests one node with `--gres=none` and `--cpus-per-task` set to `client.cpus`. It does not discover GPUs, reserve exclusive nodes, require serving images, or start serving containers and proxies. The profile's GPU facts and GPU memory request are unused for this run. Sharding, status, retry, resume, and collection use the same commands as local-model runs.
+
+Set `submission.memory` to the memory needed per node, such as `16G`. It emits `--mem` and takes precedence over the profile's `mem_per_gpu` request for any run. If omitted, local deployments retain the profile's GPU memory request; otherwise Slurm's memory default applies. Some clusters default to reserving all memory on a node, even for a small CPU-only job.
 
 ## Configure vLLM
 

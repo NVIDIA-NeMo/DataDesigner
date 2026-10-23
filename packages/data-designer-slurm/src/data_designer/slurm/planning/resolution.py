@@ -294,6 +294,7 @@ def _materialize_submission(
         job_name=authored.submission.job_name,
         time_limit=authored.submission.time_limit,
         comment=authored.submission.comment,
+        memory=authored.submission.memory,
     )
 
 

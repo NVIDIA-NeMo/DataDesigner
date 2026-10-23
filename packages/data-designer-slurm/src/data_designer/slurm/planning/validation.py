@@ -97,6 +97,7 @@ def validate_resolved_plan(
         "resolved time limit does not match authored input",
     )
     _require(plan.submission.comment == authored.submission.comment, "resolved comment does not match authored input")
+    _require(plan.submission.memory == authored.submission.memory, "resolved memory does not match authored input")
 
     _require(
         plan.client.dependency_lock.sha256 == dependency_lock.compute_sha256(),

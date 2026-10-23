@@ -13,14 +13,16 @@ from data_designer.slurm.config import (
     DataDesignerSlurmConfigBuilder,
     ExternalModelProviderConfig,
     InvocationConfig,
+    SubmissionConfig,
     injected_profile,
     load_run_config,
 )
 from data_designer.slurm.launcher.renderer import render_generation_attempt_script
 from data_designer.slurm.planning import ResolvedDependencyLock, ResolvedSlurmRunPlan
 from data_designer.slurm.planning.compiler import SlurmRunCompiler
-from data_designer.slurm.planning.errors import SlurmPlanCompilationError
+from data_designer.slurm.planning.errors import SlurmPlanCompilationError, SlurmPlanContractError
 from data_designer.slurm.planning.resolution import resolve_slurm_config
+from data_designer.slurm.planning.validation import validate_resolved_plan
 from data_designer.slurm.runtime.ports import resolve_allocation_plan
 
 
@@ -35,14 +37,18 @@ def test_external_provider_examples_load(name: str) -> None:
 
 
 @pytest.mark.parametrize("sourced", (False, True))
+@pytest.mark.parametrize("memory", (None, "16G"))
 def test_external_models_compile_and_round_trip(
     external_run: DataDesignerSlurmConfig,
     external_plan: ResolvedSlurmRunPlan,
     dependency_lock_single: ResolvedDependencyLock,
     sourced: bool,
+    memory: str | None,
 ) -> None:
     builder_payload = external_run.builder.inline
-    config = external_run
+    payload = external_run.model_dump(mode="python")
+    payload["submission"]["memory"] = memory
+    config = DataDesignerSlurmConfig.model_validate(payload)
     if sourced:
         config = config.model_copy(update={"builder": BuilderInput(source="builder.json")})
     plan = SlurmRunCompiler.compile(
@@ -62,6 +68,8 @@ def test_external_models_compile_and_round_trip(
     assert ResolvedSlurmRunPlan.model_validate_json(plan.serialize_json()) == plan
     assert plan.invocation.authored.model_concurrency["judge"] == 3
     script = render_generation_attempt_script(plan, attempt_ordinal=1)
+    assert plan.submission.memory == memory
+    assert ("#SBATCH --mem=16G" in script) == (memory is not None)
     if config.deployments:
         assert len(plan.deployments) == 1
         assert "#SBATCH --gres=gpu:8" in script
@@ -84,9 +92,11 @@ def test_builder_accepts_external_providers_without_deployments(external_run: Da
         dataset_name="hosted",
         model_providers=external_run.invocation.model_providers,
     )
+    builder.with_submission(memory="16G")
     config = builder.build()
     assert config.deployments == []
     assert config.invocation.model_providers == external_run.invocation.model_providers
+    assert config.submission.memory == "16G"
 
 
 @pytest.mark.parametrize("external_run", ("hosted-only",), indirect=True)
@@ -99,6 +109,36 @@ def test_hosted_only_runs_ignore_profile_gpu_memory(external_plan: ResolvedSlurm
     script = render_generation_attempt_script(plan, attempt_ordinal=1)
     assert "#SBATCH --gres=none" in script
     assert "--mem-per-gpu" not in script
+
+
+def test_submission_memory_overrides_profile_gpu_memory(external_plan: ResolvedSlurmRunPlan) -> None:
+    payload = external_plan.model_dump(mode="python")
+    profile = external_plan.selected_profile.profile
+    profile = profile.model_copy(update={"scheduler": profile.scheduler.model_copy(update={"mem_per_gpu": "80G"})})
+    payload["selected_profile"] = injected_profile(profile)
+    payload["submission"]["memory"] = "16G"
+    plan = ResolvedSlurmRunPlan.model_validate(payload)
+    script = render_generation_attempt_script(plan, attempt_ordinal=1)
+    assert "#SBATCH --mem=16G" in script
+    assert "--mem-per-gpu" not in script
+
+
+@pytest.mark.parametrize("memory", ("0", "16", "-1G", "16G;command"))
+def test_submission_rejects_invalid_memory(memory: str) -> None:
+    with pytest.raises(ValueError):
+        SubmissionConfig(memory=memory)
+
+
+def test_submission_memory_is_bound_to_authored_config(
+    external_run: DataDesignerSlurmConfig,
+    external_plan: ResolvedSlurmRunPlan,
+    dependency_lock_single: ResolvedDependencyLock,
+) -> None:
+    payload = external_plan.model_dump(mode="python")
+    payload["submission"]["memory"] = "16G"
+    plan = ResolvedSlurmRunPlan.model_validate(payload)
+    with pytest.raises(SlurmPlanContractError, match="resolved memory does not match authored input"):
+        validate_resolved_plan(external_run, dependency_lock_single, plan)
 
 
 @pytest.mark.parametrize(

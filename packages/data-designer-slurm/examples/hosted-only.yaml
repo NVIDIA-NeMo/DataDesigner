@@ -28,3 +28,4 @@ client:
 deployments: []
 submission:
   partition: cpu
+  memory: 16G

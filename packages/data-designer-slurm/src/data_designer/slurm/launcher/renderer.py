@@ -248,7 +248,9 @@ def _build_generation_directives(
         values.append(("gres", "none"))
     elif profile.gpu_request_mode == "gres":
         values.append(("gres", f"gpu:{plan.resolved_gpus_per_node}"))
-    if plan.deployments and profile.scheduler.mem_per_gpu is not None:
+    if plan.submission.memory is not None:
+        values.append(("mem", plan.submission.memory))
+    elif plan.deployments and profile.scheduler.mem_per_gpu is not None:
         values.append(("mem-per-gpu", profile.scheduler.mem_per_gpu))
     if plan.submission.comment is not None:
         values.append(("comment", plan.submission.comment))

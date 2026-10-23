@@ -18,6 +18,10 @@ qualification before considering separate generation and judging allocations.
   serving images, no GPU discovery, no serving containers, and no proxy ports.
 - Reuse existing shard, retry, resume, secret transport, and collection contracts.
   Preserve serialized local-only plans where defaults are unchanged.
+- Allow an explicit per-node submission memory request. The live CPU probe found
+  that the cluster otherwise reserves all node memory for a four-CPU job.
+- Let DD exclusively create a fresh dataset after the state writer has prepared
+  its empty directory. Preserve nonempty directories and reject symlink targets.
 
 ## Validation
 
