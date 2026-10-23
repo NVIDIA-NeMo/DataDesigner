@@ -1,4 +1,4 @@
-graphifyy==0.9.90
+graphifyy==0.9.92
 networkx==3.6.1
 numpy==2.4.6
 rapidfuzz==3.14.6
