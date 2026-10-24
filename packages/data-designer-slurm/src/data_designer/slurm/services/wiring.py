@@ -8,7 +8,7 @@ from __future__ import annotations
 import importlib.metadata
 import os
 import shlex
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Collection, Iterator, Mapping
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -18,6 +18,7 @@ from uuid import uuid4
 
 from pydantic import JsonValue, ValidationError
 
+from data_designer.config.default_model_settings import get_default_providers
 from data_designer.slurm._errors import format_validation_error
 from data_designer.slurm.benchmark.execution import SystemBenchmarkBackend
 from data_designer.slurm.benchmark.observer import PersistedBenchmarkRunObserver
@@ -57,13 +58,16 @@ from data_designer.slurm.launcher.errors import SlurmLauncherError, SlurmSubmiss
 from data_designer.slurm.launcher.renderer import render_generation_attempt_script
 from data_designer.slurm.launcher.scheduler_path import SchedulerPathError, resolve_scheduler_bin_path
 from data_designer.slurm.planning import ResolvedImage, ResolvedSlurmRunPlan
+from data_designer.slurm.planning.builder_identity import get_external_model_aliases
 from data_designer.slurm.planning.compiler import SlurmRunCompiler
+from data_designer.slurm.planning.model_providers import resolve_hosted_model_providers
 from data_designer.slurm.planning.resolution import resolve_slurm_config
 from data_designer.slurm.runtime.bundle import stage_runtime_bundle
 from data_designer.slurm.runtime.errors import SlurmRuntimeError
 from data_designer.slurm.security import redact_sensitive_diagnostic
 from data_designer.slurm.services.artifacts import StateRunArtifactPublisher
 from data_designer.slurm.services.benchmark import SlurmBenchmarkService
+from data_designer.slurm.services.environment import build_run_export_environment
 from data_designer.slurm.services.errors import SlurmServiceError, SlurmServiceErrorCode, SlurmServiceOperation
 from data_designer.slurm.services.image_lifecycle import SlurmImageLifecycleManager
 from data_designer.slurm.services.images import SlurmImageService
@@ -156,6 +160,7 @@ class _RunPreparer:
         run_id_factory: RunIdFactory,
         package_version: str,
         runtime_inspector: ClientRuntimeInspector | None = None,
+        available_environment: Collection[str] = (),
     ) -> None:
         self._profile = selected_profile
         self._images = image_registry
@@ -164,6 +169,7 @@ class _RunPreparer:
         self._run_id_factory = run_id_factory
         self._package_version = package_version
         self._runtime_inspector = runtime_inspector or ClientRuntimeInspector()
+        self._available_environment = frozenset(available_environment)
 
     @contextmanager
     def prepare(
@@ -205,6 +211,20 @@ class _RunPreparer:
                     _safe_builder_load_error(error),
                 ) from None
             _validate_builder_for_submission(authored, builder_payload, operation)
+            payload = authored.builder.inline if authored.builder.inline is not None else builder_payload
+            assert payload is not None
+            local_aliases = {deployment.model_alias for deployment in authored.deployments}
+            hosted_providers = resolve_hosted_model_providers(
+                payload,
+                local_aliases,
+                get_default_providers() if get_external_model_aliases(payload, local_aliases) else (),
+            )
+            if set(collect_secret_environment_names(hosted_providers)).difference(self._available_environment):
+                raise SlurmServiceError(
+                    SlurmServiceErrorCode.INVALID_REQUEST,
+                    operation,
+                    "required secret environment for hosted models is unavailable",
+                )
             dependencies = stack.enter_context(
                 self._dependencies.resolve(
                     authored.client.dependencies,
@@ -238,6 +258,7 @@ class _RunPreparer:
                 scheduler_bin_path=scheduler_bin_path,
                 resolved_gpus_per_node=self._resolve_gpu_count(authored, operation),
                 builder_payload=builder_payload,
+                hosted_model_providers=hosted_providers,
             )
             plan = SlurmRunCompiler.compile(effective)
             for deployment in plan.deployments:
@@ -276,6 +297,8 @@ class _RunPreparer:
         authored: DataDesignerSlurmConfig,
         operation: SlurmServiceOperation,
     ) -> int | None:
+        if not authored.deployments:
+            return 0
         if self._profile.profile.gpus_per_node != "auto":
             return None
         partition = authored.submission.partition or self._profile.profile.scheduler.partition
@@ -347,7 +370,9 @@ class _SystemRunBackend:
                     batch_script=prepared.batch_script,
                 )
             self._materialize_default_managed_assets(config, plan)
-            export_environment = self._build_export_environment(config)
+            export_environment = build_run_export_environment(
+                plan, self._source_environment, SlurmServiceOperation.EXECUTE_RUN
+            )
             self._initialize_run(config, prepared)
         self._report_progress("Rendered batch script; invoking sbatch --parsable --hold (script via stdin).")
         try:
@@ -490,43 +515,6 @@ class _SystemRunBackend:
                 SlurmServiceOperation.EXECUTE_RUN,
                 "managed assets workspace cannot be prepared",
             ) from None
-
-    def _build_export_environment(self, config: DataDesignerSlurmConfig) -> dict[str, str]:
-        environment = {"SLURM_EXPORT_ENV": "ALL"}
-        deployment_type = self._source_environment.get("NEMO_DEPLOYMENT_TYPE", "slurm")
-        if type(deployment_type) is not str or "\0" in deployment_type:
-            raise SlurmServiceError(
-                SlurmServiceErrorCode.INVALID_REQUEST,
-                SlurmServiceOperation.EXECUTE_RUN,
-                "NEMO_DEPLOYMENT_TYPE is invalid",
-            )
-        environment["NEMO_DEPLOYMENT_TYPE"] = deployment_type
-        if "SLURM_CONF" in self._source_environment:
-            slurm_conf = self._source_environment["SLURM_CONF"]
-            if type(slurm_conf) is not str or "\0" in slurm_conf:
-                raise SlurmServiceError(
-                    SlurmServiceErrorCode.INVALID_REQUEST,
-                    SlurmServiceOperation.EXECUTE_RUN,
-                    "SLURM_CONF is invalid",
-                )
-            environment["SLURM_CONF"] = slurm_conf
-        for name in collect_secret_environment_names(config):
-            try:
-                value = self._source_environment[name]
-            except KeyError:
-                raise SlurmServiceError(
-                    SlurmServiceErrorCode.INVALID_REQUEST,
-                    SlurmServiceOperation.EXECUTE_RUN,
-                    f"required secret environment {name!r} is unavailable",
-                ) from None
-            if type(value) is not str or "\0" in value:
-                raise SlurmServiceError(
-                    SlurmServiceErrorCode.INVALID_REQUEST,
-                    SlurmServiceOperation.EXECUTE_RUN,
-                    f"required secret environment {name!r} is invalid",
-                )
-            environment[name] = value
-        return environment
 
     def _initialize_run(
         self,
@@ -849,6 +837,7 @@ def _create_slurm_run_service(
 ) -> SlurmRunService:
     command_client = launcher or SlurmCommandClient()
     selected_clock = clock or _utc_now
+    environment = dict(os.environ if source_environment is None else source_environment)
     preparer = _RunPreparer(
         selected,
         VerifiedImageRegistry(selected.profile.workspace_root),
@@ -856,6 +845,9 @@ def _create_slurm_run_service(
         command_client,
         run_id_factory or _new_run_id,
         package_version or importlib.metadata.version("data-designer-slurm"),
+        available_environment={
+            name for name, value in environment.items() if isinstance(value, str) and value and "\0" not in value
+        },
     )
     backend = _SystemRunBackend(
         preparer,
@@ -863,7 +855,7 @@ def _create_slurm_run_service(
         command_client,
         artifact_publisher or StateRunArtifactPublisher(selected.profile.workspace_root, selected_clock),
         selected_clock,
-        dict(os.environ if source_environment is None else source_environment),
+        environment,
         progress,
     )
     return SlurmRunService(_SystemRunPlanner(preparer), render_generation_attempt_script, backend)

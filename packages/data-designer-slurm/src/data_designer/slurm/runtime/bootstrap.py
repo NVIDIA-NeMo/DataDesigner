@@ -10,6 +10,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Literal
 
+from data_designer.config.models import ModelProvider
 from data_designer.slurm.config.environment import (
     SecretRef,
     collect_secret_environment_names,
@@ -155,11 +156,15 @@ def _build_client_step(
             *endpoint_arguments,
         )
     secret_names = collect_secret_environment_names(
-        (plan.client.authored.dependencies.index_credentials, plan.invocation.authored.mcp_providers)
+        (
+            plan.client.authored.dependencies.index_credentials,
+            plan.invocation.authored.mcp_providers,
+            *(ModelProvider.model_validate(value) for value in plan.hosted_model_providers),
+        )
     )
     allocation_environment = (
         {"SLURM_JOB_GPUS": environment["SLURM_JOB_GPUS"]}
-        if plan.selected_profile.profile.gpu_request_mode == "gres"
+        if plan.deployments and plan.selected_profile.profile.gpu_request_mode == "gres"
         else {}
     )
     return _step(

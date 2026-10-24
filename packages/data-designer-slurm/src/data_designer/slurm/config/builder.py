@@ -136,8 +136,6 @@ class DataDesignerSlurmConfigBuilder:
         missing = []
         if self._invocation is None:
             missing.append("invocation")
-        if not self._deployments:
-            missing.append("deployment")
         if missing:
             raise SlurmConfigBuilderError(f"Slurm config builder requires: {', '.join(missing)}")
         assert self._invocation is not None

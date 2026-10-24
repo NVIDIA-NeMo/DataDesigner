@@ -18,8 +18,7 @@ dd_read_control_plan() {
     local plan=$1
     jq -e '
         .schema_version == 1
-        and ([.deployments[].node_indices[]] | length > 0)
-        and ([.deployments[].node_indices[]] | all(type == "number" and . >= 0))
+        and ([.client.host_node_index, .deployments[].node_indices[]] | all(type == "number" and . >= 0))
         and ([.container_mounts[] | (.source + .target)] | all(test("[,:]") | not))
         and ([.container_mounts[].target] | all(
             . != "/run/data-designer-slurm"
@@ -30,7 +29,7 @@ dd_read_control_plan() {
     DD_CLIENT_PYTHON=$(jq -er '.client.runtime.python_executable' "${plan}")
     DD_CLIENT_CPUS=$(jq -er '.client.authored.cpus | tostring' "${plan}")
     DD_EXPECTED_GPUS=$(jq -er '.resolved_gpus_per_node | tostring' "${plan}")
-    DD_EXPECTED_NODES=$(jq -er '[.deployments[].node_indices[]] | max + 1 | tostring' "${plan}")
+    DD_EXPECTED_NODES=$(jq -er '[.client.host_node_index, .deployments[].node_indices[]] | max + 1 | tostring' "${plan}")
     DD_CLIENT_NODE_INDEX=$(jq -er '.client.host_node_index | tostring' "${plan}")
     DD_GPU_REQUEST_MODE=$(jq -er '.selected_profile.profile.gpu_request_mode' "${plan}")
     DD_CONTAINER_MOUNTS=$(jq -jr '
@@ -67,12 +66,13 @@ dd_read_container_path() {
 dd_read_plan_secret_names() {
     local plan=$1
     dd_read_null_values DD_REQUIRED_SECRET_NAMES < <(
-        jq -j '[.. | objects | select(.type? == "secret") | .environment] | unique | .[] | ., "\u0000"' "${plan}"
+        jq -j '[(.. | objects | select(.type? == "secret") | .environment), (.hosted_model_providers[]?.api_key // empty)] | unique | .[] | ., "\u0000"' "${plan}"
     )
     dd_read_null_values DD_ALL_SECRET_NAMES < <(
         jq -j '
             [
                 (.. | objects | select(.type? == "secret") | .environment),
+                (.hosted_model_providers[]?.api_key // empty),
                 (
                     .deployments[].authored.server.environment
                     | to_entries[]

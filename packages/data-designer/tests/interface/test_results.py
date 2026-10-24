@@ -377,6 +377,24 @@ def test_export_parquet_schema_unification(stub_dataset_creation_results, tmp_pa
     assert list(loaded["value"]) == [1.0, 2.0, 3.0, 4.0]
 
 
+def test_export_parquet_normalizes_column_order_and_nested_empty_lists(
+    stub_dataset_creation_results: DatasetCreationResults, tmp_path: Path
+) -> None:
+    batch_dir = tmp_path / "parquet-files"
+    batch_dir.mkdir()
+    records = [
+        {"candidate_id": "first", "solution": {"sql": "SELECT 1", "reasoning": "one"}, "warnings": []},
+        {"warnings": ["check"], "solution": {"reasoning": "two", "sql": "SELECT 2"}, "candidate_id": "second"},
+    ]
+    for index, record in enumerate(records):
+        lazy.pq.write_table(lazy.pa.Table.from_pylist([record]), batch_dir / f"batch_{index:05d}.parquet")
+    stub_dataset_creation_results.artifact_storage.final_dataset_path = batch_dir
+
+    exported = stub_dataset_creation_results.export(tmp_path / "out.parquet")
+
+    assert lazy.pq.read_table(exported).to_pylist() == records
+
+
 def test_export_unknown_extension_raises(stub_dataset_creation_results, tmp_path) -> None:
     """export() raises InvalidFileFormatError when the extension is not a supported format."""
     with pytest.raises(InvalidFileFormatError, match="Unsupported export format"):

@@ -47,7 +47,12 @@ from data_designer.slurm.contracts import (
     validate_local_config_path,
     validate_plain_text,
 )
-from data_designer.slurm.planning.builder_identity import get_declared_model_aliases
+from data_designer.slurm.planning.builder_identity import get_declared_model_aliases, get_external_model_aliases
+from data_designer.slurm.planning.model_providers import (
+    dump_hosted_model_providers,
+    load_hosted_model_providers,
+    resolve_hosted_model_providers,
+)
 from data_designer.slurm.types import NetworkPort, PartitionSelection
 
 
@@ -186,6 +191,7 @@ class ResolvedBuilderInput(ContractValue):
     # Both forms use deterministic persisted builder JSON bytes.
     content_sha256: Sha256Digest
     model_aliases: tuple[ModelAlias, ...]
+    external_model_aliases: tuple[ModelAlias, ...] = Field(default=(), exclude_if=lambda value: not value)
 
     @model_validator(mode="after")
     def validate_input(self) -> ResolvedBuilderInput:
@@ -204,6 +210,10 @@ class ResolvedBuilderInput(ContractValue):
             expected_digest = self.source.sha256
         if len(self.model_aliases) != len(set(self.model_aliases)):
             raise ValueError("resolved builder model aliases must be unique")
+        if len(self.external_model_aliases) != len(set(self.external_model_aliases)) or not set(
+            self.external_model_aliases
+        ).issubset(self.model_aliases):
+            raise ValueError("external model aliases must be a unique subset of builder aliases")
         if self.content_sha256 != expected_digest:
             raise ValueError("builder content digest does not match the resolved input")
         return self
@@ -379,6 +389,7 @@ class ResolvedSubmission(ContractValue):
     job_name: Identifier
     time_limit: str
     comment: str | None = None
+    memory: str | None = Field(default=None, exclude_if=lambda value: value is None)
 
     @model_validator(mode="after")
     def validate_submission(self) -> ResolvedSubmission:
@@ -394,16 +405,22 @@ class ResolvedSlurmRunPlan(ContractRecord):
     authored_config: ArtifactReference
     selected_profile: SelectedSlurmProfile
     scheduler_bin_path: str | None = Field(default=None, exclude_if=lambda value: value is None)
-    resolved_gpus_per_node: PositiveInt
+    resolved_gpus_per_node: NonNegativeInt
     builder: ResolvedBuilderInput
     invocation: ResolvedInvocation
     client: ResolvedClient
-    deployments: tuple[ResolvedDeployment, ...] = Field(min_length=1)
+    deployments: tuple[ResolvedDeployment, ...]
     array_tasks: ArrayTasksConfig
     shards: tuple[PlannedShard, ...] = Field(min_length=1)
     submission: ResolvedSubmission
     container_mounts: tuple[ContainerMount, ...] = ()
     runtime_bundle: ArtifactReference
+    hosted_model_providers: tuple[dict[str, JsonValue], ...] = Field(default=(), exclude_if=lambda value: not value)
+
+    @field_validator("hosted_model_providers", mode="before")
+    @classmethod
+    def validate_hosted_providers(cls, value: tuple[dict[str, JsonValue], ...]) -> tuple[dict[str, JsonValue], ...]:
+        return dump_hosted_model_providers(load_hosted_model_providers(value))
 
     @field_validator("scheduler_bin_path")
     @classmethod
@@ -420,7 +437,15 @@ class ResolvedSlurmRunPlan(ContractRecord):
         profile = self.selected_profile.profile
         if profile.scheduler.bin_path is not None and self.scheduler_bin_path not in (None, profile.scheduler.bin_path):
             raise ValueError("resolved scheduler bin path does not match the selected profile override")
-        if profile.gpus_per_node != "auto" and profile.gpus_per_node != self.resolved_gpus_per_node:
+        if not self.deployments and self.resolved_gpus_per_node != 0:
+            raise ValueError("client-only runs must resolve zero GPUs")
+        if self.deployments and self.resolved_gpus_per_node == 0:
+            raise ValueError("server deployments require a positive GPU count")
+        if (
+            self.deployments
+            and profile.gpus_per_node != "auto"
+            and profile.gpus_per_node != self.resolved_gpus_per_node
+        ):
             raise ValueError("resolved GPU count does not match the selected profile")
         if profile.gpu_request_mode == "visible" and profile.scheduler.mem_per_gpu is not None:
             raise ValueError("mem_per_gpu requires GRES GPU request mode")
@@ -463,10 +488,28 @@ class ResolvedSlurmRunPlan(ContractRecord):
             raise ValueError("resolved deployment IDs must use complete ordered zero-based identities")
         if len(aliases) != len(set(aliases)):
             raise ValueError("resolved deployment aliases must be unique")
-        if set(aliases) != set(self.builder.model_aliases):
+        external = set(self.builder.external_model_aliases)
+        if external.intersection(aliases) or set(aliases) | external != set(self.builder.model_aliases):
             raise ValueError("resolved deployment aliases must exactly cover Data Designer model aliases")
+        providers = load_hosted_model_providers(self.hosted_model_providers)
+        provider_names = {provider.name for provider in providers}
+        if external and not provider_names:
+            raise ValueError("resolved deployment aliases must exactly cover Data Designer model aliases")
+        if provider_names.intersection(f"slurm-{alias}" for alias in aliases):
+            raise ValueError("external provider names must not collide with managed providers")
+        if self.builder.inline is not None and self.builder.external_model_aliases != get_external_model_aliases(
+            self.builder.inline, aliases
+        ):
+            raise ValueError("resolved external model aliases do not match the inline builder")
+        if self.builder.inline is not None and providers != resolve_hosted_model_providers(
+            self.builder.inline, aliases, providers
+        ):
+            raise ValueError("hosted model provider snapshot does not match the builder")
+        if set(self.invocation.authored.model_concurrency).difference(self.builder.model_aliases):
+            raise ValueError("model concurrency references undeclared aliases")
 
-        if self.client.host_node_index != self.deployments[0].node_indices[0]:
+        expected_client_node = self.deployments[0].node_indices[0] if self.deployments else 0
+        if self.client.host_node_index != expected_client_node:
             raise ValueError("client must be colocated on the first node of the first deployment")
         authored_bindings = self.invocation.authored.input_bindings
         expected_bindings = InputBindings(
@@ -578,7 +621,7 @@ def derive_deployment_placement(
     placements: list[tuple[tuple[int, ...], int, int]] = []
     next_node = 0
     shared_nodes = {deployment.resources.shared_node for deployment in deployments}
-    if shared_nodes != {None} and (len(shared_nodes) != 1 or None in shared_nodes):
+    if shared_nodes and shared_nodes != {None} and (len(shared_nodes) != 1 or None in shared_nodes):
         raise ValueError("shared_node requires one group covering all deployments")
     for deployment in deployments:
         resources = deployment.resources

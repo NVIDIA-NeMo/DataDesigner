@@ -88,7 +88,7 @@ class AttemptReadiness(StateRecord):
     updated_at: datetime
     started_at: datetime | None = Field(default=None, exclude_if=lambda value: value is None)
     state: ReadinessState
-    deployments: tuple[DeploymentReadiness, ...] = Field(min_length=1)
+    deployments: tuple[DeploymentReadiness, ...]
 
     _updated_at_is_utc = field_validator("updated_at")(validate_utc_timestamp)
 
@@ -175,11 +175,15 @@ def _validate_attempt_state(state: ReadinessState, deployments: tuple[Deployment
     elif state is ReadinessState.STARTING:
         if any(item in {ReadinessState.FAILED, ReadinessState.STOPPED} for item in deployment_states):
             raise ValueError("starting attempts cannot contain failed or stopped deployments")
-        if all(item is ReadinessState.READY for item in deployment_states):
+        if deployment_states and all(item is ReadinessState.READY for item in deployment_states):
             raise ValueError("attempts with every deployment ready must use the ready state")
     elif state is ReadinessState.READY and any(item is not ReadinessState.READY for item in deployment_states):
         raise ValueError("ready attempts require every deployment to be ready")
-    elif state is ReadinessState.FAILED and not any(item is ReadinessState.FAILED for item in deployment_states):
+    elif (
+        state is ReadinessState.FAILED
+        and deployment_states
+        and not any(item is ReadinessState.FAILED for item in deployment_states)
+    ):
         raise ValueError("failed attempts require at least one failed deployment")
     elif state is ReadinessState.STOPPED and any(item is not ReadinessState.STOPPED for item in deployment_states):
         raise ValueError("stopped attempts require every deployment to be stopped")

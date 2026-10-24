@@ -221,14 +221,14 @@ def _build_generation_directives(
             resolved_array = f"{resolved_array}%{plan.array_tasks.max_concurrent}"
 
     profile = plan.selected_profile.profile
-    if profile.gpu_request_mode == "gres":
+    if plan.deployments and profile.gpu_request_mode == "gres":
         # Reserve CPUs with every GPU so socket-local CPU binding cannot hide GPUs from a serving step.
         cpus_per_gpu = max(
             1, (plan.client.authored.cpus + plan.resolved_gpus_per_node - 1) // plan.resolved_gpus_per_node
         )
         cpu_directive = ("cpus-per-gpu", str(cpus_per_gpu))
     else:
-        if profile.scheduler.mem_per_gpu is not None:
+        if plan.deployments and profile.scheduler.mem_per_gpu is not None:
             raise SlurmBatchRenderError("mem_per_gpu requires GRES GPU request mode")
         cpu_directive = ("cpus-per-task", str(plan.client.authored.cpus))
 
@@ -244,9 +244,13 @@ def _build_generation_directives(
         ("output", output_path),
         ("error", error_path),
     ]
-    if profile.gpu_request_mode == "gres":
+    if not plan.deployments:
+        values.append(("gres", "none"))
+    elif profile.gpu_request_mode == "gres":
         values.append(("gres", f"gpu:{plan.resolved_gpus_per_node}"))
-    if profile.scheduler.mem_per_gpu is not None:
+    if plan.submission.memory is not None:
+        values.append(("mem", plan.submission.memory))
+    elif plan.deployments and profile.scheduler.mem_per_gpu is not None:
         values.append(("mem-per-gpu", profile.scheduler.mem_per_gpu))
     if plan.submission.comment is not None:
         values.append(("comment", plan.submission.comment))
@@ -255,6 +259,8 @@ def _build_generation_directives(
 
 def _requires_exclusive_nodes(plan: ResolvedSlurmRunPlan) -> bool:
     """Avoid remote-node port collisions when batch GPU IDs describe node zero only."""
+    if not plan.deployments:
+        return False
     if plan.selected_profile.profile.gpu_request_mode == "visible":
         return True
     return any(index > 0 for deployment in plan.deployments for index in deployment.node_indices)

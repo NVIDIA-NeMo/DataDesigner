@@ -40,7 +40,7 @@ def resolve_allocation_plan(
     environment: Mapping[str, str],
 ) -> ResolvedSlurmRunPlan:
     """Return a plan with ports bound to the allocation's assigned GPUs."""
-    if plan.selected_profile.profile.gpu_request_mode == "visible":
+    if not plan.deployments or plan.selected_profile.profile.gpu_request_mode == "visible":
         return plan
     gpu_ids = _parse_gpu_ids(environment.get("SLURM_JOB_GPUS"))
     block_start = _PORT_RANGE_START + min(gpu_ids) * _PORTS_PER_GPU

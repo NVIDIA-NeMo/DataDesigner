@@ -19,6 +19,7 @@ from slurm_test_fakes import (
     FakeVllmBackend,
 )
 
+from data_designer.config.models import ModelProvider
 from data_designer.slurm.benchmark import BenchmarkManifest, BenchmarkReport
 from data_designer.slurm.client import ClientResult
 from data_designer.slurm.config import (
@@ -83,6 +84,67 @@ def dependency_lock_single() -> ResolvedDependencyLock:
 @pytest.fixture
 def single_node_plan() -> ResolvedSlurmRunPlan:
     return ResolvedSlurmRunPlan.model_validate_json((CONTRACT_GOLDEN_DIRECTORY / "single_node_plan.json").read_text())
+
+
+@pytest.fixture(params=("mixed", "hosted-only"))
+def external_run(
+    request: pytest.FixtureRequest, authored_run_single: DataDesignerSlurmConfig
+) -> DataDesignerSlurmConfig:
+    payload = authored_run_single.model_dump(mode="python")
+    models = payload["builder"]["inline"]["data_designer"]["model_configs"]
+    models.append(
+        {
+            "alias": "judge",
+            "model": "example/hosted-judge",
+            "provider": "external",
+            "inference_parameters": {
+                "temperature": 0.3,
+                "max_parallel_requests": 7,
+                "extra_body": {"reasoning_effort": "medium"},
+            },
+        }
+    )
+    payload["invocation"]["model_concurrency"]["judge"] = 3
+    if request.param == "hosted-only":
+        models.pop(0)
+        payload["deployments"] = []
+        del payload["invocation"]["model_concurrency"]["generator"]
+    return DataDesignerSlurmConfig.model_validate(payload)
+
+
+@pytest.fixture
+def hosted_model_providers() -> tuple[ModelProvider, ...]:
+    return (
+        ModelProvider(
+            name="external",
+            endpoint="https://models.example/v1",
+            api_key="MODEL_API_KEY",
+            extra_body={"routing": {"version": 2}},
+            extra_headers={"X-Project": "test"},
+        ),
+    )
+
+
+@pytest.fixture
+def external_plan(
+    hosted_model_providers: tuple[ModelProvider, ...],
+    external_run: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+    dependency_lock_single: ResolvedDependencyLock,
+) -> ResolvedSlurmRunPlan:
+    return SlurmRunCompiler.compile(
+        resolve_slurm_config(
+            external_run,
+            hosted_model_providers=hosted_model_providers,
+            selected_profile=single_node_plan.selected_profile,
+            client_runtime=single_node_plan.client.runtime,
+            deployment_images=tuple(single_node_plan.deployments[0].image for _ in external_run.deployments),
+            dependency_lock=dependency_lock_single,
+            runtime_bundle=single_node_plan.runtime_bundle,
+            run_id=single_node_plan.run_id,
+            package_version=single_node_plan.package_version,
+        )
+    )
 
 
 @pytest.fixture

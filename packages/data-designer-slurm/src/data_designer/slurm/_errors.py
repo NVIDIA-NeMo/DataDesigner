@@ -42,6 +42,13 @@ _SAFE_VALUE_ERROR_MESSAGES = {
             "shared_node requires GRES GPU request mode",
             "shared_node requires the same resolved serving image",
             "deployment placement and GPU ownership must match authored resources",
+            "model concurrency references undeclared aliases",
+            "external provider names must not collide with managed providers",
+            "model provider names must be unique",
+            "client-only runs must resolve zero GPUs",
+            "server deployments require a positive GPU count",
+            "resolved external model aliases do not match the inline builder",
+            "external model aliases require external providers",
         )
     },
     "Value error, builder content digest does not match the resolved input": (

@@ -333,6 +333,11 @@ class SubmissionConfig(AuthoredConfig):
     job_name: Identifier = "data-designer"
     time_limit: Annotated[str, StringConstraints(pattern=r"^(?:[0-9]+-)?[0-9]{2}:[0-9]{2}:[0-9]{2}$")] = "03:55:00"
     comment: Annotated[str, StringConstraints(max_length=256)] | None = None
+    memory: Annotated[str, StringConstraints(pattern=r"^[1-9][0-9]*(?:K|M|G|T)$")] | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+        description="Memory requested per allocated node, such as 16G; overrides profile mem_per_gpu.",
+    )
 
     @field_validator("time_limit")
     @classmethod
@@ -357,7 +362,7 @@ class DataDesignerSlurmConfig(AuthoredConfig):
     builder: BuilderInput
     invocation: InvocationConfig
     client: ClientConfig = Field(default_factory=ClientConfig)
-    deployments: list[ServerDeploymentConfig] = Field(min_length=1)
+    deployments: list[ServerDeploymentConfig] = Field(default_factory=list)
     array_tasks: ArrayTasksConfig = Field(default_factory=ArrayTasksConfig)
     submission: SubmissionConfig = Field(default_factory=SubmissionConfig)
 
@@ -386,9 +391,12 @@ class DataDesignerSlurmConfig(AuthoredConfig):
                 for member in members[1:]
             ):
                 raise ValueError("shared_node requires matching server environment and queue backpressure")
-        unknown_concurrency = set(self.invocation.model_concurrency).difference(aliases)
-        if unknown_concurrency:
-            raise ValueError(
-                f"model concurrency references undeclared aliases: {', '.join(sorted(unknown_concurrency))}"
-            )
+        if self.builder.inline is not None:
+            payload = self.builder.inline.get("data_designer", self.builder.inline)
+            assert isinstance(payload, dict)
+            models = payload.get("model_configs") or []
+            if isinstance(models, list):
+                declared = set(aliases) | {model.get("alias") for model in models if isinstance(model, dict)}
+                if set(self.invocation.model_concurrency).difference(declared):
+                    raise ValueError("model concurrency references undeclared aliases")
         return self

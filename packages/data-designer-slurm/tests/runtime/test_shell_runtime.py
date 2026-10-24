@@ -15,10 +15,19 @@ from pathlib import Path
 import pytest
 
 
-@pytest.mark.parametrize("gpu_request_mode", ("gres", "visible"))
+@pytest.mark.parametrize(
+    ("gpu_request_mode", "hosted_only"),
+    (
+        ("gres", False),
+        ("visible", False),
+        ("gres", True),
+        ("visible", True),
+    ),
+)
 def test_bash_controller_scopes_secrets_cleans_steps_and_never_runs_host_python(
     tmp_path: Path,
     gpu_request_mode: str,
+    hosted_only: bool,
 ) -> None:
     runtime_root = Path(__file__).parents[2] / "src/data_designer/slurm/runtime"
     scratch_root = tmp_path / "data-designer-slurm-4101-0"
@@ -35,9 +44,18 @@ def test_bash_controller_scopes_secrets_cleans_steps_and_never_runs_host_python(
     plan = _plan(
         tmp_path, runtime_copy, artifacts, gpu_request_mode, python_executable=(fake_bin / "python3").as_posix()
     )
+    manifest = _manifest(attempt_directory, artifacts, "a" * 64)
+    if hosted_only:
+        plan["deployments"] = []
+        plan["resolved_gpus_per_node"] = 0
+        plan["hosted_model_providers"] = [
+            {"name": "hosted", "endpoint": "https://models.example/v1", "api_key": "SOURCE_TOKEN"}
+        ]
+        manifest["steps"] = [step for step in manifest["steps"] if step["role"] in {"client_preflight", "client"}]
+        manifest["all_secret_environment_names"] = ["SOURCE_TOKEN"]
     plan_path.write_text(json.dumps(plan))
     manifest_path = tmp_path / "manifest-source.json"
-    manifest_path.write_text(json.dumps(_manifest(attempt_directory, artifacts, "a" * 64)))
+    manifest_path.write_text(json.dumps(manifest))
     marker_path = tmp_path / "host-python-ran"
     _write_executable(fake_bin / "python3", f"#!/usr/bin/env bash\nprintf ran > {marker_path}\nexit 99\n")
     _write_executable(fake_bin / "curl", "#!/usr/bin/env bash\nexit 0\n")
@@ -73,6 +91,9 @@ dd_slurm_run_allocation "${{DD_PLAN}}" "${{DD_ATTEMPT_DIR}}"
         "SLURM_JOB_GPUS": "0",
         "SLURM_NODEID": "0",
     }
+    if hosted_only:
+        environment.pop("SLURM_JOB_GPUS")
+        environment.pop("CUDA_VISIBLE_DEVICES")
 
     completed = subprocess.run(
         ("bash", "-c", command),
@@ -87,13 +108,16 @@ dd_slurm_run_allocation "${{DD_PLAN}}" "${{DD_ATTEMPT_DIR}}"
     assert not scratch_root.exists()
     assert not marker_path.exists()
     assert "supersecret" not in completed.stdout + completed.stderr + manifest_path.read_text()
-    assert "Starting vLLM servers..." in completed.stdout
-    assert "Waiting for vLLM servers to become ready..." in completed.stdout
-    assert "vLLM servers are ready." in completed.stdout
-    assert (
-        f"Follow vLLM logs: tail -F {log_directory / 'deployment-00000-replica-00000-rank-00000.out'} "
-        f"{log_directory / 'deployment-00000-replica-00000-rank-00000.err'}"
-    ) in completed.stdout
+    if hosted_only:
+        assert "vLLM" not in completed.stdout
+    else:
+        assert "Starting vLLM servers..." in completed.stdout
+        assert "Waiting for vLLM servers to become ready..." in completed.stdout
+        assert "vLLM servers are ready." in completed.stdout
+        assert (
+            f"Follow vLLM logs: tail -F {log_directory / 'deployment-00000-replica-00000-rank-00000.out'} "
+            f"{log_directory / 'deployment-00000-replica-00000-rank-00000.err'}"
+        ) in completed.stdout
     assert (
         f"Generation started. Follow client logs: tail -F {log_directory / 'client-generation.out'} "
         f"{log_directory / 'client-generation.err'}"

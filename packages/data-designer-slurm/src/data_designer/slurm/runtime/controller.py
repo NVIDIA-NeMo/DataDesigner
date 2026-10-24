@@ -512,6 +512,8 @@ class OneNodeAllocationController:
         endpoints: tuple[RuntimeEndpoint, ...],
         required: tuple[ManagedStep, ...],
     ) -> None:
+        if not endpoints:
+            return
         timeout = max(status.deployment.launch_policy.startup_timeout_seconds for status in self._statuses)
         deadline = self._clock.monotonic() + timeout
         while True:

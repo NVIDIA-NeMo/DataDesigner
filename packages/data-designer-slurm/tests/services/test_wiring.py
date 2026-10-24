@@ -4,7 +4,8 @@
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Mapping
+import json
+from collections.abc import Iterator, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -14,6 +15,8 @@ import pytest
 
 import data_designer.slurm.services.retry_collection as retry_collection_module
 import data_designer.slurm.services.wiring as wiring_module
+from data_designer.config import default_model_settings
+from data_designer.config.models import ModelProvider
 from data_designer.slurm.benchmark.compiler import BenchmarkCompiler
 from data_designer.slurm.client.dependencies import ResolvedClientDependencies
 from data_designer.slurm.client.runtime import ClientRuntimeInspectionError, ClientRuntimeInspector
@@ -70,6 +73,20 @@ def _use_persisted_client_runtime(
 ) -> None:
     monkeypatch.setattr(ClientRuntimeInspector, "inspect", lambda self: single_node_plan.client.runtime)
     monkeypatch.setattr(wiring_module, "resolve_scheduler_bin_path", lambda configured: configured or "/opt/slurm/bin")
+
+
+@pytest.fixture
+def hosted_settings(
+    tmp_path: Path, hosted_model_providers: tuple[ModelProvider, ...], monkeypatch: pytest.MonkeyPatch
+) -> Iterator[Path]:
+    path = tmp_path / "dd-home" / "model_providers.yaml"
+    path.parent.mkdir()
+    path.write_text(
+        json.dumps({"providers": [provider.model_dump(mode="json") for provider in hosted_model_providers]})
+    )
+    monkeypatch.setattr(default_model_settings, "MODEL_PROVIDERS_FILE_PATH", path)
+    monkeypatch.setenv("MODEL_API_KEY", "fake-provider-secret")
+    yield path
 
 
 class _Launcher:
@@ -245,6 +262,29 @@ def test_production_wiring_dry_run_resolves_and_renders_without_submission(
     plan = service.plan(authored_run_single, source_root=tmp_path)
     assert plan.scheduler_bin_path == "/opt/slurm/bin"
     assert plan.selected_profile.profile.scheduler.bin_path is None
+    assert launcher.submissions == []
+
+
+@pytest.mark.parametrize("external_run", ("hosted-only",), indirect=True)
+def test_hosted_only_planning_needs_no_gpu_discovery_or_registered_images(
+    hosted_settings: Path,
+    tmp_path: Path,
+    profile_catalog: SlurmProfileCatalog,
+    external_run: DataDesignerSlurmConfig,
+) -> None:
+    profile = _profile(tmp_path, profile_catalog).model_copy(update={"gpus_per_node": "auto"})
+    launcher = _Launcher()
+    service = create_slurm_run_service(
+        profile=profile,
+        launcher=launcher,
+        run_id_factory=lambda: "run-hosted",
+        package_version="0.9.2",
+    )
+    plan = service.plan(external_run, source_root=tmp_path)
+    assert plan.resolved_gpus_per_node == 0
+    assert plan.deployments == ()
+    result = service.execute(external_run, source_root=tmp_path, dry_run=True)
+    assert "#SBATCH --gres=none" in result.batch_script
     assert launcher.submissions == []
 
 
@@ -1121,7 +1161,7 @@ def test_production_retry_dry_run_and_submission_are_sparse_and_idempotent(
     assert len(launcher.submissions) == 2
     assert launcher.exported_environments == [
         {"SLURM_EXPORT_ENV": "ALL", "NEMO_DEPLOYMENT_TYPE": expected_deployment_type},
-        {"NEMO_DEPLOYMENT_TYPE": expected_deployment_type},
+        {"SLURM_EXPORT_ENV": "ALL", "NEMO_DEPLOYMENT_TYPE": expected_deployment_type},
     ]
 
 
@@ -1733,3 +1773,103 @@ def test_production_image_remove_refuses_to_delete_external_sqsh(
     assert caught.value.code is SlurmServiceErrorCode.CONFLICT
     assert "package-owned" in str(caught.value)
     assert service.get(image.name) == image
+
+
+@pytest.mark.parametrize("external_run", ("hosted-only",), indirect=True)
+def test_native_provider_settings_are_captured_as_immutable_run_inputs(
+    tmp_path: Path,
+    profile_catalog: SlurmProfileCatalog,
+    external_run: DataDesignerSlurmConfig,
+    hosted_settings: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = create_slurm_run_service(
+        profile=_profile(tmp_path, profile_catalog),
+        launcher=_Launcher(),
+        run_id_factory=lambda: "run-snapshot",
+        package_version="0.9.2",
+    )
+    plan = service.plan(external_run, source_root=tmp_path)
+    assert len(plan.hosted_model_providers) == 1
+    assert plan.hosted_model_providers[0]["api_key"] == "MODEL_API_KEY"
+    original = plan.serialize_json()
+    hosted_settings.write_text('{"providers": []}')
+    monkeypatch.setattr(
+        wiring_module, "get_default_providers", lambda: pytest.fail("persisted plan must not reload provider settings")
+    )
+    assert "#SBATCH --gres=none" in service.render_attempt(plan)
+    assert plan.serialize_json() == original
+    with pytest.raises(TypeError, match="frozen"):
+        plan.hosted_model_providers[0]["endpoint"] = "https://changed.example/v1"
+    assert "model_providers" not in plan.invocation.authored.model_dump()
+
+
+@pytest.mark.parametrize("external_run", ("hosted-only",), indirect=True)
+@pytest.mark.parametrize("present", (False, True))
+def test_native_provider_credentials_are_validated_before_publication_and_forwarded_only_at_runtime(
+    tmp_path: Path,
+    profile_catalog: SlurmProfileCatalog,
+    external_run: DataDesignerSlurmConfig,
+    hosted_settings: Path,
+    present: bool,
+) -> None:
+    publisher = _Publisher()
+    launcher = _Launcher()
+    source = {"MODEL_API_KEY": "fake-provider-secret"} if present else {}
+    service = create_slurm_run_service(
+        profile=_profile(tmp_path, profile_catalog),
+        artifact_publisher=publisher,
+        launcher=launcher,
+        run_id_factory=lambda: "run-native-key",
+        package_version="0.9.2",
+        source_environment=source,
+    )
+    if not present:
+        with pytest.raises(SlurmServiceError, match="required secret environment"):
+            service.execute(external_run, source_root=tmp_path)
+        assert publisher.initializations == []
+        assert launcher.submissions == []
+        return
+    service.execute(external_run, source_root=tmp_path)
+    assert launcher.exported_environments[0]["MODEL_API_KEY"] == "fake-provider-secret"
+    assert "fake-provider-secret" not in publisher.plans[0].serialize_json()
+    assert all("fake-provider-secret" not in script for script in launcher.submissions)
+
+
+@pytest.mark.parametrize("external_run", ("hosted-only",), indirect=True)
+def test_missing_native_hosted_provider_is_rejected_before_submission(
+    tmp_path: Path,
+    profile_catalog: SlurmProfileCatalog,
+    external_run: DataDesignerSlurmConfig,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(wiring_module, "get_default_providers", list)
+    launcher = _Launcher()
+    service = create_slurm_run_service(
+        profile=_profile(tmp_path, profile_catalog), launcher=launcher, package_version="0.9.2"
+    )
+    with pytest.raises(SlurmServiceError):
+        service.execute(external_run, source_root=tmp_path)
+    assert launcher.submissions == []
+
+
+@pytest.mark.parametrize("external_run", ("hosted-only",), indirect=True)
+@pytest.mark.parametrize("key", ("plaintext", "PLAINTEXT_SECRET", "sk-plaintext-key"))
+def test_plaintext_native_provider_keys_are_rejected_without_echoing_or_capturing_the_value(
+    tmp_path: Path,
+    profile_catalog: SlurmProfileCatalog,
+    external_run: DataDesignerSlurmConfig,
+    hosted_settings: Path,
+    key: str,
+) -> None:
+    hosted_settings.write_text(
+        json.dumps({"providers": [{"name": "external", "endpoint": "https://models.example/v1", "api_key": key}]})
+    )
+    service = create_slurm_run_service(
+        profile=_profile(tmp_path, profile_catalog),
+        launcher=_Launcher(),
+        source_environment={"MODEL_API_KEY": "fake-provider-secret"},
+    )
+    with pytest.raises(SlurmServiceError) as error:
+        service.plan(external_run, source_root=tmp_path)
+    assert key not in str(error.value)
