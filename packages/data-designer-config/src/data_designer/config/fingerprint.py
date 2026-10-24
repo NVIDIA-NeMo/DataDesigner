@@ -30,6 +30,7 @@ from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any
 
 from data_designer.config.column_configs import CustomColumnConfig
+from data_designer.config.processors import ProcessorType
 
 if TYPE_CHECKING:
     from data_designer.config.data_designer_config import DataDesignerConfig
@@ -171,6 +172,8 @@ def _enrich_custom_columns(config: DataDesignerConfig, columns_dump: list[dict[s
     """
     enriched: list[dict[str, Any]] = []
     for col, dumped in zip(config.columns, columns_dump):
+        if dumped.get("storage_encoding") is None:
+            dumped = {key: value for key, value in dumped.items() if key != "storage_encoding"}
         if isinstance(col, CustomColumnConfig):
             fn = col.generator_function
             metadata = getattr(fn, "custom_column_metadata", {}) or {}
@@ -194,6 +197,13 @@ def _normalize_config_dict(config_dict: dict[str, Any], config: DataDesignerConf
     columns = normalized.get("columns")
     if columns:
         normalized["columns"] = _enrich_custom_columns(config, columns)
+    if normalized.get("processors"):
+        normalized["processors"] = [
+            {key: value for key, value in processor.items() if key != "json_storage_columns" or value}
+            if processor.get("processor_type") == ProcessorType.SCHEMA_TRANSFORM
+            else processor
+            for processor in normalized["processors"]
+        ]
 
     model_configs = normalized.get("model_configs")
     if model_configs:
