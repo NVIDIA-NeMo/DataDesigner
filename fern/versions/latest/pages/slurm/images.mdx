@@ -4,7 +4,7 @@ Data Designer Slurm images run vLLM model servers. The Data Designer client runs
 
 ## Choose a serving image
 
-For vLLM, the simplest path is to select a supported release of the official `vllm/vllm-openai` image. You do not need to build a Data Designer client image or write a Dockerfile for this path:
+For vLLM, the simplest path is to select a release of the official `vllm/vllm-openai` image. You do not need to build a Data Designer client image or write a Dockerfile for this path:
 
 ```bash
 data-designer slurm image add vllm/vllm-openai:v0.22.0 \
@@ -12,9 +12,11 @@ data-designer slurm image add vllm/vllm-openai:v0.22.0 \
   --name vllm
 ```
 
-Replace `v0.22.0` with a supported release that is available to your site. The CLI resolves that tag to an immutable registry digest before submitting the import job, then imports by digest on Enroot 3.5 or later. The imported image is inspected, and registration fails if its installed vLLM version does not match the requested release. The alias records the inspected version and source digest. A later change to the tag cannot silently change the submitted import.
+Replace `v0.22.0` with a release that supports your model and is available to your site. The CLI resolves that tag to an immutable registry digest before submitting the import job, then imports by digest on Enroot 3.5 or later. The imported image is inspected, and registration fails if its installed vLLM version does not match the requested release. The alias records the inspected version and source digest. A later change to the tag cannot silently change the submitted import.
 
-If your site requires a customized serving environment, obtain a digest-qualified OCI reference or absolute compute-visible SQSH path from your platform administrator, or publish one through your site's container build process. `image add` imports or inspects that image; it does not build a serving environment from a Dockerfile. The image must provide a supported vLLM executable and all runtime dependencies for the selected model.
+If your site requires a customized serving environment, obtain a digest-qualified OCI reference or absolute compute-visible SQSH path from your platform administrator, or publish one through your site's container build process. `image add` imports or inspects that image; it does not build a serving environment from a Dockerfile. The image must provide a vLLM executable and all runtime dependencies for the selected model.
+
+Slurm records the inspected vLLM version as provenance and does not restrict deployments to specific release lines. Custom and nightly builds can be registered through a digest-qualified OCI reference or an existing SQSH path. Image inspection and startup readiness checks still apply; accepting a version does not establish compatibility with the selected model, launch arguments, hardware, or topology. Validate your image with a small generation run before scaling up.
 
 Before registration, confirm that the image source is accessible from the configured CPU image-build partition and that the model is accessible from the GPU partition. Keep registry credentials in the compute environment or Enroot configuration.
 
@@ -93,4 +95,4 @@ Published OCI imports are content-addressed. Identical imports can share an arti
 
 ## Compatibility rules
 
-The shared client environment must remain available at the exact recorded Python path with the same Python ABI and package inventory on every compute node. It must include the Slurm extra's compatible `aiohttp` dependency for the native inference proxy. Dependency overlays may add pure Python wheels, but cannot replace distributions already installed in that environment. Serving images must expose a supported vLLM executable and version.
+The shared client environment must remain available at the exact recorded Python path with the same Python ABI and package inventory on every compute node. It must include the Slurm extra's compatible `aiohttp` dependency for the native inference proxy. Dependency overlays may add pure Python wheels, but cannot replace distributions already installed in that environment. Serving images must expose a vLLM executable; the inspected runtime version is recorded without a release-line restriction.
