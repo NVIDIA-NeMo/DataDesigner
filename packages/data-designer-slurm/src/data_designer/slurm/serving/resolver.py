@@ -5,8 +5,6 @@
 
 from __future__ import annotations
 
-from packaging.specifiers import SpecifierSet
-from packaging.version import InvalidVersion, Version
 from pydantic import ValidationError
 
 from data_designer.slurm.config.images import ServingImageInspection
@@ -27,11 +25,6 @@ from data_designer.slurm.serving.vllm import (
 )
 from data_designer.slurm.types import Identifier
 
-_SUPPORTED_VLLM_RUNTIME_RELEASES = (
-    SpecifierSet("~=0.21.0"),
-    SpecifierSet("~=0.22.0"),
-)
-
 
 class VllmServerResolutionError(ValueError):
     """Raised when planner inputs cannot produce a supported vLLM server specification."""
@@ -41,7 +34,7 @@ def resolve_vllm_server(
     plan: ResolvedSlurmRunPlan,
     deployment_id: Identifier,
 ) -> ResolvedVllmServerDeployment:
-    """Resolve one vLLM deployment admitted by the tested runtime matrix."""
+    """Resolve one vLLM deployment from its inspected serving image."""
     try:
         return _resolve_vllm_server(plan, deployment_id)
     except ValidationError as error:
@@ -74,7 +67,6 @@ def _resolve_vllm_server(
     inspection = resolved_deployment.image.inspection_facts
     if not isinstance(inspection, ServingImageInspection) or inspection.server_type != server.type:
         raise VllmServerResolutionError("resolved serving image does not match the declared vLLM server")
-    _validate_vllm_runtime_version(inspection.runtime_version)
     if server.enable_expert_parallel and resolved_deployment.topology.pipeline_parallel > 1:
         raise VllmServerResolutionError("multi-node expert parallel is not supported in v1")
 
@@ -213,14 +205,3 @@ def _calculate_launch_delay_seconds(server: VllmServerConfig, deployment_replica
     return convert_duration_to_seconds(
         server.lead_boot_standoff
     ) + deployment_replica_index * convert_duration_to_seconds(server.rank_launch_stagger)
-
-
-def _validate_vllm_runtime_version(runtime_version: str) -> None:
-    try:
-        version = Version(runtime_version)
-    except InvalidVersion as error:
-        raise VllmServerResolutionError(f"unsupported vLLM runtime version {runtime_version!r}") from error
-    if not any(version in supported_release for supported_release in _SUPPORTED_VLLM_RUNTIME_RELEASES):
-        raise VllmServerResolutionError(
-            f"unsupported vLLM runtime version {runtime_version!r}; supported release lines are 0.21.x and 0.22.x"
-        )
