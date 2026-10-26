@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from functools import cached_property
-from typing import Self
+from typing import Literal, Self
 
 from jinja2 import meta as jinja2_meta
 from jinja2.exceptions import TemplateSyntaxError
@@ -107,6 +107,10 @@ class SingleColumnConfig(ConfigBase, ABC):
         "of its required_columns was skipped. Independent of skip — "
         "a column with no SkipConfig still propagates upstream skips. "
         "Set to False for null-tolerant columns.",
+    )
+    storage_encoding: Literal["json"] | None = Field(
+        default=None,
+        description="Opt-in whole-column JSON encoding in saved artifacts; DD readers restore logical values.",
     )
 
     @model_validator(mode="after")

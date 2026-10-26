@@ -27,6 +27,7 @@ from data_designer.config.processors import (
     DropColumnsProcessorConfig,
     ProcessorConfig,
 )
+from data_designer.config.utils.storage_schema import JSON_STORAGE_RUN_KEY, JsonStoragePlan, compile_json_storage_schema
 from data_designer.config.utils.type_helpers import StrEnum
 from data_designer.config.version import get_library_version
 from data_designer.engine.column_generators.generators.base import (
@@ -210,6 +211,24 @@ class DatasetBuilder:
             artifact_storage=resource_provider.artifact_storage,
         )
         self._validate_column_configs()
+        columns = {}
+        if resource_provider.seed_reader is not None:
+            seed_plan = resource_provider.seed_reader.get_storage_plan()
+            if isinstance(seed_plan, JsonStoragePlan):
+                seed_column_names = [
+                    column.name
+                    for column in self.single_column_configs
+                    if column.column_type == DataDesignerColumnType.SEED_DATASET
+                ]
+                columns.update(seed_plan.restrict_to_columns(seed_column_names).columns)
+        for column in self.single_column_configs:
+            if column.storage_encoding == "json":
+                columns[column.name] = [[]]
+            elif getattr(column, "column_type", None) == "llm-structured":
+                _, paths = compile_json_storage_schema(column.output_format)
+                if paths:
+                    columns[column.name] = paths
+        self.artifact_storage.json_storage = JsonStoragePlan(columns=columns)
 
     @property
     def artifact_storage(self) -> ArtifactStorage:
@@ -423,6 +442,8 @@ class DatasetBuilder:
             return None
 
         post_generation_state = metadata.get("post_generation_state")
+        if not self._json_storage_policy_matches(metadata):
+            raise DatasetGenerationError("Cannot resume: JSON storage contract differs from the saved run")
         if post_generation_state == "started":
             raise DatasetGenerationError(
                 "🛑 Cannot resume: process_after_generation started but did not complete for this dataset. "
@@ -492,6 +513,9 @@ class DatasetBuilder:
         num_completed_batches, actual_num_records, completed_row_groups = self._recover_progress_from_disk(
             allow_holes=True,
         )
+
+        if not self._json_storage_policy_matches(metadata):
+            raise DatasetGenerationError("Cannot resume: JSON storage contract differs from the saved run")
 
         if num_records < actual_num_records:
             raise DatasetGenerationError(
@@ -686,6 +710,8 @@ class DatasetBuilder:
 
             if not self._dropped_column_artifact_policy_matches(metadata):
                 return _ConfigCompatibility.INCOMPATIBLE
+            if not self._json_storage_policy_matches(metadata):
+                return _ConfigCompatibility.INCOMPATIBLE
 
             stored_hash = metadata.get("config_hash")
             stored_version = metadata.get("config_hash_version")
@@ -728,6 +754,13 @@ class DatasetBuilder:
                 config_path,
             )
             return _ConfigCompatibility.INCOMPATIBLE
+
+    def _json_storage_policy_matches(self, metadata: dict[str, Any]) -> bool:
+        try:
+            stored = JsonStoragePlan.model_validate(metadata.get(JSON_STORAGE_RUN_KEY, {}))
+        except ValueError as exc:
+            raise DatasetGenerationError("Invalid JSON storage contract in run metadata") from exc
+        return stored == self.artifact_storage.json_storage
 
     def _dropped_column_artifact_policy_matches(self, metadata: dict[str, Any]) -> bool:
         """Return whether stored dropped-column artifact behavior matches this run.
@@ -1022,7 +1055,13 @@ class DatasetBuilder:
 
     def process_preview(self, dataset: pd.DataFrame) -> pd.DataFrame:
         df = self._processor_runner.run_post_batch(dataset.copy(), current_batch_number=None)
-        return self._processor_runner.run_after_generation_on_df(df)
+        df = self._processor_runner.run_after_generation_on_df(df)
+        storage_plan = self.artifact_storage.json_storage.restrict_to_columns(list(df.columns))
+        if storage_plan.columns:
+            df.attrs[JSON_STORAGE_RUN_KEY] = storage_plan.model_dump()
+        else:
+            df.attrs.pop(JSON_STORAGE_RUN_KEY, None)
+        return df
 
     def _has_image_columns(self) -> bool:
         """Check if config has any image generation columns."""

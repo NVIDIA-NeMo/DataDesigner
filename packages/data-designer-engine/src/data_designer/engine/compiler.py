@@ -49,7 +49,7 @@ def compile_data_designer_config(
         config, [column for column in config.columns if isinstance(column, SeedDatasetColumnConfig)]
     )
     _add_internal_row_id_column_if_needed(config)
-    _validate(config)
+    _validate(config, preserve_dropped_columns=resource_provider.run_config.preserve_dropped_columns)
     return config
 
 
@@ -162,12 +162,13 @@ def _add_internal_row_id_column_if_needed(config: DataDesignerConfig) -> None:
         config.columns.insert(0, id_column)
 
 
-def _validate(config: DataDesignerConfig) -> None:
+def _validate(config: DataDesignerConfig, *, preserve_dropped_columns: bool = True) -> None:
     allowed_references = _get_allowed_references(config)
     violations = validate_data_designer_config(
         columns=config.columns,
         processor_configs=config.processors or [],
         allowed_references=allowed_references,
+        preserve_dropped_columns=preserve_dropped_columns,
     )
     rich_print_violations(violations)
     if len([v for v in violations if v.level == ViolationLevel.ERROR]) > 0:

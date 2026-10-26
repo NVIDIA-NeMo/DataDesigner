@@ -47,6 +47,28 @@ def generate_message(row: dict, generator_params: None, models: dict) -> dict:
 
 Model aliases are validated before generation starts. If an alias doesn't exist in your config, an error is raised during the health check.
 
+## Preserving JSON values in artifacts
+
+Set `storage_encoding="json"` on `CustomColumnConfig` when the generated column contains flexible
+JSON, such as dynamic dictionaries or mixed arrays:
+
+```python
+dd.CustomColumnConfig(
+    name="payload",
+    generator_function=generate_payload,
+    storage_encoding="json",
+)
+```
+
+The generator still returns Python objects. DD encodes a storage copy and restores logical values
+for result loading, processors, and DD seed readers. External Parquet readers receive JSON strings;
+JSONL exports contain nested JSON. Encoding is fixed for the run and applies to every non-null cell,
+including scalar values. Only JSON-compatible values are accepted; non-string dictionary keys,
+non-finite numbers, and arbitrary Python objects raise errors rather than being silently converted.
+
+Columns without this option retain their existing native Parquet behavior. Unsupported native writes
+raise an error identifying the affected column and the opt-in storage options.
+
 ## Generation Strategies
 
 | Strategy | Input | Use Case |
