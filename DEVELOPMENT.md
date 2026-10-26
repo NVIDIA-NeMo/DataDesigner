@@ -228,21 +228,27 @@ There is also a CI test (`test_import_performance` in `packages/data-designer/te
 ### Transitive dependencies
 
 Keep reviewed security version floors in `[tool.uv].constraint-dependencies` in the workspace root
-`pyproject.toml`. Mirror relevant runtime floors in `tests_e2e/pyproject.toml`, which has its own lockfile.
+`pyproject.toml`. Mirror relevant runtime floors in `tests_e2e/pyproject.toml`. Its lockfile is
+intentionally untracked: e2e test setup removes it, and the security check generates it before auditing.
 Do not add transitive dependencies to published package requirements just to set a security floor.
 
 ```bash
 make security-constraints            # Regenerate the pip/uv-compatible constraints.txt
 uv lock --upgrade-package <pkg>      # Update the workspace lockfile
 uv lock --project tests_e2e --upgrade-package <pkg>
-make check-vulnerabilities           # Check the export and audit both lockfiles against OSV
+make check-vulnerabilities           # Check the export, resolve e2e, and audit dependencies against OSV
 ```
 
 `constraints.txt` is generated from the workspace security floors. CI rejects a stale export and
-scans both lockfiles, including development, documentation, notebook, and recipe groups, on pull
-requests, pushes to `main`, and daily. Audit findings fail the check; review each advisory and add
-an appropriate floor before updating the affected lockfile. Run `uv audit --project tests_e2e --locked`
-separately if the workspace audit fails before the second audit can run.
+audits the committed workspace lockfile and separately resolved e2e dependencies, including development,
+documentation, notebook, and recipe groups, on pull requests, pushes to `main`, and daily.
+Audit findings fail the check; review each advisory and add an appropriate floor before updating
+the affected lockfile. To check e2e independently, run
+`uv lock --project tests_e2e` followed by `uv audit --project tests_e2e --locked`.
+
+A new advisory can fail the security check on an unrelated PR. Coordinate a security-floor update,
+then merge the fix into your branch and rerun the audit; do not suppress the finding just to pass CI.
+If this becomes a required status check, such findings block merges until addressed.
 
 Neither `uv.lock` nor `[tool.uv]` settings are published package metadata. Users should pass the
 maintained constraints URL when installing or upgrading:

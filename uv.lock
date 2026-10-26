@@ -972,11 +972,11 @@ dev = [
 ]
 docs = [{ name = "jupytext", specifier = ">=1.16.0,<2" }]
 notebooks = [
-    { name = "aiohttp", specifier = ">=3.14.3,<4" },
+    { name = "aiohttp", specifier = ">=3.14.4,<4" },
     { name = "datasets", specifier = ">=5.0.1,<6" },
     { name = "ipykernel", specifier = ">=6.29.0,<7" },
     { name = "jupyter", specifier = ">=1.0.0,<2" },
-    { name = "jupyter-server", specifier = ">=2.20.0,<3" },
+    { name = "jupyter-server", specifier = ">=2.21.0,<3" },
     { name = "jupyterlab", specifier = ">=4.6.4,<5" },
     { name = "mistune", specifier = ">=3.3.3,<4" },
     { name = "nbconvert", specifier = ">=7.17.2,<8" },

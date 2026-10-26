@@ -474,7 +474,7 @@ show-versions:
 	@uv run python -c "from data_designer.interface._version import __version__; print(f'  data-designer:        {__version__}')" 2>/dev/null || echo "  data-designer: (not installed)"
 
 # ==============================================================================
-# LICENSE CHECKS
+# SECURITY AND LICENSE CHECKS
 # ==============================================================================
 
 security-constraints:
@@ -485,6 +485,7 @@ check-security-constraints:
 
 check-vulnerabilities: check-security-constraints
 	uv audit --locked
+	uv lock --project tests_e2e
 	uv audit --project tests_e2e --locked
 
 check-dependency-licenses:

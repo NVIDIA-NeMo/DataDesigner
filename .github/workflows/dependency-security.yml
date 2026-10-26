@@ -37,6 +37,10 @@ jobs:
         with:
           version: "0.13.4"
           python-version: "3.11"
+      # E2E tests intentionally resolve separately; their lockfile is not committed.
+      - name: Resolve e2e dependencies
+        if: matrix.project == 'tests_e2e'
+        run: uv lock --project tests_e2e
       # Includes all dependency groups and extras, across supported Python versions.
-      # --locked prevents the scan from silently re-resolving vulnerable pins.
+      # Audit the committed workspace lock or the e2e lock generated above unchanged.
       - run: uv audit --project "${{ matrix.project }}" --locked

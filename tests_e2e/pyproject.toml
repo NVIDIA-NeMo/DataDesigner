@@ -31,7 +31,7 @@ env = [
 [tool.uv]
 package = true
 required-version = ">=0.13.4"
-# Minimum versions for transitive dependencies with known security vulnerabilities.
+# Runtime security floors mirror the root pyproject.toml; update both when raising a shared floor.
 constraint-dependencies = [
   "aiohttp>=3.14.4",
   "anyio>=4.14.2",
