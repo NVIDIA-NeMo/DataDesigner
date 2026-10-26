@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import threading
+from collections.abc import Callable
 
 import pytest
 
@@ -82,18 +83,48 @@ def test_forked_child_reseed_does_not_change_parent_draws() -> None:
     )
 
 
-def test_numpy_global_rng_lock_is_the_lock_draws_hold() -> None:
-    # The fork hooks reach into numpy internals for this lock; fail here if numpy moves it.
-    rng = check_random_state(None)  # imports numpy.random
+def _call_waits_for_lock(lock: threading.RLock, call: Callable[[], object]) -> bool:
+    """Return whether ``call`` on another thread blocks while this thread holds ``lock``."""
+    started, finished = threading.Event(), threading.Event()
+
+    def run() -> None:
+        started.set()
+        call()
+        finished.set()
+
+    with lock:
+        thread = threading.Thread(target=run)
+        thread.start()
+        started.wait()
+        waited = not finished.wait(0.5)
+    thread.join(timeout=5)
+    assert finished.is_set(), "call did not finish after the lock was released"
+    return waited
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        pytest.param(lambda: check_random_state(None).random_sample(), id="sampler-draw"),
+        pytest.param(lambda: lazy.np.random.seed(), id="child-reseed"),
+    ],
+)
+def test_fork_hook_lock_is_the_lock_global_random_state_takes(call: Callable[[], object]) -> None:
+    # The fork hooks take numpy's lock through a private path (mtrand._rand._bit_generator.lock),
+    # and the fork test holds the lock this helper returns, so it cannot tell whether numpy uses
+    # it. Check against numpy itself: sampler draws and the child's reseed must wait for it.
+    check_random_state(None)  # imports numpy.random
     lock = _numpy_global_rng_lock()
     assert lock is not None
-    finished = threading.Event()
-    with lock:
-        drawer = threading.Thread(target=lambda: (rng.random_sample(), finished.set()))
-        drawer.start()
-        assert not finished.wait(0.2), "a global RandomState draw did not wait for the lock"
-    drawer.join(timeout=5)
-    assert finished.is_set()
+    assert _call_waits_for_lock(lock, call), "numpy's global RandomState does not take the lock the fork hooks hold"
+
+
+def test_call_waits_for_lock_detects_a_call_that_does_not_take_the_lock() -> None:
+    # Control for the test above: a separate RandomState has its own lock and must not wait.
+    check_random_state(None)
+    lock = _numpy_global_rng_lock()
+    assert lock is not None
+    assert not _call_waits_for_lock(lock, lambda: check_random_state(1).random_sample())
 
 
 @requires_fork
