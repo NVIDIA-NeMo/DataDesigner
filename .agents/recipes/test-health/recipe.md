@@ -15,7 +15,7 @@ Ensure the test suite stays meaningful, not just green. Write findings to
 `/tmp/audit-{{suite}}.md`.
 
 **What CI already enforces**: pytest with `--cov-fail-under=90` (aggregate),
-multi-version matrix (3.10-3.13), multi-OS (ubuntu, macOS), per-package
+multi-version matrix (3.11-3.14), multi-OS (ubuntu, macOS), per-package
 isolation tests (config, engine, interface separately), e2e plugin tests.
 
 **What CI does NOT catch**: per-file coverage regressions (aggregate can

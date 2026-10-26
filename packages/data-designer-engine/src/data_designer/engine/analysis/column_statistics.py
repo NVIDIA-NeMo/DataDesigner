@@ -4,10 +4,9 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, TypeAlias
+from typing import TYPE_CHECKING, Any, Self, TypeAlias
 
 from pydantic import BaseModel
-from typing_extensions import Self
 
 from data_designer.config.analysis.column_statistics import (
     DEFAULT_COLUMN_STATISTICS_MAP,

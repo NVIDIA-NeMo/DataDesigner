@@ -8,17 +8,13 @@ import ast
 import json
 import re
 import sys
+import tomllib
 from collections import defaultdict
 from importlib.metadata import PackageNotFoundError, distribution, packages_distributions
 from pathlib import Path
 from typing import Any
 
 from packaging.requirements import InvalidRequirement, Requirement
-
-try:
-    import tomllib
-except ModuleNotFoundError:
-    import tomli as tomllib
 
 DEPENDENCY_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*")
 MODULE_DISTRIBUTION_OVERRIDES = {
