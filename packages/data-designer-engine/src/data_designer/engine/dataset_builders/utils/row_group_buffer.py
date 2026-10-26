@@ -4,7 +4,8 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Callable
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
 from data_designer.config.utils.storage_encoding import create_logical_dataframe
 from data_designer.engine.dataset_builders.utils.skip_tracker import strip_skip_metadata_from_records

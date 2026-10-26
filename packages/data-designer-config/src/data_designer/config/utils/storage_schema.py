@@ -5,11 +5,10 @@ from __future__ import annotations
 
 import re
 from copy import deepcopy
-from typing import Any, Literal
+from typing import Any, Literal, Self
 from urllib.parse import unquote
 
 from pydantic import Field, model_validator
-from typing_extensions import Self
 
 from data_designer.config.base import ConfigBase
 from data_designer.config.errors import InvalidConfigError

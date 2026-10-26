@@ -6,10 +6,9 @@ from __future__ import annotations
 import codecs
 from abc import ABC
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, Self
 
 from pydantic import BaseModel, Field, PrivateAttr, field_validator, model_validator
-from typing_extensions import Self
 
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.errors import InvalidFilePathError

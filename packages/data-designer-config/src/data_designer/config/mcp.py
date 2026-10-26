@@ -3,10 +3,9 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Literal
+from typing import Annotated, Literal, TypeAlias
 
 from pydantic import Field
-from typing_extensions import TypeAlias
 
 from data_designer.config.base import ConfigBase
 

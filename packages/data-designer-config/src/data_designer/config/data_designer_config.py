@@ -3,10 +3,9 @@
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Self
 
 from pydantic import Field, model_validator
-from typing_extensions import Self
 
 from data_designer.config.analysis.column_profilers import ColumnProfilerConfigT
 from data_designer.config.column_types import ColumnConfigT

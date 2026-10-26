@@ -8,9 +8,10 @@ import re
 import shutil
 import sys
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from threading import Lock
-from typing import Sequence, TextIO
+from typing import TextIO
 
 import asciichartpy
 from wcwidth import wcswidth
