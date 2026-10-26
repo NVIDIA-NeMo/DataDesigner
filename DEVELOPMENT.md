@@ -29,10 +29,9 @@ make install-dev
 make install-dev-notebooks
 ```
 
-Notebook setup restores nbconvert's HTML stylesheets from a checksum-pinned PyPI wheel without installing its
-Python code. The nh3 source pin remains in use. Existing stylesheets are reused without another download.
-Use `NOTEBOOK_CSS=0` with the notebook setup targets for execution-only environments, which do not support
-nbconvert HTML export. After a direct `uv sync --group notebooks`, run `make install-notebook-css` if you need HTML export.
+Notebook setup uses the patched nbconvert PyPI release, including its HTML stylesheets.
+The `install-notebook-css` target reuses existing stylesheets and can restore missing assets from a
+checksum-pinned wheel. Use `NOTEBOOK_CSS=0` to skip that restoration check in execution-only environments.
 
 ### Verify Your Setup
 
@@ -228,19 +227,43 @@ There is also a CI test (`test_import_performance` in `packages/data-designer/te
 
 ### Transitive dependencies
 
-Don't add transitive dependencies to `packages/*/pyproject.toml` just to set a security floor.
-Instead, bump transitive dependencies in the `uv.lock` file only via:
+Keep reviewed security version floors in `[tool.uv].constraint-dependencies` in the workspace root
+`pyproject.toml`. Mirror relevant runtime floors in `tests_e2e/pyproject.toml`, which has its own lockfile.
+Do not add transitive dependencies to published package requirements just to set a security floor.
 
 ```bash
-uv lock --upgrade-package <pkg>
+make security-constraints            # Regenerate the pip/uv-compatible constraints.txt
+uv lock --upgrade-package <pkg>      # Update the workspace lockfile
+uv lock --project tests_e2e --upgrade-package <pkg>
+make check-vulnerabilities           # Check the export and audit both lockfiles against OSV
 ```
 
-If a constraint impacts this such that a new security floor for a package does not survive re-resolution,
-add a `[tool.uv] constraint-dependencies` section to the workspace root `pyproject.toml`.
+`constraints.txt` is generated from the workspace security floors. CI rejects a stale export and
+scans both lockfiles, including development, documentation, notebook, and recipe groups, on pull
+requests, pushes to `main`, and daily. Audit findings fail the check; review each advisory and add
+an appropriate floor before updating the affected lockfile. Run `uv audit --project tests_e2e --locked`
+separately if the workspace audit fails before the second audit can run.
 
-Both approaches only protect installs from this workspace (development and CI). Neither `uv.lock` nor `[tool.uv]` settings are part of the published package metadata, so users who `pip install` the packages can still resolve a transitive dependency below the floor.
-This is intentional: security floors for transitive dependencies belong in each application's lockfile.
-List recommended minimum versions in the release notes so users can apply them.
+Neither `uv.lock` nor `[tool.uv]` settings are published package metadata. Users should pass the
+maintained constraints URL when installing or upgrading:
+
+```bash
+pip install data-designer -c "https://raw.githubusercontent.com/NVIDIA-NeMo/DataDesigner/main/constraints.txt"
+uv pip install data-designer -c "https://raw.githubusercontent.com/NVIDIA-NeMo/DataDesigner/main/constraints.txt"
+uv add data-designer -c "https://raw.githubusercontent.com/NVIDIA-NeMo/DataDesigner/main/constraints.txt"
+```
+
+The `uv add -c` flag applies to that resolution only. Applications should retain the reviewed floors
+in their own `[tool.uv].constraint-dependencies` and commit their lockfile. See the
+[dependency security guide](https://docs.nvidia.com/nemo/datadesigner/concepts/security#dependency-security).
+
+#### Open upstream findings
+
+CVE-2026-114501 (GHSA-654x-cwwv-5j9c) remains open for Pillow 13.0.0, with no patched
+release listed upstream as of October 26, 2026. OSV currently omits this affected version.
+Track it in the [dependency security guide](https://docs.nvidia.com/nemo/datadesigner/concepts/security#known-unresolved-advisory)
+and verify upstream affected ranges before treating a clean scan as resolution.
+The constraints file also distributes the Pillow minimum to downstream application resolvers.
 
 #### CA trust remediation exception
 

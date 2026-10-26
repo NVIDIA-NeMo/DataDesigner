@@ -35,6 +35,15 @@ pip install data-designer
 ```
 
 > [!NOTE]
+> To apply maintained minimum dependency versions for known vulnerabilities, use the optional security constraints file:
+>
+> ```bash
+> pip install data-designer -c "https://raw.githubusercontent.com/NVIDIA-NeMo/DataDesigner/main/constraints.txt"
+> ```
+>
+> With uv, use `uv pip install` or `uv add` with the same `-c` URL. See [dependency security](https://docs.nvidia.com/nemo/datadesigner/concepts/security#dependency-security) for details.
+
+> [!NOTE]
 > This project will download and install additional third-party open source
 > software projects. Review the license terms of these open source projects
 > before use.

@@ -12,6 +12,33 @@ That distinction matters for features that evaluate user-supplied configuration 
 
 See [Deployment Options: Library vs. Microservice](/concepts/deployment-options) for the architectures where that trust boundary changes.
 
+## Dependency Security
+
+Install or upgrade Data Designer with the maintained [security constraints file](https://github.com/NVIDIA-NeMo/DataDesigner/blob/main/constraints.txt):
+
+```bash
+pip install --upgrade data-designer -c "https://raw.githubusercontent.com/NVIDIA-NeMo/DataDesigner/main/constraints.txt"
+```
+
+The same constraints work with uv:
+
+```bash
+uv pip install --upgrade data-designer -c "https://raw.githubusercontent.com/NVIDIA-NeMo/DataDesigner/main/constraints.txt"
+uv add data-designer -c "https://raw.githubusercontent.com/NVIDIA-NeMo/DataDesigner/main/constraints.txt"
+```
+
+The file sets minimum versions for dependencies with known security issues. Constraints only affect packages needed by your installation; they do not install every listed package. The `main` URL follows the maintained constraints as security fixes become available. For reproducible deployments, save a reviewed copy with your application and commit your lockfile.
+
+With `uv add`, `-c` applies to that command's resolution. To keep the floors during future lockfile updates, copy the entries into your application's `[tool.uv].constraint-dependencies` in `pyproject.toml`, and refresh them when upgrading. Reapply `-c` when installing or upgrading with pip or `uv pip`.
+
+The repository audits both workspace and end-to-end test lockfiles against OSV on pull requests, pushes to `main`, and daily. A constraints file records reviewed version floors; ongoing scans detect newly disclosed vulnerabilities. Audit your application's complete dependency set as well, including plugins and other packages you add.
+
+### Known Unresolved Advisory
+
+As of October 26, 2026, [CVE-2026-114501 / GHSA-654x-cwwv-5j9c](https://github.com/python-pillow/Pillow/security/advisories/GHSA-654x-cwwv-5j9c) affects Pillow 11.2.1 through 13.0.0, and upstream lists no patched release. It can expose uninitialized memory when exporting images to Arrow with `PILLOW_ALIGNMENT` set above 1. Avoid that combination while the advisory remains unresolved.
+
+The Pillow 13 version floor addresses other published vulnerabilities; it does not fix this advisory. OSV currently does not report it for Pillow 13, so a passing dependency scan does not close this finding. Consult the upstream advisory when assessing your deployment.
+
 ## Jinja Rendering Modes
 
 Data Designer exposes the renderer choice through `RunConfig`:
