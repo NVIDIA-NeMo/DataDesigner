@@ -6,7 +6,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
@@ -168,11 +168,11 @@ class PluginCatalogRepository(ConfigRepository[PluginCatalogRegistry]):
                 cache_payload = json.load(f)
             fetched_at = datetime.fromisoformat(cache_payload["fetched_at"])
             if fetched_at.tzinfo is None:
-                fetched_at = fetched_at.replace(tzinfo=timezone.utc)
+                fetched_at = fetched_at.replace(tzinfo=UTC)
             if require_fresh and catalog.cache_ttl_seconds == 0:
                 return None
             if require_fresh:
-                age_seconds = (datetime.now(timezone.utc) - fetched_at).total_seconds()
+                age_seconds = (datetime.now(UTC) - fetched_at).total_seconds()
                 if age_seconds > catalog.cache_ttl_seconds:
                     return None
             catalog_payload = cache_payload["catalog"]
@@ -185,7 +185,7 @@ class PluginCatalogRepository(ConfigRepository[PluginCatalogRegistry]):
         cache_payload = {
             "catalog_alias": catalog.alias,
             "catalog_url": catalog.url,
-            "fetched_at": datetime.now(timezone.utc).isoformat(),
+            "fetched_at": datetime.now(UTC).isoformat(),
             "catalog": catalog_payload,
         }
         cache_file = self._cache_file(catalog)

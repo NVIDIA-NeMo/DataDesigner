@@ -10,7 +10,7 @@ For the contribution workflow (issues, PRs, agent-assisted development), see [CO
 
 ## Prerequisites
 
-- **Python 3.10+**
+- **Python 3.11+**
 - **[uv](https://docs.astral.sh/uv/getting-started/installation/)** for dependency management
 - **[GNU Make](https://www.gnu.org/software/make/)** for common tasks
 

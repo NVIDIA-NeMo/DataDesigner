@@ -4,10 +4,10 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Iterator
+from collections.abc import Iterator
+from typing import Self
 
 from pydantic import BaseModel, ConfigDict
-from typing_extensions import Self
 
 
 class ValidationOutput(BaseModel):

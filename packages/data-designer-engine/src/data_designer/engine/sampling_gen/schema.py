@@ -4,10 +4,9 @@
 from __future__ import annotations
 
 from functools import cached_property
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Self
 
 from pydantic import BaseModel, Field, field_validator, model_validator
-from typing_extensions import Self
 
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.base import ConfigBase

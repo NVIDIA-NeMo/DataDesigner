@@ -30,6 +30,7 @@ from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any
 
 from data_designer.config.column_configs import CustomColumnConfig
+from data_designer.config.processors import ProcessorType
 
 if TYPE_CHECKING:
     from data_designer.config.data_designer_config import DataDesignerConfig
@@ -63,6 +64,7 @@ _TOP_LEVEL_OPTIONAL_COLLECTIONS: frozenset[str] = frozenset(
     {"model_configs", "tool_configs", "constraints", "processors"}
 )
 _TOOL_CONFIG_OPTIONAL_COLLECTIONS: frozenset[str] = frozenset({"allow_tools"})
+_PROCESSOR_OPTIONAL_COLLECTIONS: frozenset[str] = frozenset({"columns_added", "columns_removed"})
 
 
 # ---------------------------------------------------------------------------
@@ -170,6 +172,8 @@ def _enrich_custom_columns(config: DataDesignerConfig, columns_dump: list[dict[s
     """
     enriched: list[dict[str, Any]] = []
     for col, dumped in zip(config.columns, columns_dump):
+        if dumped.get("storage_encoding") is None:
+            dumped = {key: value for key, value in dumped.items() if key != "storage_encoding"}
         if isinstance(col, CustomColumnConfig):
             fn = col.generator_function
             metadata = getattr(fn, "custom_column_metadata", {}) or {}
@@ -193,6 +197,13 @@ def _normalize_config_dict(config_dict: dict[str, Any], config: DataDesignerConf
     columns = normalized.get("columns")
     if columns:
         normalized["columns"] = _enrich_custom_columns(config, columns)
+    if normalized.get("processors"):
+        normalized["processors"] = [
+            {key: value for key, value in processor.items() if key != "json_storage_columns" or value}
+            if processor.get("processor_type") == ProcessorType.SCHEMA_TRANSFORM
+            else processor
+            for processor in normalized["processors"]
+        ]
 
     model_configs = normalized.get("model_configs")
     if model_configs:
@@ -207,6 +218,11 @@ def _normalize_config_dict(config_dict: dict[str, Any], config: DataDesignerConf
             (_normalize_tool_config(tc) for tc in tool_configs),
             key=lambda tc: tc.get("tool_alias", ""),
         )
+
+    processors = normalized.get("processors")
+    if processors:
+        # Preserve fingerprints from before processor column declarations were added.
+        normalized["processors"] = [_drop_empty_optional(pc, _PROCESSOR_OPTIONAL_COLLECTIONS) for pc in processors]
 
     seed_config = normalized.get("seed_config")
     if seed_config:

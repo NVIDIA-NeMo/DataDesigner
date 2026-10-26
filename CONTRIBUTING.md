@@ -67,11 +67,23 @@ A newly opened or reopened external PR without an open, triaged issue is automat
 
 ### Pull Request Review Process
 
-- PRs receive an automated CI code review. You must address all critical and warning-level findings from the automated review before requesting human review.
+- Autobot runs comment-only reviews for same-repository PRs when opened non-draft or marked ready for review.
+- Maintainers can request a fresh review by posting `/review model=claude mode=strict reset=true` on the PR.
+  Manual requests support `model=claude|codex` and `mode=light|strict`; automatic reviews use the default model and the repository profile's default mode.
+- Fork PRs require maintainer vetting and a copy-pr-bot mirror before Autobot can review them.
+  A maintainer inspects the current head and posts `/ok to test <full-head-sha>`.
+  This also authorizes mirrored CI in the upstream repository, where workflows can access repository secrets.
+  Inspect executable code and workflow changes before approving.
+  Once the mirror matches, a pending automatic review for that head can proceed; otherwise request one with `/review`.
+  After new commits, repeat vetting and request a fresh review.
+- If an automated review is posted, address its critical and warning-level findings before requesting human review. Linting and tests run separately in normal CI.
 - Maintainers will review your PR and may request changes
 - Address feedback by pushing additional commits to your branch
 - Reply to each comment before resolving it. If the comment resulted in a code change, include the commit hash that addresses it. Do not resolve comments without a response.
 - Once approved, a maintainer will merge your PR
+
+The repository rubric lives in [`.github/review-policy/SKILL.md`](.github/review-policy/SKILL.md).
+Autobot must be configured to use this rubric; check the review output to confirm the selected rubric and settings.
 
 ---
 

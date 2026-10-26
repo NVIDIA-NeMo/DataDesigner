@@ -13,7 +13,7 @@ For development workflow and testing, see [DEVELOPMENT.md](DEVELOPMENT.md).
 - **Quote style**: Always use double quotes (`"`) for strings
 - **Indentation**: Use 4 spaces (never tabs)
 - **String formatting**: Prefer f-strings. Avoid `.format()` and `%` formatting.
-- **Target version**: Python 3.10+
+- **Target version**: Python 3.11+
 
 ## License Headers
 

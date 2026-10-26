@@ -25,7 +25,7 @@ def _is_bare_dictionary_schema(schema_part: Any) -> bool:
     if schema_part.get("type") != "object":
         return False
 
-    if ("title" in schema_part and len(schema_part) == 2) or (len(schema_part) == 1):
+    if set(schema_part) <= {"type", "title", "description", "examples", "default", "x-data-designer-storage"}:
         return True
 
     return False
