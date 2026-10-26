@@ -3,10 +3,9 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Self
 
 from pydantic import field_serializer, model_validator
-from typing_extensions import Self
 
 from data_designer.config.column_configs import SamplerColumnConfig
 from data_designer.config.sampler_params import SamplerParamsT, SamplerType

@@ -5,10 +5,9 @@ from __future__ import annotations
 
 import warnings
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, Self
 
 from pydantic import Field, model_validator
-from typing_extensions import Self
 
 from data_designer.config.base import ConfigBase
 from data_designer.config.request_admission import RequestAdmissionTuningConfig

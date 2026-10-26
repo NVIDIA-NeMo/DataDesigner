@@ -7,12 +7,12 @@ import fnmatch
 import json
 import logging
 from pathlib import Path
+from typing import Self
 
 from pydantic import model_validator
 from pygments import highlight
 from pygments.formatters import HtmlFormatter
 from pygments.lexers import PythonLexer
-from typing_extensions import Self
 
 from data_designer.config.analysis.column_profilers import ColumnProfilerConfigT
 from data_designer.config.column_configs import SeedDatasetColumnConfig

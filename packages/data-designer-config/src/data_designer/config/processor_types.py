@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from typing_extensions import TypeAlias
+from typing import TypeAlias
 
 from data_designer.config.processors import DropColumnsProcessorConfig, SchemaTransformProcessorConfig
 from data_designer.plugin_manager import PluginManager
