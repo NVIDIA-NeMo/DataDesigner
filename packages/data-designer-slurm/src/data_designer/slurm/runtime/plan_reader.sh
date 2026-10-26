@@ -65,13 +65,22 @@ dd_read_container_path() {
 
 dd_read_plan_secret_names() {
     local plan=$1
+    # Native provider payloads are opaque; only their API-key references are Slurm credentials.
     dd_read_null_values DD_REQUIRED_SECRET_NAMES < <(
-        jq -j '[(.. | objects | select(.type? == "secret") | .environment), (.hosted_model_providers[]?.api_key // empty)] | unique | .[] | ., "\u0000"' "${plan}"
+        jq -j '
+            [
+                (del(.hosted_model_providers) | .. | objects | select(.type? == "secret") | .environment),
+                (.hosted_model_providers[]?.api_key // empty)
+            ]
+            | unique
+            | .[]
+            | ., "\u0000"
+        ' "${plan}"
     )
     dd_read_null_values DD_ALL_SECRET_NAMES < <(
         jq -j '
             [
-                (.. | objects | select(.type? == "secret") | .environment),
+                (del(.hosted_model_providers) | .. | objects | select(.type? == "secret") | .environment),
                 (.hosted_model_providers[]?.api_key // empty),
                 (
                     .deployments[].authored.server.environment

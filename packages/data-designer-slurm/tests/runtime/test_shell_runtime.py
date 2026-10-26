@@ -13,6 +13,10 @@ import tarfile
 from pathlib import Path
 
 import pytest
+from pydantic import JsonValue
+
+from data_designer.slurm.config import collect_secret_environment_names
+from data_designer.slurm.planning import ResolvedSlurmRunPlan
 
 
 @pytest.mark.parametrize(
@@ -125,6 +129,51 @@ dd_slurm_run_allocation "${{DD_PLAN}}" "${{DD_ATTEMPT_DIR}}"
     assert f"Inspect generation progress: cat {attempt_directory / 'client-progress.json'}" in completed.stdout
     assert "Generation finished; finalizing run..." in completed.stdout
     assert "Run completed." in completed.stdout
+
+
+@pytest.mark.parametrize(
+    "provider_payload",
+    (
+        {"type": "secret", "environment": "REMOTE_SERVICE_ENV"},
+        {"type": "secret"},
+        [{"nested": {"type": "secret", "environment": "REMOTE_SERVICE_ENV"}}],
+    ),
+    ids=("named-environment", "no-environment", "nested-list"),
+)
+def test_bash_secret_discovery_treats_provider_payloads_as_opaque(
+    tmp_path: Path,
+    external_plan: ResolvedSlurmRunPlan,
+    provider_payload: JsonValue,
+) -> None:
+    payload = external_plan.model_dump(mode="json")
+    payload["hosted_model_providers"][0]["extra_body"] = {"routing": provider_payload}
+    plan = ResolvedSlurmRunPlan.model_validate_json(json.dumps(payload))
+    required_names = collect_secret_environment_names(plan)
+    assert required_names == ("MODEL_API_KEY",)
+    plan_path = tmp_path / "resolved-plan.json"
+    plan_path.write_text(plan.serialize_json())
+    runtime_root = Path(__file__).parents[2] / "src/data_designer/slurm/runtime"
+    command = f"""
+set -Eeuo pipefail
+source {shlex.quote((runtime_root / "plan_reader.sh").as_posix())}
+source {shlex.quote((runtime_root / "step_runner.sh").as_posix())}
+dd_read_plan_secret_names {shlex.quote(plan_path.as_posix())}
+printf '%s\\n' "${{DD_REQUIRED_SECRET_NAMES[@]}}"
+printf '%s\\n' "${{DD_ALL_SECRET_NAMES[@]}}"
+dd_require_plan_secrets
+"""
+    environment = {**os.environ, "MODEL_API_KEY": "test-provider-key"}
+    environment.pop("REMOTE_SERVICE_ENV", None)
+    completed = subprocess.run(
+        ("bash", "-c", command),
+        capture_output=True,
+        text=True,
+        env=environment,
+        timeout=5,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert completed.stdout.splitlines() == [*required_names, *required_names]
 
 
 def test_staged_shell_modules_parse_as_bash(tmp_path: Path) -> None:
