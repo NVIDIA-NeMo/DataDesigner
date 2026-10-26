@@ -3,10 +3,12 @@
 
 from __future__ import annotations
 
+import threading
+
 import pytest
 
 import data_designer.lazy_heavy_imports as lazy
-from data_designer.engine.sampling_gen.utils import check_random_state
+from data_designer.engine.sampling_gen.utils import _numpy_global_rng_lock, check_random_state
 from tests.engine.fork_probe import requires_fork, run_fork_probe
 
 
@@ -76,5 +78,56 @@ def test_forked_child_reseed_does_not_change_parent_draws() -> None:
         rng.seed(7)
         run_forked_child(lambda queue: queue.put(None))
         assert rng.random_sample(3).tolist() == expected, "forking reseeded the parent's RNG"
+        """
+    )
+
+
+def test_numpy_global_rng_lock_is_the_lock_draws_hold() -> None:
+    # The fork hooks reach into numpy internals for this lock; fail here if numpy moves it.
+    rng = check_random_state(None)  # imports numpy.random
+    lock = _numpy_global_rng_lock()
+    assert lock is not None
+    finished = threading.Event()
+    with lock:
+        drawer = threading.Thread(target=lambda: (rng.random_sample(), finished.set()))
+        drawer.start()
+        assert not finished.wait(0.2), "a global RandomState draw did not wait for the lock"
+    drawer.join(timeout=5)
+    assert finished.is_set()
+
+
+@requires_fork
+def test_fork_while_another_thread_draws_does_not_hang_child() -> None:
+    run_fork_probe(
+        """
+        import threading
+        import time
+
+        from data_designer.engine.sampling_gen.utils import _numpy_global_rng_lock, check_random_state
+
+        rng = check_random_state(None)
+        rng.random_sample()
+        lock = _numpy_global_rng_lock()
+        held = threading.Event()
+
+
+        def draw_in_progress():
+            # Holds the lock as a draw on another thread does when fork is called.
+            with lock:
+                held.set()
+                time.sleep(1.0)
+
+
+        threading.Thread(target=draw_in_progress).start()
+        held.wait()
+        started = time.monotonic()
+        value = run_forked_child(lambda queue: queue.put(float(rng.random_sample())))
+        assert isinstance(value, float)
+        assert time.monotonic() - started >= 0.9, "fork did not wait for the draw in progress"
+
+        drawer = threading.Thread(target=rng.random_sample)
+        drawer.start()
+        drawer.join(timeout=5)
+        assert not drawer.is_alive(), "the parent's RNG lock stayed held after fork"
         """
     )
