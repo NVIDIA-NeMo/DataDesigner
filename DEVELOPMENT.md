@@ -227,28 +227,37 @@ There is also a CI test (`test_import_performance` in `packages/data-designer/te
 
 ### Transitive dependencies
 
-Keep reviewed security version floors in `[tool.uv].constraint-dependencies` in the workspace root
-`pyproject.toml`. Mirror relevant runtime floors in `tests_e2e/pyproject.toml`. Its lockfile is
-intentionally untracked: e2e test setup removes it, and the security check generates it before auditing.
-Do not add transitive dependencies to published package requirements just to set a security floor.
+Set minimum versions for **direct dependencies** in their existing package requirements
+(`packages/*/pyproject.toml`) or dependency groups. For example, the Pillow minimum belongs in
+`data-designer-config` and the aiohttp minimum belongs in the `notebooks` group.
+Do not duplicate those minimums in `constraint-dependencies`.
+
+Use `[tool.uv].constraint-dependencies` in the workspace root `pyproject.toml` only for security
+floors on **transitive dependencies**, such as urllib3 through requests. Mirror relevant transitive
+runtime floors in `tests_e2e/pyproject.toml`. Its lockfile is intentionally untracked: e2e test setup
+removes it, and the security check generates it before auditing. Do not add a transitive dependency
+to published package requirements solely to set a security floor.
 
 ```bash
-make security-constraints            # Regenerate the pip/uv-compatible constraints.txt
+make update-security-constraints     # Regenerate the pip/uv-compatible constraints.txt
 uv lock --upgrade-package <pkg>      # Update the workspace lockfile
 uv lock --project tests_e2e --upgrade-package <pkg>
 make check-vulnerabilities           # Check the export, resolve e2e, and audit dependencies against OSV
 ```
 
-`constraints.txt` is generated from the workspace security floors. CI rejects a stale export and
+`constraints.txt` is generated from the workspace transitive security floors. CI rejects a stale export and
 audits the committed workspace lockfile and separately resolved e2e dependencies, including development,
-documentation, notebook, and recipe groups, on pull requests, pushes to `main`, and daily.
+documentation, notebook, and recipe groups. Audits run daily, on demand, and on PRs or pushes to
+`main` that change dependency manifests, the workspace lockfile, constraints, or security tooling.
 Audit findings fail the check; review each advisory and add an appropriate floor before updating
 the affected lockfile. To check e2e independently, run
 `uv lock --project tests_e2e` followed by `uv audit --project tests_e2e --locked`.
 
-A new advisory can fail the security check on an unrelated PR. Coordinate a security-floor update,
-then merge the fix into your branch and rerun the audit; do not suppress the finding just to pass CI.
-If this becomes a required status check, such findings block merges until addressed.
+PR audits guard dependency-related changes against vulnerable resolutions. Unrelated PRs do not
+trigger this workflow; daily audits detect newly disclosed vulnerabilities independently. Address
+scheduled findings in a dedicated security fix. If a dependency-related PR encounters an existing
+finding, bring in that fix and rerun the audit rather than mixing an unrelated remediation into it.
+Because the workflow is path-filtered, it should not be configured as a universally required status check.
 
 Neither `uv.lock` nor `[tool.uv]` settings are published package metadata. Users should pass the
 maintained constraints URL when installing or upgrading:
@@ -269,16 +278,15 @@ CVE-2026-114501 (GHSA-654x-cwwv-5j9c) remains open for Pillow 13.0.0, with no pa
 release listed upstream as of October 26, 2026. OSV currently omits this affected version.
 Track it in the [dependency security guide](https://docs.nvidia.com/nemo/datadesigner/concepts/security#known-unresolved-advisory)
 and verify upstream affected ranges before treating a clean scan as resolution.
-The constraints file also distributes the Pillow minimum to downstream application resolvers.
+The Pillow minimum is enforced by the published package requirement, not duplicated in constraints.
 
 #### CA trust remediation exception
 
 For the eMudhra CA compromise, require `certifi>=2026.10.19` in the published
 `data-designer-config` dependencies. This exception ensures that normal package
 installs and upgrades enforce the patched CA bundle for config-only users and
-for users of the engine and interface, which depend on config. Workspace and E2E
-constraints remain in place, but cannot enforce this minimum for PyPI users or
-downstream applications.
+for users of the engine and interface, which depend on config. This minimum lives in the published
+package requirement and is not duplicated in workspace or e2e transitive constraints.
 
 Keep other transitive security floors in application lockfiles as described above.
 This exception does not update pip's vendored certificate bundle or system and

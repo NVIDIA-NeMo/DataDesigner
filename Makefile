@@ -98,7 +98,7 @@ help:
 	@echo "  serve-fern-docs-locally   - Generate local Fern artifacts and serve Fern docs"
 	@echo "  check-license-headers     - Check if all files have license headers"
 	@echo "  check-dependency-licenses - Check runtime dependency license compatibility"
-	@echo "  security-constraints      - Export security version floors to constraints.txt"
+	@echo "  update-security-constraints - Export security version floors to constraints.txt"
 	@echo "  check-security-constraints - Check that constraints.txt matches pyproject.toml"
 	@echo "  check-vulnerabilities     - Audit workspace and e2e lockfiles against OSV"
 	@echo "  update-license-headers    - Add license headers to all files"
@@ -477,11 +477,11 @@ show-versions:
 # SECURITY AND LICENSE CHECKS
 # ==============================================================================
 
-security-constraints:
-	uv run --no-project --python 3.11 python scripts/generate_security_constraints.py
+update-security-constraints:
+	uv run --script scripts/generate_security_constraints.py
 
 check-security-constraints:
-	uv run --no-project --python 3.11 python scripts/generate_security_constraints.py --check
+	uv run --script scripts/generate_security_constraints.py --check
 
 check-vulnerabilities: check-security-constraints
 	uv audit --locked
@@ -825,4 +825,4 @@ clean-test-coverage:
         test test-config test-config-isolated test-e2e test-engine test-engine-isolated \
         test-graphify test-interface test-interface-isolated test-isolated \
         test-run-all-examples test-run-recipes test-run-tutorials \
-        update-license-headers verify-imports security-constraints check-security-constraints check-vulnerabilities
+        update-license-headers verify-imports update-security-constraints check-security-constraints check-vulnerabilities
