@@ -171,7 +171,9 @@ def test_validation_column_generator_generate_with_different_strategies(
     expected_call_count,
 ):
     mock_validator = Mock()
-    mock_validator.run_validation.return_value = ValidationResult(data=[ValidationOutput(is_valid=True)])
+    mock_validator.run_validation.side_effect = lambda batch: ValidationResult(
+        data=[ValidationOutput(is_valid=True) for _ in batch]
+    )
     mock_get_validator.return_value = mock_validator
 
     if validator_type == ValidatorType.REMOTE:
@@ -252,3 +254,131 @@ def test_validation_column_generator_validate_in_parallel_failure(
         call_kwargs = mock_executor_class.call_args[1]
         assert call_kwargs["disable_early_shutdown"] == stub_resource_provider.run_config.disable_early_shutdown
         assert call_kwargs["shutdown_error_rate"] == expected_rate
+
+
+def test_validation_column_generator_preserves_non_contiguous_index(stub_resource_provider: Mock) -> None:
+    """Rows dropped upstream leave gaps in the index; results must stay aligned to the input rows."""
+
+    def validate_positive(df: lazy.pd.DataFrame) -> lazy.pd.DataFrame:
+        return lazy.pd.DataFrame({"is_valid": df["value"] > 0})
+
+    config = ValidationColumnConfig(
+        name="validation_column",
+        validator_type=ValidatorType.LOCAL_CALLABLE,
+        validator_params=LocalCallableValidatorParams(validation_function=validate_positive),
+        target_columns=["value"],
+    )
+    generator = ValidationColumnGenerator(config=config, resource_provider=stub_resource_provider)
+    # Row 2 was dropped upstream, so the index is [0, 1, 3].
+    df = lazy.pd.DataFrame({"value": [1, -1, 5]}, index=[0, 1, 3])
+
+    result = generator.generate(df)
+
+    assert len(result) == 3
+    assert list(result.index) == [0, 1, 3]
+    assert [r["is_valid"] for r in result["validation_column"]] == [True, False, True]
+
+
+@pytest.mark.parametrize("num_results", [0, 1, 4])
+@patch("data_designer.engine.column_generators.generators.validation.get_validator_from_params", autospec=True)
+def test_validation_column_generator_raises_on_result_count_mismatch(
+    mock_get_validator: Mock, stub_resource_provider: Mock, num_results: int
+) -> None:
+    mock_validator = Mock()
+    mock_validator.run_validation.return_value = ValidationResult(
+        data=[ValidationOutput(is_valid=True) for _ in range(num_results)]
+    )
+    mock_get_validator.return_value = mock_validator
+
+    config = ValidationColumnConfig(
+        name="validation_column",
+        validator_type=ValidatorType.LOCAL_CALLABLE,
+        validator_params=LocalCallableValidatorParams(validation_function=lambda x: x),
+        target_columns=["col1"],
+    )
+    generator = ValidationColumnGenerator(config=config, resource_provider=stub_resource_provider)
+
+    with pytest.raises(
+        DataDesignerRuntimeError,
+        match=f"returned {num_results} results for a batch of 3 records",
+    ):
+        generator.generate(lazy.pd.DataFrame({"col1": [1, 2, 3]}))
+
+
+def _short_then_excess_results(batch: list[dict]) -> ValidationResult:
+    """First batch gets one result too few, second batch one too many: the total still matches."""
+    size = len(batch) - 1 if batch[0]["col1"] == 1 else len(batch) + 1
+    return ValidationResult(data=[ValidationOutput(is_valid=True) for _ in range(size)])
+
+
+@patch("data_designer.engine.column_generators.generators.validation.get_validator_from_params", autospec=True)
+def test_validation_column_generator_raises_when_batch_mismatches_cancel_out(
+    mock_get_validator: Mock, stub_resource_provider: Mock
+) -> None:
+    mock_validator = Mock()
+    mock_validator.run_validation.side_effect = _short_then_excess_results
+    mock_get_validator.return_value = mock_validator
+
+    config = ValidationColumnConfig(
+        name="validation_column",
+        validator_type=ValidatorType.LOCAL_CALLABLE,
+        validator_params=LocalCallableValidatorParams(validation_function=lambda x: x),
+        target_columns=["col1"],
+        batch_size=2,
+    )
+    generator = ValidationColumnGenerator(config=config, resource_provider=stub_resource_provider)
+
+    with pytest.raises(DataDesignerRuntimeError, match="returned 1 results for a batch of 2 records"):
+        generator.generate(lazy.pd.DataFrame({"col1": [1, 2, 3, 4]}))
+
+
+@patch("data_designer.engine.column_generators.generators.validation.get_validator_from_params", autospec=True)
+def test_validation_column_generator_parallel_batch_mismatches_do_not_misattribute(
+    mock_get_validator: Mock, stub_resource_provider: Mock
+) -> None:
+    """In parallel mode a failed batch becomes empty results for that batch, never another batch's results."""
+
+    def short_first_batch(batch: list[dict]) -> ValidationResult:
+        if batch[0]["col1"] == 1:
+            return ValidationResult(data=[ValidationOutput(is_valid=True)])
+        return ValidationResult(data=[ValidationOutput(is_valid=False) for _ in batch])
+
+    stub_resource_provider.run_config = RunConfig(disable_early_shutdown=True)
+    mock_validator = Mock()
+    mock_validator.run_validation.side_effect = short_first_batch
+    mock_get_validator.return_value = mock_validator
+
+    config = ValidationColumnConfig(
+        name="validation_column",
+        validator_type=ValidatorType.REMOTE,
+        validator_params=RemoteValidatorParams(endpoint_url="http://example.com/validate", max_parallel_requests=2),
+        target_columns=["col1"],
+        batch_size=2,
+    )
+    generator = ValidationColumnGenerator(config=config, resource_provider=stub_resource_provider)
+
+    result = generator.generate(lazy.pd.DataFrame({"col1": [1, 2, 3, 4]}))
+
+    assert len(result) == 4
+    assert [r["is_valid"] for r in result["validation_column"]] == [None, None, False, False]
+
+
+def test_validation_column_generator_preserves_reordered_index(stub_resource_provider: Mock) -> None:
+    """A reordered index must not attach results to the wrong rows."""
+
+    def validate_positive(df: lazy.pd.DataFrame) -> lazy.pd.DataFrame:
+        return lazy.pd.DataFrame({"is_valid": df["value"] > 0})
+
+    config = ValidationColumnConfig(
+        name="validation_column",
+        validator_type=ValidatorType.LOCAL_CALLABLE,
+        validator_params=LocalCallableValidatorParams(validation_function=validate_positive),
+        target_columns=["value"],
+    )
+    generator = ValidationColumnGenerator(config=config, resource_provider=stub_resource_provider)
+    df = lazy.pd.DataFrame({"value": [-1, 2, 3]}, index=[2, 0, 1])
+
+    result = generator.generate(df)
+
+    assert list(result.index) == [2, 0, 1]
+    assert [r["is_valid"] for r in result["validation_column"]] == [False, True, True]
