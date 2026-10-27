@@ -4,10 +4,11 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, ClassVar
 
-from data_designer.config.seed_source import AgentRolloutFormat
+from data_designer.config.seed_source import AgentRolloutFormat, AgentRolloutSeedSource, CodexReasoningSource
 from data_designer.engine.resources.agent_rollout.base import AgentRolloutFormatHandler, AgentRolloutParseContext
 from data_designer.engine.resources.agent_rollout.types import NormalizedAgentRolloutRecord
 from data_designer.engine.resources.agent_rollout.utils import (
@@ -23,8 +24,16 @@ from data_designer.engine.resources.agent_rollout.utils import (
 logger = logging.getLogger(__name__)
 
 
+@dataclass(frozen=True)
+class CodexParseContext(AgentRolloutParseContext):
+    reasoning_source: CodexReasoningSource
+
+
 class CodexAgentRolloutFormatHandler(AgentRolloutFormatHandler):
     format: ClassVar[AgentRolloutFormat] = AgentRolloutFormat.CODEX
+
+    def build_parse_context(self, *, root_path: Path, source: AgentRolloutSeedSource) -> CodexParseContext:
+        return CodexParseContext(reasoning_source=source.codex_reasoning_source)
 
     def is_handled_file(self, relative_path: str) -> bool:
         path = Path(relative_path)
@@ -37,7 +46,9 @@ class CodexAgentRolloutFormatHandler(AgentRolloutFormatHandler):
         relative_path: str,
         parse_context: AgentRolloutParseContext | None = None,
     ) -> list[NormalizedAgentRolloutRecord]:
-        del parse_context
+        reasoning_source = CodexReasoningSource.SUMMARY
+        if isinstance(parse_context, CodexParseContext):
+            reasoning_source = parse_context.reasoning_source
         file_path = root_path / relative_path
 
         rows = list(load_jsonl_rows(file_path))
@@ -127,7 +138,7 @@ class CodexAgentRolloutFormatHandler(AgentRolloutFormatHandler):
                     )
                 )
             elif item_type == "reasoning":
-                pending_reasoning.extend(extract_codex_reasoning(payload))
+                pending_reasoning.extend(extract_codex_reasoning(payload, reasoning_source))
             else:
                 logger.warning("Skipping unrecognized Codex response_item type %r in %s", item_type, file_path)
 
@@ -164,10 +175,11 @@ class CodexAgentRolloutFormatHandler(AgentRolloutFormatHandler):
         ]
 
 
-def extract_codex_reasoning(payload: dict[str, Any]) -> list[str]:
-    """Prefer raw reasoning content, which open-model servers return, over the summary."""
-    raw_reasoning = extract_codex_reasoning_parts(payload.get("content"))
-    return raw_reasoning or extract_codex_reasoning_parts(payload.get("summary"))
+def extract_codex_reasoning(payload: dict[str, Any], reasoning_source: CodexReasoningSource) -> list[str]:
+    summary = extract_codex_reasoning_parts(payload.get("summary"))
+    if reasoning_source == CodexReasoningSource.CONTENT_FIRST:
+        return extract_codex_reasoning_parts(payload.get("content")) or summary
+    return summary
 
 
 def extract_codex_reasoning_parts(parts: Any) -> list[str]:

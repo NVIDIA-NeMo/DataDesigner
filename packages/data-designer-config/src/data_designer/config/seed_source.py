@@ -219,6 +219,11 @@ class AgentRolloutFormat(StrEnum):
     PI_CODING_AGENT = "pi_coding_agent"
 
 
+class CodexReasoningSource(StrEnum):
+    SUMMARY = "summary"
+    CONTENT_FIRST = "content_first"
+
+
 def get_agent_rollout_format_defaults(fmt: AgentRolloutFormat) -> tuple[str | None, str]:
     if fmt == AgentRolloutFormat.ATIF:
         return (None, "*.json")
@@ -263,11 +268,26 @@ class AgentRolloutSeedSource(FileSystemSeedSource):
         ),
     )
 
+    codex_reasoning_source: CodexReasoningSource = Field(
+        CodexReasoningSource.SUMMARY,
+        description=(
+            "Codex only. Which part of each reasoning item fills reasoning_content. 'summary' reads only the "
+            "reasoning summary. 'content_first' reads the raw reasoning content, which open-model servers such "
+            "as vLLM return, and falls back to the summary when the content has no text. Raw reasoning can "
+            "contain sensitive text."
+        ),
+    )
+
     @model_validator(mode="after")
     def validate_runtime_path_source(self) -> Self:
         default_path, _ = get_agent_rollout_format_defaults(self.format)
         if self.path is None and default_path is None:
             raise ValueError(f"🛑 AgentRolloutSeedSource.path is required for format {self.format.value!r}.")
+        if self.format != AgentRolloutFormat.CODEX and self.codex_reasoning_source != CodexReasoningSource.SUMMARY:
+            raise ValueError(
+                f"🛑 AgentRolloutSeedSource.codex_reasoning_source applies only to format 'codex', "
+                f"not {self.format.value!r}."
+            )
         return self
 
     @property

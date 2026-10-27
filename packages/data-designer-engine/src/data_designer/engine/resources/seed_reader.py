@@ -721,7 +721,7 @@ class AgentRolloutSeedReader(FileSystemSeedReader[AgentRolloutSeedSource]):
                 f"{root_path!r} ({type(root_path).__name__})."
             )
         handler = self.get_format_handler()
-        self._parse_context = handler.build_parse_context(root_path=root_path, recursive=self.source.recursive)
+        self._parse_context = handler.build_parse_context(root_path=root_path, source=self.source)
         return self._parse_context
 
 

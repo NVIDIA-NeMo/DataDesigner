@@ -39,6 +39,8 @@ seed_source = dd.AgentRolloutSeedSource(
 )
 ```
 
+Reasoning is read from the summary of each reasoning item by default. Set `codex_reasoning_source=dd.CodexReasoningSource.CONTENT_FIRST` to read the raw reasoning content that open-model servers such as vLLM return, falling back to the summary when the content is empty. The raw reasoning is then included in `messages`, so the warning above applies.
+
 </Tab>
 <Tab title="Hermes Agent">
 
