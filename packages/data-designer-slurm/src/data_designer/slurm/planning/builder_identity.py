@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Collection
+
 from pydantic import JsonValue
 
 from data_designer.slurm.contracts import ModelAlias, Sha256Digest, compute_serialized_json_sha256
@@ -32,3 +34,15 @@ def get_persisted_builder_identity(
 ) -> tuple[tuple[ModelAlias, ...], Sha256Digest]:
     """Return declared aliases and the digest of persisted builder JSON."""
     return get_declared_model_aliases(builder), compute_serialized_json_sha256(builder)
+
+
+def get_external_model_aliases(builder: dict[str, JsonValue], local_aliases: Collection[str]) -> tuple[ModelAlias, ...]:
+    """Return aliases not deployed locally in their authored builder order."""
+    get_declared_model_aliases(builder)
+    data_designer = builder.get("data_designer", builder)
+    assert isinstance(data_designer, dict)
+    configs = data_designer.get("model_configs") or []
+    assert isinstance(configs, list)
+    return tuple(
+        config["alias"] for config in configs if isinstance(config, dict) and config["alias"] not in local_aliases
+    )

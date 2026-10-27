@@ -393,6 +393,6 @@ def _export_parquet(batch_files: list[Path], output: Path) -> None:
             except (OSError, lazy.pa.ArrowException) as e:
                 raise ArtifactStorageError(f"Failed to read dataset artifact {batch_file}: {e}") from e
             try:
-                writer.write_table(table.cast(unified_schema))
-            except (lazy.pa.ArrowInvalid, ValueError) as e:
+                writer.write_table(table.select(unified_schema.names).cast(unified_schema))
+            except (KeyError, lazy.pa.ArrowInvalid, ValueError) as e:
                 raise InvalidFileFormatError(f"Cannot cast batch {batch_file.name} to unified schema: {e}") from e

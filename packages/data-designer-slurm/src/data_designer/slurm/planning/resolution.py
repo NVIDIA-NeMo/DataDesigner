@@ -8,9 +8,10 @@ from __future__ import annotations
 import posixpath
 from typing import Annotated
 
-from pydantic import JsonValue, PositiveInt, StringConstraints, TypeAdapter, ValidationError
+from pydantic import JsonValue, NonNegativeInt, StringConstraints, TypeAdapter, ValidationError
 
 from data_designer.config import RunConfig
+from data_designer.config.models import ModelProvider
 from data_designer.slurm._errors import format_validation_error
 from data_designer.slurm.config.images import ImageKind
 from data_designer.slurm.config.profiles import SelectedSlurmProfile
@@ -26,9 +27,13 @@ from data_designer.slurm.contracts import (
 )
 from data_designer.slurm.planning.builder_identity import (
     get_declared_model_aliases,
+    get_external_model_aliases,
     get_persisted_builder_identity,
 )
 from data_designer.slurm.planning.errors import SlurmConfigResolutionError
+from data_designer.slurm.planning.model_providers import (
+    dump_hosted_model_providers,
+)
 from data_designer.slurm.planning.models import (
     ResolvedBuilderInput,
     ResolvedClientRuntime,
@@ -85,9 +90,10 @@ class EffectiveDataDesignerSlurmConfig(ContractValue):
     authored: DataDesignerSlurmConfig
     selected_profile: SelectedSlurmProfile
     scheduler_bin_path: str | None = None
-    resolved_gpus_per_node: PositiveInt
+    resolved_gpus_per_node: NonNegativeInt
     builder: ResolvedBuilderInput
     builder_payload: dict[str, JsonValue] | None = None
+    hosted_model_providers: tuple[dict[str, JsonValue], ...] = ()
     invocation: ResolvedInvocation
     client_runtime: ResolvedClientRuntime
     deployment_images: tuple[ResolvedImage, ...]
@@ -109,12 +115,18 @@ def resolve_slurm_config(
     scheduler_bin_path: str | None = None,
     resolved_gpus_per_node: int | None = None,
     builder_payload: dict[str, JsonValue] | None = None,
+    hosted_model_providers: tuple[ModelProvider, ...] = (),
 ) -> EffectiveDataDesignerSlurmConfig:
     """Materialize all non-secret defaults from explicitly supplied resolved inputs."""
     try:
         run_id = _RUN_ID_ADAPTER.validate_python(run_id, strict=True)
         package_version = _PACKAGE_VERSION_ADAPTER.validate_python(package_version, strict=True)
-        gpus_per_node = _resolve_gpu_count(selected_profile, resolved_gpus_per_node)
+        if not authored.deployments:
+            if resolved_gpus_per_node not in (None, 0):
+                raise SlurmConfigResolutionError("client-only runs must resolve zero GPUs")
+            gpus_per_node = 0
+        else:
+            gpus_per_node = _resolve_gpu_count(selected_profile, resolved_gpus_per_node)
         workspace_root = selected_profile.profile.workspace_root
         run_root = posixpath.join(workspace_root, "runs", run_id)
         builder, resolved_builder_payload = _resolve_builder(
@@ -131,6 +143,7 @@ def resolve_slurm_config(
             resolved_gpus_per_node=gpus_per_node,
             builder=builder,
             builder_payload=resolved_builder_payload,
+            hosted_model_providers=dump_hosted_model_providers(hosted_model_providers),
             invocation=_materialize_invocation(authored, workspace_root),
             client_runtime=client_runtime,
             deployment_images=deployment_images,
@@ -159,7 +172,15 @@ def validate_effective_slurm_config(
     authored = effective.authored
     profile = effective.selected_profile.profile
     workspace_root = profile.workspace_root
-    if profile.gpus_per_node != "auto" and profile.gpus_per_node != effective.resolved_gpus_per_node:
+    if not authored.deployments and effective.resolved_gpus_per_node != 0:
+        raise SlurmConfigResolutionError("client-only runs must resolve zero GPUs")
+    if authored.deployments and effective.resolved_gpus_per_node <= 0:
+        raise SlurmConfigResolutionError("server deployments require a positive GPU count")
+    if (
+        authored.deployments
+        and profile.gpus_per_node != "auto"
+        and profile.gpus_per_node != effective.resolved_gpus_per_node
+    ):
         raise SlurmConfigResolutionError("resolved GPU count does not match the selected profile")
     if profile.gpu_request_mode == "visible" and profile.scheduler.mem_per_gpu is not None:
         raise SlurmConfigResolutionError("mem_per_gpu requires GRES GPU request mode")
@@ -224,6 +245,7 @@ def _resolve_builder(
     run_root: str,
     builder_payload: dict[str, JsonValue] | None,
 ) -> tuple[ResolvedBuilderInput, dict[str, JsonValue] | None]:
+    local_aliases = {deployment.model_alias for deployment in authored.deployments}
     if authored.builder.inline is not None:
         if builder_payload is not None:
             raise SlurmConfigResolutionError("inline builder input must not provide a separate payload")
@@ -232,6 +254,7 @@ def _resolve_builder(
                 inline=authored.builder.inline,
                 content_sha256=compute_serialized_json_sha256(authored.builder.inline),
                 model_aliases=get_declared_model_aliases(authored.builder.inline),
+                external_model_aliases=get_external_model_aliases(authored.builder.inline, local_aliases),
             ),
             None,
         )
@@ -250,6 +273,7 @@ def _resolve_builder(
             source=source,
             content_sha256=source.sha256,
             model_aliases=aliases,
+            external_model_aliases=get_external_model_aliases(validated_payload, local_aliases),
         ),
         validated_payload,
     )
@@ -277,6 +301,7 @@ def _materialize_submission(
         job_name=authored.submission.job_name,
         time_limit=authored.submission.time_limit,
         comment=authored.submission.comment,
+        memory=authored.submission.memory,
     )
 
 

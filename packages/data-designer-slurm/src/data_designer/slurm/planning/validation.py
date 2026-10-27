@@ -10,8 +10,9 @@ from pydantic import JsonValue
 from data_designer.config import RunConfig
 from data_designer.slurm.config.run import DataDesignerSlurmConfig
 from data_designer.slurm.contracts import derive_managed_assets_path
-from data_designer.slurm.planning.builder_identity import get_persisted_builder_identity
+from data_designer.slurm.planning.builder_identity import get_external_model_aliases, get_persisted_builder_identity
 from data_designer.slurm.planning.errors import SlurmPlanContractError
+from data_designer.slurm.planning.model_providers import load_hosted_model_providers, resolve_hosted_model_providers
 from data_designer.slurm.planning.models import (
     ResolvedDependencyLock,
     ResolvedSlurmRunPlan,
@@ -75,6 +76,23 @@ def validate_resolved_plan(
         _require(plan.builder.source.sha256 == digest, "resolved builder digest does not match builder source")
         _require(plan.builder.content_sha256 == digest, "resolved builder digest does not match builder source")
 
+    payload = authored.builder.inline if authored.builder.inline is not None else builder_payload
+    assert payload is not None
+    _require(
+        plan.builder.external_model_aliases
+        == get_external_model_aliases(payload, {deployment.model_alias for deployment in authored.deployments}),
+        "resolved external aliases do not match the builder",
+    )
+    _require(
+        load_hosted_model_providers(plan.hosted_model_providers)
+        == resolve_hosted_model_providers(
+            payload,
+            {deployment.model_alias for deployment in authored.deployments},
+            load_hosted_model_providers(plan.hosted_model_providers),
+        ),
+        "hosted model provider snapshot does not match the builder",
+    )
+
     expected_account = authored.submission.account or plan.selected_profile.profile.scheduler.account
     expected_partition = authored.submission.partition or plan.selected_profile.profile.scheduler.partition
     _require(plan.submission.account == expected_account, "resolved account does not match authored/profile input")
@@ -89,6 +107,7 @@ def validate_resolved_plan(
         "resolved time limit does not match authored input",
     )
     _require(plan.submission.comment == authored.submission.comment, "resolved comment does not match authored input")
+    _require(plan.submission.memory == authored.submission.memory, "resolved memory does not match authored input")
 
     _require(
         plan.client.dependency_lock.sha256 == dependency_lock.compute_sha256(),

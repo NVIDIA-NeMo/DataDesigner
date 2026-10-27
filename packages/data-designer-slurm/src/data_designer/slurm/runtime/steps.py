@@ -10,6 +10,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Literal, Protocol
 
+from data_designer.config.models import ModelProvider
 from data_designer.slurm.config.environment import (
     LiteralEnvironmentBinding,
     SecretRef,
@@ -561,7 +562,11 @@ def _base_environment(source_environment: Mapping[str, str]) -> dict[str, str]:
 
 def _collect_client_secret_environment_names(plan: ResolvedSlurmRunPlan) -> tuple[str, ...]:
     return collect_secret_environment_names(
-        (plan.client.authored.dependencies.index_credentials, plan.invocation.authored.mcp_providers)
+        (
+            plan.client.authored.dependencies.index_credentials,
+            plan.invocation.authored.mcp_providers,
+            *(ModelProvider.model_validate(value) for value in plan.hosted_model_providers),
+        )
     )
 
 

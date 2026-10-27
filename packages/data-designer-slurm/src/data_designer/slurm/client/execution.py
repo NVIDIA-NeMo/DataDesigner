@@ -404,10 +404,22 @@ class ClientWorker:
         if set(endpoints) != set(aliases):
             raise ClientWorkerError(ClientErrorCode.CONFIG_INVALID, "runtime endpoints do not match model aliases")
         configs = {config.alias: config for config in builder.model_configs}
-        if set(configs) != set(aliases):
+        if set(configs) != set(plan.builder.model_aliases):
             raise ClientWorkerError(ClientErrorCode.CONFIG_INVALID, "builder model aliases do not match the plan")
-        updated = []
-        providers = []
+        external_providers = tuple(
+            ModelProvider.model_validate_json(json.dumps(snapshot)) for snapshot in plan.hosted_model_providers
+        )
+        external_names = {provider.name for provider in external_providers}
+        external_aliases = tuple(config.alias for config in configs.values() if config.alias not in aliases)
+        if external_aliases != plan.builder.external_model_aliases or any(
+            configs[alias].provider not in external_names for alias in external_aliases
+        ):
+            raise ClientWorkerError(ClientErrorCode.CONFIG_INVALID, "external model aliases do not match the plan")
+        updated = dict(configs)
+        providers = [provider.model_copy(deep=True) for provider in external_providers]
+        for provider in providers:
+            if provider.api_key is not None and not os.environ.get(provider.api_key):
+                raise ClientWorkerError(ClientErrorCode.CONFIG_INVALID, "required client secret is unavailable")
         for deployment, port in zip(plan.deployments, plan.client.ports, strict=True):
             alias = deployment.authored.model_alias
             endpoint = endpoints[alias]
@@ -417,23 +429,22 @@ class ClientWorker:
                 raise ClientWorkerError(ClientErrorCode.CONFIG_INVALID, "runtime model endpoint is invalid")
             provider_name = f"slurm-{alias}"
             model_config = configs[alias]
-            inference = model_config.inference_parameters
-            concurrency = plan.invocation.authored.model_concurrency.get(alias)
-            if concurrency is not None:
-                inference = inference.model_copy(update={"max_parallel_requests": concurrency})
-            updated.append(
-                model_config.model_copy(
-                    update={
-                        "model": deployment.served_model_name,
-                        "provider": provider_name,
-                        "inference_parameters": inference,
-                    }
-                )
+            updated[alias] = model_config.model_copy(
+                update={"model": deployment.served_model_name, "provider": provider_name}
             )
             providers.append(ModelProvider(name=provider_name, endpoint=endpoint, provider_type="openai"))
         for model_config in tuple(builder.model_configs):
             builder.delete_model_config(model_config.alias)
-        for model_config in updated:
+        for alias, model_config in updated.items():
+            concurrency = plan.invocation.authored.model_concurrency.get(alias)
+            if concurrency is not None:
+                model_config = model_config.model_copy(
+                    update={
+                        "inference_parameters": model_config.inference_parameters.model_copy(
+                            update={"max_parallel_requests": concurrency}
+                        )
+                    }
+                )
             builder.add_model_config(model_config)
         return providers
 
@@ -547,9 +558,22 @@ class ClientWorker:
         execution_resume = context.requested_resume if context.retry_resume is None else context.retry_resume
         if execution_resume is not ResumeMode.NEVER:
             ensure_private_directory(context.dataset_path)
-        if execution_resume is ResumeMode.NEVER and context.dataset_path.exists():
-            if not context.dataset_path.is_dir() or any(context.dataset_path.iterdir()):
+        if execution_resume is ResumeMode.NEVER and (
+            context.dataset_path.exists() or context.dataset_path.is_symlink()
+        ):
+            if (
+                context.dataset_path.is_symlink()
+                or not context.dataset_path.is_dir()
+                or any(context.dataset_path.iterdir())
+            ):
                 raise ClientWorkerError(ClientErrorCode.OUTPUT_INVALID, "attempt dataset workspace is not empty")
+            # The state writer prepares an empty directory; DD must claim it exclusively.
+            try:
+                context.dataset_path.rmdir()
+            except OSError as error:
+                raise ClientWorkerError(
+                    ClientErrorCode.OUTPUT_INVALID, "attempt dataset workspace is unavailable"
+                ) from error
 
     @staticmethod
     def _generate_dataset(
@@ -650,6 +674,7 @@ class ClientWorker:
             dataset_path = creation.expected_path
         if dataset_path != creation.expected_path:
             raise ClientWorkerError(ClientErrorCode.OUTPUT_INVALID, "Data Designer dataset path is invalid")
+        ensure_private_directory(dataset_path)
         return dataset_path, output_paths
 
     @staticmethod

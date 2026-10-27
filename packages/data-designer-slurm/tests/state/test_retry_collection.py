@@ -9,6 +9,7 @@ import json
 import os
 import shutil
 import sys
+from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -361,7 +362,12 @@ def test_retry_recovers_an_accepted_submission_after_the_receipt_is_lost(
     )
     runner.script_next("sacct", FakeCommandResponse())
 
-    recovered = SlurmRetryCoordinator(case.workspace, case.plan.run_id, scheduler).retry(
+    def unavailable_credentials() -> Mapping[str, str]:
+        pytest.fail("accepted retry recovery must not resolve credentials")
+
+    recovered = SlurmRetryCoordinator(
+        case.workspace, case.plan.run_id, scheduler, export_environment_factory=unavailable_credentials
+    ).retry(
         effective_resume_mode="never",
         observed_at=case.created_at + timedelta(minutes=6),
     )
@@ -370,7 +376,9 @@ def test_retry_recovers_an_accepted_submission_after_the_receipt_is_lost(
     assert case.writer.load_attempts(case.shards[0].shard_id) == (first_attempt, recovered[0])
     assert storage.read_status("retry-0001").state is RetryState.COMPLETED
     assert (
-        SlurmRetryCoordinator(case.workspace, case.plan.run_id, scheduler).retry(
+        SlurmRetryCoordinator(
+            case.workspace, case.plan.run_id, scheduler, export_environment_factory=unavailable_credentials
+        ).retry(
             effective_resume_mode="never",
             observed_at=case.created_at + timedelta(minutes=7),
         )

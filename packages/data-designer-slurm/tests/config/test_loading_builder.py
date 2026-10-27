@@ -73,7 +73,7 @@ def test_client_cpu_default_is_16() -> None:
 def test_builder_requires_complete_authored_intent() -> None:
     builder = DataDesignerSlurmConfigBuilder.from_builder_source("builder.json")
 
-    with pytest.raises(SlurmConfigBuilderError, match="invocation, deployment"):
+    with pytest.raises(SlurmConfigBuilderError, match="invocation"):
         builder.build()
 
 

@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import ExitStack, contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -65,7 +65,12 @@ class RetryScheduler(SchedulerObservationClient, Protocol):
 
 
 class SlurmRetryCoordinator:
-    """Select retryable shards and durably submit their next attempts."""
+    """Select retryable shards and durably submit their next attempts.
+
+    An optional ``export_environment_factory`` overrides ``export_environment``
+    only for new submissions. It runs under the selection locks before prepared
+    state is persisted; previews and accepted-submission recovery do not call it.
+    """
 
     def __init__(
         self,
@@ -73,10 +78,13 @@ class SlurmRetryCoordinator:
         run_id: Identifier,
         scheduler: RetryScheduler | None = None,
         export_environment: Mapping[str, str] | None = None,
+        *,
+        export_environment_factory: Callable[[], Mapping[str, str]] | None = None,
     ) -> None:
         root, normalized_run_id = _validate_location(workspace_root, run_id)
         self._scheduler = scheduler if scheduler is not None else SlurmCommandClient()
         self._export_environment = None if export_environment is None else dict(export_environment)
+        self._export_environment_factory = export_environment_factory
         self._state = StateStorage(root, normalized_run_id)
         self._reader = StateReader(self._state, normalized_run_id)
         self._retries = RetryStorage(self._state)
@@ -108,6 +116,8 @@ class SlurmRetryCoordinator:
                 script = render_generation_retry_script(self._reader.load_resolved_plan(status.run), plan)
                 with self._acquire_selection_locks(selected):
                     self._require_fresh_selection(status, selected)
+                    if self._export_environment_factory is not None:
+                        self._export_environment = dict(self._export_environment_factory())
                     self._persist_prepared_retry(plan, timestamp)
                     receipt = self._submit(plan, script, timestamp)
                     attempts, superseded = self._publish_attempts(plan, receipt.job_id, timestamp)

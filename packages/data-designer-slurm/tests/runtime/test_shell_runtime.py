@@ -13,12 +13,25 @@ import tarfile
 from pathlib import Path
 
 import pytest
+from pydantic import JsonValue
+
+from data_designer.slurm.config import collect_secret_environment_names
+from data_designer.slurm.planning import ResolvedSlurmRunPlan
 
 
-@pytest.mark.parametrize("gpu_request_mode", ("gres", "visible"))
+@pytest.mark.parametrize(
+    ("gpu_request_mode", "hosted_only"),
+    (
+        ("gres", False),
+        ("visible", False),
+        ("gres", True),
+        ("visible", True),
+    ),
+)
 def test_bash_controller_scopes_secrets_cleans_steps_and_never_runs_host_python(
     tmp_path: Path,
     gpu_request_mode: str,
+    hosted_only: bool,
 ) -> None:
     runtime_root = Path(__file__).parents[2] / "src/data_designer/slurm/runtime"
     scratch_root = tmp_path / "data-designer-slurm-4101-0"
@@ -35,9 +48,18 @@ def test_bash_controller_scopes_secrets_cleans_steps_and_never_runs_host_python(
     plan = _plan(
         tmp_path, runtime_copy, artifacts, gpu_request_mode, python_executable=(fake_bin / "python3").as_posix()
     )
+    manifest = _manifest(attempt_directory, artifacts, "a" * 64)
+    if hosted_only:
+        plan["deployments"] = []
+        plan["resolved_gpus_per_node"] = 0
+        plan["hosted_model_providers"] = [
+            {"name": "hosted", "endpoint": "https://models.example/v1", "api_key": "SOURCE_TOKEN"}
+        ]
+        manifest["steps"] = [step for step in manifest["steps"] if step["role"] in {"client_preflight", "client"}]
+        manifest["all_secret_environment_names"] = ["SOURCE_TOKEN"]
     plan_path.write_text(json.dumps(plan))
     manifest_path = tmp_path / "manifest-source.json"
-    manifest_path.write_text(json.dumps(_manifest(attempt_directory, artifacts, "a" * 64)))
+    manifest_path.write_text(json.dumps(manifest))
     marker_path = tmp_path / "host-python-ran"
     _write_executable(fake_bin / "python3", f"#!/usr/bin/env bash\nprintf ran > {marker_path}\nexit 99\n")
     _write_executable(fake_bin / "curl", "#!/usr/bin/env bash\nexit 0\n")
@@ -73,6 +95,9 @@ dd_slurm_run_allocation "${{DD_PLAN}}" "${{DD_ATTEMPT_DIR}}"
         "SLURM_JOB_GPUS": "0",
         "SLURM_NODEID": "0",
     }
+    if hosted_only:
+        environment.pop("SLURM_JOB_GPUS")
+        environment.pop("CUDA_VISIBLE_DEVICES")
 
     completed = subprocess.run(
         ("bash", "-c", command),
@@ -87,13 +112,16 @@ dd_slurm_run_allocation "${{DD_PLAN}}" "${{DD_ATTEMPT_DIR}}"
     assert not scratch_root.exists()
     assert not marker_path.exists()
     assert "supersecret" not in completed.stdout + completed.stderr + manifest_path.read_text()
-    assert "Starting vLLM servers..." in completed.stdout
-    assert "Waiting for vLLM servers to become ready..." in completed.stdout
-    assert "vLLM servers are ready." in completed.stdout
-    assert (
-        f"Follow vLLM logs: tail -F {log_directory / 'deployment-00000-replica-00000-rank-00000.out'} "
-        f"{log_directory / 'deployment-00000-replica-00000-rank-00000.err'}"
-    ) in completed.stdout
+    if hosted_only:
+        assert "vLLM" not in completed.stdout
+    else:
+        assert "Starting vLLM servers..." in completed.stdout
+        assert "Waiting for vLLM servers to become ready..." in completed.stdout
+        assert "vLLM servers are ready." in completed.stdout
+        assert (
+            f"Follow vLLM logs: tail -F {log_directory / 'deployment-00000-replica-00000-rank-00000.out'} "
+            f"{log_directory / 'deployment-00000-replica-00000-rank-00000.err'}"
+        ) in completed.stdout
     assert (
         f"Generation started. Follow client logs: tail -F {log_directory / 'client-generation.out'} "
         f"{log_directory / 'client-generation.err'}"
@@ -101,6 +129,51 @@ dd_slurm_run_allocation "${{DD_PLAN}}" "${{DD_ATTEMPT_DIR}}"
     assert f"Inspect generation progress: cat {attempt_directory / 'client-progress.json'}" in completed.stdout
     assert "Generation finished; finalizing run..." in completed.stdout
     assert "Run completed." in completed.stdout
+
+
+@pytest.mark.parametrize(
+    "provider_payload",
+    (
+        {"type": "secret", "environment": "REMOTE_SERVICE_ENV"},
+        {"type": "secret"},
+        [{"nested": {"type": "secret", "environment": "REMOTE_SERVICE_ENV"}}],
+    ),
+    ids=("named-environment", "no-environment", "nested-list"),
+)
+def test_bash_secret_discovery_treats_provider_payloads_as_opaque(
+    tmp_path: Path,
+    external_plan: ResolvedSlurmRunPlan,
+    provider_payload: JsonValue,
+) -> None:
+    payload = external_plan.model_dump(mode="json")
+    payload["hosted_model_providers"][0]["extra_body"] = {"routing": provider_payload}
+    plan = ResolvedSlurmRunPlan.model_validate_json(json.dumps(payload))
+    required_names = collect_secret_environment_names(plan)
+    assert required_names == ("MODEL_API_KEY",)
+    plan_path = tmp_path / "resolved-plan.json"
+    plan_path.write_text(plan.serialize_json())
+    runtime_root = Path(__file__).parents[2] / "src/data_designer/slurm/runtime"
+    command = f"""
+set -Eeuo pipefail
+source {shlex.quote((runtime_root / "plan_reader.sh").as_posix())}
+source {shlex.quote((runtime_root / "step_runner.sh").as_posix())}
+dd_read_plan_secret_names {shlex.quote(plan_path.as_posix())}
+printf '%s\\n' "${{DD_REQUIRED_SECRET_NAMES[@]}}"
+printf '%s\\n' "${{DD_ALL_SECRET_NAMES[@]}}"
+dd_require_plan_secrets
+"""
+    environment = {**os.environ, "MODEL_API_KEY": "test-provider-key"}
+    environment.pop("REMOTE_SERVICE_ENV", None)
+    completed = subprocess.run(
+        ("bash", "-c", command),
+        capture_output=True,
+        text=True,
+        env=environment,
+        timeout=5,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert completed.stdout.splitlines() == [*required_names, *required_names]
 
 
 def test_staged_shell_modules_parse_as_bash(tmp_path: Path) -> None:
