@@ -12,7 +12,7 @@ import sys
 from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from threading import Event
 from typing import cast
@@ -1981,7 +1981,7 @@ def _initialize_run(
     workspace = tmp_path / "workspace"
     workspace.mkdir(mode=0o700)
     relocated_plan = _relocate_plan(plan, workspace)
-    created_at = datetime(2026, 9, 1, 12, tzinfo=timezone.utc)
+    created_at = datetime(2026, 9, 1, 12, tzinfo=UTC)
     run_root = workspace / "runs" / relocated_plan.run_id
     run = RunManifest(
         schema_version=1,

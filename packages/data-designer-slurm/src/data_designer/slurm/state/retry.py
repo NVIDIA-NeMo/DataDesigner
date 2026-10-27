@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import ExitStack, contextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal, Protocol
 
@@ -100,7 +100,7 @@ class SlurmRetryCoordinator:
         observed_at: datetime | None = None,
     ) -> tuple[AttemptManifest, ...]:
         """Refresh state, submit exactly the retryable selection, and publish attempts."""
-        timestamp = datetime.now(timezone.utc) if observed_at is None else observed_at
+        timestamp = datetime.now(UTC) if observed_at is None else observed_at
         try:
             if effective_resume_mode not in {"never", "always"}:
                 raise StateConflictError("effective resume mode must be 'never' or 'always'")
@@ -136,7 +136,7 @@ class SlurmRetryCoordinator:
         observed_at: datetime | None = None,
     ) -> tuple[RetryPlan, str]:
         """Render a retry plan without persisting or submitting it."""
-        timestamp = datetime.now(timezone.utc) if observed_at is None else observed_at
+        timestamp = datetime.now(UTC) if observed_at is None else observed_at
         try:
             if effective_resume_mode not in {"never", "always"}:
                 raise StateConflictError("effective resume mode must be 'never' or 'always'")
@@ -156,7 +156,7 @@ class SlurmRetryCoordinator:
         observed_at: datetime | None = None,
     ) -> tuple[RetryPlan, str] | None:
         """Render the latest active retry without persisting observations."""
-        timestamp = datetime.now(timezone.utc) if observed_at is None else observed_at
+        timestamp = datetime.now(UTC) if observed_at is None else observed_at
         try:
             status = self._reconciler.observe(observed_at=timestamp)
             retry_ids = self._retries.list_retry_ids()

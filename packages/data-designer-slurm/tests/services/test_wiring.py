@@ -7,7 +7,7 @@ import hashlib
 import json
 from collections.abc import Iterator, Mapping
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -635,7 +635,7 @@ def test_production_wiring_submits_after_publisher_initialization(
     _register_images(tmp_path, authored_run_single, single_node_plan)
     launcher = _Launcher()
     publisher = _Publisher()
-    submitted_at = datetime(2026, 9, 8, tzinfo=timezone.utc)
+    submitted_at = datetime(2026, 9, 8, tzinfo=UTC)
     service = create_slurm_run_service(
         profile=_profile(tmp_path, profile_catalog),
         artifact_publisher=publisher,  # type: ignore[arg-type]
@@ -984,7 +984,7 @@ def test_status_reconciles_cancelled_scheduler_attempt(
         profile=_profile(tmp_path, profile_catalog),
         launcher=launcher,  # type: ignore[arg-type]
         run_id_factory=lambda: "run-wired",
-        clock=lambda: datetime(2026, 9, 8, tzinfo=timezone.utc),
+        clock=lambda: datetime(2026, 9, 8, tzinfo=UTC),
         package_version="0.9.2",
     )
     result = service.execute(authored_run_single, source_root=tmp_path)
@@ -1013,7 +1013,7 @@ def test_status_expires_unrequeued_preemption_and_cancel_skips_terminal_job(
 ) -> None:
     _register_images(tmp_path, authored_run_single, single_node_plan)
     launcher = _Launcher()
-    current_time = [datetime(2026, 9, 8, tzinfo=timezone.utc)]
+    current_time = [datetime(2026, 9, 8, tzinfo=UTC)]
     service = create_slurm_run_service(
         profile=_profile(tmp_path, profile_catalog),
         launcher=launcher,  # type: ignore[arg-type]
@@ -1056,7 +1056,7 @@ def test_status_does_not_expire_requeue_window_from_another_attempt_clock(
     )
     _register_images(tmp_path, authored, single_node_plan)
     launcher = _Launcher()
-    current_time = [datetime(2026, 9, 8, tzinfo=timezone.utc)]
+    current_time = [datetime(2026, 9, 8, tzinfo=UTC)]
     service = create_slurm_run_service(
         profile=_profile(tmp_path, profile_catalog),
         launcher=launcher,  # type: ignore[arg-type]
@@ -1118,7 +1118,7 @@ def test_production_retry_dry_run_and_submission_are_sparse_and_idempotent(
     )
     _register_images(tmp_path, authored, single_node_plan)
     launcher = _Launcher(submission_job_ids=(42, 43))
-    now = datetime(2026, 9, 8, tzinfo=timezone.utc)
+    now = datetime(2026, 9, 8, tzinfo=UTC)
     service = create_slurm_run_service(
         profile=_profile(tmp_path, profile_catalog),
         launcher=launcher,  # type: ignore[arg-type]
@@ -1175,7 +1175,7 @@ def test_hosted_retry_requires_credentials_only_for_new_submissions(
     active_state: SchedulerState,
 ) -> None:
     launcher = _Launcher(submission_job_ids=(42, 43, 44))
-    now = datetime(2026, 9, 8, tzinfo=timezone.utc)
+    now = datetime(2026, 9, 8, tzinfo=UTC)
     profile = _profile(tmp_path, profile_catalog)
     source_environment = {"MODEL_API_KEY": "fake-provider-secret"}
     service = create_slurm_run_service(
@@ -1250,7 +1250,7 @@ def test_production_retry_preview_recovers_active_pinned_mode(
 ) -> None:
     _register_images(tmp_path, authored_run_single, single_node_plan)
     launcher = _Launcher(submission_job_ids=(42, 43))
-    now = datetime(2026, 9, 8, tzinfo=timezone.utc)
+    now = datetime(2026, 9, 8, tzinfo=UTC)
     service = create_slurm_run_service(
         profile=_profile(tmp_path, profile_catalog),
         launcher=launcher,  # type: ignore[arg-type]
@@ -1288,7 +1288,7 @@ def test_production_retry_if_possible_reuses_populated_workspace(
     )
     _register_images(tmp_path, authored, single_node_plan)
     launcher = _Launcher()
-    now = datetime(2026, 9, 8, tzinfo=timezone.utc)
+    now = datetime(2026, 9, 8, tzinfo=UTC)
     service = create_slurm_run_service(
         profile=_profile(tmp_path, profile_catalog),
         launcher=launcher,  # type: ignore[arg-type]
@@ -1330,7 +1330,7 @@ def test_production_retry_if_possible_rejects_mixed_workspace_availability(
     )
     _register_images(tmp_path, authored, single_node_plan)
     launcher = _Launcher()
-    now = datetime(2026, 9, 8, tzinfo=timezone.utc)
+    now = datetime(2026, 9, 8, tzinfo=UTC)
     service = create_slurm_run_service(
         profile=_profile(tmp_path, profile_catalog),
         launcher=launcher,  # type: ignore[arg-type]
@@ -1629,7 +1629,7 @@ def test_partial_submission_recording_failure_cancels_job_and_fails_created_atte
 
     monkeypatch.setattr(SlurmStateWriter, "create_attempt", fail_second_attempt)
     launcher = _Launcher()
-    failed_at = datetime(2026, 9, 8, tzinfo=timezone.utc)
+    failed_at = datetime(2026, 9, 8, tzinfo=UTC)
     service = create_slurm_run_service(
         profile=_profile(tmp_path, profile_catalog),
         launcher=launcher,  # type: ignore[arg-type]
@@ -1659,7 +1659,7 @@ def test_release_failure_cancels_the_held_job(
 ) -> None:
     _register_images(tmp_path, authored_run_single, single_node_plan)
     launcher = _Launcher(release_error=SlurmLauncherError("release failed"))
-    failed_at = datetime(2026, 9, 8, tzinfo=timezone.utc)
+    failed_at = datetime(2026, 9, 8, tzinfo=UTC)
     service = create_slurm_run_service(
         profile=_profile(tmp_path, profile_catalog),
         launcher=launcher,  # type: ignore[arg-type]
@@ -1739,7 +1739,7 @@ def test_production_status_and_cancel_use_only_persisted_m2_records(
         package_version="0.9.2",
     )
     plan = service.plan(authored_run_single)
-    now = datetime(2026, 9, 8, tzinfo=timezone.utc)
+    now = datetime(2026, 9, 8, tzinfo=UTC)
     plan_reference = ArtifactReference(
         path=(tmp_path / "runs/run-wired/resolved-plan.json").as_posix(),
         sha256=plan.compute_sha256(),

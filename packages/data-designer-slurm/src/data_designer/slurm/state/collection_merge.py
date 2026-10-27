@@ -11,7 +11,7 @@ import stat
 from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import BinaryIO, Protocol
 
@@ -296,7 +296,7 @@ def _stage_expectations(
 
 
 def _utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 __all__ = ["CollectionMerger", "CollectionPartitionWriter"]

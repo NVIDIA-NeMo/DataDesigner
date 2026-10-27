@@ -13,7 +13,7 @@ from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from threading import Barrier, Event
 from typing import TypeVar, cast
@@ -1553,7 +1553,7 @@ def test_candidate_verifier_leases_manifest_bounded_files_through_publication(
         shard_id="shard-00000",
         attempt_id="attempt-0001",
         attempt_ordinal=1,
-        created_at=datetime(2026, 9, 1, tzinfo=timezone.utc),
+        created_at=datetime(2026, 9, 1, tzinfo=UTC),
         dataset_path=dataset_path.as_posix(),
         requested_records=len(files),
         actual_records=len(files),
@@ -2299,7 +2299,7 @@ def _build_case(
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     relocated_plan = _relocate_plan(plan, workspace)
-    created_at = datetime(2026, 9, 1, 12, tzinfo=timezone.utc)
+    created_at = datetime(2026, 9, 1, 12, tzinfo=UTC)
     run_root = workspace / "runs" / relocated_plan.run_id
     resolved_plan_reference = ArtifactReference(
         path=(run_root / "resolved-plan.json").as_posix(),

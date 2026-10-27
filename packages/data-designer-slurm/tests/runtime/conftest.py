@@ -7,7 +7,7 @@ import json
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal, cast
 
@@ -190,7 +190,7 @@ def runtime_case(tmp_path: Path, single_node_plan: ResolvedSlurmRunPlan) -> Runt
     workspace = tmp_path / "workspace"
     workspace.mkdir(mode=0o700)
     plan = relocate_plan(single_node_plan, workspace)
-    created_at = datetime(2026, 9, 1, 12, tzinfo=timezone.utc)
+    created_at = datetime(2026, 9, 1, 12, tzinfo=UTC)
     plan_reference = ArtifactReference(
         path=Path(plan.authored_config.path).with_name("resolved-plan.json").as_posix(),
         sha256=plan.compute_sha256(),

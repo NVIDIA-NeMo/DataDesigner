@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
 
@@ -305,7 +305,7 @@ def shard_winner(finalization_chain_payload: dict[str, object]) -> ShardWinner:
 @pytest.fixture
 def fake_clock() -> FakeClock:
     """Return an isolated explicitly controlled clock."""
-    return FakeClock(datetime(2026, 8, 18, 12, tzinfo=timezone.utc), monotonic_time=100.0)
+    return FakeClock(datetime(2026, 8, 18, 12, tzinfo=UTC), monotonic_time=100.0)
 
 
 @pytest.fixture

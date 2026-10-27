@@ -9,7 +9,7 @@ import argparse
 import os
 import sys
 from collections.abc import Mapping, Sequence
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from data_designer.slurm.client.filesystem import ensure_private_directory, replace_private_text
@@ -205,7 +205,7 @@ def _client(
                 SlurmRuntimeErrorCode.FINALIZATION_FAILED,
                 "client result predates the current generation step",
             )
-        if completed_at > datetime.now(timezone.utc):
+        if completed_at > datetime.now(UTC):
             raise SlurmRuntimeError(
                 SlurmRuntimeErrorCode.FINALIZATION_FAILED,
                 "client completion timestamp is later than the allocation clock",
@@ -227,7 +227,7 @@ def _succeed(arguments: argparse.Namespace, environment: Mapping[str, str]) -> N
         attempt.shard_id,
         attempt.attempt_id,
         completed_at=completed_at,
-        published_at=max(datetime.now(timezone.utc), completed_at),
+        published_at=max(datetime.now(UTC), completed_at),
     )
 
 
@@ -315,7 +315,7 @@ def _readiness(
 def _write_failed_and_stopped_readiness(context: AllocationContext, writer: SlurmStateWriter) -> datetime:
     previous = _load_optional_readiness(context, writer)
     if previous is None:
-        return max(datetime.now(timezone.utc), context.attempt.updated_at)
+        return max(datetime.now(UTC), context.attempt.updated_at)
     failed_at = _now(context.attempt, previous)
     failed = writer.write_readiness(
         AttemptReadiness(
@@ -417,7 +417,7 @@ def _probe(observed_at: datetime, outcome: ProbeOutcome, reason_code: str, messa
 
 
 def _now(attempt: AttemptManifest, readiness: AttemptReadiness | None) -> datetime:
-    value = datetime.now(timezone.utc)
+    value = datetime.now(UTC)
     minimum = attempt.updated_at
     if readiness is not None and readiness.updated_at > minimum:
         minimum = readiness.updated_at

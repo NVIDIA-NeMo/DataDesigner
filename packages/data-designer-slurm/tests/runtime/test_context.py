@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
 from unittest.mock import Mock
@@ -55,7 +55,7 @@ def test_runtime_retry_binding_rejects_tampered_arguments(
         schema_version=1,
         retry_id="retry-0001",
         run_id=single_node_plan.run_id,
-        created_at=datetime(2026, 9, 2, tzinfo=timezone.utc),
+        created_at=datetime(2026, 9, 2, tzinfo=UTC),
         resolved_plan=ArtifactReference(
             path="/workspace/primary/runs/run-single/resolved-plan.json",
             sha256=single_node_plan.compute_sha256(),
@@ -114,7 +114,7 @@ def test_allocation_context_rejects_container_remapped_workspace(
     profile = SlurmProfile.model_validate(profile_payload)
     selected["profile_sha256"] = compute_canonical_json_sha256(profile.model_dump(mode="json"))
     plan = ResolvedSlurmRunPlan.model_validate_json(json.dumps(payload))
-    created_at = datetime(2026, 9, 9, tzinfo=timezone.utc)
+    created_at = datetime(2026, 9, 9, tzinfo=UTC)
     plan_reference = ArtifactReference(
         path=f"{logical_workspace}/runs/{plan.run_id}/resolved-plan.json",
         sha256=plan.compute_sha256(),

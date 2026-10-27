@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import subprocess
 from collections.abc import Mapping, Sequence
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from slurm_test_fakes import FakeCommandResponse, FakeSlurmJob, FakeSlurmRunner
@@ -145,7 +145,7 @@ def test_client_finds_one_exact_named_array_across_queue_and_accounting() -> Non
     job_name = f"dd-retry-{'a' * 32}"
     runner.script_next("squeue", FakeCommandResponse(stdout=f"4201_0|{job_name}\n"))
     runner.script_next("sacct", FakeCommandResponse(stdout=f"4201_0|{job_name}\n4201_1|{job_name}\n"))
-    submitted_after = datetime(2026, 9, 2, 18, tzinfo=timezone.utc)
+    submitted_after = datetime(2026, 9, 2, 18, tzinfo=UTC)
 
     matches = SlurmCommandClient(runner).query_submissions_by_name(job_name, submitted_after=submitted_after)
 
@@ -181,7 +181,7 @@ def test_client_rejects_a_named_lookup_result_with_a_different_name() -> None:
     with pytest.raises(SlurmCommandOutputError, match="outside the requested exact name"):
         SlurmCommandClient(runner).query_submissions_by_name(
             f"dd-retry-{'a' * 32}",
-            submitted_after=datetime(2026, 9, 2, 18, tzinfo=timezone.utc),
+            submitted_after=datetime(2026, 9, 2, 18, tzinfo=UTC),
         )
 
 

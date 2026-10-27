@@ -11,7 +11,7 @@ import shlex
 from collections.abc import Callable, Collection, Iterator, Mapping
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal, Protocol, TypeVar
 from uuid import uuid4
@@ -1087,7 +1087,7 @@ def _safe_submission_error(error: SlurmSubmissionError) -> str:
 
 
 def _utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _format_job_ids(job_ids: list[int]) -> str:

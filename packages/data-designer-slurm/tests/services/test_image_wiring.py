@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -194,7 +194,7 @@ def test_default_image_add_waits_for_completed_job_accounting_evidence(tmp_path:
     content = b"client image"
     source.write_bytes(content)
     launcher = _DelayedAccountingLauncher(on_submit=lambda: _write_inspection(workspace, content))
-    clock = FakeClock(datetime(2026, 9, 10, tzinfo=timezone.utc))
+    clock = FakeClock(datetime(2026, 9, 10, tzinfo=UTC))
 
     registered = _service(workspace, launcher, clock=clock).add(
         ImageBuildRequest(name="client", kind="client", source=source.as_posix())
@@ -213,7 +213,7 @@ def test_image_add_waits_for_accounting_without_repeating_status(tmp_path: Path)
     content = b"client image"
     source.write_bytes(content)
     launcher = _DelayedAccountingLauncher(on_submit=lambda: _write_inspection(workspace, content))
-    clock = FakeClock(datetime(2026, 9, 10, tzinfo=timezone.utc))
+    clock = FakeClock(datetime(2026, 9, 10, tzinfo=UTC))
     progress: list[str] = []
     service = create_slurm_image_service(
         profile=_profile(workspace),
@@ -243,7 +243,7 @@ def test_image_add_reports_pending_running_and_completed(tmp_path: Path) -> None
     content = b"client image"
     source.write_bytes(content)
     launcher = _TransitionLauncher(on_submit=lambda: _write_inspection(workspace, content), running_checks=2)
-    clock = FakeClock(datetime(2026, 9, 10, tzinfo=timezone.utc))
+    clock = FakeClock(datetime(2026, 9, 10, tzinfo=UTC))
     progress: list[str] = []
     service = create_slurm_image_service(
         profile=_profile(workspace),
@@ -279,7 +279,7 @@ def test_image_add_reports_job_phases_and_quiet_heartbeat(tmp_path: Path) -> Non
             return entries
 
     launcher = PhasedLauncher(on_submit=lambda: _write_inspection(workspace, content), running_checks=6)
-    clock = FakeClock(datetime(2026, 9, 10, tzinfo=timezone.utc))
+    clock = FakeClock(datetime(2026, 9, 10, tzinfo=UTC))
     progress: list[str] = []
     service = create_slurm_image_service(
         profile=_profile(workspace),
@@ -379,7 +379,7 @@ def test_image_add_follows_only_new_bytes_across_status_checks(tmp_path: Path) -
         profile=_profile(workspace),
         launcher=AppendingLauncher(on_submit=on_submit),  # type: ignore[arg-type]
         lifecycle_id_factory=lambda: _LIFECYCLE_ID,
-        clock=FakeClock(datetime(2026, 9, 10, tzinfo=timezone.utc)).now,
+        clock=FakeClock(datetime(2026, 9, 10, tzinfo=UTC)).now,
         sleep=lambda _: None,
         logs=logs.append,
     )
@@ -617,7 +617,7 @@ def test_default_image_add_waits_for_cancelled_job_before_cleanup(tmp_path: Path
     source = tmp_path / "client.sqsh"
     source.write_bytes(b"client")
     launcher = _DelayedCancellationLauncher()
-    clock = FakeClock(datetime(2026, 9, 10, tzinfo=timezone.utc))
+    clock = FakeClock(datetime(2026, 9, 10, tzinfo=UTC))
 
     with pytest.raises(SlurmServiceError) as caught:
         _service(workspace, launcher, clock=clock).add(
@@ -635,7 +635,7 @@ def test_default_image_add_retains_state_without_terminal_cancellation_evidence(
     source = tmp_path / "client.sqsh"
     source.write_bytes(b"client")
     launcher = _Launcher(accounting_state=None)
-    clock = FakeClock(datetime(2026, 9, 10, tzinfo=timezone.utc))
+    clock = FakeClock(datetime(2026, 9, 10, tzinfo=UTC))
 
     with pytest.raises(SlurmServiceError):
         _service(workspace, launcher, clock=clock).add(
@@ -652,7 +652,7 @@ def test_default_image_add_retains_completed_job_without_accounting_exit_evidenc
     source = tmp_path / "client.sqsh"
     source.write_bytes(b"client")
     launcher = _Launcher(queue_state=SchedulerState.COMPLETED, accounting_state=None)
-    clock = FakeClock(datetime(2026, 9, 10, tzinfo=timezone.utc))
+    clock = FakeClock(datetime(2026, 9, 10, tzinfo=UTC))
 
     with pytest.raises(SlurmServiceError) as caught:
         _service(workspace, launcher, clock=clock).add(
@@ -674,7 +674,7 @@ def test_image_add_displays_partial_log_when_cancellation_is_unconfirmed(tmp_pat
         (_job_directory(workspace) / f"slurm-{_JOB_ID}.err").write_bytes(b"partial diagnostic")
 
     logs: list[str] = []
-    clock = FakeClock(datetime(2026, 9, 10, tzinfo=timezone.utc))
+    clock = FakeClock(datetime(2026, 9, 10, tzinfo=UTC))
     service = create_slurm_image_service(
         profile=_profile(workspace),
         launcher=_Launcher(accounting_state=None, on_submit=on_submit),  # type: ignore[arg-type]

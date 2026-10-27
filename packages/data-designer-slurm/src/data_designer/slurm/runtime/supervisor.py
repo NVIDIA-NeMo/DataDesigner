@@ -10,7 +10,7 @@ import signal
 import subprocess
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Protocol
 
 from data_designer.slurm.runtime.errors import SlurmRuntimeError, SlurmRuntimeErrorCode
@@ -44,7 +44,7 @@ class SystemRuntimeClock:
 
     def now(self) -> datetime:
         """Return current UTC wall-clock time."""
-        return datetime.now(timezone.utc)
+        return datetime.now(UTC)
 
     def sleep(self, seconds: float) -> None:
         """Sleep for the requested duration."""

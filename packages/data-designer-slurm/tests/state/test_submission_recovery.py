@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -25,12 +25,12 @@ class _SubmissionLookup:
         submitted_after: datetime,
     ) -> tuple[SlurmSubmissionMatch, ...]:
         assert job_name == "dd-retry-0123456789abcdef0123456789abcdef"
-        assert submitted_after == datetime(2026, 9, 2, 12, tzinfo=timezone.utc)
+        assert submitted_after == datetime(2026, 9, 2, 12, tzinfo=UTC)
         return self.matches
 
 
 def test_prepared_submission_recovery_rejects_multiple_exact_matches() -> None:
-    submitted_at = datetime(2026, 9, 2, 12, tzinfo=timezone.utc)
+    submitted_at = datetime(2026, 9, 2, 12, tzinfo=UTC)
 
     with pytest.raises(StateConflictError, match="multiple scheduler jobs"):
         resolve_prepared_submission(
@@ -59,7 +59,7 @@ def test_prepared_submission_recovery_rejects_multiple_exact_matches() -> None:
 
 
 def test_prepared_submission_recovery_returns_definitive_absence_only_after_deadline() -> None:
-    submitted_at = datetime(2026, 9, 2, 12, tzinfo=timezone.utc)
+    submitted_at = datetime(2026, 9, 2, 12, tzinfo=UTC)
     deadline = submitted_at + timedelta(minutes=5)
     lookup = _SubmissionLookup(())
 
@@ -93,7 +93,7 @@ def test_prepared_submission_recovery_returns_definitive_absence_only_after_dead
 def test_prepared_submission_recovery_rejects_the_wrong_scheduler_shape(
     actual_shape: tuple[int, ...] | None,
 ) -> None:
-    submitted_at = datetime(2026, 9, 2, 12, tzinfo=timezone.utc)
+    submitted_at = datetime(2026, 9, 2, 12, tzinfo=UTC)
     match = SlurmSubmissionMatch(
         job_id=4201,
         job_name="dd-retry-0123456789abcdef0123456789abcdef",
@@ -114,7 +114,7 @@ def test_prepared_submission_recovery_rejects_the_wrong_scheduler_shape(
 
 
 def test_prepared_submission_recovery_bounds_a_partial_array_view() -> None:
-    submitted_at = datetime(2026, 9, 2, 12, tzinfo=timezone.utc)
+    submitted_at = datetime(2026, 9, 2, 12, tzinfo=UTC)
     deadline = submitted_at + timedelta(minutes=5)
     lookup = _SubmissionLookup(
         (

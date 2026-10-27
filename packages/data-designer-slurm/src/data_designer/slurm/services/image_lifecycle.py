@@ -9,7 +9,7 @@ import codecs
 import re
 import time
 from collections.abc import Callable, Sequence
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 from data_designer.slurm.config import ImageBuildRequest, SelectedSlurmProfile
@@ -408,7 +408,7 @@ def _new_lifecycle_id() -> Identifier:
 
 
 def _utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _format_elapsed(duration: timedelta) -> str:

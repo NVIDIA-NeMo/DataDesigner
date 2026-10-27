@@ -18,9 +18,10 @@ import stat
 import sys
 import tarfile
 import zipfile
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import BinaryIO, Iterable
+from typing import BinaryIO
 
 MAXIMUM_MEMBER_SIZE = 16 * 1024 * 1024
 MAXIMUM_ARCHIVE_CONTENT_SIZE = 128 * 1024 * 1024

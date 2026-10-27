@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
 
@@ -280,8 +280,8 @@ def test_client_receives_client_secrets_without_server_only_secrets(
         ),
         state=AttemptLifecycleState.SUBMITTED,
         scheduler=SchedulerIdentity(array_job_id=4101, array_task_id=0),
-        created_at=datetime(2026, 9, 1, tzinfo=timezone.utc),
-        updated_at=datetime(2026, 9, 1, tzinfo=timezone.utc),
+        created_at=datetime(2026, 9, 1, tzinfo=UTC),
+        updated_at=datetime(2026, 9, 1, tzinfo=UTC),
     )
     endpoints = tuple(
         RuntimeEndpoint(

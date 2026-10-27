@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import sys
 from collections.abc import Mapping
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from importlib.metadata import version
 from pathlib import Path
 from typing import Protocol
@@ -99,7 +99,7 @@ class SlurmCollectionCoordinator:
         submitted_at: datetime | None = None,
     ) -> CollectionStatus:
         """Validate winners and submit a CPU-only collection job."""
-        timestamp = datetime.now(timezone.utc) if submitted_at is None else submitted_at
+        timestamp = datetime.now(UTC) if submitted_at is None else submitted_at
         try:
             with self._collections.acquire_lock():
                 self._collections.discard_incomplete_tail()
@@ -178,7 +178,7 @@ class SlurmCollectionCoordinator:
         observed_at: datetime | None = None,
     ) -> CollectionStatus:
         """Reconcile one persisted collection from scheduler and publication evidence."""
-        timestamp = datetime.now(timezone.utc) if observed_at is None else observed_at
+        timestamp = datetime.now(UTC) if observed_at is None else observed_at
         try:
             with self._collections.acquire_lock():
                 selected_id = self._get_selected_collection_id(collection_id)

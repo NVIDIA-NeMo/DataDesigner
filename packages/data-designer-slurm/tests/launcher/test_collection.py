@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 import shlex
 import subprocess
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -54,7 +54,7 @@ def test_collection_renderer_uses_plan_bound_native_python_and_no_gpu_directives
         schema_version=1,
         collection_id="collection-0001",
         run_id=plan.run_id,
-        created_at=datetime(2026, 9, 2, tzinfo=timezone.utc),
+        created_at=datetime(2026, 9, 2, tzinfo=UTC),
         resolved_plan=ArtifactReference(
             path="/workspace/primary/runs/run-001/resolved-plan.json",
             sha256=plan.compute_sha256(),
@@ -119,7 +119,7 @@ def test_retry_renderer_waits_for_persisted_attempt_before_starting_runtime(
         schema_version=1,
         retry_id="retry-0001",
         run_id=multi_node_plan.run_id,
-        created_at=datetime(2026, 9, 2, tzinfo=timezone.utc),
+        created_at=datetime(2026, 9, 2, tzinfo=UTC),
         resolved_plan=ArtifactReference(
             path="/workspace/primary/runs/run-001/resolved-plan.json",
             sha256=multi_node_plan.compute_sha256(),
@@ -198,7 +198,7 @@ def test_retry_renderer_uses_profile_slurm_bin_path(
         schema_version=1,
         retry_id="retry-0001",
         run_id=plan.run_id,
-        created_at=datetime(2026, 9, 2, tzinfo=timezone.utc),
+        created_at=datetime(2026, 9, 2, tzinfo=UTC),
         resolved_plan=ArtifactReference(
             path="/workspace/primary/runs/run-001/resolved-plan.json",
             sha256=plan.compute_sha256(),
@@ -233,7 +233,7 @@ def test_destination_reauthorizes_explicit_path_through_workspace_mapping(
         schema_version=1,
         collection_id="collection-0001",
         run_id=plan.run_id,
-        created_at=datetime(2026, 9, 2, tzinfo=timezone.utc),
+        created_at=datetime(2026, 9, 2, tzinfo=UTC),
         resolved_plan=ArtifactReference(
             path="/workspace/primary/runs/run-001/resolved-plan.json",
             sha256=plan.compute_sha256(),

@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 import posixpath
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TypeVar
 
@@ -41,7 +41,7 @@ from data_designer.slurm.state import (
 TEST_ROOT = Path(__file__).parents[1]
 CONTRACT_GOLDEN_DIR = TEST_ROOT / "contracts" / "golden"
 INTEGRATION_GOLDEN_DIR = Path(__file__).parent / "golden"
-CREATED_AT = datetime(2026, 8, 19, 12, 0, tzinfo=timezone.utc)
+CREATED_AT = datetime(2026, 8, 19, 12, 0, tzinfo=UTC)
 _RecordT = TypeVar("_RecordT", bound=ContractValue)
 
 

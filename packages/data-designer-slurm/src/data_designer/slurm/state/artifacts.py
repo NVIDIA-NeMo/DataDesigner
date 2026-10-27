@@ -8,11 +8,11 @@ from __future__ import annotations
 import hashlib
 import os
 import stat
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import BinaryIO, Callable, Protocol
+from typing import BinaryIO, Protocol
 
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.slurm.state.filesystem import (

@@ -5,9 +5,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime, timedelta
-from typing import Callable, Protocol, TypeVar
+from typing import Protocol, TypeVar
 
 from data_designer.slurm.state.base import SchedulerJobIdentity, validate_utc_timestamp
 from data_designer.slurm.state.errors import SlurmStateError

@@ -9,7 +9,7 @@ import os
 import signal
 import sys
 from collections.abc import Sequence
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from data_designer.config import ResumeMode
@@ -119,7 +119,7 @@ def _write_plugin_failure(
 ) -> None:
     manifest = ClientEnvironmentManifest.from_prepared(
         prepared,
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
         outcome=ClientEnvironmentOutcome.FAILED,
         plugins=plugins,
         error_code=error.code,

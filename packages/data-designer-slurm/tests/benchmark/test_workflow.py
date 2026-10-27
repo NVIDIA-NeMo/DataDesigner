@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from threading import Event, Lock
 
@@ -42,7 +42,7 @@ from data_designer.slurm.services import (
     SlurmServiceOperation,
 )
 
-NOW = datetime(2026, 8, 19, 12, tzinfo=timezone.utc)
+NOW = datetime(2026, 8, 19, 12, tzinfo=UTC)
 
 
 @pytest.mark.parametrize(

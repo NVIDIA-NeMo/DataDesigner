@@ -7,7 +7,7 @@ import json
 import stat
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import cast
 
@@ -90,7 +90,7 @@ def test_collector_prefers_terminal_accounting_for_array_and_collection_jobs() -
         _accounting(task, SchedulerState.NODE_FAILED),
         _accounting(5101, SchedulerState.COMPLETED),
     )
-    observed_at = datetime(2026, 9, 2, 12, tzinfo=timezone.utc)
+    observed_at = datetime(2026, 9, 2, 12, tzinfo=UTC)
 
     observations = SchedulerObservationCollector(_StaticSchedulerClient(queue, accounting)).collect(
         (task, 5101),
@@ -109,7 +109,7 @@ def test_collector_allows_transient_scheduler_states_to_advance(
     transient_state: SchedulerState,
 ) -> None:
     task = SchedulerIdentity(array_job_id=4101, array_task_id=0)
-    first_time = datetime(2026, 9, 2, 12, tzinfo=timezone.utc)
+    first_time = datetime(2026, 9, 2, 12, tzinfo=UTC)
     previous = SchedulerObservationCollector(
         _StaticSchedulerClient(
             (SlurmQueueEntry(job_identity=task, state=transient_state),),
@@ -131,7 +131,7 @@ def test_collector_allows_transient_scheduler_states_to_advance(
 
 def test_collector_keeps_active_queue_preemption_nonterminal() -> None:
     task = SchedulerIdentity(array_job_id=4101, array_task_id=0)
-    first_time = datetime(2026, 9, 2, 12, tzinfo=timezone.utc)
+    first_time = datetime(2026, 9, 2, 12, tzinfo=UTC)
     client = _StaticSchedulerClient(
         (SlurmQueueEntry(job_identity=task, state=SchedulerState.PREEMPTED),),
         (),
@@ -162,7 +162,7 @@ def test_collector_reads_accounting_when_queue_no_longer_knows_job() -> None:
 
     observation = SchedulerObservationCollector(SlurmCommandClient(runner)).collect(
         (task,),
-        observed_at=datetime(2026, 9, 2, 12, tzinfo=timezone.utc),
+        observed_at=datetime(2026, 9, 2, 12, tzinfo=UTC),
     )[0]
 
     assert observation.state is SchedulerState.COMPLETED
@@ -901,7 +901,7 @@ def test_observe_does_not_create_a_missing_shard_lock_or_persist_scheduler_evide
 
 def test_terminal_observation_remains_authoritative_during_later_accounting_gap() -> None:
     task = SchedulerIdentity(array_job_id=4101, array_task_id=0)
-    first_time = datetime(2026, 9, 2, 12, tzinfo=timezone.utc)
+    first_time = datetime(2026, 9, 2, 12, tzinfo=UTC)
     first = SchedulerObservationCollector(
         _StaticSchedulerClient((), (_accounting(task, SchedulerState.COMPLETED),))
     ).collect((task,), observed_at=first_time)[0]
@@ -914,7 +914,7 @@ def test_terminal_observation_remains_authoritative_during_later_accounting_gap(
 
 def test_collector_rejects_conflicting_terminal_accounting_evidence() -> None:
     task = SchedulerIdentity(array_job_id=4101, array_task_id=0)
-    first_time = datetime(2026, 9, 2, 12, tzinfo=timezone.utc)
+    first_time = datetime(2026, 9, 2, 12, tzinfo=UTC)
     previous = SchedulerObservationCollector(
         _StaticSchedulerClient((), (_accounting(task, SchedulerState.COMPLETED),))
     ).collect((task,), observed_at=first_time)[0]
@@ -1038,7 +1038,7 @@ def _initialized_cases(
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     relocated_plan = _relocate_plan(plan, workspace)
-    created_at = datetime(2026, 9, 1, 12, tzinfo=timezone.utc)
+    created_at = datetime(2026, 9, 1, 12, tzinfo=UTC)
     run_root = workspace / "runs" / relocated_plan.run_id
     run = RunManifest(
         schema_version=1,

@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TypeVar
 
@@ -177,7 +177,7 @@ def test_attempt_transitions_preserve_identity_and_terminal_state() -> None:
         state=AttemptLifecycleState.RUNNING,
         terminal_classification=None,
         candidate_output=None,
-        updated_at=datetime(2026, 8, 18, 12, 4, tzinfo=timezone.utc),
+        updated_at=datetime(2026, 8, 18, 12, 4, tzinfo=UTC),
     )
 
     assert validate_attempt_transition(running, succeeded) is succeeded
@@ -196,7 +196,7 @@ def test_attempt_transitions_preserve_identity_and_terminal_state() -> None:
     with pytest.raises(StateContractError, match="terminal attempt manifests are immutable"):
         validate_attempt_transition(
             succeeded,
-            _validated_copy(succeeded, updated_at=datetime(2026, 8, 18, 12, 6, tzinfo=timezone.utc)),
+            _validated_copy(succeeded, updated_at=datetime(2026, 8, 18, 12, 6, tzinfo=UTC)),
         )
 
 
@@ -255,7 +255,7 @@ def test_readiness_revisions_are_monotonic_and_preserve_authored_order() -> None
     previous = _validated_copy(
         current,
         revision=2,
-        updated_at=datetime(2026, 8, 18, 12, 1, tzinfo=timezone.utc),
+        updated_at=datetime(2026, 8, 18, 12, 1, tzinfo=UTC),
         state=ReadinessState.STARTING,
         deployments=(starting_deployment,),
     )
@@ -354,13 +354,13 @@ def test_readiness_probe_evidence_cannot_regress_or_disappear() -> None:
 
     regressed_probe = _validated_copy(
         previous_probe,
-        observed_at=datetime(2026, 8, 18, 12, 1, tzinfo=timezone.utc),
+        observed_at=datetime(2026, 8, 18, 12, 1, tzinfo=UTC),
     )
     regressed_deployment = _validated_copy(previous.deployments[0], last_probe=regressed_probe)
     regressed = _validated_copy(
         previous,
         revision=previous.revision + 1,
-        updated_at=datetime(2026, 8, 18, 12, 3, tzinfo=timezone.utc),
+        updated_at=datetime(2026, 8, 18, 12, 3, tzinfo=UTC),
         deployments=(regressed_deployment,),
     )
     with pytest.raises(StateContractError, match="probe observation cannot move backward"):
@@ -370,7 +370,7 @@ def test_readiness_probe_evidence_cannot_regress_or_disappear() -> None:
     removed = _validated_copy(
         previous,
         revision=previous.revision + 1,
-        updated_at=datetime(2026, 8, 18, 12, 3, tzinfo=timezone.utc),
+        updated_at=datetime(2026, 8, 18, 12, 3, tzinfo=UTC),
         deployments=(removed_deployment,),
     )
     with pytest.raises(StateContractError, match="probe evidence cannot be removed"):
@@ -425,7 +425,7 @@ def test_terminal_attempt_evidence_overrides_stale_readiness() -> None:
     scheduler = SchedulerObservation(
         schema_version=1,
         scheduler=attempt.scheduler,
-        observed_at=datetime(2026, 8, 18, 13, 5, tzinfo=timezone.utc),
+        observed_at=datetime(2026, 8, 18, 13, 5, tzinfo=UTC),
         state=SchedulerState.RUNNING,
     )
 
@@ -434,7 +434,7 @@ def test_terminal_attempt_evidence_overrides_stale_readiness() -> None:
             attempt,
             readiness,
             scheduler,
-            current_time=datetime(2026, 8, 18, 13, 5, tzinfo=timezone.utc),
+            current_time=datetime(2026, 8, 18, 13, 5, tzinfo=UTC),
         )
         is EffectiveAttemptState.FAILED
     )
@@ -447,7 +447,7 @@ def test_terminal_scheduler_failure_overrides_successful_attempt() -> None:
     scheduler = SchedulerObservation(
         schema_version=1,
         scheduler=attempt.scheduler,
-        observed_at=datetime(2026, 8, 18, 12, 6, tzinfo=timezone.utc),
+        observed_at=datetime(2026, 8, 18, 12, 6, tzinfo=UTC),
         state=SchedulerState.NODE_FAILED,
     )
 
@@ -456,7 +456,7 @@ def test_terminal_scheduler_failure_overrides_successful_attempt() -> None:
             attempt,
             readiness,
             scheduler,
-            current_time=datetime(2026, 8, 18, 12, 6, tzinfo=timezone.utc),
+            current_time=datetime(2026, 8, 18, 12, 6, tzinfo=UTC),
         )
         is EffectiveAttemptState.FAILED
     )
@@ -486,7 +486,7 @@ def test_failed_readiness_overrides_nonterminal_scheduler_state(scheduler_state:
     scheduler = SchedulerObservation(
         schema_version=1,
         scheduler=attempt.scheduler,
-        observed_at=datetime(2026, 8, 18, 12, 6, tzinfo=timezone.utc),
+        observed_at=datetime(2026, 8, 18, 12, 6, tzinfo=UTC),
         state=scheduler_state,
     )
 
@@ -495,7 +495,7 @@ def test_failed_readiness_overrides_nonterminal_scheduler_state(scheduler_state:
             attempt,
             failed_readiness,
             scheduler,
-            current_time=datetime(2026, 8, 18, 12, 6, tzinfo=timezone.utc),
+            current_time=datetime(2026, 8, 18, 12, 6, tzinfo=UTC),
         )
         is EffectiveAttemptState.FAILED
     )
@@ -509,7 +509,7 @@ def test_reconciliation_rejects_stale_or_future_evidence() -> None:
     stale_scheduler = SchedulerObservation(
         schema_version=1,
         scheduler=attempt.scheduler,
-        observed_at=datetime(2026, 8, 18, 12, 0, 1, tzinfo=timezone.utc),
+        observed_at=datetime(2026, 8, 18, 12, 0, 1, tzinfo=UTC),
         state=SchedulerState.NODE_FAILED,
     )
     with pytest.raises(StateContractError, match="cannot precede attempt creation"):
@@ -517,25 +517,25 @@ def test_reconciliation_rejects_stale_or_future_evidence() -> None:
             attempt,
             readiness,
             stale_scheduler,
-            current_time=datetime(2026, 8, 18, 12, 6, tzinfo=timezone.utc),
+            current_time=datetime(2026, 8, 18, 12, 6, tzinfo=UTC),
         )
 
     current_scheduler = SchedulerObservation(
         schema_version=1,
         scheduler=attempt.scheduler,
-        observed_at=datetime(2026, 8, 18, 12, 6, tzinfo=timezone.utc),
+        observed_at=datetime(2026, 8, 18, 12, 6, tzinfo=UTC),
         state=SchedulerState.UNKNOWN,
     )
     future_readiness = _validated_copy(
         readiness,
-        updated_at=datetime(2026, 8, 18, 12, 7, tzinfo=timezone.utc),
+        updated_at=datetime(2026, 8, 18, 12, 7, tzinfo=UTC),
     )
     with pytest.raises(StateContractError, match="cannot precede readiness update"):
         reconcile_attempt_observation(
             attempt,
             future_readiness,
             current_scheduler,
-            current_time=datetime(2026, 8, 18, 12, 6, tzinfo=timezone.utc),
+            current_time=datetime(2026, 8, 18, 12, 6, tzinfo=UTC),
         )
 
 
@@ -563,7 +563,7 @@ def test_reconciliation_covers_nonterminal_and_fallback_states() -> None:
     )
     stopped = _validated_copy(ready, state=ReadinessState.STOPPED, deployments=(stopped_deployment,))
     assert attempt.scheduler is not None
-    observed_at = datetime(2026, 8, 18, 12, 6, tzinfo=timezone.utc)
+    observed_at = datetime(2026, 8, 18, 12, 6, tzinfo=UTC)
     current_time = observed_at
 
     cases = (
@@ -609,7 +609,7 @@ def test_accounting_lag_is_nonterminal_until_its_deadline() -> None:
             attempt,
             readiness,
             scheduler,
-            current_time=datetime(2026, 8, 18, 12, 7, tzinfo=timezone.utc),
+            current_time=datetime(2026, 8, 18, 12, 7, tzinfo=UTC),
         )
         is EffectiveAttemptState.ACCOUNTING_LAG
     )
@@ -618,7 +618,7 @@ def test_accounting_lag_is_nonterminal_until_its_deadline() -> None:
             attempt,
             readiness,
             scheduler,
-            current_time=datetime(2026, 8, 18, 12, 11, tzinfo=timezone.utc),
+            current_time=datetime(2026, 8, 18, 12, 11, tzinfo=UTC),
         )
         is EffectiveAttemptState.UNKNOWN
     )
@@ -628,16 +628,16 @@ def test_accounting_lag_deadline_is_fixed_across_observations() -> None:
     previous = _load(SchedulerObservation, "accounting_lag.json")
     continued = _validated_copy(
         previous,
-        observed_at=datetime(2026, 8, 18, 12, 6, tzinfo=timezone.utc),
+        observed_at=datetime(2026, 8, 18, 12, 6, tzinfo=UTC),
     )
     refreshed = _validated_copy(
         continued,
-        reconciliation_deadline=datetime(2026, 8, 18, 12, 11, tzinfo=timezone.utc),
+        reconciliation_deadline=datetime(2026, 8, 18, 12, 11, tzinfo=UTC),
     )
     expired = SchedulerObservation(
         schema_version=1,
         scheduler=previous.scheduler,
-        observed_at=datetime(2026, 8, 18, 12, 10, 3, tzinfo=timezone.utc),
+        observed_at=datetime(2026, 8, 18, 12, 10, 3, tzinfo=UTC),
         state=SchedulerState.UNKNOWN,
     )
 
@@ -646,7 +646,7 @@ def test_accounting_lag_deadline_is_fixed_across_observations() -> None:
     with pytest.raises(StateContractError, match="deadline cannot change"):
         validate_scheduler_observation_transition(previous, refreshed)
 
-    early_unknown = _validated_copy(expired, observed_at=datetime(2026, 8, 18, 12, 9, tzinfo=timezone.utc))
+    early_unknown = _validated_copy(expired, observed_at=datetime(2026, 8, 18, 12, 9, tzinfo=UTC))
     with pytest.raises(StateContractError, match="before its reconciliation deadline expires"):
         validate_scheduler_observation_transition(previous, early_unknown)
 
@@ -663,7 +663,7 @@ def test_unknown_scheduler_state_overrides_stale_ready_readiness() -> None:
     scheduler = SchedulerObservation(
         schema_version=1,
         scheduler=attempt.scheduler,
-        observed_at=datetime(2026, 8, 18, 12, 11, tzinfo=timezone.utc),
+        observed_at=datetime(2026, 8, 18, 12, 11, tzinfo=UTC),
         state=SchedulerState.UNKNOWN,
     )
 
@@ -672,7 +672,7 @@ def test_unknown_scheduler_state_overrides_stale_ready_readiness() -> None:
             attempt,
             readiness,
             scheduler,
-            current_time=datetime(2026, 8, 18, 12, 11, tzinfo=timezone.utc),
+            current_time=datetime(2026, 8, 18, 12, 11, tzinfo=UTC),
         )
         is EffectiveAttemptState.UNKNOWN
     )

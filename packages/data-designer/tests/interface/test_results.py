@@ -440,8 +440,8 @@ def test_count_records_normalizes_unreadable_artifact_error(
 @pytest.mark.parametrize(
     ("format", "reader"),
     [
-        ("jsonl", "data_designer.interface.results.lazy.pd.read_parquet"),
-        ("csv", "data_designer.interface.results.lazy.pd.read_parquet"),
+        ("jsonl", "data_designer.interface.results.lazy.pq.ParquetFile"),
+        ("csv", "data_designer.interface.results.read_parquet_dataset"),
         ("parquet", "data_designer.interface.results.lazy.pq.read_schema"),
     ],
 )

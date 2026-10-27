@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
 
@@ -15,7 +15,7 @@ def test_fake_clock_advances_without_blocking(fake_clock: FakeClock) -> None:
     fake_clock.sleep(2.5)
     fake_clock.advance(1.5)
 
-    assert fake_clock.now() == datetime(2026, 8, 18, 12, 0, 4, tzinfo=timezone.utc)
+    assert fake_clock.now() == datetime(2026, 8, 18, 12, 0, 4, tzinfo=UTC)
     assert fake_clock.monotonic() == 104.0
     assert fake_clock.sleep_calls == [2.5]
 
@@ -29,7 +29,7 @@ def test_fake_clock_advances_without_blocking(fake_clock: FakeClock) -> None:
             id="non-utc-offset",
         ),
         pytest.param(
-            lambda: FakeClock(datetime(2026, 8, 18, 12, tzinfo=timezone.utc), monotonic_time=-1),
+            lambda: FakeClock(datetime(2026, 8, 18, 12, tzinfo=UTC), monotonic_time=-1),
             id="negative-monotonic",
         ),
     ),

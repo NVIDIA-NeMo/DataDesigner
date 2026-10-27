@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from contextlib import nullcontext
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from pydantic import TypeAdapter, ValidationError
@@ -101,7 +101,7 @@ class SlurmStateReconciler:
         return self._observe(observed_at=observed_at, persist=False)
 
     def _observe(self, *, observed_at: datetime | None, persist: bool) -> RunStatus:
-        timestamp = datetime.now(timezone.utc) if observed_at is None else observed_at
+        timestamp = datetime.now(UTC) if observed_at is None else observed_at
         _validate_observed_at(timestamp)
         run, plan, shards = self._reader.load_context()
         if timestamp < run.created_at:

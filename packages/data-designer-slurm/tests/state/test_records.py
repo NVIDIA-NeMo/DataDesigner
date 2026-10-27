@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -31,7 +31,7 @@ def test_direct_construction_and_json_loading_produce_identical_record() -> None
     record = RunManifest(
         schema_version=1,
         run_id="run-direct",
-        created_at=datetime(2026, 8, 18, 12, tzinfo=timezone.utc),
+        created_at=datetime(2026, 8, 18, 12, tzinfo=UTC),
         authored_config=ArtifactReference(path="/workspace/run/authored.json", sha256="a" * 64),
         resolved_plan=ArtifactReference(path="/workspace/run/plan.json", sha256="b" * 64),
         shard_count=2,

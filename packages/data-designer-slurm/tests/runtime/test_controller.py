@@ -4,10 +4,10 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import timedelta
 from pathlib import Path
-from typing import Callable
 
 import pytest
 from conftest import FakeClientStepBuilder, FakePreflight, FakeStateStore, RuntimeCase, relocate_plan

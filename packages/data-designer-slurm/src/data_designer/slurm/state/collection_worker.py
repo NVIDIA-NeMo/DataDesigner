@@ -8,7 +8,7 @@ from __future__ import annotations
 import argparse
 import os
 from collections.abc import Mapping, Sequence
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from time import sleep
 
@@ -266,7 +266,7 @@ def _validate_location(
 
 
 def _utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def main(argv: Sequence[str] | None = None) -> int:

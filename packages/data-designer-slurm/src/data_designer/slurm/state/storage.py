@@ -8,10 +8,10 @@ from __future__ import annotations
 import json
 import os
 import re
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import ExitStack, contextmanager
 from pathlib import Path
-from typing import Callable, Literal, TypeVar
+from typing import Literal, TypeVar
 
 from pydantic import ValidationError
 

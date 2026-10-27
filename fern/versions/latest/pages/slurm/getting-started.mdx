@@ -6,7 +6,7 @@ Before starting, confirm the [Slurm prerequisites and host responsibilities](/sl
 
 Obtain these site-specific values from your Slurm or platform administrator before continuing:
 
-- A Python 3.10 or later executable
+- A Python 3.11 or later executable
 - An account, GPU partition, CPU image-build partition, and shared workspace path
 - An official vLLM release tag, a digest-qualified custom serving OCI image, or an absolute SQSH path containing a vLLM installation compatible with your model
 - A model available to the serving image and compute nodes
@@ -23,13 +23,13 @@ export DATA_DESIGNER_SLURM_PROFILE_FILE="$DD_SLURM_WORKSPACE/config/slurm-profil
 export DD_PYTHON="${DD_PYTHON:-python3}"
 
 mkdir -p "$DD_SLURM_WORKSPACE/config" "$DD_SLURM_WORKSPACE/envs"
-"$DD_PYTHON" -c 'import sys; print(sys.version); raise SystemExit(sys.version_info < (3, 10))'
+"$DD_PYTHON" -c 'import sys; print(sys.version); raise SystemExit(sys.version_info < (3, 11))'
 "$DD_PYTHON" -m venv "$DD_SLURM_WORKSPACE/envs/control"
 source "$DD_SLURM_WORKSPACE/envs/control/bin/activate"
 python -m pip install --upgrade pip
 ```
 
-If the version check fails, load a site-provided Python module or set `DD_PYTHON` to a supported executable such as `python3.10`, then rerun the block.
+If the version check fails, load a site-provided Python module or set `DD_PYTHON` to a supported executable such as `python3.11`, then rerun the block.
 
 ## 2. Install Data Designer with Slurm support
 

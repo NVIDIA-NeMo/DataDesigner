@@ -9,7 +9,7 @@ import logging
 import os
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol, cast
 from urllib.parse import urlsplit
@@ -199,7 +199,7 @@ class ClientWorker:
         environment: Mapping[str, str] | None = None,
     ) -> None:
         self._data_designer_factory = data_designer_factory
-        self._clock = clock or (lambda: datetime.now(timezone.utc))
+        self._clock = clock or (lambda: datetime.now(UTC))
         self._environment = os.environ if environment is None else environment
 
     def preflight(
