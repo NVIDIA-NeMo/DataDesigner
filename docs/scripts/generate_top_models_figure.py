@@ -9,7 +9,7 @@
 """Regenerate the "Top Model Usage" telemetry figure.
 
 Renders the ranked input-vs-output token breakdown shown in the README's
-"Top models (YTD)" section, styled to match the Data Designer devnote charts
+"Top models" section, styled to match the Data Designer devnote charts
 (near-black canvas, NVIDIA-green duotone). The PNG is written to the Fern image
 path rendered by the README and docs site:
 
@@ -17,7 +17,9 @@ path rendered by the README and docs site:
 
 The source telemetry export lives at docs/scripts/top-model-usage.csv with
 columns: model name, input (context) tokens, output (generated) tokens, plus a
-trailing "Other" aggregate row. Drop in a fresh export to refresh the figure.
+trailing "Other" aggregate row. Model aliases are normalized in the committed
+CSV. Only the ten models with the most total tokens are shown; the rest are
+combined with Other. The axis break spans 2.5T to 15T for this snapshot.
 
 Run:
     # Regenerate from the committed CSV (zero args)
@@ -38,7 +40,7 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 from matplotlib import rcParams
-from matplotlib.ticker import FuncFormatter, MaxNLocator
+from matplotlib.ticker import FuncFormatter
 
 # Repo root is two levels up from docs/scripts/.
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -52,9 +54,7 @@ GREEN = "#76B900"  # NVIDIA green -> input (context) tokens
 LIME = "#C5E86C"  # light NVIDIA-tint green -> output (generated) tokens
 WHITE = "#FFFFFF"
 SUBTLE = "#9A9A9A"
-AXIS = "#B8B8B8"
 MODELNAME = "#ECECEC"
-GRID = "#FFFFFF"
 SPINE = "#4A4A4A"
 INK = "#0E0E0E"  # dark ink for labels sitting on bright bars
 
@@ -82,7 +82,7 @@ def configure_matplotlib() -> None:
     """
     plt.switch_backend("Agg")
     rcParams["font.family"] = "DejaVu Sans"
-    rcParams["font.size"] = 13
+    rcParams["font.size"] = 12
 
 
 def fmt(v: float) -> str:
@@ -92,166 +92,101 @@ def fmt(v: float) -> str:
     return f"{v / 1e9:.0f}B"
 
 
+def rank_rows(rows: list[tuple[str, float, float]], limit: int = 10) -> list[tuple[str, float, float]]:
+    """Rank models by total tokens and fold the remainder into the Other aggregate."""
+    models = sorted((row for row in rows if row[0].lower() != "other"), key=lambda row: row[1] + row[2], reverse=True)
+    remaining = [row for row in rows if row[0].lower() == "other"] + models[limit:]
+    ranked = models[:limit]
+    if remaining:
+        ranked.append(("Other", sum(row[1] for row in remaining), sum(row[2] for row in remaining)))
+    return ranked
+
+
 def render(rows: list[tuple[str, float, float]], out_path: Path) -> None:
-    """Render the ranked stacked-bar figure to out_path."""
-    # Split the "Other" aggregate out; sort named models by total descending.
-    other = next((r for r in rows if r[0].lower() == "other"), None)
-    models = [r for r in rows if r[0].lower() != "other"]
-    models.sort(key=lambda r: r[1] + r[2], reverse=True)
-
-    n = len(models)
-    ypos = list(range(n, 0, -1))  # n, n-1, ... 1  (top -> down)
-    labels = [m[0] for m in models]
-    inputs = [m[1] for m in models]
-    outputs = [m[2] for m in models]
-
-    if other is not None:
-        ypos.append(-0.6)  # gap below the named models
-        labels.append("Other models")
-        inputs.append(other[1])
-        outputs.append(other[2])
-
-    fig, ax = plt.subplots(figsize=(14.5, 9.2), dpi=200)
+    """Render the top ten normalized models with the current snapshot's axis break."""
+    data = rank_rows(rows)
+    models = [row for row in data if row[0].lower() != "other"]
+    fig, (left, right) = plt.subplots(
+        1,
+        2,
+        figsize=(16, max(9.6, 4.0 + 0.55 * len(models))),
+        dpi=200,
+        sharey=True,
+        gridspec_kw={"width_ratios": [3.2, 1.3], "wspace": 0.08},
+    )
     fig.patch.set_facecolor(BG)
-    ax.set_facecolor(BG)
-
-    xmax = max(i + o for i, o in zip(inputs, outputs)) / B
-    bar_h = 0.62
-
-    for idx, (y, inp, out) in enumerate(zip(ypos, inputs, outputs)):
-        is_other = other is not None and idx == len(ypos) - 1
-        a = 0.45 if is_other else 1.0
-
-        ax.barh(y, inp / B, height=bar_h, color=GREEN, alpha=a, zorder=3, edgecolor=BG, linewidth=1.2)
-        ax.barh(y, out / B, height=bar_h, left=inp / B, color=LIME, alpha=a, zorder=3, edgecolor=BG, linewidth=1.2)
-
-        total = (inp + out) / B
+    fig.subplots_adjust(left=0.335, right=0.955, bottom=0.14, top=0.80)
+    n = len(models)
+    has_other = any(row[0].lower() == "other" for row in data)
+    ys = list(range(n, 0, -1)) + ([-0.5] if has_other else [])
+    labels = ["Other models" if name == "Other" else name for name, _, _ in data]
+    for ax in (left, right):
+        ax.set_facecolor(BG)
+        for y, (name, inp, out) in zip(ys, data):
+            alpha = 0.45 if name == "Other" else 1
+            ax.barh(y, inp / B, height=0.58, color=GREEN, alpha=alpha, zorder=3, edgecolor=BG, linewidth=1)
+            ax.barh(y, out / B, left=inp / B, height=0.58, color=LIME, alpha=alpha, zorder=3, edgecolor=BG, linewidth=1)
+        ax.set_ylim(-1.25, n + 0.8)
+        ax.xaxis.grid(True, color=WHITE, alpha=0.07)
+        ax.set_axisbelow(True)
+        ax.tick_params(axis="x", colors=SUBTLE, length=0, pad=9, labelsize=10)
+        ax.tick_params(axis="y", length=0, pad=12, labelsize=11)
+        for s in ax.spines.values():
+            s.set_visible(False)
+        ax.spines["bottom"].set_visible(True)
+        ax.spines["bottom"].set_color(SPINE)
+    left.set_xlim(0, 2500)
+    right.set_xlim(15000, 22500)
+    left.set_xticks([0, 500, 1000, 1500, 2000, 2500])
+    right.set_xticks([16000, 18000, 20000, 22000])
+    left.xaxis.set_major_formatter(FuncFormatter(lambda x, _: "0" if x == 0 else f"{x / 1000:.1f}T"))
+    right.xaxis.set_major_formatter(FuncFormatter(lambda x, _: f"{x / 1000:.0f}T"))
+    left.set_yticks(ys, labels=labels, color=MODELNAME)
+    if has_other:
+        left.get_yticklabels()[-1].set_color(SUBTLE)
+        left.get_yticklabels()[-1].set_fontstyle("italic")
+    right.tick_params(axis="y", left=False, labelleft=False)
+    for y, (name, inp, out) in zip(ys, data):
+        total = inp + out
+        ax = right if total > 1e13 else left
         ax.text(
-            total + xmax * 0.008,
+            total / B + (80 if ax is right else 30),
             y,
-            fmt(inp + out),
+            fmt(total),
+            color=SUBTLE if name == "Other" else MODELNAME,
             va="center",
-            ha="left",
-            color=SUBTLE if is_other else WHITE,
             fontweight="bold",
-            fontsize=13.5,
-            zorder=5,
+            fontsize=12,
         )
-
-        # In-segment value labels only where the segment is wide enough.
-        if inp / B > xmax * 0.085:
+        if inp > 1e13:
+            left.text(1250, y, fmt(inp), ha="center", va="center", color=BG, fontweight="bold", fontsize=11)
+        elif inp > 250e9:
+            left.text(inp / 2e9, y, fmt(inp), ha="center", va="center", color=BG, fontweight="bold", fontsize=10)
+        if out > 200e9:
+            ax = right if inp > 1e13 else left
             ax.text(
-                (inp / B) / 2,
-                y,
-                fmt(inp),
-                va="center",
-                ha="center",
-                color=INK,
-                fontweight="bold",
-                fontsize=11.5,
-                alpha=a,
-                zorder=5,
+                (inp + out / 2) / B, y, fmt(out), ha="center", va="center", color=BG, fontweight="bold", fontsize=10
             )
-        if out / B > xmax * 0.085:
-            ax.text(
-                inp / B + (out / B) / 2,
-                y,
-                fmt(out),
-                va="center",
-                ha="center",
-                color=INK,
-                fontweight="bold",
-                fontsize=11.5,
-                alpha=a,
-                zorder=5,
-            )
-
-    # ------------------------------------------------------------- axes -----
-    ax.set_yticks(ypos)
-    ax.set_yticklabels(labels, fontsize=12.5)
-    is_other_flags = [False] * n + ([True] if other else [])
-    for tick, is_other in zip(ax.get_yticklabels(), is_other_flags):
-        tick.set_color(SUBTLE if is_other else MODELNAME)
-        if is_other:
-            tick.set_fontstyle("italic")
-
-    ax.set_xlim(0, xmax * 1.13)
-    ax.set_ylim(-1.3, n + 0.8)
-
-    # Derive ticks from the data so the axis stays sane as totals grow; fmt()
-    # promotes B -> T automatically, so the labels never need hand-editing.
-    ax.xaxis.set_major_locator(MaxNLocator(nbins=8, steps=[1, 2, 2.5, 5, 10]))
-    ax.xaxis.set_major_formatter(FuncFormatter(lambda v, _pos: "0" if v <= 0 else fmt(v * B)))
-    ax.tick_params(axis="y", length=0, pad=10)
-    ax.tick_params(axis="x", colors=AXIS, length=0, pad=8, labelsize=11)
-    ax.set_xlabel("Tokens processed", color=AXIS, fontsize=12.5, labelpad=12)
-
-    ax.xaxis.grid(True, color=GRID, alpha=0.07, linewidth=1, zorder=0)
-    ax.set_axisbelow(True)
-    for s in ("top", "right"):
-        ax.spines[s].set_visible(False)
-    for s in ("bottom", "left"):
-        ax.spines[s].set_color(SPINE)
-        ax.spines[s].set_linewidth(1.0)
-
-    # ---------------------------------------------------------- titling -----
-    fig.subplots_adjust(left=0.235, right=0.965, top=0.83, bottom=0.085)
-    # Signature DD green left-accent rule (mirrors the .devnote-dek element).
-    ax.add_patch(
-        plt.Rectangle(
-            (-0.018, 1.045),
-            0.006,
-            0.135,
-            transform=ax.transAxes,
-            facecolor=GREEN,
-            edgecolor="none",
-            clip_on=False,
-            zorder=6,
-        )
-    )
-    ax.text(
-        0.012,
-        1.145,
-        "Top Model Usage",
-        transform=ax.transAxes,
-        color=WHITE,
-        fontweight="bold",
-        fontsize=26,
-        ha="left",
-        va="bottom",
-    )
-    ax.text(
-        0.012,
-        1.07,
-        "Context vs. generated tokens across the most-used models",
-        transform=ax.transAxes,
-        color=SUBTLE,
-        fontsize=13.5,
-        ha="left",
-        va="bottom",
-    )
-
-    # Manual legend, top-right of the plotting area.
-    leg_x, leg_y = 0.99, 1.115
-    legend = [(GREEN, "Input  ·  context tokens"), (LIME, "Output  ·  generated tokens")]
-    for i, (c, lbl) in enumerate(legend):
-        yy = leg_y - i * 0.052
-        ax.add_patch(
-            plt.Rectangle(
-                (leg_x - 0.205, yy - 0.012),
-                0.022,
-                0.026,
+    for ax, x in ((left, 1), (right, 0)):
+        for y in (0, 1):
+            ax.plot(
+                [x - 0.006, x + 0.006],
+                [y - 0.009, y + 0.009],
                 transform=ax.transAxes,
-                facecolor=c,
-                edgecolor="none",
+                color=SUBTLE,
                 clip_on=False,
-                zorder=6,
+                linewidth=1.3,
             )
-        )
-        ax.text(leg_x - 0.172, yy, lbl, transform=ax.transAxes, color=MODELNAME, fontsize=12, ha="left", va="center")
-
+    fig.text(0.342, 0.925, "Top Model Usage", color=WHITE, fontsize=27, weight="bold")
+    fig.text(0.342, 0.875, "Top 10 models ranked by total tokens", color=SUBTLE, fontsize=12)
+    fig.add_artist(plt.Rectangle((0.322, 0.86), 0.005, 0.105, transform=fig.transFigure, facecolor=GREEN))
+    for y, color, label in ((0.915, GREEN, "Input  ·  context tokens"), (0.875, LIME, "Output  ·  generated tokens")):
+        fig.add_artist(plt.Rectangle((0.79, y), 0.016, 0.018, transform=fig.transFigure, facecolor=color))
+        fig.text(0.815, y + 0.001, label, color=MODELNAME, fontsize=11)
+    fig.text(0.64, 0.075, "Tokens processed", color=SUBTLE, ha="center", fontsize=12)
+    fig.text(0.335, 0.027, "Remaining models grouped as Other. Axis break: 2.5T–15T.", color=SUBTLE, fontsize=9)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(out_path, facecolor=BG, dpi=200, bbox_inches="tight", pad_inches=0.25)
+    fig.savefig(out_path, facecolor=BG, dpi=200)
     plt.close(fig)
 
 
