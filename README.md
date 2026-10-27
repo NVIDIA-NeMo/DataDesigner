@@ -179,11 +179,11 @@ Data Designer collects telemetry to help us improve the library for developers. 
 
 Disable with `NEMO_TELEMETRY_ENABLED=false`. **[More details →](#telemetry-and-privacy)**
 
-### Top models
+### Top models (YTD)
 
-The top 10 models by total input and output tokens across synthetic data generation jobs. Model aliases are combined, with remaining models grouped under Other:
+Aggregate model usage across synthetic data generation jobs, year-to-date 1/1/2026–10/27/2026:
 
-![Top 10 models by total input and output tokens](fern/images/top-models.png)
+![Top models used for synthetic data generation](fern/images/top-models.png)
 
 _Last updated on October 27, 2026_
 
