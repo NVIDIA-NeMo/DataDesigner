@@ -58,7 +58,7 @@ from data_designer.slurm.launcher.errors import SlurmLauncherError, SlurmSubmiss
 from data_designer.slurm.launcher.renderer import render_generation_attempt_script
 from data_designer.slurm.launcher.scheduler_path import SchedulerPathError, resolve_scheduler_bin_path
 from data_designer.slurm.planning import ResolvedImage, ResolvedSlurmRunPlan
-from data_designer.slurm.planning.builder_identity import get_external_model_aliases
+from data_designer.slurm.planning.builder_identity import get_declared_model_aliases, get_external_model_aliases
 from data_designer.slurm.planning.compiler import SlurmRunCompiler
 from data_designer.slurm.planning.model_providers import resolve_hosted_model_providers
 from data_designer.slurm.planning.resolution import resolve_slurm_config
@@ -213,6 +213,13 @@ class _RunPreparer:
             _validate_builder_for_submission(authored, builder_payload, operation)
             payload = authored.builder.inline if authored.builder.inline is not None else builder_payload
             assert payload is not None
+            if not get_declared_model_aliases(payload):
+                raise SlurmServiceError(
+                    SlurmServiceErrorCode.INVALID_REQUEST,
+                    operation,
+                    "Slurm runs require at least one configured model. "
+                    "Sampler-only recipes are not currently supported.",
+                )
             local_aliases = {deployment.model_alias for deployment in authored.deployments}
             hosted_providers = resolve_hosted_model_providers(
                 payload,

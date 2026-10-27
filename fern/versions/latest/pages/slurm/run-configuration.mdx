@@ -94,6 +94,8 @@ Both local and external requests use DD's existing async engine. Ready requests 
 
 ### Hosted-only CPU runs
 
+Slurm runs require at least one explicitly configured model. Sampler-only recipes are not currently supported.
+
 For a builder whose models all reference configured hosted providers, omit local deployments or set `deployments: []`. Select the cluster's CPU partition:
 
 ```yaml

@@ -19,6 +19,7 @@ from slurm_test_fakes import (
     FakeVllmBackend,
 )
 
+from data_designer.config import SamplerColumnConfig, UUIDSamplerParams
 from data_designer.config.models import ModelProvider
 from data_designer.slurm.benchmark import BenchmarkManifest, BenchmarkReport
 from data_designer.slurm.client import ClientResult
@@ -84,6 +85,24 @@ def dependency_lock_single() -> ResolvedDependencyLock:
 @pytest.fixture
 def single_node_plan() -> ResolvedSlurmRunPlan:
     return ResolvedSlurmRunPlan.model_validate_json((CONTRACT_GOLDEN_DIRECTORY / "single_node_plan.json").read_text())
+
+
+@pytest.fixture(params=("empty", "omitted", "none"))
+def model_free_run(
+    request: pytest.FixtureRequest, authored_run_single: DataDesignerSlurmConfig
+) -> DataDesignerSlurmConfig:
+    payload = authored_run_single.model_dump(mode="json")
+    builder = payload["builder"]["inline"]["data_designer"]
+    if request.param == "omitted":
+        builder.pop("model_configs")
+    else:
+        builder["model_configs"] = [] if request.param == "empty" else None
+    builder["columns"] = [
+        SamplerColumnConfig(name="id", sampler_type="uuid", params=UUIDSamplerParams()).model_dump(mode="json")
+    ]
+    payload["deployments"] = []
+    payload["invocation"]["model_concurrency"] = {}
+    return DataDesignerSlurmConfig.model_validate_json(json.dumps(payload))
 
 
 @pytest.fixture(params=("mixed", "hosted-only"))

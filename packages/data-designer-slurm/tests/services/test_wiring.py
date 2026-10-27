@@ -1950,3 +1950,32 @@ def test_plaintext_native_provider_keys_are_rejected_without_echoing_or_capturin
     with pytest.raises(SlurmServiceError) as error:
         service.plan(external_run, source_root=tmp_path)
     assert key not in str(error.value)
+
+
+@pytest.mark.parametrize("sourced", (False, True))
+def test_model_free_runs_are_rejected_before_submission(
+    tmp_path: Path,
+    model_free_run: DataDesignerSlurmConfig,
+    profile_catalog: SlurmProfileCatalog,
+    sourced: bool,
+) -> None:
+    config = model_free_run
+    if sourced:
+        (tmp_path / "builder.json").write_text(json.dumps(config.builder.inline))
+        config = config.model_copy(update={"builder": BuilderInput(source="builder.json")})
+    launcher = _Launcher()
+    publisher = _Publisher()
+    service = create_slurm_run_service(
+        profile=_profile(tmp_path, profile_catalog),
+        launcher=launcher,
+        artifact_publisher=publisher,
+        run_id_factory=lambda: "run-model-free",
+        package_version="0.9.2",
+    )
+    with pytest.raises(SlurmServiceError, match="Slurm runs require at least one configured model") as caught:
+        service.execute(config, source_root=tmp_path)
+    assert caught.value.code is SlurmServiceErrorCode.INVALID_REQUEST
+    assert "Sampler-only recipes are not currently supported" in str(caught.value)
+    assert launcher.submissions == []
+    assert publisher.initializations == []
+    assert not (tmp_path / "runs").exists()

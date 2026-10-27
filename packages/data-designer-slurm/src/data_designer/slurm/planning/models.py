@@ -190,7 +190,7 @@ class ResolvedBuilderInput(ContractValue):
     inline: dict[str, JsonValue] | None = None
     # Both forms use deterministic persisted builder JSON bytes.
     content_sha256: Sha256Digest
-    model_aliases: tuple[ModelAlias, ...]
+    model_aliases: tuple[ModelAlias, ...] = Field(min_length=1)
     external_model_aliases: tuple[ModelAlias, ...] = Field(default=(), exclude_if=lambda value: not value)
 
     @model_validator(mode="after")

@@ -20,7 +20,7 @@ from data_designer.slurm.config import (
 from data_designer.slurm.launcher.renderer import render_generation_attempt_script
 from data_designer.slurm.planning import ResolvedDependencyLock, ResolvedSlurmRunPlan
 from data_designer.slurm.planning.compiler import SlurmRunCompiler
-from data_designer.slurm.planning.errors import SlurmPlanContractError
+from data_designer.slurm.planning.errors import SlurmConfigResolutionError, SlurmPlanContractError
 from data_designer.slurm.planning.model_providers import (
     load_hosted_model_providers,
     resolve_hosted_model_providers,
@@ -262,3 +262,28 @@ def test_local_deployment_wins_when_models_share_a_provider(
     payload["data_designer"]["model_configs"][0]["provider"] = "external"
     captured = resolve_hosted_model_providers(payload, {"generator"}, hosted_model_providers)
     assert captured == hosted_model_providers
+
+
+@pytest.mark.parametrize("sourced", (False, True))
+def test_model_free_runs_are_rejected_during_resolution(
+    model_free_run: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+    dependency_lock_single: ResolvedDependencyLock,
+    sourced: bool,
+) -> None:
+    payload = model_free_run.builder.inline
+    config = model_free_run
+    if sourced:
+        config = config.model_copy(update={"builder": BuilderInput(source="builder.json")})
+    with pytest.raises(SlurmConfigResolutionError, match="model_aliases"):
+        resolve_slurm_config(
+            config,
+            selected_profile=single_node_plan.selected_profile,
+            client_runtime=single_node_plan.client.runtime,
+            deployment_images=(),
+            dependency_lock=dependency_lock_single,
+            runtime_bundle=single_node_plan.runtime_bundle,
+            run_id=single_node_plan.run_id,
+            package_version=single_node_plan.package_version,
+            builder_payload=payload if sourced else None,
+        )
