@@ -1165,6 +1165,83 @@ def test_production_retry_dry_run_and_submission_are_sparse_and_idempotent(
     ]
 
 
+@pytest.mark.parametrize("external_run", ("hosted-only",), indirect=True)
+@pytest.mark.parametrize("active_state", (SchedulerState.PENDING, SchedulerState.RUNNING))
+def test_hosted_retry_requires_credentials_only_for_new_submissions(
+    tmp_path: Path,
+    profile_catalog: SlurmProfileCatalog,
+    external_run: DataDesignerSlurmConfig,
+    hosted_settings: Path,
+    active_state: SchedulerState,
+) -> None:
+    launcher = _Launcher(submission_job_ids=(42, 43, 44))
+    now = datetime(2026, 9, 8, tzinfo=timezone.utc)
+    profile = _profile(tmp_path, profile_catalog)
+    source_environment = {"MODEL_API_KEY": "fake-provider-secret"}
+    service = create_slurm_run_service(
+        profile=profile,
+        launcher=launcher,
+        run_id_factory=lambda: "run-hosted-retry",
+        clock=lambda: now,
+        package_version="0.9.2",
+        source_environment=source_environment,
+    )
+    service.execute(external_run, source_root=tmp_path)
+    initial_failure = SlurmAccountingEntry(
+        job_identity=SchedulerIdentity(array_job_id=42, array_task_id=0),
+        state=SchedulerState.FAILED,
+        process_exit_code=SlurmProcessExitCode(exit_status=1, termination_signal=0),
+    )
+    launcher.accounting_entries = (initial_failure,)
+    without_credentials = create_slurm_run_service(
+        profile=profile,
+        launcher=launcher,
+        clock=lambda: now,
+        package_version="0.9.2",
+        source_environment={},
+    )
+    run_root = tmp_path / "runs/run-hosted-retry"
+    preview = without_credentials.retry("run-hosted-retry", resume="if_possible", dry_run=True)
+    assert preview.state == "dry_run"
+    assert not (run_root / "retries").exists()
+    assert not (run_root / "retry.lock").exists()
+    with pytest.raises(SlurmServiceError, match="required secret environment"):
+        without_credentials.retry("run-hosted-retry", resume="if_possible")
+    assert not (run_root / "retries").exists()
+    assert len(launcher.submissions) == 1
+
+    submitted = service.retry("run-hosted-retry", resume="if_possible")
+    assert submitted.job_id == 43
+    assert launcher.exported_environments[-1]["MODEL_API_KEY"] == "fake-provider-secret"
+    launcher.queue_entries = (
+        SlurmQueueEntry(job_identity=SchedulerIdentity(array_job_id=43, array_task_id=0), state=active_state),
+    )
+    repeated = without_credentials.retry("run-hosted-retry", resume="if_possible")
+    assert repeated == submitted
+    assert len(launcher.submissions) == 2
+
+    launcher.queue_entries = ()
+    launcher.accounting_entries = (
+        initial_failure,
+        SlurmAccountingEntry(
+            job_identity=SchedulerIdentity(array_job_id=43, array_task_id=0),
+            state=SchedulerState.FAILED,
+            process_exit_code=SlurmProcessExitCode(exit_status=1, termination_signal=0),
+        ),
+    )
+    records = {path: path.read_bytes() for path in (run_root / "retries").rglob("*.json")}
+    with pytest.raises(SlurmServiceError, match="required secret environment"):
+        without_credentials.retry("run-hosted-retry", resume="if_possible")
+    assert {path: path.read_bytes() for path in (run_root / "retries").rglob("*.json")} == records
+    assert len(launcher.submissions) == 2
+
+    replacement = service.retry("run-hosted-retry", resume="if_possible")
+    assert replacement.job_id == 44
+    assert replacement.attempt_ids != submitted.attempt_ids
+    assert launcher.exported_environments[-1]["MODEL_API_KEY"] == "fake-provider-secret"
+    assert all("fake-provider-secret" not in path.read_text() for path in run_root.rglob("*.json"))
+
+
 def test_production_retry_preview_recovers_active_pinned_mode(
     tmp_path: Path,
     profile_catalog: SlurmProfileCatalog,

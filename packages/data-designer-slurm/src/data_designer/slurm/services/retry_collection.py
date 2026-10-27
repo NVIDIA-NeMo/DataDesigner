@@ -66,12 +66,15 @@ class RunRetryCollectionBackend:
         try:
             observed_at = self._clock()
             resolved_plan = SlurmStateWriter(self._workspace_root, run_id).load_resolved_plan()
-            export_environment = (
-                self._export_environment
-                if dry_run
-                else build_run_export_environment(resolved_plan, self._source_environment, operation)
+            coordinator = SlurmRetryCoordinator(
+                self._workspace_root,
+                run_id,
+                self._launcher,
+                self._export_environment,
+                export_environment_factory=lambda: build_run_export_environment(
+                    resolved_plan, self._source_environment, operation
+                ),
             )
-            coordinator = SlurmRetryCoordinator(self._workspace_root, run_id, self._launcher, export_environment)
             effective_resume_mode = self._resolve_retry_resume_mode(resolved_plan, resume)
             preview = coordinator.preview_active(shard_ids=shard_ids, observed_at=observed_at)
             if preview is not None and effective_resume_mode not in {None, preview[0].effective_resume_mode}:
