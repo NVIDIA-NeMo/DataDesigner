@@ -10,6 +10,7 @@ from typing import Any
 
 import pytest
 
+from data_designer.config.seed_source import AgentRolloutFormat, AgentRolloutSeedSource
 from data_designer.engine.resources.agent_rollout.hermes_agent import HermesAgentRolloutFormatHandler
 from data_designer.engine.resources.agent_rollout.types import AgentRolloutSeedParseError
 
@@ -143,7 +144,10 @@ def test_parse_file_gateway_transcript_uses_sessions_index(
     )
 
     handler = _make_handler()
-    parse_context = handler.build_parse_context(root_path=tmp_path, recursive=True)
+    parse_context = handler.build_parse_context(
+        root_path=tmp_path,
+        source=AgentRolloutSeedSource(path=str(tmp_path), format=AgentRolloutFormat.HERMES_AGENT),
+    )
     records = handler.parse_file(
         root_path=tmp_path,
         relative_path="gateway-session-1.jsonl",

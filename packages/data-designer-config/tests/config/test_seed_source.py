@@ -14,6 +14,7 @@ from data_designer.config.errors import InvalidFilePathError
 from data_designer.config.seed_source import (
     AgentRolloutFormat,
     AgentRolloutSeedSource,
+    CodexReasoningSource,
     DirectorySeedSource,
     FileContentsSeedSource,
     FileSystemSeedSource,
@@ -279,6 +280,14 @@ def test_agent_rollout_seed_source_rejects_invalid_file_patterns(
 def test_agent_rollout_seed_source_requires_explicit_atif_path() -> None:
     with pytest.raises(ValueError, match="path is required for format 'atif'"):
         AgentRolloutSeedSource(format=AgentRolloutFormat.ATIF)
+
+
+def test_agent_rollout_seed_source_rejects_codex_reasoning_source_for_other_formats() -> None:
+    with pytest.raises(ValueError, match="codex_reasoning_source applies only to format 'codex'"):
+        AgentRolloutSeedSource(
+            format=AgentRolloutFormat.CLAUDE_CODE,
+            codex_reasoning_source=CodexReasoningSource.CONTENT_FIRST,
+        )
 
 
 def test_agent_rollout_seed_source_defers_directory_existence_validation(tmp_path: Path) -> None:

@@ -101,6 +101,7 @@ if TYPE_CHECKING:
     from data_designer.config.seed_source import (  # noqa: F401
         AgentRolloutFormat,
         AgentRolloutSeedSource,
+        CodexReasoningSource,
         DirectorySeedSource,
         FileContentsSeedSource,
         HuggingFaceSeedSource,
@@ -229,6 +230,7 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "DataFrameSeedSource": (f"{_MOD_BASE}.seed_source_dataframe", "DataFrameSeedSource"),
     "AgentRolloutFormat": (_MOD_SEED_SOURCE, "AgentRolloutFormat"),
     "AgentRolloutSeedSource": (_MOD_SEED_SOURCE, "AgentRolloutSeedSource"),
+    "CodexReasoningSource": (_MOD_SEED_SOURCE, "CodexReasoningSource"),
     "DirectorySeedSource": (_MOD_SEED_SOURCE, "DirectorySeedSource"),
     "FileContentsSeedSource": (_MOD_SEED_SOURCE, "FileContentsSeedSource"),
     "HuggingFaceSeedSource": (_MOD_SEED_SOURCE, "HuggingFaceSeedSource"),

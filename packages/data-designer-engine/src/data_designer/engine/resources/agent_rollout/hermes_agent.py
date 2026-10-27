@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, ClassVar
 
-from data_designer.config.seed_source import AgentRolloutFormat
+from data_designer.config.seed_source import AgentRolloutFormat, AgentRolloutSeedSource
 from data_designer.engine.resources.agent_rollout.base import AgentRolloutFormatHandler, AgentRolloutParseContext
 from data_designer.engine.resources.agent_rollout.types import AgentRolloutSeedParseError, NormalizedAgentRolloutRecord
 from data_designer.engine.resources.agent_rollout.utils import (
@@ -41,17 +41,17 @@ class HermesAgentRolloutFormatHandler(AgentRolloutFormatHandler):
 
     format: ClassVar[AgentRolloutFormat] = AgentRolloutFormat.HERMES_AGENT
 
-    def build_parse_context(self, *, root_path: Path, recursive: bool) -> HermesAgentParseContext:
+    def build_parse_context(self, *, root_path: Path, source: AgentRolloutSeedSource) -> HermesAgentParseContext:
         """Load Hermes session index data once for the current scan.
 
         Args:
             root_path: Root directory configured on the seed source.
-            recursive: Whether the scan should include nested directories.
+            source: Seed source configuration for the current scan.
 
         Returns:
             Parse context containing any discovered ``sessions.json`` metadata.
         """
-        return HermesAgentParseContext(session_index=load_hermes_session_index(root_path, recursive=recursive))
+        return HermesAgentParseContext(session_index=load_hermes_session_index(root_path, recursive=source.recursive))
 
     def is_handled_file(self, relative_path: str) -> bool:
         """Return whether a file path should be parsed as Hermes Agent.

@@ -10,7 +10,8 @@ from typing import Any
 
 import pytest
 
-from data_designer.engine.resources.agent_rollout.codex import CodexAgentRolloutFormatHandler
+from data_designer.config.seed_source import CodexReasoningSource
+from data_designer.engine.resources.agent_rollout.codex import CodexAgentRolloutFormatHandler, CodexParseContext
 
 
 def _make_handler() -> CodexAgentRolloutFormatHandler:
@@ -158,6 +159,112 @@ def test_parse_file_reasoning_response_item_populates_reasoning_content(
     assistant_msg = next(m for m in record.messages if m["role"] == "assistant")
     assert assistant_msg["reasoning_content"] == "Step A\n\nStep B"
     assert "reasoning" in record.source_meta["response_item_types"]
+
+
+@pytest.mark.parametrize(
+    ("reasoning_fields", "expected_reasoning"),
+    [
+        pytest.param(
+            {"summary": [], "content": [{"type": "reasoning_text", "text": "Full raw reasoning"}]},
+            "Full raw reasoning",
+            id="content-only",
+        ),
+        pytest.param(
+            {"summary": [{"type": "summary_text", "text": "Short summary"}]},
+            "Short summary",
+            id="summary-only",
+        ),
+        pytest.param(
+            {
+                "summary": [{"type": "summary_text", "text": "Short summary"}],
+                "content": [{"type": "reasoning_text", "text": "Full raw reasoning"}],
+            },
+            "Full raw reasoning",
+            id="both-present",
+        ),
+        pytest.param({"summary": [], "content": []}, None, id="empty"),
+    ],
+)
+def test_parse_file_reasoning_response_item_prefers_raw_content_over_summary(
+    tmp_path: Path,
+    write_jsonl: Callable[[Path, list[dict[str, Any]]], None],
+    reasoning_fields: dict[str, Any],
+    expected_reasoning: str | None,
+) -> None:
+    write_jsonl(
+        tmp_path / "rollout-raw.jsonl",
+        [
+            {"type": "session_meta", "payload": {"id": "sess-raw"}},
+            {
+                "type": "response_item",
+                "payload": {"type": "reasoning", **reasoning_fields, "encrypted_content": None},
+            },
+            {
+                "type": "response_item",
+                "payload": {
+                    "type": "function_call",
+                    "call_id": "call-1",
+                    "name": "shell",
+                    "arguments": '{"cmd": "ls"}',
+                },
+            },
+            {
+                "type": "response_item",
+                "payload": {"type": "function_call_output", "call_id": "call-1", "output": "file1.txt"},
+            },
+            {
+                "type": "response_item",
+                "payload": {
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [{"type": "output_text", "text": "Answer"}],
+                },
+            },
+        ],
+    )
+    handler = _make_handler()
+    records = handler.parse_file(
+        root_path=tmp_path,
+        relative_path="rollout-raw.jsonl",
+        parse_context=CodexParseContext(reasoning_source=CodexReasoningSource.CONTENT_FIRST),
+    )
+
+    tool_call_msg, _, final_msg = records[0].messages
+    assert tool_call_msg["tool_calls"][0]["id"] == "call-1"
+    assert tool_call_msg.get("reasoning_content") == expected_reasoning
+    assert final_msg.get("reasoning_content") is None
+    assert "unattached_reasoning" not in records[0].source_meta
+
+
+def test_parse_file_reasoning_response_item_defaults_to_summary(
+    tmp_path: Path, write_jsonl: Callable[[Path, list[dict[str, Any]]], None]
+) -> None:
+    write_jsonl(
+        tmp_path / "rollout-default.jsonl",
+        [
+            {"type": "session_meta", "payload": {"id": "sess-default"}},
+            {
+                "type": "response_item",
+                "payload": {
+                    "type": "reasoning",
+                    "summary": [{"type": "summary_text", "text": "Short summary"}],
+                    "content": [{"type": "reasoning_text", "text": "Full raw reasoning"}],
+                },
+            },
+            {
+                "type": "response_item",
+                "payload": {
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [{"type": "output_text", "text": "Answer"}],
+                },
+            },
+        ],
+    )
+    handler = _make_handler()
+    records = handler.parse_file(root_path=tmp_path, relative_path="rollout-default.jsonl")
+
+    assert records[0].messages[0]["reasoning_content"] == "Short summary"
 
 
 def test_parse_file_handles_custom_tool_call_and_apply_patch_call(
