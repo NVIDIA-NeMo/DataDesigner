@@ -10,11 +10,10 @@ from collections.abc import Mapping
 from data_designer.slurm.planning import PortClaim, ResolvedSlurmRunPlan
 from data_designer.slurm.runtime.errors import SlurmRuntimeError, SlurmRuntimeErrorCode
 from data_designer.slurm.runtime.models import AllocationContext
+from data_designer.slurm.runtime.network import get_service_ports, verify_service_ports
 from data_designer.slurm.serving.deployment import ResolvedVllmServerDeployment
 from data_designer.slurm.serving.resolver import resolve_vllm_server
 
-_PORT_RANGE_START = 10000
-_PORT_RANGE_END = 65536
 _PORTS_PER_GPU = 256
 
 
@@ -40,36 +39,36 @@ def resolve_allocation_plan(
     environment: Mapping[str, str],
 ) -> ResolvedSlurmRunPlan:
     """Return a plan with ports bound to the allocation's assigned GPUs."""
-    if not plan.deployments or plan.selected_profile.profile.gpu_request_mode == "visible":
+    if not plan.deployments:
+        return plan
+    claims = plan.client.ports + tuple(port for deployment in plan.deployments for port in deployment.ports)
+    if plan.selected_profile.profile.gpu_request_mode == "visible":
+        verify_service_ports(tuple(claim.port for claim in claims))
         return plan
     gpu_ids = _parse_gpu_ids(environment.get("SLURM_JOB_GPUS"))
-    block_start = _PORT_RANGE_START + min(gpu_ids) * _PORTS_PER_GPU
-    block_end = block_start + _PORTS_PER_GPU
-    if block_end > _PORT_RANGE_END:
+    offset = min(gpu_ids) * _PORTS_PER_GPU
+    block = get_service_ports()[offset : offset + _PORTS_PER_GPU]
+    if len(block) != _PORTS_PER_GPU:
         raise SlurmRuntimeError(
             SlurmRuntimeErrorCode.PREFLIGHT_FAILED,
-            "allocated GPU index exceeds the supported allocation port range",
+            "allocated GPU index exceeds the available non-ephemeral allocation port range",
         )
-    claims = plan.client.ports + tuple(port for deployment in plan.deployments for port in deployment.ports)
     claims_by_node: dict[int, set[int]] = {}
     for claim in claims:
         claims_by_node.setdefault(claim.node_index, set()).add(claim.port)
     reserved_by_node: dict[int, set[int]] = {}
     otel_port = plan.invocation.effective_run_config.get("otel_metrics_port")
-    if type(otel_port) is int and block_start <= otel_port < block_end:
+    if type(otel_port) is int and otel_port in block:
         reserved_by_node[plan.client.host_node_index] = {otel_port}
     mapping: dict[tuple[int, int], int] = {}
     for node_index, planned_ports in claims_by_node.items():
         reserved = reserved_by_node.get(node_index, set())
-        next_port = block_start
+        available = iter(port for port in block if port not in reserved)
         for planned_port in sorted(planned_ports):
-            while next_port in reserved:
-                next_port += 1
-            if next_port >= block_end:
+            next_port = next(available, None)
+            if next_port is None:
                 raise SlurmRuntimeError(SlurmRuntimeErrorCode.INVALID_CONTEXT, "allocation port range is exhausted")
             mapping[(node_index, planned_port)] = next_port
-            reserved.add(next_port)
-            next_port += 1
 
     def remap(port: PortClaim) -> PortClaim:
         return port.model_copy(update={"port": mapping[(port.node_index, port.port)]})

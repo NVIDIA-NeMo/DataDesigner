@@ -622,6 +622,7 @@ def test_preflight_rejects_builder_with_missing_plugin(client_worker_case: Clien
     assert error.value.code is ClientErrorCode.CONFIG_INVALID
 
 
+@pytest.mark.skipif(sys.platform != "linux", reason="worker validates Linux allocation port settings")
 def test_preflight_rejects_plugin_secondary_model_alias(
     client_worker_case: ClientWorkerCase,
     fake_plugin_overlay: Path,

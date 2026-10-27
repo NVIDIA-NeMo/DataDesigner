@@ -16,6 +16,8 @@ import time
 from collections.abc import Mapping, Sequence
 from tempfile import TemporaryDirectory
 
+from data_designer.slurm.runtime.errors import SlurmRuntimeError, SlurmRuntimeErrorCode
+from data_designer.slurm.runtime.network import verify_service_ports
 from data_designer.slurm.runtime.node_spec import (
     NodeProcessSpec as NodeProcessSpec,
 )
@@ -178,6 +180,9 @@ def main(arguments: Sequence[str] | None = None) -> int:
             _verify_ports(node.ports)
             return 0
         return _run_node(node, visible_gpus)
+    except SlurmRuntimeError as error:
+        print(str(error), file=sys.stderr)
+        return 70
     except (OSError, RuntimeError, ValueError, subprocess.SubprocessError):
         print("node worker failed at a validated runtime boundary", file=sys.stderr)
         return 70
@@ -242,6 +247,7 @@ def _verify_node(
 
 
 def _verify_ports(ports: tuple[int, ...]) -> None:
+    verify_service_ports(ports)
     reservations: list[socket.socket] = []
     try:
         for port in ports:
@@ -249,6 +255,10 @@ def _verify_ports(ports: tuple[int, ...]) -> None:
             reservations.append(reservation)
             reservation.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 0)
             reservation.bind(("0.0.0.0", port))
+    except OSError as error:
+        raise SlurmRuntimeError(
+            SlurmRuntimeErrorCode.PREFLIGHT_FAILED, f"allocation port {port} is unavailable on this node"
+        ) from error
     finally:
         for reservation in reservations:
             reservation.close()

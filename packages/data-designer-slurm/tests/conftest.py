@@ -34,6 +34,7 @@ from data_designer.slurm.config import (
 from data_designer.slurm.planning import ResolvedDependencyLock, ResolvedSlurmRunPlan
 from data_designer.slurm.planning.compiler import SlurmRunCompiler
 from data_designer.slurm.planning.resolution import resolve_slurm_config
+from data_designer.slurm.runtime import network as runtime_network
 from data_designer.slurm.state import (
     AttemptManifest,
     AttemptReadiness,
@@ -51,6 +52,16 @@ CONTRACT_GOLDEN_DIRECTORY = TEST_DIRECTORY / "contracts" / "golden"
 INTEGRATION_GOLDEN_PATH = TEST_DIRECTORY / "integration" / "golden" / "finalization_chain.json"
 SLURM_GOLDEN_DIRECTORY = TEST_DIRECTORY / "slurm_test_fakes" / "golden" / "slurm"
 STATE_GOLDEN_DIRECTORY = TEST_DIRECTORY / "state" / "golden"
+
+
+@pytest.fixture(autouse=True)
+def port_sysctls(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch) -> Path:
+    root = tmp_path_factory.mktemp("sysctl")
+    (root / "ip_local_port_range").write_text("32768 60999\n")
+    (root / "ip_local_reserved_ports").write_text("\n")
+    (root / "ip_unprivileged_port_start").write_text("1024\n")
+    monkeypatch.setattr(runtime_network, "_SYSCTL_ROOT", root)
+    return root
 
 
 @pytest.fixture

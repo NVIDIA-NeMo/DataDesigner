@@ -107,6 +107,7 @@ def test_native_phases_use_the_supplied_host_attempt_directory(
         entrypoint._client(client, {}, client_worker=ClientWorkerProcess(executor=lambda command: 0))
 
 
+@pytest.mark.skipif(sys.platform != "linux", reason="worker validates Linux allocation port settings")
 def test_client_phase_installs_and_runs_plugin_in_default_worker_process(
     monkeypatch: pytest.MonkeyPatch,
     runtime_case: RuntimeCase,

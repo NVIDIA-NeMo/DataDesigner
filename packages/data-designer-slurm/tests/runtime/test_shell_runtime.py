@@ -84,6 +84,7 @@ dd_slurm_run_allocation "${{DD_PLAN}}" "${{DD_ATTEMPT_DIR}}"
         "PATH": f"{fake_bin}:{os.environ['PATH']}",
         "FAKE_MANIFEST_SOURCE": manifest_path.as_posix(),
         "FAKE_GPU_MODE": gpu_request_mode,
+        "FAKE_LISTENING_FILE": str(log_directory / "deployment-00000-endpoint.out.listening"),
         "SOURCE_TOKEN": "supersecret",
         "CUDA_VISIBLE_DEVICES": "0",
         "DD_SCRATCH_ROOT": scratch_root.as_posix(),
@@ -577,6 +578,41 @@ fi
     assert completed.returncode == 0, completed.stderr
 
 
+@pytest.mark.parametrize("outcome", ("ready", "failed", "timeout"))
+def test_endpoint_probe_waits_for_listener_and_rejects_stale_marker(tmp_path: Path, outcome: str) -> None:
+    runtime_root = Path(__file__).parents[2] / "src/data_designer/slurm/runtime"
+    marker = tmp_path / "endpoint.out.listening"
+    marker.touch()
+    command = f"""
+source {shlex.quote(str(runtime_root / "entrypoint.sh"))}
+DD_RUNTIME_MANIFEST=unused
+DD_STEP_STDOUT={shlex.quote(str(tmp_path / "endpoint.out"))}
+dd_read_step_ids() {{ DD_STEP_IDS=(endpoint); }}
+dd_read_step() {{ DD_STEP_PROBE_FIELDS=(127.0.0.1 10000 /health 30); }}
+dd_start_step() {{ [[ ! -f ${{DD_STEP_STDOUT}}.listening ]]; DD_LAST_PID=1; }}
+dd_register_required_pid() {{ :; }}
+dd_require_running() {{ :; }}
+dd_sleep() {{
+    [[ ! -f {shlex.quote(str(tmp_path / "curl-ran"))} ]]
+    case {outcome} in
+        ready) touch "${{DD_STEP_STDOUT}}.listening" ;;
+        failed) return 23 ;;
+        timeout) SECONDS=31 ;;
+    esac
+}}
+curl() {{
+    [[ -f ${{DD_STEP_STDOUT}}.listening ]]
+    touch {shlex.quote(str(tmp_path / "curl-ran"))}
+}}
+dd_start_endpoints
+dd_wait_for_role_readiness endpoint
+"""
+    result = subprocess.run(("bash", "-c", command), capture_output=True, text=True, timeout=5)
+
+    assert result.returncode == {"ready": 0, "failed": 23, "timeout": 70}[outcome], result.stderr
+    assert (tmp_path / "curl-ran").exists() is (outcome == "ready")
+
+
 def _artifact(root: Path, name: str) -> tuple[str, str]:
     path = root / f"{name}.artifact"
     content = name.encode()
@@ -749,6 +785,7 @@ case ${command} in
         ;;
     fake-endpoint)
         [[ ! ${SOURCE_TOKEN+x} && ! ${SERVER_TOKEN+x} && ! ${CUDA_VISIBLE_DEVICES+x} ]]
+        touch "${FAKE_LISTENING_FILE}"
         trap 'exit 0' TERM INT
         while :; do :; done
         ;;

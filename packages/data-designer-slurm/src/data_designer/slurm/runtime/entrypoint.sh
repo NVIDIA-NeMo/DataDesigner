@@ -233,6 +233,8 @@ dd_start_endpoints() {
     local step_id
     for step_id in "${DD_STEP_IDS[@]+"${DD_STEP_IDS[@]}"}"; do
         DD_STEP_STARTED_AT[${step_id}]=${SECONDS}
+        dd_read_step "${DD_RUNTIME_MANIFEST}" "${step_id}"
+        rm -f -- "${DD_STEP_STDOUT}.listening"
         dd_start_step "${DD_RUNTIME_MANIFEST}" "${step_id}"
         dd_register_required_pid "${DD_LAST_PID}"
         dd_require_running
@@ -242,7 +244,7 @@ dd_start_endpoints() {
 dd_wait_for_role_readiness() {
     local role=$1
     local step_id index started_at probe pending
-    local -a probe_steps=() probe_hosts=() probe_ports=() probe_paths=() probe_deadlines=() probe_ready=()
+    local -a probe_steps=() probe_hosts=() probe_ports=() probe_paths=() probe_deadlines=() probe_ready=() probe_listeners=()
     dd_read_step_ids "${DD_RUNTIME_MANIFEST}" "${role}"
     for step_id in "${DD_STEP_IDS[@]+"${DD_STEP_IDS[@]}"}"; do
         dd_read_step "${DD_RUNTIME_MANIFEST}" "${step_id}"
@@ -255,6 +257,9 @@ dd_wait_for_role_readiness() {
             probe_paths+=("${DD_STEP_PROBE_FIELDS[index + 2]}")
             probe_deadlines+=("$((started_at + DD_STEP_PROBE_FIELDS[index + 3]))")
             probe_ready+=(0)
+            if [[ ${role} == endpoint ]]; then
+                probe_listeners+=("${DD_STEP_STDOUT}.listening")
+            fi
         done
     done
     pending=${#probe_steps[@]}
@@ -266,6 +271,9 @@ dd_wait_for_role_readiness() {
                 printf 'runtime step %q readiness timed out\n' "${probe_steps[probe]}" >&2
                 return 70
             }
+            if [[ ${role} == endpoint && ! -f ${probe_listeners[probe]} ]]; then
+                continue
+            fi
             if curl --fail --silent --max-time 1 \
                 "http://${probe_hosts[probe]}:${probe_ports[probe]}${probe_paths[probe]}" >/dev/null 2>&1; then
                 ((SECONDS < probe_deadlines[probe])) || {
