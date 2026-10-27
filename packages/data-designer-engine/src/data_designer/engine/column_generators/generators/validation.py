@@ -99,12 +99,6 @@ class ValidationColumnGenerator(ColumnGeneratorFullColumn[ValidationColumnConfig
             else:
                 outputs_as_dicts = [output.model_dump(mode="json") for output in concatenated_outputs]
 
-        if len(outputs_as_dicts) != len(data):
-            raise DataDesignerRuntimeError(
-                f"Validator for column {self.config.name!r} returned {len(outputs_as_dicts)} results "
-                f"for {len(data)} records."
-            )
-
         # Match the input index so results stay aligned when upstream rows were dropped.
         validation_results = lazy.pd.DataFrame({self.config.name: outputs_as_dicts}, index=data.index)
         return lazy.pd.concat([data, validation_results], axis=1)
@@ -141,7 +135,15 @@ class ValidationColumnGenerator(ColumnGeneratorFullColumn[ValidationColumnConfig
 
     def _validate_batch(self, validator: BaseValidator, batch: list[dict]) -> ValidationResult:
         try:
-            return validator.run_validation(batch)
+            result = validator.run_validation(batch)
+            # Check each batch before results are flattened: a short batch and an excess batch could
+            # otherwise cancel out in the total and attach results to the wrong records.
+            if len(result.data) != len(batch):
+                raise DataDesignerRuntimeError(
+                    f"Validator for column {self.config.name!r} returned {len(result.data)} results "
+                    f"for a batch of {len(batch)} records."
+                )
+            return result
         except Exception as e:
             error_to_display = str(e).replace("\n", "\n  ")  # add spaces to improve readability
             logger.error(f"Batch could not be validated:\n  {error_to_display}")
