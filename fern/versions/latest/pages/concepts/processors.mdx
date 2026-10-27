@@ -67,7 +67,7 @@ processor = dd.DropColumnsProcessorConfig(
 - Columns specified in `column_names` are removed from the output
 - Original values are preserved in a separate parquet file
 - Missing columns produce a warning but don't fail the build
-- Column configs are automatically marked with `drop=True` when this processor is added
+- Columns targeted by this processor are marked with `drop=True` in the built config, whatever order columns and processors were added in
 
 **Use Cases:**
 

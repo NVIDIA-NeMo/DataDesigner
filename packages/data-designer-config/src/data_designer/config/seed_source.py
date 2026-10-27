@@ -6,17 +6,18 @@ from __future__ import annotations
 import codecs
 from abc import ABC
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, Self
 
 from pydantic import BaseModel, Field, PrivateAttr, field_validator, model_validator
-from typing_extensions import Self
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.errors import InvalidFilePathError
 from data_designer.config.utils.io_helpers import (
     VALID_DATASET_FILE_EXTENSIONS,
     validate_dataset_file_path,
     validate_path_contains_files_of_type,
 )
+from data_designer.config.utils.storage_encoding import encode_storage_table, read_dataframe_storage_plan
 from data_designer.config.utils.type_helpers import StrEnum
 
 if TYPE_CHECKING:
@@ -72,7 +73,12 @@ class LocalFileSeedSource(SeedSource):
 
     @classmethod
     def from_dataframe(cls, df: pd.DataFrame, path: str) -> Self:
-        df.to_parquet(path, index=False)
+        """Persist a local seed while preserving any DD JSON storage contract."""
+        plan = read_dataframe_storage_plan(df)
+        if plan.columns:
+            lazy.pq.write_table(encode_storage_table(df, plan), path)
+        else:
+            df.to_parquet(path, index=False)
         return cls(path=path)
 
 

@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import ast
 import importlib
 import importlib.metadata
 import os
@@ -11,6 +10,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import tomllib
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -46,12 +46,7 @@ DATA_DESIGNER_DISTRIBUTION_NAMES = (
 DATA_DESIGNER_PROJECT_NAMES = (*DATA_DESIGNER_DISTRIBUTION_NAMES, "data-designer-workspace")
 PIP_DATA_DESIGNER_CONSTRAINT_FILE_NAME = "data-designer-constraint.txt"
 DATA_DESIGNER_CONSTRAINT_PLACEHOLDER = "<temporary-data-designer-constraint-file>"
-UV_PLUGIN_INSTALL_MIN_VERSION = Version("0.10.0")
-
-try:
-    import tomllib
-except ModuleNotFoundError:  # pragma: no cover - exercised only on Python 3.10.
-    tomllib = None  # type: ignore[assignment]
+UV_PLUGIN_INSTALL_MIN_VERSION = Version("0.13.4")
 
 
 @dataclass(frozen=True)
@@ -475,94 +470,10 @@ def _load_pyproject_data(pyproject_path: Path) -> dict[str, Any]:
     except OSError:
         return {}
 
-    if tomllib is not None:
-        try:
-            data = tomllib.loads(text)
-        except tomllib.TOMLDecodeError:
-            return {}
-        return data if isinstance(data, dict) else {}
-
-    return _load_pyproject_markers_without_tomllib(text)
-
-
-def _load_pyproject_markers_without_tomllib(text: str) -> dict[str, Any]:
-    # Python 3.10 only needs a deliberately lossy fallback for install targeting,
-    # not a full TOML parser.
-    project: dict[str, Any] = {}
-    section = ""
-    dependencies: list[str] = []
-    collecting_dependencies = False
-
-    for raw_line in text.splitlines():
-        line = raw_line.split("#", maxsplit=1)[0].strip()
-        if not line:
-            continue
-        if collecting_dependencies:
-            dependency, complete = _parse_simple_toml_string_list_item(line)
-            if dependency is not None:
-                dependencies.append(dependency)
-            collecting_dependencies = not complete
-            continue
-        if line.startswith("[") and line.endswith("]"):
-            section = line.strip("[]").strip()
-            continue
-        if "=" not in line:
-            continue
-
-        key, raw_value = (part.strip() for part in line.split("=", maxsplit=1))
-        if section != "project":
-            continue
-        if key == "name":
-            project["name"] = _parse_simple_toml_value(raw_value)
-        elif key == "dependencies":
-            parsed_dependencies, complete = _parse_simple_toml_string_list(raw_value)
-            dependencies.extend(parsed_dependencies)
-            collecting_dependencies = not complete
-
-    data: dict[str, Any] = {}
-    if dependencies:
-        project["dependencies"] = dependencies
-    if project:
-        data["project"] = project
-    return data
-
-
-def _parse_simple_toml_string_list(raw_value: str) -> tuple[list[str], bool]:
-    value = raw_value.strip()
-    if not value.startswith("["):
-        return [], True
-    if value.endswith("]"):
-        try:
-            parsed_value = ast.literal_eval(value)
-        except (SyntaxError, ValueError):
-            parsed_value = None
-        if isinstance(parsed_value, list):
-            return [item for item in parsed_value if isinstance(item, str)], True
-
-    value = value.removeprefix("[").strip()
-    if not value:
-        return [], False
-
-    dependency, complete = _parse_simple_toml_string_list_item(value)
-    return ([dependency] if dependency is not None else []), complete
-
-
-def _parse_simple_toml_string_list_item(raw_value: str) -> tuple[str | None, bool]:
-    value = raw_value.strip()
-    complete = value.endswith("]")
-    if complete:
-        value = value.removesuffix("]").strip()
-    value = value.removesuffix(",").strip()
-    if not value:
-        return None, complete
-    return _parse_simple_toml_value(value), complete
-
-
-def _parse_simple_toml_value(raw_value: str) -> str | None:
-    value = raw_value.strip()
-    if (value.startswith('"') and value.endswith('"')) or (value.startswith("'") and value.endswith("'")):
-        return value[1:-1]
-    return None
+    try:
+        return tomllib.loads(text)
+    except tomllib.TOMLDecodeError:
+        return {}
 
 
 def _installed_data_designer_distribution_versions() -> dict[str, str]:

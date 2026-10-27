@@ -1,7 +1,7 @@
 [project]
 name = "data-designer-e2e-tests"
 version = "0.0.1"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 
 dependencies = [
   "data-designer",
@@ -30,10 +30,11 @@ env = [
 
 [tool.uv]
 package = true
-required-version = ">=0.7.10"
+required-version = ">=0.13.4"
 # Minimum versions for transitive dependencies with known security vulnerabilities.
 constraint-dependencies = [
   "aiohttp>=3.14.3",
+  "certifi>=2026.10.19",
   "cryptography>=50.0.0",
 ]
 

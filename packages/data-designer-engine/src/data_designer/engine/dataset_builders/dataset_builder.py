@@ -12,9 +12,10 @@ import logging
 import os
 import time
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any
 
 from pydantic import ValidationError
 
@@ -25,8 +26,8 @@ from data_designer.config.data_designer_config import DataDesignerConfig
 from data_designer.config.processors import (
     DropColumnsProcessorConfig,
     ProcessorConfig,
-    ProcessorType,
 )
+from data_designer.config.utils.storage_schema import JSON_STORAGE_RUN_KEY, JsonStoragePlan, compile_json_storage_schema
 from data_designer.config.utils.type_helpers import StrEnum
 from data_designer.config.version import get_library_version
 from data_designer.engine.column_generators.generators.base import (
@@ -67,6 +68,7 @@ from data_designer.engine.storage.artifact_storage import (
     ResumeMode,
 )
 from data_designer.engine.storage.media_storage import StorageMode
+from data_designer.engine.validation import resolve_processor_dropped_columns
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -194,14 +196,39 @@ class DatasetBuilder:
         # when a run produces 0 records due to deterministic failures.
         self._first_non_retryable_error: Exception | None = None
 
-        self._data_designer_config = compile_data_designer_config(data_designer_config, resource_provider)
-        self._column_configs = compile_dataset_builder_column_configs(self._data_designer_config)
+        self._data_designer_config = compile_data_designer_config(
+            data_designer_config, resource_provider, self._registry.processors
+        )
+        self._column_configs = compile_dataset_builder_column_configs(
+            self._data_designer_config,
+            seed_column_names=(
+                resource_provider.seed_reader.get_column_names() if resource_provider.seed_reader is not None else None
+            ),
+        )
         processors = self._initialize_processors(self._data_designer_config.processors or [])
         self._processor_runner = ProcessorRunner(
             processors=processors,
             artifact_storage=resource_provider.artifact_storage,
         )
         self._validate_column_configs()
+        columns = {}
+        if resource_provider.seed_reader is not None:
+            seed_plan = resource_provider.seed_reader.get_storage_plan()
+            if isinstance(seed_plan, JsonStoragePlan):
+                seed_column_names = [
+                    column.name
+                    for column in self.single_column_configs
+                    if column.column_type == DataDesignerColumnType.SEED_DATASET
+                ]
+                columns.update(seed_plan.restrict_to_columns(seed_column_names).columns)
+        for column in self.single_column_configs:
+            if column.storage_encoding == "json":
+                columns[column.name] = [[]]
+            elif getattr(column, "column_type", None) == "llm-structured":
+                _, paths = compile_json_storage_schema(column.output_format)
+                if paths:
+                    columns[column.name] = paths
+        self.artifact_storage.json_storage = JsonStoragePlan(columns=columns)
 
     @property
     def artifact_storage(self) -> ArtifactStorage:
@@ -415,6 +442,8 @@ class DatasetBuilder:
             return None
 
         post_generation_state = metadata.get("post_generation_state")
+        if not self._json_storage_policy_matches(metadata):
+            raise DatasetGenerationError("Cannot resume: JSON storage contract differs from the saved run")
         if post_generation_state == "started":
             raise DatasetGenerationError(
                 "🛑 Cannot resume: process_after_generation started but did not complete for this dataset. "
@@ -484,6 +513,9 @@ class DatasetBuilder:
         num_completed_batches, actual_num_records, completed_row_groups = self._recover_progress_from_disk(
             allow_holes=True,
         )
+
+        if not self._json_storage_policy_matches(metadata):
+            raise DatasetGenerationError("Cannot resume: JSON storage contract differs from the saved run")
 
         if num_records < actual_num_records:
             raise DatasetGenerationError(
@@ -678,6 +710,8 @@ class DatasetBuilder:
 
             if not self._dropped_column_artifact_policy_matches(metadata):
                 return _ConfigCompatibility.INCOMPATIBLE
+            if not self._json_storage_policy_matches(metadata):
+                return _ConfigCompatibility.INCOMPATIBLE
 
             stored_hash = metadata.get("config_hash")
             stored_version = metadata.get("config_hash_version")
@@ -720,6 +754,13 @@ class DatasetBuilder:
                 config_path,
             )
             return _ConfigCompatibility.INCOMPATIBLE
+
+    def _json_storage_policy_matches(self, metadata: dict[str, Any]) -> bool:
+        try:
+            stored = JsonStoragePlan.model_validate(metadata.get(JSON_STORAGE_RUN_KEY, {}))
+        except ValueError as exc:
+            raise DatasetGenerationError("Invalid JSON storage contract in run metadata") from exc
+        return stored == self.artifact_storage.json_storage
 
     def _dropped_column_artifact_policy_matches(self, metadata: dict[str, Any]) -> bool:
         """Return whether stored dropped-column artifact behavior matches this run.
@@ -1014,7 +1055,13 @@ class DatasetBuilder:
 
     def process_preview(self, dataset: pd.DataFrame) -> pd.DataFrame:
         df = self._processor_runner.run_post_batch(dataset.copy(), current_batch_number=None)
-        return self._processor_runner.run_after_generation_on_df(df)
+        df = self._processor_runner.run_after_generation_on_df(df)
+        storage_plan = self.artifact_storage.json_storage.restrict_to_columns(list(df.columns))
+        if storage_plan.columns:
+            df.attrs[JSON_STORAGE_RUN_KEY] = storage_plan.model_dump()
+        else:
+            df.attrs.pop(JSON_STORAGE_RUN_KEY, None)
+        return df
 
     def _has_image_columns(self) -> bool:
         """Check if config has any image generation columns."""
@@ -1056,6 +1103,9 @@ class DatasetBuilder:
     def _initialize_processors(self, processor_configs: list[ProcessorConfig]) -> list[Processor]:
         # Check columns marked for drop
         columns_to_drop = [config.name for config in self.single_column_configs if config.drop]
+        # Columns an explicit "drop columns" processor already handles take precedence, including glob targets
+        explicitly_dropped = resolve_processor_dropped_columns(self.single_column_configs, processor_configs)
+        columns_to_drop = [name for name in columns_to_drop if name not in explicitly_dropped]
 
         processors: list[Processor] = []
         for config in processor_configs:
@@ -1065,12 +1115,6 @@ class DatasetBuilder:
                     resource_provider=self._resource_provider,
                 )
             )
-
-            # Manually included "drop columns" processor takes precedence
-            if config.processor_type == ProcessorType.DROP_COLUMNS:
-                for column in config.column_names:
-                    if column in columns_to_drop:
-                        columns_to_drop.remove(column)
 
         # If there are still columns marked for drop, add the "drop columns" processor to drop them
         if len(columns_to_drop) > 0:

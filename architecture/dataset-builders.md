@@ -26,7 +26,7 @@ Preparation (`_prepare_async_run`):
 4. Constructs `CompletionTracker`, `RowGroupBufferManager`, `AsyncTaskScheduler`
 5. Hooks `ProcessorRunner` for pre-batch and post-batch stages
 
-`AsyncTaskScheduler` runs on a dedicated async loop with frontier-driven dispatch, task-admission leases, salvage rounds for failed tasks, and order-dependent locks for columns that must execute sequentially. Ready frontier tasks enter `FairTaskQueue`, are selected through virtual-time ordering, and are committed only after `TaskAdmissionController` acquires the required scheduler resources. Salvage-exhausted tasks are dropped except for preserved retryable failures: provider rate limits and local request-admission queue timeouts stay deferred and retry after cooldown/backoff so scheduler-local pressure delays records rather than discarding them.
+`AsyncTaskScheduler` runs on a dedicated async loop (a process-wide singleton from `ensure_async_engine_loop()`; a forked child drops the inherited loop and starts its own) with frontier-driven dispatch, task-admission leases, salvage rounds for failed tasks, and order-dependent locks for columns that must execute sequentially. Ready frontier tasks enter `FairTaskQueue`, are selected through virtual-time ordering, and are committed only after `TaskAdmissionController` acquires the required scheduler resources. Salvage-exhausted tasks are dropped except for preserved retryable failures: provider rate limits and local request-admission queue timeouts stay deferred and retry after cooldown/backoff so scheduler-local pressure delays records rather than discarding them.
 
 ### Execution Graph
 
@@ -67,6 +67,51 @@ Manages per-row-group DataFrames and persistence:
 - `checkpoint_row_group` → writes parquet via `ArtifactStorage`
 - Writes dataset metadata after the first durable row group and at completion
 - Tracks dropped rows and actual record counts for resume
+
+### Schema-directed JSON Storage
+
+Structured columns can mark a schema node with `x-data-designer-storage: json`; any column can opt
+into whole-column encoding with `storage_encoding="json"`. The config-layer storage compiler extracts
+a `JsonStoragePlan` without changing the declared logical schema. Response recipes receive a copy
+without DD storage annotations. Engine config validation reports proven native-storage failures as
+errors and data-dependent risks as warnings before model health checks or generation.
+The check respects dropped-column artifact policy and downgrades findings when plugin processors or
+conditional generation can change the eventual representation. Local-pointer traversal supports URI
+escapes and array indices; nested schema resources remain explicit unsupported boundaries.
+JSON storage within positional arrays with `prefixItems` requires encoding the enclosing array, since
+item wildcards visit prefix entries too; this also applies when the prefix and trailing items are split
+across local references.
+
+`ArtifactStorage` JSON-encodes selected values in a storage copy and writes explicit UTF-8 leaves.
+Parquet metadata (`data_designer.json_storage`) and run metadata (`json_storage`) persist the versioned
+contract. Shared config IO helpers decode it for results, processors, and workflows; seed readers
+discover the contract before DuckDB discards file metadata and decode materialized batches. Separate
+schema-transform outputs declare their own whole-column contract through `json_storage_columns`.
+Physical field paths and string leaves are validated even for empty/null-only files. Logical DataFrame
+seed handoffs retain their contract through `from_dataframe`; projections restrict it to retained seed
+columns so reusing an output name cannot inherit unrelated encoding. Contract paths are canonicalized
+before comparing batches or resume metadata.
+Loading main and dropped-column artifacts together merges their encoding contracts after column
+concatenation, so the combined logical DataFrame remains safe to reuse as a seed.
+Processed previews carry the active contract too; preview projections filter it before seed handoffs,
+and processors that drop an encoded column remove its carried policy.
+Row-buffer and batch-generator DataFrames preserve protected columns as Python objects, preventing
+pandas inference from replacing JSON nulls or rounding integers before encoding.
+Schema-transform outputs use the same logical materialization helper, and CSV normalization preserves
+object cells to retain protected scalar numbers and nulls through export.
+Schema transforms skip batches with no rows before checking output storage names, allowing later
+healthy batches to produce their artifacts. JSONL record splitting uses only newline delimiters so
+Unicode separators inside string values remain intact.
+Annotated DataFrame seeds register the encoded Arrow table directly with DuckDB after combining
+chunks, avoiding pandas schema re-inference and mismatched nested/native chunk boundaries.
+
+Resume compares the storage plan as well as the config fingerprint. Files with incompatible contracts
+cannot be combined. Main-dataset processors must preserve declared paths; automatic path remapping is
+unsupported. JSONL exports decode protected leaves after native date/null normalization so pandas does
+not round their numbers. External Parquet readers see JSON text, while DD reads restore logical values.
+CSV structured cells keep protected JSON numbers exact and normalize non-finite native siblings to
+JSON null. Statically impossible schema-transform storage output names fail config validation;
+dynamic template keys receive warnings and retain runtime checks.
 
 ### Resume Checkpointing
 

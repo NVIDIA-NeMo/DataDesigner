@@ -10,10 +10,10 @@ import logging
 import time
 import uuid
 from collections import Counter, defaultdict, deque
-from collections.abc import Coroutine, Mapping
+from collections.abc import Callable, Coroutine, Mapping
 from dataclasses import dataclass
 from threading import Event
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any
 
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.column_configs import ExpressionColumnConfig, GenerationStrategy
@@ -59,10 +59,7 @@ from data_designer.engine.dataset_builders.scheduling.task_admission import (
 from data_designer.engine.dataset_builders.scheduling.task_model import SliceRef, Task, TaskTrace
 from data_designer.engine.dataset_builders.scheduling.task_policies import BoundedBorrowTaskAdmissionPolicyConfig
 from data_designer.engine.dataset_builders.utils.skip_evaluator import should_skip_column_for_record
-from data_designer.engine.dataset_builders.utils.skip_tracker import (
-    apply_skip_to_record,
-    strip_skip_metadata_from_records,
-)
+from data_designer.engine.dataset_builders.utils.skip_tracker import apply_skip_to_record
 from data_designer.engine.errors import DataDesignerError
 from data_designer.engine.models.clients.errors import ProviderError
 from data_designer.engine.models.errors import (
@@ -1560,7 +1557,7 @@ class AsyncTaskScheduler:
     async def _wait_before_retryable_resalvage(self) -> None:
         """Pace repeated preserved retryable salvage cycles to avoid a hot loop."""
         self._wake_event.clear()
-        with contextlib.suppress(asyncio.TimeoutError):
+        with contextlib.suppress(TimeoutError):
             await asyncio.wait_for(self._wake_event.wait(), timeout=self._retryable_resalvage_delay_seconds())
         self._raise_if_fatal_worker_error()
 
@@ -2246,8 +2243,7 @@ class AsyncTaskScheduler:
             # empty DataFrame which would yield zero values and fail
             # ``update_batch``.
             if self._buffer_manager is not None:
-                records = [self._buffer_manager.get_row(task.row_group, ri) for ri in range(rg_size)]
-                input_df = lazy.pd.DataFrame(records)
+                input_df = self._buffer_manager.get_dataframe(task.row_group, row_indices=list(range(rg_size)))
             else:
                 input_df = lazy.pd.DataFrame(index=range(rg_size))
             result_df = await self._run_generator_call(
@@ -2292,8 +2288,7 @@ class AsyncTaskScheduler:
         if self._buffer_manager is not None:
             pre_dropped: set[int] = {ri for ri in range(rg_size) if self._buffer_manager.is_dropped(task.row_group, ri)}
             active_row_indices = [ri for ri in range(rg_size) if ri not in pre_dropped]
-            records = [self._buffer_manager.get_row(task.row_group, ri) for ri in active_row_indices]
-            input_df = lazy.pd.DataFrame(records, index=active_row_indices) if records else lazy.pd.DataFrame()
+            input_df = self._buffer_manager.get_dataframe(task.row_group, row_indices=active_row_indices)
         else:
             pre_dropped = set()
             active_row_indices = list(range(rg_size))
@@ -2413,7 +2408,6 @@ class AsyncTaskScheduler:
 
         if self._buffer_manager is not None:
             pre_dropped: set[int] = {ri for ri in range(rg_size) if self._buffer_manager.is_dropped(task.row_group, ri)}
-            active_rows_data: list[dict] = []
             active_row_indices: list[int] = []
 
             # Skip evaluation only applies to single-column configs.
@@ -2431,14 +2425,9 @@ class AsyncTaskScheduler:
                     pre_skipped.add(ri)
                     continue
 
-                active_rows_data.append(record)
                 active_row_indices.append(ri)
 
-            batch_df = (
-                lazy.pd.DataFrame(strip_skip_metadata_from_records(active_rows_data), index=active_row_indices)
-                if active_rows_data
-                else lazy.pd.DataFrame()
-            )
+            batch_df = self._buffer_manager.get_dataframe(task.row_group, row_indices=active_row_indices)
         else:
             batch_df = lazy.pd.DataFrame()
             pre_dropped = set()
