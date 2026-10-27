@@ -3,11 +3,10 @@
 
 from __future__ import annotations
 
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Protocol, Self, runtime_checkable
 
 from lxml.etree import _Element
 from pydantic import BaseModel, Field
-from typing_extensions import Self
 
 
 class LLMStructuredResponse(BaseModel):

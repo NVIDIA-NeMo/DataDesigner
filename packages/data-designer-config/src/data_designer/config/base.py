@@ -7,12 +7,12 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from functools import cached_property
+from typing import Literal, Self
 
 from jinja2 import meta as jinja2_meta
 from jinja2.exceptions import TemplateSyntaxError
 from jinja2.sandbox import ImmutableSandboxedEnvironment
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from typing_extensions import Self
 
 # Shared env for Jinja2 AST parsing (syntax checks + variable extraction).
 # Cannot reuse misc.py helpers because base.py must not import data_designer.*.
@@ -108,6 +108,10 @@ class SingleColumnConfig(ConfigBase, ABC):
         "a column with no SkipConfig still propagates upstream skips. "
         "Set to False for null-tolerant columns.",
     )
+    storage_encoding: Literal["json"] | None = Field(
+        default=None,
+        description="Opt-in whole-column JSON encoding in saved artifacts; DD readers restore logical values.",
+    )
 
     @model_validator(mode="after")
     def _validate_skip_scope(self) -> Self:
@@ -196,3 +200,11 @@ class ProcessorConfig(ConfigBase, ABC):
         description="The name of the processor, used to identify the processor in the results and to write the artifacts to disk.",
     )
     processor_type: str
+    columns_added: list[str] = Field(
+        default_factory=list,
+        description="Columns added during process_before_batch, available to downstream generation. Ignored for processors without a pre-batch callback.",
+    )
+    columns_removed: list[str] = Field(
+        default_factory=list,
+        description="Seed columns removed during process_before_batch, unavailable to downstream generation. Ignored for processors without a pre-batch callback.",
+    )

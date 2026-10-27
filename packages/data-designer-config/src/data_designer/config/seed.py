@@ -4,9 +4,9 @@
 from __future__ import annotations
 
 from enum import Enum
+from typing import Self
 
 from pydantic import Field, model_validator
-from typing_extensions import Self
 
 from data_designer.config.base import ConfigBase
 from data_designer.config.seed_source_types import SeedSourceT

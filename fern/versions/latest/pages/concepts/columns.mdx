@@ -119,6 +119,81 @@ Schema Complexity and Model Choice
 Flat schemas with simple fields are easier and more robustly produced across models. Deeply nested schemas with complex validation constraints are more sensitive to model choice—stronger models handle complexity better. If you're experiencing schema conformance issues, try simplifying the schema or switching to a more capable model.
 </Tip>
 
+#### Preserve flexible JSON in saved artifacts
+
+Dynamic dictionaries and heterogeneous arrays do not always have a faithful native Parquet
+representation. Mark a field for JSON storage when its contents must retain their JSON structure:
+
+```python
+from pydantic import BaseModel, Field, JsonValue
+
+
+class ToolCall(BaseModel):
+    tool: str
+    arguments: dict[str, JsonValue] = Field(
+        json_schema_extra={"x-data-designer-storage": "json"}
+    )
+
+
+class Oracle(BaseModel):
+    calls: list[ToolCall]
+```
+
+Pass `Oracle` as the structured column's `output_format`. You can also add
+`"x-data-designer-storage": "json"` directly to a JSON Schema field. The model generates
+ordinary objects, and validators, templates, processors, previews, and DD result loading use
+ordinary Python values. Only the storage copy is JSON-encoded. This preserves dynamic keys,
+explicit null values, empty objects, and heterogeneous arrays inside the annotated field.
+
+The annotation applies to the entire selected subtree. Supported traversal includes nested
+properties, homogeneous array items, and local references. For nullable fields or unions, annotate
+the enclosing field. Branch-dependent annotations, recursive traversal outside an encoded ancestor,
+and annotations inside dynamic dictionary values are unsupported: encode the containing field instead.
+Ancestor containers must have an explicit compatible type, directly or through a local reference.
+Annotation-bearing schemas use JSON Schema Draft 2020-12; nested `$id` resources require encoding
+an enclosing node so storage traversal does not cross a resource boundary.
+Unsupported declarations fail configuration validation before generation. A root annotation encodes
+the entire structured column.
+
+<Note>
+JSON storage is opt-in. Without annotations, successful native Parquet writes keep their existing
+behavior, including fixed-record normalization. Before model health checks or generation, config
+validation flags native storage risks with the affected column, schema location, and JSON-storage
+setting. Proven failures, such as a required empty object, are errors. Flexible dictionaries,
+heterogeneous unions, and other value-dependent risks produce warnings so you can opt in before
+spending on generation. Annotated subtrees are excluded from these checks.
+
+Columns discarded with `preserve_dropped_columns=False` do not require a storage representation.
+Custom processors and conditional generation can change the stored values, so their schema findings
+remain warnings rather than unconditional errors. Unsupported schema dialects or reference scopes
+also produce warnings when preflight cannot analyze them reliably.
+
+This preflight check covers known schema patterns; it cannot prove that every possible value or
+combination of batch values is storable. Custom columns without output schemas are checked when
+their values are written. If writing an unsupported value fails, DD reports the affected column and
+suggests JSON storage.
+</Note>
+
+DD saves encoded leaves as UTF-8 JSON text with versioned Parquet metadata. DD readers restore the
+logical values; external Parquet readers see strings and must decode them explicitly. JSONL exports
+restore nested JSON. CSV exports use JSON text for structured cells. Keep the metadata when copying
+or combining files. Mixed encoding contracts cannot be combined or appended during resume.
+Non-finite native numbers alongside an annotated subtree become JSON null in structured CSV cells;
+the protected subtree itself accepts finite JSON numbers only.
+
+The codec accepts JSON-compatible values only: string-keyed dictionaries, lists, strings, booleans,
+finite numbers, and null. Convert dates, decimals, bytes, or custom classes explicitly before storage.
+Changing a field's storage declaration requires a new run rather than resuming existing artifacts.
+
+For custom or other columns without an output schema, set `storage_encoding="json"` on the column
+config to encode its entire value. For a schema-transform processor's separate artifacts, set
+`json_storage_columns=["output_column"]` on its config. These output contracts are independent of
+the input dataset's annotations. Processors that reshape the main dataset must preserve the declared
+paths, or declare JSON storage for a containing column before generation.
+Processor JSON-storage names are checked against literal template output names before generation.
+When template keys are dynamic, DD warns if it cannot verify a requested name and checks the rendered
+output when writing.
+
 ### ⚖️ LLM-Judge Columns
 
 LLM-Judge columns score generated content across multiple quality dimensions using LLMs as evaluators.

@@ -78,7 +78,7 @@ an up-to-date plan does not tell you how the system works now; the code, `archit
 
 ### How a plan PR is reviewed
 
-Per [`.agents/recipes/pr-review/recipe.md`](../.agents/recipes/pr-review/recipe.md), a pull request
+Per [`.github/review-policy/SKILL.md`](../.github/review-policy/SKILL.md), a pull request
 that only touches `plans/` is reviewed on four things:
 
 1. **Completeness** — gaps, missing phases.

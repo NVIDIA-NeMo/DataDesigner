@@ -3,7 +3,7 @@ name = "data-designer-config"
 dynamic = ["version"]
 description = "Configuration layer for DataDesigner synthetic data generation"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = "Apache-2.0"
 
 classifiers = [
@@ -12,7 +12,6 @@ classifiers = [
     "Intended Audience :: Science/Research",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "License :: OSI Approved :: Apache Software License",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
@@ -25,7 +24,7 @@ dependencies = [
     "jinja2>=3.1.6,<4",
     "numpy>=1.23.5,<3",
     "pandas>=2.3.3,<4",
-    "pillow>=12.3.0,<14", # Pillow 13 requires Python >=3.11; Python 3.10 uses Pillow 12
+    "pillow>=13.0.0,<14",
     "pyarrow>=24,<25", # 24.0.0 fixes PyArrow security advisories
     "pydantic>=2.9.2,<3",
     "pygments>=2.20,<3",

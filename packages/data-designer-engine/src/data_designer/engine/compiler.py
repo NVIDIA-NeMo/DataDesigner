@@ -9,6 +9,8 @@ from data_designer.config.column_configs import SamplerColumnConfig, SeedDataset
 from data_designer.config.data_designer_config import DataDesignerConfig
 from data_designer.config.errors import InvalidConfigError
 from data_designer.config.sampler_params import UUIDSamplerParams
+from data_designer.engine.processing.processors.base import Processor
+from data_designer.engine.processing.processors.registry import ProcessorRegistry, create_default_processor_registry
 from data_designer.engine.resources.resource_provider import ResourceProvider
 from data_designer.engine.resources.seed_reader import SeedReader, SeedReaderConfigError
 from data_designer.engine.validation import (
@@ -21,11 +23,73 @@ from data_designer.engine.validation import (
 logger = logging.getLogger(__name__)
 
 
-def compile_data_designer_config(config: DataDesignerConfig, resource_provider: ResourceProvider) -> DataDesignerConfig:
+def compile_data_designer_config(
+    config: DataDesignerConfig,
+    resource_provider: ResourceProvider,
+    processor_registry: ProcessorRegistry | None = None,
+) -> DataDesignerConfig:
+    """Resolve seed and pre-batch schemas, then validate downstream generation.
+
+    Args:
+        config: Configuration to enrich in place.
+        resource_provider: Resources used to resolve the raw seed schema.
+        processor_registry: Runtime processor implementations used to identify
+            pre-batch callbacks. Defaults to the built-in and plugin registry.
+
+    Returns:
+        The enriched, validated configuration.
+
+    Raises:
+        InvalidConfigError: If seed resolution, processor declarations, or
+            downstream validation fail.
+    """
     _resolve_and_add_seed_columns(config, resource_provider.seed_reader)
+    _apply_processor_column_modifications(config, processor_registry or create_default_processor_registry())
+    _mark_processor_dropped_seed_columns(
+        config, [column for column in config.columns if isinstance(column, SeedDatasetColumnConfig)]
+    )
     _add_internal_row_id_column_if_needed(config)
-    _validate(config)
+    _validate(config, preserve_dropped_columns=resource_provider.run_config.preserve_dropped_columns)
     return config
+
+
+def _apply_processor_column_modifications(config: DataDesignerConfig, registry: ProcessorRegistry) -> None:
+    """Adjusts columns according to columns_added and columns_removed declared by processors."""
+    for processor in config.processors or []:
+        if not processor.columns_added and not processor.columns_removed:
+            continue
+        processor_cls = registry.get_for_config_type(type(processor))
+        if processor_cls.process_before_batch is Processor.process_before_batch:
+            continue
+        if processor.columns_removed:
+            current_columns = {col.name for col in config.columns}
+            for col_name in processor.columns_removed:
+                if col_name not in current_columns:
+                    raise InvalidConfigError(
+                        f"🛑 Processor '{processor.name}' cannot remove column '{col_name}' because it does not exist."
+                    )
+            for column in config.columns:
+                if column.name in processor.columns_removed and not isinstance(column, SeedDatasetColumnConfig):
+                    raise InvalidConfigError(
+                        f"🛑 Pre-batch processor '{processor.name}' can only remove seed columns; "
+                        f"'{column.name}' is a generated column."
+                    )
+            removed_set = set(processor.columns_removed)
+            config.columns = [col for col in config.columns if col.name not in removed_set]
+
+        if processor.columns_added:
+            if config.seed_config is None:
+                raise InvalidConfigError(
+                    f"🛑 Processor '{processor.name}' specifies 'columns_added', but no seed dataset is configured."
+                )
+            existing_columns = set(_get_allowed_references(config))
+            for col_name in processor.columns_added:
+                if col_name in existing_columns:
+                    raise InvalidConfigError(
+                        f"🛑 Processor '{processor.name}' adds column '{col_name}' which collides with an existing column."
+                    )
+                config.columns.append(SeedDatasetColumnConfig(name=col_name))
+                existing_columns.add(col_name)
 
 
 def _resolve_and_add_seed_columns(config: DataDesignerConfig, seed_reader: SeedReader | None) -> None:
@@ -50,7 +114,6 @@ def _resolve_and_add_seed_columns(config: DataDesignerConfig, seed_reader: SeedR
 
     seed_columns = [SeedDatasetColumnConfig(name=col_name) for col_name in seed_col_names]
     config.columns.extend(seed_columns)
-    _mark_processor_dropped_seed_columns(config, seed_columns)
 
 
 def _mark_processor_dropped_seed_columns(
@@ -84,9 +147,9 @@ def _add_internal_row_id_column_if_needed(config: DataDesignerConfig) -> None:
         config: The DataDesigner configuration to potentially modify.
     """
     has_sampler_column = any(isinstance(col, SamplerColumnConfig) for col in config.columns)
-    has_seed_dataset_column = any(isinstance(col, SeedDatasetColumnConfig) for col in config.columns)
+    has_seed_dataset = config.seed_config is not None
 
-    if not has_sampler_column and not has_seed_dataset_column:
+    if not has_sampler_column and not has_seed_dataset:
         logger.warning(
             "🔔 No sampler column or seed dataset detected. Adding UUID column '_internal_row_id' (marked for drop) to enable generation."
         )
@@ -99,12 +162,13 @@ def _add_internal_row_id_column_if_needed(config: DataDesignerConfig) -> None:
         config.columns.insert(0, id_column)
 
 
-def _validate(config: DataDesignerConfig) -> None:
+def _validate(config: DataDesignerConfig, *, preserve_dropped_columns: bool = True) -> None:
     allowed_references = _get_allowed_references(config)
     violations = validate_data_designer_config(
         columns=config.columns,
         processor_configs=config.processors or [],
         allowed_references=allowed_references,
+        preserve_dropped_columns=preserve_dropped_columns,
     )
     rich_print_violations(violations)
     if len([v for v in violations if v.level == ViolationLevel.ERROR]) > 0:

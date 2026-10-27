@@ -5,16 +5,17 @@ from __future__ import annotations
 
 import subprocess
 import sys
-from typing import Any
+from typing import Any, Literal
 
 import pytest
 import yaml
 from pydantic import BaseModel
 
 from data_designer.config.analysis.column_profilers import JudgeScoreProfilerConfig
-from data_designer.config.base import SkipConfig
+from data_designer.config.base import ProcessorConfig, SkipConfig
 from data_designer.config.column_configs import (
     CustomColumnConfig,
+    ExpressionColumnConfig,
     LLMTextColumnConfig,
     SamplerColumnConfig,
 )
@@ -47,6 +48,22 @@ def test_fingerprint_shape(stub_data_designer_config: DataDesignerConfig) -> Non
     digest = fp["config_hash"].split(":", 1)[1]
     assert len(digest) == 64  # sha256 hex
     assert all(c in "0123456789abcdef" for c in digest)
+
+
+def test_plugin_storage_named_fields_remain_part_of_fingerprint() -> None:
+    class FutureProcessorConfig(ProcessorConfig):
+        processor_type: Literal["future_encoder"] = "future_encoder"
+        json_storage_columns: list[str] | None = None
+
+    class PluginWorkload(DataDesignerConfig):
+        processors: list[FutureProcessorConfig]
+
+    columns = [SamplerColumnConfig(name="x", sampler_type="uniform", params=UniformSamplerParams(low=0, high=1))]
+    all_columns = PluginWorkload(columns=columns, processors=[FutureProcessorConfig(name="encoder")])
+    no_columns = PluginWorkload(
+        columns=columns, processors=[FutureProcessorConfig(name="encoder", json_storage_columns=[])]
+    )
+    assert all_columns.fingerprint() != no_columns.fingerprint()
 
 
 def test_fingerprint_deterministic_within_process(
@@ -192,6 +209,19 @@ def test_changing_top_level_processor_changes_hash() -> None:
     a = _make_minimal_config()
     b = _make_minimal_config(processors=[DropColumnsProcessorConfig(name="drop", column_names=["x"])])
     assert _compute_hash(a) != _compute_hash(b)
+
+
+@pytest.mark.parametrize("field", ["columns_added", "columns_removed"])
+def test_changing_processor_column_declarations_changes_hash(field: str) -> None:
+    hashes = {
+        _compute_hash(
+            _make_minimal_config(
+                processors=[DropColumnsProcessorConfig(name="drop", column_names=["x"], **{field: names})]
+            )
+        )
+        for names in ([], ["state"], ["region"])
+    }
+    assert len(hashes) == 3
 
 
 def test_changing_extra_body_changes_hash() -> None:
@@ -433,6 +463,21 @@ def test_tool_config_allow_tools_none_vs_empty_match() -> None:
     a = _make_minimal_config(tool_configs=[ToolConfig(tool_alias="t", providers=["p"], allow_tools=None)])
     b = _make_minimal_config(tool_configs=[ToolConfig(tool_alias="t", providers=["p"], allow_tools=[])])
     assert _compute_hash(a) == _compute_hash(b)
+
+
+@pytest.mark.parametrize("declarations", [{}, {"columns_added": [], "columns_removed": []}])
+def test_processor_empty_column_declarations_preserve_historical_hash(declarations: dict[str, list[str]]) -> None:
+    config = DataDesignerConfig(
+        columns=[ExpressionColumnConfig(name="a", expr="1"), ExpressionColumnConfig(name="b", expr="2")],
+        processors=[DropColumnsProcessorConfig(name="drop", column_names=["a"], **declarations)],
+    )
+
+    # Captured before columns_added and columns_removed became processor fields.
+    assert config.fingerprint() == {
+        "config_hash": "sha256:d08c41352d62e1d0c4691d8273d6b3ca3a755ff339f15d062ae00d1c0a7ed991",
+        "config_hash_algo": "sha256",
+        "config_hash_version": 2,
+    }
 
 
 # ---------------------------------------------------------------------------

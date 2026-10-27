@@ -7,6 +7,7 @@ import atexit
 import contextlib
 import hashlib
 import logging
+import os
 import threading
 import time
 import uuid
@@ -88,6 +89,9 @@ class OpenTelemetryRuntime:
         self._meter_provider: Any = None
         self._server: Any = None
         self._server_thread: threading.Thread | None = None
+        # Servers detached from the runtime whose sockets are not closed yet; the fork hook
+        # closes the child's copies of these too.
+        self._closing_servers: list[Any] = []
         self._start_http_server: Callable[..., Any] | None = None
         self._create_duration: Any = None
         self._dataset_records: Any = None
@@ -240,44 +244,91 @@ class OpenTelemetryRuntime:
         correlation = runtime_correlation_provider.current()
         if correlation is None:
             return
-        with self._lock:
-            if correlation.run_id not in self._active_run_ids:
-                return
-            self._log_records.add(1, {"log.severity": _log_severity(level)})
+        # Runs inside logging's handler lock, so it must not wait on the runtime lock: lifecycle
+        # steps and the fork hook hold the runtime lock while taking logging's locks. A counter
+        # detached concurrently still accepts the add; its provider is no longer exported.
+        log_records = self._log_records
+        if log_records is None or correlation.run_id not in self._active_run_ids:
+            return
+        log_records.add(1, {"log.severity": _log_severity(level)})
 
     def shutdown(self) -> None:
         with self._lock:
             if not self._initialized:
                 return
-            self._active_run_ids.clear()
-            self._active_dataset_runs.clear()
-            self._dataset_progress_value = None
-            self._active_request_attempts.clear()
-            server, thread = self._server, self._server_thread
-            provider, handler = self._meter_provider, self._log_handler
-            self._server = None
-            self._server_thread = None
-            self._port = None
-            self._meter_provider = None
-            self._registry = None
-            self._start_http_server = None
-            self._create_duration = None
-            self._dataset_records = None
-            self._dataset_progress = None
-            self._scheduler_events = None
-            self._active_model_requests = None
-            self._request_duration = None
-            self._log_records = None
-            self._log_handler = None
-            self._initialized = False
+            server, thread, provider, handler = self._detach_state()
+            if handler is not None:
+                logging.getLogger("data_designer").removeHandler(handler)
+                handler.close()
 
-        if handler is not None:
-            logging.getLogger("data_designer").removeHandler(handler)
-            handler.close()
-        _stop_server(server, thread)
+        self._release_server(server, thread)
         if provider is not None:
             with contextlib.suppress(Exception):
                 provider.shutdown()
+
+    def _before_fork(self) -> None:
+        # Hold the runtime lock across fork so a child never inherits a half-done transition,
+        # such as a server that is bound but not yet recorded, or a log handler attached during
+        # _initialize(). Initialization, server startup and log handler removal hold this lock;
+        # stopping a server does not, so detached servers stay on _closing_servers until closed.
+        self._lock.acquire()
+
+    def _after_fork_in_parent(self) -> None:
+        self._lock.release()
+
+    def _reset_after_fork(self) -> None:
+        # Only the forking thread survives, so any lock another parent thread held inside the SDK
+        # provider and instruments stays locked in the child. Drop all inherited state without
+        # calling into it; the next active run initializes fresh state. Close only this
+        # process's copies of the listening sockets, including servers another thread was still
+        # stopping, so a long-lived child does not keep the parent's metrics port bound.
+        # server.shutdown() would wait forever for a serve_forever() thread that does not exist
+        # here.
+        self._lock = threading.RLock()
+        handler = None
+        if self._initialized:
+            _, _, _, handler = self._detach_state()
+        if handler is not None:
+            # Taking the logging lock is safe: logging registers its own fork hooks at import,
+            # before this one, so it reinitializes its locks in the child before this hook runs.
+            logging.getLogger("data_designer").removeHandler(handler)
+        servers, self._closing_servers = self._closing_servers, []
+        for server in servers:
+            with contextlib.suppress(Exception):
+                server.socket.close()
+
+    def _release_server(self, server: Any, thread: threading.Thread | None) -> None:
+        _stop_server(server, thread)
+        if server is not None:
+            with self._lock, contextlib.suppress(ValueError):
+                self._closing_servers.remove(server)
+
+    def _detach_state(self) -> tuple[Any, threading.Thread | None, Any, logging.Handler | None]:
+        """Reset to the uninitialized state and return the resources the caller must release."""
+        server, thread = self._server, self._server_thread
+        provider, handler = self._meter_provider, self._log_handler
+        if server is not None:
+            self._closing_servers.append(server)
+        self._active_run_ids.clear()
+        self._active_dataset_runs.clear()
+        self._dataset_progress_value = None
+        self._active_request_attempts.clear()
+        self._server = None
+        self._server_thread = None
+        self._port = None
+        self._meter_provider = None
+        self._registry = None
+        self._start_http_server = None
+        self._create_duration = None
+        self._dataset_records = None
+        self._dataset_progress = None
+        self._scheduler_events = None
+        self._active_model_requests = None
+        self._request_duration = None
+        self._log_records = None
+        self._log_handler = None
+        self._initialized = False
+        return server, thread, provider, handler
 
     def _activate_run(self, run_id: str, port: int) -> bool:
         old_server: Any = None
@@ -303,7 +354,7 @@ class OpenTelemetryRuntime:
             logger.warning("OpenTelemetry metrics are unavailable; continuing without them.", exc_info=True)
             return False
 
-        _stop_server(old_server, old_thread)
+        self._release_server(old_server, old_thread)
         if bound_url is not None:
             logger.info("OpenTelemetry metrics available at %s", bound_url)
         if reused_url is not None:
@@ -412,6 +463,8 @@ class OpenTelemetryRuntime:
         server, thread = self._start_http_server(port=port, addr=_HOST, registry=self._registry)
         old_server, old_thread = self._server, self._server_thread
         self._server, self._server_thread, self._port = server, thread, port
+        if old_server is not None:
+            self._closing_servers.append(old_server)
         return old_server, old_thread
 
     @staticmethod
@@ -468,9 +521,12 @@ class OpenTelemetryRuntime:
         return failures
 
     def _record_create_duration(self, duration: float, error_type: str | None = None) -> None:
+        create_duration = self._create_duration
+        if create_duration is None:  # shut down while the run was active
+            return
         attributes = {"error.type": _bounded_attribute(error_type)} if error_type is not None else None
         try:
-            self._create_duration.record(duration, attributes)
+            create_duration.record(duration, attributes)
         except Exception:
             logger.warning("Failed to record OpenTelemetry create duration.", exc_info=True)
 
@@ -519,6 +575,12 @@ def _log_severity(level: int) -> str:
 
 _RUNTIME = OpenTelemetryRuntime()
 atexit.register(_RUNTIME.shutdown)
+if hasattr(os, "register_at_fork"):
+    os.register_at_fork(
+        before=_RUNTIME._before_fork,
+        after_in_parent=_RUNTIME._after_fork_in_parent,
+        after_in_child=_RUNTIME._reset_after_fork,
+    )
 
 
 def get_open_telemetry_runtime() -> OpenTelemetryRuntime:

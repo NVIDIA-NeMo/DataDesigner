@@ -7,9 +7,7 @@ import logging
 import os
 import threading
 from importlib.metadata import entry_points
-from typing import TypeAlias
-
-from typing_extensions import Self
+from typing import Self, TypeAlias
 
 from data_designer.plugins.errors import PluginNotFoundError
 from data_designer.plugins.plugin import Plugin, PluginType

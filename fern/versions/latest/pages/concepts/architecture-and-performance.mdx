@@ -448,6 +448,8 @@ The endpoint binds only to loopback and has no authentication. It is intended fo
 
 Prometheus pull is metrics-only: `data_designer.log.records` counts safe log metadata, not raw log bodies. Existing raw logs continue to use the configured stdout and file handlers and should be collected from those outputs. The Python Prometheus exporter does not support multiprocessing, so this endpoint is unsupported for multiprocessing-based collection.
 
+A process forked after the parent started the endpoint does not inherit it. The child starts with no metrics state and closes its copy of the parent's listening socket, so the parent's endpoint keeps serving only the parent's metrics. An enabled `create()` in the child starts the child's own listener: on the parent's port the bind fails, the child logs a warning, and the run continues without metrics. To scrape forked workers, give each one a distinct `otel_metrics_port`.
+
 ## Common Problems
 
 | Problem | Symptom | Solution |
