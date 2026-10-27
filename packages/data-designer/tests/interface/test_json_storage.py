@@ -48,6 +48,7 @@ def json_results(tmp_path: Path, stub_dataset_profiler_results: DatasetProfilerR
         analysis=stub_dataset_profiler_results,
         config_builder=DataDesignerConfigBuilder(),
         dataset_metadata=DatasetMetadata(),
+        requested_num_records=3,
     )
 
 
