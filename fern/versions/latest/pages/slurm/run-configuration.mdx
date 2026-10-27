@@ -51,7 +51,18 @@ Slurm schedules the job in one of the selected partitions. For runs with local d
 
 ## External model providers
 
-Configure hosted endpoints through DD's normal `model_providers.yaml`, outside the Slurm run file:
+Configure hosted endpoints in DD's normal provider settings on the host where you run the Slurm submission command. The default file is `~/.data-designer/model_providers.yaml`.
+
+`DATA_DESIGNER_HOME` is an optional environment variable that changes DD's settings directory. If it is unset, DD uses `~/.data-designer`. To use a different directory, set it before launching the Slurm CLI:
+
+```bash
+export DATA_DESIGNER_HOME="$HOME/dd-settings"
+mkdir -p "$DATA_DESIGNER_HOME"
+```
+
+With this override, the provider file is `$DATA_DESIGNER_HOME/model_providers.yaml`. See [Default Model Settings](/concepts/models/default-model-settings#how-default-model-providers-and-configurations-work) for more about DD's settings files.
+
+Add the hosted provider to the `providers` list in that file. Provider definitions are separate from the recipe's `model_configs` and the Slurm run file:
 
 ```yaml
 providers:
