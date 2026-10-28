@@ -96,6 +96,9 @@ dd_slurm_run_allocation() {
     dd_require_running
     DD_RUNTIME_PHASE=ready
     dd_run_bound_control_phase ready
+    if ((DD_EXPECTED_GPUS > 0)); then
+        dd_start_health_monitor
+    fi
 
     DD_RUNTIME_PHASE=client
     dd_runtime_log 'Starting Data Designer client...'
@@ -237,6 +240,7 @@ dd_start_endpoints() {
         rm -f -- "${DD_STEP_STDOUT}.listening"
         dd_start_step "${DD_RUNTIME_MANIFEST}" "${step_id}"
         dd_register_required_pid "${DD_LAST_PID}"
+        DD_ENDPOINT_PIDS+=("${DD_LAST_PID}")
         dd_require_running
     done
 }

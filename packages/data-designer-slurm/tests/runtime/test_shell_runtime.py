@@ -764,6 +764,10 @@ if [[ ${command} == */python3 ]]; then
             fi
         done
     fi
+    if [[ ${operation} == monitor ]]; then
+        trap 'exit 0' TERM INT
+        while :; do sleep 0.1; done
+    fi
     exit 0
 fi
 case ${command} in

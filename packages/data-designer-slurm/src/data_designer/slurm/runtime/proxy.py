@@ -15,9 +15,17 @@ from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from types import SimpleNamespace
+from typing import TYPE_CHECKING
 from urllib.parse import SplitResult, urlsplit
 
 from aiohttp import ClientError, ClientResponse, ClientSession, ClientTimeout, TCPConnector, TraceConfig, web
+
+if TYPE_CHECKING:
+    from aiohttp.client_proto import ResponseHandler
+    from aiohttp.client_reqrep import ConnectionKey
+    from aiohttp.connector import Connection
+    from aiohttp.tracing import Trace
 
 from data_designer.slurm.runtime.network import validate_host_name
 
@@ -81,9 +89,6 @@ class _BackendPool:
         self._active[index] += 1
         return index
 
-    def acquire_index(self, index: int) -> None:
-        self._active[index] += 1
-
     def release(self, index: int) -> None:
         if self._active[index] <= 0:
             raise RuntimeError("backend activity underflow")
@@ -102,6 +107,8 @@ class _ProxyMetrics:
         self.connection_opened = 0
         self.connection_reused = 0
         self.connection_failed = 0
+        self.connection_evicted: int = 0
+        self.timeouts: int = 0
         self.retries: Counter[str] = Counter()
         self.final_statuses: Counter[int] = Counter()
         self.backend_requests: Counter[int] = Counter()
@@ -116,9 +123,11 @@ class _ProxyMetrics:
                 "opened": self.connection_opened,
                 "reused": self.connection_reused,
                 "failed": self.connection_failed,
+                "evicted": self.connection_evicted,
                 "idle": idle_connections,
             },
             "retries": dict(sorted(self.retries.items())),
+            "timeouts": self.timeouts,
             "final_statuses": {str(key): value for key, value in sorted(self.final_statuses.items())},
             "backends": [
                 {
@@ -128,6 +137,73 @@ class _ProxyMetrics:
                 }
                 for index, active in enumerate(pool.active_counts())
             ],
+        }
+
+
+class _ProxyConnector(TCPConnector):
+    """Observe pool evictions, for which aiohttp has no public trace signal.
+
+    Keep these hooks limited to the supported aiohttp 3.x connector lifecycle.
+    Shutdown closes are excluded; stale, expired, and discarded connections count.
+    """
+
+    def __init__(self, metrics: _ProxyMetrics, backend_count: int) -> None:
+        self._metrics: _ProxyMetrics = metrics
+        super().__init__(
+            limit=_MAXIMUM_CONNECTIONS,
+            limit_per_host=max(1, _MAXIMUM_CONNECTIONS // backend_count),
+            keepalive_timeout=_KEEPALIVE_TIMEOUT_SECONDS,
+            force_close=False,
+            socket_factory=_create_socket,
+        )
+
+    def _cleanup(self) -> None:
+        before = sum(len(connections) for connections in self._conns.values())
+        super()._cleanup()
+        self._metrics.connection_evicted += before - sum(len(connections) for connections in self._conns.values())
+
+    async def _get(self, key: ConnectionKey, traces: list[Trace]) -> Connection | None:
+        before = len(self._conns.get(key, ()))
+        connection = await super()._get(key, traces)
+        self._metrics.connection_evicted += max(0, before - len(self._conns.get(key, ())) - int(connection is not None))
+        return connection
+
+    def _release(self, key: ConnectionKey, protocol: ResponseHandler, *, should_close: bool = False) -> None:
+        if not self._closed and (should_close or protocol.should_close):
+            self._metrics.connection_evicted += 1
+        super()._release(key, protocol, should_close=should_close)
+
+
+@dataclass(slots=True)
+class _AttemptTrace:
+    backend_index: int
+    upstream: str
+    started_at: float
+    outcome: str = "cancelled"
+    connection_started_at: float | None = None
+    connection_seconds: float | None = None
+    response_headers_seconds: float | None = None
+    response_seconds: float = 0.0
+    reused: bool = False
+
+    def finish(self, outcome: str) -> None:
+        now = time.monotonic()
+        self.outcome = outcome
+        self.response_seconds = now - self.started_at
+        if self.connection_seconds is None and self.connection_started_at is not None:
+            self.connection_seconds = now - self.connection_started_at
+
+    def snapshot(self) -> dict[str, object]:
+        return {
+            "backend_index": self.backend_index,
+            "upstream": self.upstream,
+            "outcome": self.outcome,
+            "connection_reused": self.reused,
+            "connection_seconds": None if self.connection_seconds is None else round(self.connection_seconds, 6),
+            "response_headers_seconds": (
+                None if self.response_headers_seconds is None else round(self.response_headers_seconds, 6)
+            ),
+            "response_seconds": round(self.response_seconds, 6),
         }
 
 
@@ -146,6 +222,7 @@ class _ProxyApplication:
         self.metrics = _ProxyMetrics()
         self.connector: TCPConnector | None = None
         self.session: ClientSession | None = None
+        self.health_session: ClientSession | None = None
 
     def create(self) -> web.Application:
         application = web.Application(client_max_size=_MAXIMUM_REQUEST_BYTES)
@@ -159,14 +236,7 @@ class _ProxyApplication:
     async def _start(self, application: web.Application) -> None:
         del application
         trace = self._trace_config()
-        per_backend_limit = max(1, _MAXIMUM_CONNECTIONS // len(self.pool.backends))
-        self.connector = TCPConnector(
-            limit=_MAXIMUM_CONNECTIONS,
-            limit_per_host=per_backend_limit,
-            keepalive_timeout=_KEEPALIVE_TIMEOUT_SECONDS,
-            force_close=False,
-            socket_factory=_create_socket,
-        )
+        self.connector = _ProxyConnector(self.metrics, len(self.pool.backends))
         self.session = ClientSession(
             connector=self.connector,
             timeout=ClientTimeout(
@@ -178,21 +248,43 @@ class _ProxyApplication:
             raise_for_status=False,
             trace_configs=[trace],
         )
+        # Health probes must not wait behind saturated inference connection slots.
+        self.health_session = ClientSession(
+            connector=TCPConnector(limit=len(self.pool.backends), limit_per_host=1, socket_factory=_create_socket),
+            timeout=ClientTimeout(total=_CONNECT_TIMEOUT_SECONDS),
+            auto_decompress=False,
+        )
 
     async def _stop(self, application: web.Application) -> None:
         del application
         if self.session is not None:
             await self.session.close()
+        if self.health_session is not None:
+            await self.health_session.close()
 
     def _trace_config(self) -> TraceConfig:
         trace = TraceConfig()
 
-        async def connection_opened(*_: object) -> None:
+        async def connection_started(session: ClientSession, context: SimpleNamespace, params: object) -> None:
+            del session, params
+            if isinstance(context.trace_request_ctx, _AttemptTrace):
+                context.trace_request_ctx.connection_started_at = time.monotonic()
+
+        async def connection_opened(session: ClientSession, context: SimpleNamespace, params: object) -> None:
+            del session, params
             self.metrics.connection_opened += 1
+            if isinstance(attempt := context.trace_request_ctx, _AttemptTrace):
+                if attempt.connection_started_at is not None:
+                    attempt.connection_seconds = time.monotonic() - attempt.connection_started_at
 
-        async def connection_reused(*_: object) -> None:
+        async def connection_reused(session: ClientSession, context: SimpleNamespace, params: object) -> None:
+            del session, params
             self.metrics.connection_reused += 1
+            if isinstance(attempt := context.trace_request_ctx, _AttemptTrace):
+                attempt.reused = True
+                attempt.connection_seconds = 0.0
 
+        trace.on_connection_create_start.append(connection_started)
         trace.on_connection_create_end.append(connection_opened)
         trace.on_connection_reuseconn.append(connection_reused)
         return trace
@@ -213,20 +305,17 @@ class _ProxyApplication:
         )
 
     async def _probe_backend(self, index: int, backend: _Backend) -> bool:
-        session = self._require_session()
-        self.pool.acquire_index(index)
+        del index
+        if self.health_session is None:
+            raise RuntimeError("proxy health session is not started")
         try:
-            async with session.get(
+            async with self.health_session.get(
                 f"{backend.origin}{self.health_path}",
-                timeout=ClientTimeout(total=_CONNECT_TIMEOUT_SECONDS),
-                trace_request_ctx={"backend_index": index},
             ) as response:
                 await response.read()
                 return response.status == 200
         except (TimeoutError, ClientError):
             return False
-        finally:
-            self.pool.release(index)
 
     async def _metrics(self, request: web.Request) -> web.Response:
         del request
@@ -238,7 +327,7 @@ class _ProxyApplication:
         self.metrics.requests += 1
         body = await request.read()
         excluded: set[int] = set()
-        outcomes: list[str] = []
+        outcomes: list[_AttemptTrace] = []
         attempt_limit = min(_MAXIMUM_UPSTREAM_ATTEMPTS, len(self.pool.backends))
         final_response: ClientResponse | None = None
         final_index: int | None = None
@@ -250,12 +339,17 @@ class _ProxyApplication:
             backend = self.pool.backends[index]
             self.metrics.attempts += 1
             self.metrics.backend_requests[index] += 1
+            attempt_trace = _AttemptTrace(index, backend.origin, time.monotonic())
+            outcomes.append(attempt_trace)
             try:
-                response = await self._request_backend(request, backend, body, index)
+                response = await self._request_backend(request, backend, body, attempt_trace)
+                attempt_trace.response_headers_seconds = time.monotonic() - attempt_trace.started_at
             except (TimeoutError, ClientError) as error:
                 self.metrics.connection_failed += 1
                 reason = "timeout" if isinstance(error, asyncio.TimeoutError) else "connection_error"
-                outcomes.append(reason)
+                attempt_trace.finish(reason)
+                if reason == "timeout":
+                    self.metrics.timeouts += 1
                 self.pool.release(index)
                 excluded.add(index)
                 if attempt + 1 < attempt_limit:
@@ -275,10 +369,12 @@ class _ProxyApplication:
                 self._record_final(502, outcomes, started_at)
                 return result
             except BaseException:
+                attempt_trace.finish("cancelled")
+                self._record_final(499, outcomes, started_at, response_completed=False)
                 self.pool.release(index)
                 raise
 
-            outcomes.append(str(response.status))
+            attempt_trace.finish(str(response.status))
             should_retry = response.status in _RETRYABLE_STATUS_CODES and attempt + 1 < attempt_limit
             if should_retry:
                 reason = f"http_{response.status}"
@@ -300,8 +396,19 @@ class _ProxyApplication:
             raise RuntimeError("proxy attempt loop produced no final response")
         try:
             result = await self._stream_response(request, final_response)
+            attempt_trace.finish(str(final_response.status))
             self._record_final(final_response.status, outcomes, started_at)
             return result
+        except (TimeoutError, ClientError, ConnectionError, asyncio.CancelledError) as error:
+            reason = "stream_error"
+            if isinstance(error, TimeoutError):
+                reason = "stream_timeout"
+                self.metrics.timeouts += 1
+            elif isinstance(error, asyncio.CancelledError):
+                reason = "cancelled"
+            attempt_trace.finish(reason)
+            self._record_final(final_response.status, outcomes, started_at, response_completed=False)
+            raise
         finally:
             final_response.release()
             self.pool.release(final_index)
@@ -311,7 +418,7 @@ class _ProxyApplication:
         request: web.Request,
         backend: _Backend,
         body: bytes,
-        index: int,
+        attempt_trace: _AttemptTrace,
     ) -> ClientResponse:
         session = self._require_session()
         headers = _filter_request_headers(request.headers)
@@ -321,7 +428,7 @@ class _ProxyApplication:
             data=body,
             headers=headers,
             allow_redirects=False,
-            trace_request_ctx={"backend_index": index},
+            trace_request_ctx=attempt_trace,
         )
 
     async def _stream_response(self, request: web.Request, response: ClientResponse) -> web.StreamResponse:
@@ -337,7 +444,14 @@ class _ProxyApplication:
         await downstream.write_eof()
         return downstream
 
-    def _record_final(self, status: int, outcomes: list[str], started_at: float) -> None:
+    def _record_final(
+        self,
+        status: int,
+        outcomes: list[_AttemptTrace],
+        started_at: float,
+        *,
+        response_completed: bool = True,
+    ) -> None:
         self.metrics.final_statuses[status] += 1
         _LOGGER.info(
             "slurm_proxy_request %s",
@@ -345,7 +459,9 @@ class _ProxyApplication:
                 {
                     "attempts": len(outcomes),
                     "final_status": status,
-                    "upstream_outcomes": outcomes,
+                    "upstream_outcomes": [attempt.outcome for attempt in outcomes],
+                    "upstream_attempts": [attempt.snapshot() for attempt in outcomes],
+                    "response_completed": response_completed,
                     "elapsed_seconds": round(time.monotonic() - started_at, 6),
                     "failover": len(outcomes) > 1,
                 },
@@ -395,6 +511,7 @@ def _create_socket(
 
 def main(arguments: Sequence[str] | None = None) -> int:
     """Serve one loopback logical endpoint until the step is terminated."""
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
     parser = argparse.ArgumentParser(prog="data-designer-slurm-proxy")
     parser.add_argument("--listen-port", required=True, type=int)
     parser.add_argument("--backend", action="append", required=True)

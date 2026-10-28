@@ -3,6 +3,8 @@
 
 DD_MANAGED_PIDS=()
 DD_REQUIRED_PIDS=()
+DD_ENDPOINT_PIDS=()
+DD_HEALTH_PID=
 DD_CLEANUP_COMPLETE=0
 
 dd_start_runtime_timer() {
@@ -44,25 +46,40 @@ dd_wait_for_client() {
 
 dd_cleanup_steps() {
     ((DD_CLEANUP_COMPLETE == 0)) || return 0
-    local index pid position
-    local -a indices=()
-    ((${#DD_MANAGED_PIDS[@]} == 0)) || indices=("${!DD_MANAGED_PIDS[@]}")
-    for ((position = ${#indices[@]} - 1; position >= 0; position--)); do
-        index=${indices[position]}
-        pid=${DD_MANAGED_PIDS[index]}
+    if [[ -n ${DD_HEALTH_PID} ]]; then
+        dd_stop_steps 1 "${DD_HEALTH_PID}"
+    fi
+    # The proxy drains for 10 seconds; allow srun time to forward signals and exit.
+    dd_stop_steps 12 "${DD_ENDPOINT_PIDS[@]+"${DD_ENDPOINT_PIDS[@]}"}"
+    dd_stop_steps 1 "${DD_MANAGED_PIDS[@]+"${DD_MANAGED_PIDS[@]}"}"
+    DD_CLEANUP_COMPLETE=1
+}
+
+dd_stop_steps() {
+    local grace_seconds=$1
+    shift
+    (($# > 0)) || return 0
+    local pid pending deadline=$((SECONDS + grace_seconds))
+    for pid in "$@"; do
         kill -0 "${pid}" 2>/dev/null && kill -TERM "${pid}" 2>/dev/null || true
     done
-    dd_sleep 0.2
-    for ((position = ${#indices[@]} - 1; position >= 0; position--)); do
-        index=${indices[position]}
-        pid=${DD_MANAGED_PIDS[index]}
+    while ((SECONDS < deadline)); do
+        pending=0
+        for pid in "$@"; do
+            if kill -0 "${pid}" 2>/dev/null; then
+                pending=1
+                break
+            fi
+        done
+        ((pending != 0)) || break
+        dd_sleep 0.1
+    done
+    for pid in "$@"; do
         kill -0 "${pid}" 2>/dev/null && kill -KILL "${pid}" 2>/dev/null || true
     done
-    for ((position = ${#indices[@]} - 1; position >= 0; position--)); do
-        index=${indices[position]}
-        wait "${DD_MANAGED_PIDS[index]}" 2>/dev/null || true
+    for pid in "$@"; do
+        wait "${pid}" 2>/dev/null || true
     done
-    DD_CLEANUP_COMPLETE=1
 }
 
 dd_stop_runtime_timer() {

@@ -155,9 +155,27 @@ dd_run_step() {
 }
 
 dd_run_control_phase() {
+    dd_build_control_command "$@"
+    (
+        dd_scope_control_environment
+        exec "${DD_CONTROL_COMMAND[@]}"
+    )
+}
+
+dd_start_health_monitor() {
+    dd_build_control_command monitor "${DD_RUNTIME_RETRY_ARGUMENTS[@]+"${DD_RUNTIME_RETRY_ARGUMENTS[@]}"}"
+    (
+        dd_scope_control_environment
+        exec "${DD_CONTROL_COMMAND[@]}"
+    ) &
+    DD_HEALTH_PID=$!
+    dd_register_required_pid "${DD_HEALTH_PID}"
+}
+
+dd_build_control_command() {
     local operation=$1
     shift
-    local -a command=(
+    DD_CONTROL_COMMAND=(
         srun
         --nodes=1
         --ntasks=1
@@ -178,9 +196,5 @@ dd_run_control_phase() {
         --attempt-dir
         "${DD_ATTEMPT_PATH}"
         "$@"
-    )
-    (
-        dd_scope_control_environment
-        exec "${command[@]}"
     )
 }
