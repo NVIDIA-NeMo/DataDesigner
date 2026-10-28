@@ -153,6 +153,74 @@ def test_cast_type_invalid_dtype():
         generator._cast_type("test_value")
 
 
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (str(2**53 - 1), 2**53 - 1),
+        (str(2**53), 2**53),
+        (str(2**53 + 1), 2**53 + 1),
+        (str(-(2**53 - 1)), -(2**53 - 1)),
+        (str(-(2**53)), -(2**53)),
+        (str(-(2**53 + 1)), -(2**53 + 1)),
+        (str(2**63 - 1), 2**63 - 1),
+        (str(-(2**63)), -(2**63)),
+        (" 42 ", 42),
+        ("+7", 7),
+        ("3.0", 3),
+        ("1e3", 1000),
+        ("-3.9", -3),
+    ],
+)
+def test_cast_type_int_keeps_exact_values(value: str, expected: int) -> None:
+    generator = _create_test_generator(_create_test_config("number", "{{ value }}", "int"))
+
+    result = generator._cast_type(value)
+
+    assert type(result) is int
+    assert result == expected
+
+
+@pytest.mark.parametrize(
+    ("value", "error"),
+    [
+        ("not-a-number", ValueError),
+        ("nan", ValueError),
+        ("inf", OverflowError),
+        ("1e400", OverflowError),
+        pytest.param("9" * 309, OverflowError, id="309-digits"),
+        pytest.param("-" + "9" * 309, OverflowError, id="minus-309-digits"),
+    ],
+)
+def test_cast_type_int_rejects_invalid_values(value: str, error: type[Exception]) -> None:
+    generator = _create_test_generator(_create_test_config("number", "{{ value }}", "int"))
+
+    with pytest.raises(error):
+        generator._cast_type(value)
+
+
+def test_generate_int_dtype_preserves_large_values() -> None:
+    values = [2**53 + 1, 2**63 - 1, -(2**63)]
+    config = _create_test_config("number", "{{ value }}", "int")
+    generator = _create_test_generator(config)
+    df = lazy.pd.DataFrame({"value": values})
+
+    result = generator.generate(df)
+
+    assert result["number"].dtype == "int64"
+    assert result["number"].tolist() == values
+
+
+def test_generate_int_dtype_drops_only_the_out_of_range_row() -> None:
+    config = _create_test_config("number", "{{ value }}", "int")
+    generator = _create_test_generator(config)
+    df = lazy.pd.DataFrame({"value": ["1", "9" * 309, "3"]})
+
+    result = generator.generate(df)
+
+    assert result.index.tolist() == [0, 2]
+    assert result["number"].tolist() == [1, 3]
+
+
 def test_generate_with_missing_columns():
     config = _create_test_config("test_column", "{{ col1 }}", "str")
     generator = _create_test_generator(config)
