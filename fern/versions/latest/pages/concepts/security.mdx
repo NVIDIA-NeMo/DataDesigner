@@ -33,11 +33,7 @@ With `uv add`, `-c` applies to that command's resolution. To keep the floors dur
 
 The repository audits the committed workspace lockfile and separately resolved end-to-end test dependencies against OSV daily, on demand, and on dependency-related PRs and pushes to `main`. Unrelated PRs do not trigger these checks. A constraints file records reviewed version floors; ongoing scans detect newly disclosed vulnerabilities. Audit your application's complete dependency set as well, including plugins and other packages you add.
 
-### Known Unresolved Advisory
-
-As of October 26, 2026, [CVE-2026-114501 / GHSA-654x-cwwv-5j9c](https://github.com/python-pillow/Pillow/security/advisories/GHSA-654x-cwwv-5j9c) affects Pillow 11.2.1 through 13.0.0, and upstream lists no patched release. It can expose uninitialized memory when exporting images to Arrow with `PILLOW_ALIGNMENT` set above 1. Avoid that combination while the advisory remains unresolved.
-
-The Pillow 13 version floor addresses other published vulnerabilities; it does not fix this advisory. OSV currently does not report it for Pillow 13, so a passing dependency scan does not close this finding. Consult the upstream advisory when assessing your deployment.
+Constraints and dependency audits cover known advisories and depend on the coverage and freshness of advisory databases. Consult upstream advisories when assessing a finding; constraints and a passing scan do not guarantee that every vulnerability has been resolved.
 
 ## Jinja Rendering Modes
 

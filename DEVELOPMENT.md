@@ -272,13 +272,8 @@ The `uv add -c` flag applies to that resolution only. Applications should retain
 in their own `[tool.uv].constraint-dependencies` and commit their lockfile. See the
 [dependency security guide](https://docs.nvidia.com/nemo/datadesigner/concepts/security#dependency-security).
 
-#### Open upstream findings
-
-CVE-2026-114501 (GHSA-654x-cwwv-5j9c) remains open for Pillow 13.0.0, with no patched
-release listed upstream as of October 26, 2026. OSV currently omits this affected version.
-Track it in the [dependency security guide](https://docs.nvidia.com/nemo/datadesigner/concepts/security#known-unresolved-advisory)
-and verify upstream affected ranges before treating a clean scan as resolution.
-The Pillow minimum is enforced by the published package requirement, not duplicated in constraints.
+Advisory databases can lag upstream updates. Verify upstream affected ranges when assessing
+a finding; a clean scan alone does not establish that every known security issue is resolved.
 
 #### CA trust remediation exception
 
