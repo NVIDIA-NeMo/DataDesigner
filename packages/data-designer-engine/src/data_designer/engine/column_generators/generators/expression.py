@@ -120,7 +120,16 @@ class ExpressionColumnGenerator(WithJinja2UserTemplateRendering, ColumnGenerator
         elif self.config.dtype == "float":
             return float(value)
         elif self.config.dtype == "int":
-            return int(float(value))
+            # Parse integer strings directly so values beyond 2**53 keep their exact value.
+            # Float-looking strings such as "3.0" or "1e3" still go through float().
+            try:
+                result = int(value)
+            except ValueError:
+                return int(float(value))
+            # pandas cannot build a column from an int beyond the float range, so reject it
+            # here and drop only this row, as int(float(value)) did.
+            float(result)
+            return result
         elif self.config.dtype == "bool":
             try:
                 return bool(int(float(value)))
