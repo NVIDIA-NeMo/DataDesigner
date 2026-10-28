@@ -107,13 +107,16 @@ def test_native_phases_use_the_supplied_host_attempt_directory(
         entrypoint._client(client, {}, client_worker=ClientWorkerProcess(executor=lambda command: 0))
 
 
-@pytest.mark.skipif(sys.platform != "linux", reason="worker validates Linux allocation port settings")
+@pytest.mark.parametrize("ephemeral", ("32768 60999", "9000 65000"))
 def test_client_phase_installs_and_runs_plugin_in_default_worker_process(
     monkeypatch: pytest.MonkeyPatch,
     runtime_case: RuntimeCase,
     fake_plugin_overlay: Path,
     tmp_path: Path,
+    port_sysctls: Path,
+    ephemeral: str,
 ) -> None:
+    (port_sysctls / "ip_local_port_range").write_text(ephemeral)
     case = _prepare_plugin_runtime_case(runtime_case, fake_plugin_overlay, tmp_path)
     scratch_root = tmp_path / "scratch"
     scratch_root.mkdir()
@@ -122,7 +125,7 @@ def test_client_phase_installs_and_runs_plugin_in_default_worker_process(
     runtime_case.context = case.context
     _patch_runtime_context(monkeypatch, runtime_case, state)
     assert "data_designer.config.column_types" in sys.modules
-    _use_controlled_image_inventory(monkeypatch, case.image_metadata_directory)
+    _use_controlled_image_inventory(monkeypatch, case.image_metadata_directory, port_sysctls)
 
     allocation = resolve_allocation_plan(case.context.plan, {"SLURM_JOB_GPUS": "0"})
     endpoint = f"generator=http://127.0.0.1:{allocation.client.ports[0].port}/v1"
@@ -456,6 +459,11 @@ def _write_inventory_bootstrap(
 import importlib.metadata
 import os
 import sys
+from pathlib import Path
+
+from data_designer.slurm.runtime import network
+
+network._SYSCTL_ROOT = Path(os.environ["DATA_DESIGNER_TEST_SYSCTL_ROOT"])
 
 _distributions = importlib.metadata.distributions
 
@@ -475,13 +483,16 @@ importlib.metadata.distributions = _controlled_distributions
     return image_metadata_directory
 
 
-def _use_controlled_image_inventory(monkeypatch: pytest.MonkeyPatch, image_metadata_directory: Path) -> None:
-    """Limit child-process inventory discovery to the plan runtime and installed overlay."""
+def _use_controlled_image_inventory(
+    monkeypatch: pytest.MonkeyPatch, image_metadata_directory: Path, port_sysctls: Path
+) -> None:
+    """Keep child-process inventory and port-policy reads within test fixtures."""
     bootstrap_directory = image_metadata_directory.parent
     python_path = os.environ.get("PYTHONPATH")
     paths = (bootstrap_directory.as_posix(),) if python_path is None else (bootstrap_directory.as_posix(), python_path)
     monkeypatch.setenv("PYTHONPATH", os.pathsep.join(paths))
     monkeypatch.setenv("DATA_DESIGNER_TEST_IMAGE_METADATA", image_metadata_directory.as_posix())
+    monkeypatch.setenv("DATA_DESIGNER_TEST_SYSCTL_ROOT", port_sysctls.as_posix())
 
 
 def _phase_arguments(

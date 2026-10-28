@@ -38,7 +38,11 @@ def get_service_ports() -> tuple[int, ...]:
     """
     try:
         ephemeral_start, ephemeral_end = map(int, (_SYSCTL_ROOT / "ip_local_port_range").read_text().split())
-        unprivileged_start = int((_SYSCTL_ROOT / "ip_unprivileged_port_start").read_text())
+        try:
+            unprivileged_start = int((_SYSCTL_ROOT / "ip_unprivileged_port_start").read_text())
+        except FileNotFoundError:
+            # Kernels without this sysctl use a fixed privileged-port boundary.
+            unprivileged_start = 1024
         if not 1 <= ephemeral_start <= ephemeral_end < _PORT_RANGE_END or not 0 <= unprivileged_start < _PORT_RANGE_END:
             raise ValueError("invalid port range")
         reserved: set[int] = set()

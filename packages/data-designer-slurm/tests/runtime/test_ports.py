@@ -118,11 +118,13 @@ def test_service_ports_respect_effective_kernel_ranges(
         ("ip_local_port_range", ""),
         ("ip_local_port_range", "0 65535"),
         ("ip_local_port_range", "65000 9000"),
+        ("ip_local_port_range", None),
         ("ip_local_reserved_ports", "10000-9999"),
         ("ip_local_reserved_ports", "10000-10001-10002"),
         ("ip_local_reserved_ports", "65536"),
+        ("ip_local_reserved_ports", None),
+        ("ip_unprivileged_port_start", "invalid"),
         ("ip_unprivileged_port_start", "65536"),
-        ("ip_unprivileged_port_start", None),
     ),
 )
 def test_service_ports_fail_closed_on_unavailable_kernel_settings(
@@ -133,6 +135,29 @@ def test_service_ports_fail_closed_on_unavailable_kernel_settings(
         path.unlink()
     else:
         path.write_text(value)
+
+    with pytest.raises(SlurmRuntimeError, match="cannot read effective TCP"):
+        get_service_ports()
+
+
+@pytest.mark.parametrize("ephemeral", ("32768 60999", "9000 65000"))
+def test_service_ports_support_missing_unprivileged_threshold(port_sysctls: Path, ephemeral: str) -> None:
+    (port_sysctls / "ip_local_port_range").write_text(ephemeral)
+    expected = get_service_ports()
+    (port_sysctls / "ip_unprivileged_port_start").unlink()
+
+    assert get_service_ports() == expected
+
+
+def test_service_ports_reject_unreadable_unprivileged_threshold(monkeypatch: pytest.MonkeyPatch) -> None:
+    read_text = Path.read_text
+
+    def read(path: Path, *args: object, **kwargs: object) -> str:
+        if path.name == "ip_unprivileged_port_start":
+            raise PermissionError("injected unreadable setting")
+        return read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", read)
 
     with pytest.raises(SlurmRuntimeError, match="cannot read effective TCP"):
         get_service_ports()
