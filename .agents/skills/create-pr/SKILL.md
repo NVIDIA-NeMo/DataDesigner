@@ -1,7 +1,6 @@
 ---
 name: create-pr
-description: Create a GitHub PR with a well-formatted description matching the repository PR template (flat Changes by default; optional Added/Changed/Removed/Fixed grouping)
-argument-hint: [special instructions]
+description: Create a GitHub PR with a well-formatted description matching the repository PR template (flat Changes by default; optional Added/Changed/Removed/Fixed grouping). The argument may contain special instructions for the pull-request summary.
 disable-model-invocation: true
 metadata:
     internal: true
