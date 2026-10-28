@@ -187,6 +187,8 @@ def test_cast_type_int_keeps_exact_values(value: str, expected: int) -> None:
         ("nan", ValueError),
         ("inf", OverflowError),
         ("1e400", OverflowError),
+        pytest.param("9" * 309, OverflowError, id="309-digits"),
+        pytest.param("-" + "9" * 309, OverflowError, id="minus-309-digits"),
     ],
 )
 def test_cast_type_int_rejects_invalid_values(value: str, error: type[Exception]) -> None:
@@ -206,6 +208,17 @@ def test_generate_int_dtype_preserves_large_values() -> None:
 
     assert result["number"].dtype == "int64"
     assert result["number"].tolist() == values
+
+
+def test_generate_int_dtype_drops_only_the_out_of_range_row() -> None:
+    config = _create_test_config("number", "{{ value }}", "int")
+    generator = _create_test_generator(config)
+    df = lazy.pd.DataFrame({"value": ["1", "9" * 309, "3"]})
+
+    result = generator.generate(df)
+
+    assert result.index.tolist() == [0, 2]
+    assert result["number"].tolist() == [1, 3]
 
 
 def test_generate_with_missing_columns():
