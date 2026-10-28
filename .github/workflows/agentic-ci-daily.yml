@@ -180,6 +180,24 @@ jobs:
             echo "API pre-flight passed (HTTP ${HTTP_CODE})"
           fi
 
+      - name: Invalidate cached docs audit completion
+        id: reset_docs_scope
+        if: matrix.suite == 'docs-and-references'
+        run: |
+          STATE=.agentic-ci-state/runner-state.json
+          if [ -f "$STATE" ]; then
+            if jq '.fix_backlog = ((.fix_backlog // []) | map(
+              .data = (if (.data | type) == "object" then .data else {} end)
+              | .data.scope_complete = false
+            ))' "$STATE" > "${STATE}.tmp"; then
+              mv "${STATE}.tmp" "$STATE"
+            else
+              echo "::warning::Invalid docs state; audit may repair it, but fixes are disabled for this run"
+              rm -f "${STATE}.tmp"
+              echo "ready=false" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
       - name: Run audit recipe
         id: audit
         env:
@@ -227,14 +245,15 @@ jobs:
 
       - name: Check fix backlog
         id: backlog
-        if: steps.audit.outcome == 'success' && matrix.suite != 'test-health'
+        if: steps.audit.outcome == 'success' && matrix.suite != 'test-health' && steps.reset_docs_scope.outputs.ready != 'false'
         env:
           SUITE: ${{ matrix.suite }}
         run: |
           BACKLOG_SIZE=$(jq --arg suite "$SUITE" '
             (.fix_backlog // [])
             | if $suite == "docs-and-references" then
-                map(select(.data.scope_complete == true
+                map(select(.data | type == "object")
+                  | select(.data.scope_complete == true
                   and (.data.task_key | type == "string" and length > 0)))
               else . end
             | length
@@ -385,6 +404,10 @@ jobs:
               FILE_COUNT=${#FILE_ARR[@]}
               if [ "$FILE_COUNT" -gt 0 ]; then
                 BAD=$(printf '%s\n' "${FILE_ARR[@]}" | grep -vE "$ALLOW" | grep -v '^$' || true)
+                DEVNOTES=$(printf '%s\n' "${FILE_ARR[@]}" | grep '^fern/versions/latest/pages/devnotes/' || true)
+                if [ -n "$DEVNOTES" ]; then
+                  BAD="${BAD}${BAD:+$'\n'}${DEVNOTES}"
+                fi
               else
                 BAD=""
               fi

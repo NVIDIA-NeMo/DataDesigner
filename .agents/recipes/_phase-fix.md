@@ -23,9 +23,10 @@ This invocation runs the **FIX** phase only.
   `_fix-policy.md` declare the category batchable, include eligible sibling
   entries from the existing `fix_backlog` after re-verifying each one.
   Do not scan for findings that are not already in `fix_backlog`.
-- Apply the worth-reviewing bar before editing and again after removing stale
-  findings. Keep isolated cosmetic findings in the backlog without recording
-  failed attempts. Do not split a task into small PRs to fit the scope caps.
+- For docs tasks, apply the worth-reviewing bar before editing and again after
+  removing stale findings. Keep isolated cosmetic findings in the backlog
+  without recording failed attempts. Do not split a task into small PRs to
+  fit the scope caps.
 - Record each attempted fix in `attempted_fixes` (whether successful or
   abandoned) before exiting. Do not record deferrals. Batch PRs record
   one attempt per fixed finding, all pointing to the same PR and branch.

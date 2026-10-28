@@ -137,6 +137,10 @@ make test-run-tutorials    # run tutorial notebooks as tests
 make test-run-recipes      # run recipe scripts as tests
 ```
 
+The agentic workflow backlog tests require `jq` (`brew install jq` on macOS
+or `sudo apt-get install jq` on Ubuntu). They skip locally when it is missing;
+CI ensures it is installed.
+
 ### Test Patterns
 
 The project uses `pytest` with the following patterns:

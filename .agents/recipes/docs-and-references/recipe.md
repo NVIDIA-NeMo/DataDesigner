@@ -46,8 +46,14 @@ sampling unrelated sections until the first easy fix appears.
    existing docs backlog entries before scanning.
 3. Choose one subsystem or API migration using pending backlog entries and
    recent code changes. Prefer user-facing breakage, then related accumulated
-   drift. Declare its stable `task_key`, relevant symbols/settings, and paths
-   in the report (for example, `models/request-admission`).
+   drift. Exclude findings whose latest attempt is open or merged, or that
+   have two closed/abandoned attempts. Rotate away from `docs_last_task_key`
+   when another eligible scope is available, especially if the previous scope
+   was incomplete or deferred. Keep oversized or unsafe scopes report-only
+   until their per-entry `data.blocked_reason` is resolved by new evidence
+   or maintainer action. Declare its stable `task_key`, relevant
+   symbols/settings, and paths in the report (for example,
+   `models/request-admission`).
 4. Search the allowlisted documentation for those symbols, renamed settings,
    links, and examples. Inspect the related matches as one scope, up to 10
    editable files, plus the source needed to establish the correct behavior.
@@ -58,11 +64,13 @@ sampling unrelated sections until the first easy fix appears.
    that no longer apply.
 5. Use at most 20 tool calls, reserving the last 3 for the report and state.
    If the scope cannot be fully checked within this budget or the docs diff
-   limits, leave it incomplete and report what remains. Do not mark a sampled
+   limits, leave it incomplete and record what remains in `data.blocked_reason`
+   and `data.blocked_at` on its backlog entries. Do not mark a sampled
    subset complete to produce a smaller PR. Otherwise set
    `data.scope_complete: true` on every eligible entry in the task.
-6. Finalize the report and runner memory. Record scope completion, expected
-   impact, and any deferred findings. Write `NO_FINDINGS` only if no findings
+6. Finalize the report and runner memory. Save `docs_last_task_key`.
+   Record scope completion, expected impact, and any deferred
+   findings. Write `NO_FINDINGS` only if no findings
    were verified, including previously known findings.
 
 ### 1. Docstring vs signature drift

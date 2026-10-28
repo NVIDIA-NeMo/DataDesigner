@@ -34,12 +34,15 @@ A maintenance task may be converted to a PR only if all hold:
   span eligible categories within one subsystem or API migration. The combined
   diff must satisfy the scope limits. If a task cannot fit, report it for
   maintainer action instead of splitting it into a sequence of tiny PRs.
-- **Worth reviewing**: fix a concrete runtime/install failure, broken public
-  example, or broken user-facing documentation link; otherwise require at
-  least two related eligible findings. An isolated cosmetic or metadata-hygiene
-  finding stays in `fix_backlog`, even if it is easy or old. Do not bundle
+- **Worth reviewing (docs-and-references)**: fix a concrete runtime/install
+  failure, broken public example, or broken user-facing documentation link;
+  otherwise require at least two related eligible findings. An isolated
+  cosmetic or metadata-hygiene finding stays in `fix_backlog`, even if it is
+  easy or old. Do not bundle
   unrelated findings or add changes just to meet this bar. Deferral is not a
   failed attempt and must not add an `attempted_fixes` entry.
+  Other suites retain their recipe-defined singleton eligibility and batching
+  rules; this threshold must not disable non-batchable code-fix categories.
 - **Allowlisted paths**: matches the suite's path allowlist.
 
 If the top-ranked candidate fails the bar, try the next. If none of the top
@@ -51,7 +54,7 @@ If the top-ranked candidate fails the bar, try the next. If none of the top
 
 | Suite | Paths the recipe MAY modify |
 |-------|-----------------------------|
-| docs-and-references | `architecture/**`, `fern/versions/latest/pages/**`, `README.md`, `CONTRIBUTING.md`, `DEVELOPMENT.md`, `STYLEGUIDE.md`, `packages/*/src/**/*.py` (docstring-only edits) |
+| docs-and-references | `architecture/**`, `fern/versions/latest/pages/**` (excluding `devnotes/**`), `README.md`, `CONTRIBUTING.md`, `DEVELOPMENT.md`, `STYLEGUIDE.md`, `packages/*/src/**/*.py` (docstring-only edits) |
 | dependencies | `packages/*/pyproject.toml`, `uv.lock` |
 | structure | `packages/*/src/**/*.py` |
 | code-quality | `packages/*/src/**/*.py` |
@@ -101,8 +104,9 @@ shared diff once, and update every associated finding together on rejection.
 ### `fix_backlog` rules (audit phase populates this)
 
 - Append every detected finding in an eligible category. If `id` is already
-  present, **refresh both `last_seen` and `data`** with the current scan's
-  values. The `data` field is used by the fix phase to apply the change
+  present, **refresh `last_seen` and merge the current scan's values into
+  `data`**, preserving `blocked_reason` and `blocked_at` as described below.
+  The `data` field is used by the fix phase to apply the change
   without re-scanning, so stale `data` would let an old plan drive a new
   PR after the underlying file moved or changed.
 - Drop entries with `last_seen` older than 30 days.
@@ -112,6 +116,9 @@ shared diff once, and update every associated finding together on rejection.
 - Batchable categories must include enough information in `data` to group
   siblings safely. For package-scoped Python fixes, derive `test_target` from
   the package containing the source file.
+- Preserve `data.blocked_reason` and `data.blocked_at` across audit refreshes.
+  Clear them only when new source evidence or maintainer action resolves the
+  recorded blocker, not merely because the finding was seen again.
 - Docs findings also carry `data.task_key` (a stable subsystem or API-migration
   key) and `data.scope_complete` (whether that task's bounded audit finished).
   Reset `scope_complete` to `false` on existing docs backlog entries at the
@@ -212,7 +219,8 @@ declare only the parts that vary (eligible categories, branch type,
    `Repeatedly-failed fix attempts` section and drop them from selection.
 3. Group the remainder into tasks per the suite recipe, then rank per the
    Ranking section. Docs tasks require `data.scope_complete: true` on every
-   entry. Skip tasks below the worth-reviewing bar without recording attempts;
+   entry. Skip tasks with any member carrying `data.blocked_reason` and surface
+   the blocker for maintainer action. Skip tasks below the worth-reviewing bar without recording attempts;
    leave them in the backlog and explain the deferral in the report.
 4. For each primary candidate, top 5 max:
    1. If the suite declares the category batchable, collect sibling
@@ -227,8 +235,14 @@ declare only the parts that vary (eligible categories, branch type,
       primary no longer applies, remove it from `fix_backlog` and continue
       to the next primary candidate.
    3. Recheck the worth-reviewing bar after removing stale findings. Defer a
-      task that no longer meets it. Apply the complete task; if a known
-      eligible member cannot be fixed safely, abandon the whole task.
+      task that no longer meets it. If a known member cannot be fixed safely
+      during re-verification, defer the whole
+      task for maintainer action without recording attempts for any member.
+      Persist `data.blocked_reason` and `data.blocked_at` on each task member
+      so later runs skip the task until an audit resolves the blocker.
+      Do not omit that member to produce a partial PR. Only failures after
+      beginning edits or PR creation count as abandoned attempts.
+      Apply the complete task only after every member passes re-verification.
       If the combined diff exceeds the localized-fix bar or touches a
       non-allowlisted path, abandon and continue.
    4. If the category sets `test_required: true`, run the per-package

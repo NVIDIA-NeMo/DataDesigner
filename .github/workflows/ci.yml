@@ -124,6 +124,17 @@ jobs:
       - name: Install data-designer (full package)
         run: uv sync --package data-designer
 
+      - name: Ensure jq for workflow tests
+        run: |
+          if ! command -v jq >/dev/null; then
+            if [ "$RUNNER_OS" = "macOS" ]; then
+              brew install jq
+            else
+              sudo apt-get update && sudo apt-get install -y jq
+            fi
+          fi
+          jq --version
+
       - name: Run interface tests
         run: |
           uv run --with pytest --with pytest-asyncio --with pytest-httpx --with pytest-env \
