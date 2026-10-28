@@ -476,6 +476,19 @@ def test_seed_reader_requires_attach_before_use() -> None:
         reader.get_seed_dataset_size()
 
 
+def test_local_file_seed_reader_escapes_single_quotes_in_path(tmp_path: Path) -> None:
+    quoted_dir = tmp_path / "o'brien"
+    quoted_dir.mkdir()
+    seed_path = quoted_dir / "seed.parquet"
+    lazy.pd.DataFrame({"name": ["a", "b"]}).to_parquet(seed_path)
+
+    reader = LocalFileSeedReader()
+    reader.attach(LocalFileSeedSource(path=str(seed_path)), PlaintextResolver())
+
+    assert reader.get_seed_dataset_size() == 2
+    assert reader.get_column_names() == ["name"]
+
+
 def test_plugin_style_filesystem_seed_reader_needs_only_manifest_builder(tmp_path: Path) -> None:
     (tmp_path / "alpha.txt").write_text("alpha", encoding="utf-8")
     (tmp_path / "nested").mkdir()

@@ -55,6 +55,11 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _as_sql_literal(value: str) -> str:
+    """Return ``value`` as a DuckDB string literal, escaping embedded single quotes."""
+    return "'" + value.replace("'", "''") + "'"
+
+
 class SeedReaderError(DataDesignerError): ...
 
 
@@ -88,7 +93,7 @@ class LocalFileSystemProvider:
     def ensure_root_exists(self, *, runtime_path: str) -> None:
         resolved_root_path = Path(runtime_path).expanduser().resolve()
         if not resolved_root_path.is_dir():
-            raise SeedReaderConfigError(f"🛑 Seed source directory '{resolved_root_path}' does not exist.")
+            raise SeedReaderConfigError(f"馃洃 Seed source directory '{resolved_root_path}' does not exist.")
 
 
 class SeedReaderBatch(Protocol):
@@ -298,7 +303,7 @@ class SeedReader(ABC, Generic[SourceT]):
     def get_seed_dataset_size(self) -> int:
         self._ensure_attached()
         conn = self._get_duckdb_connection()
-        return conn.execute(f"SELECT COUNT(*) FROM '{self.get_dataset_uri()}'").fetchone()[0]
+        return conn.execute(f"SELECT COUNT(*) FROM {_as_sql_literal(self.get_dataset_uri())}").fetchone()[0]
 
     def create_batch_reader(
         self,
@@ -349,7 +354,7 @@ class SeedReader(ABC, Generic[SourceT]):
         """Returns the seed dataset's column names"""
         self._ensure_attached()
         conn = self._get_duckdb_connection()
-        describe_query = f"DESCRIBE SELECT * FROM '{self.get_dataset_uri()}'"
+        describe_query = f"DESCRIBE SELECT * FROM {_as_sql_literal(self.get_dataset_uri())}"
         column_descriptions = conn.execute(describe_query).fetchall()
         return [col[0] for col in column_descriptions]
 
@@ -378,12 +383,12 @@ class SeedReader(ABC, Generic[SourceT]):
             offset_value = index_range.start
             limit_value = index_range.end - index_range.start + 1
             read_query = f"""
-                SELECT * FROM '{dataset_uri}'
+                SELECT * FROM {_as_sql_literal(dataset_uri)}
                 LIMIT {limit_value} OFFSET {offset_value}
             """
             return f"SELECT * FROM ({read_query}){shuffle_query}"
 
-        return f"SELECT * FROM '{dataset_uri}'{shuffle_query}"
+        return f"SELECT * FROM {_as_sql_literal(dataset_uri)}{shuffle_query}"
 
     def get_seed_type(self) -> str:
         """Return the seed_type of the source class this reader is generic over."""
@@ -775,7 +780,7 @@ class AgentRolloutSeedReader(FileSystemSeedReader[AgentRolloutSeedSource]):
         root_path = context.root_path
         if not isinstance(root_path, Path):
             raise SeedReaderConfigError(
-                f"🛑 Agent rollout seed readers require a local filesystem, but got non-local root path "
+                f"馃洃 Agent rollout seed readers require a local filesystem, but got non-local root path "
                 f"{root_path!r} ({type(root_path).__name__})."
             )
         handler = self.get_format_handler()
