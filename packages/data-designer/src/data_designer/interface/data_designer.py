@@ -27,6 +27,7 @@ from data_designer.config.mcp import MCPProviderT
 from data_designer.config.models import (
     ModelConfig,
     ModelProvider,
+    load_model_configs,
 )
 from data_designer.config.preview_results import PreviewResults
 from data_designer.config.run_config import JinjaRenderingEngine, RunConfig
@@ -44,6 +45,7 @@ from data_designer.engine.mcp.io import list_tool_names
 from data_designer.engine.model_provider import ModelProviderRegistry, resolve_model_provider_registry
 from data_designer.engine.models.clients.adapters.http_model_client import ClientConcurrencyMode
 from data_designer.engine.models.errors import RETRYABLE_MODEL_ERRORS
+from data_designer.engine.models.factory import create_model_registry
 from data_designer.engine.readiness import run_readiness_check
 from data_designer.engine.resources.person_reader import (
     PersonReader,
@@ -647,7 +649,13 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         self._run_config = run_config
         self._request_admission = self._create_request_admission_controller()
 
-    def get_models(self, model_aliases: list[str]) -> dict[str, ModelFacade]:
+    def get_models(
+        self,
+        model_aliases: list[str],
+        *,
+        model_configs: list[ModelConfig] | str | Path | None = None,
+        client_concurrency_mode: ClientConcurrencyMode = ClientConcurrencyMode.SYNC,
+    ) -> dict[str, ModelFacade]:
         """Get a dict of ModelFacade instances for custom column development.
 
         Use this to experiment with custom column generator functions outside of
@@ -656,17 +664,37 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
 
         Args:
             model_aliases: List of model aliases to include in the dict.
+            model_configs: Model configurations, a YAML string, or a config file path.
+                If None, uses the default model configurations. When provided, aliases
+                are resolved only from these configurations.
+            client_concurrency_mode: Sync clients by default. Use
+                `ClientConcurrencyMode.ASYNC` for async facade methods.
 
         Returns:
             Dict mapping alias to ModelFacade instance.
+
+        Notes:
+            Creates no dataset artifacts and requires no managed person assets.
+            Call `close()` on each sync facade or await `aclose()` on each async
+            facade when finished.
         """
-        config_builder = DataDesignerConfigBuilder()
-        resource_provider = self._create_resource_provider(
-            "dev",
-            config_builder,
-            client_concurrency_mode=ClientConcurrencyMode.SYNC,
+        client_concurrency_mode = ClientConcurrencyMode(client_concurrency_mode)
+        resolved_configs = get_default_model_configs() if model_configs is None else load_model_configs(model_configs)
+        if len({config.alias for config in resolved_configs}) != len(resolved_configs):
+            raise ValueError("Model config aliases must be unique.")
+
+        model_registry = create_model_registry(
+            model_configs=resolved_configs,
+            secret_resolver=self._secret_resolver,
+            model_provider_registry=self._model_provider_registry,
+            client_concurrency_mode=client_concurrency_mode,
+            run_config=self._run_config,
+            request_admission=self._request_admission,
+            request_event_sink=self._open_telemetry if self._run_config.otel_metrics_port is not None else None,
         )
-        return {alias: resource_provider.model_registry.get_model(model_alias=alias) for alias in model_aliases}
+        for alias in model_aliases:
+            model_registry.get_model_config(model_alias=alias)
+        return {alias: model_registry.get_model(model_alias=alias) for alias in model_aliases}
 
     def _resolve_model_providers(self, model_providers: list[ModelProvider] | None) -> list[ModelProvider]:
         if model_providers is None:
