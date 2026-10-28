@@ -746,7 +746,9 @@ def test_execute_preserves_sanitized_config_diagnostic(tmp_path: Path) -> None:
 
 
 def test_execute_bounds_large_config_diagnostic(tmp_path: Path) -> None:
-    run_file = tmp_path / f"{'x' * 240}.json"
+    run_dir = tmp_path / ("x" * 240)
+    run_dir.mkdir()
+    run_file = run_dir / f"{'x' * 240}.json"
     run_file.write_text(json.dumps({f"unknown_field_{index}": index for index in range(100)}))
 
     result = CliRunner().invoke(cli_module.create_cli(), ["execute", str(run_file)])
