@@ -228,10 +228,19 @@ jobs:
       - name: Check fix backlog
         id: backlog
         if: steps.audit.outcome == 'success' && matrix.suite != 'test-health'
+        env:
+          SUITE: ${{ matrix.suite }}
         run: |
-          BACKLOG_SIZE=$(jq '.fix_backlog // [] | length' .agentic-ci-state/runner-state.json 2>/dev/null || echo 0)
+          BACKLOG_SIZE=$(jq --arg suite "$SUITE" '
+            (.fix_backlog // [])
+            | if $suite == "docs-and-references" then
+                map(select(.data.scope_complete == true
+                  and (.data.task_key | type == "string" and length > 0)))
+              else . end
+            | length
+          ' .agentic-ci-state/runner-state.json 2>/dev/null || echo 0)
           echo "size=${BACKLOG_SIZE}" >> "$GITHUB_OUTPUT"
-          echo "fix_backlog has ${BACKLOG_SIZE} entries"
+          echo "fix_backlog has ${BACKLOG_SIZE} entries eligible for fix-phase consideration"
 
       - name: Snapshot pre-fix attempted_fixes
         # Captures (id, attempts-length) pairs before the fix step runs so
@@ -348,9 +357,13 @@ jobs:
               fi
             fi
 
+            FILE_CAP=3
+            LOC_CAP=50
             case "$SUITE" in
               docs-and-references)
-                ALLOW='^(architecture/|docs/|README\.md$|CONTRIBUTING\.md$|DEVELOPMENT\.md$|STYLEGUIDE\.md$|packages/[^/]+/src/.*\.py$)'
+                FILE_CAP=10
+                LOC_CAP=200
+                ALLOW='^(architecture/|fern/versions/latest/pages/|README\.md$|CONTRIBUTING\.md$|DEVELOPMENT\.md$|STYLEGUIDE\.md$|packages/[^/]+/src/.*\.py$)'
                 ;;
               dependencies)
                 ALLOW='^(packages/[^/]+/pyproject\.toml|uv\.lock)$'
@@ -389,11 +402,11 @@ jobs:
             if [ -n "$BAD" ]; then
               REASONS="${REASONS}- files outside allowlist:\n$(echo "$BAD" | sed 's/^/  - /')\n"
             fi
-            if [ "$FILE_COUNT" -gt 3 ]; then
-              REASONS="${REASONS}- file count ($FILE_COUNT) exceeds 3-file cap\n"
+            if [ "$FILE_COUNT" -gt "$FILE_CAP" ]; then
+              REASONS="${REASONS}- file count ($FILE_COUNT) exceeds ${FILE_CAP}-file cap\n"
             fi
-            if [ "$LOC_DELTA" -gt 50 ]; then
-              REASONS="${REASONS}- LOC delta ($LOC_DELTA) exceeds 50-line cap\n"
+            if [ "$LOC_DELTA" -gt "$LOC_CAP" ]; then
+              REASONS="${REASONS}- LOC delta ($LOC_DELTA) exceeds ${LOC_CAP}-line cap\n"
             fi
 
             # Docs suite: AST-enforce the docstring-only caveat on .py edits.

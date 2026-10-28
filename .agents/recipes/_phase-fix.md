@@ -12,18 +12,24 @@ This invocation runs the **FIX** phase only.
   `_fix-policy.md` §"Standard fix procedure": when you pick a candidate,
   you MUST re-grep / re-read the specific file or symbol it points at to
   confirm the finding still applies before editing.
-  Re-verification of a single candidate is required; re-scanning the
+  Re-verification of every task member is required; re-scanning the
   codebase to discover new findings is forbidden.
-- Pick the highest-ranked eligible candidate from `fix_backlog`, apply
-  the fix, run the package's tests if applicable, commit, push, and open
+- Pick the highest-ranked eligible maintenance task from `fix_backlog`.
+  Group related findings as the suite recipe specifies; docs tasks may span
+  eligible categories with the same `data.task_key` and require a completed
+  audit (`data.scope_complete: true`). Apply the whole task, run every
+  required package test target once, commit, push, and open
   the PR using `gh pr create --body-file`. If the recipe and
-  `_fix-policy.md` declare the category batchable, you may add sibling
+  `_fix-policy.md` declare the category batchable, include eligible sibling
   entries from the existing `fix_backlog` after re-verifying each one.
   Do not scan for findings that are not already in `fix_backlog`.
-- Record the attempt in `attempted_fixes` (whether successful, abandoned,
-  or failed through the top-5 fallback) before exiting. Batch PRs record
+- Apply the worth-reviewing bar before editing and again after removing stale
+  findings. Keep isolated cosmetic findings in the backlog without recording
+  failed attempts. Do not split a task into small PRs to fit the scope caps.
+- Record each attempted fix in `attempted_fixes` (whether successful or
+  abandoned) before exiting. Do not record deferrals. Batch PRs record
   one attempt per fixed finding, all pointing to the same PR and branch.
-- If no candidate qualifies after trying up to 5 of them, exit cleanly,
+- If no task qualifies after considering up to 5 of them, exit cleanly,
   append a short note to `/tmp/audit-{{suite}}.md` describing what was
   tried, and update `attempted_fixes` accordingly. Do NOT open a PR.
 - Do NOT delete branches, even on failure (per `_runner.md` and
