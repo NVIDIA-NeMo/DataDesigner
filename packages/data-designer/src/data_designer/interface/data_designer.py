@@ -677,6 +677,11 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             Creates no dataset artifacts and requires no managed person assets.
             Call `close()` on each sync facade or await `aclose()` on each async
             facade when finished.
+
+            Request limits are shared with `create()`, `preview()`, and other calls on this instance.
+            Reusing an alias for the same provider/model with a different
+            `max_parallel_requests` raises ValueError, even after closing its facade.
+            Call `set_run_config()` or use a new instance to reset shared limits.
         """
         client_concurrency_mode = ClientConcurrencyMode(client_concurrency_mode)
         resolved_configs = get_default_model_configs() if model_configs is None else load_model_configs(model_configs)
@@ -691,6 +696,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             run_config=self._run_config,
             request_admission=self._request_admission,
             request_event_sink=self._open_telemetry if self._run_config.otel_metrics_port is not None else None,
+            freeze_request_limits=True,
         )
         for alias in model_aliases:
             model_registry.get_model_config(model_alias=alias)

@@ -148,6 +148,71 @@ async def test_get_models_async_shares_admission_and_preserves_lifetime(
         await patient.aclose()
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("initial_cap,new_cap", [(1, 10), (10, 1), (1, 1)])
+async def test_get_models_preserves_registered_alias_cap(
+    model_designer: DataDesigner,
+    custom_model_configs: list[ModelConfig],
+    completion_payload: dict[str, Any],
+    httpx_mock: HTTPXMock,
+    initial_cap: int,
+    new_cap: int,
+) -> None:
+    model_designer.set_run_config(
+        RunConfig(request_admission=RequestAdmissionTuningConfig(startup_ramp_seconds=0, successes_until_increase=1))
+    )
+    config = custom_model_configs[0].model_copy(deep=True)
+    config.inference_parameters.max_parallel_requests = initial_cap
+    first = model_designer.get_models(
+        ["judge"], model_configs=[config], client_concurrency_mode=ClientConcurrencyMode.ASYNC
+    )["judge"]
+    config = config.model_copy(deep=True)
+    config.inference_parameters.max_parallel_requests = new_cap
+    second = None
+    in_flight = peak = 0
+
+    async def respond(request: httpx.Request) -> httpx.Response:
+        nonlocal in_flight, peak
+        in_flight += 1
+        peak = max(peak, in_flight)
+        await asyncio.sleep(0.01)
+        in_flight -= 1
+        return httpx.Response(200, json=completion_payload)
+
+    httpx_mock.add_callback(respond, is_reusable=True)
+    messages = [ChatMessage.as_user("test")]
+    try:
+        if initial_cap != new_cap:
+            patient = config.model_copy(update={"alias": "patient"}, deep=True)
+            patient.inference_parameters.max_parallel_requests = 1
+            with pytest.raises(ValueError, match="already registered with max_parallel_requests"):
+                model_designer.get_models(
+                    ["patient", "judge"],
+                    model_configs=[patient, config],
+                    client_concurrency_mode=ClientConcurrencyMode.ASYNC,
+                )
+        else:
+            second = model_designer.get_models(
+                ["judge"], model_configs=[config], client_concurrency_mode=ClientConcurrencyMode.ASYNC
+            )["judge"]
+        await first.acompletion(messages)
+        await asyncio.gather(first.acompletion(messages), (second or first).acompletion(messages))
+        assert peak == min(initial_cap, 2)
+        await first.aclose()
+        if second is None:
+            with pytest.raises(ValueError, match="already registered with max_parallel_requests"):
+                model_designer.get_models(["judge"], model_configs=[config])
+            model_designer.set_run_config(RunConfig())
+            second = model_designer.get_models(
+                ["judge"], model_configs=[config], client_concurrency_mode=ClientConcurrencyMode.ASYNC
+            )["judge"]
+        assert (await second.acompletion(messages)).message.content == "hello"
+    finally:
+        await first.aclose()
+        if second is not None:
+            await second.aclose()
+
+
 def test_get_models_retries(
     model_designer: DataDesigner,
     custom_model_configs: list[ModelConfig],

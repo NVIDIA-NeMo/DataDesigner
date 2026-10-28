@@ -100,6 +100,7 @@ class RequestAdmissionController(Protocol):
 @dataclass
 class _GlobalCapState:
     limits_by_alias: dict[str, int] = field(default_factory=dict)
+    frozen_aliases: set[str] = field(default_factory=set)
     effective_max: int = 0
 
     def register_alias(self, alias: str, max_parallel: int) -> None:
@@ -140,6 +141,21 @@ class AdaptiveRequestAdmissionController(RequestPressureSnapshotProvider):
     def config(self) -> RequestAdmissionConfig:
         return self._config
 
+    def validate_registration(
+        self,
+        *,
+        provider_name: str,
+        model_id: str,
+        alias: str,
+        max_parallel_requests: int,
+        freeze: bool = False,
+    ) -> None:
+        """Check alias-limit compatibility without changing shared admission state."""
+        with self._lock:
+            self._validate_registration_locked(
+                ProviderModelKey(provider_name, model_id), alias, max_parallel_requests, freeze
+            )
+
     def register(
         self,
         *,
@@ -147,13 +163,18 @@ class AdaptiveRequestAdmissionController(RequestPressureSnapshotProvider):
         model_id: str,
         alias: str,
         max_parallel_requests: int,
+        freeze: bool = False,
     ) -> None:
+        """Register an alias's limit, optionally preventing later changes within this controller."""
         events: list[RequestAdmissionEvent] = []
         with self._lock:
             key = ProviderModelKey(provider_name, model_id)
+            self._validate_registration_locked(key, alias, max_parallel_requests, freeze)
             cap = self._global_caps.setdefault(key, _GlobalCapState())
             before = cap.effective_max
             cap.register_alias(alias, max_parallel_requests)
+            if freeze:
+                cap.frozen_aliases.add(alias)
             self._sequence += 1
             for resource, state in self._domains.items():
                 if resource.provider_model_key == key:
@@ -428,6 +449,24 @@ class AdaptiveRequestAdmissionController(RequestPressureSnapshotProvider):
         with self._lock:
             now = time.monotonic()
             return {key: self._global_snapshot_locked(key, now) for key in self._global_caps}
+
+    def _validate_registration_locked(
+        self, key: ProviderModelKey, alias: str, max_parallel_requests: int, freeze: bool
+    ) -> None:
+        cap = self._global_caps.get(key)
+        if cap is None:
+            return
+        registered_limit = cap.limits_by_alias.get(alias)
+        if (
+            registered_limit is not None
+            and registered_limit != max(1, max_parallel_requests)
+            and (freeze or alias in cap.frozen_aliases)
+        ):
+            raise ValueError(
+                f"Model alias {alias!r} for provider {key.provider_name!r}, model {key.model_id!r} is already registered "
+                f"with max_parallel_requests={registered_limit}; cannot use {max_parallel_requests}. "
+                "Use matching limits, reset via DataDesigner.set_run_config(), or use a new DataDesigner instance."
+            )
 
     def _queued_waiter_ahead_locked(self, item: RequestAdmissionItem, now: float) -> bool:
         if not self._queue.has_waiters:

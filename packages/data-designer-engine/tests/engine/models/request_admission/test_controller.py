@@ -37,9 +37,13 @@ def _item(domain: RequestDomain = RequestDomain.CHAT, timeout: float | None = No
     )
 
 
-def _controller(cap: int = 2, config: RequestAdmissionConfig | None = None) -> AdaptiveRequestAdmissionController:
+def _controller(
+    cap: int = 2, config: RequestAdmissionConfig | None = None, *, freeze: bool = False
+) -> AdaptiveRequestAdmissionController:
     controller = AdaptiveRequestAdmissionController(config)
-    controller.register(provider_name="nvidia", model_id="nemotron", alias="default", max_parallel_requests=cap)
+    controller.register(
+        provider_name="nvidia", model_id="nemotron", alias="default", max_parallel_requests=cap, freeze=freeze
+    )
     return controller
 
 
@@ -77,6 +81,69 @@ def test_request_admission_enforces_provider_model_aggregate_cap() -> None:
 
     assert isinstance(denied, RequestAdmissionDenied)
     assert denied.reason == "no_capacity"
+
+
+@pytest.mark.parametrize("initial_cap,new_cap", [(1, 10), (10, 1)])
+@pytest.mark.parametrize("method", ["register", "validate_registration"])
+def test_request_admission_rejects_conflicting_alias_cap(initial_cap: int, new_cap: int, method: str) -> None:
+    controller = _controller(cap=initial_cap, freeze=True)
+
+    with pytest.raises(ValueError, match="already registered with max_parallel_requests"):
+        getattr(controller, method)(
+            provider_name="nvidia", model_id="nemotron", alias="default", max_parallel_requests=new_cap
+        )
+
+    snapshot = controller.global_snapshot("nvidia", "nemotron")
+    assert snapshot.static_cap == initial_cap
+    assert snapshot.raw_caps == {"default": initial_cap}
+
+
+def test_request_admission_accepts_identical_alias_cap() -> None:
+    controller = _controller(cap=2, freeze=True)
+    controller.register(provider_name="nvidia", model_id="nemotron", alias="default", max_parallel_requests=2)
+
+    lease = controller.try_acquire(_item())
+    assert isinstance(lease, RequestAdmissionLease)
+    assert controller.global_snapshot("nvidia", "nemotron").static_cap == 2
+    controller.release(lease, RequestReleaseOutcome(kind="success"))
+
+
+@pytest.mark.parametrize("provider,model", [("other-provider", "nemotron"), ("nvidia", "other-model")])
+def test_request_admission_alias_caps_are_independent(provider: str, model: str) -> None:
+    controller = _controller(cap=1, freeze=True)
+    controller.register(provider_name=provider, model_id=model, alias="default", max_parallel_requests=10, freeze=True)
+
+    assert controller.global_snapshot("nvidia", "nemotron").static_cap == 1
+    assert controller.global_snapshot(provider, model).static_cap == 10
+
+
+@pytest.mark.parametrize("initial_cap,new_cap", [(1, 10), (10, 1)])
+def test_request_admission_unfrozen_alias_can_be_reconfigured(initial_cap: int, new_cap: int) -> None:
+    controller = _controller(cap=initial_cap)
+    controller.register(provider_name="nvidia", model_id="nemotron", alias="default", max_parallel_requests=new_cap)
+
+    assert controller.global_snapshot("nvidia", "nemotron").static_cap == new_cap
+
+
+def test_request_admission_rejects_freezing_conflicting_alias_cap() -> None:
+    controller = _controller(cap=1)
+
+    with pytest.raises(ValueError, match="already registered with max_parallel_requests"):
+        controller.register(
+            provider_name="nvidia", model_id="nemotron", alias="default", max_parallel_requests=10, freeze=True
+        )
+
+    controller.register(provider_name="nvidia", model_id="nemotron", alias="default", max_parallel_requests=10)
+    assert controller.global_snapshot("nvidia", "nemotron").static_cap == 10
+
+
+def test_request_admission_validation_does_not_register_alias() -> None:
+    controller = AdaptiveRequestAdmissionController()
+    controller.validate_registration(
+        provider_name="nvidia", model_id="nemotron", alias="default", max_parallel_requests=1, freeze=True
+    )
+
+    assert controller.global_snapshots() == {}
 
 
 def test_request_admission_duplicate_release_does_not_corrupt_counts() -> None:
