@@ -8,4 +8,51 @@ harbor:
     UV_CACHE_DIR: /tmp/data-designer-uv-cache
     UV_PYTHON_INSTALL_DIR: /workspace/.data-designer-python
   pre_agent_setup:
-    - "true"
+    - |
+      if [ ! -x /workspace/.venv/bin/data-designer ]; then
+        case "$(uname -m)" in
+          x86_64)
+            uv_target=x86_64-unknown-linux-musl
+            uv_sha256=aa4b1f8770910f7c7c543c7acc980e4270e52e70750c996acef813ea1c7c2912
+            ;;
+          aarch64)
+            uv_target=aarch64-unknown-linux-musl
+            uv_sha256=7eb9bf48516448c9db6a9e436d8e747ac9c8a9cac74717160a29918249b080a6
+            ;;
+          *) exit 1 ;;
+        esac
+        curl --fail --location --retry 2 --max-time 30 \
+          "https://github.com/astral-sh/uv/releases/download/0.12.9/uv-${uv_target}.tar.gz" \
+          --output /tmp/data-designer-uv.tar.gz
+        printf '%s  %s\n' "$uv_sha256" /tmp/data-designer-uv.tar.gz | sha256sum -c -
+        mkdir -p /workspace/.data-designer-uv
+        tar -xzf /tmp/data-designer-uv.tar.gz --strip-components=1 -C /workspace/.data-designer-uv "uv-${uv_target}/uv"
+        /workspace/.data-designer-uv/uv venv --clear --managed-python --python 3.12 /workspace/.venv
+        /workspace/.data-designer-uv/uv pip install --no-cache --python /workspace/.venv/bin/python data-designer==0.9.7
+      fi
+    - |
+      /workspace/.venv/bin/python - <<'PY'
+      import os
+      from pathlib import Path
+
+      from data_designer.cli.repositories.model_repository import ModelConfigRegistry, ModelRepository
+      from data_designer.cli.repositories.provider_repository import ModelProviderRegistry, ProviderRepository
+      from data_designer.cli.utils.agent_introspection import get_model_aliases_state
+      from data_designer.config.models import ModelConfig, ModelProvider
+
+      config_dir = Path(os.environ["DATA_DESIGNER_HOME"])
+      config_dir.mkdir(parents=True, exist_ok=True)
+      ProviderRepository(config_dir).save(
+          ModelProviderRegistry(
+              providers=[
+                  ModelProvider(name="script-only", endpoint="http://127.0.0.1:9/v1", api_key="unused-for-script-only")
+              ]
+          )
+      )
+      ModelRepository(config_dir).save(
+          ModelConfigRegistry(
+              model_configs=[ModelConfig(alias="script-only-text", model="script-only", provider="script-only")]
+          )
+      )
+      assert get_model_aliases_state(config_dir)["items"][0]["usable"]
+      PY
