@@ -14,6 +14,7 @@ import time
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from pathlib import Path
 from urllib.parse import SplitResult, urlsplit
 
 from aiohttp import ClientError, ClientResponse, ClientSession, ClientTimeout, TCPConnector, TraceConfig, web
@@ -400,6 +401,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
     parser.add_argument("--allowed-host", action="append")
     parser.add_argument("--retry-after-seconds", type=int)
     parser.add_argument("--health-path", default="/health")
+    parser.add_argument("--listening-file", type=Path)
     parsed = parser.parse_args(arguments)
     try:
         allowed_hosts = frozenset(validate_host_name(value) for value in (parsed.allowed_host or ("127.0.0.1",)))
@@ -412,17 +414,28 @@ def main(arguments: Sequence[str] | None = None) -> int:
         parser.error("retry-after seconds must be positive")
     if not parsed.health_path.startswith("/") or parsed.health_path.startswith("//"):
         parser.error("health path must be absolute")
+    if parsed.listening_file is not None and not parsed.listening_file.is_absolute():
+        parser.error("listening file must be absolute")
     proxy = _ProxyApplication(backends, parsed.retry_after_seconds, health_path=parsed.health_path)
-    web.run_app(
-        proxy.create(),
-        host="127.0.0.1",
-        port=parsed.listen_port,
-        print=None,
-        access_log=None,
-        keepalive_timeout=_KEEPALIVE_TIMEOUT_SECONDS,
-        shutdown_timeout=10.0,
-        handler_cancellation=True,
-    )
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+        listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        listener.bind(("127.0.0.1", parsed.listen_port))
+        listener.listen(socket.SOMAXCONN)
+        try:
+            if parsed.listening_file is not None:
+                parsed.listening_file.touch()
+            web.run_app(
+                proxy.create(),
+                sock=listener,
+                print=None,
+                access_log=None,
+                keepalive_timeout=_KEEPALIVE_TIMEOUT_SECONDS,
+                shutdown_timeout=10.0,
+                handler_cancellation=True,
+            )
+        finally:
+            if parsed.listening_file is not None:
+                parsed.listening_file.unlink(missing_ok=True)
     return 0
 
 

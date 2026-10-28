@@ -32,6 +32,7 @@ from data_designer.slurm.client.records import (
 )
 from data_designer.slurm.contracts import compute_serialized_json_sha256
 from data_designer.slurm.planning import ResolvedDependencyLock, ResolvedSlurmRunPlan
+from data_designer.slurm.runtime.ports import resolve_allocation_plan
 from data_designer.slurm.state import CandidateOutputManifest, compute_candidate_schema_digest
 from data_designer.slurm.state.artifacts import CandidateArtifactVerifier
 
@@ -622,10 +623,14 @@ def test_preflight_rejects_builder_with_missing_plugin(client_worker_case: Clien
     assert error.value.code is ClientErrorCode.CONFIG_INVALID
 
 
+@pytest.mark.parametrize("ephemeral", ("32768 60999", "9000 65000"))
 def test_preflight_rejects_plugin_secondary_model_alias(
     client_worker_case: ClientWorkerCase,
     fake_plugin_overlay: Path,
+    port_sysctls: Path,
+    ephemeral: str,
 ) -> None:
+    (port_sysctls / "ip_local_port_range").write_text(ephemeral)
     payload = client_worker_case.plan.model_dump(mode="json")
     builder = payload["builder"]["inline"]
     builder["data_designer"]["columns"] = [
@@ -663,7 +668,9 @@ import data_designer.slurm.client.worker as worker
 from data_designer.slurm.client.environment import PreparedClientEnvironment
 from data_designer.slurm.client.records import ClientErrorCode, ClientInstallerOutcome
 from data_designer.slurm.contracts import ArtifactReference, InstalledDistribution
+from data_designer.slurm.runtime import network
 
+network._SYSCTL_ROOT = Path(sys.argv[5])
 plan_path = Path(sys.argv[1])
 attempt_dir = Path(sys.argv[2])
 plan = json.loads(plan_path.read_text())
@@ -702,7 +709,7 @@ try:
     ClientWorker().preflight(
         plan_path,
         prepared=prepared,
-        endpoints={"generator": "http://127.0.0.1:10000/v1"},
+        endpoints={"generator": sys.argv[6]},
         plugins=plugins,
     )
 except ClientWorkerError as error:
@@ -713,6 +720,7 @@ else:
 """
     scratch_root = client_worker_case.attempt_dir.parent / "scratch"
     scratch_root.mkdir()
+    port = resolve_allocation_plan(plan, {"SLURM_JOB_GPUS": "0"}).client.ports[0].port
     result = subprocess.run(
         [
             sys.executable,
@@ -722,6 +730,8 @@ else:
             client_worker_case.attempt_dir.as_posix(),
             fake_plugin_overlay.as_posix(),
             scratch_root.as_posix(),
+            port_sysctls.as_posix(),
+            f"http://127.0.0.1:{port}/v1",
         ],
         check=False,
         capture_output=True,

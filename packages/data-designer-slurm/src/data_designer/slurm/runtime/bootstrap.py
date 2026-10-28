@@ -214,7 +214,11 @@ def _build_endpoint_step(
         role=RuntimeStepRole.ENDPOINT,
         execution="native",
         image_path=None,
-        command=command,
+        command=(
+            *command,
+            "--listening-file",
+            (log_directory / f"{deployment.deployment_id}-endpoint.out.listening").as_posix(),
+        ),
         cpus=context.plan.client.authored.cpus,
         gpu_indices=(),
         literal_environment={"LC_ALL": "C", "PYTHONPATH": runtime_root.as_posix()},

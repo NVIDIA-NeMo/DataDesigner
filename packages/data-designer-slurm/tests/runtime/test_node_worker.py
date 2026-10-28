@@ -6,6 +6,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import socket
 import subprocess
 import sys
 import tarfile
@@ -236,6 +237,35 @@ def test_node_preflight_rejects_missing_required_model_path(
 
     assert runtime_node_worker.main(("preflight", "--spec", encode_node_worker_spec(spec))) == 70
     assert capsys.readouterr().err == "node worker failed at a validated runtime boundary\n"
+
+
+def test_node_preflight_rejects_local_ephemeral_overlap(
+    port_sysctls: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    spec = _worker_spec((NodeProcessSpec("lane-0", ("true",), (0,), 0),))
+    _set_node_environment(monkeypatch)
+    (port_sysctls / "ip_local_port_range").write_text("18000 18000")
+
+    assert runtime_node_worker.main(("preflight", "--spec", encode_node_worker_spec(spec))) == 70
+    assert "overlap effective ephemeral" in capsys.readouterr().err
+
+
+def test_node_preflight_reports_occupied_port(
+    port_sysctls: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    spec = _worker_spec((NodeProcessSpec("lane-0", ("true",), (0,), 0),))
+    _set_node_environment(monkeypatch)
+    with socket.socket() as occupied:
+        occupied.bind(("127.0.0.1", 0))
+        occupied.listen()
+        port = occupied.getsockname()[1]
+        (port_sysctls / "ip_local_reserved_ports").write_text(str(port))
+        spec = replace(spec, nodes=(replace(spec.nodes[0], ports=(port,)),))
+
+        assert runtime_node_worker.main(("preflight", "--spec", encode_node_worker_spec(spec))) == 70
+
+    assert f"allocation port {port} is unavailable" in capsys.readouterr().err
+    assert runtime_node_worker.main(("preflight", "--spec", encode_node_worker_spec(spec))) == 0
 
 
 def test_node_preflight_rejects_unreadable_required_model_path(

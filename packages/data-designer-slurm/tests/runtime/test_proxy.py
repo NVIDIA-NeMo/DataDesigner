@@ -8,6 +8,7 @@ import asyncio
 import socket
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import pytest
 from aiohttp import ClientSession, ClientTimeout, TCPConnector, web
@@ -41,6 +42,57 @@ def _backend(server: TestServer) -> _Backend:
     return _Backend(server.host, server.port)
 
 
+def test_proxy_publishes_listener_ownership_and_releases_socket(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    marker = tmp_path / "endpoint.listening"
+    with socket.socket() as reservation:
+        reservation.bind(("127.0.0.1", 0))
+        port = reservation.getsockname()[1]
+
+    def run_app(application: web.Application, **options: object) -> None:
+        del application
+        listener = options["sock"]
+        assert isinstance(listener, socket.socket)
+        assert listener.getsockname() == ("127.0.0.1", port)
+        with socket.create_connection(("127.0.0.1", port), timeout=1), listener.accept()[0]:
+            pass
+        assert marker.exists()
+        with socket.socket() as contender:
+            with pytest.raises(OSError):
+                contender.bind(("127.0.0.1", port))
+        raise RuntimeError("injected startup failure")
+
+    monkeypatch.setattr(runtime_proxy.web, "run_app", run_app)
+    with pytest.raises(RuntimeError, match="injected startup"):
+        runtime_proxy.main(
+            ["--listen-port", str(port), "--backend", "http://127.0.0.1:8001", "--listening-file", str(marker)]
+        )
+    assert not marker.exists()
+    with socket.socket() as released:
+        released.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        released.bind(("127.0.0.1", port))
+
+
+def test_proxy_occupied_port_never_publishes_listener_ownership(tmp_path: Path) -> None:
+    marker = tmp_path / "endpoint.listening"
+    with socket.socket() as occupied:
+        occupied.bind(("127.0.0.1", 0))
+        occupied.listen()
+        with pytest.raises(OSError):
+            runtime_proxy.main(
+                [
+                    "--listen-port",
+                    str(occupied.getsockname()[1]),
+                    "--backend",
+                    "http://127.0.0.1:8001",
+                    "--listening-file",
+                    str(marker),
+                ]
+            )
+    assert not marker.exists()
+
+
 @asynccontextmanager
 async def _serve_production(
     backend: _Backend,
@@ -51,7 +103,7 @@ async def _serve_production(
 
     def run_app(application: web.Application, **options: object) -> None:
         nonlocal runner
-        for name in ("host", "port", "print"):
+        for name in ("sock", "print"):
             options.pop(name)
         runner = web.AppRunner(application, **options)
 
@@ -62,7 +114,10 @@ async def _serve_production(
 
     monkeypatch.setattr(runtime_proxy.web, "run_app", run_app)
     monkeypatch.setattr(runtime_proxy, "TCPConnector", create_connector)
-    assert runtime_proxy.main(["--listen-port", "1", "--backend", backend.origin]) == 0
+    with socket.socket() as reservation:
+        reservation.bind(("127.0.0.1", 0))
+        port = reservation.getsockname()[1]
+    assert runtime_proxy.main(["--listen-port", str(port), "--backend", backend.origin]) == 0
     assert runner is not None
     await runner.setup()
     try:
