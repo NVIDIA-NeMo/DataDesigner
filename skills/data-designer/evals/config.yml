@@ -8,8 +8,9 @@ harbor:
   pre_agent_setup:
     - |
       if [ ! -x /workspace/.venv/bin/data-designer ]; then
-        uv venv /workspace/.venv --python 3.11
-        uv pip install --python /workspace/.venv/bin/python data-designer==0.9.7
+        python3 -m venv /workspace/.venv
+        /workspace/.venv/bin/python -m pip install --quiet uv==0.12.9
+        /workspace/.venv/bin/uv pip install --no-cache --python /workspace/.venv/bin/python data-designer==0.9.7
       fi
     - |
       /workspace/.venv/bin/python - <<'PY'
