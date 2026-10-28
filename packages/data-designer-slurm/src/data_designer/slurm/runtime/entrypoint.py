@@ -229,7 +229,18 @@ def _client(
 
 def _succeed(arguments: argparse.Namespace, environment: Mapping[str, str]) -> None:
     context, writer = _load_context(arguments, environment)
-    stopped_at = _write_stopped_readiness(context, writer)
+    # Cleanup has stopped the monitor, so its last persisted health evidence is final.
+    readiness = writer.load_readiness(context.shard.shard_id, context.attempt.attempt_id)
+    if readiness.state is ReadinessState.FAILED or any(
+        deployment.state is ReadinessState.FAILED
+        or (deployment.last_probe is not None and deployment.last_probe.outcome is ProbeOutcome.FAILURE)
+        for deployment in readiness.deployments
+    ):
+        raise SlurmRuntimeError(
+            SlurmRuntimeErrorCode.FINALIZATION_FAILED,
+            "cannot finalize a successful allocation after required inference service failure",
+        )
+    stopped_at = _write_stopped_readiness(context, writer, previous=readiness)
     attempt = writer.load_attempt(context.shard.shard_id, context.attempt.attempt_id)
     if attempt.candidate_output is None:
         raise SlurmRuntimeError(
@@ -330,6 +341,8 @@ def _write_failed_and_stopped_readiness(context: AllocationContext, writer: Slur
     previous = _load_optional_readiness(context, writer)
     if previous is None:
         return max(datetime.now(UTC), context.attempt.updated_at)
+    if previous.state is ReadinessState.STOPPED:
+        return _now(context.attempt, previous)
     if previous.state is ReadinessState.FAILED:
         return _write_stopped_readiness(context, writer, previous=previous)
     failed_at = _now(context.attempt, previous)

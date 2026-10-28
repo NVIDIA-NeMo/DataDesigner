@@ -12,6 +12,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import pytest
 from conftest import FakeStateStore, RuntimeCase
 
+from data_designer.slurm.contracts import ArtifactReference
 from data_designer.slurm.runtime import entrypoint
 from data_designer.slurm.runtime.errors import SlurmRuntimeError
 from data_designer.slurm.runtime.health import monitor_runtime_health, probe_runtime_health
@@ -139,6 +140,46 @@ def test_health_detects_endpoint_connection_loss(healthy_readiness: AttemptReadi
     result = probe_runtime_health(healthy_readiness, {"deployment-00000": port})
     assert result.state is ReadinessState.FAILED
     assert result.deployments[0].ready_backends == 0
+
+
+@pytest.mark.parametrize("already_stopped", (False, True))
+def test_success_rejects_health_failure_recorded_during_cleanup(
+    runtime_case: RuntimeCase,
+    healthy_readiness: AttemptReadiness,
+    monkeypatch: pytest.MonkeyPatch,
+    already_stopped: bool,
+) -> None:
+    state = FakeStateStore(
+        runtime_case.context.attempt.model_copy(
+            update={
+                "state": AttemptLifecycleState.RUNNING,
+                "candidate_output": ArtifactReference(
+                    path=(runtime_case.context.attempt_directory / "output-manifest.json").as_posix(),
+                    sha256="a" * 64,
+                ),
+            }
+        )
+    )
+    state.write_readiness(healthy_readiness)
+    with _health_endpoint([(503, b'{"backends":2,"backends_ready":1}')]) as port:
+        state.write_readiness(probe_runtime_health(healthy_readiness, {"deployment-00000": port}))
+    monkeypatch.setattr(entrypoint, "load_allocation_context", lambda *args, **kwargs: (runtime_case.context, state))
+    if already_stopped:
+        entrypoint._write_stopped_readiness(runtime_case.context, state)
+    failure = state.readiness[-1]
+    arguments = [
+        "--plan",
+        str(runtime_case.workspace / "plan.json"),
+        "--attempt-dir",
+        str(runtime_case.context.attempt_directory),
+    ]
+    assert entrypoint.main(["succeed", *arguments]) == 70
+    assert not state.winners
+    assert state.attempt.state is AttemptLifecycleState.RUNNING
+    assert state.readiness[-1] is failure
+    assert entrypoint.main(["fail", *arguments]) == 0
+    assert state.attempt.state is AttemptLifecycleState.FAILED
+    assert state.readiness[-1].deployments[0].last_probe.reason_code == "runtime_health_lost"
 
 
 @pytest.mark.parametrize("invalid_interval", (False, True))
