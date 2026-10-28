@@ -378,7 +378,10 @@ jobs:
             esac
 
             if [ -n "$DIFF_REF" ]; then
-              mapfile -t FILE_ARR < <(git diff --name-only "origin/main...$DIFF_REF")
+              FILE_ARR=()
+              while IFS= read -r FILE; do
+                FILE_ARR+=("$FILE")
+              done < <(git diff --name-only "origin/main...$DIFF_REF")
               FILE_COUNT=${#FILE_ARR[@]}
               if [ "$FILE_COUNT" -gt 0 ]; then
                 BAD=$(printf '%s\n' "${FILE_ARR[@]}" | grep -vE "$ALLOW" | grep -v '^$' || true)

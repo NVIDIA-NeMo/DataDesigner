@@ -70,7 +70,7 @@ REASONS=""
         "ADDED": str(added),
         "REMOVED": str(removed),
     }
-    result = subprocess.run(["bash", "-e", "-c", script + scope_check], env=env, capture_output=True, text=True)
+    result = subprocess.run(["/bin/bash", "-e", "-c", script + scope_check], env=env, capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
     assert (result.stdout == "") == accepted, result.stdout
 
@@ -99,7 +99,7 @@ def test_fix_phase_requires_completed_docs_scope(
     output = tmp_path / "output"
     env = os.environ | {"SUITE": suite, "GITHUB_OUTPUT": str(output)}
     result = subprocess.run(
-        ["bash", "-e", "-c", daily_scripts["backlog"]], cwd=tmp_path, env=env, capture_output=True, text=True
+        ["/bin/bash", "-e", "-c", daily_scripts["backlog"]], cwd=tmp_path, env=env, capture_output=True, text=True
     )
     assert result.returncode == 0, result.stderr
     assert output.read_text().strip() == f"size={expected}"
