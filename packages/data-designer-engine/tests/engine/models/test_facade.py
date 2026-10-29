@@ -24,6 +24,7 @@ from data_designer.engine.models.clients.types import (
 )
 from data_designer.engine.models.errors import (
     ImageGenerationError,
+    ModelContextWindowExceededError,
     ModelGenerationValidationFailureError,
     ModelTimeoutError,
 )
@@ -153,6 +154,81 @@ def test_generate(
             max_conversation_restarts=max_conversation_restarts,
         )
     assert mock_completion.call_count == 2 * total_calls
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("asynchronous", [False, True])
+@pytest.mark.parametrize(
+    "responses,restarts,error_kind,expected_error,message_counts",
+    [
+        (["invalid", None, "valid"], 1, ProviderErrorKind.CONTEXT_WINDOW_EXCEEDED, None, [1, 3, 1]),
+        (
+            ["invalid", None, "invalid", "invalid", "valid"],
+            1,
+            ProviderErrorKind.CONTEXT_WINDOW_EXCEEDED,
+            None,
+            [1, 3, 1, 3, 5],
+        ),
+        ([None], 1, ProviderErrorKind.CONTEXT_WINDOW_EXCEEDED, ModelContextWindowExceededError, [1]),
+        (["invalid", None], 0, ProviderErrorKind.CONTEXT_WINDOW_EXCEEDED, ModelContextWindowExceededError, [1, 3]),
+        (
+            ["invalid", None, "invalid", None],
+            1,
+            ProviderErrorKind.CONTEXT_WINDOW_EXCEEDED,
+            ModelContextWindowExceededError,
+            [1, 3, 1, 3],
+        ),
+        (["invalid", None], 1, ProviderErrorKind.TIMEOUT, ModelTimeoutError, [1, 3]),
+        (
+            ["invalid", "invalid", "invalid", "invalid", None],
+            1,
+            ProviderErrorKind.CONTEXT_WINDOW_EXCEEDED,
+            ModelContextWindowExceededError,
+            [1, 3, 5, 1, 3],
+        ),
+    ],
+)
+async def test_generate_restarts_after_correction_context_overflow(
+    stub_model_facade: ModelFacade,
+    stub_model_client: MagicMock,
+    asynchronous: bool,
+    responses: list[str | None],
+    restarts: int,
+    error_kind: ProviderErrorKind,
+    expected_error: type[Exception] | None,
+    message_counts: list[int],
+) -> None:
+    observed_counts: list[int] = []
+
+    def complete(request: ChatCompletionRequest) -> ChatCompletionResponse:
+        response = responses[len(observed_counts)]
+        observed_counts.append(len(request.messages))
+        if response is None:
+            raise ProviderError(error_kind, "synthetic provider error")
+        return _make_response(response)
+
+    def parse(response: str) -> str:
+        if response != "valid":
+            raise ParserException("synthetic invalid response")
+        return response
+
+    stub_model_client.completion.side_effect = complete
+    stub_model_client.acompletion = AsyncMock(side_effect=complete)
+    kwargs = dict(prompt="synthetic prompt", parser=parse, max_correction_steps=2, max_conversation_restarts=restarts)
+
+    async def generate() -> Any:
+        if asynchronous:
+            return await stub_model_facade.agenerate(**kwargs)
+        return stub_model_facade.generate(**kwargs)
+
+    if expected_error is not None:
+        with pytest.raises(expected_error):
+            await generate()
+    else:
+        result, messages = await generate()
+        assert result == "valid"
+        assert len(messages) == message_counts[-1] + 1
+    assert observed_counts == message_counts
 
 
 @pytest.mark.parametrize(
@@ -1676,6 +1752,71 @@ def test_generate_tool_calls_with_conversation_restarts(
     assert result == "good result"
     # After restart, message count should preserve tool call history (restart from checkpoint)
     assert messages_at_call[2] == messages_at_call[1]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("asynchronous", [False, True])
+@pytest.mark.parametrize("correction_overflow", [False, True])
+async def test_context_restart_preserves_tool_checkpoint(
+    stub_model_configs: Any,
+    stub_model_client: MagicMock,
+    stub_model_provider_registry: Any,
+    asynchronous: bool,
+    correction_overflow: bool,
+) -> None:
+    overflow = ProviderError(ProviderErrorKind.CONTEXT_WINDOW_EXCEEDED, "synthetic overflow")
+    tool = _make_response("", tool_calls=[ToolCall(id="call-1", name="lookup", arguments_json="{}")])
+    responses = (
+        [tool, _make_response("invalid"), overflow, _make_response("valid")]
+        if correction_overflow
+        else [tool, overflow]
+    )
+    stub_model_client.completion.side_effect = responses
+    stub_model_client.acompletion = AsyncMock(side_effect=responses)
+    facade = StubMCPFacade()
+    model = ModelFacade(
+        model_config=stub_model_configs[0],
+        model_provider_registry=stub_model_provider_registry,
+        client=stub_model_client,
+        mcp_registry=StubMCPRegistry(facade),
+    )
+
+    def parse(text: str) -> str:
+        if text == "invalid":
+            raise ParserException("synthetic invalid response")
+        return text
+
+    kwargs = dict(
+        prompt="question",
+        parser=parse,
+        tool_alias="tools",
+        tool_choice="required",
+        max_correction_steps=2,
+        max_conversation_restarts=1,
+    )
+
+    async def generate() -> Any:
+        if asynchronous:
+            return await model.agenerate(**kwargs)
+        return model.generate(**kwargs)
+
+    with patch.object(facade, "process_completion_response", wraps=facade.process_completion_response) as process:
+        if correction_overflow:
+            result, messages = await generate()
+            assert result == "valid"
+            assert sum(message.role == "tool" for message in messages) == 1
+            assert all(message.content != "invalid" for message in messages)
+        else:
+            with pytest.raises(ModelContextWindowExceededError):
+                await generate()
+        process.assert_called_once()
+    completion = stub_model_client.acompletion if asynchronous else stub_model_client.completion
+    assert completion.call_count == len(responses)
+    requests = [call.args[0] for call in completion.call_args_list]
+    assert requests[0].tool_choice == "required"
+    assert all(request.tool_choice is None for request in requests[1:])
+    if correction_overflow:
+        assert requests[-1].messages == requests[1].messages
 
 
 # =============================================================================
