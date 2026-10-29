@@ -122,6 +122,7 @@ def _compile_deployments(
             gpus_per_node=quota,
             tensor_parallel=authored.topology.tensor_parallel,
             nodes_per_replica=authored.topology.nodes_per_replica,
+            pipeline_parallel=authored.topology.pipeline_parallel,
         )
         if topology.replicas_per_node_group > _PORT_RANGE_SIZE:
             raise SlurmPlanCompilationError("replica lanes exceed the compiler-owned deployment port range")

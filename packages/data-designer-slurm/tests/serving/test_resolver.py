@@ -162,7 +162,7 @@ def test_resolution_rejects_image_inspection_mismatch(
         _resolve(invalid_plan, placement.deployment_id)
 
 
-def test_resolution_rejects_multi_node_expert_parallel(multi_node_plan: ResolvedSlurmRunPlan) -> None:
+def test_resolution_allows_multi_node_expert_parallel(multi_node_plan: ResolvedSlurmRunPlan) -> None:
     placement = multi_node_plan.deployments[0]
     server = placement.authored.server.model_copy(update={"enable_expert_parallel": True})
     authored = placement.authored.model_copy(update={"server": server})
@@ -171,8 +171,10 @@ def test_resolution_rejects_multi_node_expert_parallel(multi_node_plan: Resolved
         update={"deployments": (invalid_placement, *multi_node_plan.deployments[1:])}
     )
 
-    with pytest.raises(VllmServerResolutionError, match="multi-node expert parallel"):
-        _resolve(invalid_plan, invalid_placement.deployment_id)
+    resolved = _resolve(invalid_plan, invalid_placement.deployment_id)
+
+    assert resolved.launch_policy.enable_expert_parallel
+    assert len(resolved.processes) == resolved.topology.replica_count * resolved.topology.nodes_per_replica
 
 
 def test_resolution_allows_independent_single_node_expert_parallel_replicas(

@@ -102,7 +102,7 @@ def build_vllm_process_command(
         "--tensor-parallel-size",
         str(process.tensor_parallel),
         "--distributed-executor-backend",
-        "uni" if process.tensor_parallel * process.pipeline_parallel == 1 else "mp",
+        "uni" if process.tensor_parallel * process.node_count == 1 else "mp",
         "--data-parallel-backend",
         "mp",
         "--middleware",
@@ -124,8 +124,8 @@ def _distributed_arguments(
     process: ResolvedVllmProcess,
     layout: AllocationLayout,
 ) -> tuple[str, ...]:
-    if process.pipeline_parallel == 1:
-        return ()
+    if process.node_count == 1:
+        return ("--pipeline-parallel-size", str(process.pipeline_parallel)) if process.pipeline_parallel != 1 else ()
     rendezvous = process.rendezvous
     if rendezvous is None:  # pragma: no cover - resolved contracts enforce this
         raise AssertionError("distributed process has no rendezvous")
@@ -133,9 +133,9 @@ def _distributed_arguments(
         "--pipeline-parallel-size",
         str(process.pipeline_parallel),
         "--nnodes",
-        str(process.pipeline_parallel),
+        str(process.node_count),
         "--node-rank",
-        str(process.pipeline_rank),
+        str(process.node_rank),
         "--master-addr",
         layout.get_host(rendezvous.master_node_index),
         "--master-port",
@@ -143,7 +143,7 @@ def _distributed_arguments(
         "--distributed-timeout-seconds",
         str(rendezvous.timeout_seconds),
     )
-    return arguments + (("--headless",) if process.pipeline_rank > 0 else ())
+    return arguments + (("--headless",) if process.node_rank > 0 else ())
 
 
 def _get_node_ports(deployment: ResolvedVllmServerDeployment, node_index: int) -> tuple[int, ...]:
@@ -151,7 +151,7 @@ def _get_node_ports(deployment: ResolvedVllmServerDeployment, node_index: int) -
     rendezvous_ports = tuple(
         process.rendezvous.port
         for process in deployment.processes
-        if process.node_index == node_index and process.pipeline_rank == 0 and process.rendezvous is not None
+        if process.node_index == node_index and process.node_rank == 0 and process.rendezvous is not None
     )
     return tuple(sorted((*http_ports, *rendezvous_ports)))
 

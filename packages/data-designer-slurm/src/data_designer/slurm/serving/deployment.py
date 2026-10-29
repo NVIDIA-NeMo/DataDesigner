@@ -67,11 +67,10 @@ class ResolvedVllmServerDeployment(ContractValue):
             gpus_per_node=self.gpus_per_node,
             tensor_parallel=self.topology.tensor_parallel,
             nodes_per_replica=self.topology.nodes_per_replica,
+            pipeline_parallel=self.topology.pipeline_parallel,
         )
         if self.topology != expected_topology:
             raise ValueError("resolved server topology must match its node and GPU resources")
-        if self.launch_policy.enable_expert_parallel and self.topology.pipeline_parallel > 1:
-            raise ValueError("multi-node expert parallel is not supported in v1")
         if self.logical_endpoint.model_alias != self.model_alias:
             raise ValueError("logical endpoint model alias must match the deployment")
         if self.logical_endpoint.served_model_name != self.served_model_name:
@@ -95,19 +94,17 @@ class ResolvedVllmServerDeployment(ContractValue):
         if len({process.process_id for process in self.processes}) != len(self.processes):
             raise ValueError("resolved process IDs must be unique")
 
-        expected_process_count = self.topology.replica_count * self.topology.pipeline_parallel
+        expected_process_count = self.topology.replica_count * self.topology.nodes_per_replica
         if len(self.processes) != expected_process_count:
-            raise ValueError("resolved process count must match replica and pipeline topology")
-        process_identities = tuple(
-            (process.deployment_replica_index, process.pipeline_rank) for process in self.processes
-        )
+            raise ValueError("resolved process count must match replica and node topology")
+        process_identities = tuple((process.deployment_replica_index, process.node_rank) for process in self.processes)
         expected_process_identities = tuple(
-            (deployment_replica_index, pipeline_rank)
+            (deployment_replica_index, node_rank)
             for deployment_replica_index in range(self.topology.replica_count)
-            for pipeline_rank in range(self.topology.pipeline_parallel)
+            for node_rank in range(self.topology.nodes_per_replica)
         )
         if process_identities != expected_process_identities:
-            raise ValueError("resolved processes must use complete ordered replica and pipeline identities")
+            raise ValueError("resolved processes must use complete ordered replica and node identities")
 
         probes_by_backend = {probe.backend_id: probe for probe in self.readiness_probes}
         if len(self.readiness_probes) != len(self.backend_endpoints) or tuple(probes_by_backend) != backend_ids:
@@ -140,8 +137,10 @@ class ResolvedVllmServerDeployment(ContractValue):
             for process in self.processes
             if process.deployment_replica_index == endpoint.deployment_replica_index
         )
-        expected_gpu_start = self.gpu_start_index + expected_replica_index_in_node_group * self.topology.tensor_parallel
-        expected_gpus = tuple(range(expected_gpu_start, expected_gpu_start + self.topology.tensor_parallel))
+        expected_gpu_start = (
+            self.gpu_start_index + expected_replica_index_in_node_group * self.topology.local_gpus_per_replica
+        )
+        expected_gpus = tuple(range(expected_gpu_start, expected_gpu_start + self.topology.local_gpus_per_replica))
         expected_delay = (
             0
             if endpoint.deployment_replica_index == 0
@@ -149,9 +148,9 @@ class ResolvedVllmServerDeployment(ContractValue):
             + endpoint.deployment_replica_index * self.launch_policy.rank_launch_stagger_seconds
         )
         for process in replica_processes:
-            expected_node = self.node_indices[expected_group * self.topology.nodes_per_replica + process.pipeline_rank]
+            expected_node = self.node_indices[expected_group * self.topology.nodes_per_replica + process.node_rank]
             expected_process_id = (
-                f"{self.deployment_id}-replica-{endpoint.deployment_replica_index:05d}-rank-{process.pipeline_rank:05d}"
+                f"{self.deployment_id}-replica-{endpoint.deployment_replica_index:05d}-rank-{process.node_rank:05d}"
             )
             if (
                 process.process_id != expected_process_id
@@ -162,13 +161,14 @@ class ResolvedVllmServerDeployment(ContractValue):
                 or process.gpu_indices != expected_gpus
                 or process.tensor_parallel != self.topology.tensor_parallel
                 or process.pipeline_parallel != self.topology.pipeline_parallel
+                or process.node_count != self.topology.nodes_per_replica
                 or process.launch_delay_seconds != expected_delay
             ):
                 raise ValueError("resolved process must match its deployment topology and launch policy")
         head = replica_processes[0]
         if (head.node_index, head.http_port) != (endpoint.node_index, endpoint.port):
             raise ValueError("replica head process must publish its resolved backend endpoint")
-        if self.topology.pipeline_parallel > 1:
+        if self.topology.nodes_per_replica > 1:
             rendezvous = head.rendezvous
             if rendezvous is None or any(process.rendezvous != rendezvous for process in replica_processes):
                 raise ValueError("replica processes must share one rendezvous specification")
@@ -182,7 +182,7 @@ class ResolvedVllmServerDeployment(ContractValue):
         rendezvous_addresses = tuple(
             (process.rendezvous.master_node_index, process.rendezvous.port)
             for process in self.processes
-            if process.pipeline_rank == 0 and process.rendezvous is not None
+            if process.node_rank == 0 and process.rendezvous is not None
         )
         addresses = (
             tuple((endpoint.node_index, endpoint.port) for endpoint in self.backend_endpoints)

@@ -221,18 +221,40 @@ topology:
   nodes_per_replica: 2
 ```
 
-In an eight-GPU profile, this starts two replicas, each spanning two nodes with 16 GPUs total. `nodes_per_replica` maps to pipeline parallelism; it does not increase the number of independent replicas.
+In an eight-GPU profile, this starts two replicas, each spanning two nodes with 16 GPUs total. When `pipeline_parallel` is omitted, it defaults to `nodes_per_replica`, preserving this pipeline-parallel layout.
 
 ### GPU topology and replica count
 
-`tensor_parallel` is the number of GPUs each replica uses **on each node**. `nodes_per_replica` is the number of nodes in its pipeline-parallel group. The planner starts `gpus_per_node / tensor_parallel` replica lanes per node group, so the total for one deployment is:
+`tensor_parallel` and `pipeline_parallel` specify vLLM's tensor and pipeline parallel sizes for one replica. `nodes_per_replica` specifies how many nodes host that replica. Omitting `pipeline_parallel` defaults it to `nodes_per_replica`, so existing configurations continue to use tensor parallelism within each node and pipeline parallelism across nodes.
 
-```text
-replicas = (resources.nodes / nodes_per_replica) * (gpus_per_node / tensor_parallel)
-GPUs per replica = tensor_parallel * nodes_per_replica
+To spread tensor parallelism across nodes while keeping PP=1, set `pipeline_parallel: 1` explicitly. For a profile requesting **four GPUs per node**, this configuration runs one TP16/PP1 replica across four nodes, with expert parallelism enabled:
+
+```yaml
+resources:
+  nodes: 4
+topology:
+  tensor_parallel: 16
+  pipeline_parallel: 1
+  nodes_per_replica: 4
+server:
+  type: vllm
+  image:
+    name: my-serving-image
+  enable_expert_parallel: true
 ```
 
-For a profile that requests eight GPUs per node, the following are separate choices for **one deployment in one array task**:
+The serving image must support the selected model and parallel settings. The runtime starts one vLLM process on each replica node, with one API server and headless followers sharing a rendezvous. EP operates within each replica; independent replica lanes do not form a coordinated data-parallel expert group.
+
+The planner distributes each replica's GPU workers evenly across its nodes:
+
+```text
+PP = pipeline_parallel, or nodes_per_replica when omitted
+GPUs per replica = tensor_parallel * PP
+GPUs per replica node = GPUs per replica / nodes_per_replica
+replicas = (resources.nodes / nodes_per_replica) * (gpus_per_node / GPUs per replica node)
+```
+
+For a profile that requests eight GPUs per node, the following are separate choices for **one deployment in one array task**, with `pipeline_parallel` omitted:
 
 | `resources.nodes` | `tensor_parallel` | `nodes_per_replica` | vLLM replicas | GPUs per replica |
 | ---: | ---: | ---: | ---: | ---: |
@@ -245,7 +267,7 @@ For a profile that requests eight GPUs per node, the following are separate choi
 
 Increasing `resources.nodes` at TP=1 creates more independent one-GPU servers; it does not combine their GPUs into one larger server. The client uses one logical endpoint per model alias, backed by a local proxy that routes requests among that alias's replicas. `invocation.model_concurrency` limits in-flight model calls **per alias within each array task**; it does not set the replica count or the number of array tasks.
 
-`tensor_parallel` must divide the GPUs requested per node in the selected profile. `nodes_per_replica` must divide `resources.nodes`. With `gpus_per_node: auto`, the eligible nodes must agree on their GPU count. Multi-node expert parallelism is not supported in v1.
+`tensor_parallel * PP` must divide evenly across `nodes_per_replica`. The resulting GPUs per replica node must be positive and divide the GPUs requested per node in the selected profile. `nodes_per_replica` must divide `resources.nodes`. With `gpus_per_node: auto`, the eligible nodes must agree on their GPU count. These rules are checked before submission.
 
 ### Multiple models and images
 

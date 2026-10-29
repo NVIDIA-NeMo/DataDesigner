@@ -67,8 +67,6 @@ def _resolve_vllm_server(
     inspection = resolved_deployment.image.inspection_facts
     if not isinstance(inspection, ServingImageInspection) or inspection.server_type != server.type:
         raise VllmServerResolutionError("resolved serving image does not match the declared vLLM server")
-    if server.enable_expert_parallel and resolved_deployment.topology.pipeline_parallel > 1:
-        raise VllmServerResolutionError("multi-node expert parallel is not supported in v1")
 
     http_ports = tuple(port for port in resolved_deployment.ports if port.role == "http")
     rendezvous_ports = tuple(port for port in resolved_deployment.ports if port.role == "rendezvous")
@@ -114,22 +112,30 @@ def _resolve_vllm_server(
                 replica_index_in_node_group=replica_index_in_node_group,
                 deployment_replica_index=deployment_replica_index,
             )
-            gpu_start = resolved_deployment.gpu_start_index + replica_index_in_node_group * tensor_parallel
-            gpu_indices = tuple(range(gpu_start, gpu_start + tensor_parallel))
+            gpu_start = (
+                resolved_deployment.gpu_start_index
+                + replica_index_in_node_group * resolved_deployment.topology.local_gpus_per_replica
+            )
+            gpu_indices = tuple(range(gpu_start, gpu_start + resolved_deployment.topology.local_gpus_per_replica))
             launch_delay = _calculate_launch_delay_seconds(server, deployment_replica_index)
-            for pipeline_rank, node_index in enumerate(group_nodes):
-                is_head = pipeline_rank == 0
+            for node_rank, node_index in enumerate(group_nodes):
+                is_head = node_rank == 0
                 processes.append(
                     ResolvedVllmProcess(
                         process_id=(
                             f"{resolved_deployment.deployment_id}-replica-{deployment_replica_index:05d}"
-                            f"-rank-{pipeline_rank:05d}"
+                            f"-rank-{node_rank:05d}"
                         ),
                         deployment_id=resolved_deployment.deployment_id,
                         deployment_replica_index=deployment_replica_index,
                         node_group_index=node_group_index,
                         replica_index_in_node_group=replica_index_in_node_group,
-                        pipeline_rank=pipeline_rank,
+                        node_rank=node_rank,
+                        nodes_per_replica=(
+                            nodes_per_replica
+                            if nodes_per_replica != resolved_deployment.topology.pipeline_parallel
+                            else None
+                        ),
                         node_index=node_index,
                         gpu_indices=gpu_indices,
                         role=VllmProcessRole.API_SERVER if is_head else VllmProcessRole.FOLLOWER,
@@ -187,7 +193,7 @@ def _resolve_rendezvous(
     replica_index_in_node_group: int,
     deployment_replica_index: int,
 ) -> ResolvedVllmRendezvous | None:
-    if resolved_deployment.topology.pipeline_parallel == 1:
+    if resolved_deployment.topology.nodes_per_replica == 1:
         return None
     port = rendezvous_ports[deployment_replica_index]
     return ResolvedVllmRendezvous(

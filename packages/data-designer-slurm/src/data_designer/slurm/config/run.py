@@ -275,6 +275,7 @@ class DeploymentResources(AuthoredConfig):
 class DeploymentTopology(AuthoredConfig):
     tensor_parallel: PositiveInt = 1
     nodes_per_replica: PositiveInt = 1
+    pipeline_parallel: PositiveInt | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
 class ServerDeploymentConfig(AuthoredConfig):
@@ -311,8 +312,6 @@ class ServerDeploymentConfig(AuthoredConfig):
                 raise ValueError("tensor_parallel must divide the deployment GPU quota")
         if self.resources.nodes % self.topology.nodes_per_replica:
             raise ValueError("nodes_per_replica must divide deployment nodes")
-        if self.server.enable_expert_parallel and self.topology.nodes_per_replica > 1:
-            raise ValueError("multi-node expert parallel is not supported in v1")
         return self
 
 

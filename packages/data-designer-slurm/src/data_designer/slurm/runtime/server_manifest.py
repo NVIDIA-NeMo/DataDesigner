@@ -193,7 +193,7 @@ def _build_local_server_step(
     log_directory: Path,
     layout: AllocationLayout,
 ) -> RuntimeStepSpec:
-    if process.pipeline_parallel != 1 or process.http_port is None:
+    if process.node_count != 1 or process.http_port is None:
         raise SlurmRuntimeError(
             SlurmRuntimeErrorCode.INVALID_CONTEXT,
             "single-node runtime received a distributed vLLM process",

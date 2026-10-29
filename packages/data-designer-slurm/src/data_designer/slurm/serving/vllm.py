@@ -7,7 +7,16 @@ from __future__ import annotations
 
 from enum import Enum
 
-from pydantic import Field, NonNegativeInt, PositiveInt, field_validator, model_validator
+from pydantic import (
+    AliasChoices,
+    Field,
+    NonNegativeInt,
+    PositiveInt,
+    SerializerFunctionWrapHandler,
+    field_validator,
+    model_serializer,
+    model_validator,
+)
 
 from data_designer.slurm.config.environment import EnvironmentBinding
 from data_designer.slurm.config.vllm import QueueBackpressureConfig
@@ -82,7 +91,8 @@ class ResolvedVllmProcess(ContractValue):
     deployment_replica_index: NonNegativeInt
     node_group_index: NonNegativeInt
     replica_index_in_node_group: NonNegativeInt
-    pipeline_rank: NonNegativeInt
+    node_rank: NonNegativeInt = Field(validation_alias=AliasChoices("node_rank", "pipeline_rank"))
+    nodes_per_replica: PositiveInt | None = Field(default=None, exclude_if=lambda value: value is None)
     node_index: NonNegativeInt
     gpu_indices: tuple[NonNegativeInt, ...] = Field(min_length=1)
     role: VllmProcessRole
@@ -92,25 +102,43 @@ class ResolvedVllmProcess(ContractValue):
     rendezvous: ResolvedVllmRendezvous | None = None
     launch_delay_seconds: NonNegativeInt
 
+    @property
+    def node_count(self) -> int:
+        """Replica node count, including legacy PP-per-node process records."""
+        return self.pipeline_parallel if self.nodes_per_replica is None else self.nodes_per_replica
+
+    @property
+    def pipeline_rank(self) -> int:
+        """Legacy alias for the node rank; workers own actual pipeline ranks."""
+        return self.node_rank
+
+    @model_serializer(mode="wrap")
+    def serialize_process(self, handler: SerializerFunctionWrapHandler) -> dict[str, object]:
+        """Preserve the serialized shape of existing PP-per-node records."""
+        data = handler(self)
+        if self.nodes_per_replica is None and "node_rank" in data:
+            data["pipeline_rank"] = data.pop("node_rank")
+        return data
+
     @model_validator(mode="after")
     def validate_process(self) -> ResolvedVllmProcess:
         if self.gpu_indices != tuple(sorted(set(self.gpu_indices))):
             raise ValueError("process GPU indices must be sorted and unique")
-        if len(self.gpu_indices) != self.tensor_parallel:
-            raise ValueError("process GPU count must equal tensor parallelism")
-        if self.pipeline_rank >= self.pipeline_parallel:
-            raise ValueError("process pipeline rank must be below pipeline parallelism")
-        if self.pipeline_rank == 0:
+        if len(self.gpu_indices) * self.node_count != self.tensor_parallel * self.pipeline_parallel:
+            raise ValueError("process GPU count times replica nodes must equal tensor times pipeline parallelism")
+        if self.node_rank >= self.node_count:
+            raise ValueError("process node rank must be below replica node count")
+        if self.node_rank == 0:
             if self.role is not VllmProcessRole.API_SERVER:
-                raise ValueError("pipeline rank zero must be the API server")
+                raise ValueError("node rank zero must be the API server")
             if self.http_port is None:
                 raise ValueError("API server processes require an HTTP port")
         elif self.role is not VllmProcessRole.FOLLOWER:
-            raise ValueError("nonzero pipeline ranks must be followers")
+            raise ValueError("nonzero node ranks must be followers")
         elif self.http_port is not None:
             raise ValueError("follower processes must not publish an HTTP port")
-        if self.pipeline_parallel == 1:
-            if self.pipeline_rank != 0 or self.rendezvous is not None:
+        if self.node_count == 1:
+            if self.node_rank != 0 or self.rendezvous is not None:
                 raise ValueError("single-node processes must not carry rendezvous inputs")
         elif self.rendezvous is None:
             raise ValueError("multi-node processes require rendezvous inputs")
