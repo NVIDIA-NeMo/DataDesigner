@@ -64,8 +64,9 @@ def _compile(
         (8, 2, 4, 1, 1),
         (4, None, 2, 1, 1),
         (2, 2, 1, 1, 1),
+        (1, 4, 1, 1, 1),
     ],
-    ids=["tp16-ep", "tp8-ep", "two-lanes-two-groups", "hybrid-tp-pp", "legacy-pp", "local-pp"],
+    ids=["tp16-ep", "tp8-ep", "two-lanes-two-groups", "hybrid-tp-pp", "legacy-pp", "local-pp", "local-pp-tp1"],
 )
 def test_compiled_parallel_topology_drives_node_gpu_ownership_and_commands(
     authored_run_single: DataDesignerSlurmConfig,
@@ -103,6 +104,7 @@ def test_compiled_parallel_topology_drives_node_gpu_ownership_and_commands(
         assert (process.role is VllmProcessRole.API_SERVER) == (process.node_rank == 0)
         command = build_vllm_process_command(server, process, plan, layout)
         assert command[command.index("--tensor-parallel-size") + 1] == str(tp)
+        assert command[command.index("--distributed-executor-backend") + 1] == "mp"
         assert "--enable-expert-parallel" in command
         if nodes > 1:
             assert command[command.index("--pipeline-parallel-size") + 1] == str(effective_pp)

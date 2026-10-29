@@ -102,7 +102,7 @@ def build_vllm_process_command(
         "--tensor-parallel-size",
         str(process.tensor_parallel),
         "--distributed-executor-backend",
-        "uni" if process.tensor_parallel * process.node_count == 1 else "mp",
+        "uni" if process.tensor_parallel * process.pipeline_parallel == 1 else "mp",
         "--data-parallel-backend",
         "mp",
         "--middleware",
