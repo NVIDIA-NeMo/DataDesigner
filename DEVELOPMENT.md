@@ -29,10 +29,9 @@ make install-dev
 make install-dev-notebooks
 ```
 
-Notebook setup restores nbconvert's HTML stylesheets from a checksum-pinned PyPI wheel without installing its
-Python code. The nh3 source pin remains in use. Existing stylesheets are reused without another download.
-Use `NOTEBOOK_CSS=0` with the notebook setup targets for execution-only environments, which do not support
-nbconvert HTML export. After a direct `uv sync --group notebooks`, run `make install-notebook-css` if you need HTML export.
+Notebook setup uses the patched nbconvert PyPI release, including its HTML stylesheets.
+The `install-notebook-css` target reuses existing stylesheets and can restore missing assets from a
+checksum-pinned wheel. Use `NOTEBOOK_CSS=0` to skip that restoration check in execution-only environments.
 
 ### Verify Your Setup
 
@@ -228,28 +227,61 @@ There is also a CI test (`test_import_performance` in `packages/data-designer/te
 
 ### Transitive dependencies
 
-Don't add transitive dependencies to `packages/*/pyproject.toml` just to set a security floor.
-Instead, bump transitive dependencies in the `uv.lock` file only via:
+Set minimum versions for **direct dependencies** in their existing package requirements
+(`packages/*/pyproject.toml`) or dependency groups. For example, the Pillow minimum belongs in
+`data-designer-config` and the aiohttp minimum belongs in the `notebooks` group.
+Do not duplicate those minimums in `constraint-dependencies`.
+
+Use `[tool.uv].constraint-dependencies` in the workspace root `pyproject.toml` only for security
+floors on **transitive dependencies**, such as urllib3 through requests. Mirror relevant transitive
+runtime floors in `tests_e2e/pyproject.toml`. Its lockfile is intentionally untracked: e2e test setup
+removes it, and the security check generates it before auditing. Do not add a transitive dependency
+to published package requirements solely to set a security floor.
 
 ```bash
-uv lock --upgrade-package <pkg>
+make update-security-constraints     # Regenerate the pip/uv-compatible constraints.txt
+uv lock --upgrade-package <pkg>      # Update the workspace lockfile
+uv lock --project tests_e2e --upgrade-package <pkg>
+make check-vulnerabilities           # Check the export, resolve e2e, and audit dependencies against OSV
 ```
 
-If a constraint impacts this such that a new security floor for a package does not survive re-resolution,
-add a `[tool.uv] constraint-dependencies` section to the workspace root `pyproject.toml`.
+`constraints.txt` is generated from the workspace transitive security floors. CI rejects a stale export and
+audits the committed workspace lockfile and separately resolved e2e dependencies, including development,
+documentation, notebook, and recipe groups. Audits run daily, on demand, and on PRs or pushes to
+`main` that change dependency manifests, the workspace lockfile, constraints, or security tooling.
+Audit findings fail the check; review each advisory and add an appropriate floor before updating
+the affected lockfile. To check e2e independently, run
+`uv lock --project tests_e2e` followed by `uv audit --project tests_e2e --locked`.
 
-Both approaches only protect installs from this workspace (development and CI). Neither `uv.lock` nor `[tool.uv]` settings are part of the published package metadata, so users who `pip install` the packages can still resolve a transitive dependency below the floor.
-This is intentional: security floors for transitive dependencies belong in each application's lockfile.
-List recommended minimum versions in the release notes so users can apply them.
+PR audits guard dependency-related changes against vulnerable resolutions. Unrelated PRs do not
+trigger this workflow; daily audits detect newly disclosed vulnerabilities independently. Address
+scheduled findings in a dedicated security fix. If a dependency-related PR encounters an existing
+finding, bring in that fix and rerun the audit rather than mixing an unrelated remediation into it.
+Because the workflow is path-filtered, it should not be configured as a universally required status check.
+
+Neither `uv.lock` nor `[tool.uv]` settings are published package metadata. Users should pass the
+maintained constraints URL when installing or upgrading:
+
+```bash
+pip install data-designer -c "https://raw.githubusercontent.com/NVIDIA-NeMo/DataDesigner/main/constraints.txt"
+uv pip install data-designer -c "https://raw.githubusercontent.com/NVIDIA-NeMo/DataDesigner/main/constraints.txt"
+uv add data-designer -c "https://raw.githubusercontent.com/NVIDIA-NeMo/DataDesigner/main/constraints.txt"
+```
+
+The `uv add -c` flag applies to that resolution only. Applications should retain the reviewed floors
+in their own `[tool.uv].constraint-dependencies` and commit their lockfile. See the
+[dependency security guide](https://docs.nvidia.com/nemo/datadesigner/concepts/security#dependency-security).
+
+Advisory databases can lag upstream updates. Verify upstream affected ranges when assessing
+a finding; a clean scan alone does not establish that every known security issue is resolved.
 
 #### CA trust remediation exception
 
 For the eMudhra CA compromise, require `certifi>=2026.10.19` in the published
 `data-designer-config` dependencies. This exception ensures that normal package
 installs and upgrades enforce the patched CA bundle for config-only users and
-for users of the engine and interface, which depend on config. Workspace and E2E
-constraints remain in place, but cannot enforce this minimum for PyPI users or
-downstream applications.
+for users of the engine and interface, which depend on config. This minimum lives in the published
+package requirement and is not duplicated in workspace or e2e transitive constraints.
 
 Keep other transitive security floors in application lockfiles as described above.
 This exception does not update pip's vendored certificate bundle or system and
