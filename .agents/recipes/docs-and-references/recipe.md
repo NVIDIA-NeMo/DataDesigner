@@ -46,7 +46,9 @@ sampling unrelated sections until the first easy fix appears.
    existing docs backlog entries before scanning.
 3. Choose one subsystem or API migration using pending backlog entries and
    recent code changes. Prefer user-facing breakage, then related accumulated
-   drift. Exclude findings whose latest attempt is open or merged, or that
+   drift. The workflow reconciles recorded open PRs before this audit so
+   closed PRs can be retried without another task triggering the fix phase.
+   Exclude findings whose latest attempt is open or merged, or that
    have two closed/abandoned attempts. Rotate away from `docs_last_task_key`
    when another eligible scope is available, especially if the previous scope
    was incomplete or deferred. Keep oversized or unsafe scopes report-only

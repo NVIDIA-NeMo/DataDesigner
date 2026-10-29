@@ -132,6 +132,8 @@ shared diff once, and update every associated finding together on rejection.
 
 - `abandoned` means the recipe could not produce a PR (tests failed,
   conflict, lint failed, allowlist rejected, etc.).
+- Docs runs also reconcile recorded open PRs in the workflow before audit
+  selection, independently of the completed-scope gate.
 - Reconcile at the start of each fix run. First refresh existing latest
   `open` attempts that have a `pr_number`: query the PR and flip the
   attempt to `merged` or `closed` if it is no longer open. Then recover

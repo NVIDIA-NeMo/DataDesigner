@@ -198,6 +198,17 @@ jobs:
             fi
           fi
 
+      - name: Reconcile docs PR state before audit selection
+        id: reconcile_docs_prs
+        if: matrix.suite == 'docs-and-references' && steps.reset_docs_scope.outputs.ready != 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          python3 scripts/manage_agentic_ci_attempts.py reconcile \
+            --state .agentic-ci-state/runner-state.json \
+            --repo "$GITHUB_REPOSITORY"
+
       - name: Run audit recipe
         id: audit
         env:
