@@ -7,6 +7,46 @@ import pytest
 
 from data_designer.slurm.benchmark import BenchmarkCompiler
 from data_designer.slurm.config import DataDesignerSlurmBenchmarkConfig, DataDesignerSlurmConfig
+from data_designer.slurm.planning import ResolvedDependencyLock, ResolvedSlurmRunPlan
+from data_designer.slurm.planning.compiler import SlurmRunCompiler
+from data_designer.slurm.planning.resolution import resolve_slurm_config
+
+
+@pytest.mark.parametrize("pipeline_parallel", [None, 2], ids=["default-pp1", "explicit-pp2"])
+def test_benchmark_node_placement_preserves_pipeline_size_and_replica_count(
+    benchmark_config: DataDesignerSlurmBenchmarkConfig,
+    authored_run_single: DataDesignerSlurmConfig,
+    dependency_lock_single: ResolvedDependencyLock,
+    single_node_plan: ResolvedSlurmRunPlan,
+    pipeline_parallel: int | None,
+) -> None:
+    payload = authored_run_single.model_dump(mode="json")
+    topology = payload["deployments"][0]["topology"]
+    topology["tensor_parallel"] = 8 if pipeline_parallel is None else 4
+    topology.pop("pipeline_parallel", None)
+    if pipeline_parallel is not None:
+        topology["pipeline_parallel"] = pipeline_parallel
+    base_run = DataDesignerSlurmConfig.model_validate(payload)
+    compiled = BenchmarkCompiler.compile(benchmark_config, base_run)
+
+    for case in compiled.cases:
+        plan = SlurmRunCompiler.compile(
+            resolve_slurm_config(
+                case.child_run_config,
+                selected_profile=single_node_plan.selected_profile,
+                client_runtime=single_node_plan.client.runtime,
+                deployment_images=(single_node_plan.deployments[0].image,),
+                dependency_lock=dependency_lock_single,
+                runtime_bundle=single_node_plan.runtime_bundle,
+                run_id=case.child_run_id,
+                package_version=single_node_plan.package_version,
+                resolved_gpus_per_node=8,
+            )
+        )
+        resolved = plan.deployments[0].topology
+        assert resolved.pipeline_parallel == (1 if pipeline_parallel is None else pipeline_parallel)
+        assert resolved.gpus_per_replica == 8
+        assert resolved.replica_count == 2
 
 
 def test_compiler_expands_stable_ordered_ordinary_runs(
