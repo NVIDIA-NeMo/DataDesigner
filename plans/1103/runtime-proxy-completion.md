@@ -14,9 +14,11 @@ acceptance requirements from #966 after the core proxy implementation in #967.
 - Health probes use their own bounded pool, independent of inference admission,
   so saturated inference connections cannot starve health checks or distort
   least-connections selection. See `runtime/proxy.py`.
-- Cleanup stops monitoring, signals logical endpoints, and allows 12 seconds for
-  their 10-second drain window and signal forwarding. Required serving steps stay
-  available until endpoint termination. Remaining steps then stop with bounded
+- Cleanup stops monitoring, sends `TERM` to each exact endpoint task step with
+  `scancel`, and allows 12 seconds for their 10-second drain window and step exit.
+  The task publishes its job and step IDs before executing the proxy; cleanup
+  validates that the identity belongs to the current allocation. Launchers and
+  required serving steps stay available until endpoint termination. Remaining steps then stop with bounded
   TERM/KILL escalation. See `runtime/cleanup.sh:48`.
 - Request events contain per-attempt origins, connection/reuse timing, response
   header and total durations, outcomes, and completion state. Counters include
@@ -26,7 +28,7 @@ acceptance requirements from #966 after the core proxy implementation in #967.
 
 ## Automated acceptance
 
-The final complete Slurm suite passed with 2,116 tests and one platform skip. The
+The final complete Slurm suite passed with 2,123 tests and one platform skip. The
 focused health, proxy, and request-admission suite passed all 54 cases.
 
 Coverage includes real-process cleanup on completion, cancellation, and failure;
@@ -93,10 +95,11 @@ the full managed `slurm execute` release matrix. Managed health/finalization and
 shutdown paths have the automated process/state coverage described above.
 The broader security, multi-node, retry, and final release-artifact matrix remains
 owned by #870. The recorded live run applies to its exact source and wheel
-identities. Subsequent review changes affect Python attempt finalization only;
-the proxy, health monitor, backpressure middleware, shell runtime, and acceptance
-harness remain byte-for-byte identical to the live-tested source. Finalization
-changes are covered by the regression suite, rather than by that GPU run.
+identities. Subsequent review changes affect Python attempt finalization and shell
+endpoint signal handling. The proxy, health monitor, backpressure middleware, and
+overload acceptance harness remain byte-for-byte identical to the GPU-tested
+source. Finalization changes have regression coverage; shell signal handling is
+validated separately below.
 
 ## Review follow-up
 
@@ -117,4 +120,37 @@ Ten review passes covered success finalization, terminal-state recovery, health
 protocol/state validation, shell monitoring and drain ordering, connector
 accounting, streaming cancellation and telemetry, overload/admission behavior,
 packaging/layering/secret scope, live-harness provenance, and the final diff and
-validation record. No additional code findings remained after the fixes.
+validation record. Those passes preceded the additional Slurm signal-handling
+finding described below.
+
+## Slurm signal-handling review
+
+Review identified that the cleanup PIDs belong to `srun` launchers. Slurm forwards
+`TERM` sent to those launchers as `KILL` to tasks, bypassing the proxy drain
+handler. Endpoint cleanup now uses the endpoint task's recorded numeric
+`job.step` identity to send `TERM` directly with `scancel`. Launchers remain alive
+during the drain window and are forcibly stopped only after that window expires.
+Cleanup never sends a task-directed signal to a different allocation or to a
+whole job. Stale step identity files are removed before launch.
+
+The process regressions now separate the launcher from its endpoint task and
+model Slurm's launcher `TERM` → task `KILL` behavior. They verify successful
+draining before backend shutdown on completion, failure, and cancellation, plus
+numeric/current-allocation identity checks and forced cleanup after the deadline.
+
+### Live Slurm drain acceptance — 2026-10-29
+
+The [sanitized report](live-drain-acceptance.json) records a separate CPU-only
+Slurm allocation exercising the production Bash step-launch, endpoint-start, and
+cleanup helpers, real `srun` and `scancel`, and the installed production proxy.
+A synthetic HTTP backend streamed an initial chunk, then delayed its final chunk
+for two seconds while cleanup began. The response completed on normal completion,
+failure cleanup, and controller cancellation (statuses 0, 1, and 130). Each proxy
+logged a completed response, released its listener marker, and finished its Slurm
+task with exit status 0 before cleanup stopped the backend. The allocation
+completed with exit status 0 and released all steps.
+
+The report records hashes of every shell source used and the installed proxy
+source; they match this PR's source. This validates the scheduler signal path
+separately from GPU overload acceptance. It does not run the full managed
+`slurm execute` state/bootstrap flow, and the synthetic backend is not vLLM.

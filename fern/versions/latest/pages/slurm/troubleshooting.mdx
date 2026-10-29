@@ -91,7 +91,7 @@ Endpoint stderr contains structured `slurm_proxy_request` events. Each event ide
 
 The allocation-local endpoint's `/metrics` response includes request and attempt counts, per-backend activity, connection opens/reuse/failures/evictions, retries by reason, final HTTP status counts, and timeouts. Evictions include expired, stale, and discarded connections; normal session shutdown is excluded. Timeouts include terminal attempts and interrupted response streams, even when no retry follows. These counters describe this endpoint process and reset when it restarts.
 
-During cleanup, health monitoring stops first. Logical endpoints then stop accepting requests and drain active responses for up to 10 seconds while serving backends remain available. The controller allows 12 seconds for endpoint termination, including signal forwarding, before forcing remaining endpoints to stop and terminating other steps. Responses exceeding the drain deadline can be interrupted.
+During cleanup, health monitoring stops first. The controller sends `TERM` directly to each endpoint's Slurm task step using its recorded job and step IDs. Logical endpoints then stop accepting requests and drain active responses for up to 10 seconds while their `srun` launchers and serving backends remain available. The controller allows 12 seconds for draining and step exit before forcing remaining endpoints to stop and terminating other steps. Responses exceeding the drain deadline can be interrupted.
 
 ### Retry a failed shard
 

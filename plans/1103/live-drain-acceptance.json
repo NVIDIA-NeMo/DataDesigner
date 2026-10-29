@@ -1,0 +1,49 @@
+{
+  "passed": true,
+  "scheduler": "Slurm",
+  "gpus": 0,
+  "cases": {
+    "completion": {
+      "controller_exit_status": 0,
+      "active_response_completed": true,
+      "proxy_logged_response_completed": true,
+      "listener_released": true,
+      "task_identity_bound_to_allocation": true,
+      "drain_elapsed_seconds": 2.0000033378601074
+    },
+    "failure": {
+      "controller_exit_status": 1,
+      "active_response_completed": true,
+      "proxy_logged_response_completed": true,
+      "listener_released": true,
+      "task_identity_bound_to_allocation": true,
+      "drain_elapsed_seconds": 2.0000098149757832
+    },
+    "cancellation": {
+      "controller_exit_status": 130,
+      "active_response_completed": true,
+      "proxy_logged_response_completed": true,
+      "listener_released": true,
+      "task_identity_bound_to_allocation": true,
+      "drain_elapsed_seconds": 2.000048526097089
+    }
+  },
+  "runtime_source_sha256": {
+    "entrypoint.sh": "d3797d97b2017824be7a2f15d22e28d2a0412c516ace5f17b9459e56114c4544",
+    "scratch.sh": "65c9ca253f84d0f08bd2cf69914fe7c18959bea63fe0e30afb3763ccd3ff2963",
+    "step_runner.sh": "0e169ba03e8726d12e7519d7f32d545f0d64d44e1a0401b3ac277e05302d75d3",
+    "cleanup.sh": "10ab028c0de7159ad5527365c715ce0499f5af58d4809a2dde449ec8fae43f81",
+    "plan_reader.sh": "9c0cd73619c78919908f526033423363622b250991192fff14b830734856e514"
+  },
+  "proxy_source_sha256": "c31d0c25bc692f6f32c32def6c5ac8c47f34448ab6501a386d869818e0c25a79",
+  "validation_date": "2026-10-29",
+  "allocation_state": "COMPLETED",
+  "allocation_exit_status": 0,
+  "endpoint_task_exit_statuses": [
+    0,
+    0,
+    0
+  ],
+  "validation_scope": "Production Bash launch/endpoint/cleanup helpers with real srun and scancel, installed production proxy, and a synthetic streaming HTTP backend; not a full slurm execute run.",
+  "private_harness_sha256": "f9ca3d359ea77de946bb19a8f7e6a986348f4299d64d974d9cb246a07178e531"
+}

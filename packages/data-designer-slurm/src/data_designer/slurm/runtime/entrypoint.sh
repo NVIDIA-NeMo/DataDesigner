@@ -136,7 +136,7 @@ dd_run_bound_control_phase() {
 
 dd_verify_host_context() {
     local tool
-    for tool in bash sha256sum tar jq srun scontrol getent curl find; do
+    for tool in bash sha256sum tar jq srun scancel scontrol getent curl find; do
         command -v "${tool}" >/dev/null || {
             printf 'required allocation tool %q is unavailable\n' "${tool}" >&2
             return 69
@@ -237,10 +237,11 @@ dd_start_endpoints() {
     for step_id in "${DD_STEP_IDS[@]+"${DD_STEP_IDS[@]}"}"; do
         DD_STEP_STARTED_AT[${step_id}]=${SECONDS}
         dd_read_step "${DD_RUNTIME_MANIFEST}" "${step_id}"
-        rm -f -- "${DD_STEP_STDOUT}.listening"
-        dd_start_step "${DD_RUNTIME_MANIFEST}" "${step_id}"
+        rm -f -- "${DD_STEP_STDOUT}.listening" "${DD_STEP_STDOUT}.step-id"
+        dd_start_step "${DD_RUNTIME_MANIFEST}" "${step_id}" "${DD_STEP_STDOUT}.step-id"
         dd_register_required_pid "${DD_LAST_PID}"
         DD_ENDPOINT_PIDS+=("${DD_LAST_PID}")
+        DD_ENDPOINT_STEP_FILES[${DD_LAST_PID}]=${DD_STEP_STDOUT}.step-id
         dd_require_running
     done
 }
