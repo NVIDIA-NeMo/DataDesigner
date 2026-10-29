@@ -265,14 +265,13 @@ class ResolvedTopology(ContractValue):
         gpus_per_node: int,
         tensor_parallel: int,
         nodes_per_replica: int,
-        pipeline_parallel: int | None = None,
+        pipeline_parallel: int = 1,
     ) -> ResolvedTopology:
         """Derive the canonical v1 topology from placement and GPU resources."""
         if min(node_count, gpus_per_node, tensor_parallel, nodes_per_replica) <= 0:
             raise ValueError("topology derivation inputs must be positive")
         if node_count % nodes_per_replica:
             raise ValueError("nodes_per_replica must divide the deployment node count")
-        pipeline_parallel = nodes_per_replica if pipeline_parallel is None else pipeline_parallel
         if pipeline_parallel <= 0:
             raise ValueError("pipeline_parallel must be positive")
         gpus_per_replica = tensor_parallel * pipeline_parallel
