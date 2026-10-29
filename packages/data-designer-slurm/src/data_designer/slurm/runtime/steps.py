@@ -376,7 +376,7 @@ def _build_vllm_step(
 
 
 def _validate_local_vllm_process(process: ResolvedVllmProcess) -> None:
-    if process.pipeline_parallel != 1 or process.node_index != 0 or process.http_port is None:
+    if process.node_count != 1 or process.node_index != 0 or process.http_port is None:
         raise SlurmRuntimeError(
             SlurmRuntimeErrorCode.INVALID_CONTEXT,
             "one-node runtime received a distributed vLLM process",
@@ -406,6 +406,8 @@ def build_vllm_command(
         "--middleware",
         "data_designer.slurm.runtime.backpressure.QueueDepthBackpressureMiddleware",
     )
+    if process.pipeline_parallel != 1:
+        command += ("--pipeline-parallel-size", str(process.pipeline_parallel))
     if deployment.launch_policy.enable_expert_parallel:
         command += ("--enable-expert-parallel",)
     if deployment.launch_policy.io_processor_plugin is not None:

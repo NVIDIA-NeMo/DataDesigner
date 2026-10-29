@@ -581,8 +581,9 @@ def test_deployment_rejects_invalid_topology() -> None:
     assert deployment.topology.nodes_per_replica == 1
 
     payload["topology"]["nodes_per_replica"] = 2
-    with pytest.raises(ValidationError, match="expert"):
-        ServerDeploymentConfig.model_validate(payload)
+    deployment = ServerDeploymentConfig.model_validate(payload)
+    assert deployment.server.enable_expert_parallel
+    assert deployment.topology.nodes_per_replica == 2
 
 
 def test_model_alias_preserves_public_data_designer_values() -> None:

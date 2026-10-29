@@ -30,8 +30,8 @@ def test_resolved_launch_policy_rejects_invalid_io_processor_plugin(
     ("mutation", "message"),
     [
         ("gpu_order", "sorted and unique"),
-        ("gpu_count", "equal tensor parallelism"),
-        ("pipeline_rank", "below pipeline parallelism"),
+        ("gpu_count", "equal tensor times pipeline parallelism"),
+        ("pipeline_rank", "below replica node count"),
         ("head_role", "rank zero"),
         ("head_port", "require an HTTP port"),
         ("follower_role", "must be followers"),
@@ -81,7 +81,6 @@ def test_process_specs_reject_one_field_topology_drift(
         ("node_group_divisibility", "must divide the deployment node count"),
         ("gpu_divisibility", "must divide resolved GPUs per node"),
         ("topology", "node and GPU resources"),
-        ("expert_parallel", "multi-node expert parallel"),
         ("logical_alias", "model alias"),
         ("logical_served_name", "served model name"),
         ("logical_id", "endpoint ID"),
@@ -89,11 +88,11 @@ def test_process_specs_reject_one_field_topology_drift(
         ("backend_id", "endpoint IDs"),
         ("logical_backends", "resolved backend order"),
         ("process_ids", "process IDs"),
-        ("process_order", "ordered replica and pipeline identities"),
+        ("process_order", "ordered replica and node identities"),
         ("readiness_count", "readiness probes"),
         ("backend_placement", "replica placement"),
         ("readiness_target", "readiness probes"),
-        ("pipeline_ranks", "ordered replica and pipeline identities"),
+        ("pipeline_ranks", "ordered replica and node identities"),
         ("process_topology", "topology and launch policy"),
         ("head_endpoint", "head process"),
         ("rendezvous_consistency", "share one rendezvous"),
@@ -127,8 +126,6 @@ def test_resolved_server_rejects_one_field_join_drift(
         payload["gpus_per_node"] = 7
     elif mutation == "topology":
         payload["topology"]["replica_count"] = 3
-    elif mutation == "expert_parallel":
-        payload["launch_policy"]["enable_expert_parallel"] = True
     elif mutation == "logical_alias":
         payload["logical_endpoint"]["model_alias"] = "other"
     elif mutation == "logical_served_name":

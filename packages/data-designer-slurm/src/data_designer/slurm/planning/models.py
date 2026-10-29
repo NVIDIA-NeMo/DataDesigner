@@ -252,6 +252,11 @@ class ResolvedTopology(ContractValue):
     replica_count: PositiveInt
     gpus_per_replica: PositiveInt
 
+    @property
+    def local_gpus_per_replica(self) -> int:
+        """GPU workers assigned to each node of one replica."""
+        return self.gpus_per_replica // self.nodes_per_replica
+
     @classmethod
     def derive(
         cls,
@@ -260,24 +265,34 @@ class ResolvedTopology(ContractValue):
         gpus_per_node: int,
         tensor_parallel: int,
         nodes_per_replica: int,
+        pipeline_parallel: int | None = None,
     ) -> ResolvedTopology:
         """Derive the canonical v1 topology from placement and GPU resources."""
         if min(node_count, gpus_per_node, tensor_parallel, nodes_per_replica) <= 0:
             raise ValueError("topology derivation inputs must be positive")
         if node_count % nodes_per_replica:
             raise ValueError("nodes_per_replica must divide the deployment node count")
-        if gpus_per_node % tensor_parallel:
-            raise ValueError("tensor_parallel must divide resolved GPUs per node")
+        pipeline_parallel = nodes_per_replica if pipeline_parallel is None else pipeline_parallel
+        if pipeline_parallel <= 0:
+            raise ValueError("pipeline_parallel must be positive")
+        gpus_per_replica = tensor_parallel * pipeline_parallel
+        if gpus_per_replica % nodes_per_replica:
+            raise ValueError("tensor_parallel * pipeline_parallel must divide evenly across nodes_per_replica")
+        local_gpus = gpus_per_replica // nodes_per_replica
+        if local_gpus > gpus_per_node or gpus_per_node % local_gpus:
+            raise ValueError(
+                "tensor_parallel * pipeline_parallel / nodes_per_replica must divide resolved GPUs per node"
+            )
         node_group_count = node_count // nodes_per_replica
-        replicas_per_node_group = gpus_per_node // tensor_parallel
+        replicas_per_node_group = gpus_per_node // local_gpus
         return cls(
             tensor_parallel=tensor_parallel,
             nodes_per_replica=nodes_per_replica,
-            pipeline_parallel=nodes_per_replica,
+            pipeline_parallel=pipeline_parallel,
             node_group_count=node_group_count,
             replicas_per_node_group=replicas_per_node_group,
             replica_count=node_group_count * replicas_per_node_group,
-            gpus_per_replica=tensor_parallel * nodes_per_replica,
+            gpus_per_replica=gpus_per_replica,
         )
 
 
@@ -310,6 +325,7 @@ class ResolvedDeployment(ContractValue):
             gpus_per_node=self.gpus_per_node,
             tensor_parallel=self.authored.topology.tensor_parallel,
             nodes_per_replica=self.authored.topology.nodes_per_replica,
+            pipeline_parallel=self.authored.topology.pipeline_parallel,
         )
         if self.topology != expected:
             raise ValueError("resolved topology does not match deployment resources")
