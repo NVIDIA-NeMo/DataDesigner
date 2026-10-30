@@ -1,0 +1,23 @@
+name: Merge queue PR checks
+
+on:
+  merge_group:
+    types: [checks_requested]
+
+permissions: {}
+
+jobs:
+  pr-checks:
+    name: ${{ matrix.check }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    strategy:
+      matrix:
+        check:
+          - DCOAssistant
+          - semantic-pull-request / semantic-pull-request
+    steps:
+      # GitHub requires these PR checks before queue admission. The synthetic
+      # merge-group commit has no contributor signature or PR title to validate.
+      - name: Acknowledge required PR checks
+        run: echo "DCO and PR title checks passed before merge queue admission."

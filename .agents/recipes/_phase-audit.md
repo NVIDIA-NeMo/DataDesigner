@@ -8,6 +8,10 @@ This invocation runs the **AUDIT** phase only.
   including `fix_backlog` entries per `_fix-policy.md` (populated BEFORE
   applying the `known_issues` filter to the report, so fixable findings
   persist across runs even when their report row is suppressed).
+- Follow the suite's task-grouping rules while auditing. For docs, complete
+  one bounded subsystem or API-migration scope and collect related eligible
+  findings across categories. Mark an interrupted scope incomplete so the fix
+  phase cannot turn a partial scan into a standalone PR.
 - Do NOT attempt any fix. Do NOT create any branches, commits, or PRs.
 - Do NOT modify any files outside `{{memory_path}}/` and the report file
   `/tmp/audit-{{suite}}.md` itself.
