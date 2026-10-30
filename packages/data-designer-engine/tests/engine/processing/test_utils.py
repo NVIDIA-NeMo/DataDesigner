@@ -114,6 +114,16 @@ def test_concat_datasets_logging(mock_logger, stub_sample_dataframes):
         ("empty_string", "", ""),
         ("empty_list", [], []),
         ("empty_dict", {}, {}),
+        ("scalar_number_string", "1.10", 1.1),
+        ("scalar_bool_string", "true", True),
+        ("scalar_null_string", "null", None),
+        ("scalar_quoted_string", '"text"', "text"),
+        ("list_of_scalar_strings", ["1.10", "true", "null", '"text"'], [1.1, True, None, "text"]),
+        (
+            "dict_with_nested_scalar_strings",
+            {"version": "1.10", "nested": {"flag": "false", "deep": {"missing": "null", "quoted": '"x"'}}},
+            {"version": 1.1, "nested": {"flag": False, "deep": {"missing": None, "quoted": "x"}}},
+        ),
     ],
 )
 def test_deserialize_json_values_scenarios(test_case, input_data, expected_result):
