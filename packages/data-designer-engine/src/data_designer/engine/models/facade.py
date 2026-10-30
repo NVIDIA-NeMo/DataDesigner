@@ -18,6 +18,7 @@ from data_designer.config.utils.constants import (
 from data_designer.config.utils.media_helpers import is_image_diffusion_model
 from data_designer.engine.mcp.errors import MCPConfigurationError
 from data_designer.engine.model_provider import ModelProviderRegistry
+from data_designer.engine.models.clients.errors import ProviderError, ProviderErrorKind
 from data_designer.engine.models.clients.types import (
     ChatCompletionRequest,
     ChatCompletionResponse,
@@ -403,12 +404,32 @@ class ModelFacade:
                 # response a tool call, so the tool loop could never end.
                 completion_kwargs.pop("tool_choice", None)
 
-            completion_response = self.completion(
-                messages,
-                skip_usage_tracking=skip_usage_tracking,
-                allow_multiple_choices=False,
-                **completion_kwargs,
-            )
+            try:
+                completion_response = self.completion(
+                    messages,
+                    skip_usage_tracking=skip_usage_tracking,
+                    allow_multiple_choices=False,
+                    **completion_kwargs,
+                )
+            except ProviderError as exc:
+                if (
+                    exc.kind != ProviderErrorKind.CONTEXT_WINDOW_EXCEEDED
+                    or len(messages) <= len(restart_checkpoint)
+                    or curr_num_restarts >= max_conversation_restarts
+                ):
+                    raise
+                logger.debug(
+                    "Correction history exceeded context for model %s; restarting conversation %d of %d",
+                    self.model_alias,
+                    curr_num_restarts + 1,
+                    max_conversation_restarts,
+                )
+                parse_attempts = 0
+                curr_num_restarts += 1
+                messages = deepcopy(restart_checkpoint)
+                tool_call_turns = checkpoint_tool_call_turns
+                conversation_truncation_reason = None
+                continue
 
             # Process any tool calls in the response (handles parallel tool calling)
             if mcp_facade is not None and mcp_facade.has_tool_calls(completion_response):
@@ -524,12 +545,32 @@ class ModelFacade:
                 # response a tool call, so the tool loop could never end.
                 completion_kwargs.pop("tool_choice", None)
 
-            completion_response = await self.acompletion(
-                messages,
-                skip_usage_tracking=skip_usage_tracking,
-                allow_multiple_choices=False,
-                **completion_kwargs,
-            )
+            try:
+                completion_response = await self.acompletion(
+                    messages,
+                    skip_usage_tracking=skip_usage_tracking,
+                    allow_multiple_choices=False,
+                    **completion_kwargs,
+                )
+            except ProviderError as exc:
+                if (
+                    exc.kind != ProviderErrorKind.CONTEXT_WINDOW_EXCEEDED
+                    or len(messages) <= len(restart_checkpoint)
+                    or curr_num_restarts >= max_conversation_restarts
+                ):
+                    raise
+                logger.debug(
+                    "Correction history exceeded context for model %s; restarting conversation %d of %d",
+                    self.model_alias,
+                    curr_num_restarts + 1,
+                    max_conversation_restarts,
+                )
+                parse_attempts = 0
+                curr_num_restarts += 1
+                messages = deepcopy(restart_checkpoint)
+                tool_call_turns = checkpoint_tool_call_turns
+                conversation_truncation_reason = None
+                continue
 
             if mcp_facade is not None and mcp_facade.has_tool_calls(completion_response):
                 tool_call_turns += 1
