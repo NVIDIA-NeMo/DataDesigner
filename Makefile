@@ -102,6 +102,9 @@ help:
 	@echo "  serve-fern-docs-locally   - Generate local Fern artifacts and serve Fern docs"
 	@echo "  check-license-headers     - Check if all files have license headers"
 	@echo "  check-dependency-licenses - Check runtime dependency license compatibility"
+	@echo "  update-security-constraints - Export security version floors to constraints.txt"
+	@echo "  check-security-constraints - Check that constraints.txt matches pyproject.toml"
+	@echo "  check-vulnerabilities     - Audit workspace and e2e lockfiles against OSV"
 	@echo "  update-license-headers    - Add license headers to all files"
 	@echo ""
 	@echo "⚡ Performance:"
@@ -509,8 +512,19 @@ show-versions:
 	@.venv/bin/python -c 'from importlib.metadata import version; print("  data-designer-slurm:  " + version("data-designer-slurm"))' 2>/dev/null || echo "  data-designer-slurm: (not installed)"
 
 # ==============================================================================
-# LICENSE CHECKS
+# SECURITY AND LICENSE CHECKS
 # ==============================================================================
+
+update-security-constraints:
+	uv run --script scripts/generate_security_constraints.py
+
+check-security-constraints:
+	uv run --script scripts/generate_security_constraints.py --check
+
+check-vulnerabilities: check-security-constraints
+	uv audit --locked
+	uv lock --project tests_e2e
+	uv audit --project tests_e2e --locked
 
 check-dependency-licenses:
 	@echo "🔍 Checking Python $(LICENSE_PYTHON_VERSION) locked runtime dependency licenses..."
@@ -850,4 +864,4 @@ clean-test-coverage:
         test test-config test-config-isolated test-e2e test-engine test-engine-isolated \
         test-graphify test-interface test-interface-isolated test-isolated test-slurm test-slurm-wheel-install \
         test-run-all-examples test-run-recipes test-run-tutorials \
-        update-license-headers verify-imports
+        update-license-headers verify-imports update-security-constraints check-security-constraints check-vulnerabilities

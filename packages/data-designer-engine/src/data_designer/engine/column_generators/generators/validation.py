@@ -94,8 +94,8 @@ class ValidationColumnGenerator(ColumnGeneratorFullColumn[ValidationColumnConfig
                 if outputs_as_dicts is None:
                     outputs_as_dicts = [{cols[0]: output.model_dump(mode="json")} for output in concatenated_outputs]
                 else:
-                    for dict_output in outputs_as_dicts:
-                        dict_output[cols[0]] = concatenated_outputs[0].model_dump(mode="json")
+                    for dict_output, output in zip(outputs_as_dicts, concatenated_outputs, strict=True):
+                        dict_output[cols[0]] = output.model_dump(mode="json")
             else:
                 outputs_as_dicts = [output.model_dump(mode="json") for output in concatenated_outputs]
 
