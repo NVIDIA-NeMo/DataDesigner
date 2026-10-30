@@ -218,6 +218,12 @@ def test_process_after_batch_with_mixed_special_characters(stub_processor: Schem
             [{"first_item": "alpha"}],
             id="list-indexing",
         ),
+        pytest.param(
+            {"version": ["1.10", "007"], "flag": ["true", "null"]},
+            {"version": "v{{ version }}", "flag": "{{ flag }}"},
+            [{"version": "v1.10", "flag": "true"}, {"version": "v007", "flag": "null"}],
+            id="scalar-strings-kept",
+        ),
     ],
 )
 def test_process_after_batch_with_nested_field_access(

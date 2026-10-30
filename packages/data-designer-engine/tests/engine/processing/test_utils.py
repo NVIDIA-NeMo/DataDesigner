@@ -122,6 +122,45 @@ def test_deserialize_json_values_scenarios(test_case, input_data, expected_resul
 
 
 @pytest.mark.parametrize(
+    "input_data,expected_result",
+    [
+        pytest.param("1.10", "1.10", id="single-scalar-string"),
+        pytest.param('{"key": 1.10}', {"key": 1.1}, id="single-object-string"),
+        pytest.param(["true", '["a", "b"]'], ["true", ["a", "b"]], id="list"),
+        pytest.param(
+            {
+                "version": "1.10",
+                "flag": "true",
+                "missing": "null",
+                "big": "1e3",
+                "quoted": '"text"',
+                "padded": "007",
+                "obj": '{"score": 95}',
+                "arr": "[1, 2]",
+                "nested": {"inner": "false", "deep": '{"ok": true}'},
+                "number": 42,
+            },
+            {
+                "version": "1.10",
+                "flag": "true",
+                "missing": "null",
+                "big": "1e3",
+                "quoted": '"text"',
+                "padded": "007",
+                "obj": {"score": 95},
+                "arr": [1, 2],
+                "nested": {"inner": "false", "deep": {"ok": True}},
+                "number": 42,
+            },
+            id="dict",
+        ),
+    ],
+)
+def test_deserialize_json_values_keep_scalar_strings(input_data, expected_result):
+    assert deserialize_json_values(input_data, keep_scalar_strings=True) == expected_result
+
+
+@pytest.mark.parametrize(
     "input_string,expected_result",
     [
         ('["a", "b", "c"]', ["a", "b", "c"]),  # valid stringified json array
