@@ -114,7 +114,7 @@ def test_image_cell_generator_generate_in_dataframe_mode(
         mock_storage.save_base64_image.assert_any_call("base64_image_2", subfolder_name="test_image")
 
 
-def test_image_cell_generator_keeps_scalar_strings_in_prompt(stub_resource_provider):
+def test_image_cell_generator_keeps_scalar_strings_in_prompt(stub_resource_provider: None) -> None:
     config = ImageColumnConfig(
         name="test_image", prompt="Logo for v{{ version }}, beta={{ flag }}, {{ meta.style }}", model_alias="test_model"
     )

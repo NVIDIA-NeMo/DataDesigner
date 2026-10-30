@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -166,7 +167,7 @@ def test_deserialize_json_values_scenarios(test_case, input_data, expected_resul
         ),
     ],
 )
-def test_deserialize_json_values_keep_scalar_strings(input_data, expected_result):
+def test_deserialize_json_values_keep_scalar_strings(input_data: Any, expected_result: Any) -> None:
     assert deserialize_json_values(input_data, keep_scalar_strings=True) == expected_result
 
 
