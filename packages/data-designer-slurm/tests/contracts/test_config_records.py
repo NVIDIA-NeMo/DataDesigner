@@ -560,6 +560,36 @@ def test_vllm_rejects_negative_launch_timing(field: str) -> None:
         VllmServerConfig.model_validate({"type": "vllm", "image": {"name": "vllm"}, field: "-1s"})
 
 
+@pytest.mark.parametrize("nodes_per_replica", [1, 2, 4])
+def test_deployment_defaults_to_one_pipeline_stage_without_expert_parallelism(nodes_per_replica: int) -> None:
+    deployment = ServerDeploymentConfig.model_validate(
+        {
+            "model_alias": "generator",
+            "model": "example/generator",
+            "server": {"type": "vllm", "image": {"name": "vllm"}},
+            "resources": {"nodes": nodes_per_replica},
+            "topology": {"tensor_parallel": 16, "nodes_per_replica": nodes_per_replica},
+        }
+    )
+
+    assert deployment.topology.pipeline_parallel == 1
+    assert deployment.server.enable_expert_parallel is False
+    assert ServerDeploymentConfig.model_validate_json(deployment.model_dump_json()) == deployment
+
+
+@pytest.mark.parametrize("pipeline_parallel", [None, 0, -1])
+def test_deployment_rejects_invalid_pipeline_parallel(pipeline_parallel: int | None) -> None:
+    with pytest.raises(ValidationError, match="pipeline_parallel"):
+        ServerDeploymentConfig.model_validate(
+            {
+                "model_alias": "generator",
+                "model": "example/generator",
+                "server": {"type": "vllm", "image": {"name": "vllm"}},
+                "topology": {"pipeline_parallel": pipeline_parallel},
+            }
+        )
+
+
 def test_deployment_rejects_invalid_topology() -> None:
     payload = {
         "model_alias": "generator",

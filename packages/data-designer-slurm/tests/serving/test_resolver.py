@@ -345,6 +345,7 @@ def _independent_replica_placement(plan: ResolvedSlurmRunPlan) -> ResolvedDeploy
     payload = plan.deployments[0].model_dump(mode="json")
     payload["authored"]["server"]["enable_expert_parallel"] = True
     payload["authored"]["topology"]["nodes_per_replica"] = 1
+    payload["authored"]["topology"]["pipeline_parallel"] = 1
     payload["topology"].update(
         nodes_per_replica=1,
         pipeline_parallel=1,

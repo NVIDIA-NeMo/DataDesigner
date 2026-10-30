@@ -30,6 +30,8 @@ def _compile(
     pp: int | None,
     nodes: int,
     groups: int = 1,
+    ep: bool | None = None,
+    gpus_per_node: int = 4,
 ) -> ResolvedSlurmRunPlan:
     payload = authored.model_dump(mode="json")
     deployment = payload["deployments"][0]
@@ -37,9 +39,11 @@ def _compile(
     deployment["topology"] = {"tensor_parallel": tp, "nodes_per_replica": nodes}
     if pp is not None:
         deployment["topology"]["pipeline_parallel"] = pp
-    deployment["server"]["enable_expert_parallel"] = True
+    deployment["server"].pop("enable_expert_parallel", None)
+    if ep is not None:
+        deployment["server"]["enable_expert_parallel"] = ep
     authored = DataDesignerSlurmConfig.model_validate(payload)
-    profile = injected_profile(template.selected_profile.profile.model_copy(update={"gpus_per_node": 4}))
+    profile = injected_profile(template.selected_profile.profile.model_copy(update={"gpus_per_node": gpus_per_node}))
     return SlurmRunCompiler.compile(
         resolve_slurm_config(
             authored,
@@ -50,7 +54,7 @@ def _compile(
             runtime_bundle=template.runtime_bundle,
             run_id=template.run_id,
             package_version=template.package_version,
-            resolved_gpus_per_node=4,
+            resolved_gpus_per_node=gpus_per_node,
         )
     )
 
@@ -62,12 +66,13 @@ def _compile(
         (8, 1, 2, 1, 1),
         (4, 1, 2, 2, 4),
         (8, 2, 4, 1, 1),
-        (4, None, 2, 1, 1),
+        (8, None, 2, 1, 1),
         (2, 2, 1, 1, 1),
         (1, 4, 1, 1, 1),
     ],
-    ids=["tp16-ep", "tp8-ep", "two-lanes-two-groups", "hybrid-tp-pp", "legacy-pp", "local-pp", "local-pp-tp1"],
+    ids=["tp16", "tp8", "two-lanes-two-groups", "hybrid-tp-pp", "default-pp1", "local-pp", "local-pp-tp1"],
 )
+@pytest.mark.parametrize("ep", [None, False, True], ids=["ep-omitted", "ep-disabled", "ep-enabled"])
 def test_compiled_parallel_topology_drives_node_gpu_ownership_and_commands(
     authored_run_single: DataDesignerSlurmConfig,
     dependency_lock_single: ResolvedDependencyLock,
@@ -77,14 +82,17 @@ def test_compiled_parallel_topology_drives_node_gpu_ownership_and_commands(
     nodes: int,
     groups: int,
     replicas: int,
+    ep: bool | None,
 ) -> None:
     plan = _compile(
-        authored_run_single, dependency_lock_single, single_node_plan, tp=tp, pp=pp, nodes=nodes, groups=groups
+        authored_run_single, dependency_lock_single, single_node_plan, tp=tp, pp=pp, nodes=nodes, groups=groups, ep=ep
     )
     assert ResolvedSlurmRunPlan.model_validate_json(plan.serialize_json()).compute_sha256() == plan.compute_sha256()
     server = resolve_vllm_server(plan, plan.deployments[0].deployment_id)
     assert ResolvedVllmServerDeployment.model_validate_json(server.model_dump_json()) == server
-    effective_pp = nodes if pp is None else pp
+    effective_pp = 1 if pp is None else pp
+    assert plan.deployments[0].authored.topology.pipeline_parallel == effective_pp
+    assert plan.deployments[0].authored.server.enable_expert_parallel is bool(ep)
     assert server.topology.replica_count == replicas
     assert server.topology.gpus_per_replica == tp * effective_pp
     assert len(server.processes) == nodes * replicas
@@ -105,7 +113,7 @@ def test_compiled_parallel_topology_drives_node_gpu_ownership_and_commands(
         command = build_vllm_process_command(server, process, plan, layout)
         assert command[command.index("--tensor-parallel-size") + 1] == str(tp)
         assert command[command.index("--distributed-executor-backend") + 1] == "mp"
-        assert "--enable-expert-parallel" in command
+        assert ("--enable-expert-parallel" in command) is bool(ep)
         if nodes > 1:
             assert command[command.index("--pipeline-parallel-size") + 1] == str(effective_pp)
             assert command[command.index("--nnodes") + 1] == str(nodes)
@@ -117,6 +125,36 @@ def test_compiled_parallel_topology_drives_node_gpu_ownership_and_commands(
             local = build_vllm_command(server, process, plan)
             assert local[local.index("--pipeline-parallel-size") + 1] == str(effective_pp)
             assert "--nnodes" not in command
+
+
+@pytest.mark.parametrize(("nodes", "replicas"), [(2, 1), (4, 2)])
+def test_tp16_on_eight_gpu_nodes_defaults_to_pp1_without_ep(
+    authored_run_single: DataDesignerSlurmConfig,
+    dependency_lock_single: ResolvedDependencyLock,
+    single_node_plan: ResolvedSlurmRunPlan,
+    nodes: int,
+    replicas: int,
+) -> None:
+    plan = _compile(
+        authored_run_single,
+        dependency_lock_single,
+        single_node_plan,
+        tp=16,
+        pp=None,
+        nodes=nodes,
+        gpus_per_node=8,
+    )
+    server = resolve_vllm_server(plan, plan.deployments[0].deployment_id)
+    layout = AllocationLayout(tuple(f"gpu-{index}" for index in range(nodes)))
+
+    assert server.topology.pipeline_parallel == 1
+    assert server.topology.gpus_per_replica == 16
+    assert server.topology.replica_count == replicas
+    for process in server.processes:
+        assert len(process.gpu_indices) == 16 // nodes
+        command = build_vllm_process_command(server, process, plan, layout)
+        assert command[command.index("--pipeline-parallel-size") + 1] == "1"
+        assert "--enable-expert-parallel" not in command
 
 
 @pytest.mark.parametrize(("tp", "pp", "nodes"), [(3, 1, 2), (32, 1, 4), (12, 1, 2)])

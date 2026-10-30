@@ -24,7 +24,7 @@ def test_rendered_script_fixtures_are_pinned_and_bound_to_canonical_plans(
     _assert_script_matches_plan(
         multi_node_plan,
         "multi_node.sbatch",
-        expected_fixture_sha256="c185ed76ac5e95e778d2ef8f442c046aa0fb982ef318a4404a9f5124c1a6484d",
+        expected_fixture_sha256="a4e6342dad6606b7dd6a2011b03e8566d017a5b30adfad337526e5a4b0567fea",
     )
 
 
