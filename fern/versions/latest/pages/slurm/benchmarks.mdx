@@ -2,16 +2,50 @@
 
 Use a benchmark to compare concurrency and deployment topology while keeping each case as an ordinary Data Designer Slurm run. No benchmark controller stays resident after submission.
 
-Complete [Getting Started](/slurm/getting-started) first so the profile, images, and base run are ready.
+Complete [Getting Started](/slurm/getting-started) first so the profile, serving image, and builder config are ready.
+
+## Prepare a compatible base run
+
+This example requires two nodes with eight GPUs per node. Confirm that the selected profile or its detected GPU count requests eight GPUs per node. Reuse `builder.yaml` and the registered `vllm` image from Getting Started, and select a model that supports TP8 and fits in eight GPUs. The TP1 run from Getting Started cannot span two nodes with the default PP1.
+
+Create `benchmark-run.yaml` next to `builder.yaml`:
+
+```yaml
+schema_version: 1
+name: benchmark-base-run
+builder:
+  source: builder.yaml
+invocation:
+  num_records: 8
+  dataset_name: greetings
+  model_concurrency:
+    generator: 8
+deployments:
+  - model_alias: generator
+    served_model_name: example/generator
+    model: example/generator
+    server:
+      type: vllm
+      image:
+        name: vllm
+      startup_timeout: 15m
+      distributed_init_timeout: 10m
+    topology:
+      tensor_parallel: 8
+submission:
+  time_limit: 01:00:00
+```
+
+The repository ships this base run as `packages/data-designer-slurm/examples/benchmark-run.yaml`, alongside the matching `benchmark.yaml`. Keep PP omitted to use its default of one stage. For other GPU counts, choose a TP size that distributes evenly across both one-node and two-node groups and fits the GPUs available in each group.
 
 ## Define cases
 
-Create `benchmark.yaml` next to an existing `run.yaml`:
+Create `benchmark.yaml` next to `benchmark-run.yaml`:
 
 ```yaml
 schema_version: 1
 name: generator-scaling
-base_run: run.yaml
+base_run: benchmark-run.yaml
 model_aliases: all
 concurrency_values:
   - 32
@@ -38,7 +72,9 @@ The compiler expands the authored order deterministically. For this example, the
 
 Each benchmark case runs as one Slurm array task, even when the base run uses multiple tasks. The record policy sets the sample size for that task. This measures the throughput of one allocation, which analysis uses to estimate how many such tasks are needed for `target_total_records` within `target_runtime`.
 
-`nodes_per_replica` controls the number of nodes hosting each replica. When `pipeline_parallel` is omitted, it defaults to `nodes_per_replica`, and the resolved replica count is `(nodes / nodes_per_replica) * (gpus_per_node / tensor_parallel)`. With an explicit `pipeline_parallel`, each replica uses `tensor_parallel * pipeline_parallel` GPUs, distributed evenly across its nodes. Benchmark deployment cases change `nodes` and `nodes_per_replica`; they keep each deployment's `tensor_parallel` and explicit `pipeline_parallel` from the base run. Invalid combinations fail before submission. See [GPU topology and replica count](/slurm/run-configuration#gpu-topology-and-replica-count) for concrete eight-GPU examples.
+`nodes_per_replica` controls the number of nodes hosting each replica. `pipeline_parallel` defaults to `1`, independently of the node count. Each replica uses `tensor_parallel * pipeline_parallel` GPUs, distributed evenly across its nodes; the resolved replica count is `(nodes * gpus_per_node) / (tensor_parallel * pipeline_parallel)`. Benchmark deployment cases change `nodes` and `nodes_per_replica`; they keep each deployment's TP and PP sizes from the base run. Changing the node count does not add pipeline stages. Each child plan is validated before its submission. An invalid later case can leave earlier cases submitted, so choose a base topology compatible with every case. See [GPU topology and replica count](/slurm/run-configuration#gpu-topology-and-replica-count) for concrete eight-GPU examples.
+
+Changing only `nodes_per_replica` changes placement, not GPUs per replica or replica count. For example, with TP8, default PP1, and eight GPUs per node, both cases above create two eight-GPU replicas. The first places each replica on one node; the second spreads each replica across both nodes with four GPUs per node. Use a different base run to compare different TP or PP sizes.
 
 ## Run
 
