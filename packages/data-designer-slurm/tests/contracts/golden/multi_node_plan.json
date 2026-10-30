@@ -5,7 +5,7 @@
   },
   "authored_config": {
     "path": "/workspace/primary/runs/run-001/authored-config.json",
-    "sha256": "8c453e1064bf37c675b8ed62f1fe7b89234c7854e2c2f0955ae0c83938c73506"
+    "sha256": "0d63492595d41062ba2c2278dd36f7775fca8dacb04d6d8b41f77b6bbbb1605b"
   },
   "builder": {
     "authored_source": null,
@@ -148,6 +148,7 @@
         },
         "topology": {
           "nodes_per_replica": 2,
+          "pipeline_parallel": 2,
           "tensor_parallel": 8
         }
       },

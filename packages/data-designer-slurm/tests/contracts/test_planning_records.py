@@ -35,11 +35,11 @@ def test_resolved_topology_derives_all_resource_fields() -> None:
     assert topology == ResolvedTopology(
         tensor_parallel=4,
         nodes_per_replica=2,
-        pipeline_parallel=2,
+        pipeline_parallel=1,
         node_group_count=2,
-        replicas_per_node_group=2,
-        replica_count=4,
-        gpus_per_replica=8,
+        replicas_per_node_group=4,
+        replica_count=8,
+        gpus_per_replica=4,
     )
 
 
