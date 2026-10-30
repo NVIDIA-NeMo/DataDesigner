@@ -14,9 +14,13 @@ updates:
     directory: /.agents
     schedule:
       interval: weekly
-    # The structural-analysis adapter targets the Graphify 0.4 API.
+    # Hold routine upgrades for the 0.4 adapter; keep security updates enabled.
     ignore:
       - dependency-name: graphifyy
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
+          - version-update:semver-patch
     groups:
       graphify:
         patterns:
