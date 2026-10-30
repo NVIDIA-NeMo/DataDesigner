@@ -66,12 +66,14 @@ class ModelRegistry:
         model_facade_factory: ModelFacadeFactory | None = None,
         request_admission: AdaptiveRequestAdmissionController | None = None,
         retry_config: RetryConfig | None = None,
+        freeze_request_limits: bool = False,
     ) -> None:
         self._secret_resolver = secret_resolver
         self._model_provider_registry = model_provider_registry
         self._model_facade_factory = model_facade_factory
         self._request_admission = request_admission
         self._retry_config = retry_config
+        self._freeze_request_limits = freeze_request_limits
         self._model_configs: dict[str, ModelConfig] = {}
         self._models: dict[str, ModelFacade] = {}
         self._set_model_configs(model_configs)
@@ -109,14 +111,23 @@ class ModelRegistry:
 
         # Lazy initialization: only create model facade when first requested
         if model_alias not in self._models:
-            self._models[model_alias] = self._get_model(self._model_configs[model_alias])
+            self._models[model_alias] = self._get_model(self.get_model_config(model_alias=model_alias))
 
         return self._models[model_alias]
 
     def get_model_config(self, *, model_alias: str) -> ModelConfig:
         if model_alias not in self._model_configs:
             raise ValueError(f"No model config with alias {model_alias!r} found!")
-        return self._model_configs[model_alias]
+        model_config = self._model_configs[model_alias]
+        if self._request_admission is not None:
+            self._request_admission.validate_registration(
+                provider_name=model_config.provider,
+                model_id=model_config.model,
+                alias=model_config.alias,
+                max_parallel_requests=model_config.inference_parameters.max_parallel_requests,
+                freeze=self._freeze_request_limits,
+            )
+        return model_config
 
     def get_model_usage_stats(self, total_time_elapsed: float) -> dict[str, dict[str, Any]]:
         return {
@@ -375,5 +386,6 @@ class ModelRegistry:
                 model_id=model_config.model,
                 alias=model_config.alias,
                 max_parallel_requests=model_config.inference_parameters.max_parallel_requests,
+                freeze=self._freeze_request_limits,
             )
         return facade
