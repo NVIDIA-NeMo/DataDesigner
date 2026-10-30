@@ -29,7 +29,8 @@ def test_rejects_invalid_retry_settings(tmp_path: Path, setting: str, value: str
     assert message in result.stdout
 
 
-def test_retries_failed_notebook_execution(tmp_path: Path) -> None:
+@pytest.mark.parametrize("failure_count", [1, 2])
+def test_retries_failed_notebook_execution(tmp_path: Path, failure_count: int) -> None:
     repo_root = tmp_path / "repo"
     script = repo_root / "docs" / "scripts" / SCRIPT_PATH.name
     script.parent.mkdir(parents=True)
@@ -45,6 +46,14 @@ def test_retries_failed_notebook_execution(tmp_path: Path) -> None:
     jupytext = tmp_path / "jupytext"
     jupytext.write_text(
         """#!/usr/bin/env bash
+src="${!#}"
+echo '{"cells": []}' > "${src%.py}.ipynb"
+"""
+    )
+    jupytext.chmod(0o755)
+    nbclient = tmp_path / "jupyter-execute"
+    nbclient.write_text(
+        """#!/usr/bin/env bash
 set -euo pipefail
 attempt=0
 if [ -f "$ATTEMPTS_FILE" ]; then
@@ -52,26 +61,29 @@ if [ -f "$ATTEMPTS_FILE" ]; then
 fi
 attempt=$((attempt + 1))
 printf '%s' "$attempt" > "$ATTEMPTS_FILE"
-if [ "$attempt" -lt 2 ]; then
+if [ "$attempt" -le "$FAILURE_COUNT" ]; then
     exit 1
 fi
-src="${!#}"
-printf '%s\n' '{"cells": []}' > "${src%.py}.ipynb"
 """
     )
-    jupytext.chmod(0o755)
+    nbclient.chmod(0o755)
     env = {
         **os.environ,
         "ATTEMPTS_FILE": str(attempts_file),
+        "FAILURE_COUNT": str(failure_count),
         "DOCS_JUPYTEXT": str(jupytext),
+        "DOCS_NBCLIENT": str(nbclient),
         "NOTEBOOK_CACHE_CONTEXT": "test-context",
         "NOTEBOOK_EXECUTION_ATTEMPTS": "2",
         "NOTEBOOK_RETRY_DELAY_SECONDS": "0",
     }
 
-    result = subprocess.run([script], check=True, capture_output=True, text=True, env=env)
+    result = subprocess.run([script], check=False, capture_output=True, text=True, env=env)
 
+    succeeded = failure_count == 1
+    assert result.returncode == (0 if succeeded else 1)
     assert attempts_file.read_text() == "2"
     assert "Attempt 1 failed; retrying" in result.stdout
-    assert (repo_root / "docs" / "notebooks" / "example.ipynb").exists()
-    assert (repo_root / ".notebook-cache" / "example.sha256").exists()
+    assert (repo_root / "docs" / "notebooks" / "example.ipynb").exists() == succeeded
+    assert (repo_root / ".notebook-cache" / "example.sha256").exists() == succeeded
+    assert not (source_dir / "example.ipynb").exists()
