@@ -509,7 +509,7 @@ update-license-headers:
 DOCS_PYTHON_VERSION ?= 3.13
 DOCS_PYTHON ?= .venv/bin/python
 DOCS_JUPYTEXT ?= .venv/bin/jupytext
-DOCS_NBCLIENT ?= $(dir $(DOCS_JUPYTEXT))jupyter-execute
+DOCS_NBCLIENT ?= $(if $(findstring /,$(DOCS_JUPYTEXT)),$(dir $(DOCS_JUPYTEXT)),)jupyter-execute
 FERN_VERSION ?= $(shell jq -r .version fern/fern.config.json)
 FERN ?= npx -y fern-api@$(FERN_VERSION)
 FERN_ORG ?= $(shell jq -r .organization fern/fern.config.json)

@@ -14,6 +14,9 @@ updates:
     directory: /.agents
     schedule:
       interval: weekly
+    # The structural-analysis adapter targets the Graphify 0.4 API.
+    ignore:
+      - dependency-name: graphifyy
     groups:
       graphify:
         patterns:

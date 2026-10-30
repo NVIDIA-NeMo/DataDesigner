@@ -376,7 +376,13 @@ def _full_mode(previous_graph_path: str | None = None) -> str:
     out_dir = _REPO_ROOT / "graphify-out"
     out_dir.mkdir(exist_ok=True)
     # This is a complete source snapshot, so deletions must replace the old graph.
-    to_json(G, communities, str(out_dir / "graph.json"))
+    graph_path = out_dir / "graph.json"
+    export_path = graph_path.with_suffix(".tmp")
+    try:
+        to_json(G, communities, str(export_path))
+        export_path.replace(graph_path)
+    finally:
+        export_path.unlink(missing_ok=True)
     (out_dir / "baselines.json").write_text(
         json.dumps(
             {

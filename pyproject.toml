@@ -64,6 +64,7 @@ notebooks = [
     "aiohttp>=3.14.4,<4", # Keep aligned with the security constraint above
     "datasets>=5.0.1,<6", # 5.0.1 fixes CVE-2026-66007
     "ipykernel>=6.29.0,<7",
+    "ipywidgets>=8.1.8,<9",
     "nbclient>=0.10.4,<1",
     "setuptools>=84.1.0,<85", # 84.1.0 fixes the namespace_packages.txt path escape
     "tornado>=6.6,<7", # 6.6 fixes redirect and HTTP parsing advisories
