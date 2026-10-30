@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from data_designer.config.models import Modality
@@ -59,6 +61,22 @@ def test_chat_message_as_tool_accepts_multimodal_content() -> None:
 
     assert message.content == content
     assert message.to_dict()["content"] == content
+
+
+@pytest.mark.parametrize("provider_type", [None, "openai", "anthropic"])
+@pytest.mark.parametrize(
+    "native_content",
+    [None, [], [{"type": "thinking", "thinking": "", "signature": "signature"}]],
+)
+def test_chat_message_serializes_native_content_only_for_anthropic_requests(
+    provider_type: str | None, native_content: list[dict[str, Any]] | None
+) -> None:
+    message = ChatMessage.as_assistant(content="Answer", anthropic_content=native_content)
+    expected = {"role": "assistant", "content": [{"type": "text", "text": "Answer"}]}
+    assert message.to_dict() == expected
+    if provider_type == "anthropic" and native_content is not None:
+        expected["anthropic_content"] = native_content
+    assert message.to_dict(provider_type=provider_type) == expected
 
 
 def test_prompt_to_messages_preserves_mixed_media_context_order() -> None:

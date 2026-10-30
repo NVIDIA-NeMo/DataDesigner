@@ -166,6 +166,19 @@ def test_process_completion_preserves_content(
     assert messages[0].content == "Hello, I can help with that."
 
 
+@pytest.mark.parametrize("method", ["process_completion_response", "refuse_completion_response"])
+def test_completion_without_tools_preserves_native_content(stub_mcp_facade: MCPFacade, method: str) -> None:
+    content = [
+        {"type": "thinking", "thinking": "", "signature": "signature"},
+        {"type": "redacted_thinking", "data": "redacted-data"},
+        {"type": "text", "text": "  Answer\n"},
+    ]
+    response = ChatCompletionResponse(message=AssistantMessage(content="  Answer\n", anthropic_content=content))
+    messages = getattr(stub_mcp_facade, method)(response)
+    assert len(messages) == 1
+    assert messages[0].anthropic_content == content
+
+
 def test_process_completion_preserves_reasoning_content(
     stub_mcp_facade: MCPFacade,
     mock_completion_response_with_reasoning: ChatCompletionResponse,

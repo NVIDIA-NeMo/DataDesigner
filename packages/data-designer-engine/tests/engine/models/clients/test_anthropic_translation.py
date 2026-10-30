@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+from typing import Any
 
 import pytest
 
@@ -268,6 +269,27 @@ def test_parse_anthropic_response_maps_tool_use_and_thinking(monkeypatch: pytest
     assert response.usage.reasoning_tokens == 4
     assert response.usage.reasoning_token_count_source == TokenCountSource.ESTIMATED
     assert json.loads(response.message.tool_calls[0].arguments_json) == {"query": "weather"}
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        [],
+        [{"type": "thinking", "thinking": "", "signature": "signature"}],
+        [{"type": "redacted_thinking", "data": "redacted-data"}],
+        [{"type": "text", "text": ""}, {"type": "text", "text": "  Answer\n"}],
+    ],
+    ids=["empty", "empty-thinking", "redacted-thinking", "text"],
+)
+def test_anthropic_response_content_round_trips_unchanged(content: list[dict[str, Any]]) -> None:
+    response = parse_anthropic_response({"content": content})
+    assert response.message.anthropic_content == content
+    message = ChatMessage.as_assistant(
+        content=response.message.content or "",
+        anthropic_content=response.message.anthropic_content,
+    )
+    request = ChatCompletionRequest(model=MODEL, messages=[message.to_dict(provider_type="anthropic")])
+    assert build_anthropic_payload(request)["messages"] == [{"role": "assistant", "content": content}]
 
 
 @pytest.mark.parametrize(

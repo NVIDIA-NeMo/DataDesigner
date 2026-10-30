@@ -54,6 +54,7 @@ class AssistantMessage:
     reasoning_content: str | None = None
     tool_calls: list[ToolCall] = field(default_factory=list)
     images: list[ImagePayload] = field(default_factory=list)
+    anthropic_content: list[dict[str, Any]] | None = None
 
 
 @dataclass

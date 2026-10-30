@@ -126,6 +126,7 @@ def parse_anthropic_response(response_json: dict[str, Any]) -> ChatCompletionRes
         content="\n".join(text_parts) if text_parts else None,
         reasoning_content="\n".join(thinking_parts) if thinking_parts else None,
         tool_calls=tool_calls,
+        anthropic_content=content_blocks,
     )
 
     raw_usage = response_json.get("usage")
@@ -208,6 +209,10 @@ def translate_non_tool_message(msg: dict[str, Any]) -> dict[str, Any]:
     role = msg.get("role")
     if role not in {"user", "assistant"}:
         raise ValueError(f"Anthropic adapter does not support message role {role!r}.")
+
+    # Signed thinking blocks must be replayed with the entire original turn in order.
+    if role == "assistant" and msg.get("anthropic_content") is not None:
+        return {"role": role, "content": msg["anthropic_content"]}
 
     content = msg.get("content")
     if role == "assistant" and msg.get("tool_calls"):

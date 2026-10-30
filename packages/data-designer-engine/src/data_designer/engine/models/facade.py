@@ -235,7 +235,7 @@ class ModelFacade:
         allow_multiple_choices: bool = True,
         **kwargs: Any,
     ) -> ChatCompletionResponse:
-        message_payloads = [message.to_dict() for message in messages]
+        message_payloads = [message.to_dict(provider_type=self.model_provider.provider_type) for message in messages]
         logger.debug(
             f"Prompting model {self.model_name!r}...",
             extra={"model": self.model_name, "messages": message_payloads},
@@ -272,7 +272,7 @@ class ModelFacade:
         allow_multiple_choices: bool = True,
         **kwargs: Any,
     ) -> ChatCompletionResponse:
-        message_payloads = [message.to_dict() for message in messages]
+        message_payloads = [message.to_dict(provider_type=self.model_provider.provider_type) for message in messages]
         logger.debug(
             f"Prompting model {self.model_name!r}...",
             extra={"model": self.model_name, "messages": message_payloads},
@@ -430,7 +430,13 @@ class ModelFacade:
             # No tool calls remaining to process
             response = (completion_response.message.content or "").strip()
             reasoning_trace = completion_response.message.reasoning_content
-            messages.append(ChatMessage.as_assistant(content=response, reasoning_content=reasoning_trace or None))
+            messages.append(
+                ChatMessage.as_assistant(
+                    content=response,
+                    reasoning_content=reasoning_trace or None,
+                    anthropic_content=completion_response.message.anthropic_content,
+                )
+            )
             parse_attempts += 1
 
             try:
@@ -549,7 +555,13 @@ class ModelFacade:
 
             response = (completion_response.message.content or "").strip()
             reasoning_trace = completion_response.message.reasoning_content
-            messages.append(ChatMessage.as_assistant(content=response, reasoning_content=reasoning_trace or None))
+            messages.append(
+                ChatMessage.as_assistant(
+                    content=response,
+                    reasoning_content=reasoning_trace or None,
+                    anthropic_content=completion_response.message.anthropic_content,
+                )
+            )
             parse_attempts += 1
 
             try:
