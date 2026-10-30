@@ -342,10 +342,10 @@ NEMOTRON_3_5_LIGHTNING_30B_A3B_INFERENCE_PARAMS = {
     "top_p": 0.95,
     "extra_body": {"chat_template_kwargs": {"enable_thinking": False}},
 }
-NEMOTRON_3_SUPER_120B_A12B_INFERENCE_PARAMS = {
+NEMOTRON_3_5_SUPER_VL_120B_A12B_INFERENCE_PARAMS = {
     "temperature": 1.0,
     "top_p": 0.95,
-    "extra_body": {"reasoning_effort": "medium"},
+    "extra_body": {"reasoning_effort": "high"},
 }
 NEMOTRON_3_NANO_OMNI_30B_A3B_REASONING_INFERENCE_PARAMS = {"temperature": 0.60, "top_p": 0.95}
 GPT5_INFERENCE_PARAMS = {"extra_body": {"reasoning_effort": "medium"}}
@@ -357,8 +357,8 @@ PREDEFINED_PROVIDERS_MODEL_MAP = {
             "inference_parameters": NEMOTRON_3_5_LIGHTNING_30B_A3B_INFERENCE_PARAMS,
         },
         "reasoning": {
-            "model": "nvidia/nemotron-3-super-120b-a12b",
-            "inference_parameters": NEMOTRON_3_SUPER_120B_A12B_INFERENCE_PARAMS,
+            "model": "nvidia/nemotron-3.5-super-vl-120b-a12b",
+            "inference_parameters": NEMOTRON_3_5_SUPER_VL_120B_A12B_INFERENCE_PARAMS,
         },
         "vision": {
             "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
@@ -399,12 +399,14 @@ NEMOTRON_PERSONAS_DATASET_SIZES = {
     "en_US": "1.24 GB",
     "en_IN": "2.39 GB",
     "en_SG": "0.30 GB",
+    "es_SV": "0.74 GB",
     "fr_FR": "3.87 GB",
     "hi_Deva_IN": "4.14 GB",
     "hi_Latn_IN": "2.7 GB",
     "ja_JP": "1.69 GB",
     "ko_KR": "2.66 GB",
     "pt_BR": "2.33 GB",
+    "vi_VN": "2.58 GB",
 }
 
 LOCALES_WITH_MANAGED_DATASETS = list[str](NEMOTRON_PERSONAS_DATASET_SIZES.keys())

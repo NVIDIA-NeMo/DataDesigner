@@ -1,7 +1,6 @@
 ---
 name: search-docs
-description: Search local Fern documentation for content related to a topic
-argument-hint: <search-topic>
+description: Search local Fern documentation for content related to a topic. The argument is the topic to search for.
 metadata:
     internal: true
 ---

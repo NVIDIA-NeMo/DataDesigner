@@ -13,6 +13,7 @@ from data_designer.config.analysis.column_statistics import (
     CategoricalDistribution,
     CategoricalHistogramData,
     ColumnDistributionType,
+    LLMTextColumnStatistics,
     MissingValue,
     NumericalDistribution,
 )
@@ -392,3 +393,81 @@ def test_calculate_general_column_info_edge_cases():
     assert result["num_records"] == 0
     assert result["num_null"] == 0
     assert result["simple_dtype"] == MissingValue.CALCULATION_FAILED
+
+
+def _arrow_structured_column(rows: list[dict[str, str]]) -> lazy.pd.DataFrame:
+    """A column shaped like structured LLM output: Arrow-backed, as it is after generation."""
+    dtype = lazy.pd.ArrowDtype(lazy.pa.struct([("answer", lazy.pa.string())]))
+    return lazy.pd.DataFrame({"test_column": lazy.pd.Series(rows, dtype=dtype)})
+
+
+def test_calculate_output_token_stats_single_record_arrow_backed_column(stub_column_config):
+    # The standard deviation of one value is undefined. On pandas 3.1+ it comes back as pd.NA for Arrow-backed
+    # data, which the statistics model cannot convert to a float.
+    df = _arrow_structured_column([{"answer": "hello world"}])
+
+    result = calculate_output_token_stats(stub_column_config, df)
+
+    assert result["output_tokens_mean"] > 0
+    assert result["output_tokens_median"] == result["output_tokens_mean"]
+    assert isinstance(result["output_tokens_stddev"], float)
+    assert lazy.np.isnan(result["output_tokens_stddev"])
+    # The numbers must also be accepted by the statistics model, which is where pd.NA used to fail.
+    statistics = LLMTextColumnStatistics(
+        column_name="test_column",
+        num_records=1,
+        num_null=0,
+        num_unique=1,
+        pyarrow_dtype="struct",
+        simple_dtype="dict",
+        input_tokens_mean=1.0,
+        input_tokens_median=1.0,
+        input_tokens_stddev=0.0,
+        **result,
+    )
+    assert lazy.np.isnan(statistics.output_tokens_stddev)
+
+
+def test_calculate_output_token_stats_multi_record_arrow_backed_column(stub_column_config):
+    df = _arrow_structured_column([{"answer": "short"}, {"answer": "a much longer answer than the first"}])
+
+    result = calculate_output_token_stats(stub_column_config, df)
+
+    assert isinstance(result["output_tokens_stddev"], float)
+    assert result["output_tokens_stddev"] > 0
+
+
+@pytest.mark.parametrize(
+    "series, expected_null, expected_unique",
+    [
+        pytest.param(lazy.pd.Series([7, None], dtype="Int64"), 1, 1, id="nullable-int"),
+        pytest.param(lazy.pd.Series([1.5, None, 1.5], dtype="Float64"), 1, 1, id="nullable-float"),
+        pytest.param(lazy.pd.Series(["a", None, "b"], dtype="string"), 1, 2, id="nullable-string"),
+        pytest.param(lazy.pd.Series(["a", None], dtype="string[pyarrow]"), 1, 1, id="arrow-string"),
+        pytest.param(lazy.pd.Series([True, None, False], dtype="boolean"), 1, 2, id="nullable-boolean"),
+        pytest.param(lazy.pd.Series([None, None], dtype="string[pyarrow]"), 2, 0, id="all-null-string"),
+        pytest.param(lazy.pd.Series([None, None], dtype="Int64"), 2, 0, id="all-null-int"),
+        pytest.param(lazy.pd.Series([None, "x", None], dtype=object), 2, 1, id="object-none"),
+        pytest.param(lazy.pd.Series([3, 4, 3], dtype="Int64"), 0, 2, id="no-nulls"),
+    ],
+)
+def test_calculate_general_column_info_counts_missing_values_from_the_original_column(
+    series, expected_null, expected_unique
+):
+    # A missing value must not be counted as a distinct "<NA>" string.
+    result = calculate_general_column_info("value", lazy.pd.DataFrame({"value": series}))
+
+    assert result["num_records"] == len(series)
+    assert result["num_null"] == expected_null
+    assert result["num_unique"] == expected_unique
+
+
+def test_calculate_general_column_info_still_hashes_nested_values_for_uniqueness():
+    df = lazy.pd.DataFrame(
+        {"value": [{"a": 1}, {"a": 1}, {"a": 2}, [1, 2], [2, 1], None]},
+    )
+
+    result = calculate_general_column_info("value", df)
+
+    assert result["num_null"] == 1
+    assert result["num_unique"] == 3

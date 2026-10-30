@@ -181,6 +181,35 @@ jobs:
             echo "API pre-flight passed (HTTP ${HTTP_CODE})"
           fi
 
+      - name: Invalidate cached docs audit completion
+        id: reset_docs_scope
+        if: matrix.suite == 'docs-and-references'
+        run: |
+          STATE=.agentic-ci-state/runner-state.json
+          if [ -f "$STATE" ]; then
+            if jq '.fix_backlog = ((.fix_backlog // []) | map(
+              .data = (if (.data | type) == "object" then .data else {} end)
+              | .data.scope_complete = false
+            ))' "$STATE" > "${STATE}.tmp"; then
+              mv "${STATE}.tmp" "$STATE"
+            else
+              echo "::warning::Invalid docs state; audit may repair it, but fixes are disabled for this run"
+              rm -f "${STATE}.tmp"
+              echo "ready=false" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
+      - name: Reconcile docs PR state before audit selection
+        id: reconcile_docs_prs
+        if: matrix.suite == 'docs-and-references' && steps.reset_docs_scope.outputs.ready != 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          python3 scripts/manage_agentic_ci_attempts.py reconcile \
+            --state .agentic-ci-state/runner-state.json \
+            --repo "$GITHUB_REPOSITORY"
+
       - name: Run audit recipe
         id: audit
         env:
@@ -228,11 +257,21 @@ jobs:
 
       - name: Check fix backlog
         id: backlog
-        if: steps.audit.outcome == 'success' && matrix.suite != 'test-health'
+        if: steps.audit.outcome == 'success' && matrix.suite != 'test-health' && steps.reset_docs_scope.outputs.ready != 'false'
+        env:
+          SUITE: ${{ matrix.suite }}
         run: |
-          BACKLOG_SIZE=$(jq '.fix_backlog // [] | length' .agentic-ci-state/runner-state.json 2>/dev/null || echo 0)
+          BACKLOG_SIZE=$(jq --arg suite "$SUITE" '
+            (.fix_backlog // [])
+            | if $suite == "docs-and-references" then
+                map(select(.data | type == "object")
+                  | select(.data.scope_complete == true
+                  and (.data.task_key | type == "string" and length > 0)))
+              else . end
+            | length
+          ' .agentic-ci-state/runner-state.json 2>/dev/null || echo 0)
           echo "size=${BACKLOG_SIZE}" >> "$GITHUB_OUTPUT"
-          echo "fix_backlog has ${BACKLOG_SIZE} entries"
+          echo "fix_backlog has ${BACKLOG_SIZE} entries eligible for fix-phase consideration"
 
       - name: Snapshot pre-fix attempted_fixes
         # Captures (id, attempts-length) pairs before the fix step runs so
@@ -349,9 +388,13 @@ jobs:
               fi
             fi
 
+            FILE_CAP=3
+            LOC_CAP=50
             case "$SUITE" in
               docs-and-references)
-                ALLOW='^(architecture/|docs/|README\.md$|CONTRIBUTING\.md$|DEVELOPMENT\.md$|STYLEGUIDE\.md$|packages/[^/]+/src/.*\.py$)'
+                FILE_CAP=10
+                LOC_CAP=200
+                ALLOW='^(architecture/|fern/versions/latest/pages/|README\.md$|CONTRIBUTING\.md$|DEVELOPMENT\.md$|STYLEGUIDE\.md$|packages/[^/]+/src/.*\.py$)'
                 ;;
               dependencies)
                 ALLOW='^(packages/[^/]+/pyproject\.toml|uv\.lock)$'
@@ -366,10 +409,17 @@ jobs:
             esac
 
             if [ -n "$DIFF_REF" ]; then
-              mapfile -t FILE_ARR < <(git diff --name-only "origin/main...$DIFF_REF")
+              FILE_ARR=()
+              while IFS= read -r FILE; do
+                FILE_ARR+=("$FILE")
+              done < <(git diff --name-only "origin/main...$DIFF_REF")
               FILE_COUNT=${#FILE_ARR[@]}
               if [ "$FILE_COUNT" -gt 0 ]; then
                 BAD=$(printf '%s\n' "${FILE_ARR[@]}" | grep -vE "$ALLOW" | grep -v '^$' || true)
+                DEVNOTES=$(printf '%s\n' "${FILE_ARR[@]}" | grep '^fern/versions/latest/pages/devnotes/' || true)
+                if [ -n "$DEVNOTES" ]; then
+                  BAD="${BAD}${BAD:+$'\n'}${DEVNOTES}"
+                fi
               else
                 BAD=""
               fi
@@ -390,11 +440,11 @@ jobs:
             if [ -n "$BAD" ]; then
               REASONS="${REASONS}- files outside allowlist:\n$(echo "$BAD" | sed 's/^/  - /')\n"
             fi
-            if [ "$FILE_COUNT" -gt 3 ]; then
-              REASONS="${REASONS}- file count ($FILE_COUNT) exceeds 3-file cap\n"
+            if [ "$FILE_COUNT" -gt "$FILE_CAP" ]; then
+              REASONS="${REASONS}- file count ($FILE_COUNT) exceeds ${FILE_CAP}-file cap\n"
             fi
-            if [ "$LOC_DELTA" -gt 50 ]; then
-              REASONS="${REASONS}- LOC delta ($LOC_DELTA) exceeds 50-line cap\n"
+            if [ "$LOC_DELTA" -gt "$LOC_CAP" ]; then
+              REASONS="${REASONS}- LOC delta ($LOC_DELTA) exceeds ${LOC_CAP}-line cap\n"
             fi
 
             # Docs suite: AST-enforce the docstring-only caveat on .py edits.
