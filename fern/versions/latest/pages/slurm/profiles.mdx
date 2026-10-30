@@ -91,7 +91,7 @@ For runs with local deployments, `gpus_per_node` is both the GPU count used for 
 
 Multi-node generation jobs request exclusive nodes, including in `gres` mode. This keeps serving ports isolated because Slurm reports batch-job GPU IDs for the first node only. A partial-node `gpus_per_node` setting still limits the GPUs used per node, but other jobs cannot share those nodes during the run.
 
-The profile decides how many GPUs the job requests **per node**. Each deployment's `tensor_parallel`, optional `pipeline_parallel`, and `nodes_per_replica` decide how those GPUs form vLLM replicas. For example, one node with `gpus_per_node: 8` and `tensor_parallel: 1` runs eight one-GPU replicas; it does not request only one GPU. See [GPU topology and replica count](/slurm/run-configuration#gpu-topology-and-replica-count).
+The profile decides how many GPUs the job requests **per node**. Each deployment's `tensor_parallel`, `pipeline_parallel` (default: `1`), and `nodes_per_replica` decide how those GPUs form vLLM replicas. Increasing `nodes_per_replica` does not increase PP. For example, one node with `gpus_per_node: 8` and `tensor_parallel: 1` runs eight one-GPU replicas; it does not request only one GPU. See [GPU topology and replica count](/slurm/run-configuration#gpu-topology-and-replica-count).
 
 When selecting multiple partitions with `gpus_per_node: auto`, every selected partition must report GPU resources and all eligible nodes must report the same GPU count. Choose partitions that can also satisfy the run's GPU topology, model, and image requirements.
 

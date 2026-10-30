@@ -219,51 +219,88 @@ resources:
 topology:
   tensor_parallel: 8
   nodes_per_replica: 2
+  pipeline_parallel: 2
 ```
 
-In an eight-GPU profile, this starts two replicas, each spanning two nodes with 16 GPUs total. When `pipeline_parallel` is omitted, it defaults to `nodes_per_replica`, preserving this pipeline-parallel layout.
+In an eight-GPU profile, this starts two replicas, each spanning two nodes with 16 GPUs total. Each replica has two pipeline stages, each using TP8. TP communication stays within each node, and intermediate activations pass between the stages across nodes.
 
 ### GPU topology and replica count
 
-`tensor_parallel` and `pipeline_parallel` specify vLLM's tensor and pipeline parallel sizes for one replica. `nodes_per_replica` specifies how many nodes host that replica. Omitting `pipeline_parallel` defaults it to `nodes_per_replica`, so existing configurations continue to use tensor parallelism within each node and pipeline parallelism across nodes.
+One replica serves requests using a group of GPU workers. Choose how those workers cooperate:
 
-To spread tensor parallelism across nodes while keeping PP=1, set `pipeline_parallel: 1` explicitly. For a profile requesting **four GPUs per node**, this configuration runs one TP16/PP1 replica across four nodes, with expert parallelism enabled:
+- **Tensor parallelism (TP)** splits work within model layers across GPUs. A TP group can span multiple nodes.
+- **Pipeline parallelism (PP)** splits model layers into sequential stages. A replica can use TP, PP, or both.
+- **Independent replicas** serve different requests with separate copies of the model. The planner derives their count from the GPU budget and the topology of each replica.
+
+`tensor_parallel` and `pipeline_parallel` specify the TP and PP sizes for one replica. `nodes_per_replica` specifies how many nodes host that replica; it does not select the parallelism method.
+
+<Note>
+`pipeline_parallel` defaults to `1`, regardless of `nodes_per_replica`. Spreading a replica across nodes does not add pipeline stages. Set `pipeline_parallel: 2` explicitly when you want two stages. TP and PP do not need to be equal; their product determines the GPU count per replica.
+</Note>
+
+For a profile requesting **four GPUs per node**, this configuration runs one TP16 replica across four nodes. PP defaults to 1, and expert parallelism defaults to disabled:
 
 ```yaml
 resources:
   nodes: 4
 topology:
   tensor_parallel: 16
-  pipeline_parallel: 1
   nodes_per_replica: 4
 server:
   type: vllm
   image:
     name: my-serving-image
-  enable_expert_parallel: true
 ```
 
-The serving image must support the selected model and parallel settings. The runtime starts one vLLM process on each replica node, with one API server and headless followers sharing a rendezvous. EP operates within each replica; independent replica lanes do not form a coordinated data-parallel expert group.
+The serving image must support the selected model and parallel settings. The runtime starts one vLLM process on each replica node, with one API server and headless followers sharing a rendezvous.
+
+### One TP16 replica across two eight-GPU nodes
+
+For a profile requesting **eight GPUs per node**, the following deployment fragment creates one replica using all 16 GPUs:
+
+```yaml
+resources:
+  nodes: 2
+topology:
+  tensor_parallel: 16
+  nodes_per_replica: 2
+```
+
+Node 0 hosts the API server and eight GPU workers; node 1 hosts a headless follower and eight GPU workers. Both nodes cooperate on the same requests. The native Data Designer client uses a separate CPU step and sends requests to the replica through its logical endpoint.
+
+This topology describes GPU placement, not whether the model fits in memory. Check the serving runtime's model, quantization, memory, and interconnect requirements separately. If you configure CPU offloading through `server.extra_args`, allow enough host memory and increase model request timeouts to account for the additional latency.
+
+### Optional expert parallelism
+
+For a Mixture-of-Experts (MoE) model, `server.enable_expert_parallel: true` asks vLLM to distribute routed experts across its expert-parallel ranks instead of using tensor parallelism to split each expert. Attention layers still use the configured TP layout. See [vLLM's expert parallelism guide](https://docs.vllm.ai/en/latest/serving/expert_parallel_deployment/) for the layer behavior and backend requirements.
+
+EP defaults to `false` and is not required for a TP group to span nodes. Enabling it does not multiply the GPU count: the TP16/PP1 example still uses 16 GPUs in one replica. Choose EP based on the model, serving image, communication backend, and measured workload behavior. The planner does not create coordinated data-parallel expert groups across independent replicas.
+
+### Calculate replica counts
 
 The planner distributes each replica's GPU workers evenly across its nodes:
 
 ```text
-PP = pipeline_parallel, or nodes_per_replica when omitted
+PP = pipeline_parallel (default: 1)
 GPUs per replica = tensor_parallel * PP
 GPUs per replica node = GPUs per replica / nodes_per_replica
 replicas = (resources.nodes / nodes_per_replica) * (gpus_per_node / GPUs per replica node)
 ```
 
-For a profile that requests eight GPUs per node, the following are separate choices for **one deployment in one array task**, with `pipeline_parallel` omitted:
+For a profile that requests eight GPUs per node, the following are separate choices for **one deployment in one array task**. PP is explicit in this table:
 
-| `resources.nodes` | `tensor_parallel` | `nodes_per_replica` | vLLM replicas | GPUs per replica |
-| ---: | ---: | ---: | ---: | ---: |
-| 1 | 1 | 1 | 8 | 1 |
-| 4 | 1 | 1 | 32 | 1 |
-| 4 | 2 | 1 | 16 | 2 |
-| 4 | 4 | 1 | 8 | 4 |
-| 4 | 8 | 1 | 4 | 8 |
-| 4 | 8 | 2 | 2 | 16 |
+| `resources.nodes` | TP | PP | `nodes_per_replica` | vLLM replicas | GPUs per replica |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 1 | 1 | 1 | 8 | 1 |
+| 1 | 2 | 4 | 1 | 1 | 8 |
+| 2 | 8 | 1 | 1 | 2 | 8 |
+| 2 | 8 | 2 | 2 | 1 | 16 |
+| 2 | 16 | 1 | 2 | 1 | 16 |
+| 2 | 4 | 4 | 2 | 1 | 16 |
+| 4 | 16 | 1 | 2 | 2 | 16 |
+| 4 | 1 | 1 | 1 | 32 | 1 |
+
+These are valid planner layouts; each model and serving image must also support the selected TP and PP sizes. In the four-node TP16/PP1 example, each pair of nodes hosts an independent 16-GPU replica. Enabling EP keeps those two replicas separate.
 
 Increasing `resources.nodes` at TP=1 creates more independent one-GPU servers; it does not combine their GPUs into one larger server. The client uses one logical endpoint per model alias, backed by a local proxy that routes requests among that alias's replicas. `invocation.model_concurrency` limits in-flight model calls **per alias within each array task**; it does not set the replica count or the number of array tasks.
 

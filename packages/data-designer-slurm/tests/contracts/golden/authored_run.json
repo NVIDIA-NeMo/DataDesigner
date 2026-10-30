@@ -75,6 +75,7 @@
       },
       "topology": {
         "nodes_per_replica": 2,
+        "pipeline_parallel": 2,
         "tensor_parallel": 8
       }
     },
