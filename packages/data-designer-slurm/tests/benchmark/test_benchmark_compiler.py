@@ -3,13 +3,72 @@
 
 from __future__ import annotations
 
+import re
+from pathlib import Path
+
 import pytest
+import yaml
 
 from data_designer.slurm.benchmark import BenchmarkCompiler
-from data_designer.slurm.config import DataDesignerSlurmBenchmarkConfig, DataDesignerSlurmConfig
+from data_designer.slurm.config import (
+    DataDesignerSlurmBenchmarkConfig,
+    DataDesignerSlurmConfig,
+    load_benchmark_config,
+    load_run_config,
+)
 from data_designer.slurm.planning import ResolvedDependencyLock, ResolvedSlurmRunPlan
 from data_designer.slurm.planning.compiler import SlurmRunCompiler
 from data_designer.slurm.planning.resolution import resolve_slurm_config
+
+
+@pytest.mark.parametrize("source", ["shipped", "guide"])
+def test_benchmark_examples_compile_every_child_plan(
+    source: str,
+    tmp_path: Path,
+    dependency_lock_single: ResolvedDependencyLock,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    examples = Path(__file__).parents[2] / "examples"
+    benchmark_file = examples / "benchmark.yaml"
+    if source == "guide":
+        guide = Path(__file__).parents[4] / "fern/versions/latest/pages/slurm/benchmarks.mdx"
+        blocks = re.findall(r"```yaml\n(.*?)```", guide.read_text(), flags=re.DOTALL)
+        assert len(blocks) == 2
+        (tmp_path / "benchmark-run.yaml").write_text(blocks[0])
+        benchmark_file = tmp_path / "benchmark.yaml"
+        benchmark_file.write_text(blocks[1])
+    config = load_benchmark_config(benchmark_file)
+    assert config.base_run.source is not None
+    base_run = load_run_config(benchmark_file.parent / config.base_run.source)
+    assert base_run.builder.source is not None
+    builder_payload = yaml.safe_load((examples / base_run.builder.source).read_text())
+    compiled = BenchmarkCompiler.compile(config, base_run)
+    image = single_node_plan.deployments[0].image.model_copy(
+        update={"authored_ref": base_run.deployments[0].server.image}
+    )
+
+    assert len(compiled.cases) == 4
+    for case in compiled.cases:
+        plan = SlurmRunCompiler.compile(
+            resolve_slurm_config(
+                case.child_run_config,
+                selected_profile=single_node_plan.selected_profile,
+                client_runtime=single_node_plan.client.runtime,
+                deployment_images=(image,),
+                dependency_lock=dependency_lock_single,
+                runtime_bundle=single_node_plan.runtime_bundle,
+                run_id=case.child_run_id,
+                package_version=single_node_plan.package_version,
+                resolved_gpus_per_node=8,
+                builder_payload=builder_payload,
+            )
+        )
+        topology = plan.deployments[0].topology
+        assert topology.tensor_parallel == 8
+        assert topology.pipeline_parallel == 1
+        assert topology.gpus_per_replica == 8
+        assert topology.replica_count == 2
+        assert topology.nodes_per_replica == case.child_run_config.deployments[0].topology.nodes_per_replica
 
 
 @pytest.mark.parametrize("pipeline_parallel", [None, 2], ids=["default-pp1", "explicit-pp2"])

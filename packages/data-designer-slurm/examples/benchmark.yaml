@@ -1,6 +1,6 @@
 schema_version: 1
 name: generator-scaling
-base_run: run.yaml
+base_run: benchmark-run.yaml
 model_aliases: all
 concurrency_values:
   - 32
