@@ -22,13 +22,15 @@ from typing import Any
 from graphify.analyze import god_nodes, graph_diff
 from graphify.build import build_from_json
 from graphify.cluster import cluster, score_all
-from graphify.export import GRAPH_SCHEMA_VERSION, to_json
+from graphify.export import to_json
 from graphify.extract import extract
 from networkx.readwrite import json_graph
 
 _REPO_ROOT_DEFAULT = Path(__file__).resolve().parent.parent.parent
 _REPO_ROOT = _REPO_ROOT_DEFAULT
 _GRAPHIFY_VERSION = version("graphifyy")
+# Graphify 0.4.x does not stamp its exports, so version our saved report format.
+GRAPH_SCHEMA_VERSION = 1
 
 # DD layering: interface -> engine -> config (left depends on right).
 _LEGAL_DIRECTIONS = {("interface", "engine"), ("interface", "config"), ("engine", "config")}
@@ -111,8 +113,12 @@ def _build_graph(files: list[Path]) -> _Analysis:
     """Extract, build directed graph, cluster, and find god nodes."""
     if not files:
         raise ValueError(f"No Python source files found under {_REPO_ROOT}")
-    ext = extract(files, root=_REPO_ROOT, cache_root=_REPO_ROOT)
+    ext = extract(files, cache_root=_REPO_ROOT)
     G = build_from_json(ext, directed=True)
+    G.graph.update(graphify_version=_GRAPHIFY_VERSION, schema_version=GRAPH_SCHEMA_VERSION)
+    for _, node in G.nodes(data=True):
+        if node.get("source_file"):
+            node["source_file"] = _rel(node["source_file"])
     comms = cluster(G)
     return _Analysis(graph=G, communities=comms, cohesion=score_all(G, comms), god_nodes=god_nodes(G, top_n=15))
 
@@ -370,8 +376,7 @@ def _full_mode(previous_graph_path: str | None = None) -> str:
     out_dir = _REPO_ROOT / "graphify-out"
     out_dir.mkdir(exist_ok=True)
     # This is a complete source snapshot, so deletions must replace the old graph.
-    if not to_json(G, communities, str(out_dir / "graph.json"), force=True):
-        raise RuntimeError("Could not save the structural graph; baselines were not updated")
+    to_json(G, communities, str(out_dir / "graph.json"))
     (out_dir / "baselines.json").write_text(
         json.dumps(
             {

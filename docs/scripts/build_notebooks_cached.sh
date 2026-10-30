@@ -25,6 +25,7 @@ SOURCE_DIR="$REPO_ROOT/docs/notebook_source"
 OUTPUT_DIR="$REPO_ROOT/docs/notebooks"
 CACHE_DIR="${1:-$REPO_ROOT/.notebook-cache}"
 DOCS_JUPYTEXT="${DOCS_JUPYTEXT:-$REPO_ROOT/.venv/bin/jupytext}"
+DOCS_NBCLIENT="${DOCS_NBCLIENT:-$(dirname "$DOCS_JUPYTEXT")/jupyter-execute}"
 NOTEBOOK_EXECUTION_ATTEMPTS="${NOTEBOOK_EXECUTION_ATTEMPTS:-1}"
 NOTEBOOK_RETRY_DELAY_SECONDS="${NOTEBOOK_RETRY_DELAY_SECONDS:-15}"
 
@@ -37,11 +38,13 @@ if [[ ! "$NOTEBOOK_RETRY_DELAY_SECONDS" =~ ^[0-9]+$ ]]; then
     exit 1
 fi
 
-if [ ! -x "$DOCS_JUPYTEXT" ]; then
-    echo "❌ Missing jupytext executable: $DOCS_JUPYTEXT"
-    echo "Run 'make install-dev-notebooks' first."
-    exit 1
-fi
+for notebook_tool in "$DOCS_JUPYTEXT" "$DOCS_NBCLIENT"; do
+    if [ ! -x "$notebook_tool" ]; then
+        echo "❌ Missing notebook executable: $notebook_tool"
+        echo "Run 'make install-dev-notebooks' first."
+        exit 1
+    fi
+done
 
 execute_notebook() {
     local src="$1"
@@ -51,7 +54,7 @@ execute_notebook() {
 
     for ((attempt = 1; attempt <= NOTEBOOK_EXECUTION_ATTEMPTS; attempt++)); do
         rm -f "$output"
-        if "$DOCS_JUPYTEXT" --to ipynb --execute "$src"; then
+        if "$DOCS_JUPYTEXT" --to ipynb "$src" && "$DOCS_NBCLIENT" --inplace "$output"; then
             return 0
         fi
         rm -f "$output"

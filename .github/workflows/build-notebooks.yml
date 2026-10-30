@@ -50,7 +50,7 @@ jobs:
       - name: Set up Python
         run: uv python install 3.11
       - name: Install notebook dependencies
-        run: make install-docs-deps DOCS_PYTHON_VERSION=3.11 NOTEBOOK_CSS=0
+        run: make install-docs-deps DOCS_PYTHON_VERSION=3.11
       - name: Restore notebook cache
         if: inputs.use_cache
         id: cache

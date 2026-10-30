@@ -22,7 +22,7 @@ import sys
 from unittest.mock import patch
 
 sys.argv = sys.argv[1:]
-with patch("graphify.export.to_json", return_value=False):
+with patch("graphify.export.to_json", side_effect=OSError("graph export failed")):
     runpy.run_path(sys.argv[0], run_name="__main__")
 """
 
@@ -99,7 +99,7 @@ def test_full_graph_round_trip(repo_root: Path, run_tool: Callable[..., subproce
     assert "**no changes**" in run_tool("--full", "--previous-graph", str(graph_path)).stdout
 
 
-@pytest.mark.parametrize("metadata", [{}, {"graphify_version": "0.4.23"}, {"schema_version": -1}])
+@pytest.mark.parametrize("metadata", [{}, {"graphify_version": "0.9.96"}, {"schema_version": -1}])
 def test_incompatible_baseline_is_reset(
     repo_root: Path, run_tool: Callable[..., subprocess.CompletedProcess[str]], metadata: dict[str, object]
 ) -> None:
@@ -144,7 +144,7 @@ def test_rejected_export_preserves_baselines(
     result = run_tool("--full", reject_export=True, check=False)
 
     assert result.returncode != 0
-    assert "baselines were not updated" in result.stderr
+    assert "graph export failed" in result.stderr
     assert baselines.read_bytes() == previous
 
 

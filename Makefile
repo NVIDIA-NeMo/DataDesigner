@@ -87,7 +87,6 @@ help:
 	@echo "  generate-fern-notebooks   - Convert docs/notebook_source/*.py → fern/components/notebooks/{json,ts}"
 	@echo "  generate-fern-notebooks-with-outputs - Full pipeline: execute notebooks (needs API key), colabify, convert to Fern"
 	@echo "  install-docs-deps        - Install docs and notebook dependencies"
-	@echo "  install-notebook-css     - Restore nbconvert HTML export stylesheets"
 	@echo "  prepare-fern-release VERSION=X.Y.Z - Add or refresh Fern version files for release preview"
 	@echo "  check-fern-release-version VERSION=X.Y.Z - Verify Fern has a version entry for release publishing"
 	@echo "  prepare-fern-docs         - Generate local Fern artifacts"
@@ -179,9 +178,8 @@ test-graphify: install-graphify
 install-dev-notebooks:
 	@echo "📦 Installing DataDesigner workspace with notebook dependencies..."
 	@echo "   Packages: data-designer-config → data-designer-engine → data-designer"
-	@echo "   Groups: dev + docs + notebooks (Jupyter, jupytext, etc.)"
+	@echo "   Groups: dev + docs + notebooks (Jupytext, kernel, execution tools)"
 	uv sync --all-packages --group dev --group docs --group notebooks
-	@$(MAKE) install-notebook-css
 	$(call install-pre-commit-hooks)
 	@echo "✅ Dev + docs + notebooks installation complete!"
 	@echo ""
@@ -511,7 +509,7 @@ update-license-headers:
 DOCS_PYTHON_VERSION ?= 3.13
 DOCS_PYTHON ?= .venv/bin/python
 DOCS_JUPYTEXT ?= .venv/bin/jupytext
-NOTEBOOK_CSS ?= 1
+DOCS_NBCLIENT ?= $(dir $(DOCS_JUPYTEXT))jupyter-execute
 FERN_VERSION ?= $(shell jq -r .version fern/fern.config.json)
 FERN ?= npx -y fern-api@$(FERN_VERSION)
 FERN_ORG ?= $(shell jq -r .organization fern/fern.config.json)
@@ -526,16 +524,6 @@ DOCS_CERTS = SSL_CERT_FILE=$$($(DOCS_PYTHON) -c "import certifi; print(certifi.w
 install-docs-deps:
 	@echo "📦 Installing docs dependencies (Python $(DOCS_PYTHON_VERSION))..."
 	uv sync --python $(DOCS_PYTHON_VERSION) --all-packages --group docs --group notebooks
-	@$(MAKE) install-notebook-css
-
-install-notebook-css:
-ifeq ($(NOTEBOOK_CSS),1)
-	$(DOCS_CERTS) $(DOCS_PYTHON) docs/scripts/prepare_nbconvert_css.py
-else ifeq ($(NOTEBOOK_CSS),0)
-	@echo "Skipping nbconvert CSS (notebook execution only)."
-else
-	$(error NOTEBOOK_CSS must be 0 or 1)
-endif
 
 prepare-fern-release:
 ifndef VERSION
@@ -599,7 +587,7 @@ serve-fern-docs-local-theme:
 convert-execute-notebooks:
 ifeq ($(USE_CACHE),1)
 	@echo "📓 Converting Python tutorials to notebooks (with caching)..."
-	@$(DOCS_CERTS) DOCS_JUPYTEXT=$(DOCS_JUPYTEXT) bash docs/scripts/build_notebooks_cached.sh
+	@$(DOCS_CERTS) DOCS_JUPYTEXT=$(DOCS_JUPYTEXT) DOCS_NBCLIENT=$(DOCS_NBCLIENT) bash docs/scripts/build_notebooks_cached.sh
 else
 	@echo "📓 Converting Python tutorials to notebooks and executing ($(DOCS_PYTHON))..."
 	@rm -rf docs/notebooks
@@ -611,7 +599,10 @@ else
 		for f in docs/notebook_source/*.py; do \
 			[ -f "$$f" ] || continue; \
 			echo "▶ executing $$f"; \
-			$(DOCS_JUPYTEXT) --to ipynb --execute "$$f" || failed="$$failed\n   • $$f"; \
+			if ! { $(DOCS_JUPYTEXT) --to ipynb "$$f" && $(DOCS_NBCLIENT) --inplace "$${f%.py}.ipynb"; }; then \
+				rm -f "$${f%.py}.ipynb"; \
+				failed="$$failed\n   • $$f"; \
+			fi; \
 		done; \
 		for f in docs/notebook_source/*.ipynb; do [ -f "$$f" ] && mv "$$f" docs/notebooks/; done; \
 		rm -rf docs/notebook_source/artifacts; \
@@ -818,7 +809,7 @@ clean-test-coverage:
         format format-check format-check-config format-check-engine format-check-interface \
         format-config format-engine format-interface \
         generate-colab-notebooks generate-fern-notebooks generate-fern-notebooks-with-outputs help \
-        install install-dev install-dev-notebooks install-dev-recipes install-docs-deps install-graphify install-notebook-css \
+        install install-dev install-dev-notebooks install-dev-recipes install-docs-deps install-graphify \
         lint lint-config lint-engine lint-fix lint-fix-config lint-fix-engine lint-fix-interface lint-interface lock-graphify \
         perf-import perf-import-runtime prepare-fern-docs prepare-fern-release publish serve-fern-docs-dev serve-fern-docs-local-theme serve-fern-docs-locally show-versions \
         health-checks \
