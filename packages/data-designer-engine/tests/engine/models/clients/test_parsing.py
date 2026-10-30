@@ -19,6 +19,7 @@ from data_designer.engine.models.clients.types import (
     ChatCompletionResponse,
     EmbeddingRequest,
     ImageGenerationRequest,
+    ProviderReplayData,
     TransportKwargs,
     Usage,
 )
@@ -88,6 +89,26 @@ async def test_aparse_chat_completion_response_preserves_all_choices() -> None:
 
 
 # --- TransportKwargs.from_request: extra_body flattening (default) ---
+
+
+@pytest.mark.parametrize(("message_count", "replay_count"), [(0, 1), (1, 2), (2, 1)])
+def test_chat_request_rejects_misaligned_replay_data(message_count: int, replay_count: int) -> None:
+    with pytest.raises(ValueError, match="message_replay_data must match the number of messages"):
+        ChatCompletionRequest(
+            model="m",
+            messages=[{"role": "user", "content": "Hi"}] * message_count,
+            message_replay_data=[None] * replay_count,
+        )
+
+
+def test_transport_kwargs_excludes_opaque_message_replay_data() -> None:
+    request = ChatCompletionRequest(
+        model="m",
+        messages=[{"role": "assistant", "content": "Answer"}],
+        message_replay_data=[ProviderReplayData(provider_type="future-provider", payload=object())],
+        temperature=0.2,
+    )
+    assert TransportKwargs.from_request(request).body == {"temperature": 0.2}
 
 
 def test_extra_body_keys_are_flattened_into_body() -> None:

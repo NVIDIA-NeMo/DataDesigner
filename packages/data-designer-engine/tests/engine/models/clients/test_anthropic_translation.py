@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+from typing import Any
 
 import pytest
 
@@ -29,7 +30,7 @@ from data_designer.engine.models.clients.adapters.anthropic_translation import (
     translate_tool_result_content,
     translate_tool_result_message,
 )
-from data_designer.engine.models.clients.types import ChatCompletionRequest
+from data_designer.engine.models.clients.types import ChatCompletionRequest, ProviderReplayData
 from data_designer.engine.models.usage import TokenCountSource
 from data_designer.engine.models.utils import ChatMessage
 
@@ -268,6 +269,54 @@ def test_parse_anthropic_response_maps_tool_use_and_thinking(monkeypatch: pytest
     assert response.usage.reasoning_tokens == 4
     assert response.usage.reasoning_token_count_source == TokenCountSource.ESTIMATED
     assert json.loads(response.message.tool_calls[0].arguments_json) == {"query": "weather"}
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        [],
+        [{"type": "thinking", "thinking": "", "signature": "signature"}],
+        [{"type": "redacted_thinking", "data": "redacted-data"}],
+        [{"type": "text", "text": ""}, {"type": "text", "text": "  Answer\n"}],
+        [{"type": "future-block", "unknown": {"data": [1, None, "unchanged"]}}],
+    ],
+    ids=["empty", "empty-thinking", "redacted-thinking", "text", "future-block"],
+)
+def test_anthropic_response_content_round_trips_unchanged(content: list[dict[str, Any]]) -> None:
+    response = parse_anthropic_response({"content": content})
+    assert response.message.replay_data == ProviderReplayData(provider_type="anthropic", payload=content)
+    message = ChatMessage.as_assistant(
+        content=response.message.content or "",
+        replay_data=response.message.replay_data,
+    )
+    request = ChatCompletionRequest(
+        model=MODEL, messages=[message.to_dict()], message_replay_data=[message.replay_data]
+    )
+    assert build_anthropic_payload(request)["messages"] == [{"role": "assistant", "content": content}]
+
+
+@pytest.mark.parametrize("provider_type", ["openai", "future-provider"])
+def test_anthropic_request_ignores_unmatched_replay_data(provider_type: str) -> None:
+    message = ChatMessage.as_assistant(
+        content="Answer", replay_data=ProviderReplayData(provider_type=provider_type, payload=object())
+    )
+    request = ChatCompletionRequest(
+        model=MODEL, messages=[message.to_dict()], message_replay_data=[message.replay_data]
+    )
+    assert build_anthropic_payload(request)["messages"] == [
+        {"role": "assistant", "content": [{"type": "text", "text": "Answer"}]}
+    ]
+
+
+@pytest.mark.parametrize("payload", [None, "opaque", {}, ["invalid-block"]])
+def test_anthropic_request_rejects_invalid_matching_replay_data(payload: object) -> None:
+    request = ChatCompletionRequest(
+        model=MODEL,
+        messages=[{"role": "assistant", "content": "Answer"}],
+        message_replay_data=[ProviderReplayData(provider_type="anthropic", payload=payload)],
+    )
+    with pytest.raises(ValueError, match="Anthropic replay data must be a list of content blocks"):
+        build_anthropic_payload(request)
 
 
 @pytest.mark.parametrize(
