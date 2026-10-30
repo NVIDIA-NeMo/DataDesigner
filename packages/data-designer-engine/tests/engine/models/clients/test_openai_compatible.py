@@ -17,6 +17,7 @@ from data_designer.engine.models.clients.types import (
     ChatCompletionRequest,
     EmbeddingRequest,
     ImageGenerationRequest,
+    ProviderReplayData,
 )
 from data_designer.engine.models.usage import TokenCountSource
 from tests.engine.models.clients.conftest import make_mock_async_client, make_mock_sync_client
@@ -80,6 +81,25 @@ def _image_response() -> dict[str, Any]:
 
 
 # --- Chat completion ---
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("is_async", [False, True], ids=["sync", "async"])
+@pytest.mark.parametrize("provider_type", ["anthropic", "future-provider"])
+async def test_completion_ignores_provider_replay_data(is_async: bool, provider_type: str) -> None:
+    http_client = make_mock_async_client(_chat_response()) if is_async else make_mock_sync_client(_chat_response())
+    client = _make_client(async_client=http_client) if is_async else _make_client(sync_client=http_client)
+    messages = [{"role": "assistant", "content": "Answer"}]
+    request = ChatCompletionRequest(
+        model=MODEL,
+        messages=messages,
+        message_replay_data=[ProviderReplayData(provider_type=provider_type, payload=object())],
+    )
+    if is_async:
+        await client.acompletion(request)
+    else:
+        client.completion(request)
+    assert http_client.post.call_args.kwargs["json"] == {"model": MODEL, "messages": messages}
 
 
 def test_completion_maps_canonical_fields() -> None:

@@ -3,19 +3,22 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any
 
 from data_designer.config.models import GenerationType, ModelConfig
 from data_designer.engine.model_provider import ModelProvider, ModelProviderRegistry
 from data_designer.engine.models.errors import ModelGenerationValidationFailureError
 from data_designer.engine.models.parsers.errors import ParserException
+from data_designer.engine.models.resources import ProviderModelKey
 from data_designer.engine.models.usage import ModelUsageStats, RequestUsageStats, TokenCountSource, TokenUsageStats
 from data_designer.engine.secret_resolver import SecretResolver
 from data_designer.logging import LOG_INDENT
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Iterable
 
     from data_designer.engine.models.clients.retry import RetryConfig
     from data_designer.engine.models.facade import ModelFacade
@@ -66,12 +69,14 @@ class ModelRegistry:
         model_facade_factory: ModelFacadeFactory | None = None,
         request_admission: AdaptiveRequestAdmissionController | None = None,
         retry_config: RetryConfig | None = None,
+        freeze_request_limits: bool = False,
     ) -> None:
         self._secret_resolver = secret_resolver
         self._model_provider_registry = model_provider_registry
         self._model_facade_factory = model_facade_factory
         self._request_admission = request_admission
         self._retry_config = retry_config
+        self._freeze_request_limits = freeze_request_limits
         self._model_configs: dict[str, ModelConfig] = {}
         self._models: dict[str, ModelFacade] = {}
         self._set_model_configs(model_configs)
@@ -109,14 +114,59 @@ class ModelRegistry:
 
         # Lazy initialization: only create model facade when first requested
         if model_alias not in self._models:
-            self._models[model_alias] = self._get_model(self._model_configs[model_alias])
+            self.get_models([model_alias])
 
         return self._models[model_alias]
+
+    def get_models(self, model_aliases: list[str]) -> dict[str, ModelFacade]:
+        """Construct requested facades before committing their shared request limits."""
+        configs = {alias: self.get_model_config(model_alias=alias) for alias in model_aliases}
+        for config in configs.values():
+            self._model_provider_registry.get_provider(config.provider)
+
+        pending: dict[str, ModelFacade] = {}
+        try:
+            for alias, config in configs.items():
+                if alias not in self._models:
+                    pending[alias] = self._create_model(config)
+            if self._request_admission is not None:
+                registrations = {}
+                for alias, model in pending.items():
+                    config = configs[alias]
+                    registrations[(ProviderModelKey(model.model_provider_name, config.model), alias)] = (
+                        config.inference_parameters.max_parallel_requests
+                    )
+                self._request_admission.register_many(
+                    registrations,
+                    freeze=self._freeze_request_limits,
+                )
+        except BaseException:
+            self._close_models(pending.values())
+            if pending:
+                # These facades have not made requests, so async cleanup can use a fresh loop.
+                try:
+                    with ThreadPoolExecutor(max_workers=1) as executor:
+                        executor.submit(lambda: asyncio.run(self._aclose_models(pending.values()))).result()
+                except Exception:
+                    logger.exception("Error cleaning up unreturned model facades")
+            raise
+
+        self._models.update(pending)
+        return {alias: self._models[alias] for alias in configs}
 
     def get_model_config(self, *, model_alias: str) -> ModelConfig:
         if model_alias not in self._model_configs:
             raise ValueError(f"No model config with alias {model_alias!r} found!")
-        return self._model_configs[model_alias]
+        model_config = self._model_configs[model_alias]
+        if self._request_admission is not None:
+            self._request_admission.validate_registration(
+                provider_name=model_config.provider,
+                model_id=model_config.model,
+                alias=model_config.alias,
+                max_parallel_requests=model_config.inference_parameters.max_parallel_requests,
+                freeze=self._freeze_request_limits,
+            )
+        return model_config
 
     def get_model_usage_stats(self, total_time_elapsed: float) -> dict[str, dict[str, Any]]:
         return {
@@ -340,18 +390,26 @@ class ModelRegistry:
         Callers that create a ModelRegistry directly should call this when done.
         Full lifecycle integration is tracked for a follow-up PR.
         """
-        for facade in self._models.values():
-            try:
-                facade.close()
-            except Exception:
-                logger.exception("Error closing facade for %s", facade.model_alias)
+        self._close_models(self._models.values())
 
     async def aclose(self) -> None:
         """Async release resources held by all model facades.
 
         See `close()` for lifecycle notes.
         """
-        for facade in self._models.values():
+        await self._aclose_models(self._models.values())
+
+    @staticmethod
+    def _close_models(models: Iterable[ModelFacade]) -> None:
+        for facade in models:
+            try:
+                facade.close()
+            except Exception:
+                logger.exception("Error closing facade for %s", facade.model_alias)
+
+    @staticmethod
+    async def _aclose_models(models: Iterable[ModelFacade]) -> None:
+        for facade in models:
             try:
                 await facade.aclose()
             except Exception:
@@ -360,20 +418,12 @@ class ModelRegistry:
     def _set_model_configs(self, model_configs: list[ModelConfig] | None) -> None:
         self._model_configs = {mc.alias: mc for mc in (model_configs or [])}
 
-    def _get_model(self, model_config: ModelConfig) -> ModelFacade:
+    def _create_model(self, model_config: ModelConfig) -> ModelFacade:
         if self._model_facade_factory is None:
             raise RuntimeError("ModelRegistry was not initialized with a model_facade_factory")
-        facade = self._model_facade_factory(
+        return self._model_facade_factory(
             model_config,
             self._secret_resolver,
             self._model_provider_registry,
             self._retry_config,
         )
-        if self._request_admission is not None:
-            self._request_admission.register(
-                provider_name=facade.model_provider_name,
-                model_id=model_config.model,
-                alias=model_config.alias,
-                max_parallel_requests=model_config.inference_parameters.max_parallel_requests,
-            )
-        return facade
