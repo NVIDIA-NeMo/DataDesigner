@@ -73,7 +73,7 @@ notebooks = [
     "notebook>=7.6.3,<8", # 7.6.3 fixes CVE-2026-102831
     "setuptools>=84.1.0,<85", # 84.1.0 fixes the namespace_packages.txt path escape
     "soupsieve>=2.9.1,<3", # 2.9.1 fixes soupsieve security advisories pulled in by nbconvert
-    "tornado>=6.5.10,<7", # 6.5.9 fixes advisories; 6.5.10 restores Jupyter compatibility
+    "tornado>=6.6,<7", # 6.6 fixes redirect and HTTP parsing advisories
 ]
 recipes = [
     "bm25s>=0.2.0,<1",
