@@ -251,6 +251,8 @@ Template capabilities:
 - **Conditional logic**: if/elif/else support
 - **Arithmetic**: Add, subtract, multiply, divide
 
+Values from other columns keep their type in templates, so a text cell such as `"1.10"` or `"true"` renders exactly as written. Cast numbers stored as text before doing math with them, for example `{{ quantity | int + 1 }}` or `{{ price | float * 2 }}`. Columns holding a JSON object or array still support nested access such as `{{ result.score }}`.
+
 ### 🔍 Validation Columns
 
 Validation columns check generated content against rules and return structured pass/fail results.

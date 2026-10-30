@@ -34,7 +34,7 @@ class ImageCellGenerator(WithJinja2UserTemplateRendering, ColumnGeneratorWithMod
 
     def _prepare_image_inputs(self, data: dict) -> tuple[str, list[dict] | None]:
         """Validate inputs and render prompt for image generation."""
-        deserialized_record = deserialize_json_values(data)
+        deserialized_record = deserialize_json_values(data, keep_scalar_strings=True)
         missing_columns = list(set(self.config.required_columns) - set(data.keys()))
         if len(missing_columns) > 0:
             raise ValueError(

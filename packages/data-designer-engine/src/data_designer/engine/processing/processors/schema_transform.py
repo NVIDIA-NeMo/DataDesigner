@@ -83,7 +83,7 @@ class SchemaTransformProcessor(WithJinja2UserTemplateRendering, Processor[Schema
         )
         formatted_records = []
         for record in data.to_dict(orient="records"):
-            deserialized = deserialize_json_values(record)
+            deserialized = deserialize_json_values(record, keep_scalar_strings=True)
             rendered = self.render_template(deserialized)
             formatted_records.append(json.loads(rendered))
         return create_logical_dataframe(formatted_records, self.config.json_storage_columns)

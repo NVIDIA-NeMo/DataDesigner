@@ -47,7 +47,7 @@ def evaluate_skip_when(expression: str, record: dict) -> bool:
     """
     try:
         template = _compile_skip_template(expression)
-        deserialized = deserialize_json_values(record)
+        deserialized = deserialize_json_values(record, keep_scalar_strings=True)
         result = template.render(deserialized)
         return bool(result)
     except (UndefinedError, SecurityError, TemplateSyntaxError, TypeError, ValueError):
