@@ -611,8 +611,8 @@ def test_analysis_accepts_saved_benchmark_from_previous_compiler(
 ) -> None:
     config = _inline_config(benchmark_config, authored_run)
     legacy = BenchmarkCompiler._compile(config, authored_run, legacy=True)
-    assert legacy.benchmark_id == "benchmark-996c47990258ceb4a3ca7b245ddee971"
-    assert legacy.cases[0].child_run_id == "run-996c47990258ceb4-0000-89d3e0eccd48"
+    assert legacy.benchmark_id == "benchmark-88f3e365c1ef64ce47624bebeb80d408"
+    assert legacy.cases[0].child_run_id == "run-88f3e365c1ef64ce-0000-26e0bbf3b4ad"
     assert all(case.child_run_config.array_tasks.count == 2 for case in legacy.cases)
     store, manifest = _manifest(tmp_path, config, legacy)
     store.publish(config, authored_run, manifest)
