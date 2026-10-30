@@ -302,7 +302,9 @@ def test_app_rejects_unknown_options_before_script_separator(mock_controller_cls
     )
 
     assert result.exit_code == 2
-    assert "No such option: --num-recrods" in click.unstyle(result.output)
+    output = click.unstyle(result.output)
+    assert "No such option" in output
+    assert "--num-recrods" in output
     mock_controller_cls.assert_not_called()
 
 
