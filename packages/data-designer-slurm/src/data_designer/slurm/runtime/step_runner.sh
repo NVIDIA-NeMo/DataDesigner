@@ -127,8 +127,22 @@ dd_build_srun_command() {
 dd_start_step() {
     local manifest=$1
     local step_id=$2
+    local task_identity_file=${3:-}
     dd_read_step "${manifest}" "${step_id}"
     dd_build_srun_command
+    if [[ -n ${task_identity_file} ]]; then
+        [[ ${DD_STEP_EXECUTION} == native ]] || return 64
+        DD_STEP_COMMAND=(
+            bash -c '
+                set -Eeuo pipefail
+                [[ ${SLURM_JOB_ID} =~ ^[1-9][0-9]*$ && ${SLURM_STEP_ID} =~ ^[0-9]+$ ]]
+                umask 077
+                printf "%s.%s\n" "${SLURM_JOB_ID}" "${SLURM_STEP_ID}" > "$1"
+                shift
+                exec "$@"
+            ' data-designer-endpoint "${task_identity_file}" "${DD_STEP_COMMAND[@]}"
+        )
+    fi
     (
         dd_materialize_step_environment
         exec "${DD_SRUN_COMMAND[@]}" -- "${DD_STEP_COMMAND[@]}"
@@ -155,9 +169,27 @@ dd_run_step() {
 }
 
 dd_run_control_phase() {
+    dd_build_control_command "$@"
+    (
+        dd_scope_control_environment
+        exec "${DD_CONTROL_COMMAND[@]}"
+    )
+}
+
+dd_start_health_monitor() {
+    dd_build_control_command monitor "${DD_RUNTIME_RETRY_ARGUMENTS[@]+"${DD_RUNTIME_RETRY_ARGUMENTS[@]}"}"
+    (
+        dd_scope_control_environment
+        exec "${DD_CONTROL_COMMAND[@]}"
+    ) &
+    DD_HEALTH_PID=$!
+    dd_register_required_pid "${DD_HEALTH_PID}"
+}
+
+dd_build_control_command() {
     local operation=$1
     shift
-    local -a command=(
+    DD_CONTROL_COMMAND=(
         srun
         --nodes=1
         --ntasks=1
@@ -178,9 +210,5 @@ dd_run_control_phase() {
         --attempt-dir
         "${DD_ATTEMPT_PATH}"
         "$@"
-    )
-    (
-        dd_scope_control_environment
-        exec "${command[@]}"
     )
 }

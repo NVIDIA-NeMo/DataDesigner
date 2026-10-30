@@ -81,6 +81,20 @@ Inspect the attempt readiness record and Slurm stderr under the managed run dire
 
 ## A shard failed
 
+### Backend health is lost during generation
+
+After startup, the allocation checks each logical endpoint's aggregate backend health every second. Health probes use separate connection capacity so they can run while inference connections are saturated. If a required backend becomes unhealthy, including while its process remains alive, the monitor records `runtime_health_lost` in the attempt readiness evidence and fails the attempt. Inspect the backend logs before retrying; a healthy spare replica does not make the deployment ready when another required replica has failed.
+
+### Inspect routing and overload behavior
+
+Endpoint stderr contains structured `slurm_proxy_request` events. Each event identifies attempted upstream origins, outcomes, connection reuse, connection duration, time to response headers, total attempt duration, final HTTP status, and whether the response completed. Total attempt duration includes connection establishment and response streaming. A reused connection has a connection duration of zero; unavailable timings are `null`. Logs exclude request paths, authorization headers, prompts, and generated content.
+
+The allocation-local endpoint's `/metrics` response includes request and attempt counts, per-backend activity, connection opens/reuse/failures/evictions, retries by reason, final HTTP status counts, and timeouts. Evictions include expired, stale, and discarded connections; normal session shutdown is excluded. Timeouts include terminal attempts and interrupted response streams, even when no retry follows. These counters describe this endpoint process and reset when it restarts.
+
+During cleanup, health monitoring stops first. The controller sends `TERM` directly to each endpoint's Slurm task step using its recorded job and step IDs. Logical endpoints then stop accepting requests and drain active responses for up to 10 seconds while their `srun` launchers and serving backends remain available. The controller allows 12 seconds for draining and step exit before forcing remaining endpoints to stop and terminating other steps. Responses exceeding the drain deadline can be interrupted.
+
+### Retry a failed shard
+
 Use `status` to find the failed task and attempt. Batch stderr identifies the allocation runtime phase and exit status; synchronous step failures also report their durable stdout and stderr paths. Preview a sparse retry before submission:
 
 ```bash

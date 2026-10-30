@@ -41,6 +41,7 @@ def test_runtime_bundle_is_deterministic_content_addressed_and_restrictive(tmp_p
         assert names[6] == "data_designer/slurm/__init__.py"
         assert "data_designer/slurm/runtime/controller.py" in names
         assert "data_designer/slurm/runtime/entrypoint.py" in names
+        assert "data_designer/slurm/runtime/health.py" in names
         assert "data_designer/slurm/state/store.py" in names
         assert "data_designer/slurm/contracts.py" in names
         assert archive.getmember("entrypoint.sh").mode == 0o500

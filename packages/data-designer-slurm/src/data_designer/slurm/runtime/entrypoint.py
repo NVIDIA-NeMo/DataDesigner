@@ -17,6 +17,7 @@ from data_designer.slurm.client.process import ClientWorkerProcess
 from data_designer.slurm.runtime.bootstrap import build_runtime_manifest
 from data_designer.slurm.runtime.context import load_allocation_context
 from data_designer.slurm.runtime.errors import SlurmRuntimeError, SlurmRuntimeErrorCode
+from data_designer.slurm.runtime.health import monitor_runtime_health
 from data_designer.slurm.runtime.logs import execution_log_directory
 from data_designer.slurm.runtime.models import AllocationContext
 from data_designer.slurm.runtime.ports import resolve_allocation_deployments
@@ -52,6 +53,8 @@ def main(arguments: Sequence[str] | None = None) -> int:
             _ready(parsed, os.environ)
         elif parsed.operation == "client":
             _client(parsed, os.environ)
+        elif parsed.operation == "monitor":
+            _monitor(parsed, os.environ)
         elif parsed.operation == "succeed":
             _succeed(parsed, os.environ)
         else:
@@ -73,7 +76,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
 def _parse_arguments(arguments: Sequence[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog="data-designer-slurm-runtime")
     subparsers = parser.add_subparsers(dest="operation", required=True)
-    for operation in ("prepare", "ready", "succeed", "fail"):
+    for operation in ("prepare", "ready", "succeed", "fail", "monitor"):
         subparser = subparsers.add_parser(operation)
         _add_context_arguments(subparser)
     prepare = subparsers.choices["prepare"]
@@ -150,6 +153,17 @@ def _ready(arguments: argparse.Namespace, environment: Mapping[str, str]) -> Non
     )
 
 
+def _monitor(arguments: argparse.Namespace, environment: Mapping[str, str]) -> None:
+    context, writer = _load_context(arguments, environment)
+    readiness = writer.load_readiness(context.shard.shard_id, context.attempt.attempt_id)
+    deployments = _resolve_deployments(context, environment)
+    monitor_runtime_health(
+        writer,
+        readiness,
+        {deployment.deployment_id: deployment.logical_endpoint.port for deployment in deployments},
+    )
+
+
 def _client(
     arguments: argparse.Namespace,
     environment: Mapping[str, str],
@@ -215,7 +229,18 @@ def _client(
 
 def _succeed(arguments: argparse.Namespace, environment: Mapping[str, str]) -> None:
     context, writer = _load_context(arguments, environment)
-    stopped_at = _write_stopped_readiness(context, writer)
+    # Cleanup has stopped the monitor, so its last persisted health evidence is final.
+    readiness = writer.load_readiness(context.shard.shard_id, context.attempt.attempt_id)
+    if readiness.state is ReadinessState.FAILED or any(
+        deployment.state is ReadinessState.FAILED
+        or (deployment.last_probe is not None and deployment.last_probe.outcome is ProbeOutcome.FAILURE)
+        for deployment in readiness.deployments
+    ):
+        raise SlurmRuntimeError(
+            SlurmRuntimeErrorCode.FINALIZATION_FAILED,
+            "cannot finalize a successful allocation after required inference service failure",
+        )
+    stopped_at = _write_stopped_readiness(context, writer, previous=readiness)
     attempt = writer.load_attempt(context.shard.shard_id, context.attempt.attempt_id)
     if attempt.candidate_output is None:
         raise SlurmRuntimeError(
@@ -316,6 +341,10 @@ def _write_failed_and_stopped_readiness(context: AllocationContext, writer: Slur
     previous = _load_optional_readiness(context, writer)
     if previous is None:
         return max(datetime.now(UTC), context.attempt.updated_at)
+    if previous.state is ReadinessState.STOPPED:
+        return _now(context.attempt, previous)
+    if previous.state is ReadinessState.FAILED:
+        return _write_stopped_readiness(context, writer, previous=previous)
     failed_at = _now(context.attempt, previous)
     failed = writer.write_readiness(
         AttemptReadiness(

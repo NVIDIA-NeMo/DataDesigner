@@ -293,6 +293,10 @@ def test_succeed_phase_does_not_strand_success_when_winner_finalization_fails(
     )
     assert entrypoint.main(_phase_arguments("succeed", runtime_case)) == 70
     assert state.attempt.state is AttemptLifecycleState.RUNNING
+    assert state.readiness[-1].state is ReadinessState.STOPPED
+    assert entrypoint.main(_phase_arguments("fail", runtime_case)) == 0
+    assert state.attempt.state is AttemptLifecycleState.FAILED
+    assert state.readiness[-1].state is ReadinessState.STOPPED
 
 
 def _patch_runtime_context(

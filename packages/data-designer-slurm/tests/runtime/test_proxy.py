@@ -5,13 +5,15 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
+import logging
 import socket
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 import pytest
-from aiohttp import ClientSession, ClientTimeout, TCPConnector, web
+from aiohttp import ClientError, ClientSession, ClientTimeout, TCPConnector, web
 from aiohttp.test_utils import TestServer
 
 from data_designer.slurm.runtime import proxy as runtime_proxy
@@ -107,13 +109,15 @@ async def _serve_production(
             options.pop(name)
         runner = web.AppRunner(application, **options)
 
-    def create_connector(**options: object) -> TCPConnector:
+    connector_type = runtime_proxy._ProxyConnector
+
+    def create_connector(*args: object) -> TCPConnector:
         nonlocal connector
-        connector = TCPConnector(**options)
+        connector = connector_type(*args)
         return connector
 
     monkeypatch.setattr(runtime_proxy.web, "run_app", run_app)
-    monkeypatch.setattr(runtime_proxy, "TCPConnector", create_connector)
+    monkeypatch.setattr(runtime_proxy, "_ProxyConnector", create_connector)
     with socket.socket() as reservation:
         reservation.bind(("127.0.0.1", 0))
         port = reservation.getsockname()[1]
@@ -449,6 +453,203 @@ async def test_proxy_reuses_upstream_connections_and_reports_pool_metrics() -> N
     assert metrics["connections"]["opened"] == 1
     assert metrics["connections"]["reused"] == 1
     assert metrics["connections"]["idle"] == 1
+
+
+@pytest.mark.asyncio
+async def test_proxy_logs_attempt_upstreams_and_timings_without_payloads(caplog: pytest.LogCaptureFixture) -> None:
+    async def overloaded(request: web.Request) -> web.Response:
+        return web.Response(status=429, text="private-upstream-body", headers={"Retry-After": "2"})
+
+    async def available(request: web.Request) -> web.Response:
+        return web.Response(text="private-generated-content")
+
+    caplog.set_level(logging.INFO, logger=runtime_proxy.__name__)
+    async with _serve(_application(overloaded)) as first, _serve(_application(available)) as second:
+        upstreams = [_backend(first).origin, _backend(second).origin]
+        proxy = _ProxyApplication((_backend(first), _backend(second)), 1)
+        async with _serve(proxy.create()) as endpoint, ClientSession() as client:
+            async with client.post(
+                endpoint.make_url("/v1/chat/completions?private-query"),
+                data=b"private-prompt",
+                headers={"Authorization": "Bearer private-key"},
+            ) as response:
+                assert await response.text() == "private-generated-content"
+    records = [record.getMessage() for record in caplog.records if record.name == runtime_proxy.__name__]
+    assert len(records) == 1
+    assert "private-" not in records[0]
+    event = json.loads(records[0].split(" ", 1)[1])
+    assert event["upstream_outcomes"] == ["429", "200"]
+    assert event["failover"] is True
+    assert event["response_completed"] is True
+    assert [attempt["upstream"] for attempt in event["upstream_attempts"]] == upstreams
+    for attempt in event["upstream_attempts"]:
+        assert attempt["connection_seconds"] >= 0
+        assert attempt["response_seconds"] >= attempt["response_headers_seconds"] >= 0
+
+
+@pytest.mark.asyncio
+async def test_proxy_counts_terminal_timeout_without_retry(total_timeout: None) -> None:
+    async def slow(request: web.Request) -> web.Response:
+        await asyncio.sleep(1)
+        return web.Response()
+
+    async with _serve(_application(slow)) as backend:
+        proxy = _ProxyApplication((_backend(backend),), 1)
+        async with _serve(proxy.create()) as endpoint, ClientSession() as client:
+            async with client.post(endpoint.make_url("/complete")) as response:
+                assert response.status == 502
+            async with client.get(endpoint.make_url("/metrics")) as response:
+                metrics = await response.json()
+    assert metrics["timeouts"] == 1
+    assert metrics["retries"] == {}
+    assert metrics["final_statuses"] == {"502": 1}
+
+
+@pytest.mark.asyncio
+async def test_proxy_counts_expired_idle_connections(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(runtime_proxy, "_KEEPALIVE_TIMEOUT_SECONDS", 0.02)
+
+    async def available(request: web.Request) -> web.Response:
+        return web.Response(text="complete")
+
+    async with _serve(_application(available)) as backend:
+        proxy = _ProxyApplication((_backend(backend),), 1)
+        async with _serve(proxy.create()) as endpoint, ClientSession() as client:
+            async with client.get(endpoint.make_url("/complete")) as response:
+                await response.read()
+            await asyncio.sleep(0.08)
+            async with client.get(endpoint.make_url("/metrics")) as response:
+                metrics = await response.json()
+    assert metrics["connections"]["evicted"] == 1
+    assert metrics["connections"]["idle"] == 0
+
+
+@pytest.mark.asyncio
+async def test_proxy_counts_discarded_upstream_connections() -> None:
+    async def available(request: web.Request) -> web.Response:
+        return web.Response(text="complete", headers={"Connection": "close"})
+
+    async with _serve(_application(available)) as backend:
+        proxy = _ProxyApplication((_backend(backend),), 1)
+        async with _serve(proxy.create()) as endpoint, ClientSession() as client:
+            async with client.get(endpoint.make_url("/complete")) as response:
+                await response.read()
+            async with client.get(endpoint.make_url("/metrics")) as response:
+                metrics = await response.json()
+    assert metrics["connections"]["evicted"] == 1
+    assert metrics["connections"]["idle"] == 0
+
+
+@pytest.mark.asyncio
+async def test_proxy_discards_stale_connection_before_reuse() -> None:
+    transport: asyncio.Transport | None = None
+
+    async def available(request: web.Request) -> web.Response:
+        nonlocal transport
+        transport = request.transport
+        return web.Response(text="complete")
+
+    async with _serve(_application(available)) as backend:
+        proxy = _ProxyApplication((_backend(backend),), 1)
+        async with _serve(proxy.create()) as endpoint, ClientSession() as client:
+            async with client.get(endpoint.make_url("/complete")) as response:
+                assert await response.text() == "complete"
+            assert transport is not None
+            transport.close()
+            await asyncio.sleep(0.02)
+            async with client.get(endpoint.make_url("/complete")) as response:
+                assert await response.text() == "complete"
+            async with client.get(endpoint.make_url("/metrics")) as response:
+                metrics = await response.json()
+    assert metrics["connections"]["opened"] == 2
+    assert metrics["connections"]["evicted"] == 1
+
+
+@pytest.mark.asyncio
+async def test_proxy_records_stream_timeout_without_replaying(
+    total_timeout: None, caplog: pytest.LogCaptureFixture
+) -> None:
+    calls = 0
+
+    async def streaming(request: web.Request) -> web.StreamResponse:
+        nonlocal calls
+        calls += 1
+        response = web.StreamResponse()
+        await response.prepare(request)
+        await response.write(b"first")
+        await asyncio.sleep(0.2)
+        return response
+
+    caplog.set_level(logging.INFO, logger=runtime_proxy.__name__)
+    async with _serve(_application(streaming)) as backend:
+        proxy = _ProxyApplication((_backend(backend),), 1)
+        async with _serve(proxy.create()) as endpoint, ClientSession() as client:
+            with pytest.raises(ClientError):
+                async with client.get(endpoint.make_url("/complete")) as response:
+                    await response.read()
+            async with client.get(endpoint.make_url("/metrics")) as response:
+                assert (await response.json())["timeouts"] == 1
+    assert calls == 1
+    record = next(record for record in caplog.records if record.name == runtime_proxy.__name__)
+    event = json.loads(record.getMessage().split(" ", 1)[1])
+    assert event["response_completed"] is False
+    assert event["upstream_outcomes"] == ["stream_timeout"]
+
+
+@pytest.mark.asyncio
+async def test_production_proxy_shutdown_drains_active_stream(monkeypatch: pytest.MonkeyPatch) -> None:
+    release = asyncio.Event()
+
+    async def streaming(request: web.Request) -> web.StreamResponse:
+        response = web.StreamResponse()
+        await response.prepare(request)
+        await response.write(b"first")
+        await release.wait()
+        await response.write(b"last")
+        return response
+
+    async with _serve(_application(streaming)) as backend, ClientSession() as client:
+        endpoint_context = _serve_production(_backend(backend), monkeypatch)
+        origin, _ = await endpoint_context.__aenter__()
+        try:
+            async with client.get(f"{origin}/complete") as response:
+                assert await response.content.readexactly(5) == b"first"
+                shutdown = asyncio.create_task(endpoint_context.__aexit__(None, None, None))
+                await asyncio.sleep(0.05)
+                assert not shutdown.done()
+                release.set()
+                assert await response.read() == b"last"
+                await asyncio.wait_for(shutdown, 2)
+        finally:
+            release.set()
+            await endpoint_context.__aexit__(None, None, None)
+
+
+@pytest.mark.asyncio
+async def test_health_does_not_wait_for_saturated_inference_pool(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(runtime_proxy, "_MAXIMUM_CONNECTIONS", 1)
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def backend_handler(request: web.Request) -> web.Response:
+        if request.path == "/health":
+            return web.Response()
+        entered.set()
+        await release.wait()
+        return web.Response()
+
+    async with _serve(_application(backend_handler)) as backend:
+        proxy = _ProxyApplication((_backend(backend),), 1)
+        async with _serve(proxy.create()) as endpoint, ClientSession() as client:
+            pending = asyncio.create_task(client.get(endpoint.make_url("/complete")))
+            try:
+                await asyncio.wait_for(entered.wait(), 1)
+                async with await asyncio.wait_for(client.get(endpoint.make_url("/health")), 1) as response:
+                    assert response.status == 200
+                    assert (await response.json())["backends_ready"] == 1
+            finally:
+                release.set()
+                async with await pending as response:
+                    await response.read()
 
 
 @pytest.mark.asyncio

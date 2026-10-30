@@ -66,6 +66,11 @@ def test_bash_controller_scopes_secrets_cleans_steps_and_never_runs_host_python(
     _write_executable(fake_bin / "getent", "#!/usr/bin/env bash\nexit 0\n")
     _write_executable(fake_bin / "scontrol", "#!/usr/bin/env bash\nprintf 'compute-001\\n'\n")
     _write_executable(fake_bin / "srun", _fake_srun())
+    _write_executable(
+        fake_bin / "scancel",
+        '#!/usr/bin/env bash\n[[ $* == "--quiet --signal=TERM 4101.7" ]] || exit 64\n'
+        'kill -TERM "$(cat "${FAKE_ENDPOINT_PID_FILE}")"\n',
+    )
     command = f"""
     set -Eeuo pipefail
 DD_PLAN_SHA256={"a" * 64}
@@ -85,6 +90,7 @@ dd_slurm_run_allocation "${{DD_PLAN}}" "${{DD_ATTEMPT_DIR}}"
         "FAKE_MANIFEST_SOURCE": manifest_path.as_posix(),
         "FAKE_GPU_MODE": gpu_request_mode,
         "FAKE_LISTENING_FILE": str(log_directory / "deployment-00000-endpoint.out.listening"),
+        "FAKE_ENDPOINT_PID_FILE": str(tmp_path / "endpoint.pid"),
         "SOURCE_TOKEN": "supersecret",
         "CUDA_VISIBLE_DEVICES": "0",
         "DD_SCRATCH_ROOT": scratch_root.as_posix(),
@@ -583,13 +589,14 @@ def test_endpoint_probe_waits_for_listener_and_rejects_stale_marker(tmp_path: Pa
     runtime_root = Path(__file__).parents[2] / "src/data_designer/slurm/runtime"
     marker = tmp_path / "endpoint.out.listening"
     marker.touch()
+    marker.with_suffix(".step-id").write_text("stale")
     command = f"""
 source {shlex.quote(str(runtime_root / "entrypoint.sh"))}
 DD_RUNTIME_MANIFEST=unused
 DD_STEP_STDOUT={shlex.quote(str(tmp_path / "endpoint.out"))}
 dd_read_step_ids() {{ DD_STEP_IDS=(endpoint); }}
 dd_read_step() {{ DD_STEP_PROBE_FIELDS=(127.0.0.1 10000 /health 30); }}
-dd_start_step() {{ [[ ! -f ${{DD_STEP_STDOUT}}.listening ]]; DD_LAST_PID=1; }}
+dd_start_step() {{ [[ ! -f ${{DD_STEP_STDOUT}}.listening && ! -f ${{DD_STEP_STDOUT}}.step-id ]]; DD_LAST_PID=1; }}
 dd_register_required_pid() {{ :; }}
 dd_require_running() {{ :; }}
 dd_sleep() {{
@@ -752,6 +759,10 @@ for ((index = 0; index < ${#arguments[@]}; index++)); do
     [[ ${arguments[index]} == -- ]] && break
 done
 command=${arguments[index + 1]}
+if [[ ${command} == bash ]]; then
+    printf '4101.7\\n' > "${arguments[index + 5]}"
+    command=${arguments[index + 6]}
+fi
 if [[ ${command} == */python3 ]]; then
     operation=${arguments[index + 4]}
     [[ ! ${SOURCE_TOKEN+x} && ! ${SERVER_TOKEN+x} && ! ${CUDA_VISIBLE_DEVICES+x} ]]
@@ -763,6 +774,10 @@ if [[ ${command} == */python3 ]]; then
                 break
             fi
         done
+    fi
+    if [[ ${operation} == monitor ]]; then
+        trap 'exit 0' TERM INT
+        while :; do sleep 0.1; done
     fi
     exit 0
 fi
@@ -785,6 +800,7 @@ case ${command} in
         ;;
     fake-endpoint)
         [[ ! ${SOURCE_TOKEN+x} && ! ${SERVER_TOKEN+x} && ! ${CUDA_VISIBLE_DEVICES+x} ]]
+        printf '%s\\n' "$$" > "${FAKE_ENDPOINT_PID_FILE}"
         touch "${FAKE_LISTENING_FILE}"
         trap 'exit 0' TERM INT
         while :; do :; done
