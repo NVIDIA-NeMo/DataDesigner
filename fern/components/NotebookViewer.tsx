@@ -26,7 +26,7 @@ import type { ReactNode } from "react";
  * The trust boundary is the converter pipeline:
  *
  *   docs/notebook_source/*.py  (jupytext source — code-reviewed at PR time)
- *     └─> jupytext --execute    (runs in CI/maintainer shell with NVIDIA_API_KEY)
+ *     └─> jupytext + jupyter-execute (runs in CI/maintainer shell with NVIDIA_API_KEY)
  *           └─> *.ipynb         (real outputs captured)
  *                 └─> fern/scripts/ipynb-to-fern-json.py
  *                       └─> fern/components/notebooks/*.{json,ts}  (committed)

@@ -29,6 +29,7 @@ def create_model_registry(
     run_config: RunConfig | None = None,
     request_admission: AdaptiveRequestAdmissionController | None = None,
     request_event_sink: RequestAdmissionEventSink | None = None,
+    freeze_request_limits: bool = False,
 ) -> ModelRegistry:
     """Factory function for creating a ModelRegistry instance.
 
@@ -50,6 +51,7 @@ def create_model_registry(
         request_admission: Optional shared request-admission controller. When
             omitted, a new controller is created from ``run_config``.
         request_event_sink: Optional direct sink for request-admission and model-request events.
+        freeze_request_limits: Reject changes to registered alias limits on the shared controller.
 
     Returns:
         A configured ModelRegistry instance.
@@ -91,6 +93,7 @@ def create_model_registry(
         model_facade_factory=model_facade_factory,
         request_admission=request_admission,
         retry_config=RetryConfig(),
+        freeze_request_limits=freeze_request_limits,
     )
 
 

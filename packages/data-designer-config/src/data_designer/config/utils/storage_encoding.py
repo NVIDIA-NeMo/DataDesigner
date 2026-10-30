@@ -120,7 +120,35 @@ def encode_storage_table(dataframe: pd.DataFrame, plan: JsonStoragePlan) -> pa.T
 def decode_storage_table(table: pa.Table) -> pd.DataFrame:
     """Restore logical JSON values without guessing from ordinary string contents."""
     plan = read_storage_plan(table.schema)
-    frame = table.to_pandas(types_mapper=lazy.pd.ArrowDtype)
+    # pandas' ArrowDtype conversion casts even identical types, which can corrupt
+    # nested null children in Arrow. Wrap nested arrays directly without a cast.
+    nested_columns = [field.name for field in table.schema if lazy.pa.types.is_nested(field.type)]
+    frame = _prepare_table_for_pandas(table.drop(nested_columns)).to_pandas(types_mapper=lazy.pd.ArrowDtype)
+    column_labels: dict[str, Any] = {}
+    if nested_columns:
+        # An empty schema-only conversion restores pandas labels without touching
+        # real nested buffers. Physical Arrow names need not be pandas labels.
+        template = _prepare_table_for_pandas(table.schema.empty_table()).to_pandas(types_mapper=lazy.pd.ArrowDtype)
+        index_fields = [
+            name
+            for name in (table.schema.pandas_metadata or {}).get("index_columns", [])
+            if isinstance(name, str) and name in table.column_names
+        ]
+        data_fields = [name for name in table.column_names if name not in index_fields]
+        column_labels = dict(zip(data_fields, template.columns, strict=True))
+        if any(name in nested_columns for name in index_fields):
+            index_arrays = [lazy.pd.arrays.ArrowExtensionArray(table[name]) for name in index_fields]
+            frame.index = (
+                lazy.pd.Index(index_arrays[0], name=template.index.name)
+                if len(index_arrays) == 1
+                else lazy.pd.MultiIndex.from_arrays(index_arrays, names=template.index.names)
+            )
+        for name in nested_columns:
+            if name not in index_fields:
+                frame[column_labels[name]] = lazy.pd.Series(
+                    lazy.pd.arrays.ArrowExtensionArray(table[name]), index=frame.index
+                )
+        frame = frame.reindex(columns=template.columns)
     for name, paths in plan.columns.items():
         values = []
         for row, value in enumerate(table[name].to_pylist()):
@@ -130,7 +158,7 @@ def decode_storage_table(table: pa.Table) -> pd.DataFrame:
                 values.append(value)
             except (ValueError, TypeError, RecursionError) as exc:
                 raise InvalidFileFormatError(f"Cannot decode JSON storage column {name!r}, row {row}: {exc}") from exc
-        frame[name] = lazy.pd.Series(values, index=frame.index, dtype=object)
+        frame[column_labels.get(name, name)] = lazy.pd.Series(values, index=frame.index, dtype=object)
     if plan.columns:
         frame.attrs[JSON_STORAGE_RUN_KEY] = plan.model_dump()
     return frame
@@ -165,6 +193,32 @@ def read_encoded_parquet(path: Path, schemas: list[pa.Schema]) -> pd.DataFrame:
     frame = lazy.pd.concat(frames, ignore_index=True)
     frame.attrs[JSON_STORAGE_RUN_KEY] = plan.model_dump()
     return frame
+
+
+def _prepare_table_for_pandas(table: pa.Table) -> pa.Table:
+    metadata = table.schema.pandas_metadata
+    if metadata is None:
+        return table
+    fields = set(table.column_names)
+    metadata["columns"] = [
+        column for column in metadata["columns"] if column.get("field_name", column["name"]) in fields
+    ]
+    metadata["index_columns"] = [
+        index for index in metadata["index_columns"] if not isinstance(index, str) or index in fields
+    ]
+    # PyArrow consults dtype hints even for removed fields and extracted indexes.
+    # The Arrow type mapper already owns index dtypes; nested dtype strings are
+    # not necessarily accepted by pandas' string-to-dtype parser.
+    for column in metadata["columns"]:
+        name = column.get("field_name", column["name"])
+        if name in metadata["index_columns"] and column["numpy_type"].endswith("[pyarrow]"):
+            column["numpy_type"] = "object"
+    updated = {**table.schema.metadata, b"pandas": json.dumps(metadata).encode()}
+    if not table.num_columns:
+        # Arrow loses the row count when replacing metadata on a zero-column
+        # table. A temporary null column retains it without materializing cells.
+        return table.append_column("", lazy.pa.nulls(table.num_rows)).replace_schema_metadata(updated).drop([""])
+    return table.replace_schema_metadata(updated)
 
 
 def _transform_value(value: Any, path: list[str | None], *, encode: bool) -> Any:

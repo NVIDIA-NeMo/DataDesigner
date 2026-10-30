@@ -1,7 +1,6 @@
 ---
 name: update-pr
-description: Update an existing GitHub PR description to reflect current changes after incorporating feedback
-argument-hint: [special instructions]
+description: Update an existing GitHub PR description to reflect current changes after incorporating feedback. The argument may include the "--title" flag to also update the pull-request title, plus special instructions for the summary.
 disable-model-invocation: true
 metadata:
     internal: true

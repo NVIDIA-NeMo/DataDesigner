@@ -207,6 +207,17 @@ def test_replace_dataframe_fewer_rows_marks_trailing_dropped() -> None:
     assert len(result_df) == 2
 
 
+def test_replace_dataframe_gives_none_for_missing_text() -> None:
+    """A missing text value is None in the buffer's rows; numeric values are kept as they are."""
+    mgr = RowGroupBufferManager(_mock_artifact_storage())
+    mgr.init_row_group(0, 2)
+
+    mgr.replace_dataframe(0, lazy.pd.DataFrame({"col": ["x", None], "score": [1.0, 2.0]}))
+
+    assert mgr.get_row(0, 0) == {"col": "x", "score": 1.0}
+    assert mgr.get_row(0, 1) == {"col": None, "score": 2.0}
+
+
 def test_free_row_group_releases_memory() -> None:
     """free_row_group releases buffer memory without writing to disk."""
     storage = _mock_artifact_storage()

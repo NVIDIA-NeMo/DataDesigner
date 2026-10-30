@@ -113,6 +113,70 @@ def test_validation_column_generator_generate_with_multiple_target_columns(mock_
 
 
 @pytest.mark.parametrize(
+    "code_lang,code_by_column,messages_key",
+    [
+        (
+            CodeLang.PYTHON,
+            {
+                "first_code": ["a = 1", "b = 2", "c = 3"],
+                "second_code": ["a = 1", "def f(:", "c = 3"],
+                "third_code": ["def g(:", "b = 2", "c = 3"],
+            },
+            "python_linter_messages",
+        ),
+        (
+            CodeLang.SQL_SQLITE,
+            {
+                "first_code": ["SELECT 1", "SELECT 2", "SELECT 3"],
+                "second_code": ["SELECT 1", "SELEC FROM WHERE", "SELECT 3"],
+                "third_code": ["SELEC FROM WHERE", "SELECT 2", "SELECT 3"],
+            },
+            "error_messages",
+        ),
+    ],
+    ids=["python", "sql"],
+)
+@pytest.mark.parametrize("batch_size", [2, 10], ids=["multi-batch", "single-batch"])
+def test_validation_column_generator_multiple_code_targets_keep_per_row_results(
+    stub_resource_provider: Mock,
+    code_lang: CodeLang,
+    code_by_column: dict[str, list[str]],
+    messages_key: str,
+    batch_size: int,
+) -> None:
+    """Every target after the first must get its own row's result, not the first row's result."""
+
+    def make_generator(target_columns: list[str]) -> ValidationColumnGenerator:
+        config = ValidationColumnConfig(
+            name="validation_column",
+            validator_type=ValidatorType.CODE,
+            validator_params=CodeValidatorParams(code_lang=code_lang),
+            target_columns=target_columns,
+            batch_size=batch_size,
+        )
+        return ValidationColumnGenerator(config=config, resource_provider=stub_resource_provider)
+
+    df = lazy.pd.DataFrame(code_by_column)
+    target_columns = list(code_by_column)
+
+    result = make_generator(target_columns).generate(df)
+
+    expected_is_valid = {
+        "first_code": [True, True, True],
+        "second_code": [True, False, True],
+        "third_code": [False, True, True],
+    }
+    for col in target_columns:
+        nested = [row[col] for row in result["validation_column"]]
+        assert [r["is_valid"] for r in nested] == expected_is_valid[col]
+        # Only the invalid row carries error messages, so copied metadata would show up here.
+        assert [bool(r[messages_key]) for r in nested] == [not is_valid for is_valid in expected_is_valid[col]]
+        # Metadata (scores, linter/parser messages) must match validating that column on its own.
+        single_target = make_generator([col]).generate(df)
+        assert nested == list(single_target["validation_column"])
+
+
+@pytest.mark.parametrize(
     "error_message,expected_match",
     [
         (

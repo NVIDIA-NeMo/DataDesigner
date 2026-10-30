@@ -17,7 +17,6 @@ def repository() -> PersonaRepository:
 def test_init(repository: PersonaRepository) -> None:
     """Test repository initialization creates registry."""
     assert repository._registry is not None
-    assert len(repository._registry.locales) == 11
     assert repository._registry.dataset_prefix == "nemotron-personas-dataset-"
 
 
@@ -26,24 +25,6 @@ def test_list_all(repository: PersonaRepository) -> None:
     locales = repository.list_all()
 
     assert isinstance(locales, list)
-    assert len(locales) == 11
-
-    # Verify all expected locales are present
-    locale_codes = {locale.code for locale in locales}
-    assert locale_codes == {
-        "en_GB",
-        "de_DE",
-        "en_US",
-        "en_IN",
-        "en_SG",
-        "fr_FR",
-        "hi_Deva_IN",
-        "hi_Latn_IN",
-        "ja_JP",
-        "ko_KR",
-        "pt_BR",
-    }
-
     # Verify each locale has required fields
     for locale in locales:
         assert isinstance(locale, PersonaLocale)
@@ -65,15 +46,22 @@ def test_get_by_code_valid_locale(repository: PersonaRepository) -> None:
 def test_get_by_code_all_locales(repository: PersonaRepository) -> None:
     """Test getting each locale by code."""
     test_cases = [
+        ("es_SV", "0.74 GB", "nemotron-personas-dataset-es_sv"),
+        ("vi_VN", "2.58 GB", "nemotron-personas-dataset-vi_vn"),
         ("en_GB", "2.03 GB", "nemotron-personas-dataset-en_gb"),
         ("de_DE", "2.55 GB", "nemotron-personas-dataset-de_de"),
         ("en_US", "1.24 GB", "nemotron-personas-dataset-en_us"),
         ("en_IN", "2.39 GB", "nemotron-personas-dataset-en_in"),
+        ("en_SG", "0.30 GB", "nemotron-personas-dataset-en_sg"),
+        ("fr_FR", "3.87 GB", "nemotron-personas-dataset-fr_fr"),
+        ("pt_BR", "2.33 GB", "nemotron-personas-dataset-pt_br"),
         ("hi_Deva_IN", "4.14 GB", "nemotron-personas-dataset-hi_deva_in"),
         ("hi_Latn_IN", "2.7 GB", "nemotron-personas-dataset-hi_latn_in"),
         ("ja_JP", "1.69 GB", "nemotron-personas-dataset-ja_jp"),
         ("ko_KR", "2.66 GB", "nemotron-personas-dataset-ko_kr"),
     ]
+
+    assert {locale.code for locale in repository.list_all()} == {code for code, _, _ in test_cases}
 
     for code, expected_size, expected_dataset_name in test_cases:
         locale = repository.get_by_code(code)

@@ -356,7 +356,7 @@ Notebook tutorials are JS-driven via `<NotebookViewer>` rendering converted `.ip
 
 ```
 docs/notebook_source/*.py            (jupytext format — canonical source, edit here)
-        │ make convert-execute-notebooks      # jupytext --execute (needs NVIDIA_API_KEY)
+        │ make convert-execute-notebooks      # jupytext → jupyter-execute (needs NVIDIA_API_KEY)
         ▼
 docs/notebooks/*.ipynb               (executed; outputs captured)
         │

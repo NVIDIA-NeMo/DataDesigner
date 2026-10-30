@@ -67,7 +67,7 @@ def test_get_available_locales(service: DownloadService) -> None:
     locales = service.get_available_locales()
 
     assert isinstance(locales, dict)
-    assert len(locales) == 11
+    assert set(locales) == {locale.code for locale in service.persona_repository.list_all()}
     assert "en_GB" in locales
     assert "de_DE" in locales
     assert "en_US" in locales

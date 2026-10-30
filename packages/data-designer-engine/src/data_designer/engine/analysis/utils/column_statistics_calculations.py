@@ -61,7 +61,11 @@ def calculate_column_distribution(
 
 def calculate_general_column_info(column_name: str, df: pd.DataFrame) -> dict[str, Any]:
     try:
-        _df = lazy.pd.DataFrame(df[column_name].apply(ensure_hashable))
+        column = df[column_name]
+        # Count missing values on the original column and leave them out of the unique count: `ensure_hashable`
+        # turns `pd.NA` into the string "<NA>", which would otherwise read as a distinct non-null value.
+        num_null = column.isna().sum()
+        num_unique = column.dropna().apply(ensure_hashable).nunique()
 
         if has_pyarrow_backend(df):
             pyarrow_dtype = str(df[column_name].dtype.pyarrow_dtype)
@@ -78,9 +82,9 @@ def calculate_general_column_info(column_name: str, df: pd.DataFrame) -> dict[st
         return {
             "pyarrow_dtype": pyarrow_dtype,
             "simple_dtype": simple_dtype,
-            "num_records": len(_df[column_name]),
-            "num_null": _df[column_name].isnull().sum(),
-            "num_unique": _df[column_name].nunique(),
+            "num_records": len(column),
+            "num_null": num_null,
+            "num_unique": num_unique,
         }
     except Exception as e:
         logger.warning(f"{WARNING_PREFIX} failed to calculate general column info for '{column_name}': {e}")
@@ -133,7 +137,9 @@ def calculate_output_token_stats(
     column_config: LLMTextColumnConfig, df: pd.DataFrame
 ) -> dict[str, float | MissingValue]:
     try:
-        tokens_per_record = df[column_config.name].apply(lambda value: count_text_tokens(str(value)))
+        # Arrow-backed columns keep their backing through `apply` (pandas 3.1+), and the standard deviation of
+        # one value is then `pd.NA` instead of NaN. Plain float64 keeps the result a number on every pandas.
+        tokens_per_record = df[column_config.name].apply(lambda value: count_text_tokens(str(value))).astype("float64")
         return {
             "output_tokens_mean": tokens_per_record.mean(),
             "output_tokens_median": tokens_per_record.median(),

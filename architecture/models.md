@@ -27,6 +27,11 @@ Defines the contract: sync/async chat, embeddings, image generation, `supports_*
 - **`OpenAICompatibleClient`** — native httpx adapter for OpenAI-compatible endpoints (NIM, vLLM, etc.)
 - **`AnthropicClient`** — native httpx adapter for the Anthropic Messages API
 
+Assistant messages can carry opaque `ProviderReplayData` tagged by provider type. The model facade and MCP
+preserve it through tool turns and retry checkpoints. `ChatCompletionRequest.message_replay_data` aligns
+these envelopes with canonical message dictionaries; only the matching adapter interprets its payload.
+`ChatMessage.to_dict()` excludes replay data from traces.
+
 ### Client Factory
 
 `create_model_client` routes by provider type to the appropriate adapter. Optionally wraps with:

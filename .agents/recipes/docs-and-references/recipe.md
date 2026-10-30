@@ -36,28 +36,50 @@ even when their report row is suppressed for being unchanged.
 ### Turn budget
 
 This suite must finish before the `max_turns` limit. Do not attempt a
-repo-wide audit in one run.
+repo-wide audit in one run. Complete one maintenance task instead of
+sampling unrelated sections until the first easy fix appears.
 
 1. Read runner memory.
 2. Write `/tmp/audit-{{suite}}.md` immediately with the required headings and
    empty tables. If the run is interrupted later, the workflow must still have
-   a usable partial report.
-3. Use targeted searches to find candidates, then read only the files needed
-   to verify a specific finding.
-4. Stop after either:
-   - 20 tool calls
-   - 2 new findings in a section
-   - all sections have been sampled
-5. Finalize the report, update runner memory, and stop. If no new findings
-   were verified, replace the report with `NO_FINDINGS`.
+   a usable partial report. Reset `data.scope_complete` to `false` on all
+   existing docs backlog entries before scanning.
+3. Choose one subsystem or API migration using pending backlog entries and
+   recent code changes. Prefer user-facing breakage, then related accumulated
+   drift. The workflow reconciles recorded open PRs before this audit so
+   closed PRs can be retried without another task triggering the fix phase.
+   Exclude findings whose latest attempt is open or merged, or that
+   have two closed/abandoned attempts. Rotate away from `docs_last_task_key`
+   when another eligible scope is available, especially if the previous scope
+   was incomplete or deferred. Keep oversized or unsafe scopes report-only
+   until their per-entry `data.blocked_reason` is resolved by new evidence
+   or maintainer action. Declare its stable `task_key`, relevant
+   symbols/settings, and paths in the report (for example,
+   `models/request-admission`).
+4. Search the allowlisted documentation for those symbols, renamed settings,
+   links, and examples. Inspect the related matches as one scope, up to 10
+   editable files, plus the source needed to establish the correct behavior.
+   Apply the checks below within that scope. Collect every related eligible
+   finding, including already-known findings; do not stop after two findings
+   or after finding one rename. Refresh each entry's `data.task_key`, proposed
+   fix, impact evidence, and `last_seen`. Remove entries in the selected scope
+   that no longer apply.
+5. Use at most 20 tool calls, reserving the last 3 for the report and state.
+   If the scope cannot be fully checked within this budget or the docs diff
+   limits, leave it incomplete and record what remains in `data.blocked_reason`
+   and `data.blocked_at` on its backlog entries. Do not mark a sampled
+   subset complete to produce a smaller PR. Otherwise set
+   `data.scope_complete: true` on every eligible entry in the task.
+6. Finalize the report and runner memory. Save `docs_last_task_key`.
+   Record scope completion, expected impact, and any deferred
+   findings. Write `NO_FINDINGS` only if no findings
+   were verified, including previously known findings.
 
 ### 1. Docstring vs signature drift
 
 This repo uses Google-style docstrings (`Args:`, `Returns:`, `Raises:`).
-Sample public functions and methods in `packages/` for mismatches between the
-docstring and the actual function signature. Do not scan every source file.
-Use `rg "Args:|Returns:|Raises:" packages/*/src/ --glob '*.py'` to find
-candidates, then inspect at most 5 high-value files:
+Check public functions and methods in the selected scope for mismatches
+between the docstring and the actual function signature:
 
 - Parameters in the `Args:` section that no longer exist in the signature
 - Parameters in the signature that are missing from `Args:`
@@ -68,20 +90,18 @@ Focus on public API surface: `__init__`, public methods (no leading
 underscore), and module-level functions in `packages/*/src/`. Skip test
 files, private methods, and `__dunder__` methods other than `__init__`.
 
-**Prioritize by impact**: start with `packages/data-designer/src/` (public
-interface), then `packages/data-designer-engine/src/`, then config. The
-interface package is what users see first.
+Prefer public interface entry points when selecting a task. Follow related
+engine and config symbols as needed to finish that task.
 
 ### 2. Broken internal links
 
-Check links in these locations:
-- `README.md` - all relative links and URLs
+Check links related to the selected scope in these locations:
+- `README.md` - relative links
 - `architecture/*.md` - cross-references to other architecture docs and code
 - `fern/versions/latest/pages/` - Fern content links, code references, cross-page links
 - `CONTRIBUTING.md`, `DEVELOPMENT.md`, `STYLEGUIDE.md` - relative links
 
-Use targeted link extraction and inspect at most 10 candidate links. Prefer
-high-value docs and links changed recently. For each sampled link, verify the
+Use targeted link extraction. For each related internal link, verify the
 target file or anchor exists. Report broken links with the source file, line
 number, and broken target.
 
@@ -89,11 +109,13 @@ number, and broken target.
 
 The 10 files in `architecture/` reference specific classes, functions, files,
 and registries by name. These are high-value docs that agents and developers
-rely on for orientation. Sample at most 3 architecture files per run,
-prioritizing files changed recently. For each code reference:
+rely on for orientation. Inspect the architecture files in the selected
+scope. For each related code or configuration reference:
 - Verify the referenced class, function, or module still exists at the stated
   location
 - If renamed or moved, flag with the old and new location
+- Check adjacent settings and examples for the same migration, including
+  deprecated aliases whose canonical replacements are explicit in source
 
 ```bash
 ls architecture/
@@ -103,8 +125,8 @@ ls architecture/
 
 ### 4. Docs site content accuracy
 
-The Fern site under `fern/versions/latest/pages/` is the primary user-facing documentation.
-Review for accuracy against the current code:
+The Fern site under `fern/versions/latest/pages/` is the primary user-facing
+documentation. Check pages in the selected scope against the current code:
 
 **Concepts pages** (`fern/versions/latest/pages/concepts/`):
 - Do code examples use correct imports, class names, and method signatures?
@@ -120,13 +142,11 @@ Review for accuracy against the current code:
   verify they resolve in the source.
 
 **Dev notes** (`fern/versions/latest/pages/devnotes/posts/`):
-- Dev notes describe implementation details that may have changed. Spot-check
-  the most recent 3-5 posts for references to functions, classes, or
-  architecture that have since been modified.
+- Dev notes describe implementation details that may have changed. Flag
+  references in the selected scope that need a maintainer's judgement.
 
-**Prioritize by risk of drift**: pages with the most code symbols referenced
-are most likely to be stale. Don't read every page - sample 3-5 high-value
-pages and flag patterns.
+Keep unrelated pages outside the selected task. Dev-note rewrites and
+semantic changes still stay report-only.
 
 ## Output format
 
@@ -137,6 +157,13 @@ Write the report to `/tmp/audit-{{suite}}.md`:
 ## Documentation Audit - {{date}}
 
 **Workflow run:** see GitHub Actions
+
+### Maintenance task
+
+- Task key: `<subsystem-or-api-migration>`
+- Scope: paths and symbols checked
+- Audit complete: yes/no (remaining work if no)
+- Impact and disposition: proposed task, deferred cosmetic singleton, or report-only
 
 ### Docstring vs signature drift
 
@@ -182,11 +209,26 @@ Follow the standard fix procedure in `_fix-policy.md`. Suite-specific bits:
 |----------|-------------|---------------|------------------|
 | broken-link | `docs` | no | Only when the corrected target is unambiguous (exact-match file at a different path, or a single similar anchor). Multiple candidates → ineligible. |
 | docstring-drift | `docs` | yes | Purely signature-driven `Args:`/`Returns:`/`Raises:` updates. Rename a param to its current name, drop entries for removed params, add placeholder entries for added params (note the signature; do not invent semantic descriptions). |
-| arch-ref-rename | `docs` | no | Only when grep confirms the old symbol is gone and exactly one similarly-named new symbol exists at the same role. |
+| arch-ref-rename | `docs` | no | Mechanical code/config reference updates in architecture or user docs, excluding dev notes. Source must establish one replacement through a rename, move, or explicit deprecated-alias mapping. Check related example imports and settings against source; do not infer new behavior. |
 
 `fix_backlog.data` should carry whatever the fix step needs without
 re-scanning: the proposed target for broken-link, the signature-vs-Args
-delta for docstring-drift, the new symbol name for arch-ref-rename.
+delta for docstring-drift, the new symbol or canonical setting name and
+source evidence for arch-ref-rename. Every entry also needs `task_key` and
+`scope_complete` per `_fix-policy.md`.
+
+All three categories may be grouped in one docs task with the same `task_key`,
+up to 10 files and 200 changed lines. Include all related eligible findings
+from the completed audit, across architecture docs, user docs, and docstrings.
+Run each required package test target once if any task member needs tests.
+Re-verify every member, but do not discover more findings in the fix phase.
+Defer incomplete scopes and isolated cosmetic fixes without recording failed
+attempts. A broken public example or user-facing link can justify a singleton.
+
+For example, a model-docs task should update the removed controller name and
+its explicitly deprecated ramp-setting alias together, along with related
+links or examples found in that audit. Do not leave a known mechanical
+correction in the same task out of scope for a future one-line PR.
 
 All other audit categories (docs-site rewrites, dev-note edits, external
 URL breakage) stay report-only.

@@ -273,7 +273,7 @@ ready-for-review if the change is correct).
 **Draft mode**: this suite opens PRs as draft until a maintainer flips
 `draft_until_proven` to `false` in runner-state, after at least two
 non-draft PRs have landed clean. Bare-except narrowing is the most
-inference-heavy fix in any suite (confidence 0.6); recipe judgement has
+inference-heavy fix in any suite; recipe judgement has
 to be earned before promotion. Two-strike findings here are an
 especially important signal — they suggest the detector is producing
 false positives in an already-cautious category.

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import math
 from unittest.mock import patch
 
 import pytest
@@ -10,6 +11,7 @@ import pytest
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.engine.processing.utils import (
     concat_datasets,
+    dataframe_to_records,
     deserialize_json_values,
     parse_list_string,
 )
@@ -135,3 +137,41 @@ def test_deserialize_json_values_scenarios(test_case, input_data, expected_resul
 def test_parse_list_string_scenarios(input_string, expected_result):
     result = parse_list_string(input_string)
     assert result == expected_result
+
+
+@pytest.mark.parametrize(
+    "missing,dtype",
+    [(None, None), (None, "string"), (None, "string[pyarrow]"), (float("nan"), object)],
+    ids=["inferred", "string", "string-pyarrow", "object-nan"],
+)
+def test_dataframe_to_records_gives_none_for_missing_text(missing: object, dtype: str | type | None) -> None:
+    df = lazy.pd.DataFrame({"value": lazy.pd.Series(["present", missing, ""], dtype=dtype)})
+
+    records = dataframe_to_records(df)
+
+    assert [record["value"] for record in records] == ["present", None, ""]
+    assert df["value"].isna().tolist() == [False, True, False]
+
+
+def test_dataframe_to_records_keeps_numeric_datetime_and_nested_values() -> None:
+    df = lazy.pd.DataFrame(
+        {
+            "score": [1.5, float("nan")],
+            "when": [lazy.pd.Timestamp("2026-01-01"), lazy.pd.NaT],
+            "nested": [{"key": None}, ["a", None]],
+            "text": ["nan", "None"],
+        }
+    )
+
+    records = dataframe_to_records(df)
+
+    assert records[0] == {
+        "score": 1.5,
+        "when": lazy.pd.Timestamp("2026-01-01"),
+        "nested": {"key": None},
+        "text": "nan",
+    }
+    assert math.isnan(records[1]["score"])
+    assert records[1]["when"] is lazy.pd.NaT
+    assert records[1]["nested"] == ["a", None]
+    assert records[1]["text"] == "None"

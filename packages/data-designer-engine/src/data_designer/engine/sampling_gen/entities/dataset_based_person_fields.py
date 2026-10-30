@@ -83,6 +83,13 @@ PII_FIELDS = [
     "nationality",
     # pt_BR-specific
     "race",
+    # es_SV-specific
+    "care_access",
+    "disability_status",
+    "income_band",
+    "languages_spoken",
+    # vi_VN-specific
+    "household_size",
     # India locales (en_IN, hi_Deva_IN, hi_Latn_IN)
     "education_degree",
     "first_language",
