@@ -107,16 +107,6 @@ def deserialize_json_values(data, *, keep_scalar_strings=False):
         return data_copy
 
 
-def _loads_json_string(value: str, keep_scalar_strings: bool) -> Any:
-    try:
-        loaded = json.loads(value)
-    except json.JSONDecodeError:
-        return value
-    if keep_scalar_strings and not isinstance(loaded, (dict, list)):
-        return value
-    return loaded
-
-
 def parse_list_string(text: str) -> list[str]:
     """Parse a list from a string, handling JSON arrays, Python lists, and trailing commas."""
     text = text.strip()
@@ -147,6 +137,16 @@ def parse_list_string(text: str) -> list[str]:
 
     # If all else fails, return the original text
     return [text.strip()]
+
+
+def _loads_json_string(value: str, keep_scalar_strings: bool) -> Any:
+    try:
+        loaded = json.loads(value)
+    except json.JSONDecodeError:
+        return value
+    if keep_scalar_strings and not isinstance(loaded, (dict, list)):
+        return value
+    return loaded
 
 
 def _clean_whitespace(texts: list[str]) -> list[str]:
