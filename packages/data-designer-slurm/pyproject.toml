@@ -1,0 +1,60 @@
+[project]
+name = "data-designer-slurm"
+dynamic = ["version", "dependencies"]
+description = "Slurm execution for Data Designer"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+]
+
+[project.entry-points."data_designer.cli"]
+slurm = "data_designer.slurm.cli:create_cli"
+
+[build-system]
+requires = ["hatchling", "uv-dynamic-versioning>=0.7.0"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "uv-dynamic-versioning"
+
+[tool.uv-dynamic-versioning]
+vcs = "git"
+style = "pep440"
+bump = true
+
+[tool.hatch.metadata.hooks.uv-dynamic-versioning]
+dependencies = [
+    "aiohttp>=3.14.3,<4",
+    "data-designer=={{ version }}",
+    "packaging>=25,<27",
+    "pip>=25,<27",
+    "pydantic>=2.12,<3",
+    "pyyaml>=6.0.1,<7",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/data_designer"]
+
+[tool.ruff]
+extend = "../../pyproject.toml"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.uv]
+package = true
+
+[tool.uv.sources]
+data-designer = { workspace = true }

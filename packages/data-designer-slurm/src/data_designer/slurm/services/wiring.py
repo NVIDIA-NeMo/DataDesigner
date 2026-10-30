@@ -1,0 +1,1104 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+"""Package-owned production wiring for public Slurm services."""
+
+from __future__ import annotations
+
+import importlib.metadata
+import os
+import shlex
+from collections.abc import Callable, Collection, Iterator, Mapping
+from contextlib import ExitStack, contextmanager
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Literal, Protocol, TypeVar
+from uuid import uuid4
+
+from pydantic import JsonValue, ValidationError
+
+from data_designer.config.default_model_settings import get_default_providers
+from data_designer.slurm._errors import format_validation_error
+from data_designer.slurm.benchmark.execution import SystemBenchmarkBackend
+from data_designer.slurm.benchmark.observer import PersistedBenchmarkRunObserver
+from data_designer.slurm.client.dependencies import (
+    ClientDependencyResolutionError,
+    ClientDependencyResolver,
+    ResolvedClientDependencies,
+)
+from data_designer.slurm.client.errors import ClientWorkerError
+from data_designer.slurm.client.filesystem import ensure_private_directory
+from data_designer.slurm.client.runtime import ClientRuntimeInspectionError, ClientRuntimeInspector
+from data_designer.slurm.config import (
+    DataDesignerSlurmConfig,
+    ImageBuildRequest,
+    ImageKind,
+    ImageRef,
+    SelectedSlurmProfile,
+    SlurmConfigLoadError,
+    SlurmProfile,
+    SlurmProfileCatalog,
+    collect_secret_environment_names,
+    load_builder_payload,
+    resolve_profile,
+)
+from data_designer.slurm.contracts import Identifier, ShardId
+from data_designer.slurm.images.errors import (
+    ImageArtifactRemovalError,
+    ImageConflictError,
+    ImageNotFoundError,
+    SlurmImageError,
+)
+from data_designer.slurm.images.records import RegisteredImage
+from data_designer.slurm.images.registry import ImageRegistryStore
+from data_designer.slurm.images.service import VerifiedImageRegistry
+from data_designer.slurm.launcher.client import SlurmCommandClient
+from data_designer.slurm.launcher.errors import SlurmLauncherError, SlurmSubmissionError
+from data_designer.slurm.launcher.renderer import render_generation_attempt_script
+from data_designer.slurm.launcher.scheduler_path import SchedulerPathError, resolve_scheduler_bin_path
+from data_designer.slurm.planning import ResolvedImage, ResolvedSlurmRunPlan
+from data_designer.slurm.planning.builder_identity import get_declared_model_aliases, get_external_model_aliases
+from data_designer.slurm.planning.compiler import SlurmRunCompiler
+from data_designer.slurm.planning.model_providers import resolve_hosted_model_providers
+from data_designer.slurm.planning.resolution import resolve_slurm_config
+from data_designer.slurm.runtime.bundle import stage_runtime_bundle
+from data_designer.slurm.runtime.errors import SlurmRuntimeError
+from data_designer.slurm.security import redact_sensitive_diagnostic
+from data_designer.slurm.services.artifacts import StateRunArtifactPublisher
+from data_designer.slurm.services.benchmark import SlurmBenchmarkService
+from data_designer.slurm.services.environment import build_run_export_environment
+from data_designer.slurm.services.errors import SlurmServiceError, SlurmServiceErrorCode, SlurmServiceOperation
+from data_designer.slurm.services.image_lifecycle import SlurmImageLifecycleManager
+from data_designer.slurm.services.images import SlurmImageService
+from data_designer.slurm.services.results import (
+    SlurmCollectionExecution,
+    SlurmPersistedAttemptStatus,
+    SlurmPersistedRunStatus,
+    SlurmPersistedShardStatus,
+    SlurmRetryExecution,
+    SlurmRunCancellation,
+    SlurmRunExecution,
+)
+from data_designer.slurm.services.retry_collection import RunRetryCollectionBackend
+from data_designer.slurm.services.run import SlurmRunService
+from data_designer.slurm.serving.resolver import resolve_vllm_server
+from data_designer.slurm.state import (
+    AttemptLifecycleState,
+    AttemptManifest,
+    AttemptStatus,
+    AttemptTerminalClassification,
+    EffectiveAttemptState,
+    SchedulerState,
+    SlurmStateError,
+    SlurmStateReconciler,
+    SlurmStateWriter,
+    StateConflictError,
+    StateNotFoundError,
+)
+
+RunIdFactory = Callable[[], str]
+Clock = Callable[[], datetime]
+_ResultT = TypeVar("_ResultT")
+_MAX_VISIBLE_JOB_IDS = 16
+_ACTIVE_ATTEMPT_STATES = frozenset(
+    {AttemptLifecycleState.SUBMITTED, AttemptLifecycleState.PENDING, AttemptLifecycleState.RUNNING}
+)
+_FAILURE_CLASSIFICATIONS = {
+    SchedulerState.FAILED: AttemptTerminalClassification.FAILED,
+    SchedulerState.CANCELLED: AttemptTerminalClassification.CANCELLED,
+    SchedulerState.TIMED_OUT: AttemptTerminalClassification.TIMED_OUT,
+    SchedulerState.NODE_FAILED: AttemptTerminalClassification.NODE_FAILED,
+    SchedulerState.PREEMPTED: AttemptTerminalClassification.PREEMPTED,
+    SchedulerState.REQUEUED: AttemptTerminalClassification.REQUEUED,
+    SchedulerState.OUT_OF_MEMORY: AttemptTerminalClassification.OUT_OF_MEMORY,
+}
+
+
+class SlurmRunArtifactPublisher(Protocol):
+    """Persist submission-critical run artifacts through the STATE boundary."""
+
+    def initialize(
+        self,
+        authored: DataDesignerSlurmConfig,
+        plan: ResolvedSlurmRunPlan,
+        dependencies: ResolvedClientDependencies,
+        builder_payload: dict[str, JsonValue] | None,
+        *,
+        force: bool,
+    ) -> None:
+        """Atomically publish all immutable run inputs before submission."""
+
+    def record_submission(self, plan: ResolvedSlurmRunPlan, job_id: int, *, submitted_at: datetime) -> None:
+        """Persist the submitted scheduler identity for every initial attempt."""
+
+    def record_submission_failure(
+        self,
+        plan: ResolvedSlurmRunPlan,
+        job_id: int,
+        *,
+        failed_at: datetime,
+    ) -> None:
+        """Fail initial attempts owned by the cancelled held job."""
+
+
+@dataclass(frozen=True, slots=True)
+class _PreparedRun:
+    plan: ResolvedSlurmRunPlan
+    dependencies: ResolvedClientDependencies
+    builder_payload: dict[str, JsonValue] | None
+    batch_script: str
+
+
+class _RunPreparer:
+    def __init__(
+        self,
+        selected_profile: SelectedSlurmProfile,
+        image_registry: VerifiedImageRegistry,
+        dependency_resolver: ClientDependencyResolver,
+        launcher: SlurmCommandClient,
+        run_id_factory: RunIdFactory,
+        package_version: str,
+        runtime_inspector: ClientRuntimeInspector | None = None,
+        available_environment: Collection[str] = (),
+    ) -> None:
+        self._profile = selected_profile
+        self._images = image_registry
+        self._dependencies = dependency_resolver
+        self._launcher = launcher
+        self._run_id_factory = run_id_factory
+        self._package_version = package_version
+        self._runtime_inspector = runtime_inspector or ClientRuntimeInspector()
+        self._available_environment = frozenset(available_environment)
+
+    @contextmanager
+    def prepare(
+        self,
+        authored: DataDesignerSlurmConfig,
+        *,
+        source_root: Path,
+        operation: SlurmServiceOperation,
+    ) -> Iterator[_PreparedRun]:
+        stack = ExitStack()
+        try:
+            yield self._prepare(authored, source_root=source_root, operation=operation, stack=stack)
+        finally:
+            stack.close()
+
+    def _prepare(
+        self,
+        authored: DataDesignerSlurmConfig,
+        *,
+        source_root: Path,
+        operation: SlurmServiceOperation,
+        stack: ExitStack,
+    ) -> _PreparedRun:
+        try:
+            run_id = self._run_id_factory()
+            try:
+                scheduler_bin_path = resolve_scheduler_bin_path(self._profile.profile.scheduler.bin_path)
+            except SchedulerPathError as error:
+                raise SlurmServiceError(SlurmServiceErrorCode.UNAVAILABLE, operation, str(error)) from None
+            workspace_root = self._profile.profile.workspace_root
+            run_root = Path(workspace_root) / "runs" / run_id
+            client_runtime = self._runtime_inspector.inspect()
+            try:
+                builder_payload = _resolve_builder_payload(authored, source_root)
+            except SlurmConfigLoadError as error:
+                raise SlurmServiceError(
+                    SlurmServiceErrorCode.INVALID_REQUEST,
+                    operation,
+                    _safe_builder_load_error(error),
+                ) from None
+            _validate_builder_for_submission(authored, builder_payload, operation)
+            payload = authored.builder.inline if authored.builder.inline is not None else builder_payload
+            assert payload is not None
+            if not get_declared_model_aliases(payload):
+                raise SlurmServiceError(
+                    SlurmServiceErrorCode.INVALID_REQUEST,
+                    operation,
+                    "Slurm runs require at least one configured model. "
+                    "Sampler-only recipes are not currently supported.",
+                )
+            local_aliases = {deployment.model_alias for deployment in authored.deployments}
+            hosted_providers = resolve_hosted_model_providers(
+                payload,
+                local_aliases,
+                get_default_providers() if get_external_model_aliases(payload, local_aliases) else (),
+            )
+            if set(collect_secret_environment_names(hosted_providers)).difference(self._available_environment):
+                raise SlurmServiceError(
+                    SlurmServiceErrorCode.INVALID_REQUEST,
+                    operation,
+                    "required secret environment for hosted models is unavailable",
+                )
+            dependencies = stack.enter_context(
+                self._dependencies.resolve(
+                    authored.client.dependencies,
+                    client_runtime,
+                    run_root=run_root,
+                    source_root=source_root,
+                )
+            )
+            runtime_bundle = stage_runtime_bundle(workspace_root)
+            try:
+                stack.enter_context(ImageRegistryStore(workspace_root).acquire_run_reference_lock())
+            except (SlurmImageError, OSError):
+                raise SlurmServiceError(
+                    SlurmServiceErrorCode.UNAVAILABLE,
+                    operation,
+                    "image registry cannot coordinate run publication",
+                ) from None
+            deployment_images = tuple(
+                self._images.resolve_for_planning(deployment.server.image, expected_kind=ImageKind.SERVING)
+                for deployment in authored.deployments
+            )
+            effective = resolve_slurm_config(
+                authored,
+                selected_profile=self._profile,
+                client_runtime=client_runtime,
+                deployment_images=deployment_images,
+                dependency_lock=dependencies.lock,
+                runtime_bundle=runtime_bundle,
+                run_id=run_id,
+                package_version=self._package_version,
+                scheduler_bin_path=scheduler_bin_path,
+                resolved_gpus_per_node=self._resolve_gpu_count(authored, operation),
+                builder_payload=builder_payload,
+                hosted_model_providers=hosted_providers,
+            )
+            plan = SlurmRunCompiler.compile(effective)
+            for deployment in plan.deployments:
+                resolve_vllm_server(plan, deployment.deployment_id)
+            return _PreparedRun(
+                plan=plan,
+                dependencies=dependencies,
+                builder_payload=builder_payload,
+                batch_script=render_generation_attempt_script(plan, attempt_ordinal=1),
+            )
+        except SlurmServiceError:
+            raise
+        except ImageNotFoundError:
+            raise SlurmServiceError(
+                SlurmServiceErrorCode.NOT_FOUND, operation, "required image is not registered"
+            ) from None
+        except SlurmImageError:
+            raise SlurmServiceError(
+                SlurmServiceErrorCode.CONFLICT, operation, "required image cannot be verified"
+            ) from None
+        except ClientRuntimeInspectionError as error:
+            raise SlurmServiceError(SlurmServiceErrorCode.INVALID_REQUEST, operation, str(error)) from None
+        except (ClientDependencyResolutionError, SlurmConfigLoadError, ValueError):
+            raise SlurmServiceError(
+                SlurmServiceErrorCode.INVALID_REQUEST, operation, "run configuration cannot be prepared"
+            ) from None
+        except SlurmLauncherError:
+            raise SlurmServiceError(SlurmServiceErrorCode.UNAVAILABLE, operation, "Slurm is unavailable") from None
+        except (SlurmRuntimeError, OSError):
+            raise SlurmServiceError(
+                SlurmServiceErrorCode.UNAVAILABLE, operation, "run artifacts cannot be staged"
+            ) from None
+
+    def _resolve_gpu_count(
+        self,
+        authored: DataDesignerSlurmConfig,
+        operation: SlurmServiceOperation,
+    ) -> int | None:
+        if not authored.deployments:
+            return 0
+        if self._profile.profile.gpus_per_node != "auto":
+            return None
+        partition = authored.submission.partition or self._profile.profile.scheduler.partition
+        counts = tuple(sorted(set(self._launcher.query_gpu_counts(partition=partition))))
+        if len(counts) != 1:
+            raise SlurmServiceError(
+                SlurmServiceErrorCode.UNAVAILABLE,
+                operation,
+                "eligible Slurm nodes do not report one GPU count",
+            )
+        return counts[0]
+
+
+class _SystemRunPlanner:
+    def __init__(self, preparer: _RunPreparer) -> None:
+        self._preparer = preparer
+
+    def plan(self, config: DataDesignerSlurmConfig, *, source_root: Path) -> ResolvedSlurmRunPlan:
+        with self._preparer.prepare(
+            config, source_root=source_root, operation=SlurmServiceOperation.PLAN_RUN
+        ) as prepared:
+            return prepared.plan
+
+
+class _SystemRunBackend:
+    def __init__(
+        self,
+        preparer: _RunPreparer,
+        selected_profile: SelectedSlurmProfile,
+        launcher: SlurmCommandClient,
+        publisher: SlurmRunArtifactPublisher,
+        clock: Clock,
+        source_environment: Mapping[str, str],
+        progress: Callable[[str], None] | None = None,
+    ) -> None:
+        self._preparer = preparer
+        self._profile = selected_profile
+        self._launcher = launcher
+        self._publisher = publisher
+        self._clock = clock
+        self._source_environment = source_environment
+        self._progress = progress
+        self._retry_collection = RunRetryCollectionBackend(
+            selected_profile.profile.workspace_root,
+            launcher,
+            clock,
+            source_environment,
+        )
+
+    def execute(
+        self,
+        config: DataDesignerSlurmConfig,
+        *,
+        source_root: Path,
+        dry_run: bool,
+    ) -> SlurmRunExecution:
+        with self._preparer.prepare(
+            config,
+            source_root=source_root,
+            operation=SlurmServiceOperation.EXECUTE_RUN,
+        ) as prepared:
+            plan = prepared.plan
+            if dry_run:
+                return SlurmRunExecution(
+                    run_id=plan.run_id,
+                    state="dry_run",
+                    plan_sha256=plan.compute_sha256(),
+                    shard_count=len(plan.shards),
+                    batch_script=prepared.batch_script,
+                )
+            self._materialize_default_managed_assets(config, plan)
+            export_environment = build_run_export_environment(
+                plan, self._source_environment, SlurmServiceOperation.EXECUTE_RUN
+            )
+            self._initialize_run(config, prepared)
+        self._report_progress("Rendered batch script; invoking sbatch --parsable --hold (script via stdin).")
+        try:
+            receipt = self._launcher.submit_script(
+                prepared.batch_script,
+                hold=True,
+                export_environment=export_environment,
+            )
+        except SlurmSubmissionError as error:
+            raise SlurmServiceError(
+                SlurmServiceErrorCode.UNAVAILABLE,
+                SlurmServiceOperation.EXECUTE_RUN,
+                _safe_submission_error(error),
+            ) from None
+        except SlurmLauncherError:
+            raise SlurmServiceError(
+                SlurmServiceErrorCode.UNAVAILABLE,
+                SlurmServiceOperation.EXECUTE_RUN,
+                "Slurm submission is unavailable",
+            ) from None
+        try:
+            self._record_submission(plan, receipt.job_id)
+        except Exception as error:
+            try:
+                self._launcher.cancel(receipt.job_id)
+            except Exception:
+                raise SlurmServiceError(
+                    SlurmServiceErrorCode.UNAVAILABLE,
+                    SlurmServiceOperation.EXECUTE_RUN,
+                    f"Slurm job {receipt.job_id} was submitted but could not be recorded or cancelled",
+                ) from error
+            try:
+                self._record_submission_failure(plan, receipt.job_id)
+            except SlurmServiceError as state_error:
+                raise SlurmServiceError(
+                    SlurmServiceErrorCode.INTERNAL,
+                    SlurmServiceOperation.EXECUTE_RUN,
+                    f"Slurm job {receipt.job_id} was cancelled but its partial submission state could not be updated",
+                ) from state_error
+            raise
+        except BaseException:
+            try:
+                self._launcher.cancel(receipt.job_id)
+            except Exception:
+                pass
+            else:
+                try:
+                    self._record_submission_failure(plan, receipt.job_id)
+                except BaseException:
+                    pass
+            raise
+        try:
+            self._launcher.release(receipt.job_id)
+        except SlurmLauncherError as error:
+            try:
+                self._launcher.cancel(receipt.job_id)
+            except Exception:
+                raise SlurmServiceError(
+                    SlurmServiceErrorCode.UNAVAILABLE,
+                    SlurmServiceOperation.EXECUTE_RUN,
+                    f"held Slurm job {receipt.job_id} could not be released or cancelled",
+                ) from error
+            try:
+                self._record_submission_failure(plan, receipt.job_id)
+            except SlurmServiceError as state_error:
+                raise SlurmServiceError(
+                    SlurmServiceErrorCode.INTERNAL,
+                    SlurmServiceOperation.EXECUTE_RUN,
+                    f"held Slurm job {receipt.job_id} was cancelled but run {plan.run_id!r} could not be updated",
+                ) from state_error
+            raise SlurmServiceError(
+                SlurmServiceErrorCode.UNAVAILABLE,
+                SlurmServiceOperation.EXECUTE_RUN,
+                f"held Slurm job {receipt.job_id} could not be released and was cancelled",
+            ) from None
+        run_root = Path(plan.authored_config.path).parent
+        log_stem = f"slurm-attempt-0001-{receipt.job_id}_0"
+        status_command = ["data-designer", "slurm", "status", plan.run_id]
+        if plan.selected_profile.catalog_path is not None:
+            status_command.extend(("--profile-file", plan.selected_profile.catalog_path))
+        if plan.selected_profile.cluster_name is not None:
+            status_command.extend(("--cluster", plan.selected_profile.cluster_name))
+        self._report_progress(f"Submitted. Check status: {shlex.join(status_command)}")
+        self._report_progress(
+            "After allocation, follow shard 0 Slurm logs: "
+            + shlex.join(
+                (
+                    "tail",
+                    "-F",
+                    (run_root / f"{log_stem}.out").as_posix(),
+                    (run_root / f"{log_stem}.err").as_posix(),
+                )
+            )
+        )
+        server_log_root = run_root / "shards" / "shard-00000" / "attempts" / "attempt-0001" / "logs"
+        server_log_command = (
+            f"find {shlex.quote(server_log_root.as_posix())} -type f "
+            "\\( -name 'deployment-*.out' -o -name 'deployment-*.err' \\) "
+            "-exec tail -n 10 {} +"
+        )
+        self._report_progress(
+            "Once serving starts, watch shard 0 vLLM logs (including new executions): "
+            + shlex.join(("watch", "-n", "2", "-t", server_log_command))
+        )
+        if len(plan.shards) > 1:
+            self._report_progress(
+                "For another shard, replace _0 in the Slurm filenames with its numeric task index, and "
+                "shard-00000 in the vLLM path with its shard ID (for example, _1 and shard-00001)."
+            )
+        return SlurmRunExecution(
+            run_id=plan.run_id,
+            state="submitted",
+            plan_sha256=plan.compute_sha256(),
+            shard_count=len(plan.shards),
+            job_id=receipt.job_id,
+        )
+
+    def _report_progress(self, message: str) -> None:
+        if self._progress is not None:
+            try:
+                self._progress(message)
+            except Exception:
+                # Display is optional and must not affect submission or reconciliation.
+                pass
+
+    @staticmethod
+    def _materialize_default_managed_assets(
+        config: DataDesignerSlurmConfig,
+        plan: ResolvedSlurmRunPlan,
+    ) -> None:
+        if config.invocation.input_bindings.managed_assets_path is not None:
+            return
+        path = plan.invocation.effective_input_bindings.managed_assets_path
+        assert path is not None
+        try:
+            ensure_private_directory(Path(path))
+        except (ClientWorkerError, OSError):
+            raise SlurmServiceError(
+                SlurmServiceErrorCode.UNAVAILABLE,
+                SlurmServiceOperation.EXECUTE_RUN,
+                "managed assets workspace cannot be prepared",
+            ) from None
+
+    def _initialize_run(
+        self,
+        config: DataDesignerSlurmConfig,
+        prepared: _PreparedRun,
+    ) -> None:
+        try:
+            self._publisher.initialize(
+                config,
+                prepared.plan,
+                prepared.dependencies,
+                prepared.builder_payload,
+                force=False,
+            )
+        except StateNotFoundError:
+            raise SlurmServiceError(
+                SlurmServiceErrorCode.NOT_FOUND,
+                SlurmServiceOperation.EXECUTE_RUN,
+                "required run state was not found",
+            ) from None
+        except StateConflictError:
+            raise SlurmServiceError(
+                SlurmServiceErrorCode.CONFLICT,
+                SlurmServiceOperation.EXECUTE_RUN,
+                "run state already contains different inputs",
+            ) from None
+        except SlurmStateError:
+            raise SlurmServiceError(
+                SlurmServiceErrorCode.INTERNAL,
+                SlurmServiceOperation.EXECUTE_RUN,
+                "run state cannot be initialized",
+            ) from None
+
+    def _record_submission(
+        self,
+        plan: ResolvedSlurmRunPlan,
+        job_id: int,
+    ) -> None:
+        try:
+            self._publisher.record_submission(plan, job_id, submitted_at=self._clock())
+        except StateNotFoundError:
+            raise SlurmServiceError(
+                SlurmServiceErrorCode.NOT_FOUND,
+                SlurmServiceOperation.EXECUTE_RUN,
+                "submitted run state was not found",
+            ) from None
+        except StateConflictError:
+            raise SlurmServiceError(
+                SlurmServiceErrorCode.CONFLICT,
+                SlurmServiceOperation.EXECUTE_RUN,
+                "submitted run state conflicts with persisted state",
+            ) from None
+        except SlurmStateError:
+            raise SlurmServiceError(
+                SlurmServiceErrorCode.INTERNAL,
+                SlurmServiceOperation.EXECUTE_RUN,
+                "submission state cannot be recorded",
+            ) from None
+
+    def _record_submission_failure(
+        self,
+        plan: ResolvedSlurmRunPlan,
+        job_id: int,
+    ) -> None:
+        try:
+            self._publisher.record_submission_failure(plan, job_id, failed_at=self._clock())
+        except (StateNotFoundError, StateConflictError, SlurmStateError):
+            raise SlurmServiceError(
+                SlurmServiceErrorCode.INTERNAL,
+                SlurmServiceOperation.EXECUTE_RUN,
+                "cancelled submission state cannot be recorded",
+            ) from None
+
+    def status(self, run_id: Identifier) -> SlurmPersistedRunStatus:
+        operation = SlurmServiceOperation.STATUS_RUN
+        try:
+            writer = SlurmStateWriter(self._profile.profile.workspace_root, run_id)
+            run = writer.load_run()
+            persisted_shards = writer.load_shards()
+            self._reconcile_attempts(
+                writer,
+                tuple(attempt for shard in persisted_shards for attempt in writer.load_attempts(shard.shard_id)),
+            )
+            shards = []
+            for shard in persisted_shards:
+                writer.resume_incomplete_finalization(shard.shard_id, published_at=self._clock())
+                attempts = tuple(
+                    SlurmPersistedAttemptStatus(
+                        attempt=attempt,
+                        readiness=_load_optional(
+                            lambda shard_id=shard.shard_id, attempt_id=attempt.attempt_id: writer.load_readiness(
+                                shard_id, attempt_id
+                            )
+                        ),
+                    )
+                    for attempt in writer.load_attempts(shard.shard_id)
+                )
+                shards.append(
+                    SlurmPersistedShardStatus(
+                        shard=shard,
+                        attempts=attempts,
+                        winner=_load_optional(lambda shard_id=shard.shard_id: writer.load_winner(shard_id)),
+                    )
+                )
+            return SlurmPersistedRunStatus(run=run, shards=tuple(shards))
+        except StateNotFoundError:
+            raise SlurmServiceError(SlurmServiceErrorCode.NOT_FOUND, operation, "run state was not found") from None
+        except StateConflictError:
+            raise SlurmServiceError(SlurmServiceErrorCode.CONFLICT, operation, "run state is inconsistent") from None
+        except SlurmStateError:
+            raise SlurmServiceError(SlurmServiceErrorCode.INTERNAL, operation, "run state cannot be read") from None
+
+    def _reconcile_attempts(
+        self,
+        writer: SlurmStateWriter,
+        attempts: tuple[AttemptManifest, ...],
+    ) -> None:
+        active = tuple(
+            attempt for attempt in attempts if attempt.state in _ACTIVE_ATTEMPT_STATES and attempt.scheduler is not None
+        )
+        if not active:
+            return
+        try:
+            reconciled = SlurmStateReconciler(
+                self._profile.profile.workspace_root,
+                writer.load_run().run_id,
+                self._launcher,
+            ).refresh(observed_at=self._clock())
+        except SlurmStateError as error:
+            if isinstance(error.__cause__, SlurmLauncherError):
+                return
+            raise
+        active_identities = {(attempt.shard_id, attempt.attempt_id) for attempt in active}
+        for shard in reconciled.shards:
+            for status in shard.attempts:
+                if (status.attempt.shard_id, status.attempt.attempt_id) in active_identities:
+                    self._update_reconciled_attempt(writer, status)
+
+    @staticmethod
+    def _update_reconciled_attempt(
+        writer: SlurmStateWriter,
+        status: AttemptStatus,
+    ) -> None:
+        attempt = status.attempt
+        scheduler = status.scheduler
+        if scheduler is None:  # pragma: no cover - active attempts always have scheduler evidence
+            raise AssertionError("active attempt has no reconciled scheduler evidence")
+        update: dict[str, object] = {"updated_at": scheduler.observed_at}
+        if status.effective_state is EffectiveAttemptState.PENDING and attempt.state is AttemptLifecycleState.SUBMITTED:
+            update["state"] = AttemptLifecycleState.PENDING
+        elif status.effective_state is EffectiveAttemptState.RUNNING and attempt.state in {
+            AttemptLifecycleState.SUBMITTED,
+            AttemptLifecycleState.PENDING,
+        }:
+            update["state"] = AttemptLifecycleState.RUNNING
+        elif status.effective_state is EffectiveAttemptState.FAILED:
+            update.update(
+                state=AttemptLifecycleState.FAILED,
+                terminal_classification=_FAILURE_CLASSIFICATIONS.get(
+                    scheduler.state,
+                    AttemptTerminalClassification.UNKNOWN,
+                ),
+            )
+        else:
+            return
+        try:
+            writer.update_attempt(attempt.model_copy(update=update))
+        except StateConflictError:
+            return
+
+    def cancel(self, run_id: Identifier) -> SlurmRunCancellation:
+        status = self.status(run_id)
+        job_ids = tuple(
+            sorted(
+                {
+                    attempt.attempt.scheduler.array_job_id
+                    for shard in status.shards
+                    for attempt in shard.attempts
+                    if attempt.attempt.state in _ACTIVE_ATTEMPT_STATES and attempt.attempt.scheduler is not None
+                }
+            )
+        )
+        failures = []
+        for job_id in job_ids:
+            try:
+                self._launcher.cancel(job_id)
+            except SlurmLauncherError:
+                failures.append(job_id)
+        if failures:
+            raise SlurmServiceError(
+                SlurmServiceErrorCode.UNAVAILABLE,
+                SlurmServiceOperation.CANCEL_RUN,
+                f"failed to cancel managed Slurm jobs: {_format_job_ids(failures)}",
+            )
+        return SlurmRunCancellation(run_id=run_id, job_ids=job_ids)
+
+    def retry(
+        self,
+        run_or_job_id: Identifier,
+        *,
+        shard_ids: tuple[ShardId, ...] | None,
+        resume: Literal["never", "always", "if_possible"],
+        dry_run: bool,
+    ) -> SlurmRetryExecution:
+        return self._retry_collection.retry(
+            run_or_job_id,
+            shard_ids=shard_ids,
+            resume=resume,
+            dry_run=dry_run,
+        )
+
+    def collect(
+        self,
+        input_path: Identifier | Path,
+        *,
+        destination: Path | None,
+        num_partitions: int | None,
+    ) -> SlurmCollectionExecution:
+        return self._retry_collection.collect(
+            input_path,
+            destination=destination,
+            num_partitions=num_partitions,
+        )
+
+
+class _RegistryImageBackend:
+    def __init__(self, workspace_root: str, lifecycle: SlurmImageLifecycleManager) -> None:
+        self._verified = VerifiedImageRegistry(workspace_root)
+        self._store = ImageRegistryStore(workspace_root)
+        self._lifecycle = lifecycle
+
+    def resolve(self, reference: ImageRef, *, expected_kind: ImageKind) -> ResolvedImage:
+        try:
+            return self._verified.resolve_for_planning(reference, expected_kind=expected_kind)
+        except ImageNotFoundError:
+            raise SlurmServiceError(
+                SlurmServiceErrorCode.NOT_FOUND,
+                SlurmServiceOperation.RESOLVE_IMAGE,
+                "image is not registered",
+            ) from None
+        except SlurmImageError:
+            raise SlurmServiceError(
+                SlurmServiceErrorCode.CONFLICT,
+                SlurmServiceOperation.RESOLVE_IMAGE,
+                "registered image cannot be verified",
+            ) from None
+
+    def add(self, request: ImageBuildRequest, *, replace: bool) -> RegisteredImage:
+        return self._lifecycle.add(request, replace=replace)
+
+    def list(self) -> tuple[RegisteredImage, ...]:
+        return self._invoke_registry(SlurmServiceOperation.LIST_IMAGES, self._store.list_images)
+
+    def get(self, name: Identifier) -> RegisteredImage:
+        return self._invoke_registry(SlurmServiceOperation.GET_IMAGE, lambda: self._store.get_by_name(name))
+
+    def remove(self, name: Identifier, *, delete_artifact: bool = False) -> RegisteredImage:
+        return self._invoke_registry(
+            SlurmServiceOperation.REMOVE_IMAGE,
+            lambda: self._verified.unregister(name, delete_artifact=delete_artifact),
+        )
+
+    @staticmethod
+    def _invoke_registry(operation: SlurmServiceOperation, call: Callable[[], _ResultT]) -> _ResultT:
+        try:
+            return call()
+        except ImageNotFoundError:
+            raise SlurmServiceError(SlurmServiceErrorCode.NOT_FOUND, operation, "image is not registered") from None
+        except ImageConflictError as error:
+            raise SlurmServiceError(SlurmServiceErrorCode.CONFLICT, operation, str(error)) from None
+        except ImageArtifactRemovalError as error:
+            raise SlurmServiceError(SlurmServiceErrorCode.UNAVAILABLE, operation, str(error)) from None
+        except SlurmImageError:
+            raise SlurmServiceError(
+                SlurmServiceErrorCode.INTERNAL, operation, "image registry operation failed"
+            ) from None
+
+
+def create_slurm_run_service(
+    *,
+    profile: SlurmProfile | None = None,
+    catalog: SlurmProfileCatalog | None = None,
+    profile_file: str | Path | None = None,
+    cluster: str | None = None,
+    artifact_publisher: SlurmRunArtifactPublisher | None = None,
+    dependency_resolver: ClientDependencyResolver | None = None,
+    launcher: SlurmCommandClient | None = None,
+    run_id_factory: RunIdFactory | None = None,
+    clock: Clock | None = None,
+    package_version: str | None = None,
+    source_environment: Mapping[str, str] | None = None,
+    progress: Callable[[str], None] | None = None,
+) -> SlurmRunService:
+    """Create the production run service for one selected cluster profile."""
+    selected = resolve_profile(profile=profile, catalog=catalog, profile_file=profile_file, cluster=cluster)
+    return _create_slurm_run_service(
+        selected,
+        artifact_publisher=artifact_publisher,
+        dependency_resolver=dependency_resolver,
+        launcher=launcher,
+        run_id_factory=run_id_factory,
+        clock=clock,
+        package_version=package_version,
+        source_environment=source_environment,
+        progress=progress,
+    )
+
+
+def _create_slurm_run_service(
+    selected: SelectedSlurmProfile,
+    *,
+    artifact_publisher: SlurmRunArtifactPublisher | None = None,
+    dependency_resolver: ClientDependencyResolver | None = None,
+    launcher: SlurmCommandClient | None = None,
+    run_id_factory: RunIdFactory | None = None,
+    clock: Clock | None = None,
+    package_version: str | None = None,
+    source_environment: Mapping[str, str] | None = None,
+    progress: Callable[[str], None] | None = None,
+) -> SlurmRunService:
+    command_client = launcher or SlurmCommandClient()
+    selected_clock = clock or _utc_now
+    environment = dict(os.environ if source_environment is None else source_environment)
+    preparer = _RunPreparer(
+        selected,
+        VerifiedImageRegistry(selected.profile.workspace_root),
+        dependency_resolver or ClientDependencyResolver(),
+        command_client,
+        run_id_factory or _new_run_id,
+        package_version or importlib.metadata.version("data-designer-slurm"),
+        available_environment={
+            name for name, value in environment.items() if isinstance(value, str) and value and "\0" not in value
+        },
+    )
+    backend = _SystemRunBackend(
+        preparer,
+        selected,
+        command_client,
+        artifact_publisher or StateRunArtifactPublisher(selected.profile.workspace_root, selected_clock),
+        selected_clock,
+        environment,
+        progress,
+    )
+    return SlurmRunService(_SystemRunPlanner(preparer), render_generation_attempt_script, backend)
+
+
+def create_slurm_image_service(
+    *,
+    profile: SlurmProfile | None = None,
+    catalog: SlurmProfileCatalog | None = None,
+    profile_file: str | Path | None = None,
+    cluster: str | None = None,
+    launcher: SlurmCommandClient | None = None,
+    lifecycle_id_factory: Callable[[], str] | None = None,
+    clock: Clock | None = None,
+    sleep: Callable[[float], None] | None = None,
+    progress: Callable[[str], None] | None = None,
+    logs: Callable[[str], None] | None = None,
+) -> SlurmImageService:
+    """Create the production image service for one selected cluster profile."""
+    selected = resolve_profile(profile=profile, catalog=catalog, profile_file=profile_file, cluster=cluster)
+    command_client = launcher or SlurmCommandClient()
+    lifecycle = SlurmImageLifecycleManager(
+        selected,
+        command_client,
+        lifecycle_id_factory=lifecycle_id_factory,
+        clock=clock,
+        sleep=sleep,
+        progress=progress,
+        logs=logs,
+    )
+    backend = _RegistryImageBackend(selected.profile.workspace_root, lifecycle)
+    return SlurmImageService(backend, backend)
+
+
+def create_slurm_benchmark_service(
+    *,
+    profile: SlurmProfile | None = None,
+    catalog: SlurmProfileCatalog | None = None,
+    profile_file: str | Path | None = None,
+    cluster: str | None = None,
+    artifact_publisher: SlurmRunArtifactPublisher | None = None,
+    dependency_resolver: ClientDependencyResolver | None = None,
+    launcher: SlurmCommandClient | None = None,
+    clock: Clock | None = None,
+    package_version: str | None = None,
+    source_environment: Mapping[str, str] | None = None,
+    progress: Callable[[str], None] | None = None,
+) -> SlurmBenchmarkService:
+    """Create the production benchmark service for one selected cluster profile."""
+    selected = resolve_profile(profile=profile, catalog=catalog, profile_file=profile_file, cluster=cluster)
+    command_client = launcher or SlurmCommandClient()
+    selected_clock = clock or _utc_now
+    publisher = artifact_publisher or StateRunArtifactPublisher(selected.profile.workspace_root, selected_clock)
+    dependencies = dependency_resolver or ClientDependencyResolver()
+    environment = dict(os.environ if source_environment is None else source_environment)
+    version = package_version or importlib.metadata.version("data-designer-slurm")
+
+    def create_child_service(run_id: Identifier) -> SlurmRunService:
+        return _create_slurm_run_service(
+            selected,
+            artifact_publisher=publisher,
+            dependency_resolver=dependencies,
+            launcher=command_client,
+            run_id_factory=lambda: run_id,
+            clock=selected_clock,
+            package_version=version,
+            source_environment=environment,
+        )
+
+    observer = PersistedBenchmarkRunObserver(
+        selected.profile.workspace_root,
+        command_client,
+        selected_clock,
+    )
+    backend = SystemBenchmarkBackend(
+        selected.profile.workspace_root,
+        create_child_service,
+        observer,
+        selected_clock,
+        progress=progress,
+    )
+    return SlurmBenchmarkService(backend)
+
+
+def _resolve_builder_payload(
+    authored: DataDesignerSlurmConfig,
+    source_root: Path,
+) -> dict[str, JsonValue] | None:
+    if authored.builder.source is None:
+        return None
+    return load_builder_payload(source_root / authored.builder.source)
+
+
+def _load_optional(call: Callable[[], _ResultT]) -> _ResultT | None:
+    try:
+        return call()
+    except StateNotFoundError:
+        return None
+
+
+def _new_run_id() -> str:
+    return f"run-{uuid4().hex}"
+
+
+def _safe_builder_load_error(error: SlurmConfigLoadError) -> str:
+    """Expose a bounded, redacted builder diagnostic instead of a generic failure."""
+    prefix = "run configuration cannot be prepared: "
+    detail = " ".join(redact_sensitive_diagnostic(str(error)).split()) or "builder source cannot be loaded"
+    max_detail_length = 512 - len(prefix)
+    if len(detail) > max_detail_length:
+        detail = f"{detail[: max_detail_length - 3]}..."
+    return f"{prefix}{detail}"
+
+
+def _validate_builder_for_submission(
+    authored: DataDesignerSlurmConfig,
+    builder_payload: dict[str, JsonValue] | None,
+    operation: SlurmServiceOperation,
+) -> None:
+    """Reject invalid built-in builder settings before reserving GPUs.
+
+    A plugin supplied only through the client dependency lock and a local seed
+    path visible only on compute nodes are checked during allocation preflight.
+    """
+    from data_designer.config.config_builder import BuilderConfig
+    from data_designer.config.utils.io_helpers import VALID_DATASET_FILE_EXTENSIONS
+    from data_designer.errors import DataDesignerError
+
+    payload = authored.builder.inline if authored.builder.inline is not None else builder_payload
+    assert payload is not None
+    normalized = payload if "data_designer" in payload else {"data_designer": payload}
+    data_designer = normalized.get("data_designer")
+    columns = data_designer.get("columns") if isinstance(data_designer, dict) else None
+    processors = data_designer.get("processors") if isinstance(data_designer, dict) else None
+    seed_config = data_designer.get("seed_config") if isinstance(data_designer, dict) else None
+    seed_source = seed_config.get("source") if isinstance(seed_config, dict) else None
+    builtin_columns = {
+        "custom",
+        "embedding",
+        "expression",
+        "image",
+        "llm-code",
+        "llm-judge",
+        "llm-structured",
+        "llm-text",
+        "sampler",
+        "seed-dataset",
+        "validation",
+    }
+    builtin_processors = {"drop_columns", "schema_transform"}
+
+    def is_unrecognized_type(value: object, discriminator: str, known: set[str]) -> bool:
+        return (
+            isinstance(value, dict) and isinstance(value.get(discriminator), str) and value[discriminator] not in known
+        )
+
+    unknown_column = isinstance(columns, list) and any(
+        is_unrecognized_type(column, "column_type", builtin_columns) for column in columns
+    )
+    unknown_processor = isinstance(processors, list) and any(
+        is_unrecognized_type(processor, "processor_type", builtin_processors) for processor in processors
+    )
+    unknown_seed_source = (
+        isinstance(seed_source, dict)
+        and isinstance(seed_source.get("seed_type"), str)
+        and seed_source["seed_type"] not in {"local", "hf", "df", "directory", "file_contents", "agent_rollout"}
+    )
+    deferred_local_seed_path = (
+        isinstance(seed_source, dict)
+        and seed_source.get("seed_type") == "local"
+        and isinstance(seed_source.get("path"), str)
+        and seed_source["path"].lower().endswith(tuple(VALID_DATASET_FILE_EXTENSIONS))
+    )
+    plugin_dependency = bool(authored.client.dependencies.requirements or authored.client.dependencies.lock_file)
+    if (plugin_dependency and (unknown_column or unknown_processor or unknown_seed_source)) or deferred_local_seed_path:
+        # Validate the complete built-in envelope while deferring plugin entries
+        # and local seed path existence until the client reaches its allocation.
+        data_designer = dict(data_designer)
+        if plugin_dependency and unknown_column:
+            data_designer["columns"] = [
+                column for column in columns if not is_unrecognized_type(column, "column_type", builtin_columns)
+            ]
+        if plugin_dependency and unknown_processor:
+            data_designer["processors"] = [
+                processor
+                for processor in processors
+                if not is_unrecognized_type(processor, "processor_type", builtin_processors)
+            ]
+        if (plugin_dependency and unknown_seed_source) or deferred_local_seed_path:
+            data_designer["seed_config"] = {
+                **seed_config,
+                "source": {"seed_type": "hf", "path": "deferred-seed-source"},
+            }
+        normalized = {**normalized, "data_designer": data_designer}
+    try:
+        BuilderConfig.model_validate(normalized)
+    except ValidationError as error:
+        detail = format_validation_error(error, subject="builder configuration", models=BuilderConfig)
+        raise SlurmServiceError(SlurmServiceErrorCode.INVALID_REQUEST, operation, _bounded_diagnostic(detail)) from None
+    except DataDesignerError as error:
+        detail = " ".join(redact_sensitive_diagnostic(str(error)).split())
+        raise SlurmServiceError(
+            SlurmServiceErrorCode.INVALID_REQUEST,
+            operation,
+            _bounded_diagnostic(f"builder configuration failed validation: {detail}"),
+        ) from None
+
+
+def _bounded_diagnostic(message: str) -> str:
+    return f"{message[:509]}..." if len(message) > 512 else message
+
+
+def _safe_submission_error(error: SlurmSubmissionError) -> str:
+    """Preserve bounded, redacted sbatch diagnostics and submission ambiguity."""
+    prefix = "Slurm submission outcome is uncertain: " if error.may_have_succeeded else "Slurm submission failed: "
+    suffix = "; inspect queue and accounting before retrying" if error.may_have_succeeded else ""
+    detail = " ".join(redact_sensitive_diagnostic(str(error)).split()) or "no diagnostic was returned"
+    max_detail_length = 512 - len(prefix) - len(suffix)
+    if len(detail) > max_detail_length:
+        detail = f"{detail[: max_detail_length - 3]}..."
+    return f"{prefix}{detail}{suffix}"
+
+
+def _utc_now() -> datetime:
+    return datetime.now(UTC)
+
+
+def _format_job_ids(job_ids: list[int]) -> str:
+    visible = ", ".join(str(job_id) for job_id in job_ids[:_MAX_VISIBLE_JOB_IDS])
+    remaining = len(job_ids) - _MAX_VISIBLE_JOB_IDS
+    return visible if remaining <= 0 else f"{visible}, and {remaining} more"
+
+
+__all__ = [
+    "SlurmRunArtifactPublisher",
+    "create_slurm_benchmark_service",
+    "create_slurm_image_service",
+    "create_slurm_run_service",
+]

@@ -1,11 +1,13 @@
 # System Architecture
 
-DataDesigner is split across three installable packages that merge at runtime into a single `data_designer` namespace via PEP 420 implicit namespace packages (no top-level `__init__.py`).
+DataDesigner is split across four installable packages that merge at runtime into a single `data_designer` namespace via PEP 420 implicit namespace packages (no top-level `__init__.py`).
 
 ## Overview
 
 ```
 ┌─────────────────────────────────────────────────────────┐
+│  data-designer-slurm  (optional Slurm execution)        │
+├─────────────────────────────────────────────────────────┤
 │  data-designer  (interface + CLI + integrations)        │
 │    DataDesigner class, CLI commands, HuggingFace Hub    │
 ├─────────────────────────────────────────────────────────┤
@@ -19,7 +21,7 @@ DataDesigner is split across three installable packages that merge at runtime in
 └─────────────────────────────────────────────────────────┘
 ```
 
-**Dependency direction:** interface → engine → config. No reverse imports.
+**Import direction:** Slurm → interface → engine → config. The `data-designer[slurm]` extra creates a packaging-only reverse edge from the interface distribution to the optional leaf; no base package imports `data_designer.slurm`.
 
 Users declare what their data should look like through config objects (columns, types, relationships, validation rules). The engine compiles those configs into an execution plan and generates the dataset. The interface package provides the public `DataDesigner` class and CLI that wire everything together.
 
@@ -50,7 +52,7 @@ Users declare what their data should look like through config objects (columns, 
 
 ## Design Decisions
 
-- **PEP 420 namespace packages** allow the three packages to be installed independently while sharing the `data_designer` namespace. This enables lighter installs (e.g., config-only for validation tooling) without import conflicts.
+- **PEP 420 namespace packages** allow the four packages to be installed independently while sharing the `data_designer` namespace. This enables lighter installs (e.g., config-only for validation tooling) and an optional Slurm leaf without import conflicts.
 - **Lazy imports throughout** — `__getattr__`-based lazy loading in `data_designer.config` and `data_designer.interface`, plus `lazy_heavy_imports` for numpy/pandas, keep startup fast.
 - **Async-only execution** gives `DatasetBuilder` one scheduling path with row-group parallelism and DAG-aware dispatch behind the public interface.
 - **`TaskRegistry` subclasses: one instance per class** — `TaskRegistry.__new__` (`registry/base.py`) ensures a single instance of each concrete registry (column generators, profilers, processors). **`ModelRegistry`** and **`MCPRegistry`** are ordinary classes, constructed per run with injected dependencies. **`PluginRegistry`** (`plugins/registry.py`) uses `__new__` so entry points are discovered once per process.

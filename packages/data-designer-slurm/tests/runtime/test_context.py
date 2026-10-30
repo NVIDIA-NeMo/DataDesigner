@@ -1,0 +1,172 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+from __future__ import annotations
+
+import json
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import cast
+from unittest.mock import Mock
+
+import pytest
+
+import data_designer.slurm.runtime.context as runtime_context
+from data_designer.slurm.config import DataDesignerSlurmConfig, SlurmProfile
+from data_designer.slurm.contracts import ArtifactReference, compute_canonical_json_sha256
+from data_designer.slurm.planning import ResolvedSlurmRunPlan
+from data_designer.slurm.runtime.context import load_allocation_context
+from data_designer.slurm.runtime.errors import SlurmRuntimeError
+from data_designer.slurm.state import (
+    AttemptLifecycleState,
+    AttemptManifest,
+    RetryPlan,
+    RetryShard,
+    RunManifest,
+    SchedulerIdentity,
+    ShardManifest,
+    SlurmStateWriter,
+)
+
+
+def test_runtime_retry_binding_requires_all_arguments() -> None:
+    with pytest.raises(SlurmRuntimeError, match="binding is incomplete"):
+        runtime_context._load_retry_plan(
+            Mock(),
+            retry_id="retry-0001",
+            retry_plan_sha256=None,
+            effective_resume_mode="never",
+        )
+
+
+@pytest.mark.parametrize(
+    ("digest", "resume_mode"),
+    [
+        pytest.param("f" * 64, "never", id="digest"),
+        pytest.param(None, "always", id="resume-mode"),
+    ],
+)
+def test_runtime_retry_binding_rejects_tampered_arguments(
+    single_node_plan: ResolvedSlurmRunPlan,
+    digest: str | None,
+    resume_mode: str,
+) -> None:
+    retry = RetryPlan(
+        schema_version=1,
+        retry_id="retry-0001",
+        run_id=single_node_plan.run_id,
+        created_at=datetime(2026, 9, 2, tzinfo=UTC),
+        resolved_plan=ArtifactReference(
+            path="/workspace/primary/runs/run-single/resolved-plan.json",
+            sha256=single_node_plan.compute_sha256(),
+        ),
+        planned_shards=(
+            RetryShard(
+                shard_id="shard-00000",
+                attempt_id="attempt-0002",
+                attempt_ordinal=2,
+                array_task_index=0,
+            ),
+        ),
+        effective_resume_mode="never",
+    )
+    writer = Mock()
+    writer.load_retry_plan.return_value = retry
+
+    with pytest.raises(SlurmRuntimeError, match="binding differs"):
+        runtime_context._load_retry_plan(
+            writer,
+            retry_id=retry.retry_id,
+            retry_plan_sha256=retry.compute_sha256() if digest is None else digest,
+            effective_resume_mode=resume_mode,
+        )
+
+
+def test_allocation_context_rejects_container_remapped_workspace(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    physical_workspace = tmp_path / "workspace"
+    physical_workspace.mkdir()
+    logical_workspace = single_node_plan.selected_profile.profile.workspace_root
+    logical_runs = Path(logical_workspace) / "runs"
+    fast_runs = tmp_path / "fast-runs"
+    logical_attempts = (
+        Path(logical_workspace)
+        / "runs"
+        / single_node_plan.run_id
+        / "shards"
+        / single_node_plan.shards[0].shard_id
+        / "attempts"
+    )
+    fast_attempts = tmp_path / "fast-attempts"
+    payload = cast(dict[str, object], json.loads(single_node_plan.serialize_json()))
+    selected = cast(dict[str, object], payload["selected_profile"])
+    profile_payload = cast(dict[str, object], selected["profile"])
+    mounts = [
+        {"source": logical_workspace, "target": physical_workspace.as_posix(), "read_only": False},
+        {"source": logical_runs.as_posix(), "target": fast_runs.as_posix(), "read_only": False},
+        {"source": logical_attempts.as_posix(), "target": fast_attempts.as_posix(), "read_only": False},
+    ]
+    profile_payload["container_mounts"] = mounts
+    payload["container_mounts"] = mounts
+    profile = SlurmProfile.model_validate(profile_payload)
+    selected["profile_sha256"] = compute_canonical_json_sha256(profile.model_dump(mode="json"))
+    plan = ResolvedSlurmRunPlan.model_validate_json(json.dumps(payload))
+    created_at = datetime(2026, 9, 9, tzinfo=UTC)
+    plan_reference = ArtifactReference(
+        path=f"{logical_workspace}/runs/{plan.run_id}/resolved-plan.json",
+        sha256=plan.compute_sha256(),
+    )
+    run = RunManifest(
+        schema_version=1,
+        run_id=plan.run_id,
+        created_at=created_at,
+        authored_config=plan.authored_config,
+        resolved_plan=plan_reference,
+        shard_count=1,
+    )
+    shard = ShardManifest(
+        schema_version=1,
+        run_id=plan.run_id,
+        shard_id=plan.shards[0].shard_id,
+        shard_index=0,
+        record_range=plan.shards[0].record_range,
+        input_partition=plan.shards[0].input_partition,
+        resume_workspace=plan.shards[0].resume_workspace,
+        created_at=created_at,
+    )
+    scheduler = SchedulerIdentity(array_job_id=4101, array_task_id=0)
+    attempt = AttemptManifest(
+        schema_version=1,
+        run_id=plan.run_id,
+        shard_id=shard.shard_id,
+        attempt_id="attempt-0001",
+        attempt_ordinal=1,
+        resolved_plan=plan_reference,
+        state=AttemptLifecycleState.SUBMITTED,
+        scheduler=scheduler,
+        created_at=created_at,
+        updated_at=created_at,
+    )
+    host_writer = SlurmStateWriter(
+        physical_workspace,
+        plan.run_id,
+        logical_workspace_root=logical_workspace,
+    )
+    host_writer.initialize_run(authored_run_single, plan, run, (shard,))
+    host_writer.create_attempt(attempt)
+    plan_path = fast_runs / plan.run_id / "resolved-plan.json"
+    plan_path.parent.mkdir(parents=True, mode=0o700)
+    plan_path.write_text(plan.serialize_json())
+    plan_path.chmod(0o600)
+    attempt_directory = fast_attempts / attempt.attempt_id
+    attempt_directory.mkdir(parents=True, mode=0o700)
+
+    with pytest.raises(SlurmRuntimeError, match="resolved plan path is invalid"):
+        load_allocation_context(
+            plan_path,
+            attempt_directory,
+            {"SLURM_ARRAY_TASK_ID": "0", "SLURM_ARRAY_JOB_ID": "4101"},
+        )

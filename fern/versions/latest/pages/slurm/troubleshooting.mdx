@@ -1,0 +1,112 @@
+# Slurm troubleshooting
+
+Start with the error on stderr, then inspect the managed run directory and Slurm state. Use `data-designer slurm --output json COMMAND` for a structured error. The CLI uses these exit codes:
+
+| Exit code | Error code | Meaning |
+| --- | --- | --- |
+| 1 | `internal` | Unexpected package failure |
+| 2 | `invalid_request` | Invalid command input or configuration |
+| 3 | `not_found` | Managed run, job, image, or benchmark not found |
+| 4 | `conflict` | Existing immutable state conflicts with the request |
+| 5 | `unavailable` | Slurm, storage, image, or runtime dependency unavailable |
+
+## The Slurm command group is missing
+
+Confirm the optional extra is installed in the active environment:
+
+```bash
+python -m pip show data-designer
+python -m pip show data-designer-slurm
+data-designer slurm --help
+```
+
+Install `data-designer[slurm]` rather than only `data-designer`. The extension wheel must have the same version as the base wheel. If pip warns that the selected `data-designer` release does not provide the `slurm` extra, that package index or version does not contain the extension; select a release that publishes both packages instead of continuing with the base CLI.
+
+## Profile selection fails
+
+Pass both selectors explicitly while debugging:
+
+```bash
+data-designer slurm profile validate \
+  --profile-file /workspace/alice/config/slurm-profiles.yml \
+  --cluster primary
+```
+
+Check that the profile file and workspace are accessible from the submit host, hostname patterns do not overlap, and `default_cluster` names an existing entry. Set `gpus_per_node` explicitly if an eligible partition contains heterogeneous nodes.
+
+## Slurm commands are unavailable in a batch job
+
+Generation discovers the `srun` directory from the submit host and checks that `scontrol` is there before submitting. If discovery fails, load your site's Slurm environment and retry preparation; the error names the missing tool. If the discovered directory does not exist on compute nodes, set `scheduler.bin_path` in the selected profile to a shared absolute directory containing runnable `srun` and `scontrol`. The generated batch script prepends that directory to its controlled `PATH`.
+
+## A small run requests every GPU on each node
+
+`gpus_per_node: auto` uses the GPU count reported by eligible nodes and requests that count in GRES mode. Set an explicit count such as `gpus_per_node: 1` when the cluster permits partial-node allocations, then keep deployment topology compatible with that count.
+
+## Slurm rejects the submission
+
+If `sbatch` reports an invalid account/partition combination, check `submission.account` and `submission.partition` in the run file as well as the selected profile defaults. An explicit run-file value takes precedence. A dry-run renders the request but does not verify account authorization with Slurm. On the submit host, inspect associations and partition availability, then validate a candidate without creating a job:
+
+```bash
+sacctmgr -nP show assoc where user="$USER" format=Account,Partition,QOS
+sinfo --all --noheader --format='%P|%a|%G'
+sbatch --test-only --account="$ACCOUNT" --partition="$PARTITION" \
+  --nodes=1 --gres=gpu:"$GPU_COUNT" --time="$TIME_LIMIT" --wrap=true
+```
+
+An association with an empty partition field does not guarantee access to every partition. Match the test-only request to the run's resources; if access remains unclear, ask the cluster administrator. If the CLI reports that the submission outcome is uncertain, inspect queue and accounting state before retrying. A rejected or uncertain submission can leave initialized run state without a recorded attempt.
+
+## Image registration fails
+
+- Confirm the image-build partition accepts CPU jobs.
+- Confirm Enroot is available on the allocated node.
+- Use Enroot 3.5 or later for OCI import and existing SQSH inspection. The CLI passes the resolved digest as the registry manifest reference; it does not require Enroot 4.0's `tag@digest` URI syntax.
+- Use a supported official `vllm/vllm-openai:vX.Y.Z` tag, a digest-qualified credential-free custom OCI reference, or an existing absolute SQSH path. The official tag path also needs Docker Hub access from the submit host.
+- If version verification fails, check that the imported image contains the requested vLLM release; no alias is published on a mismatch.
+- Confirm the workspace path contains no whitespace, colon, comma, or backslash that Enroot mount syntax cannot represent.
+- While a lifecycle job is active, inspect it under `<workspace_root>/images/.tmp/jobs` and read its Slurm log.
+
+An interrupted or unknown submission can retain a temporary lifecycle job for investigation, but does not publish an unverified alias. Normal success and known failure paths clean temporary lifecycle state.
+
+## Dry-run cannot find an image
+
+Run `data-designer slurm image ls` against the same profile and cluster. Aliases are profile-workspace scoped. If the file changed after registration, add and inspect it again; planning rehashes registered SQSH content.
+
+## A run is absent from `squeue`
+
+Run `data-designer slurm status <run-id>`. Completed jobs leave the active queue and may appear in `sacct` after a delay. Status reports accounting lag without inventing a terminal result.
+
+## Model readiness times out
+
+Inspect the attempt readiness record and Slurm stderr under the managed run directory. Confirm model files and mounts are visible, the serving image has the expected vLLM runtime, tensor parallelism matches available GPUs, and multi-node traffic is permitted. Increase `startup_timeout` only after identifying a normal slow startup rather than a failed launch. If increasing `distributed_init_timeout`, keep it less than or equal to `startup_timeout`.
+
+## A shard failed
+
+### Backend health is lost during generation
+
+After startup, the allocation checks each logical endpoint's aggregate backend health every second. Health probes use separate connection capacity so they can run while inference connections are saturated. If a required backend becomes unhealthy, including while its process remains alive, the monitor records `runtime_health_lost` in the attempt readiness evidence and fails the attempt. Inspect the backend logs before retrying; a healthy spare replica does not make the deployment ready when another required replica has failed.
+
+### Inspect routing and overload behavior
+
+Endpoint stderr contains structured `slurm_proxy_request` events. Each event identifies attempted upstream origins, outcomes, connection reuse, connection duration, time to response headers, total attempt duration, final HTTP status, and whether the response completed. Total attempt duration includes connection establishment and response streaming. A reused connection has a connection duration of zero; unavailable timings are `null`. Logs exclude request paths, authorization headers, prompts, and generated content.
+
+The allocation-local endpoint's `/metrics` response includes request and attempt counts, per-backend activity, connection opens/reuse/failures/evictions, retries by reason, final HTTP status counts, and timeouts. Evictions include expired, stale, and discarded connections; normal session shutdown is excluded. Timeouts include terminal attempts and interrupted response streams, even when no retry follows. These counters describe this endpoint process and reset when it restarts.
+
+During cleanup, health monitoring stops first. The controller sends `TERM` directly to each endpoint's Slurm task step using its recorded job and step IDs. Logical endpoints then stop accepting requests and drain active responses for up to 10 seconds while their `srun` launchers and serving backends remain available. The controller allows 12 seconds for draining and step exit before forcing remaining endpoints to stop and terminating other steps. Responses exceeding the drain deadline can be interrupted.
+
+### Retry a failed shard
+
+Use `status` to find the failed task and attempt. Batch stderr identifies the allocation runtime phase and exit status; synchronous step failures also report their durable stdout and stderr paths. Preview a sparse retry before submission:
+
+```bash
+data-designer slurm retry <run-id> --task-id <task-id> --dry-run
+```
+
+Do not edit persisted manifests. Conflicts preserve scheduler and provenance evidence for operator review.
+
+## Output is incomplete
+
+Check that every shard has a `winner.json`, then follow its `candidate_manifest.path` to the canonical `output-manifest.json`. Do not count files by recursively scanning attempts. A shard with at least one generated record can become a winner even if it produced fewer records than requested; a shard with no records cannot. Retry shards without winners, then use `merge` with the original run directory. The merged dataset contains the actual winning records and may be smaller than the requested record count.
+
+## Scratch files are gone
+
+This is expected. Runtime extraction, client overlays, caches, and Enroot state live in allocation-local scratch and are cleaned on every terminal path. Use durable Slurm logs, attempt state, readiness records, and candidate results beneath `workspace_root` for diagnosis.

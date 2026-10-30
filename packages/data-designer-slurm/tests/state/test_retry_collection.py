@@ -1,0 +1,2170 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+from __future__ import annotations
+
+import errno
+import hashlib
+import json
+import os
+import shutil
+import sys
+from collections.abc import Mapping
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from threading import Event
+from typing import cast
+from unittest.mock import patch
+
+import pytest
+from slurm_test_fakes import FakeCommandResponse, FakeSlurmArray, FakeSlurmJob, FakeSlurmRunner, FakeSlurmTask
+
+import data_designer.lazy_heavy_imports as lazy
+import data_designer.slurm.state.collection_filesystem as collection_filesystem
+import data_designer.slurm.state.collection_merge as collection_merge
+import data_designer.slurm.state.collection_storage as collection_storage_module
+import data_designer.slurm.state.collection_worker as collection_worker_module
+from data_designer.slurm.client import ClientOutcome, ClientResult
+from data_designer.slurm.config import DataDesignerSlurmConfig, SlurmProfile
+from data_designer.slurm.contracts import ArtifactReference, compute_canonical_json_sha256
+from data_designer.slurm.launcher.client import SlurmCommandClient
+from data_designer.slurm.launcher.errors import SlurmSubmissionError
+from data_designer.slurm.planning import ResolvedSlurmRunPlan
+from data_designer.slurm.state import (
+    AttemptLifecycleState,
+    AttemptManifest,
+    AttemptTerminalClassification,
+    CandidateOutcome,
+    CandidateOutputFile,
+    CandidateOutputManifest,
+    CollectionState,
+    RetryState,
+    RunManifest,
+    SchedulerIdentity,
+    ShardManifest,
+    SlurmCollectionCoordinator,
+    SlurmRetryCoordinator,
+    SlurmStateError,
+    SlurmStateReconciler,
+    SlurmStateWriter,
+    StateConflictError,
+    StateContractError,
+    StateCorruptionError,
+    StateNotFoundError,
+    compute_candidate_schema_digest,
+)
+from data_designer.slurm.state.attempt_identity import require_attempt_scheduler_identity
+from data_designer.slurm.state.collection_inputs import CollectionInputResolver
+from data_designer.slurm.state.collection_schema import schemas_match_except_struct_order
+from data_designer.slurm.state.collection_storage import CollectionStorage
+from data_designer.slurm.state.collection_validation import validate_collection_inputs
+from data_designer.slurm.state.collection_worker import SlurmCollectionWorker
+from data_designer.slurm.state.destinations import CollectionDestinationResolver
+from data_designer.slurm.state.reader import StateReader
+from data_designer.slurm.state.retry_storage import RetryStorage
+from data_designer.slurm.state.storage import StateStorage
+
+
+@dataclass(frozen=True, slots=True)
+class _RunCase:
+    workspace: Path
+    plan: ResolvedSlurmRunPlan
+    run: RunManifest
+    shards: tuple[ShardManifest, ...]
+    writer: SlurmStateWriter
+    created_at: datetime
+
+
+def test_retry_refreshes_failed_shard_and_publishes_exact_next_attempt(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    case = _initialize_run(tmp_path, authored_run_single, single_node_plan)
+    runner = FakeSlurmRunner(
+        arrays=(
+            FakeSlurmArray(tasks=(FakeSlurmTask(SchedulerIdentity(array_job_id=4101, array_task_id=0)),)),
+            FakeSlurmArray(tasks=(FakeSlurmTask(SchedulerIdentity(array_job_id=4201, array_task_id=0)),)),
+        )
+    )
+    scheduler = SlurmCommandClient(runner)
+    scheduler.submit_script("initial")
+    attempt = _submitted_attempt(case, case.shards[0], scheduler=SchedulerIdentity(array_job_id=4101, array_task_id=0))
+    case.writer.create_attempt(attempt)
+    runner.set_task_state(attempt.scheduler, queue_state=None, accounting_state="FAILED", exit_code="1:0")
+
+    coordinator = SlurmRetryCoordinator(case.workspace, case.plan.run_id, scheduler)
+    attempts = coordinator.retry(
+        effective_resume_mode="never",
+        observed_at=case.created_at + timedelta(minutes=5),
+    )
+
+    assert len(attempts) == 1
+    assert attempts[0].attempt_id == "attempt-0002"
+    assert attempts[0].scheduler == SchedulerIdentity(array_job_id=4201, array_task_id=0)
+    retry_plan = case.writer.load_retry_plan("retry-0001")
+    assert retry_plan.effective_resume_mode == "never"
+    assert retry_plan.planned_shards[0].attempt_id == attempts[0].attempt_id
+    mapped_workspace = tmp_path / "mapped-workspace"
+    shutil.copytree(case.workspace / "runs", mapped_workspace / "runs")
+    mapped_writer = SlurmStateWriter(
+        mapped_workspace,
+        case.plan.run_id,
+        logical_workspace_root=case.workspace,
+    )
+    assert mapped_writer.load_retry_plan("retry-0001") == retry_plan
+    require_attempt_scheduler_identity(
+        case.workspace,
+        case.plan.run_id,
+        attempts[0].shard_id,
+        attempts[0].attempt_id,
+        SchedulerIdentity(array_job_id=4201, array_task_id=0),
+    )
+    with pytest.raises(StateConflictError, match="scheduler identity"):
+        require_attempt_scheduler_identity(
+            case.workspace,
+            case.plan.run_id,
+            attempts[0].shard_id,
+            attempts[0].attempt_id,
+            SchedulerIdentity(array_job_id=9999, array_task_id=0),
+        )
+    assert case.writer.load_attempts(case.shards[0].shard_id) == (attempt, attempts[0])
+    assert "#SBATCH --array=0" in cast(str, runner.inputs[-1])
+    assert 'DD_ATTEMPT_ORDINAL="0002"' in cast(str, runner.inputs[-1])
+    assert (
+        coordinator.retry(
+            effective_resume_mode="never",
+            observed_at=case.created_at + timedelta(minutes=6),
+        )
+        == attempts
+    )
+    assert sum(Path(call[0]).name == "sbatch" for call in runner.calls) == 2
+
+
+def test_active_retry_preview_ignores_statusless_journal_tail(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    case = _initialize_run(tmp_path, authored_run_single, single_node_plan)
+    runner = FakeSlurmRunner(
+        arrays=(FakeSlurmArray(tasks=(FakeSlurmTask(SchedulerIdentity(array_job_id=4101, array_task_id=0)),)),)
+    )
+    scheduler = SlurmCommandClient(runner)
+    scheduler.submit_script("initial")
+    attempt = _submitted_attempt(case, case.shards[0], scheduler=SchedulerIdentity(array_job_id=4101, array_task_id=0))
+    case.writer.create_attempt(attempt)
+    runner.set_task_state(attempt.scheduler, queue_state=None, accounting_state="FAILED", exit_code="1:0")
+    storage = RetryStorage(StateStorage(case.workspace, case.plan.run_id))
+    storage.ensure_retry("retry-0001")
+
+    coordinator = SlurmRetryCoordinator(case.workspace, case.plan.run_id, scheduler)
+    assert coordinator.preview_active(observed_at=case.created_at + timedelta(minutes=5)) is None
+    preview, _ = coordinator.preview(
+        effective_resume_mode="never",
+        observed_at=case.created_at + timedelta(minutes=5),
+    )
+
+    assert preview.retry_id == "retry-0001"
+    assert storage.get_retry_root("retry-0001").is_dir()
+
+
+def test_retry_rejects_a_nonterminal_explicit_shard(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    case = _initialize_run(tmp_path, authored_run_single, single_node_plan)
+    runner = FakeSlurmRunner(
+        arrays=(FakeSlurmArray(tasks=(FakeSlurmTask(SchedulerIdentity(array_job_id=4101, array_task_id=0)),)),)
+    )
+    scheduler = SlurmCommandClient(runner)
+    scheduler.submit_script("initial")
+    case.writer.create_attempt(
+        _submitted_attempt(case, case.shards[0], scheduler=SchedulerIdentity(array_job_id=4101, array_task_id=0))
+    )
+
+    with pytest.raises(StateConflictError, match="sealed or nonterminal"):
+        SlurmRetryCoordinator(case.workspace, case.plan.run_id, scheduler).retry(
+            shard_ids=(case.shards[0].shard_id,),
+            effective_resume_mode="never",
+            observed_at=case.created_at + timedelta(minutes=5),
+        )
+
+
+def test_retry_rejects_a_shard_with_an_immutable_winner(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    case = _initialize_run(tmp_path, authored_run_single, single_node_plan)
+    runner = FakeSlurmRunner(
+        arrays=(FakeSlurmArray(tasks=(FakeSlurmTask(SchedulerIdentity(array_job_id=4101, array_task_id=0)),)),)
+    )
+    scheduler = SlurmCommandClient(runner)
+    scheduler.submit_script("initial")
+    _publish_all_winners(case)
+
+    with pytest.raises(StateConflictError, match="sealed or nonterminal"):
+        SlurmRetryCoordinator(case.workspace, case.plan.run_id, scheduler).retry(
+            shard_ids=(case.shards[0].shard_id,),
+            effective_resume_mode="never",
+            observed_at=case.created_at + timedelta(minutes=7),
+        )
+
+    assert sum(Path(call[0]).name == "sbatch" for call in runner.calls) == 1
+
+
+def test_retry_accepts_unknown_after_bounded_accounting_lag(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    case = _initialize_run(tmp_path, authored_run_single, single_node_plan)
+    runner = FakeSlurmRunner(
+        arrays=(
+            FakeSlurmArray(tasks=(FakeSlurmTask(SchedulerIdentity(array_job_id=4101, array_task_id=0)),)),
+            FakeSlurmArray(tasks=(FakeSlurmTask(SchedulerIdentity(array_job_id=4201, array_task_id=0)),)),
+        )
+    )
+    scheduler = SlurmCommandClient(runner)
+    scheduler.submit_script("initial")
+    attempt = _submitted_attempt(case, case.shards[0], scheduler=SchedulerIdentity(array_job_id=4101, array_task_id=0))
+    case.writer.create_attempt(attempt)
+    runner.set_task_state(attempt.scheduler, queue_state=None, accounting_state=None)
+    SlurmStateReconciler(case.workspace, case.plan.run_id, scheduler).refresh(
+        observed_at=case.created_at + timedelta(minutes=3)
+    )
+
+    attempts = SlurmRetryCoordinator(case.workspace, case.plan.run_id, scheduler).retry(
+        effective_resume_mode="never",
+        observed_at=case.created_at + timedelta(minutes=9),
+    )
+
+    assert attempts[0].scheduler == SchedulerIdentity(array_job_id=4201, array_task_id=0)
+
+
+def test_retry_submits_only_the_failed_sparse_array_task(
+    tmp_path: Path,
+    authored_run: DataDesignerSlurmConfig,
+    multi_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    case = _initialize_run(tmp_path, authored_run, multi_node_plan)
+    initial_tasks = tuple(
+        FakeSlurmTask(SchedulerIdentity(array_job_id=4101, array_task_id=shard.shard_index)) for shard in case.shards
+    )
+    runner = FakeSlurmRunner(
+        arrays=(
+            FakeSlurmArray(tasks=initial_tasks),
+            FakeSlurmArray(tasks=(FakeSlurmTask(SchedulerIdentity(array_job_id=4201, array_task_id=1)),)),
+        )
+    )
+    scheduler = SlurmCommandClient(runner)
+    scheduler.submit_script("initial")
+    for shard in case.shards:
+        case.writer.create_attempt(
+            _submitted_attempt(
+                case,
+                shard,
+                scheduler=SchedulerIdentity(array_job_id=4101, array_task_id=shard.shard_index),
+            )
+        )
+    runner.set_task_state(initial_tasks[0].scheduler, queue_state="RUNNING", accounting_state=None)
+    runner.set_task_state(initial_tasks[1].scheduler, queue_state=None, accounting_state="FAILED", exit_code="1:0")
+
+    attempts = SlurmRetryCoordinator(case.workspace, case.plan.run_id, scheduler).retry(
+        effective_resume_mode="never",
+        observed_at=case.created_at + timedelta(minutes=5),
+    )
+
+    assert tuple(attempt.shard_id for attempt in attempts) == ("shard-00001",)
+    assert attempts[0].scheduler == SchedulerIdentity(array_job_id=4201, array_task_id=1)
+    assert "#SBATCH --array=1%2" in cast(str, runner.inputs[-1])
+    assert 'case "${DD_ARRAY_TASK_ID}"' in cast(str, runner.inputs[-1])
+
+
+def test_retry_ambiguous_submission_waits_for_scheduler_visibility_without_a_duplicate(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    case = _initialize_run(tmp_path, authored_run_single, single_node_plan)
+    runner = FakeSlurmRunner(
+        arrays=(FakeSlurmArray(tasks=(FakeSlurmTask(SchedulerIdentity(array_job_id=4101, array_task_id=0)),)),)
+    )
+    scheduler = SlurmCommandClient(runner)
+    scheduler.submit_script("initial")
+    attempt = _submitted_attempt(case, case.shards[0], scheduler=SchedulerIdentity(array_job_id=4101, array_task_id=0))
+    case.writer.create_attempt(attempt)
+    runner.set_task_state(attempt.scheduler, queue_state=None, accounting_state="FAILED", exit_code="1:0")
+    submissions = 0
+
+    def ambiguous_submit(script: str) -> object:
+        nonlocal submissions
+        del script
+        submissions += 1
+        raise SlurmSubmissionError("sbatch could not be executed: command timed out", may_have_succeeded=True)
+
+    monkeypatch.setattr(scheduler, "submit_script", ambiguous_submit)
+    coordinator = SlurmRetryCoordinator(case.workspace, case.plan.run_id, scheduler)
+
+    with pytest.raises(SlurmStateError, match="cannot submit retry"):
+        coordinator.retry(effective_resume_mode="never", observed_at=case.created_at + timedelta(minutes=5))
+
+    retry_storage = RetryStorage(StateStorage(case.workspace, case.plan.run_id))
+    assert retry_storage.read_status("retry-0001").state is RetryState.PREPARED
+    runner.script_next("squeue", FakeCommandResponse())
+    runner.script_next("sacct", FakeCommandResponse())
+    with pytest.raises(StateConflictError, match="still being reconciled"):
+        SlurmRetryCoordinator(case.workspace, case.plan.run_id, scheduler).retry(
+            effective_resume_mode="never",
+            observed_at=case.created_at + timedelta(minutes=6),
+        )
+    assert submissions == 1
+
+
+def test_retry_recovers_an_accepted_submission_after_the_receipt_is_lost(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    initial = FakeSlurmTask(SchedulerIdentity(array_job_id=4101, array_task_id=0))
+    retried = FakeSlurmTask(SchedulerIdentity(array_job_id=4201, array_task_id=0))
+    runner = FakeSlurmRunner(arrays=(FakeSlurmArray(tasks=(initial,)), FakeSlurmArray(tasks=(retried,))))
+    scheduler = SlurmCommandClient(runner)
+    scheduler.submit_script("initial")
+    case = _initialize_run(tmp_path, authored_run_single, single_node_plan)
+    first_attempt = _submitted_attempt(case, case.shards[0], scheduler=initial.scheduler)
+    case.writer.create_attempt(first_attempt)
+    runner.set_task_state(initial.scheduler, queue_state=None, accounting_state="FAILED", exit_code="1:0")
+    original_submit = scheduler.submit_script
+
+    def accept_then_lose_receipt(script: str) -> object:
+        original_submit(script)
+        raise SlurmSubmissionError("sbatch response was lost", may_have_succeeded=True)
+
+    monkeypatch.setattr(scheduler, "submit_script", accept_then_lose_receipt)
+    with pytest.raises(SlurmStateError, match="cannot submit retry"):
+        SlurmRetryCoordinator(case.workspace, case.plan.run_id, scheduler).retry(
+            effective_resume_mode="never",
+            observed_at=case.created_at + timedelta(minutes=5),
+        )
+    monkeypatch.setattr(scheduler, "submit_script", original_submit)
+    storage = RetryStorage(StateStorage(case.workspace, case.plan.run_id))
+    retry_plan = storage.read_plan("retry-0001")
+    runner.script_next(
+        "squeue",
+        FakeCommandResponse(stdout=f"4201_0|{retry_plan.submission_job_name}\n"),
+    )
+    runner.script_next("sacct", FakeCommandResponse())
+
+    def unavailable_credentials() -> Mapping[str, str]:
+        pytest.fail("accepted retry recovery must not resolve credentials")
+
+    recovered = SlurmRetryCoordinator(
+        case.workspace, case.plan.run_id, scheduler, export_environment_factory=unavailable_credentials
+    ).retry(
+        effective_resume_mode="never",
+        observed_at=case.created_at + timedelta(minutes=6),
+    )
+
+    assert recovered[0].scheduler == SchedulerIdentity(array_job_id=4201, array_task_id=0)
+    assert case.writer.load_attempts(case.shards[0].shard_id) == (first_attempt, recovered[0])
+    assert storage.read_status("retry-0001").state is RetryState.COMPLETED
+    assert (
+        SlurmRetryCoordinator(
+            case.workspace, case.plan.run_id, scheduler, export_environment_factory=unavailable_credentials
+        ).retry(
+            effective_resume_mode="never",
+            observed_at=case.created_at + timedelta(minutes=7),
+        )
+        == recovered
+    )
+    assert sum(Path(call[0]).name == "sbatch" for call in runner.calls) == 2
+
+
+@pytest.mark.parametrize(
+    ("accepted_before_receipt_loss", "replacement_job_id", "submission_count"),
+    [
+        pytest.param(False, 4201, 2, id="unaccepted"),
+        pytest.param(True, 4301, 3, id="accepted-but-still-invisible"),
+    ],
+)
+def test_retry_replaces_or_fences_an_ambiguous_submission_after_its_deadline(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+    monkeypatch: pytest.MonkeyPatch,
+    accepted_before_receipt_loss: bool,
+    replacement_job_id: int,
+    submission_count: int,
+) -> None:
+    initial = FakeSlurmTask(SchedulerIdentity(array_job_id=4101, array_task_id=0))
+    hidden = FakeSlurmTask(SchedulerIdentity(array_job_id=4201, array_task_id=0))
+    replacement = FakeSlurmTask(SchedulerIdentity(array_job_id=replacement_job_id, array_task_id=0))
+    retry_arrays = (FakeSlurmArray(tasks=(hidden,)),) if accepted_before_receipt_loss else ()
+    runner = FakeSlurmRunner(
+        arrays=(FakeSlurmArray(tasks=(initial,)), *retry_arrays, FakeSlurmArray(tasks=(replacement,)))
+    )
+    scheduler = SlurmCommandClient(runner)
+    scheduler.submit_script("initial")
+    case = _initialize_run(tmp_path, authored_run_single, single_node_plan)
+    first_attempt = _submitted_attempt(case, case.shards[0], scheduler=initial.scheduler)
+    case.writer.create_attempt(first_attempt)
+    runner.set_task_state(initial.scheduler, queue_state=None, accounting_state="FAILED", exit_code="1:0")
+    original_submit = scheduler.submit_script
+
+    def lose_submission_receipt(script: str) -> object:
+        if accepted_before_receipt_loss:
+            original_submit(script)
+        raise SlurmSubmissionError("sbatch response was lost", may_have_succeeded=True)
+
+    monkeypatch.setattr(scheduler, "submit_script", lose_submission_receipt)
+    with pytest.raises(SlurmStateError, match="cannot submit retry"):
+        SlurmRetryCoordinator(case.workspace, case.plan.run_id, scheduler).retry(
+            effective_resume_mode="never",
+            observed_at=case.created_at + timedelta(minutes=5),
+        )
+    monkeypatch.setattr(scheduler, "submit_script", original_submit)
+    runner.script_next("squeue", FakeCommandResponse())
+    runner.script_next("sacct", FakeCommandResponse())
+
+    attempts = SlurmRetryCoordinator(case.workspace, case.plan.run_id, scheduler).retry(
+        effective_resume_mode="never",
+        observed_at=case.created_at + timedelta(minutes=11),
+    )
+
+    storage = RetryStorage(StateStorage(case.workspace, case.plan.run_id))
+    assert storage.read_status("retry-0001").state is RetryState.FAILED
+    assert storage.read_status("retry-0002").state is RetryState.COMPLETED
+    assert attempts[0].scheduler == SchedulerIdentity(array_job_id=replacement_job_id, array_task_id=0)
+    with pytest.raises(StateConflictError, match="scheduler identity"):
+        require_attempt_scheduler_identity(
+            case.workspace,
+            case.plan.run_id,
+            attempts[0].shard_id,
+            attempts[0].attempt_id,
+            SchedulerIdentity(array_job_id=4201 if accepted_before_receipt_loss else 4301, array_task_id=0),
+        )
+    assert sum(Path(call[0]).name == "sbatch" for call in runner.calls) == submission_count
+
+
+def test_retry_definite_submission_failure_settles_and_can_be_retried(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    case = _initialize_run(tmp_path, authored_run_single, single_node_plan)
+    runner = FakeSlurmRunner(
+        arrays=(
+            FakeSlurmArray(tasks=(FakeSlurmTask(SchedulerIdentity(array_job_id=4101, array_task_id=0)),)),
+            FakeSlurmArray(tasks=(FakeSlurmTask(SchedulerIdentity(array_job_id=4201, array_task_id=0)),)),
+        )
+    )
+    scheduler = SlurmCommandClient(runner)
+    scheduler.submit_script("initial")
+    attempt = _submitted_attempt(case, case.shards[0], scheduler=SchedulerIdentity(array_job_id=4101, array_task_id=0))
+    case.writer.create_attempt(attempt)
+    runner.set_task_state(attempt.scheduler, queue_state=None, accounting_state="FAILED", exit_code="1:0")
+    runner.script_next("sbatch", FakeCommandResponse(stderr="submission rejected", returncode=2))
+    coordinator = SlurmRetryCoordinator(case.workspace, case.plan.run_id, scheduler)
+
+    with pytest.raises(SlurmStateError, match="cannot submit retry"):
+        coordinator.retry(effective_resume_mode="never", observed_at=case.created_at + timedelta(minutes=5))
+
+    storage = RetryStorage(StateStorage(case.workspace, case.plan.run_id))
+    assert storage.read_status("retry-0001").state is RetryState.FAILED
+    attempts = coordinator.retry(
+        effective_resume_mode="never",
+        observed_at=case.created_at + timedelta(minutes=6),
+    )
+    assert attempts[0].scheduler == SchedulerIdentity(array_job_id=4201, array_task_id=0)
+    assert storage.read_status("retry-0002").state is RetryState.COMPLETED
+
+
+def test_concurrent_retry_requests_converge_on_one_array(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    case = _initialize_run(tmp_path, authored_run_single, single_node_plan)
+    runner = FakeSlurmRunner(
+        arrays=(
+            FakeSlurmArray(tasks=(FakeSlurmTask(SchedulerIdentity(array_job_id=4101, array_task_id=0)),)),
+            FakeSlurmArray(tasks=(FakeSlurmTask(SchedulerIdentity(array_job_id=4201, array_task_id=0)),)),
+        )
+    )
+    scheduler = SlurmCommandClient(runner)
+    scheduler.submit_script("initial")
+    attempt = _submitted_attempt(case, case.shards[0], scheduler=SchedulerIdentity(array_job_id=4101, array_task_id=0))
+    case.writer.create_attempt(attempt)
+    runner.set_task_state(attempt.scheduler, queue_state=None, accounting_state="FAILED", exit_code="1:0")
+
+    def retry() -> tuple[AttemptManifest, ...]:
+        return SlurmRetryCoordinator(case.workspace, case.plan.run_id, scheduler).retry(
+            effective_resume_mode="never",
+            observed_at=case.created_at + timedelta(minutes=5),
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = tuple(executor.map(lambda _: retry(), range(2)))
+
+    assert results[0] == results[1]
+    assert sum(Path(call[0]).name == "sbatch" for call in runner.calls) == 2
+
+
+def test_default_retry_does_not_hide_failures_outside_an_active_explicit_subset(
+    tmp_path: Path,
+    authored_run: DataDesignerSlurmConfig,
+    multi_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    initial_tasks = tuple(
+        FakeSlurmTask(SchedulerIdentity(array_job_id=4101, array_task_id=index)) for index in range(2)
+    )
+    runner = FakeSlurmRunner(
+        arrays=(
+            FakeSlurmArray(tasks=initial_tasks),
+            FakeSlurmArray(tasks=(FakeSlurmTask(SchedulerIdentity(array_job_id=4201, array_task_id=0)),)),
+            FakeSlurmArray(tasks=(FakeSlurmTask(SchedulerIdentity(array_job_id=4301, array_task_id=1)),)),
+        )
+    )
+    case = _initialize_run(tmp_path, authored_run, multi_node_plan)
+    scheduler = SlurmCommandClient(runner)
+    scheduler.submit_script("initial")
+    for shard, task in zip(case.shards, initial_tasks, strict=True):
+        case.writer.create_attempt(_submitted_attempt(case, shard, scheduler=task.scheduler))
+        runner.set_task_state(task.scheduler, queue_state=None, accounting_state="FAILED", exit_code="1:0")
+    coordinator = SlurmRetryCoordinator(case.workspace, case.plan.run_id, scheduler)
+
+    first = coordinator.retry(
+        shard_ids=(case.shards[0].shard_id,),
+        effective_resume_mode="never",
+        observed_at=case.created_at + timedelta(minutes=5),
+    )
+    second = coordinator.retry(
+        effective_resume_mode="never",
+        observed_at=case.created_at + timedelta(minutes=6),
+    )
+
+    assert tuple(attempt.shard_id for attempt in first) == (case.shards[0].shard_id,)
+    assert tuple(attempt.shard_id for attempt in second) == (case.shards[1].shard_id,)
+    assert second[0].scheduler == SchedulerIdentity(array_job_id=4301, array_task_id=1)
+
+
+def test_retry_discards_trailing_journal_interrupted_before_submission(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    case = _initialize_run(tmp_path, authored_run_single, single_node_plan)
+    runner = FakeSlurmRunner(
+        arrays=(
+            FakeSlurmArray(tasks=(FakeSlurmTask(SchedulerIdentity(array_job_id=4101, array_task_id=0)),)),
+            FakeSlurmArray(tasks=(FakeSlurmTask(SchedulerIdentity(array_job_id=4201, array_task_id=0)),)),
+        )
+    )
+    scheduler = SlurmCommandClient(runner)
+    scheduler.submit_script("initial")
+    attempt = _submitted_attempt(case, case.shards[0], scheduler=SchedulerIdentity(array_job_id=4101, array_task_id=0))
+    case.writer.create_attempt(attempt)
+    runner.set_task_state(attempt.scheduler, queue_state=None, accounting_state="FAILED", exit_code="1:0")
+    coordinator = SlurmRetryCoordinator(case.workspace, case.plan.run_id, scheduler)
+    original_publish = RetryStorage.publish_status
+
+    def interrupt_before_status(self: RetryStorage, status: object) -> None:
+        del self, status
+        raise OSError("injected journal interruption")
+
+    monkeypatch.setattr(RetryStorage, "publish_status", interrupt_before_status)
+    with pytest.raises(SlurmStateError, match="cannot retry persisted run"):
+        coordinator.retry(effective_resume_mode="never", observed_at=case.created_at + timedelta(minutes=5))
+    monkeypatch.setattr(RetryStorage, "publish_status", original_publish)
+
+    attempts = coordinator.retry(
+        effective_resume_mode="never",
+        observed_at=case.created_at + timedelta(minutes=6),
+    )
+
+    assert attempts[0].attempt_id == "attempt-0002"
+    assert RetryStorage(StateStorage(case.workspace, case.plan.run_id)).list_retry_ids() == ("retry-0001",)
+
+
+def test_retry_recovers_evolved_attempt_and_its_exact_winner(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    case = _initialize_run(tmp_path, authored_run_single, single_node_plan)
+    initial = FakeSlurmTask(SchedulerIdentity(array_job_id=4101, array_task_id=0))
+    retried = FakeSlurmTask(SchedulerIdentity(array_job_id=4201, array_task_id=0))
+    runner = FakeSlurmRunner(arrays=(FakeSlurmArray(tasks=(initial,)), FakeSlurmArray(tasks=(retried,))))
+    scheduler = SlurmCommandClient(runner)
+    scheduler.submit_script("initial")
+    first_attempt = _submitted_attempt(case, case.shards[0], scheduler=initial.scheduler)
+    case.writer.create_attempt(first_attempt)
+    runner.set_task_state(initial.scheduler, queue_state=None, accounting_state="FAILED", exit_code="1:0")
+    coordinator = SlurmRetryCoordinator(case.workspace, case.plan.run_id, scheduler)
+    original_complete = SlurmRetryCoordinator._complete_retry
+
+    def interrupt_after_attempts(*args: object, **kwargs: object) -> None:
+        del args, kwargs
+        raise OSError("injected completion interruption")
+
+    monkeypatch.setattr(SlurmRetryCoordinator, "_complete_retry", interrupt_after_attempts)
+    with pytest.raises(SlurmStateError, match="cannot retry persisted run"):
+        coordinator.retry(effective_resume_mode="never", observed_at=case.created_at + timedelta(minutes=5))
+    monkeypatch.setattr(SlurmRetryCoordinator, "_complete_retry", original_complete)
+    retry_attempt = case.writer.load_attempts(case.shards[0].shard_id)[-1]
+    running = _copy_attempt(
+        retry_attempt,
+        state=AttemptLifecycleState.RUNNING,
+        updated_at=case.created_at + timedelta(minutes=6),
+    )
+    case.writer.update_attempt(running)
+    with case.writer.acquire_dataset_workspace(case.shards[0].shard_id, running.attempt_id, "never") as dataset_path:
+        _publish_candidate(case, case.shards[0], running, dataset_path)
+    succeeded = case.writer.load_attempts(case.shards[0].shard_id)[-1]
+    case.writer.finalize_winner(
+        case.shards[0].shard_id,
+        succeeded.attempt_id,
+        published_at=case.created_at + timedelta(minutes=10),
+    )
+    runner.set_task_state(retried.scheduler, queue_state=None, accounting_state="COMPLETED")
+
+    recovered = coordinator.retry(
+        effective_resume_mode="never",
+        observed_at=case.created_at + timedelta(minutes=11),
+    )
+
+    assert recovered == (succeeded,)
+    assert (
+        RetryStorage(StateStorage(case.workspace, case.plan.run_id)).read_status("retry-0001").state
+        is RetryState.COMPLETED
+    )
+
+
+def test_retry_settles_submitted_journal_before_serving_a_disjoint_selection(
+    tmp_path: Path,
+    authored_run: DataDesignerSlurmConfig,
+    multi_node_plan: ResolvedSlurmRunPlan,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    initial_tasks = tuple(
+        FakeSlurmTask(SchedulerIdentity(array_job_id=4101, array_task_id=index)) for index in range(2)
+    )
+    runner = FakeSlurmRunner(
+        arrays=(
+            FakeSlurmArray(tasks=initial_tasks),
+            FakeSlurmArray(tasks=(FakeSlurmTask(SchedulerIdentity(array_job_id=4201, array_task_id=0)),)),
+            FakeSlurmArray(tasks=(FakeSlurmTask(SchedulerIdentity(array_job_id=4301, array_task_id=1)),)),
+        )
+    )
+    case = _initialize_run(tmp_path, authored_run, multi_node_plan)
+    scheduler = SlurmCommandClient(runner)
+    scheduler.submit_script("initial")
+    for shard, task in zip(case.shards, initial_tasks, strict=True):
+        case.writer.create_attempt(_submitted_attempt(case, shard, scheduler=task.scheduler))
+        runner.set_task_state(task.scheduler, queue_state=None, accounting_state="FAILED", exit_code="1:0")
+    coordinator = SlurmRetryCoordinator(case.workspace, case.plan.run_id, scheduler)
+    original_complete = SlurmRetryCoordinator._complete_retry
+
+    def interrupt_after_attempts(*args: object, **kwargs: object) -> None:
+        del args, kwargs
+        raise OSError("injected completion interruption")
+
+    monkeypatch.setattr(SlurmRetryCoordinator, "_complete_retry", interrupt_after_attempts)
+    with pytest.raises(SlurmStateError, match="cannot retry persisted run"):
+        coordinator.retry(
+            shard_ids=(case.shards[0].shard_id,),
+            effective_resume_mode="never",
+            observed_at=case.created_at + timedelta(minutes=5),
+        )
+    monkeypatch.setattr(SlurmRetryCoordinator, "_complete_retry", original_complete)
+
+    attempts = coordinator.retry(
+        shard_ids=(case.shards[1].shard_id,),
+        effective_resume_mode="never",
+        observed_at=case.created_at + timedelta(minutes=6),
+    )
+
+    assert tuple(attempt.shard_id for attempt in attempts) == (case.shards[1].shard_id,)
+    assert attempts[0].scheduler == SchedulerIdentity(array_job_id=4301, array_task_id=1)
+    storage = RetryStorage(StateStorage(case.workspace, case.plan.run_id))
+    assert storage.read_status("retry-0001").state is RetryState.COMPLETED
+    assert storage.read_status("retry-0002").state is RetryState.COMPLETED
+
+
+def test_retry_does_not_return_recovered_attempt_for_a_different_resume_mode(
+    tmp_path: Path,
+    authored_run: DataDesignerSlurmConfig,
+    multi_node_plan: ResolvedSlurmRunPlan,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    initial_tasks = tuple(
+        FakeSlurmTask(SchedulerIdentity(array_job_id=4101, array_task_id=index)) for index in range(2)
+    )
+    retried = FakeSlurmTask(SchedulerIdentity(array_job_id=4201, array_task_id=0))
+    runner = FakeSlurmRunner(arrays=(FakeSlurmArray(tasks=initial_tasks), FakeSlurmArray(tasks=(retried,))))
+    case = _initialize_run(tmp_path, authored_run, multi_node_plan)
+    scheduler = SlurmCommandClient(runner)
+    scheduler.submit_script("initial")
+    for shard, task in zip(case.shards, initial_tasks, strict=True):
+        case.writer.create_attempt(_submitted_attempt(case, shard, scheduler=task.scheduler))
+        runner.set_task_state(task.scheduler, queue_state=None, accounting_state="FAILED", exit_code="1:0")
+    coordinator = SlurmRetryCoordinator(case.workspace, case.plan.run_id, scheduler)
+    original_complete = SlurmRetryCoordinator._complete_retry
+
+    def interrupt_after_attempts(*args: object, **kwargs: object) -> None:
+        del args, kwargs
+        raise OSError("injected completion interruption")
+
+    monkeypatch.setattr(SlurmRetryCoordinator, "_complete_retry", interrupt_after_attempts)
+    with pytest.raises(SlurmStateError, match="cannot retry persisted run"):
+        coordinator.retry(
+            shard_ids=(case.shards[0].shard_id,),
+            effective_resume_mode="never",
+            observed_at=case.created_at + timedelta(minutes=5),
+        )
+    monkeypatch.setattr(SlurmRetryCoordinator, "_complete_retry", original_complete)
+
+    with pytest.raises(StateConflictError, match="sealed or nonterminal"):
+        coordinator.retry(
+            shard_ids=(case.shards[0].shard_id,),
+            effective_resume_mode="always",
+            observed_at=case.created_at + timedelta(minutes=6),
+        )
+
+    storage = RetryStorage(StateStorage(case.workspace, case.plan.run_id))
+    assert storage.read_status("retry-0001").state is RetryState.COMPLETED
+    assert storage.list_retry_ids() == ("retry-0001",)
+
+
+def test_collection_submits_cpu_job_and_publishes_ordered_winners_atomically(
+    tmp_path: Path,
+    authored_run: DataDesignerSlurmConfig,
+    multi_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    case = _initialize_run(tmp_path, authored_run, multi_node_plan)
+    _publish_all_winners(case)
+    runner = FakeSlurmRunner(jobs=(FakeSlurmJob(5101),))
+    scheduler = SlurmCommandClient(runner)
+    coordinator = SlurmCollectionCoordinator(
+        case.workspace,
+        case.plan.run_id,
+        scheduler,
+        {"NEMO_DEPLOYMENT_TYPE": "slurm-nvidia-internal"},
+    )
+
+    with patch.object(scheduler, "submit_script", wraps=scheduler.submit_script) as submit_script:
+        submitted = coordinator.submit(submitted_at=case.created_at + timedelta(minutes=10))
+
+    assert submitted.state is CollectionState.SUBMITTED
+    assert submitted.scheduler == 5101
+    assert submit_script.call_args.kwargs["export_environment"] == {"NEMO_DEPLOYMENT_TYPE": "slurm-nvidia-internal"}
+    with pytest.raises(StateConflictError, match="requested destination"):
+        coordinator.submit(destination=_output_root(case.plan).parent / "other")
+    script = cast(str, runner.inputs[-1])
+    collection_plan = CollectionStorage(StateStorage(case.workspace, case.plan.run_id)).read_plan(
+        submitted.collection_id
+    )
+    expected_python = Path(sys.executable).absolute().as_posix()
+    assert collection_plan.python_executable == expected_python
+    assert f'readonly DD_COLLECTION_PYTHON="{expected_python}"' in script
+    assert collection_plan.package_version != case.plan.package_version
+    assert f'readonly DD_PACKAGE_VERSION="{collection_plan.package_version}"' in script
+    assert collection_plan.runtime_bundle != case.plan.runtime_bundle
+    assert Path(collection_plan.runtime_bundle.path).is_file()
+    assert f'readonly DD_RUNTIME_ARCHIVE="{collection_plan.runtime_bundle.path}"' in script
+    assert f'readonly DD_RUNTIME_SHA256="{collection_plan.runtime_bundle.sha256}"' in script
+    assert "data_designer.slurm.state.collection_worker" in script
+    assert "enroot start" not in script
+    assert "DD_CLIENT_IMAGE" not in script
+    assert "--gpus" not in script
+    assert "#SBATCH --gres" not in script
+    stale_stage = _output_root(case.plan).parent / submitted.staging_directory
+    stale_stage.mkdir(mode=0o700)
+    (stale_stage / "partial").write_text("incomplete")
+    unrelated_stage = _output_root(case.plan).parent / f".dd-collection-{'f' * 32}.tmp"
+    unrelated_stage.mkdir(mode=0o700)
+    (unrelated_stage / "active").write_text("preserve")
+    result = SlurmCollectionWorker(
+        case.workspace,
+        case.plan.run_id,
+        submitted.collection_id,
+        environment={"SLURM_JOB_ID": "5101"},
+    ).run(completed_at=case.created_at + timedelta(minutes=11))
+
+    destination = _output_root(case.plan)
+    assert result.actual_records == case.plan.invocation.authored.num_records
+    assert len(result.files) == 1
+    assert lazy.pq.read_table(destination / result.files[0].relative_path).column("record_id").to_pylist() == list(
+        range(case.plan.invocation.authored.num_records)
+    )
+    persisted = CollectionStorage(StateStorage(case.workspace, case.plan.run_id)).read_status(submitted.collection_id)
+    assert persisted.state is CollectionState.SUCCEEDED
+    assert coordinator.submit() == persisted
+    assert not stale_stage.exists()
+    assert (unrelated_stage / "active").read_text() == "preserve"
+
+
+def test_collection_merges_nonempty_partial_shard_winners(
+    tmp_path: Path,
+    authored_run: DataDesignerSlurmConfig,
+    multi_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    case = _initialize_run(tmp_path, authored_run, multi_node_plan)
+    _publish_all_winners(case, shortfall=9)
+    coordinator = SlurmCollectionCoordinator(
+        case.workspace,
+        case.plan.run_id,
+        SlurmCommandClient(FakeSlurmRunner(jobs=(FakeSlurmJob(5101),))),
+    )
+    submitted = coordinator.submit(submitted_at=case.created_at + timedelta(minutes=10))
+    result = SlurmCollectionWorker(
+        case.workspace,
+        case.plan.run_id,
+        submitted.collection_id,
+        environment={"SLURM_JOB_ID": "5101"},
+    ).run(completed_at=case.created_at + timedelta(minutes=11))
+
+    expected = sum(shard.record_range.record_count - 9 for shard in case.shards)
+    assert result.actual_records == expected
+    assert lazy.pq.read_metadata(_output_root(case.plan) / result.files[0].relative_path).num_rows == expected
+    assert coordinator.submit().state is CollectionState.SUCCEEDED
+
+
+def test_collection_merges_reordered_struct_fields_from_partial_winners(
+    tmp_path: Path,
+    authored_run: DataDesignerSlurmConfig,
+    multi_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    case = _initialize_run(tmp_path, authored_run, multi_node_plan)
+    _publish_all_winners(case, shortfall=9, alternating_struct_order=True)
+    coordinator = SlurmCollectionCoordinator(
+        case.workspace,
+        case.plan.run_id,
+        SlurmCommandClient(FakeSlurmRunner(jobs=(FakeSlurmJob(5101),))),
+    )
+    submitted = coordinator.submit(submitted_at=case.created_at + timedelta(minutes=10))
+    result = SlurmCollectionWorker(
+        case.workspace,
+        case.plan.run_id,
+        submitted.collection_id,
+        environment={"SLURM_JOB_ID": "5101"},
+    ).run(completed_at=case.created_at + timedelta(minutes=11))
+
+    expected = sum(shard.record_range.record_count - 9 for shard in case.shards)
+    table = lazy.pq.read_table(_output_root(case.plan) / result.files[0].relative_path)
+    assert result.actual_records == expected
+    assert table.num_rows == expected
+    assert table.schema.field("editorial_assessment").type == lazy.pa.struct(
+        [lazy.pa.field("needs_revision", lazy.pa.bool_()), lazy.pa.field("visible_item", lazy.pa.string())]
+    )
+    rows = table.select(["record_id", "editorial_assessment"]).to_pylist()
+    assert all(row["editorial_assessment"]["visible_item"] == f"item-{row['record_id']}" for row in rows)
+
+
+def test_collection_schema_reordering_does_not_hide_type_or_field_changes() -> None:
+    field = lazy.pa.field
+    reference = lazy.pa.schema(
+        [field("assessment", lazy.pa.struct([field("flag", lazy.pa.bool_()), field("label", lazy.pa.string())]))]
+    )
+    reordered = lazy.pa.schema(
+        [field("assessment", lazy.pa.struct([field("label", lazy.pa.string()), field("flag", lazy.pa.bool_())]))]
+    )
+    changed_type = lazy.pa.schema(
+        [field("assessment", lazy.pa.struct([field("flag", lazy.pa.string()), field("label", lazy.pa.string())]))]
+    )
+    added_field = lazy.pa.schema(
+        [
+            field(
+                "assessment",
+                lazy.pa.struct(
+                    [field("flag", lazy.pa.bool_()), field("label", lazy.pa.string()), field("extra", lazy.pa.string())]
+                ),
+            )
+        ]
+    )
+
+    assert schemas_match_except_struct_order(reference, reordered)
+    assert not schemas_match_except_struct_order(reference, changed_type)
+    assert not schemas_match_except_struct_order(reference, added_field)
+
+
+def test_collection_requires_stable_plan_provenance_across_distinct_shards(
+    tmp_path: Path,
+    authored_run: DataDesignerSlurmConfig,
+    multi_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    case = _initialize_run(tmp_path, authored_run, multi_node_plan)
+    _publish_all_winners(case)
+    runner = FakeSlurmRunner(jobs=(FakeSlurmJob(5101),))
+    submitted = SlurmCollectionCoordinator(
+        case.workspace,
+        case.plan.run_id,
+        SlurmCommandClient(runner),
+    ).submit(submitted_at=case.created_at + timedelta(minutes=10))
+    state = StateStorage(case.workspace, case.plan.run_id)
+    collection_plan = CollectionStorage(state).read_plan(submitted.collection_id)
+    _, candidates = CollectionInputResolver(state, StateReader(state, case.plan.run_id)).resolve(collection_plan)
+
+    assert len({candidate.shard_id for candidate in candidates}) == len(candidates)
+    assert len({candidate.files[0].sha256 for candidate in candidates}) == len(candidates)
+    assert {candidate.provenance_digest for candidate in candidates} == {case.plan.compute_sha256()}
+    drifted = tuple(candidate.model_copy(update={"provenance_digest": "f" * 64}) for candidate in candidates)
+    with pytest.raises(StateContractError, match="does not match the resolved plan"):
+        validate_collection_inputs(case.plan, collection_plan, drifted)
+
+
+def test_collection_refresh_observes_running_during_bulk_merge(
+    tmp_path: Path,
+    authored_run: DataDesignerSlurmConfig,
+    multi_node_plan: ResolvedSlurmRunPlan,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    case = _initialize_run(tmp_path, authored_run, multi_node_plan)
+    _publish_all_winners(case)
+    runner = FakeSlurmRunner(jobs=(FakeSlurmJob(5101),))
+    scheduler = SlurmCommandClient(runner)
+    coordinator = SlurmCollectionCoordinator(case.workspace, case.plan.run_id, scheduler)
+    submitted = coordinator.submit(submitted_at=case.created_at + timedelta(minutes=10))
+    runner.set_job_state(5101, queue_state="RUNNING", accounting_state=None)
+    merge_started = Event()
+    release_merge = Event()
+    original_merge = collection_merge.CollectionMerger.merge
+
+    def pause_merge(*args: object, **kwargs: object) -> object:
+        merge_started.set()
+        assert release_merge.wait(timeout=3)
+        return original_merge(*args, **kwargs)
+
+    monkeypatch.setattr(collection_merge.CollectionMerger, "merge", pause_merge)
+    worker = SlurmCollectionWorker(
+        case.workspace,
+        case.plan.run_id,
+        submitted.collection_id,
+        environment={"SLURM_JOB_ID": "5101"},
+    )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        worker_result = executor.submit(worker.run, completed_at=case.created_at + timedelta(minutes=11))
+        assert merge_started.wait(timeout=3)
+        try:
+            refresh_result = executor.submit(
+                coordinator.refresh,
+                observed_at=case.created_at + timedelta(minutes=12),
+            ).result(timeout=2)
+        finally:
+            release_merge.set()
+        result = worker_result.result(timeout=5)
+
+    assert refresh_result.state is CollectionState.RUNNING
+    assert result.actual_records == case.plan.invocation.authored.num_records
+    assert (
+        CollectionStorage(StateStorage(case.workspace, case.plan.run_id)).read_status(submitted.collection_id).state
+        is CollectionState.SUCCEEDED
+    )
+
+
+def test_collection_requires_every_planned_winner_before_submission(
+    tmp_path: Path,
+    authored_run: DataDesignerSlurmConfig,
+    multi_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    case = _initialize_run(tmp_path, authored_run, multi_node_plan)
+
+    with pytest.raises(StateNotFoundError, match="has no winner"):
+        SlurmCollectionCoordinator(case.workspace, case.plan.run_id).submit(
+            submitted_at=case.created_at + timedelta(minutes=10)
+        )
+
+
+def test_collection_prepares_missing_authorized_destination_parents(
+    tmp_path: Path,
+    authored_run: DataDesignerSlurmConfig,
+    multi_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    case = _initialize_run(tmp_path, authored_run, multi_node_plan)
+    destination = case.workspace / "new" / "nested" / "output"
+    assert not destination.parent.exists()
+    _publish_all_winners(case)
+    runner = FakeSlurmRunner(jobs=(FakeSlurmJob(5101),))
+
+    submitted = SlurmCollectionCoordinator(
+        case.workspace,
+        case.plan.run_id,
+        SlurmCommandClient(runner),
+    ).submit(destination=destination, submitted_at=case.created_at + timedelta(minutes=10))
+
+    assert destination.parent.is_dir()
+    assert not destination.exists()
+    assert (
+        SlurmCollectionCoordinator(
+            case.workspace,
+            case.plan.run_id,
+            SlurmCommandClient(runner),
+        ).submit()
+        == submitted
+    )
+    result = SlurmCollectionWorker(
+        case.workspace,
+        case.plan.run_id,
+        submitted.collection_id,
+        environment={"SLURM_JOB_ID": "5101"},
+    ).run(completed_at=case.created_at + timedelta(minutes=11))
+    assert result.actual_records == case.plan.invocation.authored.num_records
+    assert destination.is_dir()
+
+
+def test_concurrent_collection_submission_converges_on_one_job(
+    tmp_path: Path,
+    authored_run: DataDesignerSlurmConfig,
+    multi_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    case = _initialize_run(tmp_path, authored_run, multi_node_plan)
+    _publish_all_winners(case)
+    runner = FakeSlurmRunner(jobs=(FakeSlurmJob(5101),))
+
+    def submit() -> object:
+        return SlurmCollectionCoordinator(
+            case.workspace,
+            case.plan.run_id,
+            SlurmCommandClient(runner),
+        ).submit(submitted_at=case.created_at + timedelta(minutes=10))
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = tuple(executor.map(lambda _: submit(), range(2)))
+
+    assert results[0] == results[1]
+    assert sum(Path(call[0]).name == "sbatch" for call in runner.calls) == 1
+
+
+def test_collection_ambiguous_submission_waits_for_scheduler_visibility_without_a_duplicate(
+    tmp_path: Path,
+    authored_run: DataDesignerSlurmConfig,
+    multi_node_plan: ResolvedSlurmRunPlan,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    case = _initialize_run(tmp_path, authored_run, multi_node_plan)
+    _publish_all_winners(case)
+    runner = FakeSlurmRunner()
+    scheduler = SlurmCommandClient(runner)
+    submissions = 0
+
+    def ambiguous_submit(script: str) -> object:
+        nonlocal submissions
+        del script
+        submissions += 1
+        raise SlurmSubmissionError("sbatch could not be executed: command timed out", may_have_succeeded=True)
+
+    monkeypatch.setattr(scheduler, "submit_script", ambiguous_submit)
+    coordinator = SlurmCollectionCoordinator(case.workspace, case.plan.run_id, scheduler)
+
+    with pytest.raises(SlurmStateError, match="cannot submit collection"):
+        coordinator.submit(submitted_at=case.created_at + timedelta(minutes=10))
+
+    storage = CollectionStorage(StateStorage(case.workspace, case.plan.run_id))
+    assert storage.read_status("collection-0001").state is CollectionState.PREPARED
+    runner.script_next("squeue", FakeCommandResponse())
+    runner.script_next("sacct", FakeCommandResponse())
+    with pytest.raises(StateConflictError, match="still being reconciled"):
+        SlurmCollectionCoordinator(case.workspace, case.plan.run_id, scheduler).submit(
+            submitted_at=case.created_at + timedelta(minutes=11)
+        )
+    assert submissions == 1
+
+
+def test_collection_recovers_an_accepted_submission_after_the_receipt_is_lost(
+    tmp_path: Path,
+    authored_run: DataDesignerSlurmConfig,
+    multi_node_plan: ResolvedSlurmRunPlan,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    case = _initialize_run(tmp_path, authored_run, multi_node_plan)
+    _publish_all_winners(case)
+    runner = FakeSlurmRunner(jobs=(FakeSlurmJob(5101),))
+    scheduler = SlurmCommandClient(runner)
+    original_submit = scheduler.submit_script
+
+    def accept_then_lose_receipt(script: str) -> object:
+        original_submit(script)
+        raise SlurmSubmissionError("sbatch response was lost", may_have_succeeded=True)
+
+    monkeypatch.setattr(scheduler, "submit_script", accept_then_lose_receipt)
+    with pytest.raises(SlurmStateError, match="cannot submit collection"):
+        SlurmCollectionCoordinator(case.workspace, case.plan.run_id, scheduler).submit(
+            submitted_at=case.created_at + timedelta(minutes=10)
+        )
+    monkeypatch.setattr(scheduler, "submit_script", original_submit)
+    storage = CollectionStorage(StateStorage(case.workspace, case.plan.run_id))
+    collection_plan = storage.read_plan("collection-0001")
+    runner.script_next(
+        "squeue",
+        FakeCommandResponse(stdout=f"5101|{collection_plan.submission_job_name}\n"),
+    )
+    runner.script_next("sacct", FakeCommandResponse())
+    waiting_for_binding = Event()
+    binding_published = Event()
+
+    def wait_for_binding(seconds: float) -> None:
+        assert seconds == 1
+        waiting_for_binding.set()
+        assert binding_published.wait(timeout=2)
+
+    monkeypatch.setattr(collection_worker_module, "sleep", wait_for_binding)
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        worker_result = executor.submit(
+            SlurmCollectionWorker(
+                case.workspace,
+                case.plan.run_id,
+                "collection-0001",
+                environment={"SLURM_JOB_ID": "5101"},
+            ).run,
+            completed_at=case.created_at + timedelta(minutes=12),
+        )
+        assert waiting_for_binding.wait(timeout=2)
+        recovered = SlurmCollectionCoordinator(case.workspace, case.plan.run_id, scheduler).refresh(
+            observed_at=case.created_at + timedelta(minutes=11)
+        )
+        binding_published.set()
+        result = worker_result.result(timeout=5)
+
+    assert recovered.collection_id == "collection-0001"
+    assert recovered.state is CollectionState.PENDING
+    assert recovered.scheduler == 5101
+    assert result.actual_records == case.plan.invocation.authored.num_records
+    settled = SlurmCollectionCoordinator(case.workspace, case.plan.run_id, scheduler).submit(
+        submitted_at=case.created_at + timedelta(minutes=13)
+    )
+    assert settled.state is CollectionState.SUCCEEDED
+    assert sum(Path(call[0]).name == "sbatch" for call in runner.calls) == 1
+
+
+def test_collection_fences_an_invisible_accepted_submission_before_replacement_writes(
+    tmp_path: Path,
+    authored_run: DataDesignerSlurmConfig,
+    multi_node_plan: ResolvedSlurmRunPlan,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    case = _initialize_run(tmp_path, authored_run, multi_node_plan)
+    _publish_all_winners(case)
+    runner = FakeSlurmRunner(jobs=(FakeSlurmJob(5101), FakeSlurmJob(5102)))
+    scheduler = SlurmCommandClient(runner)
+    original_submit = scheduler.submit_script
+
+    def accept_then_lose_receipt(script: str) -> object:
+        original_submit(script)
+        raise SlurmSubmissionError("sbatch response was lost", may_have_succeeded=True)
+
+    monkeypatch.setattr(scheduler, "submit_script", accept_then_lose_receipt)
+    with pytest.raises(SlurmStateError, match="cannot submit collection"):
+        SlurmCollectionCoordinator(case.workspace, case.plan.run_id, scheduler).submit(
+            submitted_at=case.created_at + timedelta(minutes=10)
+        )
+    monkeypatch.setattr(scheduler, "submit_script", original_submit)
+    runner.script_next("squeue", FakeCommandResponse())
+    runner.script_next("sacct", FakeCommandResponse())
+
+    submitted = SlurmCollectionCoordinator(case.workspace, case.plan.run_id, scheduler).submit(
+        submitted_at=case.created_at + timedelta(minutes=16)
+    )
+
+    storage = CollectionStorage(StateStorage(case.workspace, case.plan.run_id))
+    assert storage.read_status("collection-0001").state is CollectionState.FAILED
+    assert submitted.collection_id == "collection-0002"
+    assert submitted.state is CollectionState.SUBMITTED
+    assert submitted.scheduler == 5102
+    with pytest.raises(StateConflictError, match="ordinary Slurm job identity"):
+        SlurmCollectionWorker(
+            case.workspace,
+            case.plan.run_id,
+            "collection-0001",
+            environment={"SLURM_JOB_ID": "5101"},
+        ).run(completed_at=case.created_at + timedelta(minutes=17))
+    assert not _output_root(case.plan).exists()
+    assert sum(Path(call[0]).name == "sbatch" for call in runner.calls) == 2
+
+
+def test_collection_definite_submission_failure_settles_and_can_be_retried(
+    tmp_path: Path,
+    authored_run: DataDesignerSlurmConfig,
+    multi_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    case = _initialize_run(tmp_path, authored_run, multi_node_plan)
+    _publish_all_winners(case)
+    runner = FakeSlurmRunner(jobs=(FakeSlurmJob(5101),))
+    runner.script_next("sbatch", FakeCommandResponse(stderr="submission rejected", returncode=2))
+    coordinator = SlurmCollectionCoordinator(case.workspace, case.plan.run_id, SlurmCommandClient(runner))
+    destination = case.workspace / "exports" / "custom"
+
+    with pytest.raises(SlurmStateError, match="cannot submit collection"):
+        coordinator.submit(
+            destination=destination, num_partitions=3, submitted_at=case.created_at + timedelta(minutes=10)
+        )
+
+    storage = CollectionStorage(StateStorage(case.workspace, case.plan.run_id))
+    assert storage.read_status("collection-0001").state is CollectionState.FAILED
+    submitted = coordinator.submit(submitted_at=case.created_at + timedelta(minutes=11))
+    assert submitted.collection_id == "collection-0002"
+    assert submitted.state is CollectionState.SUBMITTED
+    assert storage.read_plan(submitted.collection_id).num_partitions == 3
+    assert storage.read_plan(submitted.collection_id).host_destination == destination.as_posix()
+
+
+def test_collection_discards_trailing_journal_interrupted_before_submission(
+    tmp_path: Path,
+    authored_run: DataDesignerSlurmConfig,
+    multi_node_plan: ResolvedSlurmRunPlan,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    case = _initialize_run(tmp_path, authored_run, multi_node_plan)
+    _publish_all_winners(case)
+    runner = FakeSlurmRunner(jobs=(FakeSlurmJob(5101),))
+    coordinator = SlurmCollectionCoordinator(case.workspace, case.plan.run_id, SlurmCommandClient(runner))
+    original_publish = CollectionStorage.publish_status
+
+    def interrupt_before_status(self: CollectionStorage, status: object) -> None:
+        del self, status
+        raise OSError("injected journal interruption")
+
+    monkeypatch.setattr(CollectionStorage, "publish_status", interrupt_before_status)
+    with pytest.raises(SlurmStateError, match="cannot submit collection"):
+        coordinator.submit(submitted_at=case.created_at + timedelta(minutes=10))
+    monkeypatch.setattr(CollectionStorage, "publish_status", original_publish)
+
+    submitted = coordinator.submit(submitted_at=case.created_at + timedelta(minutes=11))
+
+    assert submitted.collection_id == "collection-0001"
+    assert CollectionStorage(StateStorage(case.workspace, case.plan.run_id)).list_collection_ids() == (
+        "collection-0001",
+    )
+
+
+def test_collection_failure_removes_staging_without_publishing_partial_output(
+    tmp_path: Path,
+    authored_run: DataDesignerSlurmConfig,
+    multi_node_plan: ResolvedSlurmRunPlan,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    case = _initialize_run(tmp_path, authored_run, multi_node_plan)
+    _publish_all_winners(case)
+    runner = FakeSlurmRunner(jobs=(FakeSlurmJob(5101),))
+    submitted = SlurmCollectionCoordinator(
+        case.workspace,
+        case.plan.run_id,
+        SlurmCommandClient(runner),
+    ).submit(submitted_at=case.created_at + timedelta(minutes=10))
+
+    def fail_after_writes(*args: object, **kwargs: object) -> None:
+        del args, kwargs
+        raise OSError("injected collection failure")
+
+    monkeypatch.setattr(
+        "data_designer.slurm.state.collection_merge.CollectionMerger._write_result",
+        fail_after_writes,
+    )
+    with pytest.raises(SlurmStateError, match="collection .* failed"):
+        SlurmCollectionWorker(
+            case.workspace,
+            case.plan.run_id,
+            submitted.collection_id,
+            environment={"SLURM_JOB_ID": "5101"},
+        ).run(completed_at=case.created_at + timedelta(minutes=11))
+
+    destination = _output_root(case.plan)
+    assert not destination.exists()
+    assert not tuple(destination.parent.glob(".dd-*.tmp"))
+    persisted = CollectionStorage(StateStorage(case.workspace, case.plan.run_id)).read_status(submitted.collection_id)
+    assert persisted.state is CollectionState.FAILED
+
+
+def test_collection_rejects_output_replacement_before_descriptor_digest(
+    tmp_path: Path,
+    authored_run: DataDesignerSlurmConfig,
+    multi_node_plan: ResolvedSlurmRunPlan,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    case = _initialize_run(tmp_path, authored_run, multi_node_plan)
+    _publish_all_winners(case)
+    runner = FakeSlurmRunner(jobs=(FakeSlurmJob(5101),))
+    submitted = SlurmCollectionCoordinator(
+        case.workspace,
+        case.plan.run_id,
+        SlurmCommandClient(runner),
+    ).submit(submitted_at=case.created_at + timedelta(minutes=10))
+    original_describe = collection_merge._BoundOutput.describe
+    injected = False
+
+    def replace_output_before_describe(
+        output: collection_merge._BoundOutput,
+        relative_path: str,
+        record_count: int,
+    ) -> object:
+        nonlocal injected
+        if not injected:
+            injected = True
+            output.path.rename(output.path.with_suffix(f"{output.path.suffix}.written"))
+            output.path.write_bytes(b"replacement")
+            output.path.chmod(0o600)
+        return original_describe(output, relative_path, record_count)
+
+    monkeypatch.setattr(collection_merge._BoundOutput, "describe", replace_output_before_describe)
+
+    with pytest.raises(SlurmStateError, match="collection .* failed"):
+        SlurmCollectionWorker(
+            case.workspace,
+            case.plan.run_id,
+            submitted.collection_id,
+            environment={"SLURM_JOB_ID": "5101"},
+        ).run(completed_at=case.created_at + timedelta(minutes=11))
+
+    destination = _output_root(case.plan)
+    assert not destination.exists()
+    assert not (destination.parent / submitted.staging_directory).exists()
+    persisted = CollectionStorage(StateStorage(case.workspace, case.plan.run_id)).read_status(submitted.collection_id)
+    assert persisted.state is CollectionState.FAILED
+
+
+def test_collection_refresh_cleans_only_its_exact_stage_after_oom(
+    tmp_path: Path,
+    authored_run: DataDesignerSlurmConfig,
+    multi_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    case = _initialize_run(tmp_path, authored_run, multi_node_plan)
+    _publish_all_winners(case)
+    runner = FakeSlurmRunner(jobs=(FakeSlurmJob(5101),))
+    coordinator = SlurmCollectionCoordinator(case.workspace, case.plan.run_id, SlurmCommandClient(runner))
+    submitted = coordinator.submit(submitted_at=case.created_at + timedelta(minutes=10))
+    parent = _output_root(case.plan).parent
+    exact_stage = parent / submitted.staging_directory
+    exact_stage.mkdir(mode=0o700)
+    (exact_stage / "partial.parquet").write_text("incomplete")
+    unrelated_stage = parent / f".dd-collection-{'e' * 32}.tmp"
+    unrelated_stage.mkdir(mode=0o700)
+    (unrelated_stage / "active").write_text("preserve")
+    runner.set_job_state(5101, queue_state=None, accounting_state="OUT_OF_MEMORY", exit_code="0:125")
+
+    refreshed = coordinator.refresh(observed_at=case.created_at + timedelta(minutes=11))
+
+    assert refreshed.state is CollectionState.FAILED
+    assert not exact_stage.exists()
+    assert (unrelated_stage / "active").read_text() == "preserve"
+    assert not _output_root(case.plan).exists()
+
+
+def test_collection_uses_merge_partition_count(
+    tmp_path: Path,
+    authored_run: DataDesignerSlurmConfig,
+    multi_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    case = _initialize_run(tmp_path, authored_run, multi_node_plan)
+    _publish_all_winners(case)
+    runner = FakeSlurmRunner(jobs=(FakeSlurmJob(5101),))
+    coordinator = SlurmCollectionCoordinator(
+        case.workspace,
+        case.plan.run_id,
+        SlurmCommandClient(runner),
+    )
+    submitted = coordinator.submit(num_partitions=3, submitted_at=case.created_at + timedelta(minutes=10))
+    storage = CollectionStorage(StateStorage(case.workspace, case.plan.run_id))
+    plan = storage.read_plan(submitted.collection_id)
+    assert plan.num_partitions == 3
+    assert coordinator.submit() == submitted
+
+    with pytest.raises(StateConflictError, match="partition count"):
+        coordinator.submit(num_partitions=2)
+
+    resolved_plan, candidates = CollectionInputResolver(
+        StateStorage(case.workspace, case.plan.run_id),
+        StateReader(StateStorage(case.workspace, case.plan.run_id), case.plan.run_id),
+    ).resolve(plan)
+    excessive = plan.model_copy(update={"num_partitions": case.plan.invocation.authored.num_records + 1})
+    with pytest.raises(StateConflictError, match="partitions exceed requested records"):
+        CollectionDestinationResolver().validate_persisted(resolved_plan, excessive)
+    with pytest.raises(StateContractError, match="partitions exceed available records"):
+        validate_collection_inputs(resolved_plan, excessive, candidates)
+
+    result = SlurmCollectionWorker(
+        case.workspace,
+        case.plan.run_id,
+        submitted.collection_id,
+        environment={"SLURM_JOB_ID": "5101"},
+    ).run(completed_at=case.created_at + timedelta(minutes=11))
+
+    assert [file.relative_path for file in result.files] == [
+        "part-00000.parquet",
+        "part-00001.parquet",
+        "part-00002.parquet",
+    ]
+    values = [
+        value
+        for file in result.files
+        for value in lazy.pq.read_table(_output_root(case.plan) / file.relative_path).column("record_id").to_pylist()
+    ]
+    assert values == list(range(case.plan.invocation.authored.num_records))
+
+
+def test_succeeded_collection_rejects_modified_partition_bytes(
+    tmp_path: Path,
+    authored_run: DataDesignerSlurmConfig,
+    multi_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    case = _initialize_run(tmp_path, authored_run, multi_node_plan)
+    _publish_all_winners(case)
+    runner = FakeSlurmRunner(jobs=(FakeSlurmJob(5101),))
+    coordinator = SlurmCollectionCoordinator(case.workspace, case.plan.run_id, SlurmCommandClient(runner))
+    submitted = coordinator.submit(submitted_at=case.created_at + timedelta(minutes=10))
+    result = SlurmCollectionWorker(
+        case.workspace,
+        case.plan.run_id,
+        submitted.collection_id,
+        environment={"SLURM_JOB_ID": "5101"},
+    ).run(completed_at=case.created_at + timedelta(minutes=11))
+    output_path = _output_root(case.plan) / result.files[0].relative_path
+    output_path.write_bytes(output_path.read_bytes() + b"tampered")
+
+    with pytest.raises(SlurmStateError, match="cannot submit collection"):
+        coordinator.submit()
+
+
+def test_succeeded_collection_rejects_same_size_partition_mutation(
+    tmp_path: Path,
+    authored_run: DataDesignerSlurmConfig,
+    multi_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    case = _initialize_run(tmp_path, authored_run, multi_node_plan)
+    _publish_all_winners(case)
+    runner = FakeSlurmRunner(jobs=(FakeSlurmJob(5101),))
+    coordinator = SlurmCollectionCoordinator(case.workspace, case.plan.run_id, SlurmCommandClient(runner))
+    submitted = coordinator.submit(submitted_at=case.created_at + timedelta(minutes=10))
+    result = SlurmCollectionWorker(
+        case.workspace,
+        case.plan.run_id,
+        submitted.collection_id,
+        environment={"SLURM_JOB_ID": "5101"},
+    ).run(completed_at=case.created_at + timedelta(minutes=11))
+    output_path = _output_root(case.plan) / result.files[0].relative_path
+    content = bytearray(output_path.read_bytes())
+    content[-1] ^= 1
+    output_path.write_bytes(content)
+
+    with pytest.raises(SlurmStateError, match="cannot submit collection"):
+        coordinator.submit()
+
+
+def test_succeeded_collection_status_check_does_not_read_partition_payloads(
+    tmp_path: Path,
+    authored_run: DataDesignerSlurmConfig,
+    multi_node_plan: ResolvedSlurmRunPlan,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    case = _initialize_run(tmp_path, authored_run, multi_node_plan)
+    _publish_all_winners(case)
+    runner = FakeSlurmRunner(jobs=(FakeSlurmJob(5101),))
+    coordinator = SlurmCollectionCoordinator(case.workspace, case.plan.run_id, SlurmCommandClient(runner))
+    submitted = coordinator.submit(submitted_at=case.created_at + timedelta(minutes=10))
+    SlurmCollectionWorker(
+        case.workspace,
+        case.plan.run_id,
+        submitted.collection_id,
+        environment={"SLURM_JOB_ID": "5101"},
+    ).run(completed_at=case.created_at + timedelta(minutes=11))
+    original_open = collection_storage_module.open_verified_regular_file
+
+    def reject_partition_reads(*args: object, **kwargs: object) -> object:
+        if args[1] != "collection-result.json":
+            raise AssertionError("login-host validation attempted to read collected partition bytes")
+        return original_open(*args, **kwargs)
+
+    monkeypatch.setattr(collection_storage_module, "open_verified_regular_file", reject_partition_reads)
+
+    assert coordinator.submit().state is CollectionState.SUCCEEDED
+
+
+def test_succeeded_collection_rejects_status_result_digest_mismatch(
+    tmp_path: Path,
+    authored_run: DataDesignerSlurmConfig,
+    multi_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    case = _initialize_run(tmp_path, authored_run, multi_node_plan)
+    _publish_all_winners(case)
+    runner = FakeSlurmRunner(jobs=(FakeSlurmJob(5101),))
+    coordinator = SlurmCollectionCoordinator(case.workspace, case.plan.run_id, SlurmCommandClient(runner))
+    submitted = coordinator.submit(submitted_at=case.created_at + timedelta(minutes=10))
+    SlurmCollectionWorker(
+        case.workspace,
+        case.plan.run_id,
+        submitted.collection_id,
+        environment={"SLURM_JOB_ID": "5101"},
+    ).run(completed_at=case.created_at + timedelta(minutes=11))
+    storage = CollectionStorage(StateStorage(case.workspace, case.plan.run_id))
+    succeeded = storage.read_status(submitted.collection_id)
+    assert succeeded.result is not None
+    storage.replace_status(
+        succeeded.model_copy(
+            update={
+                "result": succeeded.result.model_copy(update={"sha256": "f" * 64}),
+            }
+        )
+    )
+
+    with pytest.raises(StateCorruptionError, match="does not bind its published result"):
+        coordinator.submit()
+
+
+def test_collection_refuses_destination_collision_before_submission(
+    tmp_path: Path,
+    authored_run: DataDesignerSlurmConfig,
+    multi_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    case = _initialize_run(tmp_path, authored_run, multi_node_plan)
+    _publish_all_winners(case)
+    destination = _output_root(case.plan)
+    destination.mkdir(mode=0o700)
+    marker = destination / "existing.txt"
+    marker.write_text("preserve")
+    runner = FakeSlurmRunner(jobs=(FakeSlurmJob(5101),))
+
+    with pytest.raises(StateConflictError, match="already exists"):
+        SlurmCollectionCoordinator(
+            case.workspace,
+            case.plan.run_id,
+            SlurmCommandClient(runner),
+        ).submit(submitted_at=case.created_at + timedelta(minutes=10))
+
+    assert marker.read_text() == "preserve"
+    assert not any(Path(call[0]).name == "sbatch" for call in runner.calls)
+
+
+def test_collection_refuses_atomic_publication_collision_without_replacement(
+    tmp_path: Path,
+    authored_run: DataDesignerSlurmConfig,
+    multi_node_plan: ResolvedSlurmRunPlan,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    case = _initialize_run(tmp_path, authored_run, multi_node_plan)
+    _publish_all_winners(case)
+    runner = FakeSlurmRunner(jobs=(FakeSlurmJob(5101),))
+    submitted = SlurmCollectionCoordinator(
+        case.workspace,
+        case.plan.run_id,
+        SlurmCommandClient(runner),
+    ).submit(submitted_at=case.created_at + timedelta(minutes=10))
+    destination = _output_root(case.plan)
+    original_rename = collection_filesystem._rename_without_overwrite
+
+    def collide(
+        source_directory: int,
+        source_name: str,
+        destination_directory: int,
+        destination_name: str,
+    ) -> None:
+        destination.mkdir(mode=0o700)
+        (destination / "existing.txt").write_text("preserve")
+        original_rename(source_directory, source_name, destination_directory, destination_name)
+
+    monkeypatch.setattr(collection_filesystem, "_rename_without_overwrite", collide)
+
+    with pytest.raises(StateConflictError, match="already exists"):
+        SlurmCollectionWorker(
+            case.workspace,
+            case.plan.run_id,
+            submitted.collection_id,
+            environment={"SLURM_JOB_ID": "5101"},
+        ).run(completed_at=case.created_at + timedelta(minutes=11))
+
+    assert (destination / "existing.txt").read_text() == "preserve"
+    assert not (destination.parent / submitted.staging_directory).exists()
+
+
+def test_collection_publication_falls_back_when_atomic_no_replace_is_unsupported(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    parent = tmp_path / "publication"
+    parent.mkdir(mode=0o700)
+    source = parent / "staged"
+    source.mkdir(mode=0o700)
+    (source / "part-00000.parquet").write_text("complete")
+
+    def unsupported(*args: object) -> None:
+        raise OSError(errno.EINVAL, "unsupported by filesystem")
+
+    monkeypatch.setattr(collection_filesystem, "_atomic_rename_without_overwrite", unsupported)
+    descriptor = os.open(parent, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        collection_filesystem._rename_without_overwrite(descriptor, source.name, descriptor, "collected")
+    finally:
+        os.close(descriptor)
+
+    assert not source.exists()
+    assert (parent / "collected" / "part-00000.parquet").read_text() == "complete"
+    assert not any(name.startswith(".dd-collection-reservation-") for name in os.listdir(parent))
+
+
+def test_collection_publication_fallback_preserves_existing_destination(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    parent = tmp_path / "publication"
+    parent.mkdir(mode=0o700)
+    source = parent / "staged"
+    source.mkdir(mode=0o700)
+    destination = parent / "collected"
+    destination.mkdir(mode=0o700)
+    marker = destination / "existing.txt"
+    marker.write_text("preserve")
+
+    def unsupported(*args: object) -> None:
+        raise OSError(errno.EOPNOTSUPP, "unsupported by filesystem")
+
+    monkeypatch.setattr(collection_filesystem, "_atomic_rename_without_overwrite", unsupported)
+    descriptor = os.open(parent, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        with pytest.raises(StateConflictError, match="already exists"):
+            collection_filesystem._rename_without_overwrite(descriptor, source.name, descriptor, destination.name)
+    finally:
+        os.close(descriptor)
+
+    assert source.is_dir()
+    assert marker.read_text() == "preserve"
+    assert not any(name.startswith(".dd-collection-reservation-") for name in os.listdir(parent))
+
+
+def test_collection_worker_recovers_interrupted_private_reservation(
+    tmp_path: Path,
+    authored_run: DataDesignerSlurmConfig,
+    multi_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    case = _initialize_run(tmp_path, authored_run, multi_node_plan)
+    _publish_all_winners(case)
+    runner = FakeSlurmRunner(jobs=(FakeSlurmJob(5101),))
+    submitted = SlurmCollectionCoordinator(
+        case.workspace,
+        case.plan.run_id,
+        SlurmCommandClient(runner),
+    ).submit(submitted_at=case.created_at + timedelta(minutes=10))
+    destination = _output_root(case.plan)
+    marker_name = collection_filesystem._reservation_marker_name(submitted.staging_directory, destination.name)
+    descriptor = os.open(destination.parent, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.mkdir(destination.name, 0o700, dir_fd=descriptor)
+        os.fsync(descriptor)
+        reservation = os.stat(destination.name, dir_fd=descriptor, follow_symlinks=False)
+        marker_bytes = collection_filesystem._reservation_marker_bytes(
+            submitted.staging_directory,
+            destination.name,
+            (reservation.st_dev, reservation.st_ino, reservation.st_ctime_ns),
+        )
+        collection_filesystem._create_reservation_marker(descriptor, marker_name, marker_bytes)
+    finally:
+        os.close(descriptor)
+
+    result = SlurmCollectionWorker(
+        case.workspace,
+        case.plan.run_id,
+        submitted.collection_id,
+        environment={"SLURM_JOB_ID": "5101"},
+    ).run(completed_at=case.created_at + timedelta(minutes=11))
+
+    assert result.actual_records == case.plan.invocation.authored.num_records
+    collections = CollectionStorage(StateStorage(case.workspace, case.plan.run_id))
+    assert collections.get_result_path(collections.read_plan(submitted.collection_id)).is_file()
+    assert not (destination.parent / marker_name).exists()
+
+
+def test_collection_reservation_metadata_failure_preserves_unmarked_destination(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    parent = tmp_path / "publication"
+    parent.mkdir(mode=0o700)
+    source = parent / "staged"
+    source.mkdir(mode=0o700)
+    destination = parent / "collected"
+    marker_name = collection_filesystem._reservation_marker_name(source.name, destination.name)
+
+    def unsupported(*args: object) -> None:
+        raise OSError(errno.EINVAL, "unsupported by filesystem")
+
+    original_stat = os.stat
+    descriptor = os.open(parent, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        with monkeypatch.context() as patcher:
+            patcher.setattr(collection_filesystem, "_atomic_rename_without_overwrite", unsupported)
+
+            def fail_reservation_stat(path: object, *args: object, **kwargs: object) -> os.stat_result:
+                if path == destination.name and kwargs.get("dir_fd") == descriptor:
+                    raise OSError(errno.EIO, "reservation metadata unavailable")
+                return original_stat(path, *args, **kwargs)
+
+            patcher.setattr(os, "stat", fail_reservation_stat)
+            with pytest.raises(OSError, match="reservation metadata unavailable"):
+                collection_filesystem._rename_without_overwrite(descriptor, source.name, descriptor, destination.name)
+    finally:
+        os.close(descriptor)
+
+    assert destination.is_dir()
+    assert not (parent / marker_name).exists()
+    collection_filesystem.remove_collection_stage(destination, source.name, parent)
+    assert destination.is_dir()
+    assert not source.exists()
+    assert not (parent / marker_name).exists()
+
+
+def test_collection_recovery_preserves_unrelated_empty_destination(
+    tmp_path: Path,
+    authored_run: DataDesignerSlurmConfig,
+    multi_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    case = _initialize_run(tmp_path, authored_run, multi_node_plan)
+    _publish_all_winners(case)
+    runner = FakeSlurmRunner(jobs=(FakeSlurmJob(5101),))
+    submitted = SlurmCollectionCoordinator(
+        case.workspace,
+        case.plan.run_id,
+        SlurmCommandClient(runner),
+    ).submit(submitted_at=case.created_at + timedelta(minutes=10))
+    destination = _output_root(case.plan)
+    unrelated = destination.parent / "unrelated-reservation"
+    unrelated.mkdir(mode=0o700)
+    destination.mkdir(mode=0o700)
+    marker_name = collection_filesystem._reservation_marker_name(submitted.staging_directory, destination.name)
+    unrelated_stat = unrelated.stat()
+    marker_bytes = collection_filesystem._reservation_marker_bytes(
+        submitted.staging_directory,
+        destination.name,
+        (unrelated_stat.st_dev, unrelated_stat.st_ino, unrelated_stat.st_ctime_ns),
+    )
+    descriptor = os.open(destination.parent, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        collection_filesystem._create_reservation_marker(descriptor, marker_name, marker_bytes)
+    finally:
+        os.close(descriptor)
+
+    with pytest.raises(StateConflictError, match="already exists"):
+        SlurmCollectionWorker(
+            case.workspace,
+            case.plan.run_id,
+            submitted.collection_id,
+            environment={"SLURM_JOB_ID": "5101"},
+        ).run(completed_at=case.created_at + timedelta(minutes=11))
+
+    assert destination.is_dir()
+    assert not list(destination.iterdir())
+    assert unrelated.is_dir()
+    assert not (destination.parent / marker_name).exists()
+
+
+def test_collection_recovery_rejects_reused_inode_with_changed_timestamp(tmp_path: Path) -> None:
+    parent = tmp_path / "publication"
+    parent.mkdir(mode=0o700)
+    source = parent / "staged"
+    source.mkdir(mode=0o700)
+    destination = parent / "collected"
+    destination.mkdir(mode=0o700)
+    current = destination.stat()
+    marker_name = collection_filesystem._reservation_marker_name(source.name, destination.name)
+    marker_bytes = collection_filesystem._reservation_marker_bytes(
+        source.name,
+        destination.name,
+        (current.st_dev, current.st_ino, current.st_ctime_ns + 1),
+    )
+    descriptor = os.open(parent, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        collection_filesystem._create_reservation_marker(descriptor, marker_name, marker_bytes)
+    finally:
+        os.close(descriptor)
+
+    collection_filesystem.remove_collection_stage(destination, source.name, parent)
+
+    assert destination.is_dir()
+    assert not source.exists()
+    assert not (parent / marker_name).exists()
+
+
+def test_collection_failed_publication_preserves_changed_reservation(tmp_path: Path) -> None:
+    parent = tmp_path / "publication"
+    parent.mkdir(mode=0o700)
+    destination = parent / "collected"
+    destination.mkdir(mode=0o700)
+    reservation = destination.stat()
+    destination.chmod(0o500)
+    assert destination.stat().st_ctime_ns != reservation.st_ctime_ns
+
+    descriptor = os.open(parent, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        collection_filesystem._remove_unchanged_reservation(descriptor, destination.name, reservation)
+    finally:
+        os.close(descriptor)
+
+    assert destination.is_dir()
+
+
+def test_collection_detects_destination_parent_replacement_before_success(
+    tmp_path: Path,
+    authored_run: DataDesignerSlurmConfig,
+    multi_node_plan: ResolvedSlurmRunPlan,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    case = _initialize_run(tmp_path, authored_run, multi_node_plan)
+    _publish_all_winners(case)
+    runner = FakeSlurmRunner(jobs=(FakeSlurmJob(5101),))
+    submitted = SlurmCollectionCoordinator(
+        case.workspace,
+        case.plan.run_id,
+        SlurmCommandClient(runner),
+    ).submit(destination=case.workspace / "exports" / "output", submitted_at=case.created_at + timedelta(minutes=10))
+    destination = case.workspace / "exports" / "output"
+    original_parent = destination.parent
+    moved_parent = original_parent.with_name("moved-exports")
+    original_rename = collection_filesystem._rename_without_overwrite
+    injected = False
+
+    def replace_parent(
+        source_directory: int,
+        source_name: str,
+        destination_directory: int,
+        destination_name: str,
+    ) -> None:
+        nonlocal injected
+        if not injected:
+            injected = True
+            original_parent.rename(moved_parent)
+            original_parent.mkdir(mode=0o700)
+        original_rename(source_directory, source_name, destination_directory, destination_name)
+
+    monkeypatch.setattr(collection_filesystem, "_rename_without_overwrite", replace_parent)
+
+    with pytest.raises(SlurmStateError, match="collection .* failed"):
+        SlurmCollectionWorker(
+            case.workspace,
+            case.plan.run_id,
+            submitted.collection_id,
+            environment={"SLURM_JOB_ID": "5101"},
+        ).run(completed_at=case.created_at + timedelta(minutes=11))
+
+    assert not destination.exists()
+    assert not (moved_parent / destination.name).exists()
+    assert not (moved_parent / submitted.staging_directory).exists()
+    persisted = CollectionStorage(StateStorage(case.workspace, case.plan.run_id)).read_status(submitted.collection_id)
+    assert persisted.state is CollectionState.FAILED
+
+
+def test_collection_recovers_when_publication_completed_before_reported_error(
+    tmp_path: Path,
+    authored_run: DataDesignerSlurmConfig,
+    multi_node_plan: ResolvedSlurmRunPlan,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    case = _initialize_run(tmp_path, authored_run, multi_node_plan)
+    _publish_all_winners(case)
+    runner = FakeSlurmRunner(jobs=(FakeSlurmJob(5101),))
+    submitted = SlurmCollectionCoordinator(
+        case.workspace,
+        case.plan.run_id,
+        SlurmCommandClient(runner),
+    ).submit(submitted_at=case.created_at + timedelta(minutes=10))
+    original_rename = collection_filesystem._rename_without_overwrite
+
+    def publish_then_fail(
+        source_directory: int,
+        source_name: str,
+        destination_directory: int,
+        destination_name: str,
+    ) -> None:
+        original_rename(source_directory, source_name, destination_directory, destination_name)
+        raise OSError("injected post-rename failure")
+
+    monkeypatch.setattr(collection_filesystem, "_rename_without_overwrite", publish_then_fail)
+
+    result = SlurmCollectionWorker(
+        case.workspace,
+        case.plan.run_id,
+        submitted.collection_id,
+        environment={"SLURM_JOB_ID": "5101"},
+    ).run(completed_at=case.created_at + timedelta(minutes=11))
+
+    assert result.actual_records == case.plan.invocation.authored.num_records
+    persisted = CollectionStorage(StateStorage(case.workspace, case.plan.run_id)).read_status(submitted.collection_id)
+    assert persisted.state is CollectionState.SUCCEEDED
+    assert _output_root(case.plan).is_dir()
+
+
+def test_collection_worker_rejects_login_node_execution(
+    tmp_path: Path,
+    authored_run: DataDesignerSlurmConfig,
+    multi_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    case = _initialize_run(tmp_path, authored_run, multi_node_plan)
+    _publish_all_winners(case)
+    runner = FakeSlurmRunner(jobs=(FakeSlurmJob(5101),))
+    submitted = SlurmCollectionCoordinator(
+        case.workspace,
+        case.plan.run_id,
+        SlurmCommandClient(runner),
+    ).submit(submitted_at=case.created_at + timedelta(minutes=10))
+
+    with pytest.raises(StateConflictError, match="inside its recorded Slurm job"):
+        SlurmCollectionWorker(
+            case.workspace,
+            case.plan.run_id,
+            submitted.collection_id,
+            environment={},
+        ).run(completed_at=case.created_at + timedelta(minutes=11))
+
+
+def test_collection_worker_rejects_login_node_recovery_before_reading_outputs(
+    tmp_path: Path,
+    authored_run: DataDesignerSlurmConfig,
+    multi_node_plan: ResolvedSlurmRunPlan,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    case = _initialize_run(tmp_path, authored_run, multi_node_plan)
+    _publish_all_winners(case)
+    runner = FakeSlurmRunner(jobs=(FakeSlurmJob(5101),))
+    submitted = SlurmCollectionCoordinator(
+        case.workspace,
+        case.plan.run_id,
+        SlurmCommandClient(runner),
+    ).submit(submitted_at=case.created_at + timedelta(minutes=10))
+    SlurmCollectionWorker(
+        case.workspace,
+        case.plan.run_id,
+        submitted.collection_id,
+        environment={"SLURM_JOB_ID": "5101"},
+    ).run(completed_at=case.created_at + timedelta(minutes=11))
+    storage = CollectionStorage(StateStorage(case.workspace, case.plan.run_id))
+    storage.replace_status(submitted)
+
+    def reject_output_reads(*args: object, **kwargs: object) -> None:
+        del args, kwargs
+        raise AssertionError("login-host worker attempted to read collected outputs")
+
+    monkeypatch.setattr(CollectionStorage, "verify_result_files", reject_output_reads)
+    worker = SlurmCollectionWorker(
+        case.workspace,
+        case.plan.run_id,
+        submitted.collection_id,
+        environment={},
+    )
+
+    with pytest.raises(StateConflictError, match="inside its recorded Slurm job"):
+        worker.run(completed_at=case.created_at + timedelta(minutes=12))
+
+    assert storage.read_status(submitted.collection_id) == submitted
+
+
+def test_collection_worker_validates_location_before_constructing_state(tmp_path: Path) -> None:
+    with pytest.raises(SlurmStateError, match="invalid persisted collection worker location"):
+        SlurmCollectionWorker("relative/workspace", "run-001", "collection-0001")
+    with pytest.raises(SlurmStateError, match="invalid persisted collection worker location"):
+        SlurmCollectionWorker(tmp_path, "../run", "collection-0001")
+
+
+def _output_root(plan: ResolvedSlurmRunPlan) -> Path:
+    return Path(plan.selected_profile.profile.workspace_root) / "runs" / plan.run_id / "merge-output"
+
+
+def _initialize_run(
+    tmp_path: Path,
+    authored_config: DataDesignerSlurmConfig,
+    plan: ResolvedSlurmRunPlan,
+) -> _RunCase:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir(mode=0o700)
+    relocated_plan = _relocate_plan(plan, workspace)
+    created_at = datetime(2026, 9, 1, 12, tzinfo=UTC)
+    run_root = workspace / "runs" / relocated_plan.run_id
+    run = RunManifest(
+        schema_version=1,
+        run_id=relocated_plan.run_id,
+        created_at=created_at,
+        authored_config=relocated_plan.authored_config,
+        resolved_plan=ArtifactReference(
+            path=(run_root / "resolved-plan.json").as_posix(),
+            sha256=relocated_plan.compute_sha256(),
+        ),
+        shard_count=len(relocated_plan.shards),
+    )
+    shards = tuple(
+        ShardManifest(
+            schema_version=1,
+            run_id=run.run_id,
+            shard_id=planned.shard_id,
+            shard_index=planned.shard_index,
+            record_range=planned.record_range,
+            input_partition=planned.input_partition,
+            resume_workspace=planned.resume_workspace,
+            created_at=created_at,
+        )
+        for planned in relocated_plan.shards
+    )
+    writer = SlurmStateWriter(workspace, run.run_id)
+    writer.initialize_run(authored_config, relocated_plan, run, shards)
+    return _RunCase(workspace, relocated_plan, run, shards, writer, created_at)
+
+
+def _relocate_plan(plan: ResolvedSlurmRunPlan, workspace: Path) -> ResolvedSlurmRunPlan:
+    previous_workspace = plan.selected_profile.profile.workspace_root
+    payload = cast(
+        dict[str, object],
+        json.loads(plan.serialize_json().replace(previous_workspace, workspace.as_posix())),
+    )
+    selected_profile = cast(dict[str, object], payload["selected_profile"])
+    profile_payload = cast(dict[str, object], selected_profile["profile"])
+    profile_mounts = cast(list[dict[str, object]], profile_payload["container_mounts"])
+    resolved_mounts = cast(list[dict[str, object]], payload["container_mounts"])
+    for mount in (*profile_mounts, *resolved_mounts):
+        mount["source"] = workspace.parent.as_posix()
+        mount["target"] = workspace.parent.as_posix()
+    profile = SlurmProfile.model_validate(selected_profile["profile"])
+    selected_profile["profile_sha256"] = compute_canonical_json_sha256(profile.model_dump(mode="json"))
+    return ResolvedSlurmRunPlan.model_validate_json(json.dumps(payload))
+
+
+def _submitted_attempt(
+    case: _RunCase,
+    shard: ShardManifest,
+    *,
+    scheduler: SchedulerIdentity,
+) -> AttemptManifest:
+    return AttemptManifest(
+        schema_version=1,
+        run_id=case.run.run_id,
+        shard_id=shard.shard_id,
+        attempt_id="attempt-0001",
+        attempt_ordinal=1,
+        resolved_plan=case.run.resolved_plan,
+        state=AttemptLifecycleState.SUBMITTED,
+        scheduler=scheduler,
+        created_at=case.created_at + timedelta(minutes=1),
+        updated_at=case.created_at + timedelta(minutes=1),
+    )
+
+
+def _publish_all_winners(
+    case: _RunCase,
+    *,
+    shortfall: int = 0,
+    alternating_struct_order: bool = False,
+) -> None:
+    for shard in case.shards:
+        scheduler = SchedulerIdentity(array_job_id=4101, array_task_id=shard.shard_index)
+        submitted = _submitted_attempt(case, shard, scheduler=scheduler)
+        case.writer.create_attempt(submitted)
+        running = _copy_attempt(
+            submitted,
+            state=AttemptLifecycleState.RUNNING,
+            updated_at=case.created_at + timedelta(minutes=2),
+        )
+        case.writer.update_attempt(running)
+        with case.writer.acquire_dataset_workspace(shard.shard_id, submitted.attempt_id, "never") as dataset_path:
+            _publish_candidate(
+                case,
+                shard,
+                running,
+                dataset_path,
+                shortfall=shortfall,
+                struct_fields_reversed=alternating_struct_order and shard.shard_index % 2 == 1,
+                with_struct=alternating_struct_order,
+            )
+        case.writer.finalize_winner(
+            shard.shard_id,
+            running.attempt_id,
+            published_at=case.created_at + timedelta(minutes=6),
+        )
+
+
+def _publish_candidate(
+    case: _RunCase,
+    shard: ShardManifest,
+    running: AttemptManifest,
+    dataset_path: Path,
+    *,
+    shortfall: int = 0,
+    with_struct: bool = False,
+    struct_fields_reversed: bool = False,
+) -> None:
+    output_path = dataset_path / "part-00000.parquet"
+    actual_records = shard.record_range.record_count - shortfall
+    values = range(shard.record_range.start_index, shard.record_range.start_index + actual_records)
+    table = lazy.pa.table({"record_id": values})
+    if with_struct:
+        struct_fields = [
+            lazy.pa.field("needs_revision", lazy.pa.bool_()),
+            lazy.pa.field("visible_item", lazy.pa.string()),
+        ]
+        if struct_fields_reversed:
+            struct_fields.reverse()
+        assessment = lazy.pa.array(
+            [{"needs_revision": index % 2 == 0, "visible_item": f"item-{index}"} for index in values],
+            type=lazy.pa.struct(struct_fields),
+        )
+        table = table.append_column("editorial_assessment", assessment)
+    lazy.pq.write_table(table, output_path)
+    output_path.chmod(0o644)
+    content = output_path.read_bytes()
+    candidate_path = (
+        case.writer.run_root / "shards" / shard.shard_id / "attempts" / running.attempt_id / "output-manifest.json"
+    )
+    candidate = CandidateOutputManifest(
+        schema_version=1,
+        run_id=case.run.run_id,
+        shard_id=shard.shard_id,
+        attempt_id=running.attempt_id,
+        attempt_ordinal=running.attempt_ordinal,
+        created_at=running.updated_at + timedelta(minutes=1),
+        dataset_path=dataset_path.as_posix(),
+        requested_records=shard.record_range.record_count,
+        actual_records=actual_records,
+        outcome=CandidateOutcome.COMPLETE if not shortfall else CandidateOutcome.PARTIAL,
+        files=(
+            CandidateOutputFile(
+                relative_path=output_path.name,
+                sha256=hashlib.sha256(content).hexdigest(),
+                byte_size=len(content),
+                record_count=actual_records,
+            ),
+        ),
+        dataset_schema_digest=compute_candidate_schema_digest(table.schema),
+        provenance_digest=case.plan.compute_sha256(),
+    )
+    candidate_reference = ArtifactReference(path=candidate_path.as_posix(), sha256=candidate.compute_sha256())
+    result = ClientResult(
+        schema_version=1,
+        run_id=case.run.run_id,
+        shard_id=shard.shard_id,
+        attempt_id=running.attempt_id,
+        completed_at=running.updated_at + timedelta(minutes=2),
+        requested_records=shard.record_range.record_count,
+        actual_records=actual_records,
+        outcome=ClientOutcome.COMPLETE if not shortfall else ClientOutcome.PARTIAL,
+        dataset_path=dataset_path.as_posix(),
+        early_shutdown=False,
+        requested_resume_mode=case.plan.invocation.authored.resume,
+        effective_resume_mode="never",
+        candidate_output_manifest=candidate_reference,
+    )
+    case.writer.publish_attempt_result(result, candidate)
+    completed = _copy_attempt(
+        running,
+        state=AttemptLifecycleState.SUCCEEDED,
+        terminal_classification=AttemptTerminalClassification.SUCCEEDED,
+        candidate_output=candidate_reference,
+        updated_at=running.updated_at + timedelta(minutes=3),
+    )
+    case.writer.update_attempt(completed)
+
+
+def _copy_attempt(attempt: AttemptManifest, **updates: object) -> AttemptManifest:
+    payload = attempt.model_dump(mode="python")
+    payload.update(updates)
+    return AttemptManifest.model_validate(payload)

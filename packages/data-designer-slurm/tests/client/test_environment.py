@@ -1,0 +1,556 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+from __future__ import annotations
+
+import hashlib
+import importlib
+import json
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+from typing import cast
+from unittest.mock import Mock
+
+import pytest
+from conftest import ClientWorkerCase, FakeDataDesigner
+
+from data_designer.slurm.client import environment as environment_module
+from data_designer.slurm.client.environment import ClientEnvironmentBuilder, activate_environment, inspect_distributions
+from data_designer.slurm.client.errors import ClientWorkerError
+from data_designer.slurm.client.execution import ClientWorker
+from data_designer.slurm.client.plugins import discover_plugins
+from data_designer.slurm.client.records import ClientErrorCode, ClientInstallerOutcome
+from data_designer.slurm.config import SlurmProfile
+from data_designer.slurm.contracts import InstalledDistribution, canonical_json, compute_canonical_json_sha256
+from data_designer.slurm.planning import ResolvedSlurmRunPlan
+
+
+def test_runtime_inventory_parser_preserves_vcs_provenance() -> None:
+    provenance_sha256 = "a" * 64
+
+    assert environment_module._parse_distributions(  # noqa: SLF001
+        [{"name": "data-designer", "version": "1.0.0", "provenance_sha256": provenance_sha256}]
+    ) == (InstalledDistribution(name="data-designer", version="1.0.0", provenance_sha256=provenance_sha256),)
+
+
+def test_environment_prepares_empty_verified_overlay(client_worker_case: ClientWorkerCase) -> None:
+    def inventory(path: Path | None) -> tuple[InstalledDistribution, ...]:
+        return client_worker_case.lock.base_distributions if path is None else ()
+
+    prepared = ClientEnvironmentBuilder(inventory=inventory).prepare(
+        client_worker_case.plan_path,
+        shard_id=client_worker_case.plan.shards[0].shard_id,
+        attempt_id="attempt-0001",
+        attempt_dir=client_worker_case.attempt_dir,
+        scratch_root=client_worker_case.scratch_root,
+    )
+
+    assert prepared.installer_outcome is ClientInstallerOutcome.NOT_REQUIRED
+    assert prepared.installed_distributions == client_worker_case.lock.base_distributions
+    assert prepared.overlay_path == client_worker_case.scratch_root / "client-env/site-packages"
+    assert not (client_worker_case.attempt_dir / "client-env").exists()
+
+
+def test_environment_activation_keeps_home_and_cache_in_scratch(
+    client_worker_case: ClientWorkerCase,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(sys, "path", sys.path.copy())
+
+    activate_environment(client_worker_case.prepared)
+
+    assert os.environ["DATA_DESIGNER_HOME"] == (client_worker_case.scratch_root / "data-designer-home").as_posix()
+    assert os.environ["XDG_CACHE_HOME"] == (client_worker_case.scratch_root / "cache").as_posix()
+    assert not (client_worker_case.attempt_dir / "data-designer-home").exists()
+
+
+def test_environment_rejects_symlink_scratch_root(
+    client_worker_case: ClientWorkerCase,
+    tmp_path: Path,
+) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    scratch = tmp_path / "scratch-link"
+    scratch.symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(ClientWorkerError) as error:
+        ClientEnvironmentBuilder().prepare(
+            client_worker_case.plan_path,
+            shard_id=client_worker_case.plan.shards[0].shard_id,
+            attempt_id="attempt-0001",
+            attempt_dir=client_worker_case.attempt_dir,
+            scratch_root=scratch,
+        )
+
+    assert error.value.code is ClientErrorCode.INVALID_INPUT
+
+
+def test_native_client_ignores_container_mount_mapping(client_worker_case: ClientWorkerCase) -> None:
+    physical_workspace = client_worker_case.plan_path.parents[2]
+    payload = cast(dict[str, object], client_worker_case.plan.model_dump(mode="json"))
+    selected = cast(dict[str, object], payload["selected_profile"])
+    profile_payload = cast(dict[str, object], selected["profile"])
+    mount = {"source": physical_workspace.as_posix(), "target": "/container/workspace", "read_only": False}
+    profile_payload["container_mounts"] = [mount]
+    payload["container_mounts"] = [mount]
+    profile = SlurmProfile.model_validate(profile_payload)
+    selected["profile_sha256"] = compute_canonical_json_sha256(profile.model_dump(mode="json"))
+    plan = ResolvedSlurmRunPlan.model_validate_json(json.dumps(payload))
+    client_worker_case.plan_path.write_text(plan.serialize_json())
+
+    def inventory(path: Path | None) -> tuple[InstalledDistribution, ...]:
+        return client_worker_case.lock.base_distributions if path is None else ()
+
+    prepared = ClientEnvironmentBuilder(inventory=inventory).prepare(
+        client_worker_case.plan_path,
+        shard_id=plan.shards[0].shard_id,
+        attempt_id="attempt-0001",
+        attempt_dir=client_worker_case.attempt_dir,
+        scratch_root=client_worker_case.scratch_root,
+    )
+    worker = ClientWorker(data_designer_factory=FakeDataDesigner)
+    worker.preflight(
+        client_worker_case.plan_path,
+        prepared=prepared,
+        endpoints=client_worker_case.endpoints,
+        plugins=(),
+    )
+
+    result = worker.run(
+        client_worker_case.plan_path,
+        prepared=prepared,
+        endpoints=client_worker_case.endpoints,
+        plugins=(),
+    )
+
+    assert result.dataset_path.startswith(physical_workspace.as_posix())
+    assert result.candidate_output_manifest is not None
+    assert result.candidate_output_manifest.path.startswith(physical_workspace.as_posix())
+
+
+def test_native_environment_rejects_container_only_plan_path(
+    client_worker_case: ClientWorkerCase,
+    tmp_path: Path,
+) -> None:
+    physical_workspace = client_worker_case.plan_path.parents[2]
+    physical_plan = tmp_path / "fast-plan" / "resolved-plan.json"
+    logical_workspace = "/host/workspace"
+    payload = cast(
+        dict[str, object],
+        json.loads(client_worker_case.plan.serialize_json().replace(physical_workspace.as_posix(), logical_workspace)),
+    )
+    logical_plan = f"{logical_workspace}/runs/{payload['run_id']}/resolved-plan.json"
+    selected = cast(dict[str, object], payload["selected_profile"])
+    profile_payload = cast(dict[str, object], selected["profile"])
+    mounts = [
+        {"source": logical_workspace, "target": physical_workspace.as_posix(), "read_only": False},
+        {
+            "source": logical_plan,
+            "target": physical_plan.as_posix(),
+            "read_only": False,
+        },
+    ]
+    profile_payload["container_mounts"] = mounts
+    payload["container_mounts"] = mounts
+    profile = SlurmProfile.model_validate(profile_payload)
+    selected["profile_sha256"] = compute_canonical_json_sha256(profile.model_dump(mode="json"))
+    plan = ResolvedSlurmRunPlan.model_validate_json(json.dumps(payload))
+    physical_plan.parent.mkdir(parents=True)
+    physical_plan.write_text(plan.serialize_json())
+    shard_id = plan.shards[0].shard_id
+    attempt_dir = physical_workspace / "runs" / plan.run_id / "shards" / shard_id / "attempts" / "attempt-0001"
+
+    def inventory(path: Path | None) -> tuple[InstalledDistribution, ...]:
+        return client_worker_case.lock.base_distributions if path is None else ()
+
+    with pytest.raises(ClientWorkerError) as error:
+        ClientEnvironmentBuilder(inventory=inventory).prepare(
+            physical_plan,
+            shard_id=shard_id,
+            attempt_id="attempt-0001",
+            attempt_dir=attempt_dir,
+            scratch_root=client_worker_case.scratch_root,
+        )
+
+    assert error.value.code is ClientErrorCode.INVALID_INPUT
+
+
+@pytest.mark.parametrize("user_site_enabled", (False, True))
+def test_inspect_distributions_uses_active_environment_paths(
+    monkeypatch: pytest.MonkeyPatch,
+    user_site_enabled: bool,
+) -> None:
+    calls: list[dict[str, object]] = []
+
+    def distributions(**kwargs: object) -> tuple[()]:
+        calls.append(kwargs)
+        return ()
+
+    submit_path = "/submit/venv/site-packages"
+    interpreter_path = "/control/venv/site-packages"
+    user_site_path = "/workspace/alice/.local/site-packages"
+    pth_path = "/installed/editable-source"
+    monkeypatch.setattr(sys, "path", [submit_path, interpreter_path, user_site_path, pth_path])
+    monkeypatch.setattr(environment_module.site, "getsitepackages", lambda: [interpreter_path])
+    monkeypatch.setattr(environment_module.site, "getusersitepackages", lambda: user_site_path)
+    monkeypatch.setattr(environment_module.site, "ENABLE_USER_SITE", user_site_enabled)
+    monkeypatch.setattr(
+        environment_module.subprocess,
+        "check_output",
+        lambda *args, **kwargs: json.dumps([submit_path, interpreter_path, pth_path]),
+    )
+    monkeypatch.setenv("PYTHONPATH", os.pathsep.join((submit_path, user_site_path)))
+    monkeypatch.setattr("data_designer.slurm.client.environment.importlib.metadata.distributions", distributions)
+
+    assert inspect_distributions(None) == ()
+    expected_paths = [interpreter_path, pth_path]
+    assert calls == [{"path": expected_paths}]
+
+
+@pytest.mark.parametrize("user_site_enabled", (False, True))
+@pytest.mark.parametrize("path_kind", ("repeated", "symlink", "separate"))
+def test_inspect_distributions_deduplicates_install_paths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, user_site_enabled: bool, path_kind: str
+) -> None:
+    site_path = tmp_path / "site-packages"
+    metadata = site_path / "example-1.0.0.dist-info"
+    metadata.mkdir(parents=True)
+    (metadata / "METADATA").write_text("Metadata-Version: 2.1\nName: example\nVersion: 1.0.0\n")
+    alias_path = tmp_path / "alias"
+    if path_kind == "symlink":
+        alias_path.symlink_to(site_path, target_is_directory=True)
+    elif path_kind == "repeated":
+        alias_path = site_path
+    else:
+        shutil.copytree(site_path, alias_path)
+    paths = [str(site_path), str(alias_path)]
+    monkeypatch.setattr(sys, "path", paths)
+    monkeypatch.setattr(environment_module.site, "ENABLE_USER_SITE", user_site_enabled)
+    monkeypatch.setattr(environment_module.site, "getsitepackages", lambda: paths)
+    monkeypatch.setattr(environment_module.site, "getusersitepackages", lambda: str(tmp_path / "user-site"))
+    monkeypatch.setattr(environment_module.subprocess, "check_output", lambda *args, **kwargs: json.dumps(paths))
+    monkeypatch.delenv("PYTHONPATH", raising=False)
+
+    if path_kind == "separate":
+        with pytest.raises(ClientWorkerError, match="installed distribution inventory is invalid"):
+            inspect_distributions(None)
+    else:
+        assert inspect_distributions(None) == (InstalledDistribution(name="example", version="1.0.0"),)
+
+
+def test_inspect_distributions_refreshes_overlay_with_unchanged_directory_mtime(tmp_path: Path) -> None:
+    original_stat = tmp_path.stat()
+    assert inspect_distributions(tmp_path) == ()
+    distribution = tmp_path / "cache_probe-1.0.0.dist-info"
+    distribution.mkdir()
+    (distribution / "METADATA").write_text(
+        "Metadata-Version: 2.1\nName: cache-probe\nVersion: 1.0.0\n",
+        encoding="utf-8",
+    )
+    os.utime(tmp_path, ns=(original_stat.st_atime_ns, original_stat.st_mtime_ns))
+
+    assert inspect_distributions(tmp_path) == (InstalledDistribution(name="cache-probe", version="1.0.0"),)
+
+
+def test_inspect_distributions_rejects_unhashed_direct_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    distribution = Mock(
+        metadata={"Name": "example"},
+        version="1.0.0",
+    )
+    distribution.read_text.return_value = '{"url":"https://example.test/example.whl"}'
+    monkeypatch.setattr(
+        "data_designer.slurm.client.environment.importlib.metadata.distributions",
+        lambda **kwargs: (distribution,),
+    )
+
+    with pytest.raises(ClientWorkerError) as error:
+        inspect_distributions(None)
+
+    assert error.value.code is ClientErrorCode.DEPENDENCY_CONFLICT
+
+
+def test_inspect_distributions_accepts_immutable_git_provenance(monkeypatch: pytest.MonkeyPatch) -> None:
+    direct_url = {
+        "url": "https://github.com/example/project.git",
+        "vcs_info": {
+            "vcs": "git",
+            "commit_id": "a" * 40,
+            "requested_revision": "feature-branch",
+        },
+    }
+    distribution = Mock(metadata={"Name": "example"}, version="1.0.0")
+    distribution.read_text.return_value = json.dumps(direct_url)
+    monkeypatch.setattr(
+        "data_designer.slurm.client.environment.importlib.metadata.distributions",
+        lambda **kwargs: (distribution,),
+    )
+
+    installed = inspect_distributions(None)
+
+    assert installed == (
+        InstalledDistribution(
+            name="example",
+            version="1.0.0",
+            provenance_sha256=hashlib.sha256(canonical_json(direct_url)).hexdigest(),
+        ),
+    )
+
+
+@pytest.mark.parametrize(
+    "direct_url",
+    (
+        {"url": "file:///workspace/project", "dir_info": {"editable": True}},
+        {
+            "url": "https://github.com/example/project.git",
+            "vcs_info": {"vcs": "git", "commit_id": "abcdef", "requested_revision": "main"},
+        },
+    ),
+)
+def test_inspect_distributions_rejects_mutable_install_provenance(
+    monkeypatch: pytest.MonkeyPatch,
+    direct_url: dict[str, object],
+) -> None:
+    distribution = Mock(metadata={"Name": "example"}, version="1.0.0")
+    distribution.read_text.return_value = json.dumps(direct_url)
+    monkeypatch.setattr(
+        "data_designer.slurm.client.environment.importlib.metadata.distributions",
+        lambda **kwargs: (distribution,),
+    )
+
+    with pytest.raises(ClientWorkerError) as error:
+        inspect_distributions(None)
+
+    assert error.value.code is ClientErrorCode.DEPENDENCY_CONFLICT
+
+
+def test_environment_rejects_client_runtime_inventory_conflict(client_worker_case: ClientWorkerCase) -> None:
+    conflicting = (InstalledDistribution(name="unexpected", version="1.0"),)
+
+    with pytest.raises(ClientWorkerError) as error:
+        ClientEnvironmentBuilder(inventory=lambda _: conflicting).prepare(
+            client_worker_case.plan_path,
+            shard_id=client_worker_case.plan.shards[0].shard_id,
+            attempt_id="attempt-0001",
+            attempt_dir=client_worker_case.attempt_dir,
+            scratch_root=client_worker_case.scratch_root,
+        )
+
+    assert error.value.code is ClientErrorCode.DEPENDENCY_CONFLICT
+
+
+@pytest.mark.parametrize(
+    ("shard_id", "attempt_id", "attempt_dir"),
+    (
+        ("../escaped", "attempt-0001", "../escaped/attempts/attempt-0001"),
+        ("shard-00000", "attempt-0000", "shard-00000/attempts/attempt-0000"),
+    ),
+)
+def test_environment_rejects_invalid_identity_before_creating_attempt(
+    client_worker_case: ClientWorkerCase,
+    shard_id: str,
+    attempt_id: str,
+    attempt_dir: str,
+) -> None:
+    path = client_worker_case.plan_path.parent / "shards" / attempt_dir
+
+    with pytest.raises(ClientWorkerError) as error:
+        ClientEnvironmentBuilder().prepare(
+            client_worker_case.plan_path,
+            shard_id=shard_id,
+            attempt_id=attempt_id,
+            attempt_dir=path,
+            scratch_root=client_worker_case.scratch_root,
+        )
+
+    assert error.value.code is ClientErrorCode.INVALID_INPUT
+    assert not path.exists()
+
+
+def test_environment_rejects_missing_locked_wheel(client_worker_case: ClientWorkerCase) -> None:
+    plan_payload = client_worker_case.plan.model_dump(mode="json")
+    lock_payload = client_worker_case.lock.model_dump(mode="json")
+    wheel_path = client_worker_case.plan_path.parent / "dependencies" / "missing_plugin-1.0.0-py3-none-any.whl"
+    lock_payload["authored_requirements"] = ["missing-plugin==1.0.0"]
+    lock_payload["overlay_packages"] = [
+        {
+            "name": "missing-plugin",
+            "version": "1.0.0",
+            "artifact": {"path": wheel_path.as_posix(), "sha256": "a" * 64},
+        }
+    ]
+    lock = client_worker_case.lock.model_validate_json(json.dumps(lock_payload))
+    Path(client_worker_case.plan.client.dependency_lock.path).write_text(lock.serialize_json())
+    plan_payload["client"]["dependency_lock"]["sha256"] = lock.compute_sha256()
+    plan = ResolvedSlurmRunPlan.model_validate_json(json.dumps(plan_payload))
+    client_worker_case.plan_path.write_text(plan.serialize_json())
+
+    def inventory(path: Path | None) -> tuple[InstalledDistribution, ...]:
+        return lock.base_distributions if path is None else ()
+
+    with pytest.raises(ClientWorkerError) as error:
+        ClientEnvironmentBuilder(inventory=inventory).prepare(
+            client_worker_case.plan_path,
+            shard_id=plan.shards[0].shard_id,
+            attempt_id="attempt-0001",
+            attempt_dir=client_worker_case.attempt_dir,
+            scratch_root=client_worker_case.scratch_root,
+        )
+
+    assert error.value.code is ClientErrorCode.DEPENDENCY_ARTIFACT_MISSING
+
+
+def test_environment_installs_verified_wheel_overlay(client_worker_case: ClientWorkerCase) -> None:
+    plan_payload = client_worker_case.plan.model_dump(mode="json")
+    lock_payload = client_worker_case.lock.model_dump(mode="json")
+    wheel_path = client_worker_case.plan_path.parent / "dependencies" / "example_plugin-1.0.0-py3-none-any.whl"
+    wheel_path.parent.mkdir()
+    wheel_path.write_bytes(b"immutable wheel artifact")
+    lock_payload["authored_requirements"] = ["example-plugin==1.0.0"]
+    lock_payload["overlay_packages"] = [
+        {
+            "name": "example-plugin",
+            "version": "1.0.0",
+            "artifact": {
+                "path": wheel_path.as_posix(),
+                "sha256": hashlib.sha256(wheel_path.read_bytes()).hexdigest(),
+            },
+        }
+    ]
+    lock = client_worker_case.lock.model_validate_json(json.dumps(lock_payload))
+    Path(client_worker_case.plan.client.dependency_lock.path).write_text(lock.serialize_json())
+    plan_payload["client"]["dependency_lock"]["sha256"] = lock.compute_sha256()
+    plan = ResolvedSlurmRunPlan.model_validate_json(json.dumps(plan_payload))
+    client_worker_case.plan_path.write_text(plan.serialize_json())
+    commands: list[tuple[str, ...]] = []
+
+    def inventory(path: Path | None) -> tuple[InstalledDistribution, ...]:
+        if path is None:
+            return lock.base_distributions
+        return (InstalledDistribution(name="example-plugin", version="1.0.0"),) if commands else ()
+
+    prepared = ClientEnvironmentBuilder(inventory=inventory, command_runner=commands.append).prepare(
+        client_worker_case.plan_path,
+        shard_id=plan.shards[0].shard_id,
+        attempt_id="attempt-0001",
+        attempt_dir=client_worker_case.attempt_dir,
+        scratch_root=client_worker_case.scratch_root,
+    )
+
+    assert prepared.installer_outcome is ClientInstallerOutcome.INSTALLED
+    assert "--no-index" in commands[0]
+    assert "--no-deps" in commands[0]
+
+
+def test_overlay_reuse_checks_installed_files_and_rejects_strays(tmp_path: Path) -> None:
+    target = tmp_path / "scratch" / "client-env" / "site-packages"
+    expected = (InstalledDistribution(name="example-plugin", version="1.0.0"),)
+    calls: list[tuple[str, ...]] = []
+
+    def inventory(path: Path | None) -> tuple[InstalledDistribution, ...]:
+        return expected if calls else ()
+
+    def install(command: tuple[str, ...]) -> None:
+        calls.append(command)
+        (target / "example_plugin.py").write_text("original")
+
+    builder = ClientEnvironmentBuilder(inventory=inventory, command_runner=install)
+    assert builder._install_overlay(Path(sys.executable), (tmp_path / "plugin.whl",), expected, target) is (  # noqa: SLF001
+        ClientInstallerOutcome.INSTALLED
+    )
+    assert builder._install_overlay(Path(sys.executable), (tmp_path / "plugin.whl",), expected, target) is (  # noqa: SLF001
+        ClientInstallerOutcome.REUSED
+    )
+
+    generated_bytecode = target / "__pycache__" / "example_plugin.cpython-311.pyc"
+    generated_bytecode.parent.mkdir()
+    generated_bytecode.write_bytes(b"unverified cached code")
+    assert builder._install_overlay(Path(sys.executable), (tmp_path / "plugin.whl",), expected, target) is (  # noqa: SLF001
+        ClientInstallerOutcome.REUSED
+    )
+    assert not generated_bytecode.exists()
+
+    (target / "example_plugin.py").write_text("changed")
+    with pytest.raises(ClientWorkerError, match="overlay files differ"):
+        builder._install_overlay(Path(sys.executable), (tmp_path / "plugin.whl",), expected, target)  # noqa: SLF001
+
+    (target / "example_plugin.py").write_text("original")
+    (target / "unexpected.py").write_text("stray")
+    with pytest.raises(ClientWorkerError, match="overlay files differ"):
+        builder._install_overlay(Path(sys.executable), (tmp_path / "plugin.whl",), expected, target)  # noqa: SLF001
+
+
+def test_discover_plugins_loads_verified_entry_point(
+    fake_plugin_overlay: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.syspath_prepend(fake_plugin_overlay.as_posix())
+    importlib.invalidate_caches()
+
+    plugins = discover_plugins((InstalledDistribution(name="fake-data-designer-plugin", version="1.0.0"),))
+
+    assert len(plugins) == 1
+    assert plugins[0].plugin_name == "fake-slurm-column"
+
+
+def test_worker_bootstrap_loads_overlay_plugin_before_config_import(
+    fake_plugin_overlay: Path,
+    tmp_path: Path,
+) -> None:
+    script = """
+import sys
+from pathlib import Path
+
+import data_designer.slurm.client.worker as worker
+
+assert "data_designer.config.column_types" not in sys.modules
+from data_designer.slurm.client.environment import PreparedClientEnvironment
+from data_designer.slurm.client.records import ClientInstallerOutcome
+from data_designer.slurm.contracts import ArtifactReference, InstalledDistribution
+
+prepared = PreparedClientEnvironment(
+    run_id="run-test",
+    shard_id="shard-00000",
+    attempt_id="attempt-0001",
+    attempt_dir=Path(sys.argv[2]),
+    scratch_root=Path(sys.argv[3]),
+    overlay_path=Path(sys.argv[1]),
+    dependency_lock=ArtifactReference(path=(Path(sys.argv[2]) / "dependency-lock.json").as_posix(), sha256="a" * 64),
+    client_runtime_sha256="b" * 64,
+    python_abi="test",
+    installer_outcome=ClientInstallerOutcome.REUSED,
+    installed_distributions=(InstalledDistribution(name="fake-data-designer-plugin", version="1.0.0"),),
+)
+worker.activate_environment(prepared)
+
+from data_designer.slurm.client.plugins import discover_plugins
+
+plugins = discover_plugins(prepared.installed_distributions)
+assert plugins[0].plugin_name == "fake-slurm-column"
+
+from data_designer.config import DataDesignerConfigBuilder
+
+builder = DataDesignerConfigBuilder.from_config(
+    {"data_designer": {"columns": [{"name": "custom", "column_type": "fake-slurm-column"}], "model_configs": []}}
+)
+assert builder.get_column_configs()[0].column_type == "fake-slurm-column"
+"""
+    scratch_root = tmp_path / "scratch"
+    scratch_root.mkdir()
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            script,
+            fake_plugin_overlay.as_posix(),
+            (tmp_path / "attempt").as_posix(),
+            scratch_root.as_posix(),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
