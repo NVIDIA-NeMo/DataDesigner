@@ -275,7 +275,7 @@ class DeploymentResources(AuthoredConfig):
 class DeploymentTopology(AuthoredConfig):
     tensor_parallel: PositiveInt = 1
     nodes_per_replica: PositiveInt = 1
-    pipeline_parallel: PositiveInt | None = Field(default=None, exclude_if=lambda value: value is None)
+    pipeline_parallel: PositiveInt = Field(default=1, exclude_if=lambda value: value == 1)
 
 
 class ServerDeploymentConfig(AuthoredConfig):
