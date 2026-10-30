@@ -3,13 +3,16 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 import pytest
 
 from data_designer.config.models import Modality
 from data_designer.config.utils.media_helpers import get_media_base64_context, get_media_url_context
-from data_designer.engine.models.clients.types import AssistantMessage, ChatCompletionChoice, ChatCompletionResponse
+from data_designer.engine.models.clients.types import (
+    AssistantMessage,
+    ChatCompletionChoice,
+    ChatCompletionResponse,
+    ProviderReplayData,
+)
 from data_designer.engine.models.utils import (
     ChatMessage,
     GenerationTruncationReason,
@@ -63,20 +66,14 @@ def test_chat_message_as_tool_accepts_multimodal_content() -> None:
     assert message.to_dict()["content"] == content
 
 
-@pytest.mark.parametrize("provider_type", [None, "openai", "anthropic"])
-@pytest.mark.parametrize(
-    "native_content",
-    [None, [], [{"type": "thinking", "thinking": "", "signature": "signature"}]],
-)
-def test_chat_message_serializes_native_content_only_for_anthropic_requests(
-    provider_type: str | None, native_content: list[dict[str, Any]] | None
-) -> None:
-    message = ChatMessage.as_assistant(content="Answer", anthropic_content=native_content)
+@pytest.mark.parametrize("provider_type", ["anthropic", "openai", "future-provider"])
+@pytest.mark.parametrize("payload", [None, [], {"opaque": object()}])
+def test_chat_message_excludes_opaque_replay_data(provider_type: str, payload: object) -> None:
+    replay_data = ProviderReplayData(provider_type=provider_type, payload=payload)
+    message = ChatMessage.as_assistant(content="Answer", replay_data=replay_data)
     expected = {"role": "assistant", "content": [{"type": "text", "text": "Answer"}]}
     assert message.to_dict() == expected
-    if provider_type == "anthropic" and native_content is not None:
-        expected["anthropic_content"] = native_content
-    assert message.to_dict(provider_type=provider_type) == expected
+    assert message.replay_data is replay_data
 
 
 def test_prompt_to_messages_preserves_mixed_media_context_order() -> None:

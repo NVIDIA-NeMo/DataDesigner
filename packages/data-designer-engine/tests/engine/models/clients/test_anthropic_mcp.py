@@ -113,6 +113,7 @@ async def test_generate_replays_anthropic_content(
             )
             kwargs = {
                 "parser": _parse_done,
+                "system_prompt": "Be helpful",
                 "tool_alias": stub_tool_config.tool_alias,
                 "max_correction_steps": int(retry == "correction"),
                 "max_conversation_restarts": int(retry == "restart"),
@@ -158,3 +159,4 @@ async def test_generate_replays_anthropic_content(
     assert "signature" not in trace_json
     assert "redacted" not in trace_json
     assert "anthropic_content" not in trace_json
+    assert "replay_data" not in trace_json

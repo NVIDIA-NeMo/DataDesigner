@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from pydantic import BaseModel
 
 if TYPE_CHECKING:
-    from data_designer.engine.models.clients.types import ChatCompletionResponse
+    from data_designer.engine.models.clients.types import ChatCompletionResponse, ProviderReplayData
 
 
 class GenerationTruncationReason(str, Enum):
@@ -101,7 +101,7 @@ class ChatMessage:
             Each tool call contains 'id', 'type', and 'function' keys.
         tool_call_id: Optional ID linking a tool response to its corresponding
             tool call. Required for messages with role='tool'.
-        anthropic_content: Original Anthropic assistant blocks for request replay only.
+        replay_data: Opaque provider-owned data excluded from trace serialization.
     """
 
     role: Literal["user", "assistant", "system", "tool"]
@@ -109,14 +109,13 @@ class ChatMessage:
     reasoning_content: str | None = None
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
     tool_call_id: str | None = None
-    anthropic_content: list[dict[str, Any]] | None = None
+    replay_data: ProviderReplayData | None = None
 
-    def to_dict(self, *, provider_type: str | None = None) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert the message to a dictionary format for API calls.
 
         Content is normalized to a list of ChatML-style blocks to keep a
         consistent schema across traces and API payloads.
-        Native assistant blocks are included only for the matching provider's requests.
 
         Returns:
             A dictionary containing the message fields. Only includes non-empty
@@ -129,8 +128,6 @@ class ChatMessage:
             result["tool_calls"] = self.tool_calls
         if self.tool_call_id:
             result["tool_call_id"] = self.tool_call_id
-        if provider_type == "anthropic" and self.anthropic_content is not None:
-            result["anthropic_content"] = self.anthropic_content
         return result
 
     @classmethod
@@ -144,7 +141,7 @@ class ChatMessage:
         content: str = "",
         reasoning_content: str | None = None,
         tool_calls: list[dict[str, Any]] | None = None,
-        anthropic_content: list[dict[str, Any]] | None = None,
+        replay_data: ProviderReplayData | None = None,
     ) -> ChatMessage:
         """Create an assistant message."""
         return cls(
@@ -152,7 +149,7 @@ class ChatMessage:
             content=content,
             reasoning_content=reasoning_content,
             tool_calls=tool_calls or [],
-            anthropic_content=anthropic_content,
+            replay_data=replay_data,
         )
 
     @classmethod

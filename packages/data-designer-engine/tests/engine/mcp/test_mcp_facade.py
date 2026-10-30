@@ -14,7 +14,12 @@ from data_designer.engine.mcp.errors import DuplicateToolNameError, MCPConfigura
 from data_designer.engine.mcp.facade import DEFAULT_TOOL_REFUSAL_MESSAGE, MCPFacade
 from data_designer.engine.mcp.registry import MCPToolDefinition, MCPToolResult
 from data_designer.engine.model_provider import MCPProviderRegistry
-from data_designer.engine.models.clients.types import AssistantMessage, ChatCompletionResponse, ToolCall
+from data_designer.engine.models.clients.types import (
+    AssistantMessage,
+    ChatCompletionResponse,
+    ProviderReplayData,
+    ToolCall,
+)
 
 
 def _make_response(
@@ -167,16 +172,23 @@ def test_process_completion_preserves_content(
 
 
 @pytest.mark.parametrize("method", ["process_completion_response", "refuse_completion_response"])
-def test_completion_without_tools_preserves_native_content(stub_mcp_facade: MCPFacade, method: str) -> None:
-    content = [
-        {"type": "thinking", "thinking": "", "signature": "signature"},
-        {"type": "redacted_thinking", "data": "redacted-data"},
-        {"type": "text", "text": "  Answer\n"},
-    ]
-    response = ChatCompletionResponse(message=AssistantMessage(content="  Answer\n", anthropic_content=content))
+@pytest.mark.parametrize("tool_calls", [[], [ToolCall(id="call-1", name="lookup", arguments_json="{}")]])
+def test_completion_preserves_opaque_replay_data(
+    stub_mcp_facade: MCPFacade, method: str, tool_calls: list[ToolCall], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        mcp_io,
+        "list_tools",
+        MagicMock(return_value=(MCPToolDefinition(name="lookup", description="Lookup", input_schema={}),)),
+    )
+    monkeypatch.setattr(mcp_io, "call_tools", MagicMock(return_value=[MCPToolResult(content="Result")]))
+    replay_data = ProviderReplayData(provider_type="future-provider", payload={"opaque": object()})
+    response = ChatCompletionResponse(
+        message=AssistantMessage(content="Answer", tool_calls=tool_calls, replay_data=replay_data)
+    )
     messages = getattr(stub_mcp_facade, method)(response)
-    assert len(messages) == 1
-    assert messages[0].anthropic_content == content
+    assert len(messages) == 1 + len(tool_calls)
+    assert messages[0].replay_data is replay_data
 
 
 def test_process_completion_preserves_reasoning_content(

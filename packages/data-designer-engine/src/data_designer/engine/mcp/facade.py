@@ -11,7 +11,7 @@ from data_designer.engine.mcp import io as mcp_io
 from data_designer.engine.mcp.errors import DuplicateToolNameError, MCPConfigurationError, MCPToolError
 from data_designer.engine.mcp.registry import MCPToolDefinition
 from data_designer.engine.model_provider import MCPProviderRegistry
-from data_designer.engine.models.clients.types import ChatCompletionResponse, ToolCall
+from data_designer.engine.models.clients.types import ChatCompletionResponse, ProviderReplayData, ToolCall
 from data_designer.engine.models.utils import ChatMessage
 from data_designer.engine.secret_resolver import SecretResolver
 
@@ -170,14 +170,14 @@ class MCPFacade:
                 ChatMessage.as_assistant(
                     content=response_content,
                     reasoning_content=reasoning_content or None,
-                    anthropic_content=message.anthropic_content,
+                    replay_data=message.replay_data,
                 )
             ]
 
         # Has tool calls - execute and return all messages
         tool_call_dicts = _convert_canonical_tool_calls_to_dicts(tool_calls)
         assistant_message = self._build_assistant_tool_message(
-            response_content, tool_call_dicts, reasoning_content, anthropic_content=message.anthropic_content
+            response_content, tool_call_dicts, reasoning_content, replay_data=message.replay_data
         )
         tool_messages = self._execute_tool_calls_from_canonical(tool_calls)
 
@@ -218,14 +218,14 @@ class MCPFacade:
                 ChatMessage.as_assistant(
                     content=response_content,
                     reasoning_content=reasoning_content or None,
-                    anthropic_content=message.anthropic_content,
+                    replay_data=message.replay_data,
                 )
             ]
 
         # Build assistant message with tool calls (same as normal)
         tool_call_dicts = _convert_canonical_tool_calls_to_dicts(tool_calls)
         assistant_message = self._build_assistant_tool_message(
-            response_content, tool_call_dicts, reasoning_content, anthropic_content=message.anthropic_content
+            response_content, tool_call_dicts, reasoning_content, replay_data=message.replay_data
         )
 
         # Build refusal messages instead of executing tools
@@ -247,7 +247,7 @@ class MCPFacade:
         response: str | None,
         tool_calls: list[dict[str, Any]],
         reasoning_content: str | None = None,
-        anthropic_content: list[dict[str, Any]] | None = None,
+        replay_data: ProviderReplayData | None = None,
     ) -> ChatMessage:
         """Build the assistant message containing tool call requests."""
         tool_calls_payload = [
@@ -262,7 +262,7 @@ class MCPFacade:
             content=response or "",
             reasoning_content=reasoning_content or None,
             tool_calls=tool_calls_payload,
-            anthropic_content=anthropic_content,
+            replay_data=replay_data,
         )
 
     def _execute_tool_calls_from_canonical(

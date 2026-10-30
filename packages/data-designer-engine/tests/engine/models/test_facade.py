@@ -19,6 +19,7 @@ from data_designer.engine.models.clients.types import (
     EmbeddingResponse,
     ImageGenerationResponse,
     ImagePayload,
+    ProviderReplayData,
     ToolCall,
     Usage,
 )
@@ -874,6 +875,31 @@ def test_completion_forwards_n_to_request(
     request = stub_model_client.completion.call_args.args[0]
     assert isinstance(request, ChatCompletionRequest)
     assert request.n == 4
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("is_async", [False, True], ids=["sync", "async"])
+async def test_completion_preserves_opaque_replay_data(
+    stub_model_facade: ModelFacade, stub_model_client: MagicMock, is_async: bool
+) -> None:
+    replay_data = ProviderReplayData(provider_type="future-provider", payload={"opaque": object()})
+    messages = [
+        ChatMessage.as_user("Question"),
+        ChatMessage.as_assistant(content="Answer", replay_data=replay_data),
+        ChatMessage.as_user("Correct it"),
+    ]
+    response = _make_response("Corrected")
+    stub_model_client.completion.return_value = response
+    stub_model_client.acompletion = AsyncMock(return_value=response)
+    if is_async:
+        await stub_model_facade.acompletion(messages)
+        request = stub_model_client.acompletion.call_args.args[0]
+    else:
+        stub_model_facade.completion(messages)
+        request = stub_model_client.completion.call_args.args[0]
+    assert request.messages == [message.to_dict() for message in messages]
+    assert request.message_replay_data == [None, replay_data, None]
+    assert request.message_replay_data[1] is replay_data
 
 
 def test_completion_forwards_tool_choice_and_keeps_configured_extra_body(

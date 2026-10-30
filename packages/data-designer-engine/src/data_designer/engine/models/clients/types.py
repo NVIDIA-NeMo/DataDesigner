@@ -48,13 +48,21 @@ class ToolCall:
     arguments_json: str
 
 
+@dataclass(frozen=True)
+class ProviderReplayData:
+    """Opaque provider-owned data required to replay an assistant message."""
+
+    provider_type: str
+    payload: object
+
+
 @dataclass
 class AssistantMessage:
     content: str | None = None
     reasoning_content: str | None = None
     tool_calls: list[ToolCall] = field(default_factory=list)
     images: list[ImagePayload] = field(default_factory=list)
-    anthropic_content: list[dict[str, Any]] | None = None
+    replay_data: ProviderReplayData | None = None
 
 
 @dataclass
@@ -75,6 +83,12 @@ class ChatCompletionRequest:
     timeout: float | None = None
     extra_body: dict[str, Any] | None = None
     extra_headers: dict[str, str] | None = None
+    # Entries align with messages; an empty list means no replay data.
+    message_replay_data: list[ProviderReplayData | None] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        if self.message_replay_data and len(self.message_replay_data) != len(self.messages):
+            raise ValueError("message_replay_data must match the number of messages")
 
 
 @dataclass
@@ -152,7 +166,9 @@ class TransportKwargs:
     - ``headers``: Extra HTTP headers to attach to the outgoing request.
     """
 
-    _META_FIELDS: ClassVar[frozenset[str]] = frozenset({"extra_body", "extra_headers", "timeout"})
+    _META_FIELDS: ClassVar[frozenset[str]] = frozenset(
+        {"extra_body", "extra_headers", "timeout", "message_replay_data"}
+    )
 
     body: dict[str, Any]
     headers: dict[str, str]

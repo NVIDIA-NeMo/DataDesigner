@@ -18,6 +18,7 @@ from data_designer.engine.models.clients.types import (
     ChatCompletionChoice,
     ChatCompletionRequest,
     ChatCompletionResponse,
+    ProviderReplayData,
     ToolCall,
     Usage,
 )
@@ -69,7 +70,7 @@ def merge_system_parts(parts: list[str | list[dict[str, Any]]]) -> str | list[di
 
 def build_anthropic_payload(request: ChatCompletionRequest) -> dict[str, Any]:
     """Build an Anthropic Messages API payload from a canonical request."""
-    system_parts, messages = translate_request_messages(request.messages)
+    system_parts, messages = translate_request_messages(request.messages, request.message_replay_data)
 
     payload: dict[str, Any] = {
         "model": request.model,
@@ -126,7 +127,7 @@ def parse_anthropic_response(response_json: dict[str, Any]) -> ChatCompletionRes
         content="\n".join(text_parts) if text_parts else None,
         reasoning_content="\n".join(thinking_parts) if thinking_parts else None,
         tool_calls=tool_calls,
-        anthropic_content=content_blocks,
+        replay_data=ProviderReplayData(provider_type="anthropic", payload=content_blocks),
     )
 
     raw_usage = response_json.get("usage")
@@ -149,12 +150,13 @@ def parse_anthropic_response(response_json: dict[str, Any]) -> ChatCompletionRes
 
 def translate_request_messages(
     messages: list[dict[str, Any]],
+    message_replay_data: list[ProviderReplayData | None] | None = None,
 ) -> tuple[list[str | list[dict[str, Any]]], list[dict[str, Any]]]:
     system_parts: list[str | list[dict[str, Any]]] = []
     translated_messages: list[dict[str, Any]] = []
     pending_tool_results: list[dict[str, Any]] = []
 
-    for msg in messages:
+    for index, msg in enumerate(messages):
         role = msg.get("role")
         if role == "system":
             system_content = extract_system_content(msg.get("content"))
@@ -170,7 +172,8 @@ def translate_request_messages(
             translated_messages.append({"role": "user", "content": pending_tool_results})
             pending_tool_results = []
 
-        translated_messages.append(translate_non_tool_message(msg))
+        replay_data = message_replay_data[index] if message_replay_data else None
+        translated_messages.append(translate_non_tool_message(msg, replay_data))
 
     if pending_tool_results:
         translated_messages.append({"role": "user", "content": pending_tool_results})
@@ -205,14 +208,17 @@ def extract_system_content(content: Any) -> str | list[dict[str, Any]] | None:
     return "\n".join(text_parts)
 
 
-def translate_non_tool_message(msg: dict[str, Any]) -> dict[str, Any]:
+def translate_non_tool_message(msg: dict[str, Any], replay_data: ProviderReplayData | None = None) -> dict[str, Any]:
     role = msg.get("role")
     if role not in {"user", "assistant"}:
         raise ValueError(f"Anthropic adapter does not support message role {role!r}.")
 
     # Signed thinking blocks must be replayed with the entire original turn in order.
-    if role == "assistant" and msg.get("anthropic_content") is not None:
-        return {"role": role, "content": msg["anthropic_content"]}
+    if role == "assistant" and replay_data is not None and replay_data.provider_type == "anthropic":
+        content = replay_data.payload
+        if not isinstance(content, list) or not all(isinstance(block, dict) for block in content):
+            raise ValueError("Anthropic replay data must be a list of content blocks")
+        return {"role": role, "content": content}
 
     content = msg.get("content")
     if role == "assistant" and msg.get("tool_calls"):

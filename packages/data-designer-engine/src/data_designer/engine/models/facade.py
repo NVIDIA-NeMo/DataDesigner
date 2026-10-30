@@ -25,6 +25,7 @@ from data_designer.engine.models.clients.types import (
     EmbeddingResponse,
     ImageGenerationRequest,
     ImageGenerationResponse,
+    ProviderReplayData,
     Usage,
 )
 from data_designer.engine.models.errors import (
@@ -235,7 +236,7 @@ class ModelFacade:
         allow_multiple_choices: bool = True,
         **kwargs: Any,
     ) -> ChatCompletionResponse:
-        message_payloads = [message.to_dict(provider_type=self.model_provider.provider_type) for message in messages]
+        message_payloads = [message.to_dict() for message in messages]
         logger.debug(
             f"Prompting model {self.model_name!r}...",
             extra={"model": self.model_name, "messages": message_payloads},
@@ -245,7 +246,9 @@ class ModelFacade:
         if not allow_multiple_choices:
             kwargs = self._drop_multi_choice_request_fields(kwargs)
         try:
-            request = self._build_chat_completion_request(message_payloads, kwargs)
+            request = self._build_chat_completion_request(
+                message_payloads, kwargs, message_replay_data=[message.replay_data for message in messages]
+            )
             response = self._client.completion(request)
             logger.debug(
                 f"Received completion from model {self.model_name!r}",
@@ -272,7 +275,7 @@ class ModelFacade:
         allow_multiple_choices: bool = True,
         **kwargs: Any,
     ) -> ChatCompletionResponse:
-        message_payloads = [message.to_dict(provider_type=self.model_provider.provider_type) for message in messages]
+        message_payloads = [message.to_dict() for message in messages]
         logger.debug(
             f"Prompting model {self.model_name!r}...",
             extra={"model": self.model_name, "messages": message_payloads},
@@ -282,7 +285,9 @@ class ModelFacade:
         if not allow_multiple_choices:
             kwargs = self._drop_multi_choice_request_fields(kwargs)
         try:
-            request = self._build_chat_completion_request(message_payloads, kwargs)
+            request = self._build_chat_completion_request(
+                message_payloads, kwargs, message_replay_data=[message.replay_data for message in messages]
+            )
             response = await self._client.acompletion(request)
             logger.debug(
                 f"Received completion from model {self.model_name!r}",
@@ -434,7 +439,7 @@ class ModelFacade:
                 ChatMessage.as_assistant(
                     content=response,
                     reasoning_content=reasoning_trace or None,
-                    anthropic_content=completion_response.message.anthropic_content,
+                    replay_data=completion_response.message.replay_data,
                 )
             )
             parse_attempts += 1
@@ -559,7 +564,7 @@ class ModelFacade:
                 ChatMessage.as_assistant(
                     content=response,
                     reasoning_content=reasoning_trace or None,
-                    anthropic_content=completion_response.message.anthropic_content,
+                    replay_data=completion_response.message.replay_data,
                 )
             )
             parse_attempts += 1
@@ -839,10 +844,18 @@ class ModelFacade:
             raise MCPConfigurationError(f"Tool alias {tool_alias!r} is not registered.") from exc
 
     def _build_chat_completion_request(
-        self, messages: list[dict[str, Any]], kwargs: dict[str, Any]
+        self,
+        messages: list[dict[str, Any]],
+        kwargs: dict[str, Any],
+        *,
+        message_replay_data: list[ProviderReplayData | None],
     ) -> ChatCompletionRequest:
         """Build a ChatCompletionRequest from message payloads and consolidated kwargs."""
-        request_fields: dict[str, Any] = {"model": self.model_name, "messages": messages}
+        request_fields: dict[str, Any] = {
+            "model": self.model_name,
+            "messages": messages,
+            "message_replay_data": message_replay_data,
+        }
         metadata: dict[str, Any] = {}
 
         for key, value in kwargs.items():
