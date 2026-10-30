@@ -35,6 +35,15 @@ pip install data-designer
 ```
 
 > [!NOTE]
+> To apply maintained minimum dependency versions for known vulnerabilities, use the optional security constraints file:
+>
+> ```bash
+> pip install data-designer -c "https://raw.githubusercontent.com/NVIDIA-NeMo/DataDesigner/main/constraints.txt"
+> ```
+>
+> With uv, use `uv pip install` or `uv add` with the same `-c` URL. See [dependency security](https://docs.nvidia.com/nemo/datadesigner/concepts/security#dependency-security) for details.
+
+> [!NOTE]
 > This project will download and install additional third-party open source
 > software projects. Review the license terms of these open source projects
 > before use.
@@ -181,11 +190,11 @@ Disable with `NEMO_TELEMETRY_ENABLED=false`. **[More details →](#telemetry-and
 
 ### Top models (YTD)
 
-Aggregate model usage across synthetic data generation jobs, year-to-date 1/1/2026–8/4/2026:
+Aggregate model usage across synthetic data generation jobs, year-to-date 1/1/2026–10/27/2026:
 
 ![Top models used for synthetic data generation](fern/images/top-models.png)
 
-_Last updated on August 4, 2026_
+_Last updated on October 27, 2026_
 
 ---
 
