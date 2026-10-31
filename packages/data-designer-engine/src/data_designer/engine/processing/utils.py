@@ -33,22 +33,22 @@ def concat_datasets(datasets: list[pd.DataFrame]) -> pd.DataFrame:
 # Overloads to help static type checker better understand
 # the input/output types of the deserialize_json_values function.
 @overload
-def deserialize_json_values(data: str) -> dict[str, Any] | list[Any] | Any: ...
+def deserialize_json_values(data: str, *, keep_scalar_strings: bool = False) -> dict[str, Any] | list[Any] | Any: ...
 
 
 @overload
-def deserialize_json_values(data: list[T]) -> list[Any]: ...
+def deserialize_json_values(data: list[T], *, keep_scalar_strings: bool = False) -> list[Any]: ...
 
 
 @overload
-def deserialize_json_values(data: dict[K, V]) -> dict[K, Any]: ...
+def deserialize_json_values(data: dict[K, V], *, keep_scalar_strings: bool = False) -> dict[K, Any]: ...
 
 
 @overload
-def deserialize_json_values(data: T) -> T: ...
+def deserialize_json_values(data: T, *, keep_scalar_strings: bool = False) -> T: ...
 
 
-def deserialize_json_values(data):
+def deserialize_json_values(data, *, keep_scalar_strings=False):
     """De-serialize JSON strings in various input formats.
 
     This function creates a deep copy of the input data and does not mutate the original.
@@ -59,6 +59,9 @@ def deserialize_json_values(data):
             - List of strings (list of JSON strings to deserialize)
             - Dictionary (potentially with nested JSON strings to deserialize)
             - Some other object that can't be deserialized.
+        keep_scalar_strings: Only replace strings that hold a JSON object or array, and keep strings like
+            "1.10", "true" or "null" as they are. Template contexts use this so a text cell renders as written
+            while `{{ column.key }}` still works on a column that stored a JSON object.
 
     Returns:
         Deserialized data in the corresponding format:
@@ -73,23 +76,17 @@ def deserialize_json_values(data):
 
     # Case 1: Single string input
     if isinstance(data_copy, str):
-        try:
-            return json.loads(data_copy)
-        except json.JSONDecodeError:
-            return data_copy
+        return _loads_json_string(data_copy, keep_scalar_strings)
 
     # Case 2: List of strings input
     elif isinstance(data_copy, list):
         result = []
         for item in data_copy:
             if isinstance(item, str):
-                try:
-                    result.append(json.loads(item))
-                except json.JSONDecodeError:
-                    result.append(item)
+                result.append(_loads_json_string(item, keep_scalar_strings))
             else:
                 # If list contains non-string items, recursively process them
-                result.append(deserialize_json_values(item))
+                result.append(deserialize_json_values(item, keep_scalar_strings=keep_scalar_strings))
         return result
 
     # Case 3: Dictionary input with potential nested JSON strings
@@ -97,13 +94,10 @@ def deserialize_json_values(data):
         result = {}
         for key, value in data_copy.items():
             if isinstance(value, str):
-                try:
-                    result[key] = json.loads(value)
-                except json.JSONDecodeError:
-                    result[key] = value
+                result[key] = _loads_json_string(value, keep_scalar_strings)
             elif isinstance(value, (dict, list)):
                 # Recursively process nested dictionaries and lists
-                result[key] = deserialize_json_values(value)
+                result[key] = deserialize_json_values(value, keep_scalar_strings=keep_scalar_strings)
             else:
                 result[key] = value
         return result
@@ -143,6 +137,16 @@ def parse_list_string(text: str) -> list[str]:
 
     # If all else fails, return the original text
     return [text.strip()]
+
+
+def _loads_json_string(value: str, keep_scalar_strings: bool) -> Any:
+    try:
+        loaded = json.loads(value)
+    except json.JSONDecodeError:
+        return value
+    if keep_scalar_strings and not isinstance(loaded, (dict, list)):
+        return value
+    return loaded
 
 
 def _clean_whitespace(texts: list[str]) -> list[str]:

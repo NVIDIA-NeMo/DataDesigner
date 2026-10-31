@@ -114,6 +114,21 @@ def test_image_cell_generator_generate_in_dataframe_mode(
         mock_storage.save_base64_image.assert_any_call("base64_image_2", subfolder_name="test_image")
 
 
+def test_image_cell_generator_keeps_scalar_strings_in_prompt(stub_resource_provider: None) -> None:
+    config = ImageColumnConfig(
+        name="test_image", prompt="Logo for v{{ version }}, beta={{ flag }}, {{ meta.style }}", model_alias="test_model"
+    )
+    stub_resource_provider.artifact_storage.media_storage = Mock()
+
+    with patch.object(
+        stub_resource_provider.model_registry.get_model.return_value, "generate_image", return_value=["base64_image"]
+    ) as mock_generate:
+        generator = ImageCellGenerator(config=config, resource_provider=stub_resource_provider)
+        generator.generate(data={"version": "1.10", "flag": "true", "meta": '{"style": "flat"}'})
+
+    mock_generate.assert_called_once_with(prompt="Logo for v1.10, beta=true, flat", multi_modal_context=None)
+
+
 def test_image_cell_generator_missing_columns_error(stub_image_column_config, stub_resource_provider):
     """Test that missing required columns raises ValueError."""
     generator = ImageCellGenerator(config=stub_image_column_config, resource_provider=stub_resource_provider)

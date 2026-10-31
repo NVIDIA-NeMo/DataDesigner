@@ -54,7 +54,7 @@ def test_generate_with_dataframe(mock_deserialize, mock_render, mock_prepare):
     df = lazy.pd.DataFrame({"col1": [1, 2, 3], "col2": [4, 5, 6]})
 
     mock_prepare.return_value = None
-    mock_deserialize.side_effect = lambda x: x
+    mock_deserialize.side_effect = lambda x, **_: x
     mock_render.side_effect = ["5", "7", "9"]
 
     result = generator.generate(df)
@@ -83,7 +83,7 @@ def test_generate_with_different_dtypes(mock_deserialize, mock_render, mock_prep
     df = lazy.pd.DataFrame({"col1": [1, 2, 3]})
 
     mock_prepare.return_value = None
-    mock_deserialize.side_effect = lambda x: x
+    mock_deserialize.side_effect = lambda x, **_: x
     mock_render.side_effect = ["1.5", "2.7", "3.9"]
 
     result = generator.generate(df)
@@ -108,7 +108,7 @@ def test_generate_with_bool_dtype_numeric(mock_deserialize, mock_render, mock_pr
     df = lazy.pd.DataFrame({"col1": [1, 0, 1]})
 
     mock_prepare.return_value = None
-    mock_deserialize.side_effect = lambda x: x
+    mock_deserialize.side_effect = lambda x, **_: x
     mock_render.side_effect = ["1", "0", "1.0"]
 
     result = generator.generate(df)
@@ -133,7 +133,7 @@ def test_generate_with_bool_dtype_string(mock_deserialize, mock_render, mock_pre
     df = lazy.pd.DataFrame({"col1": ["true", "false", "True"]})
 
     mock_prepare.return_value = None
-    mock_deserialize.side_effect = lambda x: x
+    mock_deserialize.side_effect = lambda x, **_: x
     mock_render.side_effect = ["true", "false", "True"]
 
     result = generator.generate(df)
@@ -219,6 +219,28 @@ def test_generate_int_dtype_drops_only_the_out_of_range_row() -> None:
 
     assert result.index.tolist() == [0, 2]
     assert result["number"].tolist() == [1, 3]
+
+
+def test_generate_keeps_scalar_strings_from_previous_columns() -> None:
+    config = _create_test_config("label", "v{{ version }} {{ flag }} {{ flag == 'true' }} {{ meta.score }}", "str")
+    generator = _create_test_generator(config)
+    df = lazy.pd.DataFrame(
+        {"version": ["1.10", "1e3"], "flag": ["true", "null"], "meta": ['{"score": 95}', '{"score": 42}']}
+    )
+
+    result = generator.generate(df)
+
+    assert result["label"].tolist() == ["v1.10 true True 95", "v1e3 null False 42"]
+
+
+def test_generate_casts_numeric_strings_explicitly() -> None:
+    config = _create_test_config("next", "{{ n | int + 1 }}", "int")
+    generator = _create_test_generator(config)
+    df = lazy.pd.DataFrame({"n": ["5", "6"]})
+
+    result = generator.generate(df)
+
+    assert result["next"].tolist() == [6, 7]
 
 
 def test_generate_with_missing_columns():

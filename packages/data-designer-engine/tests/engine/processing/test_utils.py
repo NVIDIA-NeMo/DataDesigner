@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -114,11 +115,60 @@ def test_concat_datasets_logging(mock_logger, stub_sample_dataframes):
         ("empty_string", "", ""),
         ("empty_list", [], []),
         ("empty_dict", {}, {}),
+        ("scalar_number_string", "1.10", 1.1),
+        ("scalar_bool_string", "true", True),
+        ("scalar_null_string", "null", None),
+        ("scalar_quoted_string", '"text"', "text"),
+        ("list_of_scalar_strings", ["1.10", "true", "null", '"text"'], [1.1, True, None, "text"]),
+        (
+            "dict_with_nested_scalar_strings",
+            {"version": "1.10", "nested": {"flag": "false", "deep": {"missing": "null", "quoted": '"x"'}}},
+            {"version": 1.1, "nested": {"flag": False, "deep": {"missing": None, "quoted": "x"}}},
+        ),
     ],
 )
 def test_deserialize_json_values_scenarios(test_case, input_data, expected_result):
     result = deserialize_json_values(input_data)
     assert result == expected_result
+
+
+@pytest.mark.parametrize(
+    "input_data,expected_result",
+    [
+        pytest.param("1.10", "1.10", id="single-scalar-string"),
+        pytest.param('{"key": 1.10}', {"key": 1.1}, id="single-object-string"),
+        pytest.param(["true", '["a", "b"]'], ["true", ["a", "b"]], id="list"),
+        pytest.param(
+            {
+                "version": "1.10",
+                "flag": "true",
+                "missing": "null",
+                "big": "1e3",
+                "quoted": '"text"',
+                "padded": "007",
+                "obj": '{"score": 95}',
+                "arr": "[1, 2]",
+                "nested": {"inner": "false", "deep": '{"ok": true}'},
+                "number": 42,
+            },
+            {
+                "version": "1.10",
+                "flag": "true",
+                "missing": "null",
+                "big": "1e3",
+                "quoted": '"text"',
+                "padded": "007",
+                "obj": {"score": 95},
+                "arr": [1, 2],
+                "nested": {"inner": "false", "deep": {"ok": True}},
+                "number": 42,
+            },
+            id="dict",
+        ),
+    ],
+)
+def test_deserialize_json_values_keep_scalar_strings(input_data: Any, expected_result: Any) -> None:
+    assert deserialize_json_values(input_data, keep_scalar_strings=True) == expected_result
 
 
 @pytest.mark.parametrize(

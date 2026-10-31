@@ -59,7 +59,7 @@ class ExpressionColumnGenerator(WithJinja2UserTemplateRendering, ColumnGenerator
             row_records = [{} for _ in row_indexes]
 
         for row_index, record in zip(row_indexes, row_records, strict=True):
-            prepared_record = deserialize_json_values(record)
+            prepared_record = deserialize_json_values(record, keep_scalar_strings=True)
             try:
                 rendered_value = self.render_template(prepared_record)
             except EmptyTemplateRenderError:

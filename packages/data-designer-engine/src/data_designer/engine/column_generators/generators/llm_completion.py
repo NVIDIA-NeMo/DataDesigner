@@ -78,7 +78,7 @@ class ColumnGeneratorWithModelChatCompletion(ColumnGeneratorWithModel[TaskConfig
         # Deserialize input data from previous columns so Jinja2 templates can access nested fields
         # Example: If prev column stored '{"key": "value"}', templates can use {{ prev_column.key }}
         # Note: This creates a new dict and doesn't mutate the original `data` argument
-        deserialized_record = deserialize_json_values(data)
+        deserialized_record = deserialize_json_values(data, keep_scalar_strings=True)
 
         multi_modal_context = self._build_multi_modal_context(deserialized_record)
 
