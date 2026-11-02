@@ -285,15 +285,14 @@ def test_quiet_noisy_logger():
     assert len(logger.handlers) == 0
 
 
-def test_configure_logging_silences_default_noisy_loggers(stub_default_logging_config):
-    config = stub_default_logging_config
-    configure_logging(config)
+@pytest.mark.parametrize("logger_name", ["httpx", "httpx2", "matplotlib"])
+def test_configure_logging_silences_default_noisy_loggers(stub_default_logging_config, logger_name):
+    noisy_logger = logging.getLogger(logger_name)
+    noisy_logger.setLevel(logging.NOTSET)
 
-    httpx_logger = logging.getLogger("httpx")
-    matplotlib_logger = logging.getLogger("matplotlib")
+    configure_logging(stub_default_logging_config)
 
-    assert httpx_logger.level == logging.WARNING
-    assert matplotlib_logger.level == logging.WARNING
+    assert noisy_logger.level == logging.WARNING
 
 
 @pytest.mark.parametrize(

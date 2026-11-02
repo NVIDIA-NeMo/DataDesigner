@@ -24,6 +24,7 @@ constraints = [
     { name = "anyio", specifier = ">=4.14.2" },
     { name = "cryptography", specifier = ">=50.0.0" },
     { name = "filelock", specifier = ">=4.2.1" },
+    { name = "httpx2", specifier = ">=2.12.0" },
     { name = "idna", specifier = ">=3.15" },
     { name = "pydantic-settings", specifier = ">=2.14.2" },
     { name = "pyjwt", specifier = ">=2.15.0" },
