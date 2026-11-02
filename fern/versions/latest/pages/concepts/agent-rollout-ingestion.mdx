@@ -5,6 +5,10 @@ position: 3
 ---
 `AgentRolloutSeedSource` turns existing agent rollouts into a seed dataset for synthetic data workflows. It lets you operate locally on rollout artifacts you already have on disk, then normalizes them into rows you can filter, curate, and distill into training or evaluation data.
 
+<Warning>
+Imported rollouts may contain sensitive prompts, tool outputs, and plaintext model reasoning. Data Designer preserves this content without automatic redaction. Review and sanitize imported traces before sharing them or sending them to external model providers.
+</Warning>
+
 ## Quick Start
 
 Use `AgentRolloutSeedSource` when you want to work from existing agent traces instead of traces captured during a Data Designer generation run.
@@ -34,6 +38,8 @@ seed_source = dd.AgentRolloutSeedSource(
     format=dd.AgentRolloutFormat.CODEX,
 )
 ```
+
+Reasoning is read from the summary of each reasoning item by default. Set `codex_reasoning_source=dd.CodexReasoningSource.CONTENT_FIRST` to read the raw reasoning content that open-model servers such as vLLM return, falling back to the summary when the content is empty. The raw reasoning is then included in `messages`, so the warning above applies.
 
 </Tab>
 <Tab title="Hermes Agent">

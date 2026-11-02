@@ -7,10 +7,9 @@ import logging
 from abc import ABC, abstractmethod
 from enum import Enum
 from pathlib import Path
-from typing import Annotated, Any, Generic, Literal, TypeVar
+from typing import Annotated, Any, Generic, Literal, Self, TypeAlias, TypeVar
 
 from pydantic import BaseModel, Field, field_validator, model_validator
-from typing_extensions import Self, TypeAlias
 
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.base import ConfigBase

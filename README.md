@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/NVIDIA-NeMo/DataDesigner/actions/workflows/ci.yml/badge.svg)](https://github.com/NVIDIA-NeMo/DataDesigner/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Python 3.10 - 3.14](https://img.shields.io/badge/🐍_Python-3.10_|_3.11_|_3.12_|_3.13_|_3.14-blue.svg)](https://www.python.org/downloads/) [![NeMo Platform](https://img.shields.io/badge/NeMo-Platform-76b900)](https://docs.nvidia.com/nemo-platform/documentation/design-synthetic-data) [![Code](https://img.shields.io/badge/Code-Documentation-8A2BE2.svg)](https://docs.nvidia.com/nemo/datadesigner/) ![Tokens](https://img.shields.io/badge/25T+-Tokens_Processed-76b900.svg?logo=nvidia&logoColor=white)
+[![Python 3.11 - 3.14](https://img.shields.io/badge/🐍_Python-3.11_|_3.12_|_3.13_|_3.14-blue.svg)](https://www.python.org/downloads/) [![NeMo Platform](https://img.shields.io/badge/NeMo-Platform-76b900)](https://docs.nvidia.com/nemo-platform/documentation/design-synthetic-data) [![Code](https://img.shields.io/badge/Code-Documentation-8A2BE2.svg)](https://docs.nvidia.com/nemo/datadesigner/) ![Tokens](https://img.shields.io/badge/25T+-Tokens_Processed-76b900.svg?logo=nvidia&logoColor=white)
 
 **Generate high-quality synthetic datasets from scratch or using your own seed data.**
 
@@ -33,6 +33,15 @@ Data Designer helps you create synthetic datasets that go beyond simple LLM prom
 ```bash
 pip install data-designer
 ```
+
+> [!NOTE]
+> To apply maintained minimum dependency versions for known vulnerabilities, use the optional security constraints file:
+>
+> ```bash
+> pip install data-designer -c "https://raw.githubusercontent.com/NVIDIA-NeMo/DataDesigner/main/constraints.txt"
+> ```
+>
+> With uv, use `uv pip install` or `uv add` with the same `-c` URL. See [dependency security](https://docs.nvidia.com/nemo/datadesigner/concepts/security#dependency-security) for details.
 
 > [!NOTE]
 > This project will download and install additional third-party open source
@@ -181,11 +190,11 @@ Disable with `NEMO_TELEMETRY_ENABLED=false`. **[More details →](#telemetry-and
 
 ### Top models (YTD)
 
-Aggregate model usage across synthetic data generation jobs, year-to-date 1/1/2026–8/4/2026:
+Aggregate model usage across synthetic data generation jobs, year-to-date 1/1/2026–10/27/2026:
 
 ![Top models used for synthetic data generation](fern/images/top-models.png)
 
-_Last updated on August 4, 2026_
+_Last updated on October 27, 2026_
 
 ---
 

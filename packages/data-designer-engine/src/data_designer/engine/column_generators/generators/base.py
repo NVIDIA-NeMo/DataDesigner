@@ -9,8 +9,9 @@ import functools
 import hashlib
 import logging
 from abc import ABC, abstractmethod
+from collections.abc import Coroutine
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Coroutine, TypeVar, overload
+from typing import TYPE_CHECKING, Any, TypeVar, overload
 
 from data_designer.config.column_configs import GenerationStrategy
 from data_designer.config.scheduling import SchedulingMetadata, SchedulingMetadataError
@@ -68,7 +69,7 @@ def _run_coroutine_sync(coro: Coroutine[Any, Any, _T]) -> _T:
     timed_out = False
     try:
         result = future.result(timeout=SYNC_BRIDGE_TIMEOUT)
-    except concurrent.futures.TimeoutError as exc:
+    except TimeoutError as exc:
         timed_out = True
         logger.warning(f"⚠️ Sync bridge timed out after {SYNC_BRIDGE_TIMEOUT}s; background thread still running")
         raise TimeoutError(f"_run_coroutine_sync timed out after {SYNC_BRIDGE_TIMEOUT}s") from exc

@@ -333,7 +333,7 @@ def test_build_auto_install_plan_uses_uv_add_for_non_package_user_project(
 
 
 @patch("data_designer.cli.services.plugin_install_service.shutil.which", return_value="/usr/bin/uv")
-def test_build_auto_install_plan_uses_uv_add_with_python310_pyproject_fallback(
+def test_build_auto_install_plan_uses_uv_add_with_pyproject_metadata(
     mock_which: Mock,
     tmp_path: Path,
 ) -> None:
@@ -342,8 +342,7 @@ def test_build_auto_install_plan_uses_uv_add_with_python310_pyproject_fallback(
     catalog = PluginCatalogConfig(alias="local", url="/catalog/plugins.json")
     service = PluginInstallService(working_dir=tmp_path, active_virtualenv=True)
 
-    with patch("data_designer.cli.services.plugin_install_service.tomllib", None):
-        plan = service.build_install_plan(entry, catalog, manager="auto")
+    plan = service.build_install_plan(entry, catalog, manager="auto")
 
     assert plan.install_mode == "uv-project"
     assert plan.project_root == str(tmp_path)
@@ -612,7 +611,7 @@ def test_build_auto_uninstall_plan_skips_uv_remove_when_package_is_not_a_project
 
 
 @patch("data_designer.cli.services.plugin_install_service.shutil.which", return_value="/usr/bin/uv")
-def test_build_auto_uninstall_plan_detects_project_dependency_with_python310_pyproject_fallback(
+def test_build_auto_uninstall_plan_detects_project_dependency_with_pyproject_metadata(
     mock_which: Mock,
     tmp_path: Path,
 ) -> None:
@@ -621,8 +620,7 @@ def test_build_auto_uninstall_plan_detects_project_dependency_with_python310_pyp
     catalog = PluginCatalogConfig(alias="local", url="/catalog/plugins.json")
     service = PluginInstallService(working_dir=tmp_path, active_virtualenv=True)
 
-    with patch("data_designer.cli.services.plugin_install_service.tomllib", None):
-        plan = service.build_uninstall_plan(entry, catalog, manager="auto")
+    plan = service.build_uninstall_plan(entry, catalog, manager="auto")
 
     assert plan.commands == [
         [
@@ -648,7 +646,7 @@ def test_build_auto_uninstall_plan_detects_project_dependency_with_python310_pyp
 
 
 @patch("data_designer.cli.services.plugin_install_service.shutil.which", return_value="/usr/bin/uv")
-def test_build_auto_uninstall_plan_handles_malformed_python310_pyproject_fallback(
+def test_build_auto_uninstall_plan_handles_malformed_pyproject(
     mock_which: Mock,
     tmp_path: Path,
 ) -> None:
@@ -661,8 +659,7 @@ def test_build_auto_uninstall_plan_handles_malformed_python310_pyproject_fallbac
     catalog = PluginCatalogConfig(alias="local", url="/catalog/plugins.json")
     service = PluginInstallService(working_dir=tmp_path, active_virtualenv=True)
 
-    with patch("data_designer.cli.services.plugin_install_service.tomllib", None):
-        plan = service.build_uninstall_plan(entry, catalog, manager="auto")
+    plan = service.build_uninstall_plan(entry, catalog, manager="auto")
 
     assert plan.command == [
         "uv",

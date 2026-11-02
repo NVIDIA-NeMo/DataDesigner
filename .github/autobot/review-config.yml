@@ -1,0 +1,5 @@
+auto-review:
+  enabled: true
+  mode: comment
+  on: [opened, status_change]
+  when: ready_for_review

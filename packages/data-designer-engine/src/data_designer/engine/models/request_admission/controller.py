@@ -316,7 +316,7 @@ class AdaptiveRequestAdmissionController(RequestPressureSnapshotProvider):
                     wait = self._wait_seconds_locked(item, now, deadline)
                 try:
                     await asyncio.wait_for(wakeup.wait(), timeout=wait)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     pass
                 wakeup.clear()
         except asyncio.CancelledError:

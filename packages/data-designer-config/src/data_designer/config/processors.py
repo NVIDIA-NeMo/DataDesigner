@@ -77,6 +77,10 @@ class SchemaTransformProcessorConfig(ProcessorConfig):
         name (required): Name of the processor.
     """
 
+    json_storage_columns: list[str] = Field(
+        default_factory=list,
+        description="Output columns to JSON-encode in processor artifacts; DD readers restore their logical values.",
+    )
     template: dict[str, Any] = Field(
         ...,
         description="""

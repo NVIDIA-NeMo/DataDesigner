@@ -4,10 +4,9 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Literal
+from typing import Literal, Self, TypeAlias
 
 from pydantic import Field, field_validator, model_validator
-from typing_extensions import Self, TypeAlias
 
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.base import ConfigBase

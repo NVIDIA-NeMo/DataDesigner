@@ -4,10 +4,9 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, Self
 
 from pydantic import BaseModel, Discriminator, Field, field_serializer, field_validator, model_validator
-from typing_extensions import Self
 
 from data_designer.config.base import ConfigBase, SingleColumnConfig
 from data_designer.config.errors import InvalidConfigError
@@ -16,6 +15,7 @@ from data_designer.config.sampler_params import SamplerParamsT, SamplerType
 from data_designer.config.utils.code_lang import CodeLang
 from data_designer.config.utils.constants import REASONING_CONTENT_COLUMN_POSTFIX, TRACE_COLUMN_POSTFIX
 from data_designer.config.utils.misc import assert_valid_jinja2_template, extract_keywords_from_jinja2_template
+from data_designer.config.utils.storage_schema import compile_json_storage_schema
 from data_designer.config.utils.trace_type import TraceType
 from data_designer.config.utils.warning_helpers import warn_at_caller
 from data_designer.config.validator_params import ValidatorParamsT, ValidatorType
@@ -325,6 +325,9 @@ class LLMStructuredColumnConfig(LLMTextColumnConfig):
         """
         if not isinstance(self.output_format, dict) and issubclass(self.output_format, BaseModel):
             self.output_format = self.output_format.model_json_schema()
+        _, paths = compile_json_storage_schema(self.output_format)
+        if paths and self.storage_encoding:
+            raise InvalidConfigError("Whole-column storage_encoding overlaps schema-level JSON storage declarations")
         return self
 
 

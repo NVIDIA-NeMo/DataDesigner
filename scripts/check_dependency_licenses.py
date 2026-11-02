@@ -8,14 +8,10 @@ import json
 import re
 import subprocess
 import sys
+import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-
-if sys.version_info >= (3, 11):
-    import tomllib
-else:
-    import tomli as tomllib
 
 PIP_LICENSES_VERSION = "5.5.5"
 POLICY_PATH = Path(__file__).resolve().parents[1] / "dependency-license-policy.toml"

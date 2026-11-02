@@ -6,10 +6,9 @@ from __future__ import annotations
 import math
 from abc import ABC
 from enum import Enum
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, TypeAlias
 
 from pydantic import Discriminator, Field, Tag
-from typing_extensions import TypeAlias
 
 from data_designer.config.base import ConfigBase
 

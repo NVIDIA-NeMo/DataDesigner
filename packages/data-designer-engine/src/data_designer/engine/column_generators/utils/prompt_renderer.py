@@ -12,6 +12,7 @@ from data_designer.config.models import ModelConfig
 from data_designer.config.run_config import JinjaRenderingEngine
 from data_designer.config.utils.code_lang import CodeLang
 from data_designer.config.utils.misc import extract_keywords_from_jinja2_template
+from data_designer.config.utils.storage_schema import compile_json_storage_schema
 from data_designer.config.utils.type_helpers import StrEnum
 from data_designer.engine.column_generators.utils.errors import PromptTemplateRenderError
 from data_designer.engine.column_generators.utils.judge_score_factory import (
@@ -97,7 +98,7 @@ def create_response_recipe(
         )
     if column_config.column_type == DataDesignerColumnType.LLM_STRUCTURED:
         return StructuredResponseRecipe(
-            json_schema=column_config.output_format,
+            json_schema=compile_json_storage_schema(column_config.output_format)[0],
         )
     if column_config.column_type == DataDesignerColumnType.LLM_JUDGE:
         return PydanticResponseRecipe(

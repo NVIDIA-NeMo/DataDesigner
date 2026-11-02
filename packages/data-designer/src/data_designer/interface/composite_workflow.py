@@ -27,6 +27,7 @@ from data_designer.config.errors import InvalidFileFormatError
 from data_designer.config.seed import IndexRange, PartitionBlock, SamplingStrategy
 from data_designer.config.seed_source import LocalFileSeedSource
 from data_designer.config.utils.constants import DEFAULT_NUM_RECORDS
+from data_designer.config.utils.io_helpers import read_parquet_dataset
 from data_designer.config.utils.type_helpers import StrEnum
 from data_designer.config.version import get_library_version
 from data_designer.engine.dataset_builders.errors import ArtifactStorageError
@@ -869,7 +870,7 @@ def _load_parquet_dataset(path: Path) -> pd.DataFrame:
     if not parquet_files:
         raise DataDesignerWorkflowError(f"No parquet files found at {str(path)!r}.")
     try:
-        return lazy.pd.concat([lazy.pd.read_parquet(file_path) for file_path in parquet_files], ignore_index=True)
+        return read_parquet_dataset(path)
     except Exception as e:
         raise DataDesignerWorkflowError(f"Failed to read parquet files at {str(path)!r}: {e}") from e
 

@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -27,7 +27,7 @@ def test_nvidia_internal_deployment_type_uses_schema_version_1_9() -> None:
         model="test-model",
     )
     payload = build_payload(
-        [QueuedEvent(event=event, timestamp=datetime(2026, 7, 2, tzinfo=timezone.utc))],
+        [QueuedEvent(event=event, timestamp=datetime(2026, 7, 2, tzinfo=UTC))],
         source_client_version="test",
     )
 

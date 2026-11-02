@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -45,3 +45,82 @@ def test_embedding_cell_generator_generate(stub_embedding_column_config, stub_re
             embeddings=stub_embeddings
         ).model_dump(mode="json")
         mock_generate.assert_called_once_with(input_texts=["test1", "test2"])
+
+
+EMBEDDING_INPUT_CASES = [
+    ('["test1", "test2"]', ["test1", "test2"]),
+    ("['test1', 'test2']", ["test1", "test2"]),
+    ("hello world", ["hello world"]),
+    ("123", ["123"]),
+    ("true", ["true"]),
+    ("null", ["null"]),
+]
+
+
+@pytest.mark.parametrize("cell_value,expected_inputs", EMBEDDING_INPUT_CASES)
+def test_embedding_cell_generator_generate_input_formats(
+    stub_embedding_column_config, stub_resource_provider, cell_value, expected_inputs
+):
+    with patch.object(
+        stub_resource_provider.model_registry.get_model.return_value,
+        "generate_text_embeddings",
+        return_value=[[0.1, 0.2]],
+    ) as mock_generate:
+        embedding_cell_generator = EmbeddingCellGenerator(
+            config=stub_embedding_column_config, resource_provider=stub_resource_provider
+        )
+        embedding_cell_generator.generate(data={"test_column": cell_value})
+        mock_generate.assert_called_once_with(input_texts=expected_inputs)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cell_value,expected_inputs", EMBEDDING_INPUT_CASES)
+async def test_embedding_cell_generator_agenerate_input_formats(
+    stub_embedding_column_config, stub_resource_provider, cell_value, expected_inputs
+):
+    embedding_cell_generator = EmbeddingCellGenerator(
+        config=stub_embedding_column_config, resource_provider=stub_resource_provider
+    )
+    with patch.object(embedding_cell_generator, "model") as mock_model:
+        mock_model.agenerate_text_embeddings = AsyncMock(return_value=[[0.1, 0.2]])
+        await embedding_cell_generator.agenerate({"test_column": cell_value})
+    mock_model.agenerate_text_embeddings.assert_awaited_once_with(input_texts=expected_inputs)
+
+
+@pytest.mark.parametrize("cell_value", [None, float("nan")])
+def test_embedding_cell_generator_generate_rejects_missing_values(
+    stub_embedding_column_config, stub_resource_provider, cell_value
+):
+    with patch.object(
+        stub_resource_provider.model_registry.get_model.return_value, "generate_text_embeddings"
+    ) as mock_generate:
+        embedding_cell_generator = EmbeddingCellGenerator(
+            config=stub_embedding_column_config, resource_provider=stub_resource_provider
+        )
+        with pytest.raises(ValueError, match="must contain text"):
+            embedding_cell_generator.generate(data={"test_column": cell_value})
+        mock_generate.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cell_value", [None, float("nan")])
+async def test_embedding_cell_generator_agenerate_rejects_missing_values(
+    stub_embedding_column_config, stub_resource_provider, cell_value
+):
+    embedding_cell_generator = EmbeddingCellGenerator(
+        config=stub_embedding_column_config, resource_provider=stub_resource_provider
+    )
+    with patch.object(embedding_cell_generator, "model") as mock_model:
+        mock_model.agenerate_text_embeddings = AsyncMock()
+        with pytest.raises(ValueError, match="must contain text"):
+            await embedding_cell_generator.agenerate({"test_column": cell_value})
+    mock_model.agenerate_text_embeddings.assert_not_awaited()
+
+
+def test_embedding_cell_generator_error_omits_cell_contents(stub_embedding_column_config, stub_resource_provider):
+    embedding_cell_generator = EmbeddingCellGenerator(
+        config=stub_embedding_column_config, resource_provider=stub_resource_provider
+    )
+    with pytest.raises(ValueError, match="got dict") as exc_info:
+        embedding_cell_generator.generate(data={"test_column": {"secret": "sentinel-7f3a"}})
+    assert "sentinel-7f3a" not in str(exc_info.value)

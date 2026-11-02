@@ -28,8 +28,19 @@ class EmbeddingCellGenerator(ColumnGeneratorWithModel[EmbeddingColumnConfig]):
         return GenerationStrategy.CELL_BY_CELL
 
     def _prepare_embedding_inputs(self, data: dict) -> list[str]:
-        deserialized_record = deserialize_json_values(data)
-        return parse_list_string(deserialized_record[self.config.target_column])
+        cell_value = data[self.config.target_column]
+        deserialized_value = deserialize_json_values(data)[self.config.target_column]
+        if isinstance(deserialized_value, list):
+            return [str(text).strip() for text in deserialized_value]
+        if isinstance(deserialized_value, str):
+            return parse_list_string(deserialized_value)
+        if not isinstance(cell_value, str):
+            raise ValueError(
+                f"Embedding target column {self.config.target_column!r} must contain text or a list of texts, "
+                f"got {type(cell_value).__name__}"
+            )
+        # A JSON scalar such as "123" or "true" is embedded as the user wrote it.
+        return [cell_value.strip()]
 
     def generate(self, data: dict) -> dict:
         input_texts = self._prepare_embedding_inputs(data)

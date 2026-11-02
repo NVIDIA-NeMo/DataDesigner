@@ -31,8 +31,11 @@ Top-level modules handle cross-cutting concerns: `compiler.py` (config compilati
 `compiler.py` transforms a `DataDesignerConfig` into an execution-ready form:
 
 1. Enriches the config with seed columns and an internal UUID column
-2. Runs static validation (`validation.py`) — checks Jinja references, code columns, processor targets, constraint consistency
-3. Produces `Violation` objects with typed `ViolationType` for structured error reporting
+2. Applies `columns_added` and `columns_removed` declarations only for registered processors that implement `process_before_batch`. Removals target seed columns; generated columns do not exist yet at this stage. Declarations on later-stage processors do not change generation-time references.
+3. Runs static validation (`validation.py`) — checks Jinja references, code columns, processor targets, constraint consistency
+4. Produces `Violation` objects with typed `ViolationType` for structured error reporting
+
+The dataset builder retains raw seed columns in its seed-loading execution task, even when pre-batch declarations remove all of them from the downstream schema. This ensures processors receive the original seed data before generated columns run.
 
 ### Registry System
 

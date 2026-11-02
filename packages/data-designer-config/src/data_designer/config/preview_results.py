@@ -9,6 +9,8 @@ from data_designer.config.analysis.dataset_profiler import DatasetProfilerResult
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.dataset_metadata import DatasetMetadata
 from data_designer.config.seed_source_dataframe import DataFrameSeedSource
+from data_designer.config.utils.storage_encoding import read_dataframe_storage_plan
+from data_designer.config.utils.storage_schema import JSON_STORAGE_RUN_KEY
 from data_designer.config.utils.visualization import WithRecordSamplerMixin
 
 if TYPE_CHECKING:
@@ -50,10 +52,12 @@ class PreviewResults(WithRecordSamplerMixin):
         """
         if self.dataset is None:
             raise ValueError("Preview dataset is not available.")
-        df = self.dataset
+        df = self.dataset.copy()
         if columns is not None:
             df = df.loc[:, columns]
+        if JSON_STORAGE_RUN_KEY in df.attrs:
+            df.attrs[JSON_STORAGE_RUN_KEY] = read_dataframe_storage_plan(df).model_dump()
         return DataDesignerConfigBuilder(
             model_configs=self._config_builder.model_configs,
             tool_configs=self._config_builder.tool_configs,
-        ).with_seed_dataset(DataFrameSeedSource(df=df.copy()))
+        ).with_seed_dataset(DataFrameSeedSource(df=df))

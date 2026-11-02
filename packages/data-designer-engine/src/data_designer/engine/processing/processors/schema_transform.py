@@ -7,8 +7,9 @@ import json
 import logging
 from typing import TYPE_CHECKING, Any
 
-import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.processors import SchemaTransformProcessorConfig
+from data_designer.config.utils.storage_encoding import create_logical_dataframe
+from data_designer.config.utils.storage_schema import JsonStoragePlan
 from data_designer.engine.processing.ginja.environment import WithJinja2UserTemplateRendering
 from data_designer.engine.processing.processors.base import Processor
 from data_designer.engine.processing.utils import deserialize_json_values
@@ -52,19 +53,27 @@ class SchemaTransformProcessor(WithJinja2UserTemplateRendering, Processor[Schema
         return json.dumps(self.config.template)
 
     def process_after_batch(self, data: pd.DataFrame, *, current_batch_number: int | None) -> pd.DataFrame:
+        if len(data) == 0:
+            return data
         formatted_data = self._transform(data)
+        missing = set(self.config.json_storage_columns) - set(formatted_data.columns)
+        if missing:
+            raise ValueError(f"JSON storage columns missing from processor output: {sorted(missing)}")
+        storage = JsonStoragePlan(columns={name: [[]] for name in self.config.json_storage_columns})
         if current_batch_number is not None:
             self.artifact_storage.write_batch_to_parquet_file(
                 batch_number=current_batch_number,
                 dataframe=formatted_data,
                 batch_stage=BatchStage.PROCESSORS_OUTPUTS,
                 subfolder=self.config.name,
+                json_storage=storage,
             )
         else:
             self.artifact_storage.write_parquet_file(
                 parquet_file_name=f"{self.config.name}.parquet",
                 dataframe=formatted_data,
                 batch_stage=BatchStage.PROCESSORS_OUTPUTS,
+                json_storage=storage,
             )
         return data
 
@@ -77,4 +86,4 @@ class SchemaTransformProcessor(WithJinja2UserTemplateRendering, Processor[Schema
             deserialized = deserialize_json_values(record)
             rendered = self.render_template(deserialized)
             formatted_records.append(json.loads(rendered))
-        return lazy.pd.DataFrame(formatted_records)
+        return create_logical_dataframe(formatted_records, self.config.json_storage_columns)

@@ -18,6 +18,7 @@ import yaml
 
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.errors import InvalidFileFormatError, InvalidFilePathError
+from data_designer.config.utils.storage_encoding import read_encoded_parquet, read_storage_plan, validate_storage_plans
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -122,18 +123,27 @@ def read_parquet_dataset(path: Path) -> pd.DataFrame:
     Returns:
         The parquet dataset as a pandas DataFrame.
     """
-    if path.is_dir() and (parquet_files := sorted(path.glob("*.parquet"))):
-        schemas = [lazy.pq.read_schema(file) for file in parquet_files]
+    if path.is_dir():
+        dataset = lazy.pq.ParquetDataset(path)
+        schemas = [fragment.physical_schema for fragment in dataset.fragments]
+        plan = validate_storage_plans(schemas)
+        if plan.columns:
+            return read_encoded_parquet(path, schemas)
         try:
-            unified_schema = lazy.pa.unify_schemas(schemas, promote_options="permissive")
+            unified_schema = lazy.pa.unify_schemas([*schemas, dataset.schema], promote_options="permissive")
         except (lazy.pa.ArrowInvalid, lazy.pa.ArrowTypeError):
             logger.warning("Failed to unify parquet schemas, falling back to individual files")
             return lazy.pd.concat(
-                [lazy.pd.read_parquet(file, dtype_backend="pyarrow") for file in parquet_files],
+                [lazy.pd.read_parquet(file, dtype_backend="pyarrow") for file in sorted(dataset.files)],
                 ignore_index=True,
             )
-        return lazy.pd.read_parquet(path, dtype_backend="pyarrow", schema=unified_schema)
+        return lazy.pd.read_parquet(
+            path, dtype_backend="pyarrow", schema=unified_schema, partitioning=dataset.partitioning
+        )
 
+    schema = lazy.pq.read_schema(path)
+    if read_storage_plan(schema).columns:
+        return read_encoded_parquet(path, [schema])
     return lazy.pd.read_parquet(path, dtype_backend="pyarrow")
 
 

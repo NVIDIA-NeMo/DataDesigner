@@ -18,6 +18,7 @@ from data_designer.config.seed import IndexRange
 from data_designer.config.seed_source import (
     AgentRolloutFormat,
     AgentRolloutSeedSource,
+    CodexReasoningSource,
     DirectorySeedSource,
     FileContentsSeedSource,
     LocalFileSeedSource,
@@ -1119,6 +1120,50 @@ def test_agent_rollout_seed_reader_hydrates_to_record_count(tmp_path: Path, writ
 
     assert len(batch_df) == 2
     assert sorted(reader.hydrated_relative_paths) == ["project-a/session-1.jsonl", "project-a/session-2.jsonl"]
+
+
+@pytest.mark.parametrize(
+    ("source_kwargs", "expected_reasoning"),
+    [
+        pytest.param({}, None, id="default-summary"),
+        pytest.param(
+            {"codex_reasoning_source": CodexReasoningSource.CONTENT_FIRST}, "Raw reasoning", id="content-first"
+        ),
+    ],
+)
+def test_agent_rollout_seed_reader_passes_codex_reasoning_source(
+    tmp_path: Path,
+    write_jsonl: WriteJsonl,
+    source_kwargs: dict[str, Any],
+    expected_reasoning: str | None,
+) -> None:
+    write_jsonl(
+        tmp_path / "rollout-1.jsonl",
+        [
+            {"type": "session_meta", "payload": {"id": "sess-1"}},
+            {
+                "type": "response_item",
+                "payload": {"type": "reasoning", "content": [{"type": "reasoning_text", "text": "Raw reasoning"}]},
+            },
+            {
+                "type": "response_item",
+                "payload": {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "Hi"}]},
+            },
+        ],
+    )
+
+    reader = AgentRolloutSeedReader()
+    reader.attach(
+        AgentRolloutSeedSource(
+            path=str(tmp_path),
+            format=AgentRolloutFormat.CODEX,
+            **source_kwargs,
+        ),
+        PlaintextResolver(),
+    )
+    batch_df = reader.create_batch_reader(batch_size=10, index_range=None, shuffle=False).read_next_batch().to_pandas()
+
+    assert batch_df["messages"][0][0].get("reasoning_content") == expected_reasoning
 
 
 def test_agent_rollout_seed_reader_hydrates_atif_json_files(tmp_path: Path) -> None:

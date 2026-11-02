@@ -26,6 +26,7 @@ from data_designer.config.utils.misc import (
 )
 from data_designer.config.validator_params import ValidatorType
 from data_designer.engine.column_generators.utils.generator_classification import column_type_is_model_generated
+from data_designer.engine.storage.schema_preflight import find_storage_schema_risks
 
 
 class ViolationType(str, Enum):
@@ -42,6 +43,7 @@ class ViolationType(str, Enum):
     PROMPT_WITHOUT_REFERENCES = "prompt_without_references"
     SKIP_REFERENCE_MISSING = "skip_reference_missing"
     SKIP_ON_SAMPLER_SEED = "skip_on_sampler_seed"
+    PARQUET_STORAGE = "parquet_storage"
 
 
 class ViolationLevel(str, Enum):
@@ -64,6 +66,8 @@ def validate_data_designer_config(
     columns: list[ColumnConfigT],
     processor_configs: list[ProcessorConfigT],
     allowed_references: list[str],
+    *,
+    preserve_dropped_columns: bool = True,
 ) -> list[Violation]:
     violations = []
     violations.extend(validate_prompt_templates(columns=columns, allowed_references=allowed_references))
@@ -73,8 +77,65 @@ def validate_data_designer_config(
     violations.extend(validate_columns_not_all_dropped(columns=columns, processor_configs=processor_configs))
     violations.extend(validate_drop_columns_processor(columns=columns, processor_configs=processor_configs))
     violations.extend(validate_schema_transform_processor(columns=columns, processor_configs=processor_configs))
+    violations.extend(
+        validate_parquet_storage(
+            columns=columns,
+            processor_configs=processor_configs,
+            preserve_dropped_columns=preserve_dropped_columns,
+        )
+    )
     if not can_run_data_designer_locally():
         violations.extend(validate_local_only_columns(columns=columns))
+    return violations
+
+
+def validate_parquet_storage(
+    columns: list[ColumnConfigT],
+    *,
+    processor_configs: list[ProcessorConfigT] | None = None,
+    preserve_dropped_columns: bool = True,
+) -> list[Violation]:
+    """Flag storage problems before model health checks or generation spend."""
+    violations = []
+    processors = processor_configs or []
+    discarded = (
+        {column.name for column in columns if column.drop} | resolve_processor_dropped_columns(columns, processors)
+        if not preserve_dropped_columns
+        else set()
+    )
+    # Unknown processors may reshape generated values before checkpointing.
+    # Conditional generation only changes certainty for columns that can
+    # actually skip, directly or through their data dependencies.
+    uncertain_output = any(
+        processor.processor_type not in (ProcessorType.DROP_COLUMNS, ProcessorType.SCHEMA_TRANSFORM)
+        for processor in processors
+    )
+    potentially_skipped = _find_potentially_skipped_columns(columns)
+    for column in columns:
+        if (
+            column.name in discarded
+            or column.column_type != DataDesignerColumnType.LLM_STRUCTURED
+            or column.storage_encoding == "json"
+        ):
+            continue
+        for risk in find_storage_schema_risks(column.output_format):
+            definite = risk.definite and not uncertain_output and column.name not in potentially_skipped
+            location = "$" + "".join("[]" if part is None else f"[{part!r}]" for part in risk.path)
+            message = (
+                f"Native Parquet storage at {location} {risk.reason}. "
+                "Add 'x-data-designer-storage': 'json' to this field or an enclosing schema node, "
+                "or set storage_encoding='json' on the column. "
+            )
+            if not definite:
+                message += "This is a schema risk, not a prediction that every generated batch will fail."
+            violations.append(
+                Violation(
+                    column=column.name,
+                    type=ViolationType.PARQUET_STORAGE,
+                    message=message,
+                    level=ViolationLevel.ERROR if definite else ViolationLevel.WARNING,
+                )
+            )
     return violations
 
 
@@ -353,6 +414,28 @@ def validate_schema_transform_processor(
     all_column_names = {c.name for c in columns}
     for processor_config in processor_configs:
         if processor_config.processor_type == ProcessorType.SCHEMA_TRANSFORM:
+            literal_outputs = {
+                name for name in processor_config.template if not any(marker in name for marker in ("{{", "{%", "{#"))
+            }
+            missing_storage_columns = set(processor_config.json_storage_columns) - literal_outputs
+            if missing_storage_columns:
+                dynamic_outputs = len(literal_outputs) != len(processor_config.template)
+                message = (
+                    f"Schema-transform processor {processor_config.name!r} declares JSON storage for output "
+                    f"columns {sorted(missing_storage_columns)!r}, which are not literal template output names. "
+                )
+                message += (
+                    "Dynamic output names cannot be verified until the template is rendered."
+                    if dynamic_outputs
+                    else "Use output names from the template in json_storage_columns."
+                )
+                violations.append(
+                    Violation(
+                        type=ViolationType.PARQUET_STORAGE,
+                        message=message,
+                        level=ViolationLevel.WARNING if dynamic_outputs else ViolationLevel.ERROR,
+                    )
+                )
             for col, template in processor_config.template.items():
                 template_keywords = extract_keywords_from_jinja2_template(template)
                 invalid_keywords = set(template_keywords) - all_column_names
@@ -459,6 +542,23 @@ _FORMAT_FIELD_REFERENCE_PATTERN = re.compile(
     r"(?::[^{}]*(?:\{[^{}]*\}[^{}]*)*)?"
     r"\}"
 )
+
+
+def _find_potentially_skipped_columns(columns: list[ColumnConfigT]) -> set[str]:
+    """Follow runtime skip propagation without requiring a valid execution graph.
+
+    Validation also reports unresolved references and cycles, so this analysis
+    must tolerate those inputs and converge independently of column order.
+    """
+    skipped: set[str] = set()
+    while True:
+        previous_count = len(skipped)
+        for column in columns:
+            if column.skip is not None or (column.propagate_skip and not skipped.isdisjoint(column.required_columns)):
+                skipped.add(column.name)
+                skipped.update(column.side_effect_columns)
+        if len(skipped) == previous_count:
+            return skipped
 
 
 def _get_string_formatter_references(template: str, allowed_references: list[str]) -> list[str]:

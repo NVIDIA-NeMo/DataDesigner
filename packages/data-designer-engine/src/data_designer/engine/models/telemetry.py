@@ -17,7 +17,7 @@ import asyncio
 import os
 import platform
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
 from typing import TYPE_CHECKING, Any, ClassVar
 
@@ -160,7 +160,7 @@ class QueuedEvent:
 
 def _get_iso_timestamp(dt: datetime | None = None) -> str:
     if dt is None:
-        dt = datetime.now(timezone.utc)
+        dt = datetime.now(UTC)
     return dt.strftime("%Y-%m-%dT%H:%M:%S.") + f"{dt.microsecond // 1000:03d}Z"
 
 
@@ -283,7 +283,7 @@ class TelemetryHandler:
         if not isinstance(event, TelemetryEvent):
             # Silently fail as we prioritize not disrupting upstream call sites and telemetry is best effort
             return
-        queued = QueuedEvent(event=event, timestamp=datetime.now(timezone.utc))
+        queued = QueuedEvent(event=event, timestamp=datetime.now(UTC))
         self._events.append(queued)
         if len(self._events) >= self._max_queue_size:
             self._flush_signal.set()
@@ -324,7 +324,7 @@ class TelemetryHandler:
                     self._flush_signal.wait(),
                     timeout=self._flush_interval,
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass
             self._flush_signal.clear()
             await self._flush_events()

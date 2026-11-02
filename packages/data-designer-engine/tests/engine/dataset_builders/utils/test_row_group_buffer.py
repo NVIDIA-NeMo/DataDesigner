@@ -3,12 +3,15 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import MagicMock, Mock
 
 import pytest
 
 import data_designer.lazy_heavy_imports as lazy
+from data_designer.config.utils.storage_schema import JsonStoragePlan
 from data_designer.engine.dataset_builders.utils.row_group_buffer import RowGroupBufferManager
+from data_designer.engine.storage.artifact_storage import ArtifactStorage
 
 
 def _mock_artifact_storage() -> MagicMock:
@@ -70,6 +73,31 @@ def test_get_dataframe_excludes_dropped() -> None:
     df = mgr.get_dataframe(0)
     assert len(df) == 2
     assert list(df["val"]) == [1, 3]
+
+
+@pytest.mark.parametrize("row_indices", [None, [2, 0]])
+def test_json_materialization_preserves_values_indices_and_native_dtypes(
+    tmp_path: Path, row_indices: list[int] | None
+) -> None:
+    storage = ArtifactStorage(artifact_path=tmp_path, json_storage=JsonStoragePlan(columns={"payload": [[]]}))
+    mgr = RowGroupBufferManager(storage)
+    mgr.init_row_group(0, 3)
+    mgr.update_batch(0, "payload", [2**60 + 1, None, 1.25])
+    mgr.update_batch(0, "native", [2, 3, 4])
+    mgr.drop_row(0, 1)
+    expected_indices = [0, 2] if row_indices is None else row_indices
+
+    frame = mgr.get_dataframe(0, row_indices=row_indices)
+
+    assert frame.columns.tolist() == ["payload", "native"]
+    assert frame.index.tolist() == ([0, 1] if row_indices is None else row_indices)
+    assert frame["payload"].dtype == object
+    assert frame["native"].dtype.kind == "i"
+    assert [(type(value), value) for value in frame["payload"]] == [
+        (type(mgr.get_row(0, index)["payload"]), mgr.get_row(0, index)["payload"]) for index in expected_indices
+    ]
+    assert mgr.get_row(0, 0)["payload"] == 2**60 + 1
+    assert mgr.get_row(0, 1)["payload"] is None
 
 
 def test_drop_row_and_is_dropped() -> None:

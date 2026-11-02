@@ -1,0 +1,49 @@
+---
+title: "Logging"
+description: "Configure Data Designer logging or integrate it with an application's logging setup."
+---
+
+# Logging
+
+When you construct `DataDesigner`, it configures the Python root logger with a console handler and sets the `data_designer` logger to `INFO`. This automatic setup applies to each construction when Data Designer has no managed logging handler.
+
+## Use custom Data Designer logging
+
+Call `configure_logging()` before constructing `DataDesigner` to select a built-in configuration or supply your own `LoggingConfig`:
+
+```python
+from data_designer.interface import DataDesigner
+from data_designer.logging import LoggingConfig, configure_logging, is_logging_configured
+
+configure_logging(LoggingConfig.debug())
+data_designer = DataDesigner()
+```
+
+`is_logging_configured()` reports whether the root logger currently has a handler installed by `configure_logging()`. Handlers created through `logging.basicConfig()` or other standard-library APIs do not count as Data Designer-managed logging.
+
+## Integrate with application logging
+
+If your application manages logging, disable Data Designer's automatic configuration and then use the standard Python logging APIs:
+
+```python
+import logging
+
+from data_designer.interface import DataDesigner
+
+logging.basicConfig(level=logging.INFO)
+data_designer = DataDesigner(auto_configure_logging=False)
+```
+
+The `auto_configure_logging` setting applies to that `DataDesigner` instance. A later construction with the default value can configure Data Designer logging if no Data Designer-managed handler is present.
+
+## Reset Data Designer logging
+
+Use `reset_logging()` to remove Data Designer-managed handlers and return the root and `data_designer` logger levels to their Python defaults:
+
+```python
+from data_designer.logging import reset_logging
+
+reset_logging()
+```
+
+The reset is safe to call repeatedly and leaves handlers installed by other code attached. If no Data Designer-managed handler is attached, the reset is a no-op and leaves logger levels unchanged. It does not restore handlers or levels that existed before `configure_logging()` ran, and it does not reset the levels of noisy third-party loggers that Data Designer quieted. To preserve an application's existing logging configuration, construct `DataDesigner` with `auto_configure_logging=False` instead.

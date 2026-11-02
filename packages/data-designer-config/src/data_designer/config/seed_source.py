@@ -6,17 +6,18 @@ from __future__ import annotations
 import codecs
 from abc import ABC
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, Self
 
 from pydantic import BaseModel, Field, PrivateAttr, field_validator, model_validator
-from typing_extensions import Self
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.errors import InvalidFilePathError
 from data_designer.config.utils.io_helpers import (
     VALID_DATASET_FILE_EXTENSIONS,
     validate_dataset_file_path,
     validate_path_contains_files_of_type,
 )
+from data_designer.config.utils.storage_encoding import encode_storage_table, read_dataframe_storage_plan
 from data_designer.config.utils.type_helpers import StrEnum
 
 if TYPE_CHECKING:
@@ -72,7 +73,12 @@ class LocalFileSeedSource(SeedSource):
 
     @classmethod
     def from_dataframe(cls, df: pd.DataFrame, path: str) -> Self:
-        df.to_parquet(path, index=False)
+        """Persist a local seed while preserving any DD JSON storage contract."""
+        plan = read_dataframe_storage_plan(df)
+        if plan.columns:
+            lazy.pq.write_table(encode_storage_table(df, plan), path)
+        else:
+            df.to_parquet(path, index=False)
         return cls(path=path)
 
 
@@ -219,6 +225,11 @@ class AgentRolloutFormat(StrEnum):
     PI_CODING_AGENT = "pi_coding_agent"
 
 
+class CodexReasoningSource(StrEnum):
+    SUMMARY = "summary"
+    CONTENT_FIRST = "content_first"
+
+
 def get_agent_rollout_format_defaults(fmt: AgentRolloutFormat) -> tuple[str | None, str]:
     if fmt == AgentRolloutFormat.ATIF:
         return (None, "*.json")
@@ -263,11 +274,26 @@ class AgentRolloutSeedSource(FileSystemSeedSource):
         ),
     )
 
+    codex_reasoning_source: CodexReasoningSource = Field(
+        CodexReasoningSource.SUMMARY,
+        description=(
+            "Codex only. Which part of each reasoning item fills reasoning_content. 'summary' reads only the "
+            "reasoning summary. 'content_first' reads the raw reasoning content, which open-model servers such "
+            "as vLLM return, and falls back to the summary when the content has no text. Raw reasoning can "
+            "contain sensitive text."
+        ),
+    )
+
     @model_validator(mode="after")
     def validate_runtime_path_source(self) -> Self:
         default_path, _ = get_agent_rollout_format_defaults(self.format)
         if self.path is None and default_path is None:
             raise ValueError(f"🛑 AgentRolloutSeedSource.path is required for format {self.format.value!r}.")
+        if self.format != AgentRolloutFormat.CODEX and self.codex_reasoning_source != CodexReasoningSource.SUMMARY:
+            raise ValueError(
+                f"🛑 AgentRolloutSeedSource.codex_reasoning_source applies only to format 'codex', "
+                f"not {self.format.value!r}."
+            )
         return self
 
     @property

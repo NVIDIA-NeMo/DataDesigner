@@ -8,10 +8,9 @@ import importlib
 import importlib.util
 from enum import Enum
 from functools import cached_property
-from typing import Literal, get_origin
+from typing import Literal, Self, get_origin
 
 from pydantic import BaseModel, Field, field_validator, model_validator
-from typing_extensions import Self
 
 from data_designer.config.base import ConfigBase
 from data_designer.plugins.errors import PluginLoadError
