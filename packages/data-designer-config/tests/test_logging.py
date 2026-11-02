@@ -286,7 +286,9 @@ def test_quiet_noisy_logger():
 
 
 @pytest.mark.parametrize("logger_name", ["httpx", "httpx2", "matplotlib"])
-def test_configure_logging_silences_default_noisy_loggers(stub_default_logging_config, logger_name):
+def test_configure_logging_silences_default_noisy_loggers(
+    stub_default_logging_config: LoggingConfig, logger_name: str
+) -> None:
     noisy_logger = logging.getLogger(logger_name)
     noisy_logger.setLevel(logging.NOTSET)
 
