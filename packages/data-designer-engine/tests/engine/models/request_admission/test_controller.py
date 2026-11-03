@@ -24,6 +24,7 @@ from data_designer.engine.models.request_admission.resources import (
     RequestGroupSpec,
     RequestResourceKey,
 )
+from data_designer.engine.models.resources import ProviderModelKey
 from data_designer.engine.observability import RequestAdmissionEventKind, subscribe_request_admission_events
 from data_designer.engine.testing import InMemoryAdmissionEventSink
 
@@ -144,6 +145,39 @@ def test_request_admission_validation_does_not_register_alias() -> None:
     )
 
     assert controller.global_snapshots() == {}
+
+
+def test_request_admission_registers_batch() -> None:
+    controller = AdaptiveRequestAdmissionController()
+    key = ProviderModelKey("nvidia", "nemotron")
+    other_key = ProviderModelKey("other", "nemotron")
+    controller.register_many({(key, "a"): 4, (key, "b"): 2, (other_key, "a"): 3}, freeze=True)
+
+    assert controller.global_snapshot("nvidia", "nemotron").static_cap == 2
+    assert controller.global_snapshot("other", "nemotron").static_cap == 3
+    with pytest.raises(ValueError, match="already registered with max_parallel_requests=4"):
+        controller.register(provider_name="nvidia", model_id="nemotron", alias="a", max_parallel_requests=5)
+
+
+def test_request_admission_rejects_batch_without_changes() -> None:
+    controller = _controller(cap=4, freeze=True)
+    controller.register(provider_name="nvidia", model_id="nemotron", alias="ordinary", max_parallel_requests=4)
+    key = ProviderModelKey("nvidia", "nemotron")
+    other_key = ProviderModelKey("other", "nemotron")
+    before = controller.global_snapshot("nvidia", "nemotron")
+
+    with pytest.raises(ValueError, match="already registered with max_parallel_requests=4"):
+        controller.register_many(
+            {(other_key, "new"): 1, (key, "ordinary"): 4, (key, "new"): 1, (key, "default"): 2}, freeze=True
+        )
+
+    after = controller.global_snapshot("nvidia", "nemotron")
+    assert after.raw_caps == before.raw_caps
+    assert after.domains == before.domains
+    assert after.sequence == before.sequence
+    assert controller.global_snapshot("other", "nemotron") is None
+    controller.register(provider_name="nvidia", model_id="nemotron", alias="ordinary", max_parallel_requests=5)
+    assert controller.global_snapshot("nvidia", "nemotron").raw_caps["ordinary"] == 5
 
 
 def test_request_admission_duplicate_release_does_not_corrupt_counts() -> None:

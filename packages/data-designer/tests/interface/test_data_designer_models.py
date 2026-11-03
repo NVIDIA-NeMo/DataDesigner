@@ -6,9 +6,10 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import Iterator
+from contextlib import ExitStack
 from pathlib import Path
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import httpx
 import pytest
@@ -19,7 +20,9 @@ import data_designer.interface.data_designer as dd_mod
 from data_designer.config.errors import InvalidConfigError
 from data_designer.config.models import ModelConfig, ModelProvider
 from data_designer.config.run_config import RequestAdmissionTuningConfig, RunConfig
+from data_designer.engine.errors import SecretResolutionError, UnknownProviderError
 from data_designer.engine.models.clients.adapters.http_model_client import ClientConcurrencyMode
+from data_designer.engine.models.clients.base import ModelClient
 from data_designer.engine.models.utils import ChatMessage
 from data_designer.engine.secret_resolver import EnvironmentResolver
 from data_designer.interface.data_designer import DataDesigner
@@ -228,6 +231,85 @@ def test_get_models_retries(
         assert model.usage_stats.request_usage.successful_requests == 1
     finally:
         model.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["provider", "secret", "client"])
+@pytest.mark.parametrize("mode", [ClientConcurrencyMode.SYNC, ClientConcurrencyMode.ASYNC])
+async def test_get_models_failed_construction_preserves_live_models(
+    model_designer: DataDesigner,
+    custom_model_configs: list[ModelConfig],
+    completion_payload: dict[str, Any],
+    httpx_mock: HTTPXMock,
+    failure: str,
+    mode: ClientConcurrencyMode,
+) -> None:
+    existing_config = custom_model_configs[0].model_copy(update={"alias": "existing"}, deep=True)
+    existing_config.inference_parameters.max_parallel_requests = 3
+    existing = model_designer.get_models(
+        ["existing"], model_configs=[existing_config], client_concurrency_mode=ClientConcurrencyMode.ASYNC
+    )["existing"]
+    configs = [config.model_copy(deep=True) for config in custom_model_configs]
+    configs[0].inference_parameters.max_parallel_requests = 1
+    client = None
+    try:
+        with ExitStack() as stack:
+            error: type[Exception]
+            if failure == "provider":
+                configs[1].provider = "missing-provider"
+                error = UnknownProviderError
+            elif failure == "secret":
+                error = SecretResolutionError
+                stack.enter_context(
+                    patch.object(
+                        EnvironmentResolver, "resolve", side_effect=["resolved-test-key", error("missing key")]
+                    )
+                )
+            else:
+                error = RuntimeError
+                client = MagicMock(spec=ModelClient)
+                stack.enter_context(
+                    patch(
+                        "data_designer.engine.models.clients.factory.create_model_client",
+                        side_effect=[client, error("construction failed")],
+                    )
+                )
+            with pytest.raises(error):
+                model_designer.get_models(["judge", "patient"], model_configs=configs, client_concurrency_mode=mode)
+
+        if client is not None:
+            client.close.assert_called_once()
+            client.aclose.assert_awaited_once()
+
+        in_flight = peak = 0
+
+        async def respond(request: httpx.Request) -> httpx.Response:
+            nonlocal in_flight, peak
+            in_flight += 1
+            peak = max(peak, in_flight)
+            await asyncio.sleep(0.01)
+            in_flight -= 1
+            return httpx.Response(200, json=completion_payload)
+
+        httpx_mock.add_callback(respond, is_reusable=True)
+        messages = [ChatMessage.as_user("test")]
+        await asyncio.gather(*(existing.acompletion(messages) for _ in range(3)))
+        assert peak == 3
+
+        existing_config.inference_parameters.max_parallel_requests = 4
+        with pytest.raises(ValueError, match="already registered with max_parallel_requests=3"):
+            model_designer.get_models(["existing"], model_configs=[existing_config])
+
+        configs[0].inference_parameters.max_parallel_requests = 2
+        retried = model_designer.get_models(
+            ["judge"], model_configs=[configs[0]], client_concurrency_mode=ClientConcurrencyMode.ASYNC
+        )["judge"]
+        try:
+            assert (await retried.acompletion(messages)).message.content == "hello"
+        finally:
+            await retried.aclose()
+    finally:
+        await existing.aclose()
 
 
 @pytest.mark.parametrize(

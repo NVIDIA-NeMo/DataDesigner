@@ -698,9 +698,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             request_event_sink=self._open_telemetry if self._run_config.otel_metrics_port is not None else None,
             freeze_request_limits=True,
         )
-        for alias in model_aliases:
-            model_registry.get_model_config(model_alias=alias)
-        return {alias: model_registry.get_model(model_alias=alias) for alias in model_aliases}
+        return model_registry.get_models(model_aliases)
 
     def _resolve_model_providers(self, model_providers: list[ModelProvider] | None) -> list[ModelProvider]:
         if model_providers is None:

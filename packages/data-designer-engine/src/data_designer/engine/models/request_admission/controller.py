@@ -166,35 +166,19 @@ class AdaptiveRequestAdmissionController(RequestPressureSnapshotProvider):
         freeze: bool = False,
     ) -> None:
         """Register an alias's limit, optionally preventing later changes within this controller."""
+        self.register_many({(ProviderModelKey(provider_name, model_id), alias): max_parallel_requests}, freeze=freeze)
+
+    def register_many(self, registrations: Mapping[tuple[ProviderModelKey, str], int], *, freeze: bool = False) -> None:
+        """Atomically register provider/model/alias limits after validating the entire batch."""
+        if not registrations:
+            return
+        registrations = dict(registrations)
         events: list[RequestAdmissionEvent] = []
         with self._lock:
-            key = ProviderModelKey(provider_name, model_id)
-            self._validate_registration_locked(key, alias, max_parallel_requests, freeze)
-            cap = self._global_caps.setdefault(key, _GlobalCapState())
-            before = cap.effective_max
-            cap.register_alias(alias, max_parallel_requests)
-            if freeze:
-                cap.frozen_aliases.add(alias)
-            self._sequence += 1
-            for resource, state in self._domains.items():
-                if resource.provider_model_key == key:
-                    effective_max = self._effective_max_for_resource(resource)
-                    state.current_limit = min(state.current_limit, effective_max)
-            events.append(
-                self._request_event_locked(
-                    "request_resource_registered",
-                    request_resource_key=RequestResourceKey(provider_name, model_id, RequestDomain.CHAT),
-                    diagnostics={"alias": alias, "provider_model": key, "max_parallel_requests": max_parallel_requests},
-                )
-            )
-            if before != cap.effective_max:
-                events.append(
-                    self._request_event_locked(
-                        "request_effective_cap_changed",
-                        request_resource_key=RequestResourceKey(provider_name, model_id, RequestDomain.CHAT),
-                        diagnostics={"provider_model": key, "previous": before, "current": cap.effective_max},
-                    )
-                )
+            for (key, alias), limit in registrations.items():
+                self._validate_registration_locked(key, alias, limit, freeze)
+            for (key, alias), limit in registrations.items():
+                self._register_locked(key, alias, limit, freeze, events)
             self._admit_waiters_locked(events)
             self._condition.notify_all()
         self._emit_events(events)
@@ -466,6 +450,41 @@ class AdaptiveRequestAdmissionController(RequestPressureSnapshotProvider):
                 f"Model alias {alias!r} for provider {key.provider_name!r}, model {key.model_id!r} is already registered "
                 f"with max_parallel_requests={registered_limit}; cannot use {max_parallel_requests}. "
                 "Use matching limits, reset via DataDesigner.set_run_config(), or use a new DataDesigner instance."
+            )
+
+    def _register_locked(
+        self,
+        key: ProviderModelKey,
+        alias: str,
+        max_parallel_requests: int,
+        freeze: bool,
+        events: list[RequestAdmissionEvent],
+    ) -> None:
+        cap = self._global_caps.setdefault(key, _GlobalCapState())
+        before = cap.effective_max
+        cap.register_alias(alias, max_parallel_requests)
+        if freeze:
+            cap.frozen_aliases.add(alias)
+        self._sequence += 1
+        for resource, state in self._domains.items():
+            if resource.provider_model_key == key:
+                effective_max = self._effective_max_for_resource(resource)
+                state.current_limit = min(state.current_limit, effective_max)
+        resource = RequestResourceKey(key.provider_name, key.model_id, RequestDomain.CHAT)
+        events.append(
+            self._request_event_locked(
+                "request_resource_registered",
+                request_resource_key=resource,
+                diagnostics={"alias": alias, "provider_model": key, "max_parallel_requests": max_parallel_requests},
+            )
+        )
+        if before != cap.effective_max:
+            events.append(
+                self._request_event_locked(
+                    "request_effective_cap_changed",
+                    request_resource_key=resource,
+                    diagnostics={"provider_model": key, "previous": before, "current": cap.effective_max},
+                )
             )
 
     def _queued_waiter_ahead_locked(self, item: RequestAdmissionItem, now: float) -> bool:
