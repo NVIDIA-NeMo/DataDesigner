@@ -1,0 +1,56 @@
+name: CI latency smoke
+
+on:
+  push:
+    branches: [andreatnvidia/test/ci-smoke]
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    env:
+      PYTHONPATH: scripts
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e
+        with:
+          version: "0.13.4"
+          python-version: "3.13"
+          enable-cache: true
+      - run: make install-dev
+      - name: License check with Git history forbidden
+        run: .venv/bin/python scripts/ci_latency_probe.py license
+      - name: Baseline interface suite
+        env:
+          DD_SMOKE_REPORT: baseline.json
+        run: .venv/bin/pytest -p ci_latency_probe packages/data-designer/tests --durations=30 --junitxml=baseline.xml
+      - name: Interface suite with numeric loopback names
+        if: ${{ !cancelled() }}
+        env:
+          DD_SMOKE_REPORT: numeric-loopback.json
+          DD_SMOKE_NUMERIC_LOOPBACK: "1"
+        run: .venv/bin/pytest -p ci_latency_probe packages/data-designer/tests --durations=30 --junitxml=numeric-loopback.xml
+      - name: Repeat baseline OpenTelemetry tests
+        if: ${{ !cancelled() }}
+        env:
+          DD_SMOKE_REPORT: baseline-repeat.json
+        run: .venv/bin/pytest -p ci_latency_probe packages/data-designer/tests/integrations/test_opentelemetry.py --durations=15 --junitxml=baseline-repeat.xml
+      - name: Compare repeated recipe generation with shared assets
+        if: ${{ !cancelled() }}
+        run: .venv/bin/python scripts/ci_latency_probe.py recipe
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: ${{ !cancelled() }}
+        with:
+          name: ci-latency-${{ matrix.os }}
+          path: |
+            baseline*.json
+            baseline*.xml
+            numeric-loopback.*
+          retention-days: 7
