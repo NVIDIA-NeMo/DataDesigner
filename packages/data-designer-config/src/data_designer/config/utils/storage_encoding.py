@@ -7,7 +7,7 @@ import json
 import math
 from copy import deepcopy
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import ValidationError
 
@@ -117,38 +117,62 @@ def encode_storage_table(dataframe: pd.DataFrame, plan: JsonStoragePlan) -> pa.T
     return table
 
 
-def decode_storage_table(table: pa.Table) -> pd.DataFrame:
+def _nullable_types_mapper() -> dict[pa.DataType, Any]:
+    pa, pd = lazy.pa, lazy.pd
+    mapping: dict[pa.DataType, Any] = {
+        pa.bool_(): pd.BooleanDtype(),
+        pa.string(): pd.StringDtype(),
+        pa.large_string(): pd.StringDtype(),
+    }
+    for bits in (8, 16, 32, 64):
+        mapping[getattr(pa, f"int{bits}")()] = getattr(pd, f"Int{bits}Dtype")()
+        mapping[getattr(pa, f"uint{bits}")()] = getattr(pd, f"UInt{bits}Dtype")()
+    mapping[pa.float32()] = pd.Float32Dtype()
+    mapping[pa.float64()] = pd.Float64Dtype()
+    return mapping
+
+
+def decode_storage_table(
+    table: pa.Table, *, dtype_backend: Literal["pyarrow", "numpy_nullable"] | None = "pyarrow"
+) -> pd.DataFrame:
     """Restore logical JSON values without guessing from ordinary string contents."""
     plan = read_storage_plan(table.schema)
-    # pandas' ArrowDtype conversion casts even identical types, which can corrupt
-    # nested null children in Arrow. Wrap nested arrays directly without a cast.
-    nested_columns = [field.name for field in table.schema if lazy.pa.types.is_nested(field.type)]
-    frame = _prepare_table_for_pandas(table.drop(nested_columns)).to_pandas(types_mapper=lazy.pd.ArrowDtype)
     column_labels: dict[str, Any] = {}
-    if nested_columns:
-        # An empty schema-only conversion restores pandas labels without touching
-        # real nested buffers. Physical Arrow names need not be pandas labels.
-        template = _prepare_table_for_pandas(table.schema.empty_table()).to_pandas(types_mapper=lazy.pd.ArrowDtype)
-        index_fields = [
-            name
-            for name in (table.schema.pandas_metadata or {}).get("index_columns", [])
-            if isinstance(name, str) and name in table.column_names
-        ]
-        data_fields = [name for name in table.column_names if name not in index_fields]
-        column_labels = dict(zip(data_fields, template.columns, strict=True))
-        if any(name in nested_columns for name in index_fields):
-            index_arrays = [lazy.pd.arrays.ArrowExtensionArray(table[name]) for name in index_fields]
-            frame.index = (
-                lazy.pd.Index(index_arrays[0], name=template.index.name)
-                if len(index_arrays) == 1
-                else lazy.pd.MultiIndex.from_arrays(index_arrays, names=template.index.names)
-            )
-        for name in nested_columns:
-            if name not in index_fields:
-                frame[column_labels[name]] = lazy.pd.Series(
-                    lazy.pd.arrays.ArrowExtensionArray(table[name]), index=frame.index
+    if dtype_backend == "pyarrow":
+        # pandas' ArrowDtype conversion casts even identical types, which can corrupt
+        # nested null children in Arrow. Wrap nested arrays directly without a cast.
+        nested_columns = [field.name for field in table.schema if lazy.pa.types.is_nested(field.type)]
+        frame = _prepare_table_for_pandas(table.drop(nested_columns)).to_pandas(types_mapper=lazy.pd.ArrowDtype)
+        if nested_columns:
+            # An empty schema-only conversion restores pandas labels without touching
+            # real nested buffers. Physical Arrow names need not be pandas labels.
+            template = _prepare_table_for_pandas(table.schema.empty_table()).to_pandas(types_mapper=lazy.pd.ArrowDtype)
+            index_fields = [
+                name
+                for name in (table.schema.pandas_metadata or {}).get("index_columns", [])
+                if isinstance(name, str) and name in table.column_names
+            ]
+            data_fields = [name for name in table.column_names if name not in index_fields]
+            column_labels = dict(zip(data_fields, template.columns, strict=True))
+            if any(name in nested_columns for name in index_fields):
+                index_arrays = [lazy.pd.arrays.ArrowExtensionArray(table[name]) for name in index_fields]
+                frame.index = (
+                    lazy.pd.Index(index_arrays[0], name=template.index.name)
+                    if len(index_arrays) == 1
+                    else lazy.pd.MultiIndex.from_arrays(index_arrays, names=template.index.names)
                 )
-        frame = frame.reindex(columns=template.columns)
+            for name in nested_columns:
+                if name not in index_fields:
+                    frame[column_labels[name]] = lazy.pd.Series(
+                        lazy.pd.arrays.ArrowExtensionArray(table[name]), index=frame.index
+                    )
+            frame = frame.reindex(columns=template.columns)
+    elif dtype_backend == "numpy_nullable":
+        frame = table.to_pandas(types_mapper=_nullable_types_mapper().get)
+    elif dtype_backend is None:
+        frame = table.to_pandas()
+    else:
+        raise ValueError(f"dtype_backend must be 'pyarrow', 'numpy_nullable' or None, got {dtype_backend!r}")
     for name, paths in plan.columns.items():
         values = []
         for row, value in enumerate(table[name].to_pylist()):
@@ -179,7 +203,12 @@ def decode_storage_dataframe(dataframe: pd.DataFrame, plan: JsonStoragePlan) -> 
     return frame
 
 
-def read_encoded_parquet(path: Path, schemas: list[pa.Schema]) -> pd.DataFrame:
+def read_encoded_parquet(
+    path: Path,
+    schemas: list[pa.Schema],
+    *,
+    dtype_backend: Literal["pyarrow", "numpy_nullable"] | None = "pyarrow",
+) -> pd.DataFrame:
     """Read annotated files individually to retain and validate each file's metadata."""
     plan = validate_storage_plans(schemas)
     dataset = lazy.pq.ParquetDataset(path)
@@ -189,7 +218,7 @@ def read_encoded_parquet(path: Path, schemas: list[pa.Schema]) -> pd.DataFrame:
         for field in dataset.schema:
             if field.name not in schema.names:
                 schema = schema.append(field)
-        frames.append(decode_storage_table(fragment.to_table(schema=schema)))
+        frames.append(decode_storage_table(fragment.to_table(schema=schema), dtype_backend=dtype_backend))
     frame = lazy.pd.concat(frames, ignore_index=True)
     frame.attrs[JSON_STORAGE_RUN_KEY] = plan.model_dump()
     return frame
