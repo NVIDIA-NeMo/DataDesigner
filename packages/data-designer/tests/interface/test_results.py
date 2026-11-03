@@ -16,6 +16,8 @@ from data_designer.config.dataset_metadata import DatasetMetadata
 from data_designer.config.errors import InvalidFileFormatError
 from data_designer.config.preview_results import PreviewResults
 from data_designer.config.utils.errors import DatasetSampleDisplayError
+from data_designer.config.utils.io_helpers import read_parquet_dataset
+from data_designer.config.utils.storage_schema import JSON_STORAGE_RUN_KEY, JsonStoragePlan
 from data_designer.config.utils.visualization import display_sample_record as display_fn
 from data_designer.engine.dataset_builders.errors import ArtifactStorageError
 from data_designer.engine.storage.artifact_storage import ArtifactStorage, BatchStage
@@ -72,29 +74,44 @@ def test_load_dataset(stub_dataset_creation_results, stub_artifact_storage, stub
     lazy.pd.testing.assert_frame_equal(dataset, stub_dataframe)
 
 
-@pytest.mark.parametrize("dtype_backend", ["pyarrow", "numpy_nullable", None])
+@pytest.mark.parametrize("encoded", [False, True], ids=["native", "json-encoded"])
+@pytest.mark.parametrize(
+    ("dtype_backend", "expected_dtype"),
+    [
+        ("pyarrow", lazy.pd.ArrowDtype(lazy.pa.int64())),
+        ("numpy_nullable", lazy.pd.Int64Dtype()),
+        (None, lazy.np.dtype("int64")),
+    ],
+)
 def test_load_dataset_selects_native_dtypes(
-    tmp_path: Path, stub_dataset_creation_results: DatasetCreationResults, dtype_backend: str | None
+    tmp_path: Path,
+    stub_dataset_creation_results: DatasetCreationResults,
+    encoded: bool,
+    dtype_backend: str | None,
+    expected_dtype: object,
 ) -> None:
-    """The public loader selects native dtypes without changing nested values."""
-    storage = ArtifactStorage(artifact_path=tmp_path)
-    frame = lazy.pd.DataFrame({"id": [1], "payload": [{"alpha": 1}], "tags": [["a", "b"]]})
-    storage.write_batch_to_parquet_file(0, frame, BatchStage.FINAL_RESULT)
+    plan = JsonStoragePlan(columns={"payload": [[]]} if encoded else {})
+    storage = ArtifactStorage(artifact_path=tmp_path, json_storage=plan)
+    payloads = [{"alpha": 1}, {"beta": [1, "two"]}] if encoded else [{"alpha": 1}, {"alpha": 2}]
+    frame = lazy.pd.DataFrame({"id": [1, 2], "label": ["a", "b"], "payload": payloads, "tags": [["x"], ["y"]]})
+    path = storage.write_batch_to_parquet_file(0, frame, BatchStage.FINAL_RESULT)
     stub_dataset_creation_results.artifact_storage = storage
 
     default = stub_dataset_creation_results.load_dataset()
     result = stub_dataset_creation_results.load_dataset(dtype_backend=dtype_backend)
 
-    assert all(isinstance(dtype, lazy.pd.ArrowDtype) for dtype in default.dtypes)
-    if dtype_backend == "pyarrow":
-        lazy.pd.testing.assert_frame_equal(result, default)
-    else:
-        assert result["id"].dtype == (lazy.pd.Int64Dtype() if dtype_backend == "numpy_nullable" else "int64")
-        assert result["payload"].dtype == object
-        assert result["tags"].dtype == object
-    assert result["id"].tolist() == [1]
-    assert result["payload"].iloc[0] == {"alpha": 1}
-    assert list(result["tags"].iloc[0]) == ["a", "b"]
+    assert isinstance(default["id"].dtype, lazy.pd.ArrowDtype)
+    assert result["id"].dtype == expected_dtype
+    assert result["id"].tolist() == [1, 2]
+    assert result["label"].tolist() == ["a", "b"]
+    if dtype_backend == "numpy_nullable":
+        assert result["label"].dtype == lazy.pd.StringDtype()
+    assert (result["payload"].dtype == object) is (encoded or dtype_backend != "pyarrow")
+    assert result["payload"].tolist() == payloads
+    assert (result["tags"].dtype == object) is (dtype_backend != "pyarrow")
+    assert [list(tags) for tags in result["tags"]] == [["x"], ["y"]]
+    assert result.attrs.get(JSON_STORAGE_RUN_KEY) == (plan.model_dump() if encoded else None)
+    lazy.pd.testing.assert_frame_equal(result, read_parquet_dataset(path, dtype_backend=dtype_backend))
 
 
 def test_load_analysis(stub_dataset_creation_results, stub_dataset_profiler_results):
