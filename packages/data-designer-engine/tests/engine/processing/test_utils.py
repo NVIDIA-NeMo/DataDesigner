@@ -11,8 +11,9 @@ import pytest
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.engine.processing.utils import (
     concat_datasets,
-    deserialize_json_values,
+    deserialize_json_string,
     parse_list_string,
+    prepare_template_context,
 )
 
 
@@ -86,58 +87,45 @@ def test_concat_datasets_logging(mock_logger, stub_sample_dataframes):
 
 
 @pytest.mark.parametrize(
-    "test_case,input_data,expected_result",
+    "value,expected_result",
     [
-        ("single_string_valid_json", '{"key": "value", "number": 42}', {"key": "value", "number": 42}),
-        ("single_string_invalid_json", '{"key": "value", "number": 42', '{"key": "value", "number": 42'),
-        ("list_of_strings", ['{"a": 1}', '{"b": 2}', "invalid_json"], [{"a": 1}, {"b": 2}, "invalid_json"]),
-        ("list_with_nested_structures", ['{"a": 1}', [2, 3], {"c": "d"}], [{"a": 1}, [2, 3], {"c": "d"}]),
-        (
-            "dict_with_json_strings",
-            {"json_str": '{"nested": "value"}', "regular_str": "not_json", "number": 42},
-            {"json_str": {"nested": "value"}, "regular_str": "not_json", "number": 42},
+        pytest.param('{"key": "value", "number": 42}', {"key": "value", "number": 42}, id="object"),
+        pytest.param('[{"a": 1}, 2]', [{"a": 1}, 2], id="array"),
+        pytest.param('{"key": "value", "number": 42', '{"key": "value", "number": 42', id="invalid-json"),
+        pytest.param(
+            '{"inner": "{\\"a\\": 1}", "version": "1.10"}', {"inner": '{"a": 1}', "version": "1.10"}, id="one-pass"
         ),
-        (
-            "dict_with_nested_structures",
-            {
-                "json_str": '{"nested": "value"}',
-                "nested_dict": {"inner": '{"deep": "value"}'},
-                "nested_list": ['{"item": 1}', 2, 3],
-            },
-            {
-                "json_str": {"nested": "value"},
-                "nested_dict": {"inner": {"deep": "value"}},
-                "nested_list": [{"item": 1}, 2, 3],
-            },
-        ),
-        ("non_string_non_dict_non_list", 42, 42),
-        ("none", None, None),
-        ("empty_string", "", ""),
-        ("empty_list", [], []),
-        ("empty_dict", {}, {}),
-        ("scalar_number_string", "1.10", 1.1),
-        ("scalar_bool_string", "true", True),
-        ("scalar_null_string", "null", None),
-        ("scalar_quoted_string", '"text"', "text"),
-        ("list_of_scalar_strings", ["1.10", "true", "null", '"text"'], [1.1, True, None, "text"]),
-        (
-            "dict_with_nested_scalar_strings",
-            {"version": "1.10", "nested": {"flag": "false", "deep": {"missing": "null", "quoted": '"x"'}}},
-            {"version": 1.1, "nested": {"flag": False, "deep": {"missing": None, "quoted": "x"}}},
-        ),
+        pytest.param("1.10", 1.1, id="number"),
+        pytest.param("true", True, id="bool"),
+        pytest.param("null", None, id="null"),
+        pytest.param('"text"', "text", id="quoted-string"),
+        pytest.param("", "", id="empty"),
     ],
 )
-def test_deserialize_json_values_scenarios(test_case, input_data, expected_result):
-    result = deserialize_json_values(input_data)
-    assert result == expected_result
+def test_deserialize_json_string(value: str, expected_result: Any) -> None:
+    assert deserialize_json_string(value) == expected_result
 
 
 @pytest.mark.parametrize(
     "input_data,expected_result",
     [
-        pytest.param("1.10", "1.10", id="single-scalar-string"),
-        pytest.param('{"key": 1.10}', {"key": 1.1}, id="single-object-string"),
-        pytest.param(["true", '["a", "b"]'], ["true", ["a", "b"]], id="list"),
+        pytest.param('{"key": 1.10}', {"key": 1.1}, id="object-string"),
+        pytest.param("[1, 2]", [1, 2], id="array-string"),
+        pytest.param("1.10", "1.10", id="number-string"),
+        pytest.param("true", "true", id="bool-string"),
+        pytest.param("null", "null", id="null-string"),
+        pytest.param('"text"', '"text"', id="quoted-string"),
+        pytest.param("not_json", "not_json", id="plain-string"),
+        pytest.param("", "", id="empty-string"),
+        pytest.param(42, 42, id="number"),
+        pytest.param(None, None, id="none"),
+        pytest.param([], [], id="empty-list"),
+        pytest.param({}, {}, id="empty-dict"),
+        pytest.param(
+            ["true", "1.10", '["a", "b"]', {"n": "007"}, 3],
+            ["true", "1.10", ["a", "b"], {"n": "007"}, 3],
+            id="list",
+        ),
         pytest.param(
             {
                 "version": "1.10",
@@ -148,7 +136,7 @@ def test_deserialize_json_values_scenarios(test_case, input_data, expected_resul
                 "padded": "007",
                 "obj": '{"score": 95}',
                 "arr": "[1, 2]",
-                "nested": {"inner": "false", "deep": '{"ok": true}'},
+                "nested": {"inner": "false", "deep": '{"ok": true}', "items": ["null", '{"x": 1}']},
                 "number": 42,
             },
             {
@@ -160,15 +148,25 @@ def test_deserialize_json_values_scenarios(test_case, input_data, expected_resul
                 "padded": "007",
                 "obj": {"score": 95},
                 "arr": [1, 2],
-                "nested": {"inner": "false", "deep": {"ok": True}},
+                "nested": {"inner": "false", "deep": {"ok": True}, "items": ["null", {"x": 1}]},
                 "number": 42,
             },
             id="dict",
         ),
     ],
 )
-def test_deserialize_json_values_keep_scalar_strings(input_data: Any, expected_result: Any) -> None:
-    assert deserialize_json_values(input_data, keep_scalar_strings=True) == expected_result
+def test_prepare_template_context(input_data: Any, expected_result: Any) -> None:
+    assert prepare_template_context(input_data) == expected_result
+
+
+def test_prepare_template_context_does_not_mutate_input() -> None:
+    record = {"obj": '{"a": 1}', "nested": {"items": ['{"b": 2}']}, "native": {"c": [1]}}
+    result = prepare_template_context(record)
+
+    result["nested"]["items"][0]["b"] = 3
+    result["native"]["c"].append(2)
+
+    assert record == {"obj": '{"a": 1}', "nested": {"items": ['{"b": 2}']}, "native": {"c": [1]}}
 
 
 @pytest.mark.parametrize(
@@ -180,6 +178,13 @@ def test_deserialize_json_values_keep_scalar_strings(input_data: Any, expected_r
         ("['a', 'b', 'c']", ["a", "b", "c"]),  # valid python-style list with single quotes
         ("['a', 'b', 'c', ]", ["a", "b", "c"]),  # valid python-style list with trailing comma
         ("simple string   ", ["simple string"]),  # simple string with whitespace
+        ("[1, 2.5]", ["1", "2.5"]),  # non-string items become text, as in a native list
+        ("123", ["123"]),  # JSON number stays the text the user wrote
+        ("true", ["true"]),  # JSON boolean
+        ("null", ["null"]),  # JSON null
+        ('"text"', ['"text"']),  # JSON-quoted text is not split into characters
+        ('{"a": 1,}', ['{"a": 1,}']),  # object with a trailing comma is not a list
+        ("'text'", ["'text'"]),  # Python string literal is not split into characters
     ],
 )
 def test_parse_list_string_scenarios(input_string, expected_result):

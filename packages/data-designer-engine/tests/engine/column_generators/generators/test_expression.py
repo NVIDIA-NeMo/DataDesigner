@@ -46,7 +46,7 @@ def test_generator_creation():
     "data_designer.engine.column_generators.generators.expression.WithJinja2UserTemplateRendering.render_template",
     autospec=True,
 )
-@patch("data_designer.engine.column_generators.generators.expression.deserialize_json_values", autospec=True)
+@patch("data_designer.engine.column_generators.generators.expression.prepare_template_context", autospec=True)
 def test_generate_with_dataframe(mock_deserialize, mock_render, mock_prepare):
     config = _create_test_config("sum_column", "{{ col1 + col2 }}", "int")
     generator = _create_test_generator(config)
@@ -54,7 +54,7 @@ def test_generate_with_dataframe(mock_deserialize, mock_render, mock_prepare):
     df = lazy.pd.DataFrame({"col1": [1, 2, 3], "col2": [4, 5, 6]})
 
     mock_prepare.return_value = None
-    mock_deserialize.side_effect = lambda x, **_: x
+    mock_deserialize.side_effect = lambda x: x
     mock_render.side_effect = ["5", "7", "9"]
 
     result = generator.generate(df)
@@ -75,7 +75,7 @@ def test_generate_with_dataframe(mock_deserialize, mock_render, mock_prepare):
     "data_designer.engine.column_generators.generators.expression.WithJinja2UserTemplateRendering.render_template",
     autospec=True,
 )
-@patch("data_designer.engine.column_generators.generators.expression.deserialize_json_values", autospec=True)
+@patch("data_designer.engine.column_generators.generators.expression.prepare_template_context", autospec=True)
 def test_generate_with_different_dtypes(mock_deserialize, mock_render, mock_prepare):
     config = _create_test_config("result_column", "{{ col1 }}", "float")
     generator = _create_test_generator(config)
@@ -83,7 +83,7 @@ def test_generate_with_different_dtypes(mock_deserialize, mock_render, mock_prep
     df = lazy.pd.DataFrame({"col1": [1, 2, 3]})
 
     mock_prepare.return_value = None
-    mock_deserialize.side_effect = lambda x, **_: x
+    mock_deserialize.side_effect = lambda x: x
     mock_render.side_effect = ["1.5", "2.7", "3.9"]
 
     result = generator.generate(df)
@@ -100,7 +100,7 @@ def test_generate_with_different_dtypes(mock_deserialize, mock_render, mock_prep
     "data_designer.engine.column_generators.generators.expression.WithJinja2UserTemplateRendering.render_template",
     autospec=True,
 )
-@patch("data_designer.engine.column_generators.generators.expression.deserialize_json_values", autospec=True)
+@patch("data_designer.engine.column_generators.generators.expression.prepare_template_context", autospec=True)
 def test_generate_with_bool_dtype_numeric(mock_deserialize, mock_render, mock_prepare):
     config = _create_test_config("bool_column", "{{ col1 }}", "bool")
     generator = _create_test_generator(config)
@@ -108,7 +108,7 @@ def test_generate_with_bool_dtype_numeric(mock_deserialize, mock_render, mock_pr
     df = lazy.pd.DataFrame({"col1": [1, 0, 1]})
 
     mock_prepare.return_value = None
-    mock_deserialize.side_effect = lambda x, **_: x
+    mock_deserialize.side_effect = lambda x: x
     mock_render.side_effect = ["1", "0", "1.0"]
 
     result = generator.generate(df)
@@ -125,7 +125,7 @@ def test_generate_with_bool_dtype_numeric(mock_deserialize, mock_render, mock_pr
     "data_designer.engine.column_generators.generators.expression.WithJinja2UserTemplateRendering.render_template",
     autospec=True,
 )
-@patch("data_designer.engine.column_generators.generators.expression.deserialize_json_values", autospec=True)
+@patch("data_designer.engine.column_generators.generators.expression.prepare_template_context", autospec=True)
 def test_generate_with_bool_dtype_string(mock_deserialize, mock_render, mock_prepare):
     config = _create_test_config("bool_column", "{{ col1 }}", "bool")
     generator = _create_test_generator(config)
@@ -133,7 +133,7 @@ def test_generate_with_bool_dtype_string(mock_deserialize, mock_render, mock_pre
     df = lazy.pd.DataFrame({"col1": ["true", "false", "True"]})
 
     mock_prepare.return_value = None
-    mock_deserialize.side_effect = lambda x, **_: x
+    mock_deserialize.side_effect = lambda x: x
     mock_render.side_effect = ["true", "false", "True"]
 
     result = generator.generate(df)

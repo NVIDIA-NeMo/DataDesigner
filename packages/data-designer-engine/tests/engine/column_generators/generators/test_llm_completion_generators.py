@@ -455,6 +455,18 @@ def test_generate_passes_tool_alias() -> None:
             {"field": "value", "nested": {"key": "val"}},
         ),
         (
+            LLMStructuredCellGenerator,
+            LLMStructuredColumnConfig,
+            {
+                "name": "struct_col",
+                "prompt": "Generate struct",
+                "model_alias": "test_model",
+                "output_format": {"type": "object", "properties": {"field": {"type": "string"}}},
+            },
+            '{"field": "1.10", "payload": "{\\"key\\": \\"val\\"}"}',
+            {"field": "1.10", "payload": '{"key": "val"}'},
+        ),
+        (
             LLMJudgeCellGenerator,
             LLMJudgeColumnConfig,
             {

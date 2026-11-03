@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 from data_designer.config.column_configs import ImageColumnConfig
 from data_designer.engine.column_generators.generators.base import ColumnGeneratorWithModel, GenerationStrategy
 from data_designer.engine.processing.ginja.environment import WithJinja2UserTemplateRendering
-from data_designer.engine.processing.utils import deserialize_json_values
+from data_designer.engine.processing.utils import prepare_template_context
 
 if TYPE_CHECKING:
     from data_designer.engine.storage.media_storage import MediaStorage
@@ -34,7 +34,7 @@ class ImageCellGenerator(WithJinja2UserTemplateRendering, ColumnGeneratorWithMod
 
     def _prepare_image_inputs(self, data: dict) -> tuple[str, list[dict] | None]:
         """Validate inputs and render prompt for image generation."""
-        deserialized_record = deserialize_json_values(data, keep_scalar_strings=True)
+        deserialized_record = prepare_template_context(data)
         missing_columns = list(set(self.config.required_columns) - set(data.keys()))
         if len(missing_columns) > 0:
             raise ValueError(

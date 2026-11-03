@@ -12,7 +12,7 @@ from data_designer.config.utils.storage_encoding import create_logical_dataframe
 from data_designer.config.utils.storage_schema import JsonStoragePlan
 from data_designer.engine.processing.ginja.environment import WithJinja2UserTemplateRendering
 from data_designer.engine.processing.processors.base import Processor
-from data_designer.engine.processing.utils import deserialize_json_values
+from data_designer.engine.processing.utils import prepare_template_context
 from data_designer.engine.storage.artifact_storage import BatchStage
 
 if TYPE_CHECKING:
@@ -83,7 +83,7 @@ class SchemaTransformProcessor(WithJinja2UserTemplateRendering, Processor[Schema
         )
         formatted_records = []
         for record in data.to_dict(orient="records"):
-            deserialized = deserialize_json_values(record, keep_scalar_strings=True)
+            deserialized = prepare_template_context(record)
             rendered = self.render_template(deserialized)
             formatted_records.append(json.loads(rendered))
         return create_logical_dataframe(formatted_records, self.config.json_storage_columns)

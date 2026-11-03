@@ -14,7 +14,7 @@ from data_designer.engine.column_generators.utils.errors import ExpressionTempla
 from data_designer.engine.context import format_row_group_tag
 from data_designer.engine.processing.ginja.environment import WithJinja2UserTemplateRendering
 from data_designer.engine.processing.ginja.exceptions import EmptyTemplateRenderError, UserTemplateError
-from data_designer.engine.processing.utils import deserialize_json_values
+from data_designer.engine.processing.utils import prepare_template_context
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -59,7 +59,7 @@ class ExpressionColumnGenerator(WithJinja2UserTemplateRendering, ColumnGenerator
             row_records = [{} for _ in row_indexes]
 
         for row_index, record in zip(row_indexes, row_records, strict=True):
-            prepared_record = deserialize_json_values(record, keep_scalar_strings=True)
+            prepared_record = prepare_template_context(record)
             try:
                 rendered_value = self.render_template(prepared_record)
             except EmptyTemplateRenderError:
