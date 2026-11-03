@@ -1,17 +1,22 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-from unittest.mock import AsyncMock, patch
+from __future__ import annotations
+
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from data_designer.config.models import ChatCompletionInferenceParams, ModelConfig
 from data_designer.config.run_config import RequestAdmissionTuningConfig, RunConfig
+from data_designer.engine.model_provider import ModelProviderRegistry
+from data_designer.engine.models.clients.base import ModelClient
 from data_designer.engine.models.clients.model_request_executor import ModelRequestExecutor
 from data_designer.engine.models.errors import ModelAuthenticationError, ModelGenerationValidationFailureError
 from data_designer.engine.models.facade import ModelFacade
 from data_designer.engine.models.factory import create_model_registry, create_request_admission_controller
 from data_designer.engine.models.registry import ModelRegistry
+from data_designer.engine.models.request_admission.controller import AdaptiveRequestAdmissionController
 from data_designer.engine.models.usage import ModelUsageStats, RequestUsageStats, TokenCountSource, TokenUsageStats
 from data_designer.engine.testing import InMemoryAdmissionEventSink, make_stub_completion_response
 from data_designer.logging import LOG_INDENT
@@ -55,6 +60,55 @@ def test_create_model_registry(
         model_provider_registry=stub_model_provider_registry,
     )
     assert isinstance(model_registry, ModelRegistry)
+
+
+@pytest.mark.asyncio
+async def test_get_models_preserves_cached_models_on_registration_conflict(
+    stub_model_configs: list[ModelConfig],
+    stub_model_provider_registry: ModelProviderRegistry,
+) -> None:
+    controller = AdaptiveRequestAdmissionController()
+    configs = [stub_model_configs[0].model_copy(update={"alias": alias}, deep=True) for alias in ("existing", "a", "b")]
+    for config, cap in zip(configs, (3, 1, 2)):
+        config.inference_parameters.max_parallel_requests = cap
+    clients: dict[str, MagicMock] = {}
+
+    def create_facade(config: ModelConfig, *_args: object) -> ModelFacade:
+        if config.alias == "b":
+            controller.register(
+                provider_name=config.provider, model_id=config.model, alias="b", max_parallel_requests=5, freeze=True
+            )
+        client = MagicMock(spec=ModelClient)
+        clients[config.alias] = client
+        return ModelFacade(config, stub_model_provider_registry, client=client)
+
+    registry = ModelRegistry(
+        model_configs=configs,
+        secret_resolver=None,
+        model_provider_registry=stub_model_provider_registry,
+        model_facade_factory=create_facade,
+        request_admission=controller,
+        freeze_request_limits=True,
+    )
+    existing = registry.get_model(model_alias="existing")
+    try:
+        with pytest.raises(ValueError, match="already registered with max_parallel_requests=5"):
+            registry.get_models(["existing", "a", "b"])
+
+        assert registry.models == {"existing": existing}
+        clients["existing"].close.assert_not_called()
+        clients["existing"].aclose.assert_not_called()
+        for alias in ("a", "b"):
+            clients[alias].close.assert_called_once()
+            clients[alias].aclose.assert_awaited_once()
+        snapshot = controller.global_snapshot(configs[0].provider, configs[0].model)
+        assert snapshot.raw_caps == {"existing": 3, "b": 5}
+
+        configs[1].inference_parameters.max_parallel_requests = 2
+        assert registry.get_model(model_alias="a").model_alias == "a"
+    finally:
+        registry.close()
+        await registry.aclose()
 
 
 def test_create_model_registry_maps_request_admission_tuning_config(
