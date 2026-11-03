@@ -62,10 +62,24 @@ jobs:
       - name: Install data-designer-config only
         run: uv sync --package data-designer-config
 
+      - name: Install test dependencies
+        run: uv pip install --python .venv/bin/python pytest pytest-asyncio pytest-env pytest-cov
+
       - name: Run config tests
-        run: |
-          uv run --with pytest --with pytest-asyncio --with pytest-env \
-            pytest packages/data-designer-config/tests
+        env:
+          COVERAGE_FILE: .coverage.config
+          PYTEST_ADDOPTS: ${{ matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11' && '--cov=data_designer --cov-report= --cov-fail-under=0' || '' }}
+        run: .venv/bin/pytest packages/data-designer-config/tests
+
+      - name: Upload config coverage
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage-config
+          path: .coverage.config
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
 
   test-engine:
     name: Test Engine (Python ${{ matrix.python-version }} on ${{ matrix.os }})
@@ -91,10 +105,24 @@ jobs:
       - name: Install data-designer-engine only
         run: uv sync --package data-designer-engine
 
+      - name: Install test dependencies
+        run: uv pip install --python .venv/bin/python pytest pytest-asyncio pytest-httpx pytest-env pytest-cov
+
       - name: Run engine tests
-        run: |
-          uv run --with pytest --with pytest-asyncio --with pytest-httpx --with pytest-env \
-            pytest packages/data-designer-engine/tests
+        env:
+          COVERAGE_FILE: .coverage.engine
+          PYTEST_ADDOPTS: ${{ matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11' && '--cov=data_designer --cov-report= --cov-fail-under=0' || '' }}
+        run: .venv/bin/pytest packages/data-designer-engine/tests
+
+      - name: Upload engine coverage
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage-engine
+          path: .coverage.engine
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
 
   test-interface:
     name: Test Interface (Python ${{ matrix.python-version }} on ${{ matrix.os }})
@@ -135,49 +163,24 @@ jobs:
           fi
           jq --version
 
+      - name: Install test dependencies
+        run: uv pip install --python .venv/bin/python pytest pytest-asyncio pytest-httpx pytest-env pytest-cov
+
       - name: Run interface tests
-        run: |
-          uv run --with pytest --with pytest-asyncio --with pytest-httpx --with pytest-env \
-            pytest packages/data-designer/tests
+        env:
+          COVERAGE_FILE: .coverage.interface
+          PYTEST_ADDOPTS: ${{ matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11' && '--cov=data_designer --cov-report= --cov-fail-under=0' || '' }}
+        run: .venv/bin/pytest packages/data-designer/tests
 
-  # ===========================================================================
-  # Combined Coverage Check
-  # Runs all tests together to verify overall coverage threshold
-  # ===========================================================================
-
-  coverage:
-    name: Coverage Check (Python ${{ matrix.python-version }})
-    needs: validate-dispatch
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.11"]
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+      - name: Upload interface coverage
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          version: "latest"
-          python-version: ${{ matrix.python-version }}
-          enable-cache: true
-
-      - name: Install all packages
-        run: make install-dev
-
-      - name: Run tests with coverage
-        run: |
-          uv run --group dev pytest \
-            packages/data-designer-config/tests \
-            packages/data-designer-engine/tests \
-            packages/data-designer/tests \
-            --cov=data_designer \
-            --cov-report=term-missing \
-            --cov-report=xml \
-            --cov-fail-under=90
+          name: coverage-interface
+          path: .coverage.interface
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
 
   # ===========================================================================
   # End-to-End Tests
@@ -286,34 +289,30 @@ jobs:
       - name: Check dependency licenses
         run: make check-dependency-licenses LICENSE_PYTHON_VERSION=${{ matrix.python-version }}
 
-  # ===========================================================================
-  # Summary Job for Branch Protection
-  # This job creates status checks matching the old job naming convention
-  # so that branch protection rules continue to work.
-  # ===========================================================================
-
   test-summary:
-    name: Test (Python ${{ matrix.python-version }} on ${{ matrix.os }})
+    name: CI passed
     runs-on: ubuntu-latest
-    needs: [validate-dispatch, test-config, test-engine, test-interface]
+    needs: [validate-dispatch, test-config, test-engine, test-interface, test-e2e, lint, license-headers, dependency-licenses]
     if: always()
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-        python-version: ["3.11", "3.12", "3.13", "3.14"]
-
     steps:
-      - name: Check all tests passed
-        run: |
-          if [[ "${{ needs.validate-dispatch.result }}" != "success" ]] || \
-             [[ "${{ needs.test-config.result }}" != "success" ]] || \
-             [[ "${{ needs.test-engine.result }}" != "success" ]] || \
-             [[ "${{ needs.test-interface.result }}" != "success" ]]; then
-            echo "One or more test jobs failed"
-            echo "validate-dispatch: ${{ needs.validate-dispatch.result }}"
-            echo "test-config: ${{ needs.test-config.result }}"
-            echo "test-engine: ${{ needs.test-engine.result }}"
-            echo "test-interface: ${{ needs.test-interface.result }}"
-            exit 1
-          fi
-          echo "All test jobs passed successfully"
+      - name: Check all jobs passed
+        env:
+          CHECK_RESULTS: ${{ toJSON(needs) }}
+        run: jq -e 'length > 0 and all(.[]; .result == "success")' <<< "$CHECK_RESULTS"
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install uv
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: "0.13.4"
+          python-version: "3.11"
+          enable-cache: true
+      - name: Install all packages
+        run: make install-dev
+      - name: Download coverage data
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: coverage-*
+          merge-multiple: true
+      - name: Check combined coverage
+        run: .venv/bin/python scripts/report_ci_coverage.py

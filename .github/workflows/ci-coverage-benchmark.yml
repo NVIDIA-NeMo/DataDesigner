@@ -1,0 +1,98 @@
+name: CI coverage benchmark
+
+on:
+  push:
+    branches: [andreatnvidia/test/ci-coverage-reuse]
+
+permissions:
+  contents: read
+
+jobs:
+  baseline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e
+        with:
+          version: "0.13.4"
+          python-version: "3.11"
+          enable-cache: true
+      - run: make install-dev
+      - name: Combined coverage baseline
+        run: |
+          .venv/bin/pytest packages/data-designer-config/tests packages/data-designer-engine/tests packages/data-designer/tests \
+            --cov=data_designer --cov-report=term --cov-report=json:baseline.json --cov-fail-under=90
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: baseline-report
+          path: baseline.json
+
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package: data-designer-config
+            name: config
+            dependencies: pytest pytest-asyncio pytest-env pytest-cov
+          - package: data-designer-engine
+            name: engine
+            dependencies: pytest pytest-asyncio pytest-httpx pytest-env pytest-cov
+          - package: data-designer
+            name: interface
+            dependencies: pytest pytest-asyncio pytest-httpx pytest-env pytest-cov
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e
+        with:
+          version: "0.13.4"
+          python-version: "3.11"
+          enable-cache: true
+      - run: cp README.md packages/data-designer/README.md
+      - run: uv sync --locked --package ${{ matrix.package }}
+      - run: uv pip install --python .venv/bin/python ${{ matrix.dependencies }}
+      - name: Package tests with coverage
+        env:
+          COVERAGE_FILE: .coverage.${{ matrix.name }}
+        run: .venv/bin/pytest packages/${{ matrix.package }}/tests --cov=data_designer --cov-report= --cov-fail-under=0
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: coverage-${{ matrix.name }}
+          path: .coverage.${{ matrix.name }}
+          include-hidden-files: true
+          if-no-files-found: error
+
+  gate:
+    needs: package
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check package jobs passed
+        env:
+          CHECK_RESULTS: ${{ toJSON(needs) }}
+        run: jq -e 'length > 0 and all(.[]; .result == "success")' <<< "$CHECK_RESULTS"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e
+        with:
+          version: "0.13.4"
+          python-version: "3.11"
+          enable-cache: true
+      - run: make install-dev
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          pattern: coverage-*
+          merge-multiple: true
+      - name: Validate and combine coverage
+        run: |
+          .venv/bin/python scripts/report_ci_coverage.py
+          .venv/bin/coverage json -o merged.json
+      - name: Validate failure handling
+        run: .venv/bin/pytest .agents/tests/test_ci_coverage.py -q
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: merged-report
+          path: merged.json
