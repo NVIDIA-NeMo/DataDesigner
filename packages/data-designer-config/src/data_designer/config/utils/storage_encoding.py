@@ -117,21 +117,6 @@ def encode_storage_table(dataframe: pd.DataFrame, plan: JsonStoragePlan) -> pa.T
     return table
 
 
-def _nullable_types_mapper() -> dict[pa.DataType, Any]:
-    pa, pd = lazy.pa, lazy.pd
-    mapping: dict[pa.DataType, Any] = {
-        pa.bool_(): pd.BooleanDtype(),
-        pa.string(): pd.StringDtype(),
-        pa.large_string(): pd.StringDtype(),
-    }
-    for bits in (8, 16, 32, 64):
-        mapping[getattr(pa, f"int{bits}")()] = getattr(pd, f"Int{bits}Dtype")()
-        mapping[getattr(pa, f"uint{bits}")()] = getattr(pd, f"UInt{bits}Dtype")()
-    mapping[pa.float32()] = pd.Float32Dtype()
-    mapping[pa.float64()] = pd.Float64Dtype()
-    return mapping
-
-
 def decode_storage_table(
     table: pa.Table, *, dtype_backend: Literal["pyarrow", "numpy_nullable"] | None = "pyarrow"
 ) -> pd.DataFrame:
@@ -168,7 +153,7 @@ def decode_storage_table(
                     )
             frame = frame.reindex(columns=template.columns)
     elif dtype_backend == "numpy_nullable":
-        frame = table.to_pandas(types_mapper=_nullable_types_mapper().get)
+        frame = table.to_pandas(types_mapper=_get_numpy_nullable_type_mapping().get)
     elif dtype_backend is None:
         frame = table.to_pandas()
     else:
@@ -248,6 +233,25 @@ def _prepare_table_for_pandas(table: pa.Table) -> pa.Table:
         # table. A temporary null column retains it without materializing cells.
         return table.append_column("", lazy.pa.nulls(table.num_rows)).replace_schema_metadata(updated).drop([""])
     return table.replace_schema_metadata(updated)
+
+
+def _get_numpy_nullable_type_mapping() -> dict[pa.DataType, pd.api.extensions.ExtensionDtype]:
+    pa, pd = lazy.pa, lazy.pd
+    return {
+        pa.bool_(): pd.BooleanDtype(),
+        pa.int8(): pd.Int8Dtype(),
+        pa.int16(): pd.Int16Dtype(),
+        pa.int32(): pd.Int32Dtype(),
+        pa.int64(): pd.Int64Dtype(),
+        pa.uint8(): pd.UInt8Dtype(),
+        pa.uint16(): pd.UInt16Dtype(),
+        pa.uint32(): pd.UInt32Dtype(),
+        pa.uint64(): pd.UInt64Dtype(),
+        pa.float32(): pd.Float32Dtype(),
+        pa.float64(): pd.Float64Dtype(),
+        pa.string(): pd.StringDtype(),
+        pa.large_string(): pd.StringDtype(),
+    }
 
 
 def _transform_value(value: Any, path: list[str | None], *, encode: bool) -> Any:

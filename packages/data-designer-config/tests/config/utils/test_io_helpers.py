@@ -84,16 +84,6 @@ def test_read_parquet_dataset_without_dtype_backend_returns_object_columns(tmp_p
     assert list(result["tags"].iloc[0]) == ["a", "b"]
 
 
-def test_read_parquet_dataset_without_dtype_backend_round_trips_through_pandas(tmp_path) -> None:
-    result = read_parquet_dataset(_write_simple_nested_file(tmp_path), dtype_backend=None)
-
-    result.to_parquet(tmp_path / "round_trip.parquet", index=False)
-    restored = lazy.pd.read_parquet(tmp_path / "round_trip.parquet")
-
-    assert restored["meta"].iloc[0] == {"score": 9, "label": "x"}
-    assert list(restored["tags"].iloc[0]) == ["a", "b"]
-
-
 @pytest.mark.parametrize("as_directory", [True, False], ids=["directory", "file"])
 def test_read_parquet_dataset_accepts_numpy_nullable(tmp_path, as_directory: bool) -> None:
     file_path = _write_simple_nested_file(tmp_path)

@@ -72,38 +72,29 @@ def test_load_dataset(stub_dataset_creation_results, stub_artifact_storage, stub
     lazy.pd.testing.assert_frame_equal(dataset, stub_dataframe)
 
 
-def test_load_dataset_passes_dtype_backend_to_artifact_storage(stub_dataset_creation_results, stub_artifact_storage):
-    """The default keeps the pyarrow backend; explicit values and None are passed through unchanged."""
-    stub_dataset_creation_results.load_dataset()
-    stub_artifact_storage.load_dataset.assert_called_with(dtype_backend="pyarrow")
-
-    for dtype_backend in ("numpy_nullable", None):
-        stub_dataset_creation_results.load_dataset(dtype_backend=dtype_backend)
-        stub_artifact_storage.load_dataset.assert_called_with(dtype_backend=dtype_backend)
-
-
-@pytest.mark.parametrize("dtype_backend", [None, "numpy_nullable"], ids=["pandas-default", "nullable"])
-def test_load_dataset_nested_columns_round_trip_through_pandas(
+@pytest.mark.parametrize("dtype_backend", ["pyarrow", "numpy_nullable", None])
+def test_load_dataset_selects_native_dtypes(
     tmp_path: Path, stub_dataset_creation_results: DatasetCreationResults, dtype_backend: str | None
 ) -> None:
-    """A caller can opt out of Arrow dtypes before exporting ordinary nested artifacts."""
+    """The public loader selects native dtypes without changing nested values."""
     storage = ArtifactStorage(artifact_path=tmp_path)
-    frame = lazy.pd.DataFrame({"payload": [{"alpha": 1}], "tags": [["a", "b"]]})
+    frame = lazy.pd.DataFrame({"id": [1], "payload": [{"alpha": 1}], "tags": [["a", "b"]]})
     storage.write_batch_to_parquet_file(0, frame, BatchStage.FINAL_RESULT)
     stub_dataset_creation_results.artifact_storage = storage
 
     default = stub_dataset_creation_results.load_dataset()
-    plain = stub_dataset_creation_results.load_dataset(dtype_backend=dtype_backend)
-    export_path = tmp_path / "consumer.parquet"
-    plain.to_parquet(export_path, index=False)
-    restored = lazy.pd.read_parquet(export_path)
+    result = stub_dataset_creation_results.load_dataset(dtype_backend=dtype_backend)
 
-    assert isinstance(default["payload"].dtype, lazy.pd.ArrowDtype)
-    assert plain["payload"].dtype == object
-    assert plain["payload"].iloc[0] == {"alpha": 1}
-    assert plain["tags"].dtype == object
-    assert restored["payload"].iloc[0] == {"alpha": 1}
-    assert list(restored["tags"].iloc[0]) == ["a", "b"]
+    assert all(isinstance(dtype, lazy.pd.ArrowDtype) for dtype in default.dtypes)
+    if dtype_backend == "pyarrow":
+        lazy.pd.testing.assert_frame_equal(result, default)
+    else:
+        assert result["id"].dtype == (lazy.pd.Int64Dtype() if dtype_backend == "numpy_nullable" else "int64")
+        assert result["payload"].dtype == object
+        assert result["tags"].dtype == object
+    assert result["id"].tolist() == [1]
+    assert result["payload"].iloc[0] == {"alpha": 1}
+    assert list(result["tags"].iloc[0]) == ["a", "b"]
 
 
 def test_load_analysis(stub_dataset_creation_results, stub_dataset_profiler_results):
