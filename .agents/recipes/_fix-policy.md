@@ -9,9 +9,10 @@ When in doubt, fall back to report-only.
 
 ## Localized fix bar
 
-A finding may be converted to a fix only if all hold:
+A maintenance task may be converted to a PR only if all hold:
 
-- **Bounded scope**: ≤3 files, ≤50 LOC net. For the dependencies suite,
+- **Bounded scope**: ≤3 files, ≤50 changed lines (added + removed). For
+  docs-and-references, allow ≤10 files and ≤200 changed lines. For dependencies,
   exclude generated `uv.lock` changes from the LOC total; the lockfile still
   counts toward the file cap and must pass the path allowlist.
 - **Reversible**: no public API changes, no `__all__` deletions, no version
@@ -27,9 +28,21 @@ A finding may be converted to a fix only if all hold:
   | `packages/data-designer-config` | `make test-config` |
   | `packages/data-designer-engine` | `make test-engine` |
   | `packages/data-designer` | `make test-interface` |
-- **Single concern**: one finding per PR, except suite-declared batchable
-  mechanical fixes. A batch must share one suite/category and satisfy the
-  localized-fix bar as a single combined diff.
+- **Complete concern**: finish one bounded maintenance task. Include related
+  eligible findings rather than leaving known mechanical follow-ups for later
+  PRs. Suite-declared batches share a category and test target; docs tasks may
+  span eligible categories within one subsystem or API migration. The combined
+  diff must satisfy the scope limits. If a task cannot fit, report it for
+  maintainer action instead of splitting it into a sequence of tiny PRs.
+- **Worth reviewing (docs-and-references)**: fix a concrete runtime/install
+  failure, broken public example, or broken user-facing documentation link;
+  otherwise require at least two related eligible findings. An isolated
+  cosmetic or metadata-hygiene finding stays in `fix_backlog`, even if it is
+  easy or old. Do not bundle
+  unrelated findings or add changes just to meet this bar. Deferral is not a
+  failed attempt and must not add an `attempted_fixes` entry.
+  Other suites retain their recipe-defined singleton eligibility and batching
+  rules; this threshold must not disable non-batchable code-fix categories.
 - **Allowlisted paths**: matches the suite's path allowlist.
 
 If the top-ranked candidate fails the bar, try the next. If none of the top
@@ -41,7 +54,7 @@ If the top-ranked candidate fails the bar, try the next. If none of the top
 
 | Suite | Paths the recipe MAY modify |
 |-------|-----------------------------|
-| docs-and-references | `architecture/**`, `fern/versions/latest/pages/**`, `README.md`, `CONTRIBUTING.md`, `DEVELOPMENT.md`, `STYLEGUIDE.md`, `packages/*/src/**/*.py` (docstring-only edits) |
+| docs-and-references | `architecture/**`, `fern/versions/latest/pages/**` (excluding `devnotes/**`), `README.md`, `CONTRIBUTING.md`, `DEVELOPMENT.md`, `STYLEGUIDE.md`, `packages/*/src/**/*.py` (docstring-only edits) |
 | dependencies | `packages/*/pyproject.toml`, `uv.lock` |
 | structure | `packages/*/src/**/*.py` |
 | code-quality | `packages/*/src/**/*.py` |
@@ -91,8 +104,9 @@ shared diff once, and update every associated finding together on rejection.
 ### `fix_backlog` rules (audit phase populates this)
 
 - Append every detected finding in an eligible category. If `id` is already
-  present, **refresh both `last_seen` and `data`** with the current scan's
-  values. The `data` field is used by the fix phase to apply the change
+  present, **refresh `last_seen` and merge the current scan's values into
+  `data`**, preserving `blocked_reason` and `blocked_at` as described below.
+  The `data` field is used by the fix phase to apply the change
   without re-scanning, so stale `data` would let an old plan drive a new
   PR after the underlying file moved or changed.
 - Drop entries with `last_seen` older than 30 days.
@@ -102,6 +116,15 @@ shared diff once, and update every associated finding together on rejection.
 - Batchable categories must include enough information in `data` to group
   siblings safely. For package-scoped Python fixes, derive `test_target` from
   the package containing the source file.
+- Preserve `data.blocked_reason` and `data.blocked_at` across audit refreshes.
+  Clear them only when new source evidence or maintainer action resolves the
+  recorded blocker, not merely because the finding was seen again.
+- Docs findings also carry `data.task_key` (a stable subsystem or API-migration
+  key) and `data.scope_complete` (whether that task's bounded audit finished).
+  Reset `scope_complete` to `false` on existing docs backlog entries at the
+  start of each audit. Set it to `true` for the selected task only after all
+  related references in its declared scope have been checked. Cached entries
+  without these fields are not fixable until refreshed by an audit.
 
 ### `attempted_fixes` rules
 
@@ -109,6 +132,8 @@ shared diff once, and update every associated finding together on rejection.
 
 - `abandoned` means the recipe could not produce a PR (tests failed,
   conflict, lint failed, allowlist rejected, etc.).
+- Docs runs also reconcile recorded open PRs in the workflow before audit
+  selection, independently of the completed-scope gate.
 - Reconcile at the start of each fix run. First refresh existing latest
   `open` attempts that have a `pr_number`: query the PR and flip the
   attempt to `merged` or `closed` if it is no longer open. Then recover
@@ -159,35 +184,27 @@ case of two bare-except blocks with byte-identical try bodies.
 
 ## Ranking
 
-Earlier criteria override later ones:
+Confidence is an eligibility gate: every included finding must meet its
+category's evidence requirements and have one unambiguous fix. Among eligible
+tasks, earlier criteria override later ones:
 
-1. **Fix confidence** (per-category):
-
-   | Category | Confidence |
-   |----------|-----------|
-   | structure / missing-future | 1.0 |
-   | structure / lazy-import | 0.9 |
-   | docs / broken-link | 0.9 |
-   | dependencies / transitive-gap | 0.85 |
-   | docs / arch-ref-rename | 0.8 |
-   | dependencies / unused | 0.75 |
-   | docs / docstring-drift | 0.75 |
-   | code-quality / bare-except | 0.6 |
-
-2. **Defect severity**:
+1. **Defect severity**:
 
    | Severity | Examples |
    |----------|----------|
    | high | imported dependency not guaranteed by any required package, heavy import bypassing lazy system |
    | medium | broken doc link visible on docs site, bare-except hiding errors, docstring drift on public API |
-   | low | direct-dependency gap already guaranteed by a required package, broken link in dev-notes, missing `__future__ import annotations`, unused dep |
+   | low | direct-dependency gap already guaranteed by a required package, stale internal class reference, missing `__future__ import annotations`, unused dep |
 
-3. **User-facing impact** — visible to docs-site readers or plugin
+2. **User-facing impact** - visible to docs-site readers or plugin
    consumers vs internal-only.
 
-4. **Recency** — newer findings rank above long-standing ones.
+3. **Task completeness** - prefer resolving a related group of findings over
+   an isolated edit. Finding count alone is not impact.
 
-Record the chosen finding id(s), scores, and rationale at the top of
+4. **Recency** - newer findings rank above long-standing ones.
+
+Record the chosen finding id(s), impact evidence, and grouping rationale at the top of
 `/tmp/audit-{{suite}}.md`.
 
 ## Standard fix procedure
@@ -202,24 +219,39 @@ declare only the parts that vary (eligible categories, branch type,
 2. Filter `fix_backlog`: drop entries whose latest attempt is `open` or
    `merged`; surface two-strike entries in the report's
    `Repeatedly-failed fix attempts` section and drop them from selection.
-3. Rank the remainder per the Ranking section.
+3. Group the remainder into tasks per the suite recipe, then rank per the
+   Ranking section. Docs tasks require `data.scope_complete: true` on every
+   entry. Skip tasks with any member carrying `data.blocked_reason` and surface
+   the blocker for maintainer action. Skip tasks below the worth-reviewing bar without recording attempts;
+   leave them in the backlog and explain the deferral in the report.
 4. For each primary candidate, top 5 max:
    1. If the suite declares the category batchable, collect sibling
       `fix_backlog` entries for the same suite/category that share the same
-      target package, test target, and branch type. Do not discover new
-      findings; use only existing backlog entries. Batch at most 3 entries
-      to stay within the localized-fix file cap.
+      target package, test target, and branch type. Docs instead collect all
+      eligible entries with the same `data.task_key`, across eligible
+      categories. Do not discover new findings; use only existing backlog
+      entries. Code batches remain capped at 3 entries; docs tasks use the
+      docs scope limits above.
    2. Re-verify every finding still applies (re-grep / re-read). If a
       sibling no longer applies, remove it from `fix_backlog`; if the
       primary no longer applies, remove it from `fix_backlog` and continue
       to the next primary candidate.
-   3. Apply the fix or batch. If the combined diff exceeds the
-      localized-fix bar or touches a non-allowlisted path, abandon and
-      continue.
+   3. Recheck the worth-reviewing bar after removing stale findings. Defer a
+      task that no longer meets it. If a known member cannot be fixed safely
+      during re-verification, defer the whole
+      task for maintainer action without recording attempts for any member.
+      Persist `data.blocked_reason` and `data.blocked_at` on each task member
+      so later runs skip the task until an audit resolves the blocker.
+      Do not omit that member to produce a partial PR. Only failures after
+      beginning edits or PR creation count as abandoned attempts.
+      Apply the complete task only after every member passes re-verification.
+      If the combined diff exceeds the localized-fix bar or touches a
+      non-allowlisted path, abandon and continue.
    4. If the category sets `test_required: true`, run the per-package
       test target (see the mapping table in "Localized fix bar" above)
-      for the package containing the change(s). On failure: abandon and
-      continue.
+      for every affected package, once per target. For mixed docs tasks,
+      tests are required if any member requires them. On failure: abandon
+      and continue.
    5. Branch: `agentic-ci/<type>/<suite>-YYYYMMDD-<short-slug>`. Commit:
       `<type>(agentic-ci): <one-line>`. Push.
    6. Write the PR body to `/tmp/pr-body-{{suite}}.md`, including one
@@ -230,8 +262,8 @@ declare only the parts that vary (eligible categories, branch type,
    8. `gh pr edit <num> --add-label agentic-ci --add-label agentic-ci/<suite>`.
    9. Record one `attempted_fixes` entry per fixed finding with
       `outcome: "open"` and exit.
-5. If all 5 candidates were abandoned, append a one-line note to the
-   report and exit cleanly. The state already reflects the abandonments.
+5. If no task qualifies, append a short note to the report and exit cleanly.
+   Distinguish deferred tasks from abandoned attempts.
 
 On any failure mid-flow: record `outcome: "abandoned"` for the chosen
 finding(s) (with `pr_number: null`), leave any pushed branch in place
@@ -246,6 +278,9 @@ to the next candidate.
 - **Labels**: `agentic-ci`, `agentic-ci/<suite>`.
 - **Batch markers**: batch PRs include one hidden finding marker per fixed
   finding so crash recovery can reconstruct every `attempted_fixes` entry.
+- **Task summary**: describe the completed maintenance task, its impact, and
+  every included finding. Explain any related report-only findings rather
+  than silently leaving mechanical follow-ups out of scope.
 - **Draft PRs**: `code-quality` opens draft until a maintainer flips
   `draft_until_proven` to `false` in runner-state, after at least two
   non-draft PRs from that suite have landed clean. This flip is
