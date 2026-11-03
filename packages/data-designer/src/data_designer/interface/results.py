@@ -92,11 +92,11 @@ class DatasetCreationResults(WithRecordSamplerMixin):
         """Load the generated dataset as a pandas DataFrame.
 
         Args:
-            dtype_backend: The pandas dtype backend for the returned columns. `"pyarrow"` (the
-                default) returns `ArrowDtype` columns. `"numpy_nullable"` returns pandas nullable
-                dtypes. `None` applies pandas' default conversion: nested columns are object
-                (lists as NumPy arrays, structs as dicts), and scalar columns follow pandas' defaults
-                (text as `str`, integers with nulls as `float64`).
+            dtype_backend: The pandas dtype backend for native columns. `"pyarrow"` (the default)
+                selects Arrow-backed dtypes; `"numpy_nullable"` selects pandas nullable dtypes.
+                `None` uses pandas' default conversion, including persisted pandas metadata.
+                Decoded JSON storage columns remain object dtype for every backend. This option
+                does not normalize nested values or repair incompatible persisted dtype metadata.
 
         Returns:
             A pandas DataFrame containing the full generated dataset.
