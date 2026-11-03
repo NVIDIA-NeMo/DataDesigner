@@ -242,6 +242,9 @@ jobs:
       - name: Test Graphify compatibility
         run: make test-graphify
 
+      - name: Test CI coverage gate
+        run: .venv/bin/pytest .agents/tests/test_ci_coverage.py -q
+
   license-headers:
     name: Check License Headers
     needs: validate-dispatch

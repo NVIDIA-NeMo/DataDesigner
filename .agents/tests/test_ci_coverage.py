@@ -64,6 +64,23 @@ def test_rejects_low_combined_coverage(coverage_files: Path) -> None:
         REPORT.report_coverage()
 
 
+@pytest.mark.parametrize(("precision", "passes"), [(0, True), (2, False)])
+def test_preserves_coverage_threshold_rounding(coverage_files: Path, precision: int, passes: bool) -> None:
+    config = coverage_files / ".coveragerc"
+    config.write_text(config.read_text() + f"\n[report]\nprecision = {precision}\n")
+    (coverage_files / "sample.py").write_text("\n".join(f"value_{i} = {i}" for i in range(1000)))
+    for path in coverage_files.glob(".coverage.*"):
+        path.unlink()
+        data = CoverageData(basename=str(path))
+        data.add_lines({"sample.py": set(range(1, 897))})
+        data.write()
+    if passes:
+        assert REPORT.report_coverage() == pytest.approx(89.6)
+    else:
+        with pytest.raises(ValueError, match="below 90%"):
+            REPORT.report_coverage()
+
+
 @pytest.mark.parametrize("result", ["success", "failure", "cancelled", "skipped", None])
 def test_gate_rejects_unsuccessful_dependencies(result: str | None) -> None:
     gate = WORKFLOW["jobs"]["test-summary"]

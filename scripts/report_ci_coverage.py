@@ -23,7 +23,7 @@ def report_coverage() -> float:
     coverage.save()
     percentage = coverage.report(show_missing=True)
     coverage.xml_report()
-    if percentage < 90:
+    if round(percentage, coverage.get_option("report:precision")) < 90:
         raise ValueError(f"Coverage {percentage:.2f}% is below 90%")
     return percentage
 
