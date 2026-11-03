@@ -18,7 +18,7 @@ from data_designer.config.preview_results import PreviewResults
 from data_designer.config.utils.errors import DatasetSampleDisplayError
 from data_designer.config.utils.visualization import display_sample_record as display_fn
 from data_designer.engine.dataset_builders.errors import ArtifactStorageError
-from data_designer.engine.storage.artifact_storage import ArtifactStorage
+from data_designer.engine.storage.artifact_storage import ArtifactStorage, BatchStage
 from data_designer.interface.results import DatasetCreationResults
 
 
@@ -70,6 +70,31 @@ def test_load_dataset(stub_dataset_creation_results, stub_artifact_storage, stub
     assert isinstance(dataset, lazy.pd.DataFrame)
     stub_artifact_storage.load_dataset.assert_called_once()
     lazy.pd.testing.assert_frame_equal(dataset, stub_dataframe)
+
+
+def test_load_dataset_passes_dtype_backend_to_artifact_storage(stub_dataset_creation_results, stub_artifact_storage):
+    """The default keeps the pyarrow backend; explicit values and None are passed through unchanged."""
+    stub_dataset_creation_results.load_dataset()
+    stub_artifact_storage.load_dataset.assert_called_with(dtype_backend="pyarrow")
+
+    for dtype_backend in ("numpy_nullable", None):
+        stub_dataset_creation_results.load_dataset(dtype_backend=dtype_backend)
+        stub_artifact_storage.load_dataset.assert_called_with(dtype_backend=dtype_backend)
+
+
+def test_load_dataset_without_dtype_backend_returns_object_nested_columns(tmp_path, stub_dataset_creation_results):
+    storage = ArtifactStorage(artifact_path=tmp_path)
+    frame = lazy.pd.DataFrame({"payload": [{"alpha": 1}], "tags": [["a", "b"]]})
+    storage.write_batch_to_parquet_file(0, frame, BatchStage.FINAL_RESULT)
+    stub_dataset_creation_results.artifact_storage = storage
+
+    default = stub_dataset_creation_results.load_dataset()
+    plain = stub_dataset_creation_results.load_dataset(dtype_backend=None)
+
+    assert isinstance(default["payload"].dtype, lazy.pd.ArrowDtype)
+    assert plain["payload"].dtype == object
+    assert plain["payload"].iloc[0] == {"alpha": 1}
+    assert plain["tags"].dtype == object
 
 
 def test_load_analysis(stub_dataset_creation_results, stub_dataset_profiler_results):
