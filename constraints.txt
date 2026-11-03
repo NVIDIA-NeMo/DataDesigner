@@ -4,7 +4,6 @@
 #           uv pip install data-designer -c constraints.txt
 #           uv add data-designer -c constraints.txt
 anyio>=4.14.2
-bleach>=6.4.0
 cryptography>=50.0.0
 filelock>=4.2.1
 idna>=3.15

@@ -19,10 +19,15 @@ INTERFACE = Path("packages/data-designer/src/data_designer/interface/client.py")
 EXPORT_FAILURE = """
 import runpy
 import sys
+from pathlib import Path
 from unittest.mock import patch
 
+def fail_export(graph, communities, output_path):
+    Path(output_path).write_text('{')
+    raise OSError("graph export failed")
+
 sys.argv = sys.argv[1:]
-with patch("graphify.export.to_json", return_value=False):
+with patch("graphify.export.to_json", side_effect=fail_export):
     runpy.run_path(sys.argv[0], run_name="__main__")
 """
 
@@ -99,7 +104,7 @@ def test_full_graph_round_trip(repo_root: Path, run_tool: Callable[..., subproce
     assert "**no changes**" in run_tool("--full", "--previous-graph", str(graph_path)).stdout
 
 
-@pytest.mark.parametrize("metadata", [{}, {"graphify_version": "0.4.23"}, {"schema_version": -1}])
+@pytest.mark.parametrize("metadata", [{}, {"graphify_version": "0.9.96"}, {"schema_version": -1}])
 def test_incompatible_baseline_is_reset(
     repo_root: Path, run_tool: Callable[..., subprocess.CompletedProcess[str]], metadata: dict[str, object]
 ) -> None:
@@ -139,13 +144,16 @@ def test_rejected_export_preserves_baselines(
     run_tool("--full")
     baselines = repo_root / "graphify-out/baselines.json"
     previous = baselines.read_bytes()
+    graph_path = baselines.with_name("graph.json")
+    previous_graph = graph_path.read_bytes()
     (repo_root / INTERFACE).unlink()
 
     result = run_tool("--full", reject_export=True, check=False)
 
     assert result.returncode != 0
-    assert "baselines were not updated" in result.stderr
+    assert "graph export failed" in result.stderr
     assert baselines.read_bytes() == previous
+    assert graph_path.read_bytes() == previous_graph
 
 
 def test_empty_scan_preserves_baselines(

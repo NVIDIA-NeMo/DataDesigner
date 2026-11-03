@@ -25,13 +25,12 @@ cd DataDesigner
 # Install with dev dependencies
 make install-dev
 
-# Or, if you use Jupyter / IPython for development
+# Or, to execute the tutorial and documentation notebooks
 make install-dev-notebooks
 ```
 
-Notebook setup uses the patched nbconvert PyPI release, including its HTML stylesheets.
-The `install-notebook-css` target reuses existing stylesheets and can restore missing assets from a
-checksum-pinned wheel. Use `NOTEBOOK_CSS=0` to skip that restoration check in execution-only environments.
+Notebook setup installs the kernel and execution tools used by Jupytext and the Fern notebook pipeline.
+Install a Jupyter frontend separately if you want to edit notebooks in its browser interface.
 
 ### Verify Your Setup
 
