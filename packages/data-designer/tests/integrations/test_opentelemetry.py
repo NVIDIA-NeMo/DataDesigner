@@ -1093,6 +1093,18 @@ requires_safe_fork = pytest.mark.skipif(
 
 def _run_probe(script: str) -> None:
     """Run ``script`` in a fresh interpreter, avoiding whatever earlier tests left in the pytest worker."""
+    # Fresh interpreters do not inherit the loopback DNS fixture.
+    script = (
+        textwrap.dedent(
+            """
+        import socket
+
+        _getfqdn = socket.getfqdn
+        socket.getfqdn = lambda name="": name if name in ("127.0.0.1", "::1") else _getfqdn(name)
+        """
+        )
+        + script
+    )
     result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, timeout=90)
     assert result.returncode == 0, f"probe failed:\n{result.stderr}"
 
