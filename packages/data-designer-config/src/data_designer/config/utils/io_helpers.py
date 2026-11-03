@@ -121,11 +121,11 @@ def read_parquet_dataset(
 
     Args:
         path: The path to the parquet dataset, can be either a file or a directory.
-        dtype_backend: The pandas dtype backend for the returned columns. `"pyarrow"` (the
-            default) and `"numpy_nullable"` are passed to pandas. `None` omits the option so
-            pandas applies its default conversion: nested columns are object (lists as NumPy
-            arrays, structs as dicts), while scalar columns follow pandas' defaults (text as
-            `str`, integers with nulls as `float64`).
+        dtype_backend: The pandas dtype backend for native columns. `"pyarrow"` (the default)
+            and `"numpy_nullable"` select Arrow-backed or pandas nullable dtypes, respectively.
+            `None` uses pandas' default conversion, including persisted pandas metadata.
+            Decoded JSON storage columns remain object dtype for every backend. This option
+            does not normalize nested values or repair incompatible persisted dtype metadata.
 
     Returns:
         The parquet dataset as a pandas DataFrame.

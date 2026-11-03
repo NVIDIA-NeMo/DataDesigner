@@ -82,19 +82,28 @@ def test_load_dataset_passes_dtype_backend_to_artifact_storage(stub_dataset_crea
         stub_artifact_storage.load_dataset.assert_called_with(dtype_backend=dtype_backend)
 
 
-def test_load_dataset_without_dtype_backend_returns_object_nested_columns(tmp_path, stub_dataset_creation_results):
+@pytest.mark.parametrize("dtype_backend", [None, "numpy_nullable"], ids=["pandas-default", "nullable"])
+def test_load_dataset_nested_columns_round_trip_through_pandas(
+    tmp_path: Path, stub_dataset_creation_results: DatasetCreationResults, dtype_backend: str | None
+) -> None:
+    """A caller can opt out of Arrow dtypes before exporting ordinary nested artifacts."""
     storage = ArtifactStorage(artifact_path=tmp_path)
     frame = lazy.pd.DataFrame({"payload": [{"alpha": 1}], "tags": [["a", "b"]]})
     storage.write_batch_to_parquet_file(0, frame, BatchStage.FINAL_RESULT)
     stub_dataset_creation_results.artifact_storage = storage
 
     default = stub_dataset_creation_results.load_dataset()
-    plain = stub_dataset_creation_results.load_dataset(dtype_backend=None)
+    plain = stub_dataset_creation_results.load_dataset(dtype_backend=dtype_backend)
+    export_path = tmp_path / "consumer.parquet"
+    plain.to_parquet(export_path, index=False)
+    restored = lazy.pd.read_parquet(export_path)
 
     assert isinstance(default["payload"].dtype, lazy.pd.ArrowDtype)
     assert plain["payload"].dtype == object
     assert plain["payload"].iloc[0] == {"alpha": 1}
     assert plain["tags"].dtype == object
+    assert restored["payload"].iloc[0] == {"alpha": 1}
+    assert list(restored["tags"].iloc[0]) == ["a", "b"]
 
 
 def test_load_analysis(stub_dataset_creation_results, stub_dataset_profiler_results):
