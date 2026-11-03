@@ -1,7 +1,6 @@
 ---
 name: commit
-description: Commit current changes with a clear, descriptive message
-argument-hint: [special instructions]
+description: Commit current changes with a clear, descriptive message. The argument may contain special instructions for the commit message.
 disable-model-invocation: true
 metadata:
     internal: true
