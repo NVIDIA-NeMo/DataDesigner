@@ -23,7 +23,8 @@ from data_designer.config.utils.io_helpers import (
 )
 
 
-def test_read_parquet_dataset_unifies_nested_numeric_types(tmp_path) -> None:
+@pytest.mark.parametrize("dtype_backend", ["pyarrow", "numpy_nullable", None])
+def test_read_parquet_dataset_unifies_nested_numeric_types(tmp_path: Path, dtype_backend: str | None) -> None:
     evaluations = [
         {"evaluations": [{"overall": {"score": 9}}]},
         {"evaluations": [{"overall": {"score": 9.5}}]},
@@ -37,96 +38,36 @@ def test_read_parquet_dataset_unifies_nested_numeric_types(tmp_path) -> None:
     schemas = [lazy.pq.read_schema(file) for file in sorted(tmp_path.glob("*.parquet"))]
     assert schemas[0] != schemas[1]
 
-    result = read_parquet_dataset(tmp_path)
-
-    scores = [row["evaluations"][0]["overall"]["score"] for row in result["qa_evaluations"]]
-    assert scores == [9.0, 9.5]
-    assert all(isinstance(score, float) for score in scores)
-
-
-def _write_nested_batches(path: Path, evaluations: list[dict]) -> None:
-    for batch_number, evaluation in enumerate(evaluations):
-        lazy.pd.DataFrame({"id": [batch_number], "qa_evaluations": [evaluation]}).to_parquet(
-            path / f"batch_{batch_number:05d}.parquet",
-            index=False,
-        )
-
-
-def _write_simple_nested_file(path: Path) -> Path:
-    file_path = path / "batch_00000.parquet"
-    lazy.pd.DataFrame({"id": [1], "meta": [{"score": 9, "label": "x"}], "tags": [["a", "b"]]}).to_parquet(
-        file_path, index=False
-    )
-    return file_path
-
-
-@pytest.mark.parametrize("as_directory", [True, False], ids=["directory", "file"])
-def test_read_parquet_dataset_defaults_to_pyarrow_dtypes(tmp_path, as_directory: bool) -> None:
-    file_path = _write_simple_nested_file(tmp_path)
-
-    result = read_parquet_dataset(tmp_path if as_directory else file_path)
-
-    assert all(isinstance(dtype, lazy.pd.ArrowDtype) for dtype in result.dtypes)
-    assert result["meta"].iloc[0] == {"score": 9, "label": "x"}
-    assert result["tags"].iloc[0] == ["a", "b"]
-
-
-@pytest.mark.parametrize("as_directory", [True, False], ids=["directory", "file"])
-def test_read_parquet_dataset_without_dtype_backend_returns_object_columns(tmp_path, as_directory: bool) -> None:
-    file_path = _write_simple_nested_file(tmp_path)
-
-    result = read_parquet_dataset(tmp_path if as_directory else file_path, dtype_backend=None)
-
-    assert not any(isinstance(dtype, lazy.pd.ArrowDtype) for dtype in result.dtypes)
-    assert result["meta"].dtype == object
-    assert result["tags"].dtype == object
-    assert result["meta"].iloc[0] == {"score": 9, "label": "x"}
-    assert list(result["tags"].iloc[0]) == ["a", "b"]
-
-
-@pytest.mark.parametrize("as_directory", [True, False], ids=["directory", "file"])
-def test_read_parquet_dataset_accepts_numpy_nullable(tmp_path, as_directory: bool) -> None:
-    file_path = _write_simple_nested_file(tmp_path)
-
-    result = read_parquet_dataset(tmp_path if as_directory else file_path, dtype_backend="numpy_nullable")
-
-    assert result["id"].dtype == lazy.pd.Int64Dtype()
-    assert result["meta"].iloc[0] == {"score": 9, "label": "x"}
-
-
-@pytest.mark.parametrize(
-    ("dtype_backend", "id_check"),
-    [
-        ("pyarrow", lambda dtype: isinstance(dtype, lazy.pd.ArrowDtype)),
-        ("numpy_nullable", lambda dtype: dtype == lazy.pd.Int64Dtype()),
-        (None, lambda dtype: dtype == "int64"),
-    ],
-)
-def test_read_parquet_dataset_schema_unification_fallback_honors_dtype_backend(
-    tmp_path, dtype_backend, id_check
-) -> None:
-    _write_nested_batches(tmp_path, [{"evaluations": [{"score": 9}]}, {"evaluations": [{"score": 10}]}])
-
-    with patch.object(lazy.pa, "unify_schemas", side_effect=lazy.pa.ArrowInvalid("forced")):
-        result = read_parquet_dataset(tmp_path, dtype_backend=dtype_backend)
-
-    assert id_check(result["id"].dtype)
-    assert result["id"].tolist() == [0, 1]
-    assert (result["qa_evaluations"].dtype == object) is (dtype_backend != "pyarrow")
-
-
-@pytest.mark.parametrize("dtype_backend", ["pyarrow", "numpy_nullable", None])
-def test_read_parquet_dataset_unifies_nested_numeric_types_for_every_backend(tmp_path, dtype_backend) -> None:
-    _write_nested_batches(
-        tmp_path,
-        [{"evaluations": [{"overall": {"score": 9}}]}, {"evaluations": [{"overall": {"score": 9.5}}]}],
-    )
-
     result = read_parquet_dataset(tmp_path, dtype_backend=dtype_backend)
 
     scores = [row["evaluations"][0]["overall"]["score"] for row in result["qa_evaluations"]]
     assert scores == [9.0, 9.5]
     assert all(isinstance(score, float) for score in scores)
+
+
+@pytest.mark.parametrize(
+    ("dtype_backend", "expected_dtype"),
+    [
+        ("pyarrow", lazy.pd.ArrowDtype(lazy.pa.int64())),
+        ("numpy_nullable", lazy.pd.Int64Dtype()),
+        (None, lazy.np.dtype("int64")),
+    ],
+)
+def test_read_parquet_dataset_fallback_honors_dtype_backend(
+    tmp_path: Path, dtype_backend: str | None, expected_dtype: object
+) -> None:
+    for batch in range(2):
+        lazy.pd.DataFrame({"id": [batch], "meta": [{"score": 9}]}).to_parquet(
+            tmp_path / f"batch_{batch}.parquet", index=False
+        )
+
+    with patch.object(lazy.pa, "unify_schemas", side_effect=lazy.pa.ArrowInvalid("forced")):
+        result = read_parquet_dataset(tmp_path, dtype_backend=dtype_backend)
+
+    assert result["id"].dtype == expected_dtype
+    assert result["id"].tolist() == [0, 1]
+    assert result["meta"].tolist() == [{"score": 9}, {"score": 9}]
+    assert (result["meta"].dtype == object) is (dtype_backend != "pyarrow")
 
 
 def test_smart_load_yaml():

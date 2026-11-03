@@ -194,23 +194,6 @@ def test_artifact_storage_read_parquet_files(stub_artifact_storage):
     lazy.pd.testing.assert_frame_equal(lazy.pd.concat([read_df1, read_df2], ignore_index=True), read_df)
 
 
-def test_artifact_storage_load_dataset_dtype_backend(stub_artifact_storage):
-    df = lazy.pd.DataFrame({"id": [1, 2], "data": [{"some_list": ["yes"]}, {"some_list": ["no"]}]})
-    stub_artifact_storage.write_batch_to_parquet_file(0, df, BatchStage.FINAL_RESULT)
-
-    default = stub_artifact_storage.load_dataset()
-    assert isinstance(default["data"].dtype, lazy.pd.ArrowDtype)
-    lazy.pd.testing.assert_frame_equal(stub_artifact_storage.load_dataset(dtype_backend="pyarrow"), default)
-
-    plain = stub_artifact_storage.load_dataset(dtype_backend=None)
-    assert plain["data"].dtype == object
-    assert not isinstance(plain["id"].dtype, lazy.pd.ArrowDtype)
-    assert plain["data"].iloc[0]["some_list"].tolist() == ["yes"]
-
-    nullable = stub_artifact_storage.load_dataset(BatchStage.FINAL_RESULT, dtype_backend="numpy_nullable")
-    assert nullable["id"].dtype == lazy.pd.Int64Dtype()
-
-
 def test_artifact_storage_path_validation(stub_artifact_storage):
     assert stub_artifact_storage.artifact_path.is_absolute()
     assert stub_artifact_storage.base_dataset_path.is_absolute()

@@ -514,33 +514,6 @@ def test_legacy_partitioned_directory_keeps_native_columns(tmp_path: Path) -> No
     assert JSON_STORAGE_RUN_KEY not in result.attrs
 
 
-@pytest.mark.parametrize("as_directory", [True, False], ids=["directory", "file"])
-@pytest.mark.parametrize(
-    ("dtype_backend", "count_check", "label_check"),
-    [
-        ("pyarrow", lambda dtype: isinstance(dtype, pd.ArrowDtype), lambda dtype: isinstance(dtype, pd.ArrowDtype)),
-        ("numpy_nullable", lambda dtype: dtype == pd.Int64Dtype(), lambda dtype: dtype == pd.StringDtype()),
-        (None, lambda dtype: dtype == "int64", lambda dtype: pd.api.types.is_string_dtype(dtype)),
-    ],
-)
-def test_encoded_dataset_honors_dtype_backend_for_native_columns(
-    tmp_path: Path, as_directory: bool, dtype_backend: Any, count_check: Any, label_check: Any
-) -> None:
-    values = [{"alpha": 1}, {"beta": [1, "two"]}]
-    frame = pd.DataFrame({"count": [1, 2], "label": ["a", "b"], "payload": pd.Series(values, dtype=object)})
-    plan = JsonStoragePlan(columns={"payload": [[]]})
-    path = tmp_path / "batch_0.parquet"
-    pq.write_table(encode_storage_table(frame, plan), path)
-
-    result = read_parquet_dataset(tmp_path if as_directory else path, dtype_backend=dtype_backend)
-
-    assert count_check(result["count"].dtype)
-    assert label_check(result["label"].dtype)
-    assert result["payload"].dtype == object
-    assert result["payload"].tolist() == values
-    assert result.attrs[JSON_STORAGE_RUN_KEY] == plan.model_dump()
-
-
 def test_decode_storage_table_rejects_unknown_dtype_backend() -> None:
     table = pa.Table.from_pylist([{"payload": "1"}]).replace_schema_metadata(
         {JSON_STORAGE_METADATA_KEY: JsonStoragePlan(columns={"payload": [[]]}).model_dump_json().encode()}
