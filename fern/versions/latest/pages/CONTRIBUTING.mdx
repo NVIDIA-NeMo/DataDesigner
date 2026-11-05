@@ -109,9 +109,62 @@ All code files must include the NVIDIA copyright header:
 
 Use `make update-license-headers` to add headers automatically.
 
-## Signing Off on Your Work (DCO)
+## Signing Your Work (DCO)
 
-When contributing, you must agree that you have authored 100% of the content, that you have the necessary rights to the content, and that the content you contribute may be provided under the project license. All contributors are asked to sign the [Developer Certificate of Origin (DCO)](https://github.com/NVIDIA-NeMo/DataDesigner/blob/main/DCO) when submitting their first pull request. The process is automated by a bot that will comment on the pull request.
+Every commit in a contribution must include a `Signed-off-by` trailer. By signing off, you certify that you have the right to submit the contribution under the project's open source license, as set out in the Developer Certificate of Origin (DCO) below.
+
+Add your sign-off with `git commit -s`:
+
+```bash
+git commit -s -m "describe your change"
+```
+
+Git adds a trailer using the name and email address in your Git configuration:
+
+```text
+Signed-off-by: Your Name <you@example.com>
+```
+
+Review the certification before signing off. When submitting a pull request, ensure that all of its commits contain the required sign-off.
+
+### Developer Certificate of Origin
+
+```text
+Developer Certificate of Origin
+Version 1.1
+
+Copyright (C) 2004, 2006 The Linux Foundation and its contributors.
+
+Everyone is permitted to copy and distribute verbatim copies of this
+license document, but changing it is not allowed.
+
+
+Developer's Certificate of Origin 1.1
+
+By making a contribution to this project, I certify that:
+
+(a) The contribution was created in whole or in part by me and I
+    have the right to submit it under the open source license
+    indicated in the file; or
+
+(b) The contribution is based upon previous work that, to the best
+    of my knowledge, is covered under an appropriate open source
+    license and I have the right under that license to submit that
+    work with modifications, whether created in whole or in part
+    by me, under the same open source license (unless I am
+    permitted to submit under a different license), as indicated
+    in the file; or
+
+(c) The contribution was provided directly to me by some other
+    person who certified (a), (b) or (c) and I have not modified
+    it.
+
+(d) I understand and agree that this project and the contribution
+    are public and that a record of the contribution (including all
+    personal information I submit with it, including my sign-off) is
+    maintained indefinitely and may be redistributed consistent with
+    this project or the open source license(s) involved.
+```
 
 ## Code of Conduct
 
