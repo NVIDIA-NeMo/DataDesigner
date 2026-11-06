@@ -27,7 +27,7 @@ ALL_PKG_PATHS := packages/ scripts/ tests_e2e/
 
 # Test directories
 CONFIG_TESTS := $(CONFIG_PKG)/tests
-ENGINE_TESTS := $(ENGINE_PKG)/tests
+ENGINE_TESTS := $(ENGINE_PKG)/tests scripts/person_data
 SLURM_TESTS := $(SLURM_PKG)/tests
 INTERFACE_TESTS := $(INTERFACE_PKG)/tests
 
