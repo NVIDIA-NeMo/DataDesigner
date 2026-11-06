@@ -17,6 +17,8 @@ from zipfile import ZipFile
 
 import numpy as np
 import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 import shapefile
 import shapely
 from scipy.spatial import cKDTree
@@ -28,6 +30,9 @@ REPO = ROOT.parents[1]
 ASSET = (
     REPO
     / "packages/data-designer-engine/src/data_designer/engine/sampling_gen/entities/assets/zip_area_code_map.parquet"
+)
+SOURCE_REVISION_URL = (
+    "https://github.com/NVIDIA-NeMo/DataDesigner/tree/eae83186b32d7c62ee880c6f538bda46a6831c72/scripts/person_data"
 )
 
 
@@ -127,6 +132,34 @@ def assign_area_codes(
     return result, provenance, distant_explicit_rows
 
 
+def reconcile_area_codes(
+    input_codes: pd.Series, localities: pd.DataFrame, zip_states: set[str], result: pd.DataFrame
+) -> pd.DataFrame:
+    """Account for each source code, including retained codes never selected."""
+    if not set(result.area_code) <= set(input_codes):
+        raise ValueError("Output area codes are not a subset of the pinned input")
+    coverage = input_codes.value_counts().rename("input_records").to_frame()
+    coverage.index.name = "area_code"
+    coverage = coverage.join(localities.area_code.value_counts().rename("retained_locality_records"))
+    eligible = localities[localities.state.isin(zip_states)]
+    coverage = coverage.join(eligible.area_code.value_counts().rename("eligible_locality_records"))
+    coverage = coverage.join(
+        result.groupby("area_code").agg(output_zipcodes=("zipcode", "size"), output_population=("count", "sum"))
+    ).fillna(0)
+    for column in ("input_records", "retained_locality_records", "eligible_locality_records", "output_zipcodes"):
+        coverage[column] = coverage[column].astype("int64")
+    coverage["status"] = np.select(
+        [
+            coverage.output_zipcodes > 0,
+            coverage.retained_locality_records == 0,
+            coverage.eligible_locality_records == 0,
+        ],
+        ["selected", "no_retained_locality", "outside_zcta_states"],
+        default="not_selected",
+    )
+    return coverage.sort_index().reset_index()
+
+
 def rebuild(cache: Path, output: Path, report_dir: Path, offline: bool = False) -> dict:
     """Rebuild the asset and write row-level lineage and a validation summary."""
     manifest = json.loads((ROOT / "sources.json").read_text())
@@ -144,6 +177,10 @@ def rebuild(cache: Path, output: Path, report_dir: Path, offline: bool = False) 
         shapely.prepare(geometry)
 
     raw = json.loads(inputs["wikidata-us-dialing-codes.json"])["results"]["bindings"]
+    input_codes = pd.Series(
+        [int(row["code"]["value"]) for row in raw if re.fullmatch(r"[2-9]\d{2}", row["code"]["value"])],
+        dtype="int64",
+    )
     rows = []
     for row in raw:
         code = row["code"]["value"]
@@ -197,13 +234,27 @@ def rebuild(cache: Path, output: Path, report_dir: Path, offline: bool = False) 
 
     postcodes = json.loads(inputs["wikidata-us-postcode-dialing-codes.json"])["results"]["bindings"]
     result, provenance, distant_explicit_rows = assign_area_codes(data, localities, postcodes)
+    coverage = reconcile_area_codes(input_codes, localities, set(data.state), result)
+    lineage = {
+        "format_version": 1,
+        "source_revision_url": SOURCE_REVISION_URL,
+        "source_manifest_sha256": hashlib.sha256((ROOT / "sources.json").read_bytes()).hexdigest(),
+        "source_manifest": manifest,
+        "rebuild_script_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+    }
+    table = pa.Table.from_pandas(result, preserve_index=False)
+    table = table.replace_schema_metadata(
+        {**table.schema.metadata, b"data_designer.provenance": json.dumps(lineage, sort_keys=True).encode()}
+    )
     output.parent.mkdir(parents=True, exist_ok=True)
-    result.to_parquet(output, index=False, compression="snappy")
+    pq.write_table(table, output, compression="snappy")
     pd.testing.assert_frame_equal(result, pd.read_parquet(output))
     report_dir.mkdir(parents=True, exist_ok=True)
     (report_dir / "mapping_provenance.csv.gz").write_bytes(
         gzip.compress(provenance.to_csv(index=False).encode(), mtime=0)
     )
+    reconciliation = coverage.to_csv(index=False).encode()
+    (report_dir / "area_code_reconciliation.csv").write_bytes(reconciliation)
     report = {
         "rows": len(result),
         "population_total": float(result["count"].sum()),
@@ -213,6 +264,16 @@ def rebuild(cache: Path, output: Path, report_dir: Path, offline: bool = False) 
         "curated_locality_rows_excluded": len(rejected),
         "accepted_locality_records": len(localities),
         "accepted_locality_items": int(localities.qid.nunique()),
+        "area_code_coverage": {
+            "input_codes": len(coverage),
+            "retained_codes": int((coverage.retained_locality_records > 0).sum()),
+            "eligible_codes": int((coverage.eligible_locality_records > 0).sum()),
+            "output_codes": int((coverage.output_zipcodes > 0).sum()),
+            "no_retained_locality": coverage.loc[coverage.status == "no_retained_locality", "area_code"].tolist(),
+            "outside_zcta_states": coverage.loc[coverage.status == "outside_zcta_states", "area_code"].tolist(),
+            "not_selected": coverage.loc[coverage.status == "not_selected", "area_code"].tolist(),
+            "reconciliation_sha256": hashlib.sha256(reconciliation).hexdigest(),
+        },
         "distant_explicit_associations_excluded": distant_explicit_rows,
         "nearest_locality_fallbacks_over_50km": int(
             ((provenance.method == "nearest_locality_same_state") & (provenance.distance_km > 50)).sum()

@@ -25,5 +25,7 @@ NANPA's 2026-11-06 NPA report was consulted only as a screening reference.
 No explicit open-data license was established for that report. It is not
 redistributed and is not required to rebuild from the pinned snapshots.
 
-Source URLs, hashes, queries, exclusions, methodology, and rebuild instructions:
-https://github.com/NVIDIA-NeMo/DataDesigner/tree/main/scripts/person_data
+Source snapshots, queries, exclusions, and permissions (immutable input revision):
+https://github.com/NVIDIA-NeMo/DataDesigner/tree/eae83186b32d7c62ee880c6f538bda46a6831c72/scripts/person_data
+The parquet key-value metadata contains the source manifest, its SHA-256,
+and the rebuild script SHA-256 under data_designer.provenance.

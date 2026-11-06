@@ -63,6 +63,13 @@ more than 50 km from their donor locality; the largest distance is about 231 km.
 State-level screening does not establish ZIP-level accuracy. Population estimates
 and numbering statements reflect the pinned source dates.
 
+The code-level reconciliation counts 386 distinct three-digit source values,
+358 codes with retained localities, 355 with localities in the covered ZCTA
+states/territories, and 277 selected by the one-code-per-ZCTA mapping. The 78
+eligible but unselected codes include metro overlays and Chicago's 773. This
+mapping does not reproduce area-code market shares or exact intra-city boundaries.
+These omissions are reported, not treated as evidence that the codes are invalid.
+
 ## Rebuild
 
 From the repository root, using the development tools required by the project:
@@ -93,12 +100,26 @@ The default output replaces the packaged parquet. For a comparison build:
   --report-dir .cache/person_data/report
 ```
 
-The report directory contains `build_report.json` and compressed per-row lineage
-(`mapping_provenance.csv.gz`): chosen Wikidata item, method, state, and distance.
-`build_report.json` in this directory records the committed build. Parquet byte
+The report directory contains `build_report.json`, `area_code_reconciliation.csv`,
+and compressed per-row lineage (`mapping_provenance.csv.gz`): chosen Wikidata
+item, method, state, and distance. The reconciliation lists each source code's
+input/locality counts, assigned ZIP count and population weight, and status:
+`selected`, `no_retained_locality`, `outside_zcta_states`, or `not_selected`.
+Population weights describe this generated mapping, not measured telephone usage.
+The build rejects any output code absent from the pinned input.
+
+The checked-in report and reconciliation record the committed build. Standard
+engine tests compare the packaged parquet to its recorded output hash and verify
+the per-code output counts. Parquet byte
 hashes can vary with writer versions; compare decoded tables across environments.
 The recorded build used Python 3.12, NumPy 2.4.3, pandas 3.0.5, SciPy 1.17.1,
 PyArrow 24.0.0, PyShp 3.1.6, and Shapely 2.2.0.
+
+The parquet's `data_designer.provenance` key-value metadata embeds the complete
+source manifest (URLs, hashes, permissions, and screening reference), the manifest
+SHA-256, and the rebuild script SHA-256. The packaged NOTICE links to the immutable
+input revision, so an older wheel retains a stable source reference. Refresh that
+link and `SOURCE_REVISION_URL` when adopting a new committed input revision.
 
 To update sources, rerun the two `.sparql` queries, replace their compressed
 snapshots and hashes, review the exclusions against a newly recorded numbering

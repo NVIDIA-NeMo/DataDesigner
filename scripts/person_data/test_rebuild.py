@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
-from rebuild import assign_area_codes, read_source
+from rebuild import assign_area_codes, read_source, reconcile_area_codes
 
 
 @pytest.fixture
@@ -93,3 +93,25 @@ def test_cached_source_checksum(tmp_path: Path, contents: bytes) -> None:
 def test_offline_missing_source(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError, match="Missing cached source"):
         read_source("missing", {}, tmp_path, offline=True)
+
+
+def test_area_code_reconciliation_tracks_missing_codes() -> None:
+    inputs = pd.Series([212, 212, 332, 340, 773], dtype="int64")
+    localities = pd.DataFrame([(212, "NY"), (332, "NY"), (340, "VI")], columns=["area_code", "state"])
+    result = pd.DataFrame([("10001", 212, 100.0)], columns=["zipcode", "area_code", "count"])
+    coverage = reconcile_area_codes(inputs, localities, {"NY"}, result).set_index("area_code")
+    assert coverage.status.to_dict() == {
+        212: "selected",
+        332: "not_selected",
+        340: "outside_zcta_states",
+        773: "no_retained_locality",
+    }
+    assert coverage.loc[212, "input_records"] == 2
+    assert coverage.loc[212, "output_population"] == 100.0
+
+
+def test_area_code_reconciliation_rejects_new_output_codes(geography: tuple[pd.DataFrame, pd.DataFrame]) -> None:
+    data, localities = geography
+    result = data[["zipcode", "count"]].assign(area_code=999)
+    with pytest.raises(ValueError, match="not a subset"):
+        reconcile_area_codes(pd.Series([413, 212]), localities, {"MA", "NY"}, result)
