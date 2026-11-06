@@ -1,0 +1,7 @@
+# Copy this provider into your normal DATA_DESIGNER_HOME/model_providers.yaml.
+# Export MODEL_API_KEY in the submit environment; do not store its value here.
+providers:
+  - name: hosted
+    endpoint: https://models.example/v1
+    provider_type: openai
+    api_key: MODEL_API_KEY

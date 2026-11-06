@@ -17,6 +17,7 @@ PIP_LICENSES_VERSION = "5.5.5"
 POLICY_PATH = Path(__file__).resolve().parents[1] / "dependency-license-policy.toml"
 
 LICENSE_ALIASES = {
+    "Apache License 2.0": {"Apache-2.0"},
     "Apache Software License": {"Apache-2.0"},
     "BSD License": {"BSD-3-Clause"},
     "ISC License (ISCL)": {"ISC"},

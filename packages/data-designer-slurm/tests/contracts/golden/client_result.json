@@ -1,0 +1,20 @@
+{
+  "actual_records": 50,
+  "attempt_id": "attempt-0001",
+  "candidate_output_manifest": {
+    "path": "/workspace/primary/runs/run-001/shards/shard-00000/attempts/attempt-0001/output-manifest.json",
+    "sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+  },
+  "completed_at": "2026-08-19T12:00:00Z",
+  "dataset_path": "/workspace/primary/runs/run-001/shards/shard-00000/attempts/attempt-0001/dataset",
+  "early_shutdown": false,
+  "effective_resume_mode": "never",
+  "error_code": null,
+  "outcome": "complete",
+  "redacted_message": null,
+  "requested_records": 50,
+  "requested_resume_mode": "if_possible",
+  "run_id": "run-001",
+  "schema_version": 1,
+  "shard_id": "shard-00000"
+}
