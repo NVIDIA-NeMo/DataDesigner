@@ -9,6 +9,7 @@ import shutil
 import statistics
 import subprocess
 import sys
+import tarfile
 import tempfile
 import time
 from collections.abc import Iterator
@@ -71,6 +72,29 @@ def wheel_metadata(path: Path) -> Message:
         return BytesParser().parsebytes(wheel.read(metadata_path))
 
 
+def verify_package_license(path: Path) -> None:
+    """Require the complete repository license in a wheel or source distribution."""
+    canonical_license = (REPOSITORY_ROOT / "LICENSE").read_bytes()
+    if path.name.endswith(".whl"):
+        with ZipFile(path) as archive:
+            names = [name for name in archive.namelist() if name.endswith(".dist-info/licenses/LICENSE")]
+            assert len(names) == 1, f"{path.name}: expected one packaged LICENSE"
+            assert archive.read(names[0]) == canonical_license, f"{path.name}: packaged LICENSE differs"
+        metadata = wheel_metadata(path)
+    else:
+        with tarfile.open(path) as archive:
+            members = {member.name.partition("/")[2]: member for member in archive if member.isfile()}
+            assert "LICENSE" in members, f"{path.name}: missing source LICENSE"
+            license_stream = archive.extractfile(members["LICENSE"])
+            assert license_stream is not None
+            assert license_stream.read() == canonical_license, f"{path.name}: source LICENSE differs"
+            metadata_stream = archive.extractfile(members["PKG-INFO"])
+            assert metadata_stream is not None
+            metadata = BytesParser().parsebytes(metadata_stream.read())
+    assert metadata["License-Expression"] == "Apache-2.0", f"{path.name}: incorrect license metadata"
+    assert "LICENSE" in metadata.get_all("License-File", []), f"{path.name}: missing License-File metadata"
+
+
 def audit_public_artifacts(*paths: Path) -> None:
     result = run(
         [sys.executable, str(REPOSITORY_ROOT / "scripts" / "audit_slurm_public_artifacts.py"), *map(str, paths)],
@@ -97,9 +121,12 @@ def verify_documented_examples() -> None:
 def build_wheels(uv: str, wheel_directory: Path) -> dict[str, Path]:
     for package_path in PACKAGE_PATHS:
         run(
-            [uv, "build", "--wheel", "--out-dir", str(wheel_directory), package_path],
+            [uv, "build", "--out-dir", str(wheel_directory), package_path],
             cwd=REPOSITORY_ROOT,
         )
+
+    for artifact in (*wheel_directory.glob("*.whl"), *wheel_directory.glob("*.tar.gz")):
+        verify_package_license(artifact)
 
     wheels = {}
     for wheel_path in wheel_directory.glob("*.whl"):

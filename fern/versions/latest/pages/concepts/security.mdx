@@ -35,6 +35,10 @@ The repository audits the committed workspace lockfile and separately resolved e
 
 Constraints and dependency audits cover known advisories and depend on the coverage and freshness of advisory databases. Consult upstream advisories when assessing a finding; constraints and a passing scan do not guarantee that every vulnerability has been resolved.
 
+## Third-party Materials and Distribution
+
+The dependency-license checker evaluates the installed Python environment. It does not establish approval or license-material completeness for a separately distributed dependency bundle or container. If you distribute a wheelhouse, runtime bundle, or serving container, review the components actually included and provide their required license texts and notices. Registering or downloading an image does not grant redistribution rights.
+
 ## Jinja Rendering Modes
 
 Data Designer exposes the renderer choice through `RunConfig`:
