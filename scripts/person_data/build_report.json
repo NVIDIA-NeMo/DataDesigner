@@ -1,0 +1,23 @@
+{
+  "rows": 33772,
+  "population_total": 335555510.0,
+  "methods": {
+    "explicit_postcode_association": 18749,
+    "nearest_locality_same_state": 15023
+  },
+  "raw_locality_rows": 22913,
+  "noncanonical_rows_excluded": 116,
+  "curated_locality_rows_excluded": 92,
+  "accepted_locality_records": 22705,
+  "accepted_locality_items": 20860,
+  "distant_explicit_associations_excluded": 46,
+  "nearest_locality_fallbacks_over_50km": 348,
+  "locality_distance_km_quantiles": {
+    "0.5": 6.5035926030747735,
+    "0.9": 19.572534448154848,
+    "0.95": 25.88603157156294,
+    "0.99": 50.42410233449431,
+    "1.0": 230.84417705249874
+  },
+  "output_sha256": "41b0048d76a68bb009dff6cd72423b2495ed1387260f48cc1426a67ec8f22a1f"
+}

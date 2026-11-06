@@ -1,0 +1,29 @@
+zip_area_code_map.parquet
+
+Population and geography: U.S. Census Bureau, 2023 ACS five-year table B01003,
+2023 national ZCTA Gazetteer, and 2023 TIGER/Line state shapefiles.
+U.S. government works are public domain in the United States. TIGER/Line
+metadata permits use in products/publications with Census source acknowledgment.
+TIGER/Line is a registered trademark of the U.S. Census Bureau. This product is
+not endorsed or certified by the Census Bureau. Boundaries are statistical
+representations, not legal land descriptions.
+https://www2.census.gov/geo/pdfs/maps-data/data/tiger/tgrshp2023/TGRSHP2023_TechDoc.pdf
+
+Locality, postal-code, and dialing-code statements: Wikidata contributors,
+structured-data snapshots retrieved 2026-11-06, CC0 1.0 Universal.
+CC0 permits copying, modification, and redistribution, including commercially,
+without attribution or share-alike requirements.
+https://www.wikidata.org/wiki/Wikidata:Licensing
+https://creativecommons.org/publicdomain/zero/1.0/
+
+Transformation: normalize locality statements, remove curated exclusions,
+prefer nearby same-state literal postal-code associations, and otherwise use
+the nearest same-state locality. Population weights come directly from Census.
+This is an approximation for synthetic data, not exact telephone boundaries.
+
+NANPA's 2026-11-06 NPA report was consulted only as a screening reference.
+No explicit open-data license was established for that report. It is not
+redistributed and is not required to rebuild from the pinned snapshots.
+
+Source URLs, hashes, queries, exclusions, methodology, and rebuild instructions:
+https://github.com/NVIDIA-NeMo/DataDesigner/tree/main/scripts/person_data
