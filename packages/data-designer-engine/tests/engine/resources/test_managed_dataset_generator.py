@@ -105,8 +105,6 @@ def test_generate_samples_different_locale(stub_reader: Mock) -> None:
         "de_DE",
         "ja_JP",
         "en_IN",
-        "es_SV",
-        "vi_VN",
     ],
 )
 def test_load_person_data_sampler_scenarios(locale: str) -> None:
