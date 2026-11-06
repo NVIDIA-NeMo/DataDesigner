@@ -7,6 +7,7 @@ import hashlib
 import json
 import re
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
@@ -31,7 +32,8 @@ def test_phone_data_provenance() -> None:
     assert hashlib.sha256(ASSET.read_bytes()).hexdigest() == report["output_sha256"]
     lineage = json.loads(pq.read_schema(ASSET).metadata[b"data_designer.provenance"])
     manifest_bytes = (PROVENANCE / "sources.json").read_bytes()
-    assert lineage["format_version"] == 1
+    assert lineage["format_version"] == 2
+    assert lineage["candidate_selection"] == "population_weighted_zip_then_uniform_area_code"
     assert lineage["source_manifest"] == json.loads(manifest_bytes)
     assert lineage["source_manifest_sha256"] == hashlib.sha256(manifest_bytes).hexdigest()
     assert (
@@ -52,16 +54,20 @@ def test_phone_data_area_code_reconciliation(phone_data: pd.DataFrame) -> None:
     assert hashlib.sha256(csv).hexdigest() == report["reconciliation_sha256"]
     coverage = pd.read_csv(PROVENANCE / "area_code_reconciliation.csv").set_index("area_code")
     assert len(coverage) == report["input_codes"]
-    assert set(phone_data.area_code) <= set(coverage.index)
-    expected = phone_data.groupby("area_code").agg(
+    assignments = phone_data[["zipcode", "area_codes", "count"]].copy()
+    assignments["count"] /= assignments.area_codes.str.len()
+    assignments = assignments.explode("area_codes").rename(columns={"area_codes": "area_code"})
+    assert set(assignments.area_code) <= set(coverage.index)
+    expected = assignments.groupby("area_code").agg(
         output_zipcodes=("zipcode", "size"), output_population=("count", "sum")
     )
     pd.testing.assert_frame_equal(coverage.loc[expected.index, expected.columns], expected)
+    assert np.isclose(coverage.output_population.sum(), phone_data["count"].sum())
     assert (coverage.loc[coverage.status != "selected", "output_zipcodes"] == 0).all()
 
 
 def test_phone_data_coverage_and_weights(phone_data: pd.DataFrame) -> None:
-    assert list(phone_data.columns) == ["zipcode", "area_code", "count"]
+    assert list(phone_data.columns) == ["zipcode", "area_code", "count", "area_codes"]
     assert len(phone_data) == 33772
     assert phone_data.zipcode.is_unique
     assert phone_data.zipcode.str.fullmatch(r"[0-9]{5}").all()
@@ -71,10 +77,14 @@ def test_phone_data_coverage_and_weights(phone_data: pd.DataFrame) -> None:
     assert np.isfinite(phone_data["count"]).all()
     assert phone_data["count"].ge(0).all()
     assert phone_data["count"].sum() == 335555510.0
+    for row in phone_data.itertuples():
+        assert list(row.area_codes) == sorted(set(row.area_codes))
+        assert row.area_code in row.area_codes
 
 
 def test_all_packaged_zip_codes_resolve(phone_data: pd.DataFrame) -> None:
-    assert phone_data.zipcode.map(get_area_code).equals(phone_data.area_code.astype(str))
+    for row in phone_data.itertuples():
+        assert int(get_area_code(row.zipcode)) in row.area_codes
 
 
 @pytest.mark.parametrize(
@@ -82,4 +92,30 @@ def test_all_packaged_zip_codes_resolve(phone_data: pd.DataFrame) -> None:
     [("00901", "787"), ("02108", "617"), ("06360", "860"), ("10001", "212"), ("90210", "310"), ("98101", "206")],
 )
 def test_representative_regional_area_codes(zipcode: str, expected: str) -> None:
-    assert get_area_code(zipcode) == expected
+    with patch("random.choice", side_effect=lambda values: values[0]):
+        assert get_area_code(zipcode) == expected
+
+
+@pytest.mark.parametrize(("zipcode", "expected"), [("60629", {312, 773, 872}), ("10001", {212, 646, 917})])
+def test_packaged_zip_retains_alternatives(phone_data: pd.DataFrame, zipcode: str, expected: set[int]) -> None:
+    candidates = set(phone_data.set_index("zipcode").loc[zipcode, "area_codes"])
+    assert expected <= candidates
+    for code in expected:
+        with patch("random.choice", side_effect=lambda values: str(code) if str(code) in values else values[0]):
+            assert get_area_code(zipcode) == str(code)
+
+
+@pytest.mark.parametrize("candidates", [None, [212, 646]])
+def test_phone_sampler_reads_legacy_and_candidate_assets(candidates: list[int] | None) -> None:
+    data = pd.DataFrame({"zipcode": ["10001"], "area_code": [212], "count": [100.0]})
+    if candidates is not None:
+        data["area_codes"] = [candidates]
+    phone_number._load_zip_area_code_data.cache_clear()
+    try:
+        with (
+            patch.object(phone_number.lazy.pd, "read_parquet", return_value=data),
+            patch("random.choice", side_effect=lambda values: values[-1]),
+        ):
+            assert get_area_code("10001") == ("212" if candidates is None else "646")
+    finally:
+        phone_number._load_zip_area_code_data.cache_clear()

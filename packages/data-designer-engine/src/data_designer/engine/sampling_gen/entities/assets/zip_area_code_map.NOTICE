@@ -18,8 +18,10 @@ https://creativecommons.org/publicdomain/zero/1.0/
 
 Transformation: normalize locality statements, remove curated exclusions,
 prefer nearby same-state literal postal-code associations, and otherwise use
-the nearest same-state locality. Population weights come directly from Census.
-This is an approximation for synthetic data, not exact telephone boundaries.
+the nearest same-state locality point. Retain the candidate codes at that point.
+Sample ZIPs by Census population, then choose uniformly among their candidates.
+Candidates are locality-level approximations, not exact telephone boundaries or
+measured telephone market shares. Each ZIP's population weight is stored once.
 
 NANPA's 2026-11-06 NPA report was consulted only as a screening reference.
 No explicit open-data license was established for that report. It is not
@@ -28,4 +30,4 @@ redistributed and is not required to rebuild from the pinned snapshots.
 Source snapshots, queries, exclusions, and permissions (immutable input revision):
 https://github.com/NVIDIA-NeMo/DataDesigner/tree/eae83186b32d7c62ee880c6f538bda46a6831c72/scripts/person_data
 The parquet key-value metadata contains the source manifest, its SHA-256,
-and the rebuild script SHA-256 under data_designer.provenance.
+the rebuild script SHA-256, and the sampling policy under data_designer.provenance.

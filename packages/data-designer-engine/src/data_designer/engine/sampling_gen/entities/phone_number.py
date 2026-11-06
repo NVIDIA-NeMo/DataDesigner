@@ -13,37 +13,38 @@ import data_designer.lazy_heavy_imports as lazy
 
 
 @functools.lru_cache(maxsize=1)
-def _load_zip_area_code_data() -> tuple[dict[str, str], dict[str, int]]:
+def _load_zip_area_code_data() -> tuple[dict[str, tuple[str, ...]], dict[str, float]]:
     """Load and cache the ZIP-to-area-code mapping from the parquet asset.
 
     Returns:
         A tuple of (area_code_map, population_map).
     """
     data = lazy.pd.read_parquet(Path(__file__).parent / "assets" / "zip_area_code_map.parquet")
-    area_code_map = dict(zip(data["zipcode"], data["area_code"]))
+    candidates = data["area_codes"] if "area_codes" in data else data["area_code"].map(lambda value: [value])
+    area_code_map = dict(zip(data["zipcode"], (tuple(str(code) for code in values) for values in candidates)))
     population_map = dict(zip(data["zipcode"], data["count"]))
     return area_code_map, population_map
 
 
 def get_area_code(zip_prefix: str | None = None) -> str:
     """
-    Sample an area code for the given ZIP code prefix, population-weighted.
+    Sample a population-weighted ZIP, then one of its area-code candidates uniformly.
 
     Args:
         zip_prefix: The prefix of a ZIP code, 5 digits or fewer. If None, sample from all ZIP codes.
 
     Returns:
-        A sampled area code matching the prefix, population-weighted.
+        An area-code candidate for a matching ZIP.
     """
     area_code_map, population_map = _load_zip_area_code_data()
 
     if zip_prefix is None:
         zipcodes, weights = zip(*population_map.items())
         zipcode = random.choices(zipcodes, weights=weights, k=1)[0]
-        return str(area_code_map[zipcode])
+        return random.choice(area_code_map[zipcode])
     if len(zip_prefix) == 5:
         try:
-            return str(area_code_map[zip_prefix])
+            return random.choice(area_code_map[zip_prefix])
         except KeyError:
             raise ValueError(f"ZIP code {zip_prefix} not found.")
     matching_zipcodes = [[z, c] for z, c in population_map.items() if z.startswith(zip_prefix)]
@@ -51,7 +52,7 @@ def get_area_code(zip_prefix: str | None = None) -> str:
     if not zipcodes:
         raise ValueError(f"No ZIP codes found with prefix {zip_prefix}.")
     zipcode = random.choices(zipcodes, weights=weights, k=1)[0]
-    return str(area_code_map[zipcode])
+    return random.choice(area_code_map[zipcode])
 
 
 class PhoneNumber(BaseModel):

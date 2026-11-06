@@ -1,3 +1,0 @@
-# Build-only geometry readers; runtime dependencies come from make install-dev.
-pyshp==3.1.6
-shapely==2.2.0

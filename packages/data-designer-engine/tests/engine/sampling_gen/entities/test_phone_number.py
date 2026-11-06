@@ -88,7 +88,7 @@ def test_str_and_repr_representations(stub_sample_phone_number):
 
 
 def test_get_area_code_exact_zipcode():
-    with patch(_LOAD_TARGET, return_value=({"12345": "555"}, {"12345": 100})):
+    with patch(_LOAD_TARGET, return_value=({"12345": ("555",)}, {"12345": 100})):
         result = get_area_code("12345")
         assert result == "555"
 
@@ -102,10 +102,27 @@ def test_get_area_code_exact_zipcode_not_found():
 def test_get_area_code_prefix_match():
     with patch(
         _LOAD_TARGET,
-        return_value=({"12345": "555", "12346": "666"}, {"12345": 100, "12346": 200}),
+        return_value=({"12345": ("555",), "12346": ("666",)}, {"12345": 100, "12346": 200}),
     ):
         with patch("random.choices") as mock_choices:
             mock_choices.return_value = ["12345"]
 
             result = get_area_code("123")
             assert result == "555"
+
+
+@pytest.mark.parametrize("prefix", [None, "123", "12345"])
+def test_get_area_code_samples_all_candidates_without_changing_zip_weights(prefix: str | None) -> None:
+    area_codes = {"12345": ("555", "777"), "12346": ("888",)}
+    population = {"12345": 100, "12346": 200}
+    with (
+        patch(_LOAD_TARGET, return_value=(area_codes, population)),
+        patch("random.choices", return_value=["12345"]) as select_zip,
+        patch("random.choice", return_value="777") as select_code,
+    ):
+        assert get_area_code(prefix) == "777"
+    select_code.assert_called_once_with(("555", "777"))
+    if prefix == "12345":
+        select_zip.assert_not_called()
+    else:
+        select_zip.assert_called_once_with(("12345", "12346"), weights=(100, 200), k=1)

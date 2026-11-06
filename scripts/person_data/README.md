@@ -2,9 +2,11 @@
 
 This directory rebuilds the bundled `zip_area_code_map.parquet` used by the US
 person and phone samplers. It contains 33,772 Census ZIP Code Tabulation Areas
-(ZCTAs), including Puerto Rico. ZCTAs approximate postal ZIP areas. The columns
-remain `zipcode` (five-character string), `area_code` (int64), and `count`
-(float64 population estimate).
+(ZCTAs), including Puerto Rico. ZCTAs approximate postal ZIP areas. Each row has
+`zipcode` (five-character string), `count` (float64 population estimate), and
+`area_codes` (a sorted, unique list of int64 candidates). The existing int64
+`area_code` column remains as a deterministic representative for older readers;
+the sampler uses `area_codes`.
 
 ## Sources and permissions
 
@@ -41,34 +43,46 @@ No third-party GitHub ZIP/area-code compilation is used.
 ## Transformation
 
 1. Keep ACS ZCTA population rows and join Gazetteer representative coordinates.
-2. Assign states using the full Census state polygons. Normalize Wikidata
-   three-digit dialing codes and coordinates, then remove the pinned exclusions.
+2. Assign states using the full Census state polygons. A reader for the pinned
+   Polygon/DBF format and a NumPy point-in-polygon calculation handle multipart
+   polygons, holes, and boundaries without additional geometry packages. Normalize
+   Wikidata three-digit dialing codes and coordinates, then remove the exclusions.
 3. Prefer literal five-digit Wikidata postal-code associations when the locality
    lies in the same state and within 50 km of the ZCTA point. Postal-code ranges
    and wildcards are not expanded.
-4. Otherwise select the closest retained locality in the same state using
-   spherical distance. For co-located localities, sort by item ID and area code
-   before choosing one. Explicit-association ties use distance, item ID, then code.
-5. Write one area code per ZCTA, retaining the Census population estimate.
+4. For literal associations, keep every candidate at the closest qualifying
+   locality point. Otherwise select the nearest same-state locality point by
+   spherical distance and retain the codes from all localities at that point.
+   Ties between points use the existing deterministic ordering; code alternatives
+   at the chosen point are deduplicated, not discarded.
+5. Write one row per ZCTA with its candidate list and unchanged population weight.
+   The representative `area_code` still follows the previous ordering.
+6. At runtime, sample a ZIP with its Census population weight, then choose uniformly
+   among its candidates. An exact-ZIP request skips the ZIP draw. Having more
+   candidates does not increase a ZIP's probability of being sampled.
 
 The checked-in build has 18,749 explicit postal-code associations and 15,023
-nearest-locality fallbacks. All ZIP identifiers and population weights match the
-previous asset. Area codes differ for 16,101 rows (47.7%); agreement with the old
-asset is not an accuracy measure. The rebuild preserves the existing sampling weights.
+nearest-locality fallbacks. All ZIP identifiers, representative codes, and population
+weights match the initial rebuild in this PR. Candidate lists contain 37,124
+ZIP/code associations, and 2,263 ZIPs have more than one candidate. Agreement with
+the original repository asset is not an accuracy measure.
 
 This is a regional approximation for synthetic data, not a telephone service-area
-or address lookup. City points can cross area-code boundaries within a state,
-and only one code is selected where overlays exist. There are 348 fallback rows
+or address lookup. A city's candidate list can contain both overlays and geographic
+splits. Candidates are plausible at the chosen locality point, not verified for
+each postal address or exact ZIP boundary. Uniform candidate selection does not
+estimate actual telephone market shares. There are 348 fallback ZIPs
 more than 50 km from their donor locality; the largest distance is about 231 km.
 State-level screening does not establish ZIP-level accuracy. Population estimates
 and numbering statements reflect the pinned source dates.
 
 The code-level reconciliation counts 386 distinct three-digit source values,
 358 codes with retained localities, 355 with localities in the covered ZCTA
-states/territories, and 277 selected by the one-code-per-ZCTA mapping. The 78
-eligible but unselected codes include metro overlays and Chicago's 773. This
-mapping does not reproduce area-code market shares or exact intra-city boundaries.
-These omissions are reported, not treated as evidence that the codes are invalid.
+states/territories, and 331 represented in candidate lists. Retaining alternatives
+recovers 54 codes previously discarded, including Chicago's 773 and 872. There
+are still 24 eligible but unselected codes, including 332. They have no selected
+locality point under this method. These omissions are reported, not treated as
+evidence that the codes are invalid.
 
 ## Rebuild
 
@@ -76,16 +90,19 @@ From the repository root, using the development tools required by the project:
 
 ```sh
 make install-dev
-uv pip install --python .venv/bin/python -r scripts/person_data/requirements.txt
 .venv/bin/python scripts/person_data/rebuild.py
+cp .cache/person_data/report/build_report.json scripts/person_data/build_report.json
+cp .cache/person_data/report/area_code_reconciliation.csv scripts/person_data/area_code_reconciliation.csv
 .venv/bin/pytest -q scripts/person_data/test_rebuild.py
 ```
 
-Only the optional rebuild needs PyShp (MIT) and Shapely (BSD-3-Clause). These are
-build tools, not new DataDesigner runtime dependencies. Shapely wheels also
-contain GEOS (LGPL-2.1); this directory does not redistribute those wheels or
-include GEOS in the generated data. Existing NumPy, pandas, SciPy, and PyArrow
-dependencies come from the development environment.
+The rebuild uses the Python standard library and the project's existing NumPy,
+pandas, SciPy, and PyArrow dependencies. It requires no additional build or runtime
+packages, native geometry libraries, or downloaded extensions. The state reader
+supports the pinned Census Polygon/DBF layout described by the published
+[shapefile specification](https://www.esri.com/content/dam/esrisites/sitecore-archive/Files/Pdfs/library/whitepapers/pdfs/shapefile.pdf).
+Unsupported layouts are rejected. Rebuild unit tests run with the engine suite
+through both `make test-engine` and CI.
 
 The script verifies every input hash before building. It downloads about 30 MB
 of immutable Census inputs into `.cache/person_data` on the first run. The two
@@ -101,23 +118,24 @@ The default output replaces the packaged parquet. For a comparison build:
 ```
 
 The report directory contains `build_report.json`, `area_code_reconciliation.csv`,
-and compressed per-row lineage (`mapping_provenance.csv.gz`): chosen Wikidata
-item, method, state, and distance. The reconciliation lists each source code's
-input/locality counts, assigned ZIP count and population weight, and status:
+and compressed per-candidate lineage (`mapping_provenance.csv.gz`): ZIP, code,
+Wikidata item, method, state, and distance. The reconciliation lists each source
+code's input/locality counts, candidate ZIP count, expected population weight, and status:
 `selected`, `no_retained_locality`, `outside_zcta_states`, or `not_selected`.
-Population weights describe this generated mapping, not measured telephone usage.
+Each ZIP's weight is divided equally between its candidates for this report.
+Those expected weights describe the sampler, not measured telephone usage.
 The build rejects any output code absent from the pinned input.
 
 The checked-in report and reconciliation record the committed build. Standard
 engine tests compare the packaged parquet to its recorded output hash and verify
-the per-code output counts. Parquet byte
+the per-code counts and conserved population weights. Parquet byte
 hashes can vary with writer versions; compare decoded tables across environments.
 The recorded build used Python 3.12, NumPy 2.4.3, pandas 3.0.5, SciPy 1.17.1,
-PyArrow 24.0.0, PyShp 3.1.6, and Shapely 2.2.0.
+and PyArrow 24.0.0.
 
 The parquet's `data_designer.provenance` key-value metadata embeds the complete
 source manifest (URLs, hashes, permissions, and screening reference), the manifest
-SHA-256, and the rebuild script SHA-256. The packaged NOTICE links to the immutable
+SHA-256, the rebuild script SHA-256, and the ZIP/candidate sampling policy. The packaged NOTICE links to the immutable
 input revision, so an older wheel retains a stable source reference. Refresh that
 link and `SOURCE_REVISION_URL` when adopting a new committed input revision.
 
