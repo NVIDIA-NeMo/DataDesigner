@@ -43,7 +43,7 @@ from data_designer.slurm.config import (
     load_builder_payload,
     resolve_profile,
 )
-from data_designer.slurm.contracts import Identifier, ShardId
+from data_designer.slurm.contracts import Identifier, ShardId, canonical_json
 from data_designer.slurm.images.errors import (
     ImageArtifactRemovalError,
     ImageConflictError,
@@ -1058,7 +1058,7 @@ def _validate_builder_for_submission(
             }
         normalized = {**normalized, "data_designer": data_designer}
     try:
-        BuilderConfig.model_validate(normalized)
+        BuilderConfig.model_validate_json(canonical_json(normalized))
     except ValidationError as error:
         detail = format_validation_error(error, subject="builder configuration", models=BuilderConfig)
         raise SlurmServiceError(SlurmServiceErrorCode.INVALID_REQUEST, operation, _bounded_diagnostic(detail)) from None

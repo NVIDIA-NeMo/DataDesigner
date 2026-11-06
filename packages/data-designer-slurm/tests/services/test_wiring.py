@@ -473,6 +473,60 @@ def test_public_plan_resolves_builder_relative_to_explicit_source_root(
     assert plan.builder.source.path == (tmp_path / "runs/run-wired/builder-config.json").as_posix()
 
 
+@pytest.mark.parametrize("source_file", [False, True], ids=["inline", "source"])
+def test_public_plan_preserves_nested_structured_schema(
+    tmp_path: Path,
+    profile_catalog: SlurmProfileCatalog,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+    source_file: bool,
+) -> None:
+    payload = authored_run_single.model_dump(mode="json")
+    builder = payload["builder"]["inline"]["data_designer"]
+    builder["columns"] = [
+        {
+            "name": "answer",
+            "column_type": "llm-structured",
+            "prompt": "Return an answer",
+            "model_alias": builder["model_configs"][0]["alias"],
+            "output_format": {
+                "type": "object",
+                "properties": {
+                    "steps": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {"value": {"type": "integer"}},
+                            "required": ["value"],
+                        },
+                    },
+                },
+                "required": ["steps"],
+            },
+        }
+    ]
+    expected = canonical_json(payload["builder"]["inline"])
+    if source_file:
+        (tmp_path / "builder.json").write_bytes(expected)
+        payload["builder"] = {"source": "builder.json"}
+    authored = DataDesignerSlurmConfig.model_validate(payload)
+    _register_images(tmp_path, authored, single_node_plan)
+    launcher = _Launcher()
+    service = create_slurm_run_service(
+        profile=_profile(tmp_path, profile_catalog),
+        launcher=launcher,  # type: ignore[arg-type]
+        run_id_factory=lambda: "run-wired",
+        package_version="1.0.0rc2",
+    )
+
+    plan = service.plan(authored, source_root=tmp_path)
+
+    assert plan.builder.model_aliases
+    assert launcher.submissions == []
+    actual = (tmp_path / "builder.json").read_bytes() if source_file else canonical_json(authored.builder.inline)
+    assert actual == expected
+
+
 def test_execute_reports_missing_builder_source(
     tmp_path: Path,
     profile_catalog: SlurmProfileCatalog,
