@@ -37,14 +37,5 @@
       "license": "CC0-1.0",
       "license_url": "https://www.wikidata.org/wiki/Wikidata:Licensing"
     }
-  },
-  "excluded_localities_sha256": "dc1d1ae22bc8ee4ecd2641a8d19b760f7612a1e6e4950c1fb0649b21f8a01e2b",
-  "validation_reference": {
-    "name": "NANPA NPA database",
-    "url": "https://reports.nanpa.com/public/npa_report.csv",
-    "retrieved": "2026-11-06",
-    "sha256": "dcbbcd9143d91a19c8573d2ffbb1777cfff10f7f16e86cd52cf2b8930c26b5bb",
-    "role": "Screening reference for foreign, inactive, and wrong-state Wikidata locality associations; report not redistributed or required for rebuilding.",
-    "license": "No explicit open-data license established; not claimed to be CC0 or public domain."
   }
 }
