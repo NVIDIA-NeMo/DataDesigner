@@ -399,12 +399,14 @@ NEMOTRON_PERSONAS_DATASET_SIZES = {
     "en_US": "1.24 GB",
     "en_IN": "2.39 GB",
     "en_SG": "0.30 GB",
+    "es_SV": "0.74 GB",
     "fr_FR": "3.87 GB",
     "hi_Deva_IN": "4.14 GB",
     "hi_Latn_IN": "2.7 GB",
     "ja_JP": "1.69 GB",
     "ko_KR": "2.66 GB",
     "pt_BR": "2.33 GB",
+    "vi_VN": "2.58 GB",
 }
 
 LOCALES_WITH_MANAGED_DATASETS = list[str](NEMOTRON_PERSONAS_DATASET_SIZES.keys())

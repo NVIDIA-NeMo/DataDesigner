@@ -153,3 +153,48 @@ def test_managed_uk_germany_sampling(
         assert (field in person) == with_synthetic_personas
         if with_synthetic_personas:
             assert person[field] == record[field]
+
+
+@pytest.mark.parametrize(
+    "locale,field,selected_value,other_value",
+    [
+        ("es_SV", "care_access", "Public", "Private"),
+        ("es_SV", "disability_status", "None", "Physical"),
+        ("es_SV", "income_band", "Low", "High"),
+        ("es_SV", "languages_spoken", "Spanish", "English"),
+        ("vi_VN", "household_size", 4, 2),
+    ],
+)
+@pytest.mark.parametrize("with_synthetic_personas", [False, True])
+def test_managed_locale_demographic_output_and_filtering(
+    tmp_path: Path,
+    locale: str,
+    field: str,
+    selected_value: str | int,
+    other_value: str | int,
+    with_synthetic_personas: bool,
+) -> None:
+    dataset_dir = tmp_path / "datasets"
+    dataset_dir.mkdir()
+    record = {
+        "first_name": "Alex",
+        "last_name": "Smith",
+        "age": 35,
+        "persona": "Enjoys learning languages.",
+        field: selected_value,
+    }
+    lazy.pd.DataFrame([record, {**record, field: other_value}]).to_parquet(dataset_dir / f"{locale}.parquet")
+    generator = PeopleGenFromDataset(load_person_data_sampler(LocalPersonReader(tmp_path), locale), locale)
+    params = PersonSamplerParams(
+        locale=locale,
+        select_field_values={field: [str(selected_value)]},
+        with_synthetic_personas=with_synthetic_personas,
+    )
+    sampler = PersonSampler(params, people_gen_resource={params.people_gen_key: generator})
+
+    people = sampler.sample(1)
+
+    assert len(people) == 1
+    assert all(person[field] == selected_value for person in people)
+    assert all(person["locale"] == locale for person in people)
+    assert all(("persona" in person) == with_synthetic_personas for person in people)
