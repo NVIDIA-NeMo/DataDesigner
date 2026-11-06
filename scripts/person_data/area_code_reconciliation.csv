@@ -7,8 +7,8 @@ area_code,input_records,retained_locality_records,eligible_locality_records,outp
 207,852,852,852,427,1377734.0,selected
 208,249,247,247,280,1893304.0,selected
 209,101,101,101,137,1880553.0,selected
-210,9,9,9,69,2083264.0,selected
-212,55,55,55,70,746951.3333333334,selected
+210,9,9,9,69,1156174.0,selected
+212,55,55,55,70,638189.25,selected
 213,3,3,3,63,377714.5,selected
 214,7,7,7,73,850862.6666666666,selected
 215,18,18,18,171,2108491.0,selected
@@ -73,7 +73,7 @@ area_code,input_records,retained_locality_records,eligible_locality_records,outp
 329,1,1,1,0,0.0,not_selected
 330,25,25,25,205,1631919.5,selected
 331,1,1,1,15,235152.0,selected
-332,1,1,1,0,0.0,not_selected
+332,1,1,1,56,326286.25,selected
 334,150,149,149,185,1205713.0,selected
 336,71,71,71,145,1847267.0,selected
 337,70,70,70,112,949012.0,selected
@@ -215,7 +215,7 @@ area_code,input_records,retained_locality_records,eligible_locality_records,outp
 640,1,1,1,9,31807.5,selected
 641,72,72,72,250,470730.0,selected
 642,1,0,0,0,0.0,no_retained_locality
-646,17,17,17,58,442647.3333333333,selected
+646,17,17,17,58,333885.25,selected
 650,36,36,36,39,954535.0,selected
 651,70,70,70,69,1181181.0,selected
 655,1,0,0,0,0.0,no_retained_locality
@@ -255,7 +255,7 @@ area_code,input_records,retained_locality_records,eligible_locality_records,outp
 722,1,0,0,0,0.0,no_retained_locality
 724,39,39,39,353,1515985.6666666667,selected
 725,5,4,4,12,152483.0,selected
-726,1,1,1,0,0.0,not_selected
+726,1,1,1,59,927090.0,selected
 727,45,45,45,56,1197710.0,selected
 730,1,1,1,4,1828.5,selected
 731,85,85,85,112,518297.0,selected
@@ -345,7 +345,7 @@ area_code,input_records,retained_locality_records,eligible_locality_records,outp
 914,39,39,39,84,1470283.0,selected
 915,25,25,25,55,882756.0,selected
 916,17,17,17,63,1803153.0,selected
-917,12,12,12,112,1211769.6666666667,selected
+917,12,12,12,112,1103007.5833333333,selected
 918,14,14,14,114,657650.0,selected
 919,49,49,49,100,1949247.5,selected
 920,218,218,218,216,1256190.0,selected

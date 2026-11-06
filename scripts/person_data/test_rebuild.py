@@ -84,12 +84,16 @@ def test_colocated_localities_are_order_independent(geography: tuple[pd.DataFram
     assert forward.area_codes.iloc[0] == [413, 617]
 
 
-def test_explicit_postcode_retains_colocated_codes(geography: tuple[pd.DataFrame, pd.DataFrame]) -> None:
+@pytest.mark.parametrize(
+    "associations", [[("Q1", "413")], [("Q3", "617")], [("Q1", "413"), ("Q3", "617"), ("Q3", "617")]]
+)
+def test_explicit_postcode_retains_colocated_codes(
+    geography: tuple[pd.DataFrame, pd.DataFrame], associations: list[tuple[str, str]]
+) -> None:
     data, localities = geography
-    localities.loc[2, ["latitude", "longitude"]] = localities.loc[0, ["latitude", "longitude"]].to_numpy()
+    localities.loc[[1, 2], ["latitude", "longitude"]] = localities.loc[0, ["latitude", "longitude"]].to_numpy()
     postcodes = [
-        {"place": {"value": qid}, "postcode": {"value": "01000"}, "code": {"value": code}}
-        for qid, code in [("Q1", "413"), ("Q3", "617"), ("Q3", "617")]
+        {"place": {"value": qid}, "postcode": {"value": "01000"}, "code": {"value": code}} for qid, code in associations
     ]
     result, lineage, _ = assign_area_codes(data, localities, postcodes)
     assert result.area_codes.tolist() == [[413, 617], [212]]

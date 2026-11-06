@@ -196,7 +196,9 @@ def assign_area_codes(
     distant_explicit_rows = int((explicit.distance_km > 50).sum())
     explicit = explicit[explicit.distance_km <= 50]
     closest = explicit.sort_values(["zipcode", "distance_km", "qid", "area_code"]).drop_duplicates("zipcode")
-    chosen = explicit.merge(closest[["zipcode", "latitude", "longitude"]], on=["zipcode", "latitude", "longitude"])
+    chosen = closest.drop(columns=["qid", "area_code"]).merge(
+        localities, on=["state", "latitude", "longitude"], validate="many_to_many"
+    )
     chosen = chosen.merge(data[["zipcode", "count"]], on="zipcode", validate="many_to_one")
     chosen["method"] = "explicit_postcode_association"
     chosen = chosen.rename(columns={"qid": "donor_qid"})

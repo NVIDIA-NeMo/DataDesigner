@@ -96,7 +96,9 @@ def test_representative_regional_area_codes(zipcode: str, expected: str) -> None
         assert get_area_code(zipcode) == expected
 
 
-@pytest.mark.parametrize(("zipcode", "expected"), [("60629", {312, 773, 872}), ("10001", {212, 646, 917})])
+@pytest.mark.parametrize(
+    ("zipcode", "expected"), [("60629", {312, 773, 872}), ("10001", {212, 332, 646, 917}), ("78201", {210, 726})]
+)
 def test_packaged_zip_retains_alternatives(phone_data: pd.DataFrame, zipcode: str, expected: set[int]) -> None:
     candidates = set(phone_data.set_index("zipcode").loc[zipcode, "area_codes"])
     assert expected <= candidates

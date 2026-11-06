@@ -5,8 +5,8 @@
     "explicit_postcode_association": 18749,
     "nearest_locality_same_state": 15023
   },
-  "candidate_assignments": 37124,
-  "zipcodes_with_multiple_area_codes": 2263,
+  "candidate_assignments": 37239,
+  "zipcodes_with_multiple_area_codes": 2322,
   "raw_locality_rows": 22913,
   "noncanonical_rows_excluded": 116,
   "curated_locality_rows_excluded": 92,
@@ -16,7 +16,7 @@
     "input_codes": 386,
     "retained_codes": 358,
     "eligible_codes": 355,
-    "output_codes": 331,
+    "output_codes": 333,
     "no_retained_locality": [
       236,
       250,
@@ -58,7 +58,6 @@
       283,
       327,
       329,
-      332,
       341,
       357,
       380,
@@ -72,13 +71,12 @@
       659,
       679,
       689,
-      726,
       737,
       924,
       938,
       975
     ],
-    "reconciliation_sha256": "577fbf6825721886fc6054853e54b41ea916a0f60a2a4d7640ab0af2e05ab831"
+    "reconciliation_sha256": "6b18cc988b83ef3a2de4c4954a39dc52267b536ecda11aaf230e5299b220954a"
   },
   "distant_explicit_associations_excluded": 46,
   "nearest_locality_fallbacks_over_50km": 348,
@@ -89,5 +87,5 @@
     "0.99": 50.42410233449431,
     "1.0": 230.84417705249874
   },
-  "output_sha256": "3da04829649e7a1060a31aa3061248293436525275dd360571aafd1c602b914a"
+  "output_sha256": "b6fc7c8c27b008b8f0da89dfa75a4e2e5693cce18ae0c8a0d3527e326e17e5dd"
 }

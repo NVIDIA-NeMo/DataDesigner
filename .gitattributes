@@ -1,0 +1,4 @@
+# Preserve bytes used by the person-data provenance checks.
+scripts/person_data/*.py text eol=lf
+scripts/person_data/*.json text eol=lf
+scripts/person_data/*.csv text eol=lf

@@ -50,9 +50,10 @@ No third-party GitHub ZIP/area-code compilation is used.
 3. Prefer literal five-digit Wikidata postal-code associations when the locality
    lies in the same state and within 50 km of the ZCTA point. Postal-code ranges
    and wildcards are not expanded.
-4. For literal associations, keep every candidate at the closest qualifying
-   locality point. Otherwise select the nearest same-state locality point by
-   spherical distance and retain the codes from all localities at that point.
+4. Select the closest qualifying literal-postcode locality point, or otherwise
+   the nearest same-state locality point by spherical distance. Retain codes from
+   all accepted same-state localities at that point, including those without a
+   literal postcode statement.
    Ties between points use the existing deterministic ordering; code alternatives
    at the chosen point are deduplicated, not discarded.
 5. Write one row per ZCTA with its candidate list and unchanged population weight.
@@ -63,8 +64,8 @@ No third-party GitHub ZIP/area-code compilation is used.
 
 The checked-in build has 18,749 explicit postal-code associations and 15,023
 nearest-locality fallbacks. All ZIP identifiers, representative codes, and population
-weights match the initial rebuild in this PR. Candidate lists contain 37,124
-ZIP/code associations, and 2,263 ZIPs have more than one candidate. Agreement with
+weights match the initial rebuild in this PR. Candidate lists contain 37,239
+ZIP/code associations, and 2,322 ZIPs have more than one candidate. Agreement with
 the original repository asset is not an accuracy measure.
 
 This is a regional approximation for synthetic data, not a telephone service-area
@@ -78,9 +79,9 @@ and numbering statements reflect the pinned source dates.
 
 The code-level reconciliation counts 386 distinct three-digit source values,
 358 codes with retained localities, 355 with localities in the covered ZCTA
-states/territories, and 331 represented in candidate lists. Retaining alternatives
-recovers 54 codes previously discarded, including Chicago's 773 and 872. There
-are still 24 eligible but unselected codes, including 332. They have no selected
+states/territories, and 333 represented in candidate lists. Retaining alternatives
+recovers 56 codes previously discarded, including 332, 726, and Chicago's 773 and
+872. There are still 22 eligible but unselected codes. They have no selected
 locality point under this method. These omissions are reported, not treated as
 evidence that the codes are invalid.
 
