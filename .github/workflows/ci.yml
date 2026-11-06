@@ -96,7 +96,7 @@ jobs:
       - name: Run engine tests
         run: |
           uv run --with pytest --with pytest-asyncio --with pytest-httpx --with pytest-env \
-            pytest packages/data-designer-engine/tests
+            pytest packages/data-designer-engine/tests scripts/person_data
 
   test-interface:
     name: Test Interface (Python ${{ matrix.python-version }} on ${{ matrix.os }})
