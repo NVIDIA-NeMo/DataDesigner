@@ -29,7 +29,8 @@ ASSET = (
     / "packages/data-designer-engine/src/data_designer/engine/sampling_gen/entities/assets/zip_area_code_map.parquet"
 )
 SOURCE_REVISION_URL = (
-    "https://github.com/NVIDIA-NeMo/DataDesigner/tree/eae83186b32d7c62ee880c6f538bda46a6831c72/scripts/person_data"
+    "https://github.com/NVIDIA-NeMo/DataDesigner/tree/"
+    "43b49ab5cb4353d8a16f0cb9813bc20fc0eea1b8/scripts/person_data/snapshots"
 )
 
 
@@ -251,9 +252,6 @@ def reconcile_area_codes(
 def rebuild(cache: Path, output: Path, report_dir: Path, offline: bool = False) -> dict:
     """Rebuild the asset and write row-level lineage and a validation summary."""
     manifest = json.loads((ROOT / "sources.json").read_text())
-    excluded_bytes = (ROOT / "excluded_localities.csv").read_bytes()
-    if hashlib.sha256(excluded_bytes).hexdigest() != manifest["excluded_localities_sha256"]:
-        raise ValueError("Exclusion snapshot checksum mismatch")
     inputs = {name: read_source(name, source, cache, offline) for name, source in manifest["sources"].items()}
     states = load_state_polygons(inputs["census-state-boundaries-full-2023.zip"])
 
@@ -280,11 +278,6 @@ def rebuild(cache: Path, output: Path, report_dir: Path, offline: bool = False) 
     if not localities.latitude.between(-90, 90).all() or not localities.longitude.between(-180, 180).all():
         raise ValueError("Invalid locality coordinates")
     localities["state"] = states_for(localities, "longitude", "latitude", states)
-    excluded = pd.read_csv(io.BytesIO(excluded_bytes))
-    excluded_pairs = pd.MultiIndex.from_frame(excluded[["qid", "area_code"]])
-    accepted = ~pd.MultiIndex.from_frame(localities[["qid", "area_code"]]).isin(excluded_pairs)
-    rejected = localities[~accepted]
-    localities = localities[accepted].copy()
 
     population = pd.read_csv(io.BytesIO(inputs["census-acs5-2023-b01003.dat"]), sep="|", dtype={"GEO_ID": str})
     population = population[population.GEO_ID.str.fullmatch(r"860Z200US\d{5}")].copy()
@@ -345,7 +338,6 @@ def rebuild(cache: Path, output: Path, report_dir: Path, offline: bool = False) 
         "zipcodes_with_multiple_area_codes": int((result.area_codes.str.len() > 1).sum()),
         "raw_locality_rows": len(raw),
         "noncanonical_rows_excluded": len(raw) - len(rows),
-        "curated_locality_rows_excluded": len(rejected),
         "accepted_locality_records": len(localities),
         "accepted_locality_items": int(localities.qid.nunique()),
         "area_code_coverage": {

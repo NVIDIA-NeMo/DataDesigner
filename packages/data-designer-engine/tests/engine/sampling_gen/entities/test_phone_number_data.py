@@ -35,14 +35,11 @@ def test_phone_data_provenance() -> None:
     assert lineage["format_version"] == 2
     assert lineage["candidate_selection"] == "population_weighted_zip_then_uniform_area_code"
     assert lineage["source_manifest"] == json.loads(manifest_bytes)
+    assert set(lineage["source_manifest"]) == {"sources"}
     assert lineage["source_manifest_sha256"] == hashlib.sha256(manifest_bytes).hexdigest()
-    assert (
-        lineage["source_manifest"]["excluded_localities_sha256"]
-        == hashlib.sha256((PROVENANCE / "excluded_localities.csv").read_bytes()).hexdigest()
-    )
     assert lineage["rebuild_script_sha256"] == hashlib.sha256((PROVENANCE / "rebuild.py").read_bytes()).hexdigest()
     assert re.fullmatch(
-        r"https://github.com/NVIDIA-NeMo/DataDesigner/tree/[0-9a-f]{40}/scripts/person_data",
+        r"https://github.com/NVIDIA-NeMo/DataDesigner/tree/[0-9a-f]{40}/scripts/person_data/snapshots",
         lineage["source_revision_url"],
     )
     assert lineage["source_revision_url"] in ASSET.with_suffix(".NOTICE").read_text()

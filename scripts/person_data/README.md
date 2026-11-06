@@ -28,15 +28,7 @@ are not used. These data permissions impose no noncommercial or share-alike
 restriction on the generated lookup. The repository's Apache-2.0 license covers
 the rebuild code; it does not replace the source-data terms.
 
-The [NANPA NPA database](https://www.nanpa.com/reports/npa-reports) was consulted
-on 2026-11-06 to screen locality associations against country, in-service status,
-and state. No explicit open-data license was established for that report, so
-it is **not described as CC0 or public domain**. The report is not redistributed
-and is not an input required by the rebuild. Its URL, date, and checksum are
-recorded as a validation reference. `excluded_localities.csv` records the 92
-rejected Wikidata rows using Wikidata fields and Census-derived states, rather
-than copying the NANPA database. Regeneration reproduces this pinned curation;
-it does not recheck current numbering assignments.
+The lookup is derived from the Census and Wikidata inputs listed above.
 
 No third-party GitHub ZIP/area-code compilation is used.
 
@@ -46,7 +38,7 @@ No third-party GitHub ZIP/area-code compilation is used.
 2. Assign states using the full Census state polygons. A reader for the pinned
    Polygon/DBF format and a NumPy point-in-polygon calculation handle multipart
    polygons, holes, and boundaries without additional geometry packages. Normalize
-   Wikidata three-digit dialing codes and coordinates, then remove the exclusions.
+   Wikidata three-digit dialing codes and coordinates.
 3. Prefer literal five-digit Wikidata postal-code associations when the locality
    lies in the same state and within 50 km of the ZCTA point. Postal-code ranges
    and wildcards are not expanded.
@@ -62,28 +54,35 @@ No third-party GitHub ZIP/area-code compilation is used.
    among its candidates. An exact-ZIP request skips the ZIP draw. Having more
    candidates does not increase a ZIP's probability of being sampled.
 
-The checked-in build has 18,749 explicit postal-code associations and 15,023
-nearest-locality fallbacks. All ZIP identifiers, representative codes, and population
-weights match the initial rebuild in this PR. Candidate lists contain 37,239
-ZIP/code associations, and 2,322 ZIPs have more than one candidate. Agreement with
-the original repository asset is not an accuracy measure.
+The checked-in build has 18,786 explicit postal-code associations and 14,986
+nearest-locality fallbacks. All ZIP identifiers and population weights match the
+previous build. Candidate lists change for 213 ZIPs (0.63%) and representative
+codes change for 152 ZIPs. Candidate lists contain 37,294
+ZIP/code associations, and 2,374 ZIPs have more than one candidate. Agreement with
+the previous asset is not an accuracy measure.
 
 This is a regional approximation for synthetic data, not a telephone service-area
 or address lookup. A city's candidate list can contain both overlays and geographic
 splits. Candidates are plausible at the chosen locality point, not verified for
 each postal address or exact ZIP boundary. Uniform candidate selection does not
-estimate actual telephone market shares. There are 348 fallback ZIPs
+estimate actual telephone market shares. There are 335 fallback ZIPs
 more than 50 km from their donor locality; the largest distance is about 231 km.
-State-level screening does not establish ZIP-level accuracy. Population estimates
-and numbering statements reflect the pinned source dates.
+Population estimates and numbering statements reflect the pinned source dates.
 
 The code-level reconciliation counts 386 distinct three-digit source values,
-358 codes with retained localities, 355 with localities in the covered ZCTA
-states/territories, and 333 represented in candidate lists. Retaining alternatives
-recovers 56 codes previously discarded, including 332, 726, and Chicago's 773 and
-872. There are still 22 eligible but unselected codes. They have no selected
-locality point under this method. These omissions are reported, not treated as
-evidence that the codes are invalid.
+386 codes with retained localities, 377 with localities in the covered ZCTA
+states/territories, and 352 represented in candidate lists. There are 25 source
+codes with covered localities but no selected locality point under this method.
+These counts account for source statements; they do not establish numbering
+validity. Omissions are reported without treating the codes as invalid.
+
+## Future data improvements
+
+Find additional permissively licensed numbering references to validate dialing
+codes for active status, geographic use, and state assignments. Further work
+includes refining ZIP-level boundaries, improving code coverage, and estimating
+candidate usage proportions. Each additional reference needs documented terms,
+provenance, and reproducible input snapshots.
 
 ## Rebuild
 
@@ -135,14 +134,14 @@ The recorded build used Python 3.12, NumPy 2.4.3, pandas 3.0.5, SciPy 1.17.1,
 and PyArrow 24.0.0.
 
 The parquet's `data_designer.provenance` key-value metadata embeds the complete
-source manifest (URLs, hashes, permissions, and screening reference), the manifest
-SHA-256, the rebuild script SHA-256, and the ZIP/candidate sampling policy. The packaged NOTICE links to the immutable
-input revision, so an older wheel retains a stable source reference. Refresh that
-link and `SOURCE_REVISION_URL` when adopting a new committed input revision.
+source manifest (URLs, hashes, and permissions), the manifest SHA-256, the rebuild
+script SHA-256, and the ZIP/candidate sampling policy. The packaged NOTICE links
+to the immutable Wikidata snapshot revision; Census source URLs and hashes are in
+the embedded manifest. Refresh that link and `SOURCE_REVISION_URL` when adopting
+new committed Wikidata snapshots.
 
 To update sources, rerun the two `.sparql` queries, replace their compressed
-snapshots and hashes, review the exclusions against a newly recorded numbering
-reference, and update the Census URLs/hashes if changing vintage. Rebuild,
+snapshots and hashes, and update the Census URLs/hashes if changing vintage. Rebuild,
 inspect lineage and coverage, and update the build report and data notice.
 
 ## Source acknowledgment
