@@ -1,0 +1,3 @@
+SELECT ?place ?code ?coord WHERE {
+  ?place wdt:P17 wd:Q30; wdt:P473 ?code; wdt:P625 ?coord.
+}
