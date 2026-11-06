@@ -8,7 +8,7 @@ import copy
 import json
 import logging
 import re
-from typing import TYPE_CHECKING, Any, TypeVar, overload
+from typing import TYPE_CHECKING, Any, TypeVar
 
 import data_designer.lazy_heavy_imports as lazy
 
@@ -18,8 +18,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
-K = TypeVar("K")
-V = TypeVar("V")
 
 
 def concat_datasets(datasets: list[pd.DataFrame]) -> pd.DataFrame:
@@ -30,87 +28,38 @@ def concat_datasets(datasets: list[pd.DataFrame]) -> pd.DataFrame:
     return lazy.pd.concat([df for df in datasets], axis=1)
 
 
-# Overloads to help static type checker better understand
-# the input/output types of the deserialize_json_values function.
-@overload
-def deserialize_json_values(data: str) -> dict[str, Any] | list[Any] | Any: ...
+def deserialize_json_string(value: str) -> Any:
+    """Decode a JSON document, returning the original string if it is not valid JSON."""
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError:
+        return value
 
 
-@overload
-def deserialize_json_values(data: list[T]) -> list[Any]: ...
+def prepare_template_context(data: T) -> Any:
+    """Decode JSON objects and arrays stored as strings so templates can reach their fields.
 
-
-@overload
-def deserialize_json_values(data: dict[K, V]) -> dict[K, Any]: ...
-
-
-@overload
-def deserialize_json_values(data: T) -> T: ...
-
-
-def deserialize_json_values(data):
-    """De-serialize JSON strings in various input formats.
-
-    This function creates a deep copy of the input data and does not mutate the original.
+    Native dictionaries and lists are processed recursively. A string is replaced only when it holds a JSON
+    object or array, so `{{ column.key }}` works on a column that stored a JSON object, while scalar strings
+    like "1.10", "true" or "null" stay text. The input is not mutated.
 
     Args:
-        data: Input data in one of four formats:
-            - Single string (JSON string to deserialize)
-            - List of strings (list of JSON strings to deserialize)
-            - Dictionary (potentially with nested JSON strings to deserialize)
-            - Some other object that can't be deserialized.
+        data: A record, a list, a string, or any other value.
 
     Returns:
-        Deserialized data in the corresponding format:
-            - Dictionary (when input is a single string)
-            - List of dictionaries (when input is a list of strings)
-            - Dictionary (when input is a dictionary, with nested JSON strings deserialized)
-            - The original object (if there is no deserialization to perform)
-
+        A copy of `data` with embedded JSON objects and arrays decoded.
     """
-    # Create a deep copy to avoid mutating the original data
-    data_copy = copy.deepcopy(data)
+    if isinstance(data, str):
+        loaded = deserialize_json_string(data)
+        return loaded if isinstance(loaded, (dict, list)) else data
 
-    # Case 1: Single string input
-    if isinstance(data_copy, str):
-        try:
-            return json.loads(data_copy)
-        except json.JSONDecodeError:
-            return data_copy
+    if isinstance(data, list):
+        return [prepare_template_context(item) for item in data]
 
-    # Case 2: List of strings input
-    elif isinstance(data_copy, list):
-        result = []
-        for item in data_copy:
-            if isinstance(item, str):
-                try:
-                    result.append(json.loads(item))
-                except json.JSONDecodeError:
-                    result.append(item)
-            else:
-                # If list contains non-string items, recursively process them
-                result.append(deserialize_json_values(item))
-        return result
+    if isinstance(data, dict):
+        return {key: prepare_template_context(value) for key, value in data.items()}
 
-    # Case 3: Dictionary input with potential nested JSON strings
-    elif isinstance(data_copy, dict):
-        result = {}
-        for key, value in data_copy.items():
-            if isinstance(value, str):
-                try:
-                    result[key] = json.loads(value)
-                except json.JSONDecodeError:
-                    result[key] = value
-            elif isinstance(value, (dict, list)):
-                # Recursively process nested dictionaries and lists
-                result[key] = deserialize_json_values(value)
-            else:
-                result[key] = value
-        return result
-
-    # Fallback for other data types
-    else:
-        return data_copy
+    return copy.deepcopy(data)
 
 
 def parse_list_string(text: str) -> list[str]:
@@ -131,13 +80,17 @@ def parse_list_string(text: str) -> list[str]:
 
     # Try JSON again with cleaned text
     try:
-        return _clean_whitespace(json.loads(text_cleaned))
+        list_obj = json.loads(text_cleaned)
+        if isinstance(list_obj, list):
+            return _clean_whitespace(list_obj)
     except json.JSONDecodeError:
         pass
 
     # Try Python literal eval (handles single quotes)
     try:
-        return _clean_whitespace(ast.literal_eval(text_cleaned))
+        list_obj = ast.literal_eval(text_cleaned)
+        if isinstance(list_obj, list):
+            return _clean_whitespace(list_obj)
     except (ValueError, SyntaxError):
         pass
 
@@ -145,8 +98,8 @@ def parse_list_string(text: str) -> list[str]:
     return [text.strip()]
 
 
-def _clean_whitespace(texts: list[str]) -> list[str]:
-    return [text.strip() for text in texts]
+def _clean_whitespace(texts: list[Any]) -> list[str]:
+    return [str(text).strip() for text in texts]
 
 
 def _verify_columns_are_unique(datasets: list[pd.DataFrame]) -> None:

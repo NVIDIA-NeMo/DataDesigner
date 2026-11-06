@@ -46,7 +46,7 @@ def test_generator_creation():
     "data_designer.engine.column_generators.generators.expression.WithJinja2UserTemplateRendering.render_template",
     autospec=True,
 )
-@patch("data_designer.engine.column_generators.generators.expression.deserialize_json_values", autospec=True)
+@patch("data_designer.engine.column_generators.generators.expression.prepare_template_context", autospec=True)
 def test_generate_with_dataframe(mock_deserialize, mock_render, mock_prepare):
     config = _create_test_config("sum_column", "{{ col1 + col2 }}", "int")
     generator = _create_test_generator(config)
@@ -75,7 +75,7 @@ def test_generate_with_dataframe(mock_deserialize, mock_render, mock_prepare):
     "data_designer.engine.column_generators.generators.expression.WithJinja2UserTemplateRendering.render_template",
     autospec=True,
 )
-@patch("data_designer.engine.column_generators.generators.expression.deserialize_json_values", autospec=True)
+@patch("data_designer.engine.column_generators.generators.expression.prepare_template_context", autospec=True)
 def test_generate_with_different_dtypes(mock_deserialize, mock_render, mock_prepare):
     config = _create_test_config("result_column", "{{ col1 }}", "float")
     generator = _create_test_generator(config)
@@ -100,7 +100,7 @@ def test_generate_with_different_dtypes(mock_deserialize, mock_render, mock_prep
     "data_designer.engine.column_generators.generators.expression.WithJinja2UserTemplateRendering.render_template",
     autospec=True,
 )
-@patch("data_designer.engine.column_generators.generators.expression.deserialize_json_values", autospec=True)
+@patch("data_designer.engine.column_generators.generators.expression.prepare_template_context", autospec=True)
 def test_generate_with_bool_dtype_numeric(mock_deserialize, mock_render, mock_prepare):
     config = _create_test_config("bool_column", "{{ col1 }}", "bool")
     generator = _create_test_generator(config)
@@ -125,7 +125,7 @@ def test_generate_with_bool_dtype_numeric(mock_deserialize, mock_render, mock_pr
     "data_designer.engine.column_generators.generators.expression.WithJinja2UserTemplateRendering.render_template",
     autospec=True,
 )
-@patch("data_designer.engine.column_generators.generators.expression.deserialize_json_values", autospec=True)
+@patch("data_designer.engine.column_generators.generators.expression.prepare_template_context", autospec=True)
 def test_generate_with_bool_dtype_string(mock_deserialize, mock_render, mock_prepare):
     config = _create_test_config("bool_column", "{{ col1 }}", "bool")
     generator = _create_test_generator(config)
@@ -219,6 +219,28 @@ def test_generate_int_dtype_drops_only_the_out_of_range_row() -> None:
 
     assert result.index.tolist() == [0, 2]
     assert result["number"].tolist() == [1, 3]
+
+
+def test_generate_keeps_scalar_strings_from_previous_columns() -> None:
+    config = _create_test_config("label", "v{{ version }} {{ flag }} {{ flag == 'true' }} {{ meta.score }}", "str")
+    generator = _create_test_generator(config)
+    df = lazy.pd.DataFrame(
+        {"version": ["1.10", "1e3"], "flag": ["true", "null"], "meta": ['{"score": 95}', '{"score": 42}']}
+    )
+
+    result = generator.generate(df)
+
+    assert result["label"].tolist() == ["v1.10 true True 95", "v1e3 null False 42"]
+
+
+def test_generate_casts_numeric_strings_explicitly() -> None:
+    config = _create_test_config("next", "{{ n | int + 1 }}", "int")
+    generator = _create_test_generator(config)
+    df = lazy.pd.DataFrame({"n": ["5", "6"]})
+
+    result = generator.generate(df)
+
+    assert result["next"].tolist() == [6, 7]
 
 
 def test_generate_with_missing_columns():

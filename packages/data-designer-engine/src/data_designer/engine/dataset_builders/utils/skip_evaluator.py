@@ -15,7 +15,7 @@ from jinja2.nativetypes import NativeEnvironment
 from jinja2.sandbox import SandboxedEnvironment
 
 from data_designer.engine.dataset_builders.utils.skip_tracker import SKIPPED_COLUMNS_RECORD_KEY
-from data_designer.engine.processing.utils import deserialize_json_values
+from data_designer.engine.processing.utils import prepare_template_context
 
 if TYPE_CHECKING:
     from jinja2 import Template
@@ -47,7 +47,7 @@ def evaluate_skip_when(expression: str, record: dict) -> bool:
     """
     try:
         template = _compile_skip_template(expression)
-        deserialized = deserialize_json_values(record)
+        deserialized = prepare_template_context(record)
         result = template.render(deserialized)
         return bool(result)
     except (UndefinedError, SecurityError, TemplateSyntaxError, TypeError, ValueError):
