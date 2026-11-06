@@ -54,7 +54,7 @@ No third-party GitHub ZIP/area-code compilation is used.
 The checked-in build has 18,749 explicit postal-code associations and 15,023
 nearest-locality fallbacks. All ZIP identifiers and population weights match the
 previous asset. Area codes differ for 16,101 rows (47.7%); agreement with the old
-asset is not an accuracy measure. No sampler logic or sampling weights change.
+asset is not an accuracy measure. The rebuild preserves the existing sampling weights.
 
 This is a regional approximation for synthetic data, not a telephone service-area
 or address lookup. City points can cross area-code boundaries within a state,

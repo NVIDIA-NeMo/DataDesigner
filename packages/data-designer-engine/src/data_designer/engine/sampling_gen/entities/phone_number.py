@@ -113,9 +113,11 @@ class PhoneNumber(BaseModel):
 
     @classmethod
     def from_area_code(cls, area_code: str) -> "PhoneNumber":
-        prefix = str(random.randint(200, 1000))
-        line_number = str(random.randint(0, 10000)).zfill(4)
-        return PhoneNumber(area_code=area_code, prefix=prefix, line_number=line_number)
+        prefix = random.randint(200, 999)
+        while prefix % 100 == 11:
+            prefix = random.randint(200, 999)
+        line_number = str(random.randint(0, 9999)).zfill(4)
+        return PhoneNumber(area_code=area_code, prefix=str(prefix), line_number=line_number)
 
     @classmethod
     def from_zip_prefix(cls, zip_prefix: str) -> "PhoneNumber":

@@ -1,6 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from __future__ import annotations
+
 from unittest.mock import patch
 
 import pytest
@@ -61,6 +63,23 @@ def test_from_area_code():
         assert phone.area_code == "555"
         assert phone.prefix == "500"
         assert phone.line_number == "1234"
+
+
+@pytest.mark.parametrize(
+    ("upper_bound", "expected"),
+    [(False, "202-200-0000"), (True, "202-999-9999")],
+)
+def test_from_area_code_boundaries(upper_bound: bool, expected: str) -> None:
+    with patch("random.randint", side_effect=lambda low, high: high if upper_bound else low):
+        phone = PhoneNumber.from_area_code("202")
+    assert str(phone) == expected
+
+
+@pytest.mark.parametrize("reserved_prefix", range(211, 912, 100))
+def test_from_area_code_skips_n11_exchanges(reserved_prefix: int) -> None:
+    with patch("random.randint", side_effect=[reserved_prefix, 500, 42]):
+        phone = PhoneNumber.from_area_code("202")
+    assert str(phone) == "202-500-0042"
 
 
 def test_str_and_repr_representations(stub_sample_phone_number):
