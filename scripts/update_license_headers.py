@@ -1,6 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from __future__ import annotations
+
 import argparse
 import re
 import subprocess
@@ -132,8 +134,16 @@ def _analyze_file_header(lines: list[str]) -> HeaderAnalysis:
             has_content_after=False,
         )
 
-    # Header goes after shebang if present
+    # Keep Jupytext front matter at the start so notebook metadata survives conversion.
     insert_pos = 1 if lines[0].startswith("#!") else 0
+    if insert_pos < len(lines) and lines[insert_pos].strip() == "# ---":
+        for index in range(insert_pos + 1, len(lines)):
+            if lines[index].strip() == "# ---":
+                if any(line.strip() == "# jupyter:" for line in lines[insert_pos + 1 : index]):
+                    insert_pos = index + 1
+                    while insert_pos < len(lines) and not lines[insert_pos].strip():
+                        insert_pos += 1
+                break
 
     # Skip blank lines to find where header actually starts
     header_search_start = insert_pos
@@ -205,7 +215,7 @@ def update_license_header_in_file(file_path: Path, license_header: str) -> tuple
             lines.insert(analysis.header_start, expected_header)
             file_path.write_text("".join(lines), encoding="utf-8")
         else:
-            file_path.write_text(expected_header, encoding="utf-8")
+            file_path.write_text("".join(lines[: analysis.header_start]) + expected_header, encoding="utf-8")
         return True, "added"
 
     except (UnicodeDecodeError, PermissionError) as e:
