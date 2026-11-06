@@ -99,7 +99,7 @@ def test_run_personas_with_all_flag(
     mock_check_ngc.assert_called_once()
 
     # Verify all locales were downloaded
-    assert mock_download.call_count == 11
+    assert mock_download.call_count == 13
 
     # Verify each locale was downloaded
     downloaded_locales = [call[0][0] for call in mock_download.call_args_list]
@@ -260,7 +260,7 @@ def test_determine_locales_with_all_flag(controller: DownloadController) -> None
     """Test _determine_locales returns all locales when all_locales=True."""
     result = controller._determine_locales(locales=None, all_locales=True)
 
-    assert len(result) == 11
+    assert len(result) == 13
     assert "en_US" in result
     assert "en_IN" in result
     assert "en_SG" in result

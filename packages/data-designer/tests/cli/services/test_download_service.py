@@ -67,7 +67,7 @@ def test_get_available_locales(service: DownloadService) -> None:
     locales = service.get_available_locales()
 
     assert isinstance(locales, dict)
-    assert len(locales) == 11
+    assert len(locales) == 13
     assert "en_GB" in locales
     assert "de_DE" in locales
     assert "en_US" in locales
@@ -119,6 +119,7 @@ def test_download_persona_dataset_invalid_locale(service: DownloadService) -> No
         service.download_persona_dataset("invalid_locale")
 
 
+@pytest.mark.parametrize("locale", ["en_US", "es_SV", "vi_VN"])
 @patch("data_designer.cli.services.download_service.glob.glob")
 @patch("data_designer.cli.services.download_service.subprocess.run")
 @patch("data_designer.cli.services.download_service.tempfile.TemporaryDirectory")
@@ -127,6 +128,7 @@ def test_download_persona_dataset_success(
     mock_subprocess: MagicMock,
     mock_glob: MagicMock,
     service: DownloadService,
+    locale: str,
 ) -> None:
     """Test successful persona dataset download."""
     # Setup mock temporary directory
@@ -138,14 +140,14 @@ def test_download_persona_dataset_success(
 
     # Setup mock parquet files
     mock_parquet_files = [
-        f"{temp_dir_path}/nemotron-personas-dataset-en_us_v0.0.1/file_0.parquet",
-        f"{temp_dir_path}/nemotron-personas-dataset-en_us_v0.0.1/file_1.parquet",
+        f"{temp_dir_path}/nemotron-personas-dataset-{locale.lower()}_v0.0.1/file_0.parquet",
+        f"{temp_dir_path}/nemotron-personas-dataset-{locale.lower()}_v0.0.1/file_1.parquet",
     ]
     mock_glob.return_value = mock_parquet_files
 
     # Mock shutil.move to avoid actual file operations
     with patch("data_designer.cli.services.download_service.shutil.move") as mock_move:
-        result = service.download_persona_dataset("en_US")
+        result = service.download_persona_dataset(locale)
 
     # Verify subprocess was called correctly
     expected_cmd = [
@@ -153,14 +155,14 @@ def test_download_persona_dataset_success(
         "registry",
         "resource",
         "download-version",
-        "nvidia/nemotron-personas/nemotron-personas-dataset-en_us",
+        f"nvidia/nemotron-personas/nemotron-personas-dataset-{locale.lower()}",
         "--dest",
         temp_dir_path,
     ]
     mock_subprocess.assert_called_once_with(expected_cmd, check=True)
 
     # Verify glob pattern
-    expected_pattern = f"{temp_dir_path}/nemotron-personas-dataset-en_us*/*.parquet"
+    expected_pattern = f"{temp_dir_path}/nemotron-personas-dataset-{locale.lower()}*/*.parquet"
     mock_glob.assert_called_once_with(expected_pattern)
 
     # Verify files were moved

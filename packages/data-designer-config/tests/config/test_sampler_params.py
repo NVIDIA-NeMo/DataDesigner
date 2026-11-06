@@ -89,6 +89,15 @@ def test_person_sampler_params(stub_person_sampler_params):
     assert stub_person_sampler_params.people_gen_key == "en_US_with_personas"
 
 
+@pytest.mark.parametrize("locale", ["es_SV", "vi_VN"])
+@pytest.mark.parametrize("with_synthetic_personas", [False, True])
+def test_person_sampler_new_managed_locales(locale: str, with_synthetic_personas: bool) -> None:
+    params = PersonSamplerParams(locale=locale, with_synthetic_personas=with_synthetic_personas)
+
+    assert params.locale == locale
+    assert params.people_gen_key == (f"{locale}_with_personas" if with_synthetic_personas else locale)
+
+
 def test_person_sampler_age_range_validation():
     with pytest.raises(
         ValidationError,
