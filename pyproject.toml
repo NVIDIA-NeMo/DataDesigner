@@ -24,6 +24,7 @@ build-backend = "hatchling.build"
 members = [
     "packages/data-designer-config",
     "packages/data-designer-engine",
+    "packages/data-designer-slurm",
     "packages/data-designer",
 ]
 

@@ -1,0 +1,41 @@
+{
+  "sources": {
+    "census-acs5-2023-b01003.dat": {
+      "url": "https://www2.census.gov/programs-surveys/acs/summary_file/2023/table-based-SF/data/5YRData/acsdt5y2023-b01003.dat",
+      "sha256": "24ae3f523b4c54332ce0a71ba534569685a8a729056f975915d860d1eb943565",
+      "retrieved": "2026-11-06",
+      "license": "U.S. government work (public domain in the United States)",
+      "license_url": "https://www2.census.gov/geo/pdfs/maps-data/data/tiger/tgrshp2023/TGRSHP2023_TechDoc.pdf"
+    },
+    "gazetteer-2023-zcta.zip": {
+      "url": "https://www2.census.gov/geo/docs/maps-data/data/gazetteer/2023_Gazetteer/2023_Gaz_zcta_national.zip",
+      "sha256": "75191ab2d3df4b668fb511d2726d97c521d6d1ff555725704a5d9bb3bc2077ce",
+      "retrieved": "2026-11-06",
+      "license": "U.S. government work (public domain in the United States)",
+      "license_url": "https://www2.census.gov/geo/pdfs/maps-data/data/tiger/tgrshp2023/TGRSHP2023_TechDoc.pdf"
+    },
+    "census-state-boundaries-full-2023.zip": {
+      "url": "https://www2.census.gov/geo/tiger/TIGER2023/STATE/tl_2023_us_state.zip",
+      "sha256": "8ded0ef036e205e246ae4b03a66873f7e1eed50285b993702ce5aca674283a2e",
+      "retrieved": "2026-11-06",
+      "license": "U.S. government work (public domain in the United States)",
+      "license_url": "https://www2.census.gov/geo/pdfs/maps-data/data/tiger/tgrshp2023/TGRSHP2023_TechDoc.pdf"
+    },
+    "wikidata-us-dialing-codes.json": {
+      "url": "https://query.wikidata.org/sparql?query=SELECT+%3Fplace+%3Fcode+%3Fcoord+WHERE+%7B%0A++%3Fplace+wdt%3AP17+wd%3AQ30%3B+wdt%3AP473+%3Fcode%3B+wdt%3AP625+%3Fcoord.%0A%7D&format=json",
+      "sha256": "5560d9fadd3316f9e230c24c8bf531c56f778ad0fbb934ade9bbdee0926fd8fb",
+      "retrieved": "2026-11-06",
+      "snapshot": "snapshots/wikidata-us-dialing-codes.json.gz",
+      "license": "CC0-1.0",
+      "license_url": "https://www.wikidata.org/wiki/Wikidata:Licensing"
+    },
+    "wikidata-us-postcode-dialing-codes.json": {
+      "url": "https://query.wikidata.org/sparql?query=SELECT+DISTINCT+%3Fplace+%3Fpostcode+%3Fcode+WHERE+%7B%0A++VALUES+%3Fcountry+%7B+wd%3AQ30+wd%3AQ1183+%7D%0A++%3Fplace+wdt%3AP17+%3Fcountry%3B+wdt%3AP473+%3Fcode%3B+wdt%3AP281+%3Fpostcode.%0A%7D&format=json",
+      "sha256": "930af36cac300bac78e4ec0689245b293c0e79878504a88b57eb5b386470cd61",
+      "retrieved": "2026-11-06",
+      "snapshot": "snapshots/wikidata-us-postcode-dialing-codes.json.gz",
+      "license": "CC0-1.0",
+      "license_url": "https://www.wikidata.org/wiki/Wikidata:Licensing"
+    }
+  }
+}
