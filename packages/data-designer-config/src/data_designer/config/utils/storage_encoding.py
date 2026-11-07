@@ -7,7 +7,7 @@ import json
 import math
 from copy import deepcopy
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import ValidationError
 
@@ -117,10 +117,19 @@ def encode_storage_table(dataframe: pd.DataFrame, plan: JsonStoragePlan) -> pa.T
     return table
 
 
-def decode_storage_table(table: pa.Table) -> pd.DataFrame:
+def decode_storage_table(
+    table: pa.Table, *, dtype_backend: Literal["pyarrow", "numpy_nullable"] | None = "pyarrow"
+) -> pd.DataFrame:
     """Restore logical JSON values without guessing from ordinary string contents."""
     plan = read_storage_plan(table.schema)
-    frame = table.to_pandas(types_mapper=lazy.pd.ArrowDtype)
+    if dtype_backend == "pyarrow":
+        frame = table.to_pandas(types_mapper=lazy.pd.ArrowDtype)
+    elif dtype_backend == "numpy_nullable":
+        frame = table.to_pandas(types_mapper=_get_numpy_nullable_type_mapping().get)
+    elif dtype_backend is None:
+        frame = table.to_pandas()
+    else:
+        raise ValueError(f"dtype_backend must be 'pyarrow', 'numpy_nullable' or None, got {dtype_backend!r}")
     for name, paths in plan.columns.items():
         values = []
         for row, value in enumerate(table[name].to_pylist()):
@@ -151,7 +160,12 @@ def decode_storage_dataframe(dataframe: pd.DataFrame, plan: JsonStoragePlan) -> 
     return frame
 
 
-def read_encoded_parquet(path: Path, schemas: list[pa.Schema]) -> pd.DataFrame:
+def read_encoded_parquet(
+    path: Path,
+    schemas: list[pa.Schema],
+    *,
+    dtype_backend: Literal["pyarrow", "numpy_nullable"] | None = "pyarrow",
+) -> pd.DataFrame:
     """Read annotated files individually to retain and validate each file's metadata."""
     plan = validate_storage_plans(schemas)
     dataset = lazy.pq.ParquetDataset(path)
@@ -161,10 +175,29 @@ def read_encoded_parquet(path: Path, schemas: list[pa.Schema]) -> pd.DataFrame:
         for field in dataset.schema:
             if field.name not in schema.names:
                 schema = schema.append(field)
-        frames.append(decode_storage_table(fragment.to_table(schema=schema)))
+        frames.append(decode_storage_table(fragment.to_table(schema=schema), dtype_backend=dtype_backend))
     frame = lazy.pd.concat(frames, ignore_index=True)
     frame.attrs[JSON_STORAGE_RUN_KEY] = plan.model_dump()
     return frame
+
+
+def _get_numpy_nullable_type_mapping() -> dict[pa.DataType, pd.api.extensions.ExtensionDtype]:
+    pa, pd = lazy.pa, lazy.pd
+    return {
+        pa.bool_(): pd.BooleanDtype(),
+        pa.int8(): pd.Int8Dtype(),
+        pa.int16(): pd.Int16Dtype(),
+        pa.int32(): pd.Int32Dtype(),
+        pa.int64(): pd.Int64Dtype(),
+        pa.uint8(): pd.UInt8Dtype(),
+        pa.uint16(): pd.UInt16Dtype(),
+        pa.uint32(): pd.UInt32Dtype(),
+        pa.uint64(): pd.UInt64Dtype(),
+        pa.float32(): pd.Float32Dtype(),
+        pa.float64(): pd.Float64Dtype(),
+        pa.string(): pd.StringDtype(),
+        pa.large_string(): pd.StringDtype(),
+    }
 
 
 def _transform_value(value: Any, path: list[str | None], *, encode: bool) -> Any:

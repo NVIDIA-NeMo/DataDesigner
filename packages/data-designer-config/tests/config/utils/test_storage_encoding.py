@@ -233,6 +233,14 @@ def test_legacy_partitioned_directory_keeps_native_columns(tmp_path: Path) -> No
     assert JSON_STORAGE_RUN_KEY not in result.attrs
 
 
+def test_decode_storage_table_rejects_unknown_dtype_backend() -> None:
+    table = pa.Table.from_pylist([{"payload": "1"}]).replace_schema_metadata(
+        {JSON_STORAGE_METADATA_KEY: JsonStoragePlan(columns={"payload": [[]]}).model_dump_json().encode()}
+    )
+    with pytest.raises(ValueError, match="dtype_backend must be"):
+        decode_storage_table(table, dtype_backend="bogus")  # type: ignore[arg-type]
+
+
 def test_encoded_partitioned_directory_restores_json_and_partition_columns(tmp_path: Path) -> None:
     values = [{"alpha": 1}, {"beta": [1, "two"]}, None]
     frame = pd.DataFrame({"group": ["a", "b", "c"], "payload": pd.Series(values, dtype=object)})

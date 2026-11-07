@@ -10,7 +10,7 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from numbers import Number
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import urlparse
 
 import requests
@@ -110,7 +110,9 @@ def load_processor_dataset(processors_outputs_path: Path, processor_name: str) -
     raise FileNotFoundError(f"No artifacts found for processor named {processor_name!r}")
 
 
-def read_parquet_dataset(path: Path) -> pd.DataFrame:
+def read_parquet_dataset(
+    path: Path, *, dtype_backend: Literal["pyarrow", "numpy_nullable"] | None = "pyarrow"
+) -> pd.DataFrame:
     """Read a parquet dataset from a path.
 
     Directory schemas are unified permissively before reading so compatible
@@ -119,32 +121,36 @@ def read_parquet_dataset(path: Path) -> pd.DataFrame:
 
     Args:
         path: The path to the parquet dataset, can be either a file or a directory.
+        dtype_backend: The pandas dtype backend for native columns. `"pyarrow"` (the default)
+            and `"numpy_nullable"` select Arrow-backed or pandas nullable dtypes, respectively.
+            `None` uses pandas' default conversion, including persisted pandas metadata.
+            Decoded JSON storage columns remain object dtype for every backend. This option
+            does not normalize nested values or repair incompatible persisted dtype metadata.
 
     Returns:
         The parquet dataset as a pandas DataFrame.
     """
+    read_kwargs: dict[str, Any] = {} if dtype_backend is None else {"dtype_backend": dtype_backend}
     if path.is_dir():
         dataset = lazy.pq.ParquetDataset(path)
         schemas = [fragment.physical_schema for fragment in dataset.fragments]
         plan = validate_storage_plans(schemas)
         if plan.columns:
-            return read_encoded_parquet(path, schemas)
+            return read_encoded_parquet(path, schemas, dtype_backend=dtype_backend)
         try:
             unified_schema = lazy.pa.unify_schemas([*schemas, dataset.schema], promote_options="permissive")
         except (lazy.pa.ArrowInvalid, lazy.pa.ArrowTypeError):
             logger.warning("Failed to unify parquet schemas, falling back to individual files")
             return lazy.pd.concat(
-                [lazy.pd.read_parquet(file, dtype_backend="pyarrow") for file in sorted(dataset.files)],
+                [lazy.pd.read_parquet(file, **read_kwargs) for file in sorted(dataset.files)],
                 ignore_index=True,
             )
-        return lazy.pd.read_parquet(
-            path, dtype_backend="pyarrow", schema=unified_schema, partitioning=dataset.partitioning
-        )
+        return lazy.pd.read_parquet(path, schema=unified_schema, partitioning=dataset.partitioning, **read_kwargs)
 
     schema = lazy.pq.read_schema(path)
     if read_storage_plan(schema).columns:
-        return read_encoded_parquet(path, [schema])
-    return lazy.pd.read_parquet(path, dtype_backend="pyarrow")
+        return read_encoded_parquet(path, [schema], dtype_backend=dtype_backend)
+    return lazy.pd.read_parquet(path, **read_kwargs)
 
 
 def validate_dataset_file_path(file_path: str | Path, should_exist: bool = True) -> Path:
