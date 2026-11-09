@@ -107,6 +107,54 @@ def test_multiple_nested_fields_round_trip_without_mutation() -> None:
     assert value == original
 
 
+@pytest.mark.parametrize("size", [0, 3])
+def test_all_nested_columns_preserve_shape_and_values(size: int) -> None:
+    values = [[{"value": None}], [], None][:size]
+    nested_type = pa.list_(pa.struct([("value", pa.null())]))
+    table = pa.table({"first": pa.array(values, type=nested_type), "second": pa.array(values, type=nested_type)})
+
+    restored = decode_storage_table(table)
+
+    assert restored.shape == (size, 2)
+    assert list(restored.columns) == ["first", "second"]
+    for name in table.column_names:
+        assert isinstance(restored[name].dtype, pd.ArrowDtype)
+        assert restored[name].array.__arrow_array__().to_pylist() == values
+        restored[name].array.__arrow_array__().validate(full=True)
+
+
+@pytest.mark.parametrize("index_kind", ["range", "named", "multi"])
+def test_nested_read_preserves_index_and_interleaved_column_order(index_kind: str) -> None:
+    index = pd.RangeIndex(4, 10, 2, name="row")
+    if index_kind == "named":
+        index = pd.Index([7, 2, 7], name="row")
+    elif index_kind == "multi":
+        index = pd.MultiIndex.from_tuples([("a", 2), ("b", 1), ("a", 2)], names=["group", "row"])
+    values = [[{"optional": None}], [], None]
+    frame = pd.DataFrame({"nested_first": values, "ordinary": [1, 2, 3], "nested_last": values}, index=index)
+    table = pa.Table.from_pandas(frame)
+
+    restored = decode_storage_table(table)
+
+    pd.testing.assert_index_equal(restored.index, table.to_pandas(types_mapper=pd.ArrowDtype).index)
+    assert list(restored.columns) == list(frame.columns)
+    assert restored["ordinary"].tolist() == [1, 2, 3]
+    assert restored["nested_first"].array.__arrow_array__().to_pylist() == values
+    assert restored["nested_last"].array.__arrow_array__().to_pylist() == values
+
+
+def test_nested_read_preserves_sliced_chunked_arrays() -> None:
+    values = [[{"optional": None}] * count for count in (1, 3, 2, 4)]
+    array = pa.chunked_array([pa.array(values[:2]), pa.array(values[2:])]).slice(1, 2)
+    table = pa.table({"nested": array, "ordinary": [1, 2]})
+
+    restored = decode_storage_table(table)
+
+    restored["nested"].array.__arrow_array__().validate(full=True)
+    assert restored["nested"].tolist() == values[1:3]
+    assert table["nested"].to_pylist() == values[1:3]
+
+
 @pytest.mark.parametrize(
     "value", [float("nan"), float("inf"), {1: "key"}, (1, 2), {1, 2}, Decimal("1.25"), datetime(2026, 1, 1)]
 )
