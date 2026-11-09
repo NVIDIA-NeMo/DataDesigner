@@ -124,10 +124,31 @@ def decode_storage_table(table: pa.Table) -> pd.DataFrame:
     # nested null children in Arrow. Wrap nested arrays directly without a cast.
     nested_columns = [field.name for field in table.schema if lazy.pa.types.is_nested(field.type)]
     frame = table.drop(nested_columns).to_pandas(types_mapper=lazy.pd.ArrowDtype)
-    for name in nested_columns:
-        frame[name] = lazy.pd.Series(lazy.pd.arrays.ArrowExtensionArray(table[name]), index=frame.index)
+    column_labels: dict[str, Any] = {}
     if nested_columns:
-        frame = frame.loc[:, [name for name in table.column_names if name in frame.columns]]
+        # An empty schema-only conversion restores pandas labels without touching
+        # real nested buffers. Physical Arrow names need not be pandas labels.
+        template = table.schema.empty_table().to_pandas(types_mapper=lazy.pd.ArrowDtype)
+        index_fields = [
+            name
+            for name in (table.schema.pandas_metadata or {}).get("index_columns", [])
+            if isinstance(name, str) and name in table.column_names
+        ]
+        data_fields = [name for name in table.column_names if name not in index_fields]
+        column_labels = dict(zip(data_fields, template.columns, strict=True))
+        if any(name in nested_columns for name in index_fields):
+            index_arrays = [lazy.pd.arrays.ArrowExtensionArray(table[name]) for name in index_fields]
+            frame.index = (
+                lazy.pd.Index(index_arrays[0], name=template.index.name)
+                if len(index_arrays) == 1
+                else lazy.pd.MultiIndex.from_arrays(index_arrays, names=template.index.names)
+            )
+        for name in nested_columns:
+            if name not in index_fields:
+                frame[column_labels[name]] = lazy.pd.Series(
+                    lazy.pd.arrays.ArrowExtensionArray(table[name]), index=frame.index
+                )
+        frame = frame.reindex(columns=template.columns)
     for name, paths in plan.columns.items():
         values = []
         for row, value in enumerate(table[name].to_pylist()):
@@ -137,7 +158,7 @@ def decode_storage_table(table: pa.Table) -> pd.DataFrame:
                 values.append(value)
             except (ValueError, TypeError, RecursionError) as exc:
                 raise InvalidFileFormatError(f"Cannot decode JSON storage column {name!r}, row {row}: {exc}") from exc
-        frame[name] = lazy.pd.Series(values, index=frame.index, dtype=object)
+        frame[column_labels.get(name, name)] = lazy.pd.Series(values, index=frame.index, dtype=object)
     if plan.columns:
         frame.attrs[JSON_STORAGE_RUN_KEY] = plan.model_dump()
     return frame

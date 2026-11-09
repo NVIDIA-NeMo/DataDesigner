@@ -155,6 +155,53 @@ def test_nested_read_preserves_sliced_chunked_arrays() -> None:
     assert table["nested"].to_pylist() == values[1:3]
 
 
+@pytest.mark.parametrize("reader", ["decoder", "public"])
+@pytest.mark.parametrize("column_kind", ["integer", "multi"])
+def test_nested_read_preserves_non_string_column_labels(tmp_path: Path, reader: str, column_kind: str) -> None:
+    columns = pd.Index([0, 1], name="fields")
+    if column_kind == "multi":
+        columns = pd.MultiIndex.from_tuples([("nested", 0), ("ordinary", 1)], names=["kind", "number"])
+    frame = pd.DataFrame([[["{}"], 10], [["{}"], 20]], columns=columns)
+    table = pa.Table.from_pandas(frame)
+    plan = JsonStoragePlan(columns={table.column_names[0]: [[None]]})
+    table = table.replace_schema_metadata(
+        {**table.schema.metadata, JSON_STORAGE_METADATA_KEY: plan.model_dump_json().encode()}
+    )
+    path = tmp_path / "batch.parquet"
+    pq.write_table(table, path)
+
+    restored = decode_storage_table(table) if reader == "decoder" else read_parquet_dataset(path)
+
+    pd.testing.assert_index_equal(restored.columns, frame.columns)
+    assert restored.iloc[:, 0].tolist() == [[{}], [{}]]
+    assert restored.iloc[:, 1].tolist() == [10, 20]
+    assert isinstance(restored.iloc[:, 1].dtype, pd.ArrowDtype)
+    assert restored.attrs[JSON_STORAGE_RUN_KEY] == plan.model_dump()
+
+
+@pytest.mark.parametrize("reader", ["decoder", "public"])
+@pytest.mark.parametrize("index_name", [None, "row", "ordinary"])
+def test_nested_read_keeps_tuple_index_out_of_data_columns(tmp_path: Path, reader: str, index_name: str | None) -> None:
+    index = pd.Index([(1, 2), (3, 4)], tupleize_cols=False, name=index_name)
+    frame = pd.DataFrame({"payload": ['{"x":1}', '{"x":2}'], "ordinary": [10, 20]}, index=index)
+    table = pa.Table.from_pandas(frame)
+    plan = JsonStoragePlan(columns={"payload": [[]]})
+    table = table.replace_schema_metadata(
+        {**table.schema.metadata, JSON_STORAGE_METADATA_KEY: plan.model_dump_json().encode()}
+    )
+    path = tmp_path / "batch.parquet"
+    pq.write_table(table, path)
+
+    restored = decode_storage_table(table) if reader == "decoder" else read_parquet_dataset(path)
+
+    pd.testing.assert_index_equal(restored.columns, frame.columns)
+    expected_index = table.to_pandas(types_mapper=pd.ArrowDtype).index if reader == "decoder" else pd.RangeIndex(2)
+    pd.testing.assert_index_equal(restored.index, expected_index)
+    assert restored["payload"].tolist() == [{"x": 1}, {"x": 2}]
+    assert restored["ordinary"].tolist() == [10, 20]
+    assert restored.attrs[JSON_STORAGE_RUN_KEY] == plan.model_dump()
+
+
 @pytest.mark.parametrize(
     "value", [float("nan"), float("inf"), {1: "key"}, (1, 2), {1, 2}, Decimal("1.25"), datetime(2026, 1, 1)]
 )
