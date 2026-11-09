@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 SELECT ?place ?code ?coord WHERE {
   ?place wdt:P17 wd:Q30; wdt:P473 ?code; wdt:P625 ?coord.
 }
