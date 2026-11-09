@@ -322,6 +322,47 @@ def test_structured_response_task_instructions():
     assert "Baz!!" in recipe.task_instructions
 
 
+class ThaiFoo(BaseModel):
+    province: str = Field(..., description="ชื่อจังหวัด")
+    region: str = Field(..., description="ภาค", json_schema_extra={"enum": ["ภาคเหนือ", "ภาคใต้"]})
+
+
+class AsciiFoo(BaseModel):
+    province: str = Field(..., description="Province name")
+    region: str = Field(..., description="Region", json_schema_extra={"enum": ["North", "South"]})
+
+
+@pytest.mark.parametrize(
+    "recipe",
+    [PydanticResponseRecipe(ThaiFoo), StructuredResponseRecipe(ThaiFoo.model_json_schema())],
+    ids=["pydantic", "structured"],
+)
+def test_json_recipe_task_instructions_keep_non_ascii_text(
+    recipe: PydanticResponseRecipe | StructuredResponseRecipe,
+) -> None:
+    assert "ชื่อจังหวัด" in recipe.task_instructions
+    assert "ภาคเหนือ" in recipe.task_instructions
+    assert "\\u0e" not in recipe.task_instructions
+    assert json.loads(recipe.schema) == ThaiFoo.model_json_schema()
+
+
+@pytest.mark.parametrize(
+    "recipe",
+    [PydanticResponseRecipe(AsciiFoo), StructuredResponseRecipe(AsciiFoo.model_json_schema())],
+    ids=["pydantic", "structured"],
+)
+def test_json_recipe_schema_unchanged_for_ascii(recipe: PydanticResponseRecipe | StructuredResponseRecipe) -> None:
+    assert recipe.schema == json.dumps(AsciiFoo.model_json_schema())
+
+
+def test_structured_response_example_keeps_non_ascii_text() -> None:
+    recipe = StructuredResponseRecipe(ThaiFoo.model_json_schema())
+    example = {"province": "เชียงใหม่", "region": "ภาคเหนือ"}
+
+    assert "เชียงใหม่" in recipe.generate_response_example(example)
+    assert recipe.parse(recipe.generate_response_example(example)) == example
+
+
 def test_pydantic_response_patched_case_single_lb():
     recipe = PydanticResponseRecipe(Foo)
     example = Foo(bar=Bar(baz=42))
