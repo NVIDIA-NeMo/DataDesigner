@@ -96,6 +96,20 @@ When the Data Designer library or the CLI is initialized, default model configur
   Upgrades do not overwrite existing configuration files. If `nvidia-text`, `nvidia-reasoning`, or an `openai-*` alias still references a retired model (for example `gpt-5` or `gpt-4.1`), update `~/.data-designer/model_configs.yaml` manually or run `data-designer config reset` to restore the current defaults. Resetting deletes all custom configurations.
 </Note>
 
+If you only change the `model` of an existing alias, the saved inference parameters stay as they were. `gpt-5.6-luna` also needs `reasoning_effort` set explicitly for the text alias (omitting it returned HTTP 400), so update the parameters together with the model. For example, an `openai-text` alias that used to point at `gpt-4.1`:
+
+```yaml
+model_configs:
+  - alias: openai-text
+    model: gpt-5.6-luna
+    provider: openai
+    inference_parameters:
+      temperature: 0.85
+      top_p: 0.95
+      extra_body:
+        reasoning_effort: none
+```
+
 <Tip>
 While these files provide a convenient way to specify settings for your model providers and configuration you use most often, they can always be set programmatically in your SDG workflow.
 </Tip>

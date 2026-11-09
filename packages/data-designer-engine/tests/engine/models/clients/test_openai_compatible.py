@@ -32,11 +32,12 @@ def _make_client(
     sync_client: MagicMock | None = None,
     async_client: MagicMock | None = None,
     api_key: str | None = "sk-test-key",
+    endpoint: str = ENDPOINT,
 ) -> OpenAICompatibleClient:
     concurrency_mode = ClientConcurrencyMode.ASYNC if async_client is not None else ClientConcurrencyMode.SYNC
     return OpenAICompatibleClient(
         provider_name=PROVIDER,
-        endpoint=ENDPOINT,
+        endpoint=endpoint,
         api_key=api_key,
         concurrency_mode=concurrency_mode,
         sync_client=sync_client,
@@ -154,6 +155,60 @@ def test_completion_posts_to_chat_completions_route() -> None:
     assert "timeout" not in payload
     assert "tool_choice" not in payload
     assert call_args.kwargs["headers"]["X-Trace"] == "1"
+
+
+def test_completion_translates_max_tokens_for_openai_api() -> None:
+    sync_mock = make_mock_sync_client(_chat_response())
+    client = _make_client(sync_client=sync_mock, endpoint="https://api.openai.com/v1")
+
+    client.completion(ChatCompletionRequest(model=MODEL, messages=[{"role": "user", "content": "Hi"}], max_tokens=256))
+
+    payload = sync_mock.post.call_args.kwargs["json"]
+    assert payload["max_completion_tokens"] == 256
+    assert "max_tokens" not in payload
+
+
+def test_completion_keeps_explicit_max_completion_tokens_for_openai_api() -> None:
+    sync_mock = make_mock_sync_client(_chat_response())
+    client = _make_client(sync_client=sync_mock, endpoint="https://api.openai.com/v1")
+
+    client.completion(
+        ChatCompletionRequest(
+            model=MODEL,
+            messages=[{"role": "user", "content": "Hi"}],
+            max_tokens=256,
+            extra_body={"max_completion_tokens": 512},
+        )
+    )
+
+    payload = sync_mock.post.call_args.kwargs["json"]
+    assert payload["max_completion_tokens"] == 512
+    assert "max_tokens" not in payload
+
+
+def test_completion_keeps_max_tokens_for_other_openai_compatible_endpoints() -> None:
+    sync_mock = make_mock_sync_client(_chat_response())
+    client = _make_client(sync_client=sync_mock)
+
+    client.completion(ChatCompletionRequest(model=MODEL, messages=[{"role": "user", "content": "Hi"}], max_tokens=256))
+
+    payload = sync_mock.post.call_args.kwargs["json"]
+    assert payload["max_tokens"] == 256
+    assert "max_completion_tokens" not in payload
+
+
+@pytest.mark.asyncio
+async def test_acompletion_translates_max_tokens_for_openai_api() -> None:
+    async_mock = make_mock_async_client(_chat_response())
+    client = _make_client(async_client=async_mock, endpoint="https://api.openai.com/v1")
+
+    await client.acompletion(
+        ChatCompletionRequest(model=MODEL, messages=[{"role": "user", "content": "Hi"}], max_tokens=256)
+    )
+
+    payload = async_mock.post.call_args.kwargs["json"]
+    assert payload["max_completion_tokens"] == 256
+    assert "max_tokens" not in payload
 
 
 @pytest.mark.parametrize(
