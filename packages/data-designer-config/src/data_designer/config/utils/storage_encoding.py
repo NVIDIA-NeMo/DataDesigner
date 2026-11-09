@@ -120,7 +120,14 @@ def encode_storage_table(dataframe: pd.DataFrame, plan: JsonStoragePlan) -> pa.T
 def decode_storage_table(table: pa.Table) -> pd.DataFrame:
     """Restore logical JSON values without guessing from ordinary string contents."""
     plan = read_storage_plan(table.schema)
-    frame = table.to_pandas(types_mapper=lazy.pd.ArrowDtype)
+    # pandas' ArrowDtype conversion casts even identical types, which can corrupt
+    # nested null children in Arrow. Wrap nested arrays directly without a cast.
+    frame = table.to_pandas(
+        types_mapper=lambda dtype: None if lazy.pa.types.is_nested(dtype) else lazy.pd.ArrowDtype(dtype)
+    )
+    for field in table.schema:
+        if lazy.pa.types.is_nested(field.type) and field.name in frame.columns:
+            frame[field.name] = lazy.pd.Series(lazy.pd.arrays.ArrowExtensionArray(table[field.name]), index=frame.index)
     for name, paths in plan.columns.items():
         values = []
         for row, value in enumerate(table[name].to_pylist()):

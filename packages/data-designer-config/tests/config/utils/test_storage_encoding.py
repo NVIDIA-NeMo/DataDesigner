@@ -74,6 +74,30 @@ def test_null_empty_batches_have_explicit_nested_leaf_type(values: list[Any]) ->
     assert decode_storage_table(table)["oracle"].tolist() == values
 
 
+@pytest.mark.parametrize("counts", [(1, 3, 2), (3, 3, 3), (0, 0, 0)], ids=["variable", "uniform", "empty"])
+def test_nested_null_side_effect_survives_parquet_read(tmp_path: Path, counts: tuple[int, ...]) -> None:
+    values = [[{"entries": [{"label": "synthetic", "optional": None} for _ in range(count)]}] for count in counts]
+    plan = JsonStoragePlan(columns={"payload": [[]]})
+    frame = pd.DataFrame({"side_effect": values, "payload": [{"x": 1}] * len(values), "ordinary": [1, 2, 3]})
+    table = encode_storage_table(frame, plan)
+    path = tmp_path / "batch.parquet"
+    pq.write_table(table, path)
+    original = pq.read_table(path)
+    original.validate(full=True)
+
+    restored = read_parquet_dataset(path)
+
+    restored["side_effect"].array.__arrow_array__().validate(full=True)
+    assert restored["side_effect"].tolist() == values
+    assert isinstance(restored["side_effect"].dtype, pd.ArrowDtype)
+    assert isinstance(restored["ordinary"].dtype, pd.ArrowDtype)
+    assert restored["ordinary"].tolist() == [1, 2, 3]
+    assert restored["payload"].tolist() == [{"x": 1}] * len(values)
+    assert restored.attrs[JSON_STORAGE_RUN_KEY] == plan.model_dump()
+    assert list(restored.columns) == list(frame.columns)
+    assert original["side_effect"].to_pylist() == values
+
+
 def test_multiple_nested_fields_round_trip_without_mutation() -> None:
     value = {"calls": [{"arguments": {"alpha": 1}, "other": [1, "two"]}, {"arguments": {"beta": None}, "other": []}]}
     original = deepcopy(value)
