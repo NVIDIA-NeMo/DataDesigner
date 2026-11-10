@@ -32,6 +32,13 @@ def test_native_sandboxed_environment_returns_native_types() -> None:
         pytest.param("{{ x }}", {"x": 0}, False, id="native-zero"),
         pytest.param("{{ x }}", {"x": ""}, False, id="native-empty-string"),
         pytest.param('{{ x.key == "val" }}', {"x": '{"key": "val"}'}, True, id="deserializes-json"),
+        pytest.param("{{ x == 'true' }}", {"x": "true"}, True, id="keeps-scalar-string"),
+        pytest.param("{{ x == '1.10' }}", {"x": "1.10"}, True, id="keeps-numeric-string"),
+        pytest.param("{{ x | int > 5 }}", {"x": "7"}, True, id="numeric-string-with-cast"),
+        pytest.param("{{ x }}", {"x": "false"}, True, id="text-false-is-truthy"),
+        pytest.param("{{ x }}", {"x": "null"}, True, id="text-null-is-truthy"),
+        pytest.param("{{ not x }}", {"x": "false"}, False, id="not-text-false"),
+        pytest.param("{{ x == 'true' }}", {"x": "false"}, False, id="explicit-compare-text-false"),
     ],
 )
 def test_evaluate_skip_when(expression: str, record: dict, expected: bool) -> None:

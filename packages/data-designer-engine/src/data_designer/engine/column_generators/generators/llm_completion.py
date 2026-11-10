@@ -23,7 +23,7 @@ from data_designer.engine.column_generators.utils.prompt_renderer import (
 )
 from data_designer.engine.configurable_task import TaskConfigT
 from data_designer.engine.models.recipes.base import ResponseRecipe
-from data_designer.engine.processing.utils import deserialize_json_values
+from data_designer.engine.processing.utils import deserialize_json_string, prepare_template_context
 
 if TYPE_CHECKING:
     from data_designer.engine.models.utils import ChatMessage
@@ -78,7 +78,7 @@ class ColumnGeneratorWithModelChatCompletion(ColumnGeneratorWithModel[TaskConfig
         # Deserialize input data from previous columns so Jinja2 templates can access nested fields
         # Example: If prev column stored '{"key": "value"}', templates can use {{ prev_column.key }}
         # Note: This creates a new dict and doesn't mutate the original `data` argument
-        deserialized_record = deserialize_json_values(data)
+        deserialized_record = prepare_template_context(data)
 
         multi_modal_context = self._build_multi_modal_context(deserialized_record)
 
@@ -155,9 +155,9 @@ class LLMCodeCellGenerator(ColumnGeneratorWithModelChatCompletion[LLMCodeColumnC
 
 class LLMStructuredCellGenerator(ColumnGeneratorWithModelChatCompletion[LLMStructuredColumnConfig]):
     def _process_serialized_output(self, serialized_output: str) -> dict | list:
-        return deserialize_json_values(serialized_output)
+        return deserialize_json_string(serialized_output)
 
 
 class LLMJudgeCellGenerator(ColumnGeneratorWithModelChatCompletion[LLMJudgeColumnConfig]):
     def _process_serialized_output(self, serialized_output: str) -> dict | list:
-        return deserialize_json_values(serialized_output)
+        return deserialize_json_string(serialized_output)

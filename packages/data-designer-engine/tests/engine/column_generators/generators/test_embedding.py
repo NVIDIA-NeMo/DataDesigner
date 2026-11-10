@@ -54,6 +54,11 @@ EMBEDDING_INPUT_CASES = [
     ("123", ["123"]),
     ("true", ["true"]),
     ("null", ["null"]),
+    ('"quoted text"', ['"quoted text"']),
+    (["true", "1.10"], ["true", "1.10"]),
+    ('["true", "1.10"]', ["true", "1.10"]),
+    ("['true', '1.10']", ["true", "1.10"]),
+    ([" padded ", '{"a": 1}'], ["padded", '{"a": 1}']),
 ]
 
 

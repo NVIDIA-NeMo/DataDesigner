@@ -402,6 +402,16 @@ def test_generate_with_json_deserialization():
     assert result["test_column"] == {"result": "json_output"}
 
 
+def test_generate_keeps_scalar_strings_in_prompt_record() -> None:
+    generator, _, mock_model, _, _, mock_prompt_renderer, mock_response_recipe = _create_generator_with_mocks()
+    _setup_generate_mocks(mock_prompt_renderer, mock_response_recipe, mock_model)
+
+    generator.generate({"version": "1.10", "flag": "true", "meta": '{"score": 95}'})
+
+    record = mock_prompt_renderer.render.call_args_list[0].kwargs["record"]
+    assert record == {"version": "1.10", "flag": "true", "meta": {"score": 95}}
+
+
 def test_generate_passes_tool_alias() -> None:
     generator, mock_resource_provider, mock_model, _, _, mock_prompt_renderer, mock_response_recipe = (
         _create_generator_with_mocks(tool_alias="search")
@@ -443,6 +453,18 @@ def test_generate_passes_tool_alias() -> None:
             },
             '{"field": "value", "nested": {"key": "val"}}',
             {"field": "value", "nested": {"key": "val"}},
+        ),
+        (
+            LLMStructuredCellGenerator,
+            LLMStructuredColumnConfig,
+            {
+                "name": "struct_col",
+                "prompt": "Generate struct",
+                "model_alias": "test_model",
+                "output_format": {"type": "object", "properties": {"field": {"type": "string"}}},
+            },
+            '{"field": "1.10", "payload": "{\\"key\\": \\"val\\"}"}',
+            {"field": "1.10", "payload": '{"key": "val"}'},
         ),
         (
             LLMJudgeCellGenerator,
