@@ -198,3 +198,28 @@ def test_managed_locale_demographic_output_and_filtering(
     assert all(person[field] == selected_value for person in people)
     assert all(person["locale"] == locale for person in people)
     assert all(("persona" in person) == with_synthetic_personas for person in people)
+
+
+def test_managed_sampling_gives_none_for_a_value_only_some_people_have(tmp_path: Path) -> None:
+    """A field empty for some sampled people, such as en_SG's middle_name, comes back as None."""
+    dataset_dir = tmp_path / "datasets"
+    dataset_dir.mkdir()
+    records = [
+        {"first_name": "Chin", "middle_name": "Peng", "last_name": "Tan", "age": 67, "industry": "Finance"},
+        {"first_name": "Noor", "middle_name": None, "last_name": "Ismail", "age": 60, "industry": None},
+        {"first_name": "Lin", "middle_name": "Hui", "last_name": "Chng", "age": 73, "industry": None},
+        {"first_name": "Gulzar", "middle_name": None, "last_name": "Subramaniam", "age": 53, "industry": "Education"},
+    ]
+    lazy.pd.DataFrame(records).to_parquet(dataset_dir / "en_SG.parquet")
+    generator = PeopleGenFromDataset(load_person_data_sampler(LocalPersonReader(tmp_path), "en_SG"), "en_SG")
+    params = PersonSamplerParams(locale="en_SG")
+    sampler = PersonSampler(params, people_gen_resource={params.people_gen_key: generator})
+
+    people = sampler.sample(len(records))
+
+    expected = {record["first_name"]: record for record in records}
+    assert sorted(person["first_name"] for person in people) == sorted(expected)
+    for person in people:
+        assert person["middle_name"] == expected[person["first_name"]]["middle_name"]
+        assert person["industry"] == expected[person["first_name"]]["industry"]
+        assert person["email_address"]

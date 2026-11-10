@@ -132,6 +132,11 @@ class PeopleGenFromDataset(PeopleGen):
         # Generate samples and drop columns where all rows are null.
         df = self._engine.generate_samples(size=n, evidence=kw).dropna(axis=1, how="all")
 
+        # A value missing from only some rows becomes None: a pandas string column holds it as NaN,
+        # which is truthy and not JSON-serializable.
+        for column in df.columns[df.isna().any()]:
+            df[column] = df[column].astype(object).where(df[column].notna(), None)
+
         # We need this for derived fields.
         df["locale"] = self.locale
 
