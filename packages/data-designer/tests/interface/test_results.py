@@ -90,28 +90,57 @@ def test_load_dataset_selects_native_dtypes(
     dtype_backend: str | None,
     expected_dtype: object,
 ) -> None:
-    plan = JsonStoragePlan(columns={"payload": [[]]} if encoded else {})
-    storage = ArtifactStorage(artifact_path=tmp_path, json_storage=plan)
-    payloads = [{"alpha": 1}, {"beta": [1, "two"]}] if encoded else [{"alpha": 1}, {"alpha": 2}]
-    frame = lazy.pd.DataFrame({"id": [1, 2], "label": ["a", "b"], "payload": payloads, "tags": [["x"], ["y"]]})
-    path = storage.write_batch_to_parquet_file(0, frame, BatchStage.FINAL_RESULT)
+    with lazy.pd.option_context("future.infer_string", False):
+        plan = JsonStoragePlan(columns={"payload": [[]]} if encoded else {})
+        storage = ArtifactStorage(artifact_path=tmp_path, json_storage=plan)
+        payloads = [{"alpha": 1}, {"beta": [1, "two"]}] if encoded else [{"alpha": 1}, {"alpha": 2}]
+        timestamps = lazy.pd.date_range("2026-01-01T12:00:00+05:45", periods=2)
+        paths = []
+        for batch_number, payload in enumerate(payloads):
+            batch = lazy.pd.DataFrame(
+                {
+                    "id": [batch_number + 1],
+                    "nullable": [1 if batch_number == 0 else None],
+                    "label": ["a" if batch_number == 0 else None],
+                    "category": lazy.pd.Categorical(["a" if batch_number == 0 else "b"]),
+                    "timestamp": timestamps[batch_number : batch_number + 1],
+                    "payload": [payload],
+                    "tags": [["x" if batch_number == 0 else "y"]],
+                }
+            )
+            paths.append(storage.write_batch_to_parquet_file(batch_number, batch, BatchStage.FINAL_RESULT))
+        stub_dataset_creation_results.artifact_storage = storage
+        result = stub_dataset_creation_results.load_dataset(dtype_backend=dtype_backend)
+
+        assert isinstance(stub_dataset_creation_results.load_dataset()["id"].dtype, lazy.pd.ArrowDtype)
+        assert result["id"].dtype == expected_dtype
+        assert (result["payload"].dtype == object) is (encoded or dtype_backend != "pyarrow")
+        assert result["payload"].tolist() == payloads
+        assert (result["tags"].dtype == object) is (dtype_backend != "pyarrow")
+        assert [list(tags) for tags in result["tags"]] == [["x"], ["y"]]
+        assert result.attrs.get(JSON_STORAGE_RUN_KEY) == (plan.model_dump() if encoded else None)
+        kwargs = {} if dtype_backend is None else {"dtype_backend": dtype_backend}
+        scalar_columns = ["id", "nullable", "label", "category", "timestamp"]
+        for source in [storage.final_dataset_path, *paths]:
+            actual = (
+                result
+                if source == storage.final_dataset_path
+                else read_parquet_dataset(source, dtype_backend=dtype_backend)
+            )
+            expected = lazy.pd.read_parquet(source, columns=scalar_columns, **kwargs)
+            lazy.pd.testing.assert_frame_equal(actual[scalar_columns], expected)
+
+
+@pytest.mark.parametrize("has_artifacts", [False, True])
+def test_load_dataset_rejects_unknown_dtype_backend(
+    tmp_path: Path, stub_dataset_creation_results: DatasetCreationResults, has_artifacts: bool
+) -> None:
+    storage = ArtifactStorage(artifact_path=tmp_path)
+    if has_artifacts:
+        storage.write_batch_to_parquet_file(0, lazy.pd.DataFrame({"id": [1]}), BatchStage.FINAL_RESULT)
     stub_dataset_creation_results.artifact_storage = storage
-
-    default = stub_dataset_creation_results.load_dataset()
-    result = stub_dataset_creation_results.load_dataset(dtype_backend=dtype_backend)
-
-    assert isinstance(default["id"].dtype, lazy.pd.ArrowDtype)
-    assert result["id"].dtype == expected_dtype
-    assert result["id"].tolist() == [1, 2]
-    assert result["label"].tolist() == ["a", "b"]
-    if dtype_backend == "numpy_nullable":
-        assert result["label"].dtype == lazy.pd.StringDtype()
-    assert (result["payload"].dtype == object) is (encoded or dtype_backend != "pyarrow")
-    assert result["payload"].tolist() == payloads
-    assert (result["tags"].dtype == object) is (dtype_backend != "pyarrow")
-    assert [list(tags) for tags in result["tags"]] == [["x"], ["y"]]
-    assert result.attrs.get(JSON_STORAGE_RUN_KEY) == (plan.model_dump() if encoded else None)
-    lazy.pd.testing.assert_frame_equal(result, read_parquet_dataset(path, dtype_backend=dtype_backend))
+    with pytest.raises(ValueError, match="dtype_backend"):
+        stub_dataset_creation_results.load_dataset(dtype_backend="bogus")  # type: ignore[arg-type]
 
 
 def test_load_analysis(stub_dataset_creation_results, stub_dataset_profiler_results):

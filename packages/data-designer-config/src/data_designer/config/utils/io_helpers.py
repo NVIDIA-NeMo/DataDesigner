@@ -18,7 +18,12 @@ import yaml
 
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.errors import InvalidFileFormatError, InvalidFilePathError
-from data_designer.config.utils.storage_encoding import read_encoded_parquet, read_storage_plan, validate_storage_plans
+from data_designer.config.utils.storage_encoding import (
+    read_encoded_parquet,
+    read_native_parquet,
+    read_storage_plan,
+    validate_storage_plans,
+)
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -130,7 +135,8 @@ def read_parquet_dataset(
     Returns:
         The parquet dataset as a pandas DataFrame.
     """
-    read_kwargs: dict[str, Any] = {} if dtype_backend is None else {"dtype_backend": dtype_backend}
+    if dtype_backend not in ("pyarrow", "numpy_nullable", None):
+        raise ValueError(f"dtype_backend must be 'pyarrow', 'numpy_nullable' or None, got {dtype_backend!r}")
     if path.is_dir():
         dataset = lazy.pq.ParquetDataset(path)
         schemas = [fragment.physical_schema for fragment in dataset.fragments]
@@ -142,15 +148,17 @@ def read_parquet_dataset(
         except (lazy.pa.ArrowInvalid, lazy.pa.ArrowTypeError):
             logger.warning("Failed to unify parquet schemas, falling back to individual files")
             return lazy.pd.concat(
-                [lazy.pd.read_parquet(file, **read_kwargs) for file in sorted(dataset.files)],
+                [read_native_parquet(file, dtype_backend=dtype_backend) for file in sorted(dataset.files)],
                 ignore_index=True,
             )
-        return lazy.pd.read_parquet(path, schema=unified_schema, partitioning=dataset.partitioning, **read_kwargs)
+        return read_native_parquet(
+            path, schema=unified_schema, partitioning=dataset.partitioning, dtype_backend=dtype_backend
+        )
 
     schema = lazy.pq.read_schema(path)
     if read_storage_plan(schema).columns:
         return read_encoded_parquet(path, [schema], dtype_backend=dtype_backend)
-    return lazy.pd.read_parquet(path, **read_kwargs)
+    return read_native_parquet(path, dtype_backend=dtype_backend)
 
 
 def validate_dataset_file_path(file_path: str | Path, should_exist: bool = True) -> Path:

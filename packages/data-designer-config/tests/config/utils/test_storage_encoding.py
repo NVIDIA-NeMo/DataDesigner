@@ -75,9 +75,10 @@ def test_null_empty_batches_have_explicit_nested_leaf_type(values: list[Any]) ->
 
 
 @pytest.mark.parametrize("counts", [(1, 3, 2), (3, 3, 3), (0, 0, 0)], ids=["variable", "uniform", "empty"])
-def test_nested_null_side_effect_survives_parquet_read(tmp_path: Path, counts: tuple[int, ...]) -> None:
+@pytest.mark.parametrize("encoded", [False, True], ids=["native", "json-encoded"])
+def test_nested_null_side_effect_survives_parquet_read(tmp_path: Path, counts: tuple[int, ...], encoded: bool) -> None:
     values = [[{"entries": [{"label": "synthetic", "optional": None} for _ in range(count)]}] for count in counts]
-    plan = JsonStoragePlan(columns={"payload": [[]]})
+    plan = JsonStoragePlan(columns={"payload": [[]]} if encoded else {})
     frame = pd.DataFrame({"side_effect": values, "payload": [{"x": 1}] * len(values), "ordinary": [1, 2, 3]})
     table = encode_storage_table(frame, plan)
     path = tmp_path / "batch.parquet"
@@ -93,7 +94,7 @@ def test_nested_null_side_effect_survives_parquet_read(tmp_path: Path, counts: t
     assert isinstance(restored["ordinary"].dtype, pd.ArrowDtype)
     assert restored["ordinary"].tolist() == [1, 2, 3]
     assert restored["payload"].tolist() == [{"x": 1}] * len(values)
-    assert restored.attrs[JSON_STORAGE_RUN_KEY] == plan.model_dump()
+    assert restored.attrs.get(JSON_STORAGE_RUN_KEY) == (plan.model_dump() if encoded else None)
     assert list(restored.columns) == list(frame.columns)
     assert original["side_effect"].to_pylist() == values
 
@@ -512,14 +513,6 @@ def test_legacy_partitioned_directory_keeps_native_columns(tmp_path: Path) -> No
     result = read_parquet_dataset(tmp_path).sort_values("value")
     assert result.to_dict("records") == values.to_dict("records")
     assert JSON_STORAGE_RUN_KEY not in result.attrs
-
-
-def test_decode_storage_table_rejects_unknown_dtype_backend() -> None:
-    table = pa.Table.from_pylist([{"payload": "1"}]).replace_schema_metadata(
-        {JSON_STORAGE_METADATA_KEY: JsonStoragePlan(columns={"payload": [[]]}).model_dump_json().encode()}
-    )
-    with pytest.raises(ValueError, match="dtype_backend must be"):
-        decode_storage_table(table, dtype_backend="bogus")  # type: ignore[arg-type]
 
 
 def test_encoded_partitioned_directory_restores_json_and_partition_columns(tmp_path: Path) -> None:

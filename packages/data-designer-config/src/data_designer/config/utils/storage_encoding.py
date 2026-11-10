@@ -18,6 +18,7 @@ from data_designer.config.utils.storage_schema import JSON_STORAGE_METADATA_KEY,
 if TYPE_CHECKING:
     import pandas as pd
     import pyarrow as pa
+    from pyarrow.dataset import ParquetFileFragment, Partitioning
 
 
 def read_storage_plan(schema: pa.Schema) -> JsonStoragePlan:
@@ -117,47 +118,13 @@ def encode_storage_table(dataframe: pd.DataFrame, plan: JsonStoragePlan) -> pa.T
     return table
 
 
-def decode_storage_table(
-    table: pa.Table, *, dtype_backend: Literal["pyarrow", "numpy_nullable"] | None = "pyarrow"
-) -> pd.DataFrame:
+def decode_storage_table(table: pa.Table) -> pd.DataFrame:
     """Restore logical JSON values without guessing from ordinary string contents."""
     plan = read_storage_plan(table.schema)
-    column_labels: dict[str, Any] = {}
-    if dtype_backend == "pyarrow":
-        # pandas' ArrowDtype conversion casts even identical types, which can corrupt
-        # nested null children in Arrow. Wrap nested arrays directly without a cast.
-        nested_columns = [field.name for field in table.schema if lazy.pa.types.is_nested(field.type)]
-        frame = _prepare_table_for_pandas(table.drop(nested_columns)).to_pandas(types_mapper=lazy.pd.ArrowDtype)
-        if nested_columns:
-            # An empty schema-only conversion restores pandas labels without touching
-            # real nested buffers. Physical Arrow names need not be pandas labels.
-            template = _prepare_table_for_pandas(table.schema.empty_table()).to_pandas(types_mapper=lazy.pd.ArrowDtype)
-            index_fields = [
-                name
-                for name in (table.schema.pandas_metadata or {}).get("index_columns", [])
-                if isinstance(name, str) and name in table.column_names
-            ]
-            data_fields = [name for name in table.column_names if name not in index_fields]
-            column_labels = dict(zip(data_fields, template.columns, strict=True))
-            if any(name in nested_columns for name in index_fields):
-                index_arrays = [lazy.pd.arrays.ArrowExtensionArray(table[name]) for name in index_fields]
-                frame.index = (
-                    lazy.pd.Index(index_arrays[0], name=template.index.name)
-                    if len(index_arrays) == 1
-                    else lazy.pd.MultiIndex.from_arrays(index_arrays, names=template.index.names)
-                )
-            for name in nested_columns:
-                if name not in index_fields:
-                    frame[column_labels[name]] = lazy.pd.Series(
-                        lazy.pd.arrays.ArrowExtensionArray(table[name]), index=frame.index
-                    )
-            frame = frame.reindex(columns=template.columns)
-    elif dtype_backend == "numpy_nullable":
-        frame = table.to_pandas(types_mapper=_get_numpy_nullable_type_mapping().get)
-    elif dtype_backend is None:
-        frame = table.to_pandas()
-    else:
-        raise ValueError(f"dtype_backend must be 'pyarrow', 'numpy_nullable' or None, got {dtype_backend!r}")
+    frame = _arrow_table_to_pandas(table)
+    index_fields = (table.schema.pandas_metadata or {}).get("index_columns", [])
+    data_fields = [name for name in table.column_names if name not in index_fields]
+    column_labels = dict(zip(data_fields, frame.columns, strict=True))
     for name, paths in plan.columns.items():
         values = []
         for row, value in enumerate(table[name].to_pylist()):
@@ -167,7 +134,7 @@ def decode_storage_table(
                 values.append(value)
             except (ValueError, TypeError, RecursionError) as exc:
                 raise InvalidFileFormatError(f"Cannot decode JSON storage column {name!r}, row {row}: {exc}") from exc
-        frame[column_labels.get(name, name)] = lazy.pd.Series(values, index=frame.index, dtype=object)
+        frame[column_labels[name]] = lazy.pd.Series(values, index=frame.index, dtype=object)
     if plan.columns:
         frame.attrs[JSON_STORAGE_RUN_KEY] = plan.model_dump()
     return frame
@@ -194,17 +161,34 @@ def read_encoded_parquet(
     *,
     dtype_backend: Literal["pyarrow", "numpy_nullable"] | None = "pyarrow",
 ) -> pd.DataFrame:
-    """Read annotated files individually to retain and validate each file's metadata."""
+    """Read native dtypes once and restore JSON values from validated fragments."""
     plan = validate_storage_plans(schemas)
     dataset = lazy.pq.ParquetDataset(path)
-    frames = []
-    for fragment in sorted(dataset.fragments, key=lambda item: item.path):
+    fragments = sorted(dataset.fragments, key=lambda item: item.path)
+    all_schemas = []
+    for fragment in fragments:
         schema = fragment.physical_schema
         for field in dataset.schema:
             if field.name not in schema.names:
                 schema = schema.append(field)
-        frames.append(decode_storage_table(fragment.to_table(schema=schema), dtype_backend=dtype_backend))
-    frame = lazy.pd.concat(frames, ignore_index=True)
+        all_schemas.append(schema)
+    names = list(dict.fromkeys(name for schema in all_schemas for name in schema.names))
+    native_schemas = [
+        lazy.pa.schema([field for field in schema if field.name not in plan.columns], metadata=schema.metadata)
+        for schema in all_schemas
+    ]
+    native = _read_native_fragments(fragments, native_schemas, dataset.partitioning, dtype_backend)
+    protected = lazy.pd.concat(
+        [decode_storage_table(fragment.to_table(columns=list(plan.columns))) for fragment in fragments],
+        ignore_index=True,
+    )
+    frame = lazy.pd.concat([native.reset_index(drop=True), protected], axis=1)
+    schema = lazy.pa.schema(
+        [next(schema.field(name) for schema in all_schemas if name in schema.names) for name in names],
+        metadata=all_schemas[0].metadata,
+    )
+    columns = _arrow_table_to_pandas(schema.empty_table()).columns
+    frame = frame.reindex(columns=columns)
     frame.attrs[JSON_STORAGE_RUN_KEY] = plan.model_dump()
     return frame
 
@@ -235,23 +219,70 @@ def _prepare_table_for_pandas(table: pa.Table) -> pa.Table:
     return table.replace_schema_metadata(updated)
 
 
-def _get_numpy_nullable_type_mapping() -> dict[pa.DataType, pd.api.extensions.ExtensionDtype]:
-    pa, pd = lazy.pa, lazy.pd
-    return {
-        pa.bool_(): pd.BooleanDtype(),
-        pa.int8(): pd.Int8Dtype(),
-        pa.int16(): pd.Int16Dtype(),
-        pa.int32(): pd.Int32Dtype(),
-        pa.int64(): pd.Int64Dtype(),
-        pa.uint8(): pd.UInt8Dtype(),
-        pa.uint16(): pd.UInt16Dtype(),
-        pa.uint32(): pd.UInt32Dtype(),
-        pa.uint64(): pd.UInt64Dtype(),
-        pa.float32(): pd.Float32Dtype(),
-        pa.float64(): pd.Float64Dtype(),
-        pa.string(): pd.StringDtype(),
-        pa.large_string(): pd.StringDtype(),
-    }
+def read_native_parquet(
+    path: str | Path | list[str],
+    *,
+    schema: pa.Schema | None = None,
+    partitioning: Partitioning | str | None = "hive",
+    dtype_backend: Literal["pyarrow", "numpy_nullable"] | None = "pyarrow",
+) -> pd.DataFrame:
+    """Read native columns without changing pandas' non-Arrow conversion policy.
+
+    Args:
+        path: A Parquet file, directory, or ordered fragment paths.
+        schema: The native schema to read, excluding JSON storage columns.
+        partitioning: Arrow partition discovery, or the dataset's existing partitioning.
+        dtype_backend: The requested pandas backend; None uses pandas defaults.
+
+    Returns:
+        Native columns as a DataFrame. Arrow-backed reads wrap the original
+        buffers directly; other backends use pandas' public Parquet reader.
+    """
+    kwargs: dict[str, Any] = {"partitioning": partitioning}
+    if schema is not None:
+        kwargs["schema"] = _prepare_table_for_pandas(schema.empty_table()).schema
+        kwargs["columns"] = schema.names
+    if dtype_backend == "pyarrow":
+        return _arrow_table_to_pandas(lazy.pq.read_table(path, **kwargs))
+    if dtype_backend is not None:
+        kwargs["dtype_backend"] = dtype_backend
+    return lazy.pd.read_parquet(path, **kwargs)
+
+
+def _read_native_fragments(
+    fragments: list[ParquetFileFragment],
+    schemas: list[pa.Schema],
+    partitioning: Partitioning | None,
+    dtype_backend: Literal["pyarrow", "numpy_nullable"] | None,
+) -> pd.DataFrame:
+    try:
+        unified = lazy.pa.unify_schemas(schemas, promote_options="permissive")
+    except (lazy.pa.ArrowInvalid, lazy.pa.ArrowTypeError):
+        return lazy.pd.concat(
+            [
+                read_native_parquet(
+                    [fragment.path], schema=schema, partitioning=partitioning, dtype_backend=dtype_backend
+                )
+                for fragment, schema in zip(fragments, schemas)
+            ],
+            ignore_index=True,
+        )
+    return read_native_parquet(
+        [fragment.path for fragment in fragments],
+        schema=unified,
+        partitioning=partitioning,
+        dtype_backend=dtype_backend,
+    )
+
+
+def _arrow_table_to_pandas(table: pa.Table) -> pd.DataFrame:
+    """Use pandas' Arrow extension hook without recasting the original arrays."""
+
+    class PreservingArrowDtype(lazy.pd.ArrowDtype):
+        def __from_arrow__(self, array: pa.Array | pa.ChunkedArray) -> pd.arrays.ArrowExtensionArray:
+            return lazy.pd.arrays.ArrowExtensionArray(array)
+
+    return _prepare_table_for_pandas(table).to_pandas(types_mapper=PreservingArrowDtype)
 
 
 def _transform_value(value: Any, path: list[str | None], *, encode: bool) -> Any:
