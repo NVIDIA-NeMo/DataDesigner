@@ -35,6 +35,75 @@ Most self-hosted and third-party endpoints expose an OpenAI-compatible API, so `
 
 > **Note:** Previous versions of Data Designer supported additional provider types (e.g., `"azure"`, `"bedrock"`, `"vertex_ai"`) via a LiteLLM bridge. These are no longer supported. If you were using one of these types, switch to `provider_type="openai"` and point the `endpoint` to an OpenAI-compatible proxy or gateway for that service.
 
+## OpenAI Responses API
+
+Keep `provider_type="openai"` and set `ModelConfig.api="responses"` to route
+normal generation and MCP calls to `/responses`. The default is `"chat-completions"`.
+Models can share the same provider while selecting different APIs.
+
+```python
+from data_designer.config.models import ChatCompletionInferenceParams, ModelConfig, ModelProvider
+
+provider = ModelProvider(
+    name="openai",
+    provider_type="openai",
+    endpoint="https://api.openai.com/v1",
+    api_key="OPENAI_API_KEY",
+)
+model = ModelConfig(
+    alias="reasoning",
+    model="gpt-5.6-luna",
+    provider="openai",
+    api="responses",
+    inference_parameters=ChatCompletionInferenceParams(
+        max_tokens=4096,
+        extra_body={"reasoning": {"effort": "medium"}},
+    ),
+)
+```
+
+Use this provider and model in your `DataDesigner` and `DataDesignerConfigBuilder`
+configuration. Text, code, judge, image-context, and MCP columns use the selected
+route in both sync and async generation. The `api` option applies only to
+chat-completion inference parameters.
+
+`max_tokens` maps to `max_output_tokens`. `reasoning_effort` in `extra_body` also
+maps to `reasoning.effort`; specify only one form. Structured outputs map to
+`text.format`. Model-specific sampling restrictions still apply.
+
+Requests use `store=false` and include `reasoning.encrypted_content`. DD replays
+ordered output items, including encrypted reasoning and function calls, on every
+MCP round. Direct `ModelFacade.responses()` / `aresponses()` callers can carry
+`response.message.replay_data` into the next assistant `ChatMessage` using its
+`replay_data` field. Keep the original conversation and tool results in order,
+following [OpenAI conversation-state guidance](https://developers.openai.com/api/docs/guides/conversation-state).
+
+`responses()` / `aresponses()` explicitly select the provider's conversation API,
+regardless of the model's `api` setting. `completion()` / `acompletion()` retain
+the existing API. For Anthropic, the conversation API is its native Messages API
+and replay data preserves thinking blocks and signatures.
+
+```python
+from data_designer.engine.models.utils import ChatMessage
+
+# model is a ModelFacade returned by DataDesigner.get_models().
+history = [ChatMessage.as_user("First question")]
+response = await model.aresponses(history)
+history.append(ChatMessage.as_assistant(
+    content=response.message.content or "",
+    replay_data=response.message.replay_data,
+))
+history.append(ChatMessage.as_user("Follow-up question"))
+response = await model.aresponses(history)
+```
+
+The adapter rejects streaming, background execution, server-stored conversations,
+multiple choices, stop sequences, seed, frequency/presence penalties, and hosted
+tools. It supports DD-managed function tools. Configure an Azure OpenAI v1 base
+endpoint and its required authentication headers explicitly; legacy deployment
+URLs, API-version query parameters, and automatic Azure credential refresh are
+not handled by this adapter.
+
 ## API Key Configuration
 
 The `api_key` field can be specified in two ways:

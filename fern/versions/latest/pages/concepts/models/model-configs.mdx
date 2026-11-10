@@ -21,6 +21,7 @@ The `ModelConfig` class has the following fields:
 | `model` | `str` | Yes | Model identifier as recognized by the provider (e.g., `"nvidia/nemotron-3.5-lightning-30b-a3b"`, `"gpt-4"`) |
 | `inference_parameters` | `InferenceParamsT` | No | Controls model behavior during generation. Use `ChatCompletionInferenceParams` for text/code/structured generation or `EmbeddingInferenceParams` for embeddings. Defaults to `ChatCompletionInferenceParams()` if not provided. The generation type is automatically determined by the inference parameters type. See [Inference Parameters](/concepts/models/inference-parameters) for details. |
 | `provider` | `str` | Yes | Reference to the name of the Provider to use (e.g., `"nvidia"`, `"openai"`, `"openrouter"`). |
+| `api` | `Literal["chat-completions", "responses"]` | No | API used by generation and MCP loops. Defaults to `"chat-completions"`. See [Responses API](/concepts/models/model-providers#openai-responses-api). |
 | `skip_health_check` | `bool` | No | Whether to skip the health check for this model. Defaults to `False`. Set to `True` to skip health checks when you know the model is accessible or want to defer validation. |
 
 <Warning title="Upgrade note">
