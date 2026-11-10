@@ -16,6 +16,7 @@ from pyarrow import ArrowNotImplementedError
 
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.utils.io_helpers import load_processor_dataset
+from data_designer.config.utils.storage_schema import JSON_STORAGE_RUN_KEY, JsonStoragePlan
 from data_designer.engine.dataset_builders.errors import ArtifactStorageError
 from data_designer.engine.storage.artifact_storage import ArtifactStorage, BatchStage, ResumeMode
 
@@ -216,6 +217,48 @@ def test_artifact_storage_batch_numbering(stub_artifact_storage, batch_number):
     path = stub_artifact_storage.create_batch_file_path(batch_number, BatchStage.FINAL_RESULT)
     expected_name = f"batch_{batch_number:05d}.parquet"
     assert path.name == expected_name
+
+
+@pytest.mark.parametrize("stage", [BatchStage.FINAL_RESULT, BatchStage.DROPPED_COLUMNS, BatchStage.PROCESSORS_OUTPUTS])
+@pytest.mark.parametrize("size", [0, 3])
+def test_artifact_storage_repeated_annotated_load_write_load(tmp_path: Path, stage: BatchStage, size: int) -> None:
+    plan = JsonStoragePlan(columns={"payload": [[]]})
+    frame = lazy.pd.DataFrame(
+        {"payload": [{"x": 1}, {"x": 2}, None], "nested": [[1, 2], [], None], "ordinary": [10, 20, 30]}
+    ).iloc[:size]
+    expected_nested = frame["nested"].tolist()
+    expected_payload = frame["payload"].tolist()
+    expected_ordinary = frame["ordinary"].tolist()
+
+    for cycle in range(3):
+        storage = ArtifactStorage(artifact_path=tmp_path, dataset_name=f"cycle_{cycle}")
+        path = storage.write_parquet_file("batch.parquet", frame, stage, json_storage=plan)
+        frame = storage.read_parquet_files(path)
+
+        assert list(frame.columns) == ["payload", "nested", "ordinary"]
+        assert frame["nested"].array.__arrow_array__().to_pylist() == expected_nested
+        assert frame["payload"].tolist() == expected_payload
+        assert frame["ordinary"].tolist() == expected_ordinary
+        assert frame.attrs[JSON_STORAGE_RUN_KEY] == plan.model_dump()
+        frame["nested"].array.__arrow_array__().validate(full=True)
+
+
+def test_artifact_storage_unsupported_native_type_fails_without_mutation(tmp_path: Path) -> None:
+    array = lazy.pa.UnionArray.from_sparse(
+        lazy.pa.array([0, 0], type=lazy.pa.int8()), [lazy.pa.array([1, 2])], field_names=["value"]
+    )
+    frame = lazy.pd.DataFrame({"payload": [{}, {}], "unsupported": lazy.pd.arrays.ArrowExtensionArray(array)})
+    original = frame.copy(deep=True)
+    storage = ArtifactStorage(artifact_path=tmp_path, json_storage=JsonStoragePlan(columns={"payload": [[]]}))
+
+    with pytest.raises(ArtifactStorageError, match="Cannot serialize column 'unsupported'"):
+        storage.write_parquet_file("batch.parquet", frame, BatchStage.FINAL_RESULT)
+
+    assert list(frame.columns) == list(original.columns)
+    assert frame["payload"].tolist() == original["payload"].tolist()
+    assert frame["unsupported"].array.__arrow_array__().equals(original["unsupported"].array.__arrow_array__())
+    assert not (storage.final_dataset_path / "batch.parquet").exists()
+    assert not list(storage.final_dataset_path.glob("*.tmp"))
 
 
 @patch("data_designer.engine.storage.artifact_storage.datetime")
