@@ -30,6 +30,33 @@ def concat_datasets(datasets: list[pd.DataFrame]) -> pd.DataFrame:
     return lazy.pd.concat([df for df in datasets], axis=1)
 
 
+def dataframe_to_records(df: pd.DataFrame) -> list[dict[str, Any]]:
+    """Convert a DataFrame to one dict per row, with None for each missing text value.
+
+    pandas 3 holds a missing value in a text column as NaN (``pd.NA`` for the ``string`` dtypes). Both are
+    truthy and fail Jinja's ``is none`` test, so a missing value in a text or object column becomes None.
+    Values in numeric, datetime and other columns, and values nested inside a cell, are left unchanged.
+
+    Args:
+        df: DataFrame to convert.
+
+    Returns:
+        The rows of ``df`` as dicts keyed by column name.
+    """
+    # Columns are addressed by position, so a repeated column name converts like any other.
+    text_positions_with_missing = [
+        position
+        for position, dtype in enumerate(df.dtypes)
+        if lazy.pd.api.types.is_string_dtype(dtype) and df.iloc[:, position].hasnans
+    ]
+    if text_positions_with_missing:
+        df = df.copy(deep=False)
+        for position in text_positions_with_missing:
+            column = df.iloc[:, position]
+            df.isetitem(position, column.astype(object).where(column.notna(), None))
+    return df.to_dict(orient="records")
+
+
 # Overloads to help static type checker better understand
 # the input/output types of the deserialize_json_values function.
 @overload

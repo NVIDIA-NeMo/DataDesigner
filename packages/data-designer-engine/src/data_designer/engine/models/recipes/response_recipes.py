@@ -106,11 +106,11 @@ class StructuredResponseRecipe(ResponseRecipe[dict]):
         return "```json\n{example}\n```"
 
     def generate_response_example(self, example: dict) -> str:
-        return self.example_template.format(example=json.dumps(example))
+        return self.example_template.format(example=json.dumps(example, ensure_ascii=False))
 
     @property
     def schema(self) -> str:
-        return json.dumps(self.json_schema)
+        return json.dumps(self.json_schema, ensure_ascii=False)
 
     def serialize_output(self, output: dict) -> str:
         return json.dumps(output, ensure_ascii=False)
@@ -182,7 +182,7 @@ class PydanticResponseRecipe(ResponseRecipe[BaseModel]):
 
     @property
     def schema(self) -> str:
-        return json.dumps(self.data_type.model_json_schema())
+        return json.dumps(self.data_type.model_json_schema(), ensure_ascii=False)
 
     @property
     def task_instructions(self) -> str:

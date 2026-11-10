@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 from data_designer.config.utils.storage_encoding import create_logical_dataframe
 from data_designer.engine.dataset_builders.utils.skip_tracker import strip_skip_metadata_from_records
+from data_designer.engine.processing.utils import dataframe_to_records
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -89,7 +90,7 @@ class RowGroupBufferManager:
         If *df* has fewer rows than active slots, trailing slots are marked as dropped.
         """
         dropped = self._dropped.get(row_group, set())
-        records = df.to_dict(orient="records")
+        records = dataframe_to_records(df)
         buf_idx = 0
         for ri in range(self._row_group_sizes[row_group]):
             if ri in dropped:
