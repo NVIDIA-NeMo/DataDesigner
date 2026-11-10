@@ -312,3 +312,22 @@ def test_generate_respects_run_config_jinja_rendering_engine() -> None:
 
     with pytest.raises(UserTemplateUnsupportedFiltersError):
         secure_generator.generate(df)
+
+
+@pytest.mark.parametrize("dtype", [None, "string"], ids=["inferred", "string"])
+def test_generate_sees_a_missing_text_value_as_none(dtype: str | None) -> None:
+    config = _create_test_config("rendered", "{{ 'MISSING' if value is none else 'PRESENT' }}", "str")
+    df = lazy.pd.DataFrame({"value": lazy.pd.Series(["present", None, ""], dtype=dtype)})
+
+    result = _create_test_generator(config).generate(df)
+
+    assert result["rendered"].tolist() == ["PRESENT", "MISSING", "PRESENT"]
+
+
+def test_generate_keeps_nested_values() -> None:
+    config = _create_test_config("rendered", "{{ 'NONE' if payload['key'] is none else payload['key'] }}", "str")
+    df = lazy.pd.DataFrame({"payload": [{"key": None}, {"key": "set"}]})
+
+    result = _create_test_generator(config).generate(df)
+
+    assert result["rendered"].tolist() == ["NONE", "set"]

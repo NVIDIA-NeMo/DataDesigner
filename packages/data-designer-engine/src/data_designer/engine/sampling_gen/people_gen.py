@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any, TypeAlias
 
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.utils.constants import DEFAULT_AGE_RANGE
+from data_designer.engine.processing.utils import dataframe_to_records
 from data_designer.engine.resources.managed_dataset_generator import ManagedDatasetGenerator
 from data_designer.engine.sampling_gen.entities.dataset_based_person_fields import PERSONA_FIELDS, PII_FIELDS
 from data_designer.engine.sampling_gen.entities.person import (
@@ -132,11 +133,6 @@ class PeopleGenFromDataset(PeopleGen):
         # Generate samples and drop columns where all rows are null.
         df = self._engine.generate_samples(size=n, evidence=kw).dropna(axis=1, how="all")
 
-        # A value missing from only some rows becomes None: a pandas string column holds it as NaN,
-        # which is truthy and not JSON-serializable.
-        for column in df.columns[df.isna().any()]:
-            df[column] = df[column].astype(object).where(df[column].notna(), None)
-
         # We need this for derived fields.
         df["locale"] = self.locale
 
@@ -150,7 +146,7 @@ class PeopleGenFromDataset(PeopleGen):
     def generate(self, n: int, **kwargs) -> list[dict[str, Any]]:
         return [
             generate_and_insert_derived_fields(p)
-            for p in self._generate_from_dataset(n, **kwargs).to_dict(orient="records")
+            for p in dataframe_to_records(self._generate_from_dataset(n, **kwargs))
         ]
 
 
