@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any, Literal, Self, TypeAlias
 
 from pydantic import BaseModel, ConfigDict, create_model, field_validator, model_validator
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.column_types import DataDesignerColumnType
 from data_designer.config.sampler_params import SamplerType
 from data_designer.config.utils.constants import EPSILON
@@ -347,6 +348,15 @@ class CategoricalDistribution(BaseModel):
         )
 
 
+def _undefined_as_nan(value: Any) -> Any:
+    """Report a statistic that pandas leaves undefined as NaN.
+
+    The sample standard deviation of a single value is NaN for NumPy-backed series but `pd.NA` for
+    nullable and Arrow-backed ones, and `pd.NA` cannot be converted to a float.
+    """
+    return float("nan") if value is lazy.pd.NA else value
+
+
 class NumericalDistribution(BaseModel):
     """Container for computed numerical distribution statistics.
 
@@ -374,7 +384,7 @@ class NumericalDistribution(BaseModel):
             min=series.min(skipna=True),
             max=series.max(skipna=True),
             mean=series.mean(skipna=True),
-            stddev=series.std(skipna=True),
+            stddev=_undefined_as_nan(series.std(skipna=True)),
             median=series.median(skipna=True),
         )
 
