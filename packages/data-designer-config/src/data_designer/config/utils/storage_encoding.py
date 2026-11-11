@@ -189,6 +189,7 @@ def read_encoded_parquet(
     )
     columns = _arrow_table_to_pandas(schema.empty_table()).columns
     frame = frame.reindex(columns=columns)
+    frame.attrs.update(protected.attrs)
     frame.attrs[JSON_STORAGE_RUN_KEY] = plan.model_dump()
     return frame
 
@@ -255,9 +256,27 @@ def _read_native_fragments(
     partitioning: Partitioning | None,
     dtype_backend: Literal["pyarrow", "numpy_nullable"] | None,
 ) -> pd.DataFrame:
+    """Retain native column dtypes even when another column needs fragment fallback."""
     try:
         unified = lazy.pa.unify_schemas(schemas, promote_options="permissive")
+        return read_native_parquet(
+            [fragment.path for fragment in fragments],
+            schema=unified,
+            partitioning=partitioning,
+            dtype_backend=dtype_backend,
+        )
     except (lazy.pa.ArrowInvalid, lazy.pa.ArrowTypeError):
+        names = list(dict.fromkeys(name for schema in schemas for name in schema.names))
+        if len(names) > 1:
+            columns = []
+            for name in names:
+                column_schemas = [
+                    lazy.pa.schema([field for field in schema if field.name == name], metadata=schema.metadata)
+                    for schema in schemas
+                ]
+                column = _read_native_fragments(fragments, column_schemas, partitioning, dtype_backend)
+                columns.append(column.reset_index(drop=True))
+            return lazy.pd.concat(columns, axis=1)
         return lazy.pd.concat(
             [
                 read_native_parquet(
@@ -267,12 +286,6 @@ def _read_native_fragments(
             ],
             ignore_index=True,
         )
-    return read_native_parquet(
-        [fragment.path for fragment in fragments],
-        schema=unified,
-        partitioning=partitioning,
-        dtype_backend=dtype_backend,
-    )
 
 
 def _arrow_table_to_pandas(table: pa.Table) -> pd.DataFrame:

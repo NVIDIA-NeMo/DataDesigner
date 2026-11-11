@@ -74,7 +74,11 @@ def test_load_dataset(stub_dataset_creation_results, stub_artifact_storage, stub
     lazy.pd.testing.assert_frame_equal(dataset, stub_dataframe)
 
 
-@pytest.mark.parametrize("encoded", [False, True], ids=["native", "json-encoded"])
+@pytest.mark.parametrize(
+    ("encoded", "first_score"),
+    [(False, 9), (True, 9), (True, 2**53 + 1)],
+    ids=["native", "json-encoded", "read-fallback"],
+)
 @pytest.mark.parametrize(
     ("dtype_backend", "expected_dtype"),
     [
@@ -87,6 +91,7 @@ def test_load_dataset_selects_native_dtypes(
     tmp_path: Path,
     stub_dataset_creation_results: DatasetCreationResults,
     encoded: bool,
+    first_score: int,
     dtype_backend: str | None,
     expected_dtype: object,
 ) -> None:
@@ -104,10 +109,12 @@ def test_load_dataset_selects_native_dtypes(
                     "label": ["a" if batch_number == 0 else None],
                     "category": lazy.pd.Categorical(["a" if batch_number == 0 else "b"]),
                     "timestamp": timestamps[batch_number : batch_number + 1],
+                    "native_struct": [{"score": first_score if batch_number == 0 else 0.5}],
                     "payload": [payload],
                     "tags": [["x" if batch_number == 0 else "y"]],
                 }
             )
+            batch.attrs["external"] = {"units": "USD"}
             paths.append(storage.write_batch_to_parquet_file(batch_number, batch, BatchStage.FINAL_RESULT))
         stub_dataset_creation_results.artifact_storage = storage
         result = stub_dataset_creation_results.load_dataset(dtype_backend=dtype_backend)
@@ -116,6 +123,7 @@ def test_load_dataset_selects_native_dtypes(
         assert result["id"].dtype == expected_dtype
         assert (result["payload"].dtype == object) is (encoded or dtype_backend != "pyarrow")
         assert result["payload"].tolist() == payloads
+        assert [value["score"] for value in result["native_struct"]] == [first_score, 0.5]
         assert (result["tags"].dtype == object) is (dtype_backend != "pyarrow")
         assert [list(tags) for tags in result["tags"]] == [["x"], ["y"]]
         assert result.attrs.get(JSON_STORAGE_RUN_KEY) == (plan.model_dump() if encoded else None)
@@ -127,6 +135,7 @@ def test_load_dataset_selects_native_dtypes(
                 if source == storage.final_dataset_path
                 else read_parquet_dataset(source, dtype_backend=dtype_backend)
             )
+            assert actual.attrs["external"] == {"units": "USD"}
             expected = lazy.pd.read_parquet(source, columns=scalar_columns, **kwargs)
             lazy.pd.testing.assert_frame_equal(actual[scalar_columns], expected)
 
