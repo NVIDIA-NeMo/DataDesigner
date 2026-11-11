@@ -8,11 +8,11 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from data_designer.config.analysis.column_statistics import ColumnDistributionType
+from data_designer.config.analysis.column_statistics import ColumnDistributionType, NumericalDistribution
 from data_designer.config.column_configs import ExpressionColumnConfig, SamplerColumnConfig
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.models import ModelProvider
-from data_designer.config.run_config import RunConfig
+from data_designer.config.run_config import ResumeMode, RunConfig
 from data_designer.config.sampler_params import SamplerType, UniformSamplerParams
 from data_designer.config.seed_source_dataframe import DataFrameSeedSource
 from data_designer.engine.secret_resolver import PlaintextResolver
@@ -86,3 +86,26 @@ def test_profile_keeps_the_distribution_of_a_single_record_numerical_sampler(des
     assert statistics.distribution.mean == pytest.approx(sampled, abs=0.01)
     assert statistics.distribution.median == pytest.approx(sampled, abs=0.01)
     assert statistics.distribution.stddev != statistics.distribution.stddev  # NaN: undefined for one record
+
+
+def test_single_record_distribution_survives_saved_metadata_and_resume(designer: DataDesigner) -> None:
+    config = DataDesignerConfigBuilder()
+    config.add_column(
+        SamplerColumnConfig(name="value", sampler_type=SamplerType.UNIFORM, params=UniformSamplerParams(low=0, high=10))
+    )
+
+    created = designer.create(config, num_records=1, dataset_name="profile_resume")
+    saved = created.artifact_storage.read_metadata()["column_statistics"][0]["distribution"]
+    reloaded = NumericalDistribution.model_validate(saved)
+    sampled = float(created.load_dataset()["value"].iloc[0])
+    assert reloaded.mean == pytest.approx(sampled, abs=0.01)
+    assert reloaded.stddev != reloaded.stddev  # NaN survives the JSON round trip
+
+    resumed = designer.create(config, num_records=1, dataset_name="profile_resume", resume=ResumeMode.ALWAYS)
+    statistics = _statistics(resumed.load_analysis(), "value")
+    assert statistics.distribution.mean == pytest.approx(sampled, abs=0.01)
+    assert statistics.distribution.stddev != statistics.distribution.stddev
+    resaved = NumericalDistribution.model_validate(
+        resumed.artifact_storage.read_metadata()["column_statistics"][0]["distribution"]
+    )
+    assert resaved.stddev != resaved.stddev
