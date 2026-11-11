@@ -6,6 +6,7 @@ from __future__ import annotations
 import tempfile
 from datetime import date, datetime, timedelta
 from decimal import Decimal
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -22,7 +23,8 @@ from data_designer.config.utils.io_helpers import (
 )
 
 
-def test_read_parquet_dataset_unifies_nested_numeric_types(tmp_path) -> None:
+@pytest.mark.parametrize("dtype_backend", ["pyarrow", "numpy_nullable", None])
+def test_read_parquet_dataset_unifies_nested_numeric_types(tmp_path: Path, dtype_backend: str | None) -> None:
     evaluations = [
         {"evaluations": [{"overall": {"score": 9}}]},
         {"evaluations": [{"overall": {"score": 9.5}}]},
@@ -36,11 +38,36 @@ def test_read_parquet_dataset_unifies_nested_numeric_types(tmp_path) -> None:
     schemas = [lazy.pq.read_schema(file) for file in sorted(tmp_path.glob("*.parquet"))]
     assert schemas[0] != schemas[1]
 
-    result = read_parquet_dataset(tmp_path)
+    result = read_parquet_dataset(tmp_path, dtype_backend=dtype_backend)
 
     scores = [row["evaluations"][0]["overall"]["score"] for row in result["qa_evaluations"]]
     assert scores == [9.0, 9.5]
     assert all(isinstance(score, float) for score in scores)
+
+
+@pytest.mark.parametrize(
+    ("dtype_backend", "expected_dtype"),
+    [
+        ("pyarrow", lazy.pd.ArrowDtype(lazy.pa.int64())),
+        ("numpy_nullable", lazy.pd.Int64Dtype()),
+        (None, lazy.np.dtype("int64")),
+    ],
+)
+def test_read_parquet_dataset_fallback_honors_dtype_backend(
+    tmp_path: Path, dtype_backend: str | None, expected_dtype: object
+) -> None:
+    for batch in range(2):
+        lazy.pd.DataFrame({"id": [batch], "meta": [{"score": 9}]}).to_parquet(
+            tmp_path / f"batch_{batch}.parquet", index=False
+        )
+
+    with patch.object(lazy.pa, "unify_schemas", side_effect=lazy.pa.ArrowInvalid("forced")):
+        result = read_parquet_dataset(tmp_path, dtype_backend=dtype_backend)
+
+    assert result["id"].dtype == expected_dtype
+    assert result["id"].tolist() == [0, 1]
+    assert result["meta"].tolist() == [{"score": 9}, {"score": 9}]
+    assert (result["meta"].dtype == object) is (dtype_backend != "pyarrow")
 
 
 def test_smart_load_yaml():
