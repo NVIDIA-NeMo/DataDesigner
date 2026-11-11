@@ -1,6 +1,10 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from __future__ import annotations
+
+from unittest.mock import patch
+
 import pytest
 
 from data_designer.cli.forms.field import ValidationError
@@ -524,3 +528,13 @@ def test_validate_encoding_format_accepts_clear_keywords() -> None:
         is_valid, error = builder.validate_encoding_format(keyword)
         assert is_valid is True, f"Failed for keyword: {keyword}"
         assert error is None
+
+
+@pytest.mark.parametrize("api", ["chat-completions", "responses"])
+def test_edit_model_preserves_api(api: str) -> None:
+    initial = ModelConfig(alias="test", model="gpt-test", provider="openai", api=api)
+    answers = [{"alias": "test", "model": "updated", "generation_type": GenerationType.CHAT_COMPLETION}, {}]
+    with patch("data_designer.cli.forms.form.Form.prompt_all", side_effect=answers):
+        updated = ModelFormBuilder(available_providers=["openai"]).run(initial.model_dump())
+    assert updated.model == "updated"
+    assert updated.api == api

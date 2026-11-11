@@ -143,6 +143,8 @@ def _drop_empty_optional(source: dict[str, Any], keys: Iterable[str]) -> dict[st
 
 def _normalize_model_config(model_config: dict[str, Any]) -> dict[str, Any]:
     normalized = _drop_keys(model_config, _EXCLUDED_MODEL_KEYS)
+    if normalized.get("api") == "chat-completions":
+        normalized.pop("api")  # Preserve fingerprints from before API selection was added.
     inference_params = normalized.get("inference_parameters")
     if isinstance(inference_params, dict):
         normalized["inference_parameters"] = _drop_keys(inference_params, _EXCLUDED_INFERENCE_KEYS)

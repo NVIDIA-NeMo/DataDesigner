@@ -107,6 +107,7 @@ _COMPLETION_REQUEST_FIELDS = frozenset(
         "stop",
         "seed",
         "response_format",
+        "api",
         "frequency_penalty",
         "presence_penalty",
         "timeout",
@@ -307,6 +308,16 @@ class ModelFacade:
                     is_request_successful=response is not None,
                 )
 
+    def responses(self, messages: list[ChatMessage], **kwargs: Any) -> ChatCompletionResponse:
+        """Return an answer and replay data using the provider's conversation API."""
+        kwargs["api"] = "responses"
+        return self.completion(messages, **kwargs)
+
+    async def aresponses(self, messages: list[ChatMessage], **kwargs: Any) -> ChatCompletionResponse:
+        """Async counterpart of responses()."""
+        kwargs["api"] = "responses"
+        return await self.acompletion(messages, **kwargs)
+
     # --- generate / agenerate ---
 
     @catch_llm_exceptions
@@ -410,7 +421,8 @@ class ModelFacade:
                 completion_kwargs.pop("tool_choice", None)
 
             try:
-                completion_response = self.completion(
+                completion = self.responses if self._model_config.api == "responses" else self.completion
+                completion_response = completion(
                     messages,
                     skip_usage_tracking=skip_usage_tracking,
                     allow_multiple_choices=False,
@@ -557,7 +569,8 @@ class ModelFacade:
                 completion_kwargs.pop("tool_choice", None)
 
             try:
-                completion_response = await self.acompletion(
+                completion = self.aresponses if self._model_config.api == "responses" else self.acompletion
+                completion_response = await completion(
                     messages,
                     skip_usage_tracking=skip_usage_tracking,
                     allow_multiple_choices=False,

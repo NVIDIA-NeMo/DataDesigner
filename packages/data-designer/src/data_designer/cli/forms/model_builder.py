@@ -276,6 +276,8 @@ class ModelFormBuilder(FormBuilder[ModelConfig]):
 
             # Merge results
             full_data = {**basic_result, "inference_parameters": inference_params}
+            if initial_data:
+                full_data["api"] = initial_data.get("api", "chat-completions")
 
             try:
                 config = self.build_config(full_data)
@@ -319,6 +321,7 @@ class ModelFormBuilder(FormBuilder[ModelConfig]):
         return ModelConfig(
             alias=form_data["alias"],
             model=form_data["model"],
+            api=form_data.get("api", "chat-completions"),
             provider=provider,
             inference_parameters=inference_params,
         )
