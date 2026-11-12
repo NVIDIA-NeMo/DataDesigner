@@ -306,7 +306,7 @@ Write the report to `/tmp/audit-{{suite}}.md`:
 
 | Check | Status | Detail |
 |-------|--------|--------|
-| Package imports | OK/FAIL | All three packages import cleanly |
+| Package imports | OK/FAIL | All four packages import cleanly |
 | Import timing | OK/FAIL | X.XXs (budget: 3s) |
 | Registry completeness | OK/WARN | Column types resolve to config classes |
 

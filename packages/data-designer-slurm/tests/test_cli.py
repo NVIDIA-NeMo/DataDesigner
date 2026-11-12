@@ -1,0 +1,1000 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+from __future__ import annotations
+
+import json
+import re
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+from click.testing import CliRunner
+from pydantic import BaseModel
+
+import data_designer.slurm.cli as cli_module
+import data_designer.slurm.cli_benchmark as benchmark_cli_module
+from data_designer.slurm.benchmark import BenchmarkManifest, BenchmarkReport
+from data_designer.slurm.config import (
+    DataDesignerSlurmBenchmarkConfig,
+    DataDesignerSlurmConfig,
+    ImageBuildRequest,
+    ImageInspectionRecord,
+)
+from data_designer.slurm.images.records import RegisteredImage
+from data_designer.slurm.services import (
+    SlurmCollectionExecution,
+    SlurmRetryExecution,
+    SlurmRunExecution,
+    SlurmServiceError,
+    SlurmServiceErrorCode,
+    SlurmServiceOperation,
+)
+from data_designer.slurm.state import CollectionState
+
+
+def _timestamped_lines(output: str) -> list[str]:
+    lines: list[str] = []
+    for line in output.splitlines():
+        match = re.fullmatch(r"\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\] (.*)", line)
+        assert match is not None, line
+        lines.append(match.group(1))
+    return lines
+
+
+class _RunService:
+    def __init__(self) -> None:
+        self.calls: list[tuple[DataDesignerSlurmConfig, Path, bool]] = []
+        self.retry_calls: list[tuple[str, tuple[str, ...] | None, str, bool]] = []
+        self.collection_calls: list[tuple[str | Path, Path | None, int | None]] = []
+
+    def execute(
+        self,
+        config: DataDesignerSlurmConfig,
+        *,
+        source_root: Path,
+        dry_run: bool,
+    ) -> SlurmRunExecution:
+        self.calls.append((config, source_root, dry_run))
+        return SlurmRunExecution(
+            run_id="run-0001",
+            state="dry_run" if dry_run else "submitted",
+            plan_sha256="1" * 64,
+            shard_count=1,
+            batch_script="#!/bin/bash\n" if dry_run else None,
+            job_id=None if dry_run else 43,
+        )
+
+    def retry(
+        self,
+        run_or_job_id: str,
+        *,
+        shard_ids: tuple[str, ...] | None,
+        resume: str,
+        dry_run: bool,
+    ) -> SlurmRetryExecution:
+        self.retry_calls.append((run_or_job_id, shard_ids, resume, dry_run))
+        selected = ("shard-00000",) if shard_ids is None else shard_ids
+        return SlurmRetryExecution(
+            run_id="run-0001",
+            state="dry_run" if dry_run else "submitted",
+            shard_ids=selected,
+            attempt_ids=tuple("attempt-0002" for _ in selected),
+            effective_resume_mode="always",
+            job_id=None if dry_run else 43,
+            batch_script="#!/bin/bash\n" if dry_run else None,
+        )
+
+    def collect(
+        self,
+        input_path: str | Path,
+        *,
+        destination: Path | None,
+        num_partitions: int | None,
+    ) -> SlurmCollectionExecution:
+        self.collection_calls.append((input_path, destination, num_partitions))
+        return SlurmCollectionExecution(
+            run_id="run-0001",
+            collection_id="collection-0001",
+            state=CollectionState.SUBMITTED,
+            job_id=43,
+            output_path=(destination or Path("/workspace/runs/run-0001/merge-output")).resolve().as_posix(),
+            num_partitions=1 if num_partitions is None else num_partitions,
+        )
+
+
+class _BenchmarkService:
+    def __init__(self, manifest: BenchmarkManifest, report: BenchmarkReport) -> None:
+        self.manifest = manifest
+        self.report = report
+        self.run_calls = []
+        self.analysis_calls = []
+
+    def run(self, config, *, source_root, force):
+        self.run_calls.append((config, source_root, force))
+        return self.manifest
+
+    def analyze(self, benchmark_id, *, refresh_state, fail_if_incomplete):
+        self.analysis_calls.append((benchmark_id, refresh_state, fail_if_incomplete))
+        return self.report
+
+
+@pytest.fixture(autouse=True)
+def json_output_for_existing_contract_tests(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep existing JSON contract assertions explicit while the CLI default changes."""
+    monkeypatch.setenv("DATA_DESIGNER_SLURM_OUTPUT", "json")
+
+
+def test_default_output_is_readable_and_json_is_explicit(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("DATA_DESIGNER_SLURM_OUTPUT")
+    run_file = tmp_path / "run.json"
+    run_file.write_text(authored_run_single.serialize_json())
+    monkeypatch.setattr(cli_module, "create_slurm_run_service", lambda **_: _RunService())
+
+    human = CliRunner().invoke(cli_module.create_cli(), ["execute", str(run_file), "--dry-run"])
+    machine = CliRunner().invoke(cli_module.create_cli(), ["--output", "json", "execute", str(run_file), "--dry-run"])
+
+    assert human.exit_code == machine.exit_code == 0
+    assert "Run id: run-0001" in human.stdout
+    assert "State: dry_run" in human.stdout
+    assert "Batch script:\n  #!/bin/bash" in human.stdout
+    assert json.loads(machine.stdout)["run_id"] == "run-0001"
+
+
+def test_submitted_run_hides_absent_batch_script_in_human_output(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("DATA_DESIGNER_SLURM_OUTPUT")
+    run_file = tmp_path / "run.json"
+    run_file.write_text(authored_run_single.serialize_json())
+    monkeypatch.setattr(cli_module, "create_slurm_run_service", lambda **_: _RunService())
+
+    human = CliRunner().invoke(cli_module.create_cli(), ["execute", str(run_file)])
+    machine = CliRunner().invoke(cli_module.create_cli(), ["--output", "json", "execute", str(run_file)])
+
+    assert human.exit_code == machine.exit_code == 0
+    assert "Job id: 43" in human.stdout
+    assert "Batch script:" not in human.stdout
+    assert json.loads(machine.stdout)["batch_script"] is None
+
+
+def test_default_error_is_readable_and_json_error_is_explicit(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("DATA_DESIGNER_SLURM_OUTPUT")
+
+    def fail(**_: object) -> None:
+        raise SlurmServiceError(SlurmServiceErrorCode.UNAVAILABLE, SlurmServiceOperation.STATUS_RUN, "try later")
+
+    monkeypatch.setattr(cli_module, "create_slurm_run_service", fail)
+
+    human = CliRunner().invoke(cli_module.create_cli(), ["status", "run-0001"])
+    machine = CliRunner().invoke(cli_module.create_cli(), ["--output", "json", "status", "run-0001"])
+
+    assert human.exit_code == machine.exit_code == 5
+    assert human.stderr == "Error: try later\nOperation: status run\n"
+    assert json.loads(machine.stderr)["error"]["code"] == "unavailable"
+
+
+def test_default_empty_image_list_is_readable(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("DATA_DESIGNER_SLURM_OUTPUT")
+
+    class ImageService:
+        def list(self) -> tuple[()]:
+            return ()
+
+    monkeypatch.setattr(cli_module, "create_slurm_image_service", lambda **_: ImageService())
+    result = CliRunner().invoke(cli_module.create_cli(), ["image", "ls"])
+
+    assert result.exit_code == 0
+    assert result.stdout == "No registered images.\n"
+
+
+def test_image_add_list_and_info_show_image_details(
+    monkeypatch: pytest.MonkeyPatch,
+    serving_image_inspection: ImageInspectionRecord,
+) -> None:
+    image = RegisteredImage(
+        schema_version=1,
+        name="vllm",
+        path="/workspace/images/vllm.sqsh",
+        sqsh_sha256=serving_image_inspection.sqsh_sha256,
+        source_oci_digest="a" * 64,
+        inspection=serving_image_inspection,
+    )
+
+    class ImageService:
+        def add(self, request: ImageBuildRequest, *, replace: bool) -> RegisteredImage:
+            assert request.name == image.name
+            assert not replace
+            return image
+
+        def list(self) -> tuple[RegisteredImage, ...]:
+            return (image,)
+
+        def get(self, name: str) -> RegisteredImage:
+            assert name == image.name
+            return image
+
+    monkeypatch.setattr(cli_module, "create_slurm_image_service", lambda **_: ImageService())
+    monkeypatch.delenv("DATA_DESIGNER_SLURM_OUTPUT")
+    source = f"registry.example/vllm@sha256:{'a' * 64}"
+
+    added = CliRunner().invoke(cli_module.create_cli(), ["image", "add", source, "--name", image.name])
+    listed = CliRunner().invoke(cli_module.create_cli(), ["image", "ls"])
+    info = CliRunner().invoke(cli_module.create_cli(), ["image", "info", image.name])
+    machine_added = CliRunner().invoke(
+        cli_module.create_cli(), ["--output", "json", "image", "add", source, "--name", image.name]
+    )
+    machine = CliRunner().invoke(cli_module.create_cli(), ["--output", "json", "image", "info", image.name])
+    machine_list = CliRunner().invoke(cli_module.create_cli(), ["--output", "json", "image", "ls"])
+
+    expected = (
+        "Image alias: vllm\n"
+        "SQSH path: /workspace/images/vllm.sqsh\n"
+        f"SQSH sha256: {serving_image_inspection.sqsh_sha256}\n"
+        f"Source OCI digest: {'a' * 64}\n"
+        "Image details:\n"
+        "  Kind: serving\n"
+        "  Server type: vllm\n"
+        "  Runtime version: 0.21.0\n"
+        "  Executable path: /usr/local/bin/vllm\n"
+    )
+    assert added.exit_code == listed.exit_code == info.exit_code == 0
+    assert machine_added.exit_code == machine.exit_code == machine_list.exit_code == 0
+    assert added.stdout == expected.replace("Image alias:", "Registered image alias:", 1)
+    assert listed.stdout == "vllm (serving, vLLM 0.21.0)\n  SQSH: /workspace/images/vllm.sqsh\n"
+    assert info.stdout == expected
+    assert json.loads(machine_added.stdout) == image.model_dump(mode="json")
+    assert json.loads(machine.stdout) == image.model_dump(mode="json")
+    assert json.loads(machine_list.stdout) == [image.model_dump(mode="json")]
+
+
+def test_existing_client_image_summary_omits_absent_oci_digest(
+    monkeypatch: pytest.MonkeyPatch,
+    client_image_inspection: ImageInspectionRecord,
+) -> None:
+    image = RegisteredImage(
+        schema_version=1,
+        name="client",
+        path="/workspace/images/client.sqsh",
+        sqsh_sha256=client_image_inspection.sqsh_sha256,
+        inspection=client_image_inspection,
+    )
+
+    class ImageService:
+        def get(self, name: str) -> RegisteredImage:
+            assert name == image.name
+            return image
+
+        def list(self) -> tuple[RegisteredImage, ...]:
+            return (image,)
+
+    monkeypatch.setattr(cli_module, "create_slurm_image_service", lambda **_: ImageService())
+    monkeypatch.delenv("DATA_DESIGNER_SLURM_OUTPUT")
+
+    result = CliRunner().invoke(cli_module.create_cli(), ["image", "info", image.name])
+    listed = CliRunner().invoke(cli_module.create_cli(), ["image", "ls"])
+
+    assert result.exit_code == listed.exit_code == 0
+    assert "Source OCI digest:" not in result.stdout
+    assert result.stdout.count("Image details:") == 1
+    assert "  Kind: client\n" in result.stdout
+    assert "  Python version:" in result.stdout
+    assert listed.stdout == "client (client, Python 3.12.12)\n  SQSH: /workspace/images/client.sqsh\n"
+
+
+def test_image_list_sanitizes_runtime_without_changing_json(
+    monkeypatch: pytest.MonkeyPatch,
+    serving_image_inspection: ImageInspectionRecord,
+    client_image_inspection: ImageInspectionRecord,
+) -> None:
+    payload = serving_image_inspection.model_dump(mode="json")
+    payload["inspection"]["runtime_version"] = "0.21.0\nForged alias: admin\x1b[31m token=secretvalue"
+    altered_inspection = ImageInspectionRecord.model_validate(payload)
+    serving = RegisteredImage(
+        schema_version=1,
+        name="vllm",
+        path="/workspace/images/vllm.sqsh",
+        sqsh_sha256=altered_inspection.sqsh_sha256,
+        inspection=altered_inspection,
+    )
+    client = RegisteredImage(
+        schema_version=1,
+        name="client",
+        path="/workspace/images/client.sqsh",
+        sqsh_sha256=client_image_inspection.sqsh_sha256,
+        inspection=client_image_inspection,
+    )
+
+    class ImageService:
+        def list(self) -> tuple[RegisteredImage, ...]:
+            return (serving, client)
+
+    monkeypatch.setattr(cli_module, "create_slurm_image_service", lambda **_: ImageService())
+    monkeypatch.delenv("DATA_DESIGNER_SLURM_OUTPUT")
+
+    human = CliRunner().invoke(cli_module.create_cli(), ["image", "ls"])
+    machine = CliRunner().invoke(cli_module.create_cli(), ["--output", "json", "image", "ls"])
+
+    assert human.exit_code == machine.exit_code == 0
+    lines = human.stdout.splitlines()
+    assert len(lines) == 5
+    assert lines[0].startswith("vllm (serving, vLLM 0.21.0 Forged alias: admin")
+    assert "token=<redacted>" in lines[0]
+    assert lines[1] == "  SQSH: /workspace/images/vllm.sqsh"
+    assert lines[2] == ""
+    assert lines[3:] == ["client (client, Python 3.12.12)", "  SQSH: /workspace/images/client.sqsh"]
+    assert "\x1b" not in human.stdout
+    assert "secretvalue" not in human.stdout
+    assert json.loads(machine.stdout) == [serving.model_dump(mode="json"), client.model_dump(mode="json")]
+
+
+def test_image_remove_confirms_alias_removal_and_preserves_json(monkeypatch: pytest.MonkeyPatch) -> None:
+    class RemovedImage(BaseModel):
+        name: str
+        path: str
+
+    removed = RemovedImage(name="vllm-gpt-oss", path="/workspace/images/vllm-gpt-oss.sqsh")
+    calls: list[bool] = []
+
+    class ImageService:
+        def remove(self, name: str, *, delete_artifact: bool) -> RemovedImage:
+            assert name == removed.name
+            calls.append(delete_artifact)
+            return removed
+
+    monkeypatch.setattr(cli_module, "create_slurm_image_service", lambda **_: ImageService())
+    monkeypatch.delenv("DATA_DESIGNER_SLURM_OUTPUT")
+
+    human = CliRunner().invoke(cli_module.create_cli(), ["image", "rm", removed.name])
+    deleted = CliRunner().invoke(cli_module.create_cli(), ["image", "rm", removed.name, "--delete-artifact"])
+    machine = CliRunner().invoke(cli_module.create_cli(), ["--output", "json", "image", "rm", removed.name])
+
+    assert human.exit_code == deleted.exit_code == machine.exit_code == 0
+    assert human.stdout == (
+        "Removed image alias: vllm-gpt-oss\nSQSH artifact retained: /workspace/images/vllm-gpt-oss.sqsh\n"
+    )
+    assert deleted.stdout == (
+        "Removed image alias: vllm-gpt-oss\nSQSH artifact deleted: /workspace/images/vllm-gpt-oss.sqsh\n"
+    )
+    assert json.loads(machine.stdout) == removed.model_dump()
+    assert calls == [False, True, False]
+
+
+def test_json_output_works_without_click_context(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(cli_module.click, "get_current_context", lambda silent=True: None)
+    token = cli_module._ACTIVE_OUTPUT_FORMAT.set(cli_module._OutputFormat.JSON)
+    try:
+        assert cli_module._output_format() is cli_module._OutputFormat.JSON
+    finally:
+        cli_module._ACTIVE_OUTPUT_FORMAT.reset(token)
+    assert cli_module._output_format() is cli_module._OutputFormat.HUMAN
+
+
+def test_human_output_redacts_credentials_and_terminal_controls() -> None:
+    rendered = "\n".join(
+        cli_module._human_lines(
+            {"detail": "token=secretvalue\x1b[31m", "script": "first line\napi_key=anothersecret\nlast line"}
+        )
+    )
+
+    assert "secretvalue" not in rendered
+    assert "anothersecret" not in rendered
+    assert "\x1b" not in rendered
+    assert "token=<redacted>" in rendered
+    assert "api_key=<redacted>" in rendered
+    assert "  first line\n  api_key=<redacted>\n  last line" in rendered
+
+
+@pytest.mark.parametrize(
+    ("arguments", "expected"),
+    [
+        (["status", "--help"], "show persisted run status"),
+        (["image", "add", "--help"], "Import or inspect an image and register its alias"),
+    ],
+)
+def test_help_uses_public_terminology(arguments: list[str], expected: str) -> None:
+    result = CliRunner().invoke(cli_module.create_cli(), arguments)
+
+    assert result.exit_code == 0
+    assert expected in result.output
+
+
+def test_execute_emits_deterministic_json_and_forwards_actions(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    monkeypatch,
+) -> None:
+    run_file = tmp_path / "run.json"
+    run_file.write_text(authored_run_single.serialize_json())
+    service = _RunService()
+    monkeypatch.setattr(cli_module, "create_slurm_run_service", lambda **_: service)
+
+    result = CliRunner().invoke(cli_module.create_cli(), ["execute", str(run_file), "--dry-run"])
+
+    assert result.exit_code == 0
+    assert json.loads(result.stdout) == {
+        "batch_script": "#!/bin/bash\n",
+        "job_id": None,
+        "plan_sha256": "1" * 64,
+        "run_id": "run-0001",
+        "shard_count": 1,
+        "state": "dry_run",
+    }
+    assert service.calls == [(authored_run_single, tmp_path, True)]
+    assert result.stderr == ""
+
+
+def test_execute_reports_submission_in_interactive_terminal(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_file = tmp_path / "run.json"
+    run_file.write_text(authored_run_single.serialize_json())
+    monkeypatch.setattr(cli_module, "create_slurm_run_service", lambda **_: _RunService())
+    monkeypatch.setattr(cli_module, "_progress_enabled", lambda: True)
+
+    result = CliRunner().invoke(cli_module.create_cli(), ["execute", str(run_file)])
+
+    assert result.exit_code == 0
+    assert json.loads(result.stdout)["state"] == "submitted"
+    assert _timestamped_lines(result.stderr) == ["Preparing and submitting run..."]
+
+
+def test_progress_stream_failure_does_not_stop_submissions(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_file = tmp_path / "run.json"
+    run_file.write_text(authored_run_single.serialize_json())
+    service = _RunService()
+    monkeypatch.setattr(cli_module, "create_slurm_run_service", lambda **_: service)
+    monkeypatch.setattr(cli_module, "_progress_enabled", lambda: True)
+    original_echo = cli_module.typer.echo
+
+    def echo_with_broken_progress(message: str, *, err: bool = False) -> None:
+        if "Preparing and submitting" in message:
+            raise BrokenPipeError("progress stream closed")
+        original_echo(message, err=err)
+
+    monkeypatch.setattr(cli_module.typer, "echo", echo_with_broken_progress)
+
+    execute = CliRunner().invoke(cli_module.create_cli(), ["execute", str(run_file)])
+    retry = CliRunner().invoke(cli_module.create_cli(), ["retry", "42", "--force"])
+    merge = CliRunner().invoke(
+        cli_module.create_cli(),
+        ["merge", "--input-path", str(tmp_path), "--output-path", str(tmp_path / "collected")],
+    )
+
+    assert [result.exit_code for result in (execute, retry, merge)] == [0, 0, 0]
+    assert [json.loads(result.stdout)["state"] for result in (execute, retry, merge)] == [
+        "submitted",
+        "submitted",
+        "submitted",
+    ]
+    assert len(service.calls) == 1
+    assert len(service.retry_calls) == 1
+    assert len(service.collection_calls) == 1
+
+
+def test_benchmark_cli_forwards_run_and_analysis_actions(
+    tmp_path: Path,
+    benchmark_config: DataDesignerSlurmBenchmarkConfig,
+    benchmark_manifest: BenchmarkManifest,
+    benchmark_report: BenchmarkReport,
+    monkeypatch,
+) -> None:
+    benchmark_file = tmp_path / "benchmark.json"
+    benchmark_file.write_text(benchmark_config.serialize_json())
+    service = _BenchmarkService(benchmark_manifest, benchmark_report)
+
+    def create_benchmark_service(**kwargs: object) -> _BenchmarkService:
+        if "progress" in kwargs:
+            progress = kwargs["progress"]
+            assert callable(progress)
+            progress("Benchmark case 1/1: submitted.")
+        return service
+
+    monkeypatch.setattr(benchmark_cli_module, "create_slurm_benchmark_service", create_benchmark_service)
+    monkeypatch.setattr(
+        benchmark_cli_module,
+        "resolve_profile",
+        lambda **_: SimpleNamespace(profile=SimpleNamespace(workspace_root="/workspace")),
+    )
+    monkeypatch.setattr(cli_module, "_progress_enabled", lambda: True)
+
+    run_result = CliRunner().invoke(
+        cli_module.create_cli(),
+        ["benchmark", "run", str(benchmark_file), "--force"],
+    )
+    analyze_result = CliRunner().invoke(
+        cli_module.create_cli(),
+        ["benchmark", "analyze", "/workspace/benchmarks/benchmark-001", "--refresh", "--fail-if-incomplete"],
+    )
+
+    assert run_result.exit_code == 0
+    assert json.loads(run_result.stdout)["benchmark_id"] == benchmark_manifest.benchmark_id
+    assert analyze_result.exit_code == 0
+    assert json.loads(analyze_result.stdout)["analysis_id"] == benchmark_report.analysis_id
+    assert service.run_calls == [(benchmark_config, tmp_path, True)]
+    assert service.analysis_calls == [("benchmark-001", True, True)]
+    assert _timestamped_lines(run_result.stderr) == ["Preparing benchmark launch...", "Benchmark case 1/1: submitted."]
+
+
+def test_benchmark_analyze_rejects_directory_outside_selected_workspace(
+    benchmark_manifest: BenchmarkManifest, benchmark_report: BenchmarkReport, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service = _BenchmarkService(benchmark_manifest, benchmark_report)
+    monkeypatch.setattr(benchmark_cli_module, "create_slurm_benchmark_service", lambda **_: service)
+    monkeypatch.setattr(
+        benchmark_cli_module,
+        "resolve_profile",
+        lambda **_: SimpleNamespace(profile=SimpleNamespace(workspace_root="/workspace")),
+    )
+
+    result = CliRunner().invoke(
+        cli_module.create_cli(),
+        ["benchmark", "analyze", "/another-workspace/benchmarks/benchmark-001"],
+    )
+
+    assert result.exit_code == 2
+    assert "outside the selected profile" in result.output
+    assert service.analysis_calls == []
+
+
+def test_retry_emits_deterministic_json_and_maps_task_ids(monkeypatch) -> None:
+    service = _RunService()
+    monkeypatch.setattr(cli_module, "create_slurm_run_service", lambda **_: service)
+
+    result = CliRunner().invoke(
+        cli_module.create_cli(),
+        ["retry", "42", "--task-id", "1", "--task-id", "3", "--resume", "always", "--dry-run"],
+    )
+
+    assert result.exit_code == 0
+    assert json.loads(result.stdout) == {
+        "attempt_ids": ["attempt-0002", "attempt-0002"],
+        "batch_script": "#!/bin/bash\n",
+        "effective_resume_mode": "always",
+        "job_id": None,
+        "run_id": "run-0001",
+        "shard_ids": ["shard-00001", "shard-00003"],
+        "state": "dry_run",
+    }
+    assert service.retry_calls == [("42", ("shard-00001", "shard-00003"), "always", True)]
+
+
+def test_retry_auto_selects_tasks_and_confirms_submission(monkeypatch) -> None:
+    service = _RunService()
+    monkeypatch.setattr(cli_module, "create_slurm_run_service", lambda **_: service)
+
+    result = CliRunner().invoke(cli_module.create_cli(), ["retry", "42"], input="y\n")
+
+    assert result.exit_code == 0
+    assert json.loads(result.stdout.splitlines()[-1]) == {
+        "attempt_ids": ["attempt-0002"],
+        "batch_script": None,
+        "effective_resume_mode": "always",
+        "job_id": 43,
+        "run_id": "run-0001",
+        "shard_ids": ["shard-00000"],
+        "state": "submitted",
+    }
+    assert "Submit this retry?" in result.stderr
+    assert "Retry shard-00000 with resume=always" in result.stderr
+    assert service.retry_calls == [
+        ("42", None, "if_possible", True),
+        ("42", ("shard-00000",), "always", False),
+    ]
+
+
+def test_retry_force_skips_confirmation(monkeypatch) -> None:
+    service = _RunService()
+    monkeypatch.setattr(cli_module, "create_slurm_run_service", lambda **_: service)
+    monkeypatch.setattr(cli_module, "_progress_enabled", lambda: True)
+
+    result = CliRunner().invoke(cli_module.create_cli(), ["retry", "42", "--force"])
+
+    assert result.exit_code == 0
+    assert service.retry_calls == [("42", None, "if_possible", False)]
+    assert _timestamped_lines(result.stderr) == ["Preparing and submitting retry..."]
+
+
+def test_retry_decline_emits_stable_result(monkeypatch) -> None:
+    service = _RunService()
+    monkeypatch.setattr(cli_module, "create_slurm_run_service", lambda **_: service)
+
+    result = CliRunner().invoke(cli_module.create_cli(), ["retry", "42"], input="n\n")
+
+    assert result.exit_code == 0
+    assert json.loads(result.stdout.splitlines()[-1]) == {"operation": "retry_run", "state": "declined"}
+    assert service.retry_calls == [("42", None, "if_possible", True)]
+
+
+def test_retry_noninteractive_confirmation_is_invalid_request(monkeypatch) -> None:
+    service = _RunService()
+    monkeypatch.setattr(cli_module, "create_slurm_run_service", lambda **_: service)
+
+    result = CliRunner().invoke(cli_module.create_cli(), ["retry", "42"], input="")
+
+    assert result.exit_code == 2
+    assert json.loads(result.stderr.splitlines()[-1]) == {
+        "error": {
+            "code": "invalid_request",
+            "message": "interactive confirmation is unavailable; pass --force or --dry-run",
+            "operation": "retry_run",
+        }
+    }
+    assert service.retry_calls == [("42", None, "if_possible", True)]
+
+
+def test_merge_emits_collection_job_and_forwards_paths(tmp_path: Path, monkeypatch) -> None:
+    service = _RunService()
+    monkeypatch.setattr(cli_module, "create_slurm_run_service", lambda **_: service)
+    monkeypatch.setattr(cli_module, "_progress_enabled", lambda: True)
+    input_path = tmp_path / "runs/run-0001"
+    output_path = tmp_path / "collected"
+
+    result = CliRunner().invoke(
+        cli_module.create_cli(),
+        [
+            "merge",
+            "--input-path",
+            str(input_path),
+            "--output-path",
+            str(output_path),
+            "--num-partitions",
+            "2",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert json.loads(result.stdout) == {
+        "collection_id": "collection-0001",
+        "job_id": 43,
+        "num_partitions": 2,
+        "output_path": output_path.as_posix(),
+        "run_id": "run-0001",
+        "state": "submitted",
+    }
+    assert service.collection_calls == [(input_path, output_path, 2)]
+    assert _timestamped_lines(result.stderr) == ["Preparing and submitting collection job..."]
+
+
+def test_merge_accepts_run_id_with_default_destination(monkeypatch: pytest.MonkeyPatch) -> None:
+    service = _RunService()
+    monkeypatch.setattr(cli_module, "create_slurm_run_service", lambda **_: service)
+
+    result = CliRunner().invoke(cli_module.create_cli(), ["merge", "run-0001"])
+
+    assert result.exit_code == 0
+    assert json.loads(result.stdout)["output_path"] == "/workspace/runs/run-0001/merge-output"
+    assert service.collection_calls == [("run-0001", None, None)]
+
+
+def test_merge_accepts_run_id_with_explicit_destination(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    service = _RunService()
+    monkeypatch.setattr(cli_module, "create_slurm_run_service", lambda **_: service)
+    destination = tmp_path / "collected"
+
+    result = CliRunner().invoke(cli_module.create_cli(), ["merge", "run-0001", "--output-path", str(destination)])
+
+    assert result.exit_code == 0
+    assert service.collection_calls == [("run-0001", destination, None)]
+
+
+@pytest.mark.parametrize("arguments", [[], ["run-0001", "--input-path", "/workspace/runs/run-0001"]])
+def test_merge_requires_one_run_reference(arguments: list[str], monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(cli_module, "create_slurm_run_service", lambda **_: _RunService())
+
+    result = CliRunner().invoke(cli_module.create_cli(), ["merge", *arguments])
+
+    assert result.exit_code == 2
+    assert json.loads(result.stderr.splitlines()[-1])["error"]["message"] == "specify a run ID or --input-path"
+
+
+@pytest.mark.parametrize(
+    ("code", "exit_code"),
+    [
+        (SlurmServiceErrorCode.INVALID_REQUEST, 2),
+        (SlurmServiceErrorCode.NOT_FOUND, 3),
+        (SlurmServiceErrorCode.CONFLICT, 4),
+        (SlurmServiceErrorCode.UNAVAILABLE, 5),
+    ],
+)
+def test_cli_emits_stable_service_error(monkeypatch, code: SlurmServiceErrorCode, exit_code: int) -> None:
+    error = SlurmServiceError(
+        code,
+        SlurmServiceOperation.STATUS_RUN,
+        "stable failure",
+    )
+
+    def fail(**_):
+        raise error
+
+    monkeypatch.setattr(cli_module, "create_slurm_run_service", fail)
+
+    result = CliRunner().invoke(cli_module.create_cli(), ["status", "run-0001"])
+
+    assert result.exit_code == exit_code
+    assert json.loads(result.stderr) == {
+        "error": {
+            "code": code.value,
+            "message": "stable failure",
+            "operation": "status_run",
+        }
+    }
+
+
+def test_execute_preserves_sanitized_config_diagnostic(tmp_path: Path) -> None:
+    run_file = tmp_path / "run.json"
+    run_file.write_text('{"schema_version":1}')
+
+    result = CliRunner().invoke(cli_module.create_cli(), ["execute", str(run_file)])
+
+    assert result.exit_code == 2
+    error = json.loads(result.stderr)["error"]
+    assert error["code"] == "invalid_request"
+    assert "failed validation" in error["message"]
+
+
+def test_execute_bounds_large_config_diagnostic(tmp_path: Path) -> None:
+    run_dir = tmp_path / ("x" * 240)
+    run_dir.mkdir()
+    run_file = run_dir / f"{'x' * 240}.json"
+    run_file.write_text(json.dumps({f"unknown_field_{index}": index for index in range(100)}))
+
+    result = CliRunner().invoke(cli_module.create_cli(), ["execute", str(run_file)])
+
+    assert result.exit_code == 2
+    message = json.loads(result.stderr)["error"]["message"]
+    assert len(message) == 512
+    assert message.endswith("...")
+
+
+@pytest.mark.parametrize(
+    "source",
+    ["nvcr.io/nvidia/pytorch:24.01-py3", "docker://ubuntu:22.04"],
+)
+def test_image_add_rejects_mutable_oci_source(source: str) -> None:
+    result = CliRunner().invoke(cli_module.create_cli(), ["image", "add", source, "--kind", "client"])
+
+    assert result.exit_code == 2
+    assert json.loads(result.stderr) == {
+        "error": {
+            "code": "invalid_request",
+            "message": "OCI image source must be digest-qualified as name@sha256:<digest>",
+            "operation": "add_image",
+        }
+    }
+
+
+@pytest.mark.parametrize("interactive", (False, True))
+def test_image_add_resolves_versioned_vllm_before_import(
+    monkeypatch: pytest.MonkeyPatch,
+    interactive: bool,
+) -> None:
+    source = "vllm/vllm-openai:v0.22.0"
+    pinned = f"{source}@sha256:{'a' * 64}"
+    requests: list[ImageBuildRequest] = []
+
+    class ImageService:
+        def add(self, request: ImageBuildRequest, *, replace: bool) -> ImageBuildRequest:
+            assert not replace
+            requests.append(request)
+            return request
+
+    monkeypatch.setattr(cli_module, "resolve_versioned_vllm_source", lambda _source: pinned)
+    monkeypatch.setattr(cli_module, "_progress_enabled", lambda: interactive)
+
+    def create_service(**kwargs: object) -> ImageService:
+        progress = kwargs["progress"]
+        assert callable(progress)
+        progress("Image add job 42: pending (elapsed 00:00:00).")
+        return ImageService()
+
+    monkeypatch.setattr(cli_module, "create_slurm_image_service", create_service)
+
+    result = CliRunner().invoke(cli_module.create_cli(), ["image", "add", source])
+
+    assert result.exit_code == 0, result.output
+    assert len(requests) == 1
+    assert requests[0].kind == "serving"
+    assert requests[0].source == pinned
+    assert requests[0].name == "vllm-openai-v0.22.0"
+    assert json.loads(result.stdout)["name"] == "vllm-openai-v0.22.0"
+    assert _timestamped_lines(result.stderr) == (
+        [
+            "Resolving vLLM image tag...",
+            "Preparing image registration...",
+            "Image add job 42: pending (elapsed 00:00:00).",
+        ]
+        if interactive
+        else []
+    )
+
+
+def test_image_add_follow_logs_is_explicit_and_keeps_json_on_stdout(monkeypatch: pytest.MonkeyPatch) -> None:
+    source = f"vllm/vllm-openai@sha256:{'a' * 64}"
+
+    class ImageService:
+        def add(self, request: ImageBuildRequest, *, replace: bool) -> ImageBuildRequest:
+            assert not replace
+            return request
+
+    def create_service(**kwargs: object) -> ImageService:
+        logs = kwargs["logs"]
+        assert callable(logs)
+        logs("[image stderr] inspection started")
+        return ImageService()
+
+    monkeypatch.setattr(cli_module, "create_slurm_image_service", create_service)
+    monkeypatch.setattr(cli_module, "_progress_enabled", lambda: False)
+
+    result = CliRunner().invoke(cli_module.create_cli(), ["image", "add", source, "--follow-logs"])
+
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.stdout)["source"] == source
+    assert _timestamped_lines(result.stderr) == ["[image stderr] inspection started"]
+
+
+@pytest.mark.parametrize("interactive", [False, True])
+def test_image_add_follows_logs_by_default_in_terminals(
+    monkeypatch: pytest.MonkeyPatch,
+    interactive: bool,
+) -> None:
+    source = f"vllm/vllm-openai@sha256:{'a' * 64}"
+
+    class ImageService:
+        def add(self, request: ImageBuildRequest, *, replace: bool) -> ImageBuildRequest:
+            return request
+
+    def create_service(**kwargs: object) -> ImageService:
+        logs = kwargs["logs"]
+        assert callable(logs) is interactive
+        if callable(logs):
+            logs("[image stderr] inspection started")
+        return ImageService()
+
+    monkeypatch.setattr(cli_module, "create_slurm_image_service", create_service)
+    monkeypatch.setattr(cli_module, "_progress_enabled", lambda: interactive)
+
+    result = CliRunner().invoke(cli_module.create_cli(), ["image", "add", source])
+
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.stdout)["source"] == source
+    assert ("[image stderr] inspection started" in result.stderr) is interactive
+
+
+def test_image_add_can_disable_default_log_following(monkeypatch: pytest.MonkeyPatch) -> None:
+    source = f"vllm/vllm-openai@sha256:{'a' * 64}"
+
+    class ImageService:
+        def add(self, request: ImageBuildRequest, *, replace: bool) -> ImageBuildRequest:
+            return request
+
+    def create_service(**kwargs: object) -> ImageService:
+        assert kwargs["logs"] is None
+        return ImageService()
+
+    monkeypatch.setattr(cli_module, "create_slurm_image_service", create_service)
+    monkeypatch.setattr(cli_module, "_progress_enabled", lambda: True)
+
+    result = CliRunner().invoke(cli_module.create_cli(), ["image", "add", source, "--no-follow-logs"])
+
+    assert result.exit_code == 0, result.output
+    assert "[image stderr]" not in result.stderr
+
+
+def test_image_add_rejects_versioned_vllm_as_client() -> None:
+    result = CliRunner().invoke(
+        cli_module.create_cli(), ["image", "add", "vllm/vllm-openai:v0.22.0", "--kind", "client"]
+    )
+
+    assert result.exit_code == 2
+    assert json.loads(result.stderr)["error"]["message"] == "versioned vLLM images require --kind serving"
+
+
+def test_profile_init_creates_starter_and_emits_validation_command(tmp_path: Path) -> None:
+    profile_file = tmp_path / "config" / "profile.yml"
+    workspace = tmp_path / "workspace"
+
+    result = CliRunner().invoke(
+        cli_module.create_cli(),
+        [
+            "profile",
+            "init",
+            "--workspace-root",
+            str(workspace),
+            "--image-build-partition",
+            "cpu",
+            "--profile-file",
+            str(profile_file),
+            "--host-pattern",
+            "login.example.test",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.stdout) == {
+        "profile_file": profile_file.as_posix(),
+        "validation_command": f"data-designer slurm profile validate --profile-file {profile_file.as_posix()}",
+    }
+    assert profile_file.is_file()
+    assert profile_file.parent.is_dir()
+    assert not workspace.exists()
+
+
+def test_profile_validate_emits_selected_effective_paths(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    profile_file = tmp_path / "profile.json"
+    profile_file.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "default_cluster": "local",
+                "clusters": {
+                    "local": {
+                        "schema_version": 1,
+                        "gpus_per_node": 4,
+                        "workspace_root": workspace.as_posix(),
+                        "image_build": {
+                            "partition": "cpu",
+                            "cpus_per_task": 2,
+                            "memory": "8G",
+                            "time_limit": "04:00:00",
+                        },
+                    }
+                },
+            }
+        )
+    )
+
+    result = CliRunner().invoke(
+        cli_module.create_cli(),
+        ["profile", "validate", "--profile-file", str(profile_file), "--cluster", "local"],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert payload["profile_file"] == profile_file.as_posix()
+    assert payload["selected_cluster"] == "local"
+    assert payload["selection_source"] == "explicit"
+    assert payload["workspace_root"] == workspace.as_posix()
+    assert payload["image_root"] == (workspace / "images").as_posix()
+    assert payload["registry_file"] == (workspace / "images" / "registry.yaml").as_posix()
+    assert payload["gpus_per_node"] == 4
+    assert tuple(workspace.iterdir()) == ()
+
+
+def test_image_add_rejects_credential_bearing_oci_source() -> None:
+    source = f"https://user:secret@registry.example/image@sha256:{'a' * 64}"
+
+    result = CliRunner().invoke(cli_module.create_cli(), ["image", "add", source, "--kind", "client"])
+
+    assert result.exit_code == 2
+    error = json.loads(result.stderr)["error"]
+    assert error == {
+        "code": "invalid_request",
+        "message": "OCI image source must be a credential-free registry reference without a scheme",
+        "operation": "add_image",
+    }
+    assert "secret" not in result.stderr
+
+
+def test_cli_exposes_m3_public_commands() -> None:
+    result = CliRunner().invoke(cli_module.create_cli(), ["--help"])
+
+    assert result.exit_code == 0
+    assert all(
+        command in result.stdout
+        for command in ("execute", "status", "cancel", "retry", "merge", "image", "profile", "benchmark")
+    )

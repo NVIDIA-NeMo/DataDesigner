@@ -10,7 +10,7 @@ from typing import TextIO
 import typer
 
 from data_designer.cli.agent_command_defs import AGENT_COMMANDS
-from data_designer.cli.lazy_group import create_lazy_typer_group
+from data_designer.cli.lazy_group import CLI_EXTENSION_ENTRY_POINT_GROUP, create_lazy_typer_group
 from data_designer.cli.runtime import ensure_cli_default_model_settings
 from data_designer.config.utils.constants import DATA_DESIGNER_PACKAGE_NAME
 
@@ -84,7 +84,8 @@ app = typer.Typer(
                 "help": "Check that every referenced model and MCP tool is reachable",
                 "rich_help_panel": "Generation",
             },
-        }
+        },
+        entry_point_group=CLI_EXTENSION_ENTRY_POINT_GROUP,
     ),
     add_completion=False,
     no_args_is_help=True,

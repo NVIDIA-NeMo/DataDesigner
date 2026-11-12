@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+#SBATCH --job-name=dd-two-model
+#SBATCH --account=research
+#SBATCH --partition=batch
+#SBATCH --nodes=3
+#SBATCH --cpus-per-gpu=4
+#SBATCH --time=03:55:00
+#SBATCH --array=0-1%2
+#SBATCH --chdir="/workspace/primary/runs/run-001"
+#SBATCH --output="/workspace/primary/runs/run-001/slurm-attempt-0001-%A_%a.out"
+#SBATCH --error="/workspace/primary/runs/run-001/slurm-attempt-0001-%A_%a.err"
+#SBATCH --gres=gpu:8
+#SBATCH --exclusive
+set -Eeuo pipefail
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+export PYTHONNOUSERSITE=1
+
+readonly DD_RUNTIME_ARCHIVE="/workspace/primary/runtime/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee.tar.gz"
+readonly DD_RUNTIME_SHA256="eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+readonly DD_PLAN="/workspace/primary/runs/run-001/resolved-plan.json"
+readonly DD_PLAN_SHA256="07cc32a1cf15b7ec7a6159319346d4a901c765758d2ead29900ac91f012b1881"
+readonly DD_RUN_ROOT="/workspace/primary/runs/run-001"
+readonly DD_ATTEMPT_ORDINAL="0001"
+
+verify_sha256() {
+    local actual_sha256
+    actual_sha256="$(sha256sum < "$2")"
+    [[ "${actual_sha256%% *}" == "$1" ]]
+}
+
+verify_sha256 "${DD_RUNTIME_SHA256}" "${DD_RUNTIME_ARCHIVE}"
+verify_sha256 "${DD_PLAN_SHA256}" "${DD_PLAN}"
+if [[ ! ${SLURM_ARRAY_TASK_ID:-} =~ ^[0-9]+$ ]]; then
+    printf '%s\n' 'SLURM_ARRAY_TASK_ID must be a non-negative integer' >&2
+    exit 64
+fi
+readonly DD_ARRAY_TASK_ID="${SLURM_ARRAY_TASK_ID}"
+printf -v DD_SHARD_ID 'shard-%05d' "${DD_ARRAY_TASK_ID}"
+readonly DD_SHARD_ID
+readonly DD_ATTEMPT_DIR="${DD_RUN_ROOT}/shards/${DD_SHARD_ID}/attempts/attempt-${DD_ATTEMPT_ORDINAL}"
+source <(tar -xOf "${DD_RUNTIME_ARCHIVE}" scratch.sh)
+trap 'dd_cleanup_allocation_scratch || true' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+dd_initialize_local_scratch
+dd_stage_allocation_runtime
+readonly DD_RUNTIME_ROOT="${DD_SCRATCH_ROOT}/runtime"
+
+source "${DD_RUNTIME_ROOT}/entrypoint.sh"
+dd_slurm_run_allocation "${DD_PLAN}" "${DD_ATTEMPT_DIR}"

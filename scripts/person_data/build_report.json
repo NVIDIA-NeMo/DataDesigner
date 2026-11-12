@@ -1,0 +1,70 @@
+{
+  "rows": 33772,
+  "population_total": 335555510.0,
+  "methods": {
+    "explicit_postcode_association": 18786,
+    "nearest_locality_same_state": 14986
+  },
+  "candidate_assignments": 37294,
+  "zipcodes_with_multiple_area_codes": 2374,
+  "raw_locality_rows": 22913,
+  "noncanonical_rows_excluded": 116,
+  "accepted_locality_records": 22797,
+  "accepted_locality_items": 20928,
+  "area_code_coverage": {
+    "input_codes": 386,
+    "retained_codes": 386,
+    "eligible_codes": 377,
+    "output_codes": 352,
+    "no_retained_locality": [],
+    "outside_zcta_states": [
+      236,
+      250,
+      257,
+      340,
+      670,
+      671,
+      672,
+      684,
+      778
+    ],
+    "not_selected": [
+      274,
+      279,
+      283,
+      327,
+      329,
+      341,
+      357,
+      380,
+      457,
+      463,
+      464,
+      483,
+      557,
+      567,
+      572,
+      611,
+      659,
+      679,
+      689,
+      737,
+      800,
+      888,
+      924,
+      938,
+      975
+    ],
+    "reconciliation_sha256": "b4f281325c1a647783acae16a39c138f27cea8012ead2ee43c899e39ed9e6237"
+  },
+  "distant_explicit_associations_excluded": 46,
+  "nearest_locality_fallbacks_over_50km": 335,
+  "locality_distance_km_quantiles": {
+    "0.5": 6.4811363499852614,
+    "0.9": 19.531414536518493,
+    "0.95": 25.763850358261713,
+    "0.99": 49.67497193169035,
+    "1.0": 230.84417705249874
+  },
+  "output_sha256": "2af85012fadbd44d907d9785f56051639c51ed7b37104d93c704b0cbf328256b"
+}

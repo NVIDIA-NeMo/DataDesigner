@@ -1,0 +1,67 @@
+# Retry and collection
+
+Retry and collection operate on persisted run state. They do not infer ownership from arbitrary Slurm jobs or directories.
+
+## Preview a retry
+
+```bash
+data-designer slurm retry <run-id> --dry-run
+```
+
+By default, retry selects failed or incomplete shards and resolves `--resume if_possible` to either `always` or `never` from persisted compatibility evidence. The response includes selected shard IDs, new attempt IDs, effective resume mode, and a batch script.
+
+Select specific zero-based array tasks when needed:
+
+```bash
+data-designer slurm retry <run-id> \
+  --task-id 2 \
+  --task-id 7 \
+  --resume never \
+  --dry-run
+```
+
+## Submit a retry
+
+```bash
+data-designer slurm retry <run-id>
+```
+
+Interactive use asks for confirmation. Add `--force` to skip that prompt in automation. Force does not replace immutable run metadata or discard scheduler evidence.
+
+You may pass a managed Slurm job ID instead of a run ID when the package can resolve it unambiguously. Prefer the run ID in scripts.
+
+Retries create new attempts. The original attempt records remain durable, and each shard publishes at most one winner. Status shows the complete attempt history.
+
+## Collect winners
+
+Shards with at least one generated record can publish Parquet winners, even when they produce fewer records than requested. Use `merge` to submit a zero-GPU CPU job that collects winners under `<workspace_root>/runs/<run-id>/merge-output`. The merged dataset may contain fewer records than the run requested:
+
+```bash
+data-designer slurm merge <run-id>
+```
+
+The merge reads the immutable winning shard outputs and verifies their schemas. If nested struct fields appear in different orders across shards, it writes them in the first shard's field order. Missing fields and changed field types are rejected. The collection job uses the installed Slurm package version and runtime bundle from the merge command, so a newer installation can collect an earlier run without changing its shard records.
+
+For an explicit destination, use `--output-path`:
+
+```bash
+data-designer slurm merge <run-id> --output-path /workspace/alice/exports/final-dataset
+```
+
+You can also select the run with `--input-path` instead of the positional run ID:
+
+```bash
+data-designer slurm merge \
+  --input-path /workspace/alice/data-designer-slurm/runs/<run-id> \
+  --output-path /workspace/alice/exports/final-dataset
+```
+
+`--input-path` must be exactly a managed run directory under the selected profile workspace. An explicit output path must be absolute, writable, compute-visible, and authorized by the profile mounts.
+
+`--num-partitions` selects the number of collected Parquet files. It defaults to 1 for a new collection and cannot exceed the total number of records in the winning shards:
+
+```bash
+data-designer slurm merge <run-id> --num-partitions 20
+```
+
+Repeating the same merge command returns or reuses managed collection state when safe. If you omit `--output-path` or `--num-partitions` on a repeat call, the existing collection keeps its destination and partition count. Explicitly changing either for an active collection is a conflict.

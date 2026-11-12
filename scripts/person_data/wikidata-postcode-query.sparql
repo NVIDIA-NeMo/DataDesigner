@@ -1,0 +1,7 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+SELECT DISTINCT ?place ?postcode ?code WHERE {
+  VALUES ?country { wd:Q30 wd:Q1183 }
+  ?place wdt:P17 ?country; wdt:P473 ?code; wdt:P281 ?postcode.
+}

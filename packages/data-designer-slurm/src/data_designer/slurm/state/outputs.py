@@ -1,0 +1,192 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+from __future__ import annotations
+
+from datetime import datetime
+from enum import Enum
+from typing import Literal
+
+from pydantic import Field, NonNegativeInt, PositiveInt, field_validator, model_validator
+
+from data_designer.slurm.contracts import (
+    ArtifactReference,
+    AttemptId,
+    Identifier,
+    Sha256Digest,
+    ShardId,
+    validate_absolute_path,
+    validate_relative_path,
+)
+from data_designer.slurm.state.base import (
+    StateRecord,
+    StateValue,
+    validate_utc_timestamp,
+)
+
+CANDIDATE_OUTPUT_FORMAT: Literal["parquet"] = "parquet"
+# Finalization retains one file and one parent-directory descriptor per entry.
+MAXIMUM_CANDIDATE_OUTPUT_FILES: int = 64
+
+
+class CandidateOutcome(str, Enum):
+    COMPLETE = "complete"
+    PARTIAL = "partial"
+    EMPTY = "empty"
+
+
+class CandidateOutputFile(StateValue):
+    """One immutable file contained in a candidate output."""
+
+    relative_path: str
+    sha256: Sha256Digest
+    byte_size: NonNegativeInt
+    record_count: NonNegativeInt
+
+    _relative_path_is_safe = field_validator("relative_path")(validate_relative_path)
+
+
+class CandidateOutputManifest(StateRecord):
+    """Attempt-local output that may become the immutable shard winner."""
+
+    run_id: Identifier
+    shard_id: ShardId
+    attempt_id: AttemptId
+    attempt_ordinal: PositiveInt
+    created_at: datetime
+    dataset_path: str
+    requested_records: PositiveInt
+    actual_records: NonNegativeInt
+    outcome: CandidateOutcome
+    files: tuple[CandidateOutputFile, ...] = Field(max_length=MAXIMUM_CANDIDATE_OUTPUT_FILES)
+    dataset_schema_digest: Sha256Digest
+    provenance_digest: Sha256Digest
+
+    _created_at_is_utc = field_validator("created_at")(validate_utc_timestamp)
+    _dataset_path_is_safe = field_validator("dataset_path")(validate_absolute_path)
+
+    @property
+    def winner_eligible(self) -> bool:
+        """Whether this nonempty candidate may be published as the shard winner."""
+        return (self.outcome is CandidateOutcome.COMPLETE and self.actual_records == self.requested_records) or (
+            self.outcome is CandidateOutcome.PARTIAL and 0 < self.actual_records < self.requested_records
+        )
+
+    @model_validator(mode="after")
+    def validate_output(self) -> CandidateOutputManifest:
+        if self.actual_records > self.requested_records:
+            raise ValueError("actual_records must not exceed requested_records")
+
+        expected_outcome = (
+            CandidateOutcome.EMPTY
+            if self.actual_records == 0
+            else CandidateOutcome.COMPLETE
+            if self.actual_records == self.requested_records
+            else CandidateOutcome.PARTIAL
+        )
+        if self.outcome is not expected_outcome:
+            raise ValueError(f"outcome must be {expected_outcome.value!r} for this record count")
+
+        relative_paths = [output_file.relative_path for output_file in self.files]
+        if len(relative_paths) != len(set(relative_paths)):
+            raise ValueError("candidate output file paths must be unique")
+        if self.actual_records > 0 and not self.files:
+            raise ValueError("non-empty candidate outputs require at least one file")
+        if sum(output_file.record_count for output_file in self.files) != self.actual_records:
+            raise ValueError("candidate output file record counts must equal actual_records")
+        return self
+
+
+class ShardWinner(StateRecord):
+    """Immutable pointer selecting exactly one candidate for a shard."""
+
+    run_id: Identifier
+    shard_id: ShardId
+    attempt_id: AttemptId
+    attempt_ordinal: PositiveInt
+    candidate_manifest: ArtifactReference
+    published_at: datetime
+
+    _published_at_is_utc = field_validator("published_at")(validate_utc_timestamp)
+
+
+class CollectionShard(StateValue):
+    """Winner manifest selected for one shard in a collection plan."""
+
+    shard_id: ShardId
+    winner_manifest: ArtifactReference
+
+
+class RetryShard(StateValue):
+    """One failed planned shard selected for a new attempt."""
+
+    shard_id: ShardId
+    attempt_id: AttemptId
+    attempt_ordinal: PositiveInt
+    array_task_index: NonNegativeInt
+
+
+class RetryPlan(StateRecord):
+    """Immutable failed-shard selection used for one retry submission."""
+
+    retry_id: Identifier
+    run_id: Identifier
+    created_at: datetime
+    resolved_plan: ArtifactReference
+    planned_shards: tuple[RetryShard, ...] = Field(min_length=1)
+    effective_resume_mode: Literal["never", "always"]
+
+    _created_at_is_utc = field_validator("created_at")(validate_utc_timestamp)
+
+    @property
+    def submission_job_name(self) -> Identifier:
+        """Return the immutable scheduler lookup key for this retry."""
+        return f"dd-retry-{self.compute_sha256()[:32]}"
+
+    @model_validator(mode="after")
+    def validate_shards(self) -> RetryPlan:
+        shard_ids = tuple(shard.shard_id for shard in self.planned_shards)
+        task_indices = tuple(shard.array_task_index for shard in self.planned_shards)
+        if len(shard_ids) != len(set(shard_ids)):
+            raise ValueError("retry shard IDs must be unique")
+        if len(task_indices) != len(set(task_indices)):
+            raise ValueError("retry array-task indices must be unique")
+        if task_indices != tuple(sorted(task_indices)):
+            raise ValueError("retry shards must be ordered by array-task index")
+        return self
+
+
+class CollectionPlan(StateRecord):
+    """Immutable inputs and destinations for deterministic collection."""
+
+    collection_id: Identifier
+    run_id: Identifier
+    created_at: datetime
+    resolved_plan: ArtifactReference
+    planned_shards: tuple[CollectionShard, ...] = Field(min_length=1)
+    python_executable: str
+    package_version: str | None = Field(default=None, min_length=1, exclude_if=lambda value: value is None)
+    runtime_bundle: ArtifactReference | None = Field(default=None, exclude_if=lambda value: value is None)
+    host_destination: str
+    num_partitions: PositiveInt
+    overwrite: Literal[False] = False
+
+    _created_at_is_utc = field_validator("created_at")(validate_utc_timestamp)
+    _paths_are_safe = field_validator("python_executable", "host_destination")(validate_absolute_path)
+
+    @property
+    def submission_job_name(self) -> Identifier:
+        """Return the immutable scheduler lookup key for this collection."""
+        return f"dd-collect-{self.compute_sha256()[:32]}"
+
+    @model_validator(mode="after")
+    def validate_shards(self) -> CollectionPlan:
+        if (self.package_version is None) != (self.runtime_bundle is None):
+            raise ValueError("collection package version and runtime bundle must be set together")
+        shard_ids = [shard.shard_id for shard in self.planned_shards]
+        winner_paths = [shard.winner_manifest.path for shard in self.planned_shards]
+        if len(shard_ids) != len(set(shard_ids)):
+            raise ValueError("collection shard IDs must be unique")
+        if len(winner_paths) != len(set(winner_paths)):
+            raise ValueError("collection winner manifest paths must be unique")
+        return self

@@ -1,0 +1,126 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+"""Public authored configuration contracts for Data Designer Slurm."""
+
+from __future__ import annotations
+
+from data_designer.slurm.config.benchmark import (
+    AdaptiveRecordPolicy,
+    BenchmarkAnalysisTargets,
+    BenchmarkBaseRun,
+    BenchmarkDeploymentCase,
+    BenchmarkDeploymentOverride,
+    DataDesignerSlurmBenchmarkConfig,
+    FixedRecordPolicy,
+)
+from data_designer.slurm.config.builder import DataDesignerSlurmConfigBuilder
+from data_designer.slurm.config.environment import (
+    LiteralEnvironmentBinding,
+    SecretRef,
+    collect_secret_environment_names,
+)
+from data_designer.slurm.config.errors import SlurmConfigBuilderError, SlurmConfigLoadError
+from data_designer.slurm.config.images import (
+    ClientImageInspection,
+    ImageBuildRequest,
+    ImageInspectionRecord,
+    ImageKind,
+    ImageRef,
+    InstalledDistribution,
+    ServingImageInspection,
+)
+from data_designer.slurm.config.loading import (
+    DEFAULT_PROFILE_FILE_NAME,
+    PROFILE_FILE_ENVIRONMENT,
+    load_benchmark_config,
+    load_builder_payload,
+    load_profile_catalog,
+    load_run_config,
+    resolve_profile,
+)
+from data_designer.slurm.config.profiles import (
+    ContainerMount,
+    GpuRequestMode,
+    ImageBuildProfile,
+    ProfileSelectionSource,
+    SchedulerProfile,
+    SelectedSlurmProfile,
+    SlurmProfile,
+    SlurmProfileCatalog,
+    injected_profile,
+    select_profile,
+    validate_selected_profile,
+)
+from data_designer.slurm.config.run import (
+    ArrayTasksConfig,
+    BuilderInput,
+    ClientConfig,
+    ClientDependencies,
+    DataDesignerSlurmConfig,
+    DeploymentResources,
+    DeploymentTopology,
+    InputBindings,
+    InvocationConfig,
+    LocalStdioMCPProviderConfig,
+    RemoteMCPProviderConfig,
+    ServerDeploymentConfig,
+    SubmissionConfig,
+)
+from data_designer.slurm.config.vllm import QueueBackpressureConfig, VllmServerConfig
+
+__all__ = [
+    "AdaptiveRecordPolicy",
+    "ArrayTasksConfig",
+    "BenchmarkAnalysisTargets",
+    "BenchmarkBaseRun",
+    "BenchmarkDeploymentCase",
+    "BenchmarkDeploymentOverride",
+    "BuilderInput",
+    "ClientConfig",
+    "ClientDependencies",
+    "ClientImageInspection",
+    "ContainerMount",
+    "DataDesignerSlurmBenchmarkConfig",
+    "DataDesignerSlurmConfig",
+    "DataDesignerSlurmConfigBuilder",
+    "DEFAULT_PROFILE_FILE_NAME",
+    "DeploymentResources",
+    "DeploymentTopology",
+    "FixedRecordPolicy",
+    "GpuRequestMode",
+    "ImageBuildProfile",
+    "ImageBuildRequest",
+    "ImageInspectionRecord",
+    "ImageKind",
+    "ImageRef",
+    "InputBindings",
+    "InstalledDistribution",
+    "InvocationConfig",
+    "LiteralEnvironmentBinding",
+    "LocalStdioMCPProviderConfig",
+    "ProfileSelectionSource",
+    "PROFILE_FILE_ENVIRONMENT",
+    "QueueBackpressureConfig",
+    "RemoteMCPProviderConfig",
+    "SchedulerProfile",
+    "SecretRef",
+    "collect_secret_environment_names",
+    "SelectedSlurmProfile",
+    "ServerDeploymentConfig",
+    "ServingImageInspection",
+    "SlurmConfigBuilderError",
+    "SlurmConfigLoadError",
+    "SlurmProfile",
+    "SlurmProfileCatalog",
+    "SubmissionConfig",
+    "VllmServerConfig",
+    "injected_profile",
+    "load_builder_payload",
+    "load_benchmark_config",
+    "load_profile_catalog",
+    "load_run_config",
+    "resolve_profile",
+    "select_profile",
+    "validate_selected_profile",
+]
