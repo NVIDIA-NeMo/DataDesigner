@@ -8,7 +8,7 @@ from enum import Enum
 from fnmatch import fnmatch
 from string import Formatter
 
-from jinja2 import meta
+from jinja2 import TemplateSyntaxError, meta
 from jinja2.sandbox import ImmutableSandboxedEnvironment
 from pydantic import BaseModel
 from rich import box
@@ -19,6 +19,7 @@ from rich.panel import Panel
 from data_designer.config.column_types import ColumnConfigT, DataDesignerColumnType
 from data_designer.config.processor_types import ProcessorConfigT
 from data_designer.config.processors import ProcessorType
+from data_designer.config.sampler_params import SubcategorySamplerParams, TimeDeltaSamplerParams
 from data_designer.config.utils.constants import RICH_CONSOLE_THEME
 from data_designer.config.utils.misc import (
     can_run_data_designer_locally,
@@ -41,6 +42,7 @@ class ViolationType(str, Enum):
     INVALID_MODEL_CONFIG = "invalid_model_config"
     INVALID_REFERENCE = "invalid_reference"
     PROMPT_WITHOUT_REFERENCES = "prompt_without_references"
+    SAMPLER_REFERENCE_INVALID = "sampler_reference_invalid"
     SKIP_REFERENCE_MISSING = "skip_reference_missing"
     SKIP_ON_SAMPLER_SEED = "skip_on_sampler_seed"
     PARQUET_STORAGE = "parquet_storage"
@@ -74,6 +76,7 @@ def validate_data_designer_config(
     violations.extend(validate_code_validation(columns=columns))
     violations.extend(validate_expression_references(columns=columns, allowed_references=allowed_references))
     violations.extend(validate_skip_references(columns=columns, allowed_references=allowed_references))
+    violations.extend(validate_sampler_references(columns=columns))
     violations.extend(validate_columns_not_all_dropped(columns=columns, processor_configs=processor_configs))
     violations.extend(validate_drop_columns_processor(columns=columns, processor_configs=processor_configs))
     violations.extend(validate_schema_transform_processor(columns=columns, processor_configs=processor_configs))
@@ -532,6 +535,56 @@ def validate_skip_references(
                     )
                 )
 
+    return violations
+
+
+def validate_sampler_references(columns: list[ColumnConfigT]) -> list[Violation]:
+    """Validate that sampler columns only reference other sampler columns.
+
+    All sampler columns are generated together, without access to seed or generated columns,
+    so conditions in ``conditional_params``, a subcategory's ``category`` and a timedelta's
+    ``reference_column_name`` must name sampler columns.
+    """
+    column_types = {column.name: column.column_type for column in columns}
+    env = ImmutableSandboxedEnvironment()
+    violations: list[Violation] = []
+    for column in columns:
+        if column.column_type != DataDesignerColumnType.SAMPLER:
+            continue
+
+        references: set[str] = set()
+        for condition in column.conditional_params:
+            try:
+                references.update(meta.find_undeclared_variables(env.parse("{{ " + condition + " }}")))
+            except TemplateSyntaxError:
+                # Invalid conditions are reported when the sampler columns are generated.
+                continue
+        for params in [column.params, *column.conditional_params.values()]:
+            if isinstance(params, SubcategorySamplerParams):
+                references.add(params.category)
+            elif isinstance(params, TimeDeltaSamplerParams):
+                references.add(params.reference_column_name)
+
+        for reference in sorted(references):
+            reference_type = column_types.get(reference)
+            if reference_type == DataDesignerColumnType.SAMPLER:
+                continue
+            if reference_type is None:
+                message = f"Sampler column '{column.name}' references missing column '{reference}'."
+            else:
+                message = (
+                    f"Sampler column '{column.name}' references '{reference}', which is a "
+                    f"'{reference_type}' column. Sampler columns are generated together and "
+                    "can only reference other sampler columns."
+                )
+            violations.append(
+                Violation(
+                    column=column.name,
+                    type=ViolationType.SAMPLER_REFERENCE_INVALID,
+                    message=message,
+                    level=ViolationLevel.ERROR,
+                )
+            )
     return violations
 
 
