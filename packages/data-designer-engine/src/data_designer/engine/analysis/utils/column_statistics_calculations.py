@@ -220,13 +220,21 @@ def ensure_hashable(x: Any) -> str:
 
     if isinstance(x, dict):
         # Sort by keys and convert key-value pairs to tuples
-        return str(sorted([(str(k), ensure_hashable(v)) for k, v in x.items()]))
+        return str(_sort_mixed_types([(str(k), ensure_hashable(v)) for k, v in x.items()]))
 
     if isinstance(x, (list, tuple, set, lazy.np.ndarray)):
         # Recursively make all elements hashable
-        return str(sorted([ensure_hashable(e) for e in x]))
+        return str(_sort_mixed_types([ensure_hashable(e) for e in x]))
 
     return str(x)
+
+
+def _sort_mixed_types(values: list[Any]) -> list[Any]:
+    """Sort values that may mix types, such as strings and `None`, which cannot be compared directly."""
+    try:
+        return sorted(values)
+    except TypeError:
+        return sorted(values, key=lambda value: (type(value).__name__, str(value)))
 
 
 def ensure_boolean(v: bool | str | int | None) -> bool:
