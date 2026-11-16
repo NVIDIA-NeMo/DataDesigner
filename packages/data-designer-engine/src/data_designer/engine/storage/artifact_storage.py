@@ -11,7 +11,7 @@ import uuid
 from datetime import datetime
 from functools import cached_property
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator, model_validator
@@ -218,8 +218,13 @@ class ArtifactStorage(BaseModel):
             raise ArtifactStorageError("🛑 Batch number must be non-negative.")
         return self._get_stage_path(batch_stage) / BATCH_FILE_NAME_FORMAT.format(batch_number=batch_number)
 
-    def load_dataset(self, batch_stage: BatchStage = BatchStage.FINAL_RESULT) -> pd.DataFrame:
-        return read_parquet_dataset(self._get_stage_path(batch_stage))
+    def load_dataset(
+        self,
+        batch_stage: BatchStage = BatchStage.FINAL_RESULT,
+        *,
+        dtype_backend: Literal["pyarrow", "numpy_nullable"] | None = "pyarrow",
+    ) -> pd.DataFrame:
+        return read_parquet_dataset(self._get_stage_path(batch_stage), dtype_backend=dtype_backend)
 
     def load_processor_dataset(self, processor_name: str) -> pd.DataFrame:
         """Load a processor's output dataset. Raises ArtifactStorageError if not found."""

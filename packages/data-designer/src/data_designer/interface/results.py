@@ -88,13 +88,20 @@ class DatasetCreationResults(WithRecordSamplerMixin):
         """
         return self._analysis
 
-    def load_dataset(self) -> pd.DataFrame:
+    def load_dataset(self, *, dtype_backend: Literal["pyarrow", "numpy_nullable"] | None = "pyarrow") -> pd.DataFrame:
         """Load the generated dataset as a pandas DataFrame.
+
+        Args:
+            dtype_backend: The pandas dtype backend for native columns. `"pyarrow"` (the default)
+                selects Arrow-backed dtypes; `"numpy_nullable"` selects pandas nullable dtypes.
+                `None` uses pandas' default conversion, including persisted pandas metadata.
+                Decoded JSON storage columns remain object dtype for every backend. This option
+                does not normalize nested values or repair incompatible persisted dtype metadata.
 
         Returns:
             A pandas DataFrame containing the full generated dataset.
         """
-        return self.artifact_storage.load_dataset()
+        return self.artifact_storage.load_dataset(dtype_backend=dtype_backend)
 
     def to_config_builder(self, columns: list[str] | None = None) -> DataDesignerConfigBuilder:
         """Create a new config builder seeded from this result dataset.
