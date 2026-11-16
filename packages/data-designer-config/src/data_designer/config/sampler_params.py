@@ -123,6 +123,24 @@ class DatetimeSamplerParams(ConfigBase):
             raise ValueError(f"Invalid datetime format: {value}")
         return value
 
+    @property
+    def first_unit_boundary(self) -> lazy.np.datetime64:
+        """The earliest `unit` boundary at or after `start`; samples are floored to `unit`, so none can come earlier."""
+        start = lazy.pd.to_datetime(self.start).to_datetime64()
+        boundary = start.astype(f"datetime64[{self.unit}]")
+        if boundary < start:
+            boundary += lazy.np.timedelta64(1, self.unit)
+        return boundary
+
+    @model_validator(mode="after")
+    def _validate_range_contains_unit_boundary(self) -> Self:
+        if self.first_unit_boundary >= lazy.pd.to_datetime(self.end).to_datetime64():
+            raise ValueError(
+                f"No '{self.unit}' boundary falls in the range from 'start' ({self.start}) to 'end' ({self.end}); "
+                "widen the range or use a smaller 'unit'"
+            )
+        return self
+
 
 class SubcategorySamplerParams(ConfigBase):
     """Parameters for subcategory sampling conditioned on a parent category column.

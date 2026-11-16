@@ -137,8 +137,10 @@ class CategorySampler(TypeConversionMixin, Sampler[CategorySamplerParams]):
 @SamplerRegistry.register(SamplerType.DATETIME)
 class DatetimeSampler(DatetimeFormatMixin, Sampler[DatetimeSamplerParams]):
     def sample(self, num_samples: int) -> NumpyArray1dT:
+        # Samples are floored to `unit`, so draw from the first `unit` boundary at or after `start`.
+        # Otherwise, e.g. start="2024-06-15" with unit="Y" yields 2024-01-01, before `start`.
+        start_sec = self.params.first_unit_boundary.astype("datetime64[s]").astype(lazy.np.int64)
         # Convert nanoseconds to seconds.
-        start_sec = lazy.pd.to_datetime(self.params.start).value // ONE_BILLION
         end_sec = lazy.pd.to_datetime(self.params.end).value // ONE_BILLION
 
         random_ns = (ONE_BILLION * self.rng.randint(start_sec, end_sec, num_samples, dtype=lazy.np.int64)).view(

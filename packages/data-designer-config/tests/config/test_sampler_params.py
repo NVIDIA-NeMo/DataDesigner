@@ -47,6 +47,40 @@ def test_datetime_sampler_params():
         DatetimeSamplerParams(start="invalid", end="invalid", unit="D")
 
 
+@pytest.mark.parametrize(
+    "start,end,unit",
+    [
+        ("2024-06-15", "2024-12-31", "Y"),
+        ("2024-01-15", "2024-01-31", "M"),
+        ("2024-01-01T12:00:00", "2024-01-01T18:00:00", "D"),
+        ("2024-01-01T09:30:00", "2024-01-01T09:45:00", "h"),
+        ("2024-01-01T09:30:30", "2024-01-01T09:30:45", "m"),
+        ("2024-01-01T09:30:00.250", "2024-01-01T09:30:00.750", "s"),
+        ("2024-01-01", "2024-01-01", "D"),
+    ],
+)
+def test_datetime_sampler_params_rejects_range_without_unit_boundary(start: str, end: str, unit: str) -> None:
+    with pytest.raises(ValidationError, match=f"No '{unit}' boundary falls in the range"):
+        DatetimeSamplerParams(start=start, end=end, unit=unit)
+
+
+@pytest.mark.parametrize(
+    "start,unit,expected",
+    [
+        ("2024-06-15", "Y", "2025"),
+        ("2024-01-15", "M", "2024-02"),
+        ("2024-01-01T12:00:00", "D", "2024-01-02"),
+        ("2024-01-01T09:30:00", "h", "2024-01-01T10"),
+        ("2024-01-01T09:30:30", "m", "2024-01-01T09:31"),
+        ("2024-01-01T09:30:00.250", "s", "2024-01-01T09:30:01"),
+        ("2024-01-01", "Y", "2024"),
+    ],
+)
+def test_datetime_sampler_params_first_unit_boundary(start: str, unit: str, expected: str) -> None:
+    params = DatetimeSamplerParams(start=start, end="2030-01-01", unit=unit)
+    assert str(params.first_unit_boundary) == expected
+
+
 def test_timedelta_sampler_params():
     params = TimeDeltaSamplerParams(dt_min=1, dt_max=10, unit="D", reference_column_name="datetime")
     assert params.dt_min == 1
