@@ -1,0 +1,33 @@
+schema_version: 1
+default_cluster: primary
+clusters:
+  primary:
+    schema_version: 1
+    host_patterns:
+      - login*.example.test
+    scheduler:
+      account: research
+      partition: gpu
+      mem_per_gpu: 80G
+    gpus_per_node: 8
+    workspace_root: /workspace/alice/data-designer-slurm
+    image_build:
+      partition: cpu
+      cpus_per_task: 2
+      memory: 8G
+      time_limit: "04:00:00"
+    gpu_request_mode: gres
+  lab:
+    schema_version: 1
+    host_patterns:
+      - lab-login*.example.test
+    scheduler:
+      partition: accelerated
+    gpus_per_node: 4
+    workspace_root: /workspace/alice/data-designer-slurm-lab
+    image_build:
+      partition: general
+      cpus_per_task: 2
+      memory: 8G
+      time_limit: "04:00:00"
+    gpu_request_mode: visible

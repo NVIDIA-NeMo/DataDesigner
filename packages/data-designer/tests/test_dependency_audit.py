@@ -45,10 +45,11 @@ def audit(
     workspace: Path,
     distributions: dict[str, list[str]],
     requirements: dict[str, list[str]] | None = None,
+    selected_extras: dict[str, set[str]] | None = None,
 ) -> dict:
     module = DEPENDENCY_AUDIT
     assert isinstance(module, ModuleType)
-    return module.audit_repository(workspace, distributions, requirements)
+    return module.audit_repository(workspace, distributions, requirements, selected_extras)
 
 
 def test_marks_transitively_guaranteed_gap_low(workspace: Path) -> None:
@@ -144,3 +145,107 @@ def test_applies_module_distribution_override(tmp_path: Path) -> None:
     result = audit(tmp_path, {})
 
     assert result["packages"][0]["missing"][0]["dependency"] == "pyyaml"
+
+
+def test_includes_selected_dynamic_optional_dependencies(tmp_path: Path) -> None:
+    base = tmp_path / "packages" / "data-designer"
+    leaf = tmp_path / "packages" / "data-designer-slurm"
+    (base / "src").mkdir(parents=True)
+    (leaf / "src").mkdir(parents=True)
+    (base / "pyproject.toml").write_text(
+        """
+[project]
+name = "data-designer"
+dynamic = ["optional-dependencies"]
+
+[tool.hatch.metadata.hooks.uv-dynamic-versioning]
+optional-dependencies = { slurm = ["data-designer-slurm=={{ version }}"] }
+""".lstrip()
+    )
+    (leaf / "pyproject.toml").write_text(
+        """
+[project]
+name = "data-designer-slurm"
+dynamic = ["dependencies"]
+
+[tool.hatch.metadata.hooks.uv-dynamic-versioning]
+dependencies = ["data-designer=={{ version }}"]
+""".lstrip()
+    )
+
+    result = audit(tmp_path, {}, selected_extras={"data-designer": {"slurm"}})
+
+    packages = {package["package"]: package for package in result["packages"]}
+    assert packages["data-designer"]["declared"] == ["data-designer-slurm"]
+    assert packages["data-designer-slurm"]["declared"] == ["data-designer"]
+
+
+@pytest.mark.parametrize(
+    ("consumer_dependency", "expected_guaranteed_by"),
+    [("base", []), ("base[leaf]", ["base"])],
+)
+def test_scopes_selected_workspace_extra_to_dependency_edge(
+    tmp_path: Path,
+    consumer_dependency: str,
+    expected_guaranteed_by: list[str],
+) -> None:
+    base = tmp_path / "packages" / "base"
+    leaf = tmp_path / "packages" / "leaf"
+    consumer = tmp_path / "packages" / "consumer"
+    for package in (base, leaf, consumer):
+        (package / "src").mkdir(parents=True)
+    (base / "pyproject.toml").write_text(
+        """
+[project]
+name = "base"
+dynamic = ["optional-dependencies"]
+
+[tool.hatch.metadata.hooks.uv-dynamic-versioning]
+optional-dependencies = { leaf = ["leaf=={{ version }}"] }
+""".lstrip()
+    )
+    (leaf / "pyproject.toml").write_text('[project]\nname = "leaf"\ndependencies = []\n')
+    (consumer / "pyproject.toml").write_text(
+        f'[project]\nname = "consumer"\ndependencies = ["{consumer_dependency}"]\n'
+    )
+    (consumer / "src" / "consumer.py").write_text("import leaf_module\n")
+
+    result = audit(
+        tmp_path,
+        {"leaf_module": ["leaf"]},
+        selected_extras={"base": {"leaf"}},
+    )
+
+    consumer_result = next(package for package in result["packages"] if package["package"] == "consumer")
+    assert consumer_result["missing"][0]["guaranteed_by"] == expected_guaranteed_by
+    assert consumer_result["missing"][0]["severity"] == ("low" if expected_guaranteed_by else "high")
+
+
+def test_does_not_follow_workspace_cycle_back_through_audited_project(tmp_path: Path) -> None:
+    base = tmp_path / "packages" / "base"
+    leaf = tmp_path / "packages" / "leaf"
+    for package in (base, leaf):
+        (package / "src").mkdir(parents=True)
+    (base / "pyproject.toml").write_text(
+        """
+[project]
+name = "base"
+dependencies = ["support"]
+dynamic = ["optional-dependencies"]
+
+[tool.hatch.metadata.hooks.uv-dynamic-versioning]
+optional-dependencies = { leaf = ["leaf=={{ version }}"] }
+""".lstrip()
+    )
+    (leaf / "pyproject.toml").write_text('[project]\nname = "leaf"\ndependencies = ["base"]\n')
+    (base / "src" / "base.py").write_text("import transitive_module\n")
+
+    result = audit(
+        tmp_path,
+        {"transitive_module": ["transitive"]},
+        {"support": ["transitive"]},
+        selected_extras={"base": {"leaf"}},
+    )
+
+    base_result = next(package for package in result["packages"] if package["package"] == "base")
+    assert base_result["missing"][0]["guaranteed_by"] == ["support"]

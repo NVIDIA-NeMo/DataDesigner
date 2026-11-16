@@ -1,0 +1,857 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+from __future__ import annotations
+
+import subprocess
+from collections.abc import Mapping, Sequence
+from datetime import UTC, datetime
+
+import pytest
+from slurm_test_fakes import FakeCommandResponse, FakeSlurmJob, FakeSlurmRunner
+
+from data_designer.slurm.launcher.client import SlurmCommandClient, SlurmExecutables
+from data_designer.slurm.launcher.errors import SlurmCommandError, SlurmCommandOutputError, SlurmSubmissionError
+from data_designer.slurm.state import SchedulerIdentity, SchedulerState
+
+
+def test_client_submits_and_observes_one_managed_array(fake_slurm_runner: FakeSlurmRunner) -> None:
+    client = SlurmCommandClient(fake_slurm_runner)
+
+    submission = client.submit("/workspace/run.sbatch")
+    queue = client.query_queue((submission.job_id,))
+
+    assert submission.job_id == 4101
+    assert tuple(record.state for record in queue) == (SchedulerState.PENDING, SchedulerState.RUNNING)
+    assert fake_slurm_runner.calls == [
+        ("sbatch", "--parsable", "--export=ALL", "/workspace/run.sbatch"),
+        ("squeue", "--noheader", "--array", "--format=%i|%T", "--jobs=4101"),
+    ]
+
+
+def test_client_submits_verified_script_text_through_standard_input() -> None:
+    runner = FakeSlurmRunner(jobs=(FakeSlurmJob(job_id=5101),))
+    client = SlurmCommandClient(runner)
+    script = "#!/usr/bin/env bash\nexit 0\n"
+
+    submission = client.submit_script(script)
+
+    assert submission.job_id == 5101
+    assert runner.calls == [("sbatch", "--parsable", "--export=ALL")]
+    assert runner.inputs == [script]
+
+
+def test_client_holds_submission_until_initial_state_is_recorded() -> None:
+    runner = FakeSlurmRunner(jobs=(FakeSlurmJob(job_id=5101),))
+    runner.script_next("scontrol", FakeCommandResponse())
+    client = SlurmCommandClient(runner)
+
+    submission = client.submit_script("#!/usr/bin/env bash\n", hold=True)
+    client.release(submission.job_id)
+
+    assert runner.calls == [
+        ("sbatch", "--parsable", "--hold", "--export=ALL"),
+        ("scontrol", "release", "5101"),
+    ]
+
+
+def test_client_preserves_explicit_deployment_type_without_values_in_argv(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("NEMO_DEPLOYMENT_TYPE", "nvidia-internal")
+    runner = _EnvironmentRunner()
+    client = SlurmCommandClient(runner)
+
+    client.submit_script(
+        "#!/usr/bin/env bash\n",
+        export_environment={"HF_TOKEN": "secret-value", "NEMO_DEPLOYMENT_TYPE": "library", "SLURM_EXPORT_ENV": "ALL"},
+    )
+
+    assert runner.command == (
+        "sbatch",
+        "--parsable",
+        "--export=ALL",
+    )
+    assert runner.environment == {
+        "HF_TOKEN": "secret-value",
+        "NEMO_DEPLOYMENT_TYPE": "library",
+        "SLURM_EXPORT_ENV": "ALL",
+    }
+    assert "secret-value" not in " ".join(runner.command)
+
+
+def test_client_sets_slurm_deployment_type_when_unset(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("NEMO_DEPLOYMENT_TYPE", raising=False)
+    runner = _EnvironmentRunner()
+
+    SlurmCommandClient(runner).submit_script("#!/usr/bin/env bash\n")
+
+    assert runner.command == ("sbatch", "--parsable", "--export=ALL")
+    assert runner.environment == {"NEMO_DEPLOYMENT_TYPE": "slurm"}
+
+
+def test_client_preserves_deployment_type_from_submitter_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("NEMO_DEPLOYMENT_TYPE", "slurm-nvidia-internal")
+    runner = _EnvironmentRunner()
+
+    SlurmCommandClient(runner).submit_script("#!/usr/bin/env bash\n")
+
+    assert runner.command == ("sbatch", "--parsable", "--export=ALL")
+    assert runner.environment == {"NEMO_DEPLOYMENT_TYPE": "slurm-nvidia-internal"}
+
+
+def test_script_submission_classifies_scheduler_rejection_as_definite() -> None:
+    runner = FakeSlurmRunner()
+    runner.script_next("sbatch", FakeCommandResponse(stderr="rejected", returncode=2))
+
+    with pytest.raises(SlurmSubmissionError, match="rejected") as error:
+        SlurmCommandClient(runner).submit_script("#!/bin/sh\n")
+
+    assert not error.value.may_have_succeeded
+
+
+def test_script_submission_classifies_timeout_as_ambiguous() -> None:
+    with pytest.raises(SlurmSubmissionError, match="timed out") as error:
+        SlurmCommandClient(_TimeoutRunner()).submit_script("#!/bin/sh\n")
+
+    assert error.value.may_have_succeeded
+
+
+def test_client_queries_accounting_and_cancels_one_array_task(fake_slurm_runner: FakeSlurmRunner) -> None:
+    client = SlurmCommandClient(fake_slurm_runner)
+    client.submit("run.sbatch")
+    scheduler = SchedulerIdentity(array_job_id=4101, array_task_id=1)
+
+    client.cancel(scheduler)
+    accounting = client.query_accounting((scheduler,))
+
+    assert len(accounting) == 1
+    assert accounting[0].job_identity == scheduler
+    assert accounting[0].state is SchedulerState.CANCELLED
+    assert fake_slurm_runner.calls[-2:] == [
+        ("scancel", "4101_1"),
+        (
+            "sacct",
+            "--noheader",
+            "--array",
+            "--allocations",
+            "--parsable2",
+            "--format=JobID,State,ExitCode",
+            "--jobs=4101_1",
+        ),
+    ]
+
+
+def test_client_finds_one_exact_named_array_across_queue_and_accounting() -> None:
+    runner = FakeSlurmRunner()
+    job_name = f"dd-retry-{'a' * 32}"
+    runner.script_next("squeue", FakeCommandResponse(stdout=f"4201_0|{job_name}\n"))
+    runner.script_next("sacct", FakeCommandResponse(stdout=f"4201_0|{job_name}\n4201_1|{job_name}\n"))
+    submitted_after = datetime(2026, 9, 2, 18, tzinfo=UTC)
+
+    matches = SlurmCommandClient(runner).query_submissions_by_name(job_name, submitted_after=submitted_after)
+
+    assert len(matches) == 1
+    assert matches[0].job_id == 4201
+    assert matches[0].array_task_ids == (0, 1)
+    assert runner.calls[0] == (
+        "squeue",
+        "--noheader",
+        "--array",
+        "--format=%i|%.128j",
+        "--me",
+        f"--name={job_name}",
+    )
+    assert runner.calls[1][0:6] == (
+        "sacct",
+        "--noheader",
+        "--array",
+        "--allocations",
+        "--parsable2",
+        "--format=JobID,JobName%128",
+    )
+    assert runner.calls[1][6].startswith("--uid=")
+    assert runner.calls[1][7].startswith("--starttime=")
+    assert runner.calls[1][8] == f"--name={job_name}"
+
+
+def test_client_rejects_a_named_lookup_result_with_a_different_name() -> None:
+    runner = FakeSlurmRunner()
+    runner.script_next("squeue", FakeCommandResponse(stdout="4201|unrelated\n"))
+    runner.script_next("sacct", FakeCommandResponse())
+
+    with pytest.raises(SlurmCommandOutputError, match="outside the requested exact name"):
+        SlurmCommandClient(runner).query_submissions_by_name(
+            f"dd-retry-{'a' * 32}",
+            submitted_after=datetime(2026, 9, 2, 18, tzinfo=UTC),
+        )
+
+
+def test_client_deduplicates_explicit_job_selectors(fake_slurm_runner: FakeSlurmRunner) -> None:
+    client = SlurmCommandClient(fake_slurm_runner)
+    client.submit("run.sbatch")
+
+    client.query_queue((4101, 4101, SchedulerIdentity(array_job_id=4101, array_task_id=0)))
+
+    assert fake_slurm_runner.calls[-1][-1] == "--jobs=4101,4101_0"
+
+
+def test_client_rejects_unrequested_scheduler_records(fake_slurm_runner: FakeSlurmRunner) -> None:
+    client = SlurmCommandClient(fake_slurm_runner)
+    fake_slurm_runner.script_next("squeue", FakeCommandResponse(stdout="9999_0|RUNNING\n"))
+
+    with pytest.raises(SlurmCommandOutputError, match="unrequested"):
+        client.query_queue((4101,))
+
+    fake_slurm_runner.script_next("sacct", FakeCommandResponse(stdout="9999_0|FAILED|1:0\n"))
+    with pytest.raises(SlurmCommandOutputError, match="unrequested"):
+        client.query_accounting((SchedulerIdentity(array_job_id=4101, array_task_id=0),))
+
+
+def test_client_observes_regular_cpu_job() -> None:
+    runner = FakeSlurmRunner(jobs=(FakeSlurmJob(job_id=5101),))
+    client = SlurmCommandClient(runner)
+
+    submission = client.submit("image-build.sbatch")
+    queue = client.query_queue((5101,))
+    runner.set_job_state(5101, queue_state=None, accounting_state="COMPLETED")
+    accounting = client.query_accounting((5101,))
+
+    assert submission.job_id == 5101
+    assert queue[0].job_identity == 5101
+    assert queue[0].state is SchedulerState.PENDING
+    assert accounting[0].job_identity == 5101
+    assert accounting[0].state is SchedulerState.COMPLETED
+
+
+def test_client_ignores_only_array_parent_observation_for_exact_task() -> None:
+    runner = FakeSlurmRunner()
+    runner.script_next("sacct", FakeCommandResponse(stdout="4101|RUNNING|0:0\n4101_0|COMPLETED|0:0\n"))
+    client = SlurmCommandClient(runner)
+    task = SchedulerIdentity(array_job_id=4101, array_task_id=0)
+
+    records = client.query_accounting((task,))
+
+    assert tuple(record.job_identity for record in records) == (task,)
+
+
+def test_client_keeps_explicitly_selected_parent_and_task_observations() -> None:
+    runner = FakeSlurmRunner()
+    runner.script_next("sacct", FakeCommandResponse(stdout="4101|RUNNING|0:0\n4101_0|COMPLETED|0:0\n"))
+    client = SlurmCommandClient(runner)
+    task = SchedulerIdentity(array_job_id=4101, array_task_id=0)
+
+    records = client.query_accounting((4101, task))
+
+    assert tuple(record.job_identity for record in records) == (4101, task)
+
+
+def test_client_rejects_unbounded_or_invalid_job_selectors(fake_slurm_runner: FakeSlurmRunner) -> None:
+    client = SlurmCommandClient(fake_slurm_runner)
+
+    with pytest.raises(ValueError, match="at least one"):
+        client.query_queue(())
+    with pytest.raises(ValueError, match="positive 32-bit integers"):
+        client.query_accounting((0,))
+    with pytest.raises(ValueError, match="positive 32-bit integers"):
+        client.cancel(True)
+    with pytest.raises(ValueError, match="32-bit"):
+        client.cancel(1 << 32)
+    with pytest.raises(ValueError, match="array-task IDs"):
+        client.cancel(SchedulerIdentity(array_job_id=4101, array_task_id=1 << 32))
+
+    assert fake_slurm_runner.calls == []
+
+
+def test_client_queries_default_partition_gpu_inventory(fake_slurm_runner: FakeSlurmRunner) -> None:
+    client = SlurmCommandClient(fake_slurm_runner)
+
+    assert client.query_gpu_counts() == (2,)
+    assert fake_slurm_runner.calls == [("sinfo", "--noheader", "--format=%P|%G")]
+
+
+def test_client_queries_partition_scoped_gpu_inventory() -> None:
+    command = ("sinfo", "--noheader", "--format=%G", "--partition=batch")
+    runner = FakeSlurmRunner(sinfo_responses={command: FakeCommandResponse(stdout="gpu:a100:8\n")})
+
+    assert SlurmCommandClient(runner).query_gpu_counts(partition="batch") == (8,)
+    assert runner.calls == [command]
+
+
+def test_client_queries_multiple_partition_gpu_inventory() -> None:
+    command = ("sinfo", "--noheader", "--format=%P|%G", "--partition=batch,other")
+    runner = FakeSlurmRunner(
+        sinfo_responses={command: FakeCommandResponse(stdout="batch|gpu:a100:8\nother|gpu:h100:8\n")}
+    )
+
+    assert SlurmCommandClient(runner).query_gpu_counts(partition="batch,other") == (8, 8)
+    assert runner.calls == [command]
+
+
+@pytest.mark.parametrize(
+    "output",
+    ["batch|gpu:a100:8\n", "batch|gpu:a100:8\nother|(null)\n", "batch|gpu:a100:8\nother|gpu:h100:8\nother|(null)\n"],
+)
+def test_client_rejects_selected_partition_without_gpu_inventory(output: str) -> None:
+    command = ("sinfo", "--noheader", "--format=%P|%G", "--partition=batch,other")
+    runner = FakeSlurmRunner(sinfo_responses={command: FakeCommandResponse(stdout=output)})
+
+    with pytest.raises(SlurmCommandOutputError, match="requested partition|no GPU resources"):
+        SlurmCommandClient(runner).query_gpu_counts(partition="batch,other")
+
+
+@pytest.mark.parametrize("selection", ["batch,,other", "batch,other;echo", "batch,batch"])
+def test_client_rejects_invalid_gpu_partition_without_running_command(
+    fake_slurm_runner: FakeSlurmRunner, selection: str
+) -> None:
+    client = SlurmCommandClient(fake_slurm_runner)
+
+    with pytest.raises(ValueError, match="comma-separated list"):
+        client.query_gpu_counts(partition=selection)
+
+    assert fake_slurm_runner.calls == []
+
+
+def test_client_normalizes_command_failures(fake_slurm_runner: FakeSlurmRunner) -> None:
+    fake_slurm_runner.script_next(
+        "sacct",
+        FakeCommandResponse(stderr="accounting\nservice unavailable\n", returncode=2),
+    )
+    client = SlurmCommandClient(fake_slurm_runner)
+
+    with pytest.raises(SlurmCommandError, match="sacct failed with exit code 2: accounting service unavailable"):
+        client.query_accounting((4101,))
+
+
+@pytest.mark.parametrize(
+    "detail",
+    (
+        "Invalid job id specified",
+        "slurm_load_jobs error: Invalid job id specified",
+    ),
+)
+def test_client_treats_unknown_queue_job_as_an_absent_row(
+    fake_slurm_runner: FakeSlurmRunner,
+    detail: str,
+) -> None:
+    fake_slurm_runner.script_next("squeue", FakeCommandResponse(stderr=f"{detail}\n", returncode=1))
+
+    assert SlurmCommandClient(fake_slurm_runner).query_queue((4101,)) == ()
+
+
+@pytest.mark.parametrize(
+    "detail",
+    (
+        "Invalid job id specified for partition",
+        "queue unavailable",
+    ),
+)
+def test_client_preserves_non_missing_queue_failures(
+    fake_slurm_runner: FakeSlurmRunner,
+    detail: str,
+) -> None:
+    fake_slurm_runner.script_next("squeue", FakeCommandResponse(stderr=f"{detail}\n", returncode=1))
+
+    with pytest.raises(SlurmCommandError, match=detail):
+        SlurmCommandClient(fake_slurm_runner).query_queue((4101,))
+
+
+def test_client_removes_terminal_controls_from_command_failures(fake_slurm_runner: FakeSlurmRunner) -> None:
+    fake_slurm_runner.script_next(
+        "squeue",
+        FakeCommandResponse(stderr="queue unavailable\x1b[31m\n", returncode=2),
+    )
+    client = SlurmCommandClient(fake_slurm_runner)
+
+    with pytest.raises(SlurmCommandError) as error:
+        client.query_queue((4101,))
+
+    assert "\x1b" not in str(error.value)
+
+
+@pytest.mark.parametrize(
+    ("diagnostic", "expected", "secret"),
+    (
+        ("--api-key\x00plaintext-secret", "--api-key <redacted>", "plaintext-secret"),
+        ("--api_key\x1funderscore-secret", "--api_key <redacted>", "underscore-secret"),
+        ("--access-token\u200bformat-secret", "--access-token <redacted>", "format-secret"),
+        (
+            "Authorization: Custom control-secret\x00value\nstatus=failed",
+            "Authorization: <redacted> status=failed",
+            "control-secret",
+        ),
+        ("HF_TOKEN=secret\x00suffix status=failed", "HF_TOKEN=<redacted> status=failed", "suffix"),
+        (
+            "https://user:secret\x00suffix@example.test/path status=failed",
+            "https://<redacted>@example.test/path status=failed",
+            "suffix",
+        ),
+        ("HF_TOKEN\x00=boundary-secret", "HF_TOKEN =<redacted>", "boundary-secret"),
+        (
+            'HF_TOKEN="first-secret";status=failed --api-key\x00second-secret next=ready',
+            "HF_TOKEN=<redacted>;status=failed --api-key <redacted> next=ready",
+            "second-secret",
+        ),
+        (
+            "HF_TOKEN=<data-designer-redaction>\x00suffix status=failed",
+            "HF_TOKEN=<redacted> status=failed",
+            "suffix",
+        ),
+    ),
+    ids=(
+        "nul",
+        "unit-separator",
+        "format-control",
+        "authorization-line-boundary",
+        "assignment-secret-suffix",
+        "uri-userinfo-secret-suffix",
+        "assignment-hidden-boundary",
+        "raw-and-normalized-pass",
+        "placeholder-collision",
+    ),
+)
+def test_client_redacts_secrets_obscured_by_control_characters(
+    fake_slurm_runner: FakeSlurmRunner,
+    diagnostic: str,
+    expected: str,
+    secret: str,
+) -> None:
+    fake_slurm_runner.script_next("squeue", FakeCommandResponse(stderr=diagnostic, returncode=2))
+
+    with pytest.raises(SlurmCommandError) as error:
+        SlurmCommandClient(fake_slurm_runner).query_queue((4101,))
+
+    detail = str(error.value).partition(": ")[2]
+    assert detail == expected
+    assert secret not in detail
+
+
+@pytest.mark.parametrize(
+    "control",
+    (
+        pytest.param("\t", id="tab"),
+        pytest.param("\v", id="vertical-tab"),
+        pytest.param("\f", id="form-feed"),
+        pytest.param("\x1c", id="file-separator"),
+        pytest.param("\x1d", id="group-separator"),
+        pytest.param("\x1e", id="record-separator"),
+        pytest.param("\x1f", id="unit-separator"),
+        pytest.param("\x85", id="next-line"),
+    ),
+)
+def test_client_redacts_whitespace_control_credential_suffixes(
+    fake_slurm_runner: FakeSlurmRunner,
+    control: str,
+) -> None:
+    diagnostic = (
+        f"HF_TOKEN=assignment-secret{control}suffix status=failed "
+        f"https://user:uri-secret{control}suffix@example.test/path"
+    )
+    fake_slurm_runner.script_next("squeue", FakeCommandResponse(stderr=diagnostic, returncode=2))
+
+    with pytest.raises(SlurmCommandError) as error:
+        SlurmCommandClient(fake_slurm_runner).query_queue((4101,))
+
+    detail = str(error.value).partition(": ")[2]
+    assert detail == "HF_TOKEN=<redacted> status=failed https://<redacted>@example.test/path"
+    assert "secret" not in detail
+    assert "suffix" not in detail
+
+
+@pytest.mark.parametrize(
+    "boundary",
+    (
+        pytest.param("\u00a0", id="no-break-space"),
+        pytest.param("\u1680", id="ogham-space"),
+        pytest.param("\u2007", id="figure-space"),
+        pytest.param("\u202f", id="narrow-no-break-space"),
+        pytest.param("\u205f", id="medium-mathematical-space"),
+        pytest.param("\u3000", id="ideographic-space"),
+    ),
+)
+def test_client_redacts_unicode_whitespace_credential_suffixes(
+    fake_slurm_runner: FakeSlurmRunner,
+    boundary: str,
+) -> None:
+    diagnostic = (
+        f"HF_TOKEN=assignment-secret{boundary}suffix status=failed "
+        f"https://user:uri-secret{boundary}suffix@example.test/path"
+    )
+    fake_slurm_runner.script_next("squeue", FakeCommandResponse(stderr=diagnostic, returncode=2))
+
+    with pytest.raises(SlurmCommandError) as error:
+        SlurmCommandClient(fake_slurm_runner).query_queue((4101,))
+
+    detail = str(error.value).partition(": ")[2]
+    assert detail == "HF_TOKEN=<redacted> status=failed https://<redacted>@example.test/path"
+    assert "secret" not in detail
+    assert "suffix" not in detail
+
+
+@pytest.mark.parametrize("line_break", ("\n", "\r", "\r\n"), ids=("line-feed", "carriage-return", "crlf"))
+def test_client_retains_unambiguous_diagnostic_line_boundaries(
+    fake_slurm_runner: FakeSlurmRunner,
+    line_break: str,
+) -> None:
+    fake_slurm_runner.script_next(
+        "squeue",
+        FakeCommandResponse(stderr=f"HF_TOKEN=secret{line_break}status=failed", returncode=2),
+    )
+
+    with pytest.raises(SlurmCommandError) as error:
+        SlurmCommandClient(fake_slurm_runner).query_queue((4101,))
+
+    assert str(error.value).endswith("HF_TOKEN=<redacted> status=failed")
+
+
+@pytest.mark.parametrize(
+    ("diagnostic", "secret"),
+    (
+        ("HF_TOKEN=super-secret-value", "super-secret-value"),
+        ('HF_TOKEN="quoted secret value"', "quoted secret value"),
+        ("--api-key plaintext-secret", "plaintext-secret"),
+        ("Authorization: Bearer bearer-secret;suffix status=failed", "bearer-secret;suffix"),
+        ('{"access_token":"json-secret"}', "json-secret"),
+        ("Authorization: Bearer bearer-secret", "bearer-secret"),
+        ("https://user:url-secret@example.test/index", "url-secret"),
+        (f"token github_pat_{'a' * 24}", f"github_pat_{'a' * 24}"),
+    ),
+    ids=(
+        "environment",
+        "quoted-environment",
+        "option",
+        "authorization-punctuation",
+        "json",
+        "authorization",
+        "url",
+        "known-token",
+    ),
+)
+def test_client_redacts_secrets_from_command_failures(
+    fake_slurm_runner: FakeSlurmRunner,
+    diagnostic: str,
+    secret: str,
+) -> None:
+    fake_slurm_runner.script_next("squeue", FakeCommandResponse(stderr=diagnostic, returncode=2))
+    client = SlurmCommandClient(fake_slurm_runner)
+
+    with pytest.raises(SlurmCommandError) as error:
+        client.query_queue((4101,))
+
+    assert secret not in str(error.value)
+    assert "<redacted>" in str(error.value)
+
+
+@pytest.mark.parametrize(
+    ("diagnostic", "expected", "secret"),
+    (
+        ("Authorization: Token token-secret status=failed", "Authorization: <redacted>", "token-secret"),
+        ("Authorization=ApiKey key-secret", "Authorization=<redacted>", "key-secret"),
+        ("authorization: opaque secret value", "authorization: <redacted>", "opaque secret value"),
+        (
+            "Authorization: Custom custom-secret\nstatus=failed",
+            "Authorization: <redacted> status=failed",
+            "custom-secret",
+        ),
+        (
+            '{"Authorization": "Bearer serialized-secret-value", "status": "failed"}',
+            '{"Authorization": <redacted>',
+            "serialized-secret-value",
+        ),
+    ),
+    ids=("token", "api-key", "bare", "newline-boundary", "serialized-header"),
+)
+def test_client_redacts_complete_authorization_values(
+    fake_slurm_runner: FakeSlurmRunner,
+    diagnostic: str,
+    expected: str,
+    secret: str,
+) -> None:
+    fake_slurm_runner.script_next("squeue", FakeCommandResponse(stderr=diagnostic, returncode=2))
+
+    with pytest.raises(SlurmCommandError) as error:
+        SlurmCommandClient(fake_slurm_runner).query_queue((4101,))
+
+    detail = str(error.value).partition(": ")[2]
+    assert detail == expected
+    assert secret not in detail
+
+
+def test_client_redacts_quoted_authorization_value_with_control_obscured_suffix(
+    fake_slurm_runner: FakeSlurmRunner,
+) -> None:
+    scheme = "Bear" + "er"
+    diagnostic = f'Authorization: "{scheme} token"\x00secret-suffix\nstatus=failed'
+    fake_slurm_runner.script_next("squeue", FakeCommandResponse(stderr=diagnostic, returncode=2))
+
+    with pytest.raises(SlurmCommandError) as error:
+        SlurmCommandClient(fake_slurm_runner).query_queue((4101,))
+
+    detail = str(error.value).partition(": ")[2]
+    assert detail == "Authorization: <redacted> status=failed"
+    assert "token" not in detail
+    assert "suffix" not in detail
+
+
+@pytest.mark.parametrize(
+    ("diagnostic", "expected"),
+    (
+        (
+            "https://user:first@second@example.test/index",
+            "https://<redacted>@example.test/index",
+        ),
+        ("ssh://user:secret@example.test/repository", "ssh://<redacted>@example.test/repository"),
+        ("git+ssh://user:p@ss@example.test/repository", "git+ssh://<redacted>@example.test/repository"),
+        ("https://example.test/path@owner", "https://example.test/path@owner"),
+    ),
+    ids=("last-at", "ssh", "compound-scheme", "at-after-path"),
+)
+def test_client_redacts_general_uri_userinfo(
+    fake_slurm_runner: FakeSlurmRunner,
+    diagnostic: str,
+    expected: str,
+) -> None:
+    fake_slurm_runner.script_next("squeue", FakeCommandResponse(stderr=diagnostic, returncode=2))
+
+    with pytest.raises(SlurmCommandError) as error:
+        SlurmCommandClient(fake_slurm_runner).query_queue((4101,))
+
+    assert str(error.value).partition(": ")[2] == expected
+
+
+@pytest.mark.parametrize(
+    ("diagnostic", "expected"),
+    (
+        ("HF_TOKEN=secret;status=failed job=4", "HF_TOKEN=<redacted> job=4"),
+        ("HF_TOKEN=secret,status=failed job=4", "HF_TOKEN=<redacted> job=4"),
+        ("HF_TOKEN=secret status=failed", "HF_TOKEN=<redacted> status=failed"),
+        ("status=failed;HF_TOKEN=secret;job=4 next=ready", "status=failed;HF_TOKEN=<redacted> next=ready"),
+        ("status=failed,HF_TOKEN=secret,job=4 next=ready", "status=failed,HF_TOKEN=<redacted> next=ready"),
+        ("status=failed HF_TOKEN=secret job=4", "status=failed HF_TOKEN=<redacted> job=4"),
+        ("status=failed; HF_TOKEN=secret, job=4", "status=failed; HF_TOKEN=<redacted> job=4"),
+        ("status=failed;HF_TOKEN=secret", "status=failed;HF_TOKEN=<redacted>"),
+        ("status=failed,HF_TOKEN=secret", "status=failed,HF_TOKEN=<redacted>"),
+        ("status=failed HF_TOKEN=secret", "status=failed HF_TOKEN=<redacted>"),
+        ("status=failed|HF_TOKEN=secret", "status=failed|HF_TOKEN=<redacted>"),
+        ("status=failed/HF_TOKEN=secret", "status=failed/HF_TOKEN=<redacted>"),
+        ("HF_TOKEN=secret;suffix status=failed", "HF_TOKEN=<redacted> status=failed"),
+        ("HF_TOKEN=secret,suffix status=failed", "HF_TOKEN=<redacted> status=failed"),
+        ("HF_TOKEN=secret;part=value status=failed", "HF_TOKEN=<redacted> status=failed"),
+        ("HF_TOKEN=secret,part=value status=failed", "HF_TOKEN=<redacted> status=failed"),
+        ('HF_TOKEN="secret";status=failed', "HF_TOKEN=<redacted>;status=failed"),
+    ),
+    ids=(
+        "first-semicolon",
+        "first-comma",
+        "first-whitespace",
+        "middle-semicolon",
+        "middle-comma",
+        "middle-whitespace",
+        "middle-spaced-punctuation",
+        "last-semicolon",
+        "last-comma",
+        "last-whitespace",
+        "pipe-before-secret",
+        "slash-before-secret",
+        "semicolon-inside-value",
+        "comma-inside-value",
+        "assignment-looking-semicolon-suffix",
+        "assignment-looking-comma-suffix",
+        "quoted-value-boundary",
+    ),
+)
+def test_client_redacts_adjacent_assignments_fail_closed(
+    fake_slurm_runner: FakeSlurmRunner,
+    diagnostic: str,
+    expected: str,
+) -> None:
+    fake_slurm_runner.script_next(
+        "squeue",
+        FakeCommandResponse(stderr=diagnostic, returncode=2),
+    )
+
+    with pytest.raises(SlurmCommandError) as error:
+        SlurmCommandClient(fake_slurm_runner).query_queue((4101,))
+
+    assert expected in str(error.value)
+    assert "HF_TOKEN=secret" not in str(error.value)
+
+
+@pytest.mark.parametrize(
+    ("diagnostic", "expected", "secret"),
+    (
+        ("--format compact|--api-key secret", "--format compact|--api-key <redacted>", "secret"),
+        ("--format compact|--api_key secret", "--format compact|--api_key <redacted>", "secret"),
+        ("--api-key plaintext-secret", "--api-key <redacted>", "plaintext-secret"),
+        ("--api_key plaintext-secret", "--api_key <redacted>", "plaintext-secret"),
+        ('--api_Key "quoted secret value" status=failed', "--api_Key <redacted> status=failed", "quoted secret value"),
+        (
+            "status=failed/--access_token.key 'single quoted secret' next=ready",
+            "status=failed/--access_token.key <redacted> next=ready",
+            "single quoted secret",
+        ),
+        ("--api-key secret;part=value status=failed", "--api-key <redacted> status=failed", "secret;part=value"),
+        ("--api_key secret,part=value status=failed", "--api_key <redacted> status=failed", "secret,part=value"),
+        ("--access-token_key mixed-secret", "--access-token_key <redacted>", "mixed-secret"),
+        ("--output_format compact status=failed", "--output_format compact status=failed", None),
+    ),
+    ids=(
+        "hyphen-after-unknown-separator",
+        "underscore-after-unknown-separator",
+        "hyphen-unquoted",
+        "underscore-unquoted",
+        "mixed-case-double-quoted",
+        "mixed-dot-underscore-single-quoted",
+        "hyphen-punctuation-suffix",
+        "underscore-punctuation-suffix",
+        "mixed-hyphen-underscore",
+        "nonsecret-underscore-preserved",
+    ),
+)
+def test_client_redacts_option_values_without_overlap(
+    fake_slurm_runner: FakeSlurmRunner,
+    diagnostic: str,
+    expected: str,
+    secret: str | None,
+) -> None:
+    fake_slurm_runner.script_next("squeue", FakeCommandResponse(stderr=diagnostic, returncode=2))
+
+    with pytest.raises(SlurmCommandError) as error:
+        SlurmCommandClient(fake_slurm_runner).query_queue((4101,))
+
+    detail = str(error.value).partition(": ")[2]
+    assert detail == expected
+    if secret is not None:
+        assert secret not in detail
+
+
+def test_client_bounds_command_failure_detail(fake_slurm_runner: FakeSlurmRunner) -> None:
+    fake_slurm_runner.script_next("squeue", FakeCommandResponse(stderr="x" * 600, returncode=2))
+    client = SlurmCommandClient(fake_slurm_runner)
+
+    with pytest.raises(SlurmCommandError) as error:
+        client.query_queue((4101,))
+
+    detail = str(error.value).partition(": ")[2]
+    assert len(detail) == 512
+    assert detail.endswith("...")
+
+
+def test_client_normalizes_execution_errors() -> None:
+    client = SlurmCommandClient(_FailingRunner())
+
+    with pytest.raises(SlurmCommandError, match="squeue could not be executed") as error:
+        client.query_queue((4101,))
+
+    assert isinstance(error.value.__cause__, FileNotFoundError)
+
+
+def test_client_normalizes_command_timeouts() -> None:
+    client = SlurmCommandClient(_TimeoutRunner())
+
+    with pytest.raises(SlurmCommandError, match="command timed out") as error:
+        client.query_queue((4101,))
+
+    assert isinstance(error.value.__cause__, subprocess.TimeoutExpired)
+
+
+@pytest.mark.parametrize("returncode", (0, 2))
+def test_client_rejects_non_text_runner_output(returncode: int) -> None:
+    client = SlurmCommandClient(_NonTextRunner(returncode))
+
+    with pytest.raises(SlurmCommandError, match="malformed process result"):
+        client.query_queue((4101,))
+
+
+def test_script_path_is_one_argument_vector_token(fake_slurm_runner: FakeSlurmRunner) -> None:
+    client = SlurmCommandClient(fake_slurm_runner)
+
+    client.submit("/workspace/run; touch injected.sbatch")
+
+    assert fake_slurm_runner.calls[0] == (
+        "sbatch",
+        "--parsable",
+        "--export=ALL",
+        "/workspace/run; touch injected.sbatch",
+    )
+
+
+def test_client_rejects_option_like_script_path(fake_slurm_runner: FakeSlurmRunner) -> None:
+    client = SlurmCommandClient(fake_slurm_runner)
+
+    with pytest.raises(ValueError, match="must not begin"):
+        client.submit("--wrap=unexpected")
+
+    assert fake_slurm_runner.calls == []
+
+
+@pytest.mark.parametrize("script_path", ("", "bad\npath"))
+def test_client_rejects_invalid_script_path(fake_slurm_runner: FakeSlurmRunner, script_path: str) -> None:
+    client = SlurmCommandClient(fake_slurm_runner)
+
+    with pytest.raises(ValueError, match="batch script path"):
+        client.submit(script_path)
+
+    assert fake_slurm_runner.calls == []
+
+
+@pytest.mark.parametrize("script", ("", "bad\0script", b"not text"))
+def test_client_rejects_invalid_script_text(fake_slurm_runner: FakeSlurmRunner, script: object) -> None:
+    client = SlurmCommandClient(fake_slurm_runner)
+
+    with pytest.raises(ValueError, match="batch script text"):
+        client.submit_script(script)  # type: ignore[arg-type]
+
+    assert fake_slurm_runner.calls == []
+
+
+@pytest.mark.parametrize("executable", ("", "sbatch --wait", "sbatch\n"))
+def test_executables_reject_invalid_tokens(executable: str) -> None:
+    with pytest.raises(ValueError, match="Slurm executable"):
+        SlurmExecutables(sbatch=executable)
+
+
+class _FailingRunner:
+    def run(self, command: Sequence[str]) -> subprocess.CompletedProcess[str]:
+        del command
+        raise FileNotFoundError("missing executable")
+
+
+class _EnvironmentRunner:
+    def __init__(self) -> None:
+        self.command: tuple[str, ...] = ()
+        self.environment: dict[str, str] = {}
+
+    def run(
+        self,
+        command: Sequence[str],
+        *,
+        input_text: str | None = None,
+        environment: Mapping[str, str] | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        self.command = tuple(command)
+        self.environment = dict(environment or {})
+        return subprocess.CompletedProcess(command, 0, stdout="42\n", stderr="")
+
+
+class _TimeoutRunner:
+    def run(
+        self,
+        command: Sequence[str],
+        *,
+        input_text: str | None = None,
+        environment: Mapping[str, str] | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        del input_text, environment
+        raise subprocess.TimeoutExpired(command, 30.0)
+
+
+class _NonTextRunner:
+    def __init__(self, returncode: int) -> None:
+        self._returncode = returncode
+
+    def run(self, command: Sequence[str]) -> subprocess.CompletedProcess[str]:
+        completed = subprocess.CompletedProcess(command, self._returncode, stdout="ok", stderr="")
+        if self._returncode:
+            completed.stderr = b"not text"  # type: ignore[assignment]
+        else:
+            completed.stdout = b"not text"  # type: ignore[assignment]
+        return completed

@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from data_designer.config.run_config import ResumeMode  # noqa: F401
+    from data_designer.engine.dataset_builders.errors import ArtifactStorageError  # noqa: F401
     from data_designer.interface.composite_workflow import (  # noqa: F401
         CompositeWorkflow,
         CompositeWorkflowResults,
@@ -33,6 +34,7 @@ if TYPE_CHECKING:
     )
 
 _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
+    "ArtifactStorageError": ("data_designer.engine.dataset_builders.errors", "ArtifactStorageError"),
     "CompositeWorkflow": ("data_designer.interface.composite_workflow", "CompositeWorkflow"),
     "CompositeWorkflowResults": ("data_designer.interface.composite_workflow", "CompositeWorkflowResults"),
     "CompletedWorkflowStageMetadata": (

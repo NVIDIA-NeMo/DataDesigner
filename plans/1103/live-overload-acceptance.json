@@ -1,0 +1,173 @@
+{
+  "source_commit": "f499303aaf7867f2ee50b21544406ebaa6fa4084",
+  "replicas": 2,
+  "installed_dependency_inventory_sha256": "702d96d2ec5bc63136bd5b578fe20a9308dbd2d9c23806b02059febcc8e26846",
+  "installed_dependency_compatibility_check": "97 packages checked; all compatible",
+  "cases": {
+    "healthy_generation": {
+      "expected_records": 32,
+      "actual_records": 32,
+      "nonempty_answers": true,
+      "elapsed_seconds": 22.324767655692995,
+      "records_per_minute": 86.00313470722212,
+      "proxy_metrics": {
+        "requests": 33,
+        "attempts": 33,
+        "connections": {
+          "limit": 256,
+          "opened": 2,
+          "reused": 31,
+          "failed": 0,
+          "evicted": 0,
+          "idle": 2
+        },
+        "retries": {},
+        "timeouts": 0,
+        "final_statuses": {
+          "200": 33
+        },
+        "backends": [
+          {
+            "index": 0,
+            "active_requests": 0,
+            "requests": 17
+          },
+          {
+            "index": 1,
+            "active_requests": 0,
+            "requests": 16
+          }
+        ]
+      },
+      "proxy_usage": {
+        "cpu_seconds": 0.26,
+        "peak_rss_mib": 38.33984375
+      }
+    },
+    "partial_overload": {
+      "observed_waiting_requests": [
+        7.0
+      ],
+      "admission_limit": 8,
+      "cooldown_remaining_seconds": 0.0,
+      "proxy_metrics": {
+        "requests": 1,
+        "attempts": 2,
+        "connections": {
+          "limit": 256,
+          "opened": 2,
+          "reused": 0,
+          "failed": 0,
+          "evicted": 0,
+          "idle": 2
+        },
+        "retries": {
+          "http_429": 1
+        },
+        "timeouts": 0,
+        "final_statuses": {
+          "200": 1
+        },
+        "backends": [
+          {
+            "index": 0,
+            "active_requests": 0,
+            "requests": 1
+          },
+          {
+            "index": 1,
+            "active_requests": 0,
+            "requests": 1
+          }
+        ]
+      },
+      "recovery_succeeded": true,
+      "recovery_elapsed_seconds": 0.5283840745687485,
+      "cooldown_remaining_before_recovery_seconds": 0.0,
+      "proxy_usage": {
+        "cpu_seconds": 0.18,
+        "peak_rss_mib": 37.6484375
+      }
+    },
+    "total_overload": {
+      "observed_waiting_requests": [
+        7.0,
+        7.0
+      ],
+      "admission_limit": 4,
+      "cooldown_remaining_seconds": 2.999856797978282,
+      "proxy_metrics": {
+        "requests": 1,
+        "attempts": 2,
+        "connections": {
+          "limit": 256,
+          "opened": 2,
+          "reused": 0,
+          "failed": 0,
+          "evicted": 0,
+          "idle": 2
+        },
+        "retries": {
+          "http_429": 1
+        },
+        "timeouts": 0,
+        "final_statuses": {
+          "429": 1
+        },
+        "backends": [
+          {
+            "index": 0,
+            "active_requests": 0,
+            "requests": 1
+          },
+          {
+            "index": 1,
+            "active_requests": 0,
+            "requests": 1
+          }
+        ]
+      },
+      "recovery_succeeded": true,
+      "recovery_elapsed_seconds": 3.0825562216341496,
+      "cooldown_remaining_before_recovery_seconds": 2.5813617296516895,
+      "proxy_usage": {
+        "cpu_seconds": 0.17,
+        "peak_rss_mib": 37.65234375
+      }
+    }
+  },
+  "wheel_sha256": {
+    "data_designer-0.9.8.dev84+f499303a-py3-none-any.whl": "119eb708291b02369b9ae5e661a357814fb321f729dad6c335fb80234f92484b",
+    "data_designer_config-0.9.8.dev84+f499303a-py3-none-any.whl": "14a62ad378a6353fd2e93d0520414a95b9deb7f493c72444a5f2bec02e95ee7b",
+    "data_designer_engine-0.9.8.dev84+f499303a-py3-none-any.whl": "c9f2e49df393ae14eb2dd7ffd4923410c7ef06dfdf32436ce2ca0cbd6880f651",
+    "data_designer_slurm-0.9.8.dev84+f499303a-py3-none-any.whl": "84900c24b022e2b0c9cc40db5561d17ccb9ea20d7f9d05895ca3e4f967a784d9"
+  },
+  "installed_versions": {
+    "data-designer": "0.9.8.dev84+f499303a",
+    "data-designer-config": "0.9.8.dev84+f499303a",
+    "data-designer-engine": "0.9.8.dev84+f499303a",
+    "data-designer-slurm": "0.9.8.dev84+f499303a"
+  },
+  "vllm_version": "0.22.0",
+  "passed": true,
+  "test_configuration": {
+    "gpus": 2,
+    "replicas": 2,
+    "max_num_seqs_per_replica": 1,
+    "max_waiting_requests": 0,
+    "retry_after_seconds": 3,
+    "load_requests_per_overloaded_replica": 8,
+    "load_completion_tokens": 1024,
+    "model": "openai/gpt-oss-20b"
+  },
+  "source_archive_sha256": "55c2187a011a161386e1aba609758895758dd9974cac90fca1a0b2008b9ccd6f",
+  "dependency_lock_sha256": "6e6390270140396f81677df96039af4e0934c3dd0184cb995c8171c7940257d0",
+  "runtime_source_sha256": {
+    "proxy.py": "c31d0c25bc692f6f32c32def6c5ac8c47f34448ab6501a386d869818e0c25a79",
+    "health.py": "fc3d0df230585c3313f63df86a3157cb249ccb8f25ce53bd4f37cfe28354536d",
+    "cleanup.sh": "80d279273239fe5987012931ea99694f64ad425468c199d990a34934b7bb9997",
+    "entrypoint.sh": "8a1dc1dae28b3bead5ae13a4d11a980d791c5b953a2ea3443d75caa37187d1d8",
+    "entrypoint.py": "c6a1bb3586ff8b51bb81638c94dbbd12272c3eca9a847f29833416c2fd1df14d",
+    "step_runner.sh": "aea7694f77960bea454dcf7b469b7481d6c89ee3d153ca418b796cf5194cbef9"
+  }
+}
