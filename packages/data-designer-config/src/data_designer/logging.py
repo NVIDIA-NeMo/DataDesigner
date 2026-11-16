@@ -215,7 +215,7 @@ def _make_stream_formatter() -> logging.Formatter:
     return logging.Formatter(log_format, time_format)
 
 
-_DEFAULT_NOISY_LOGGERS = ["httpx", "matplotlib", "mcp"]
+_DEFAULT_NOISY_LOGGERS = ["httpx", "httpx2", "matplotlib", "mcp"]
 
 LOG_INDENT = "  |-- "
 LOG_DOUBLE_INDENT = "  |  |-- "
