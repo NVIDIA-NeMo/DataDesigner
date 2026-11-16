@@ -13,11 +13,12 @@ from pytest_httpx import HTTPXMock
 
 from data_designer.config import DataDesignerConfigBuilder
 from data_designer.config.models import ModelProvider
+from data_designer.config.seed import IndexRange, PartitionBlock
 from data_designer.config.seed_source import LocalFileSeedSource
 from data_designer.slurm.client.errors import ClientWorkerError
 from data_designer.slurm.client.execution import ClientWorker
 from data_designer.slurm.config import DataDesignerSlurmConfig
-from data_designer.slurm.contracts import compute_serialized_json_sha256
+from data_designer.slurm.contracts import compute_serialized_json_sha256, pretty_json
 from data_designer.slurm.planning import ResolvedSlurmRunPlan
 from data_designer.slurm.planning.compiler import SlurmRunCompiler
 from data_designer.slurm.planning.resolution import resolve_slurm_config
@@ -173,12 +174,21 @@ def test_worker_preserves_existing_dataset_paths(
 
 
 @pytest.mark.httpx_mock(can_send_already_matched_responses=True)
-@pytest.mark.parametrize("seeded", (False, True))
+@pytest.mark.parametrize(
+    ("seeded", "selection"),
+    [
+        (False, None),
+        (True, None),
+        (True, IndexRange(start=2, end=5)),
+        (True, PartitionBlock(index=1, num_partitions=2)),
+    ],
+)
 def test_native_dd_generates_through_managed_and_external_endpoints(
     external_client_case: ClientWorkerCase,
     monkeypatch: pytest.MonkeyPatch,
     httpx_mock: HTTPXMock,
     seeded: bool,
+    selection: IndexRange | PartitionBlock | None,
 ) -> None:
     case = external_client_case
     monkeypatch.setattr("data_designer.engine.models.telemetry.TELEMETRY_ENABLED", False)
@@ -205,8 +215,23 @@ def test_native_dd_generates_through_managed_and_external_endpoints(
     if seeded:
         seed_path = case.plan_path.parent / "seed.jsonl"
         seed_path.write_text("".join(json.dumps({"seed_id": index}) + "\n" for index in range(8)))
+        authored_seed_path = case.plan_path.parent / "authored-seed.jsonl"
+        authored_seed_path.write_text("".join(json.dumps({"seed_id": index}) + "\n" for index in range(100, 108)))
         builder = DataDesignerConfigBuilder.from_config(payload["builder"]["inline"])
-        builder.with_seed_dataset(LocalFileSeedSource(path=str(seed_path)), sampling_strategy="ordered")
+        builder.with_seed_dataset(
+            LocalFileSeedSource(path=str(authored_seed_path)),
+            sampling_strategy="ordered",
+            selection_strategy=selection,
+        )
+        payload["invocation"]["authored"]["input_bindings"]["seed_path"] = str(seed_path)
+        payload["invocation"]["effective_input_bindings"]["seed_path"] = str(seed_path)
+        partition_path = Path(payload["shards"][0]["resume_workspace"]["path"]).parent / "input-partition.json"
+        partition = {"record_range": payload["shards"][0]["record_range"], "seed_path": str(seed_path)}
+        partition_path.write_text(pretty_json(partition))
+        payload["shards"][0]["input_partition"] = {
+            "path": str(partition_path),
+            "sha256": compute_serialized_json_sha256(partition),
+        }
         payload["builder"]["inline"]["data_designer"]["seed_config"] = builder.get_seed_config().model_dump(mode="json")
     payload["builder"]["content_sha256"] = compute_serialized_json_sha256(payload["builder"]["inline"])
     plan = ResolvedSlurmRunPlan.model_validate(payload)
@@ -237,7 +262,14 @@ def test_native_dd_generates_through_managed_and_external_endpoints(
     table = pq.read_table(case.attempt_dir / "dataset/parquet-files")
     assert table["answer"].to_pylist() == ["hello"] * result.actual_records
     if seeded:
-        assert sorted(table["seed_id"].to_pylist()) == list(range(8))
+        selected = (
+            list(range(2, 6))
+            if isinstance(selection, IndexRange)
+            else list(range(4, 8))
+            if isinstance(selection, PartitionBlock)
+            else list(range(8))
+        )
+        assert sorted(table["seed_id"].to_pylist()) == sorted(selected * (8 // len(selected)))
     requests = httpx_mock.get_requests(url=hosted_url)
     assert requests
     assert all(request.headers["Authorization"] == "Bearer fake-provider-secret" for request in requests)

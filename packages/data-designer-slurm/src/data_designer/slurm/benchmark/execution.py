@@ -28,9 +28,11 @@ from data_designer.slurm.benchmark.store import (
     BenchmarkStoreError,
 )
 from data_designer.slurm.config import (
+    BuilderInput,
     DataDesignerSlurmBenchmarkConfig,
     DataDesignerSlurmConfig,
     SlurmConfigLoadError,
+    load_builder_payload,
     load_run_config,
 )
 from data_designer.slurm.contracts import ArtifactReference, Identifier
@@ -304,10 +306,17 @@ def _resolve_base_run(
     source_root: Path,
 ) -> tuple[DataDesignerSlurmConfig, Path]:
     if config.base_run.inline is not None:
-        return config.base_run.inline, source_root
-    assert config.base_run.source is not None
-    source_path = source_root / config.base_run.source
-    return load_run_config(source_path), source_path.resolve().parent
+        base_run = config.base_run.inline
+        child_source_root = source_root
+    else:
+        assert config.base_run.source is not None
+        source_path = source_root / config.base_run.source
+        base_run = load_run_config(source_path)
+        child_source_root = source_path.resolve().parent
+    if base_run.builder.source is not None:
+        payload = load_builder_payload(child_source_root / base_run.builder.source)
+        base_run = base_run.model_copy(update={"builder": BuilderInput(inline=payload)})
+    return base_run, child_source_root
 
 
 def _partial_failure_code(codes: list[SlurmServiceErrorCode]) -> SlurmServiceErrorCode:

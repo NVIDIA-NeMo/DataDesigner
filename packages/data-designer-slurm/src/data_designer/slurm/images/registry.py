@@ -342,7 +342,7 @@ class ImageRegistryStore:
                         if plan is None:
                             continue
                         deployments = plan.get("deployments")
-                        if not isinstance(deployments, list) or not deployments:
+                        if not isinstance(deployments, list):
                             raise ImageConflictError("run plan cannot be checked before SQSH artifact deletion")
                         for deployment in deployments:
                             if not isinstance(deployment, dict) or not isinstance(deployment.get("image"), dict):

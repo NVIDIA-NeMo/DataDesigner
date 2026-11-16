@@ -6,6 +6,9 @@
 from __future__ import annotations
 
 import data_designer.lazy_heavy_imports as lazy
+from data_designer.config.errors import InvalidFileFormatError
+from data_designer.config.utils.storage_encoding import read_storage_plan
+from data_designer.config.utils.storage_schema import JSON_STORAGE_METADATA_KEY, JsonStoragePlan
 from data_designer.slurm.state.artifacts import CandidateArtifactVerifier, compute_candidate_schema_digest
 from data_designer.slurm.state.errors import StateCorruptionError
 from data_designer.slurm.state.outputs import CandidateOutputManifest
@@ -15,22 +18,32 @@ def require_compatible_candidate_schemas(
     candidates: tuple[CandidateOutputManifest, ...],
     verifier: CandidateArtifactVerifier,
 ) -> object:
-    """Return the first verified schema if only struct child order differs."""
+    """Return a compatible schema with the shared JSON storage contract."""
     reference: object | None = None
+    expected_plan: JsonStoragePlan | None = None
     for candidate in candidates:
         if not candidate.files:
             raise StateCorruptionError("collection candidate has no Parquet files")
-        try:
-            with verifier.open_output(candidate, candidate.files[0]) as source:
-                schema = lazy.pq.ParquetFile(source).schema_arrow.remove_metadata()
-        except (OSError, lazy.pa.ArrowException) as error:
-            raise StateCorruptionError("collection candidate Parquet schema cannot be verified") from error
-        if compute_candidate_schema_digest(schema) != candidate.dataset_schema_digest:
-            raise StateCorruptionError("collection candidate Parquet schema does not match its manifest")
-        if reference is None:
-            reference = schema
-        elif not schemas_match_except_struct_order(reference, schema):
-            raise StateCorruptionError("collection candidates have incompatible schemas")
+        for output_file in candidate.files:
+            try:
+                with verifier.open_output(candidate, output_file) as source:
+                    schema = lazy.pq.ParquetFile(source).schema_arrow
+                plan = read_storage_plan(schema)
+            except (OSError, lazy.pa.ArrowException, InvalidFileFormatError) as error:
+                raise StateCorruptionError("collection candidate Parquet schema cannot be verified") from error
+            if compute_candidate_schema_digest(schema) != candidate.dataset_schema_digest:
+                raise StateCorruptionError("collection candidate Parquet schema does not match its manifest")
+            if expected_plan is not None and plan != expected_plan:
+                raise StateCorruptionError("collection candidates have incompatible JSON storage contracts")
+            expected_plan = plan
+            schema = schema.with_metadata(
+                {JSON_STORAGE_METADATA_KEY: plan.model_dump_json().encode()} if plan.columns else None
+            )
+            if reference is None:
+                reference = schema
+            elif not schemas_match_except_struct_order(reference, schema):
+                raise StateCorruptionError("collection candidates have incompatible schemas")
+
     if reference is None:
         raise StateCorruptionError("collection has no candidates")
     return reference

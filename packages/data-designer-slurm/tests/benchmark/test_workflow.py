@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
@@ -27,6 +28,7 @@ from data_designer.slurm.benchmark.records import (
 from data_designer.slurm.benchmark.store import BenchmarkConflictError, BenchmarkStore
 from data_designer.slurm.config import (
     BenchmarkBaseRun,
+    BuilderInput,
     DataDesignerSlurmBenchmarkConfig,
     DataDesignerSlurmConfig,
     FixedRecordPolicy,
@@ -779,3 +781,82 @@ def test_fail_if_incomplete_persists_the_point_in_time_report_first(
         )
 
     assert len(tuple(store.reports_root.iterdir())) == 1
+
+
+@pytest.mark.parametrize("base_source", [False, True])
+def test_benchmark_snapshots_sourced_builder_before_submitting_children(
+    tmp_path: Path,
+    benchmark_config: DataDesignerSlurmBenchmarkConfig,
+    authored_run: DataDesignerSlurmConfig,
+    base_source: bool,
+) -> None:
+    source_root = tmp_path / "recipes"
+    source_root.mkdir()
+    builder_path = source_root / "builder.json"
+    original = authored_run.builder.inline
+    assert original is not None
+    builder_path.write_text(json.dumps(original))
+    base_run = authored_run.model_copy(update={"builder": BuilderInput(source="builder.json")})
+    config = _inline_config(benchmark_config, base_run)
+    if base_source:
+        (source_root / "run.json").write_text(base_run.serialize_json())
+        config = config.model_copy(update={"base_run": BenchmarkBaseRun(source="recipes/run.json")})
+    resolved = base_run.model_copy(update={"builder": BuilderInput(inline=original)})
+    first_compiled = BenchmarkCompiler.compile(config, resolved)
+    configs: dict[str, DataDesignerSlurmConfig] = {}
+    submissions: set[str] = set()
+    calls: list[tuple] = []
+    changed = json.loads(json.dumps(original))
+    changed["data_designer"]["columns"] = [{"column_type": "expression", "name": "changed", "expr": "1"}]
+
+    class EditingRunService(_RunService):
+        def execute(self, config: DataDesignerSlurmConfig, *, source_root: Path, dry_run: bool) -> SlurmRunExecution:
+            builder_path.write_text(json.dumps(changed))
+            return super().execute(config, source_root=source_root, dry_run=dry_run)
+
+    def service(run_id: str) -> _RunService:
+        return EditingRunService(
+            run_id,
+            configs,
+            submissions,
+            calls,
+            tmp_path / "benchmarks" / first_compiled.benchmark_id,
+            set(),
+        )
+
+    backend = SystemBenchmarkBackend(
+        tmp_path,
+        service,
+        _Observer(),
+        lambda: NOW,
+        child_config_loader=configs.get,
+        child_submission_loader=submissions.__contains__,
+    )
+    first = backend.run(config, source_root=tmp_path if base_source else source_root, force=False)
+    assert all(config.builder.inline == original for config in configs.values())
+    stored = BenchmarkStore(tmp_path, first.benchmark_id).load()[1]
+    assert stored.builder.inline == original
+    assert stored.builder.source is None
+
+    # A retry after an edited source gets a new benchmark and never reuses old children.
+    second_compiled = BenchmarkCompiler.compile(
+        config, base_run.model_copy(update={"builder": BuilderInput(inline=changed)})
+    )
+    backend = SystemBenchmarkBackend(
+        tmp_path,
+        lambda run_id: _RunService(
+            run_id,
+            configs,
+            submissions,
+            calls,
+            tmp_path / "benchmarks" / second_compiled.benchmark_id,
+            set(),
+        ),
+        _Observer(),
+        lambda: NOW,
+        child_config_loader=configs.get,
+        child_submission_loader=submissions.__contains__,
+    )
+    second = backend.run(config, source_root=tmp_path if base_source else source_root, force=False)
+    assert first.benchmark_id != second.benchmark_id
+    assert {child.child_run_id for child in first.children}.isdisjoint(child.child_run_id for child in second.children)

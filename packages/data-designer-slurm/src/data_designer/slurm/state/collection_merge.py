@@ -74,11 +74,7 @@ class CollectionMerger:
     ) -> CollectionResult:
         """Write deterministic partitions, rebind inputs, and publish the stage."""
         snapshots = tuple(self._inspect_candidate(candidate) for candidate in candidates)
-        schema = (
-            require_compatible_candidate_schemas(candidates, self._verifier)
-            if len({candidate.dataset_schema_digest for candidate in candidates}) != 1
-            else None
-        )
+        schema = require_compatible_candidate_schemas(candidates, self._verifier)
         batches = self._iter_batches(candidates)
         try:
             first_batch = next(batches, None)
@@ -86,7 +82,7 @@ class CollectionMerger:
                 raise OSError("collection inputs contain no records")
             layout = _PartitionLayout(
                 stage_path=staged.path,
-                schema=schema if schema is not None else first_batch.schema.remove_metadata(),
+                schema=schema,
                 record_counts=_partition_record_counts(
                     sum(candidate.actual_records for candidate in candidates),
                     collection_plan.num_partitions,
@@ -208,7 +204,7 @@ class _ParquetWriter:
         self._closed = False
 
     def write(self, batch: object) -> None:
-        normalized = batch.replace_schema_metadata(None)
+        normalized = batch.replace_schema_metadata(self._schema.metadata)
         if not normalized.schema.equals(self._schema):
             normalized = normalized.cast(self._schema)
         self._writer.write_batch(normalized)

@@ -26,6 +26,8 @@ import data_designer.slurm.state.collection_filesystem as collection_filesystem
 import data_designer.slurm.state.collection_merge as collection_merge
 import data_designer.slurm.state.collection_storage as collection_storage_module
 import data_designer.slurm.state.collection_worker as collection_worker_module
+from data_designer.config.utils.storage_encoding import decode_storage_table
+from data_designer.config.utils.storage_schema import JSON_STORAGE_METADATA_KEY, JsonStoragePlan
 from data_designer.slurm.client import ClientOutcome, ClientResult
 from data_designer.slurm.config import DataDesignerSlurmConfig, SlurmProfile
 from data_designer.slurm.contracts import ArtifactReference, compute_canonical_json_sha256
@@ -837,6 +839,42 @@ def test_collection_merges_nonempty_partial_shard_winners(
     assert result.actual_records == expected
     assert lazy.pq.read_metadata(_output_root(case.plan) / result.files[0].relative_path).num_rows == expected
     assert coordinator.submit().state is CollectionState.SUCCEEDED
+
+
+@pytest.mark.parametrize("json_storage", ["encoded", "mixed", "malformed"])
+def test_collection_preserves_json_values_and_rejects_mixed_storage_contracts(
+    tmp_path: Path,
+    authored_run: DataDesignerSlurmConfig,
+    multi_node_plan: ResolvedSlurmRunPlan,
+    json_storage: str,
+) -> None:
+    case = _initialize_run(tmp_path, authored_run, multi_node_plan)
+    _publish_all_winners(case, json_storage=json_storage)
+    coordinator = SlurmCollectionCoordinator(
+        case.workspace,
+        case.plan.run_id,
+        SlurmCommandClient(FakeSlurmRunner(jobs=(FakeSlurmJob(5101),))),
+    )
+    submitted = coordinator.submit(submitted_at=case.created_at + timedelta(minutes=10))
+    worker = SlurmCollectionWorker(
+        case.workspace,
+        case.plan.run_id,
+        submitted.collection_id,
+        environment={"SLURM_JOB_ID": "5101"},
+    )
+    if json_storage != "encoded":
+        message = "JSON storage" if json_storage == "mixed" else "schema cannot be verified"
+        with pytest.raises(SlurmStateError, match=message):
+            worker.run(completed_at=case.created_at + timedelta(minutes=11))
+        assert not _output_root(case.plan).exists()
+    else:
+        result = worker.run(completed_at=case.created_at + timedelta(minutes=11))
+        table = lazy.pq.read_table(_output_root(case.plan) / result.files[0].relative_path)
+        assert JSON_STORAGE_METADATA_KEY in table.schema.metadata
+        frame = decode_storage_table(table)
+        assert frame.json_value.tolist() == [
+            {"id": index, "nested": [index, None]} for index in range(result.actual_records)
+        ]
 
 
 def test_collection_merges_reordered_struct_fields_from_partial_winners(
@@ -2055,6 +2093,7 @@ def _publish_all_winners(
     *,
     shortfall: int = 0,
     alternating_struct_order: bool = False,
+    json_storage: str | None = None,
 ) -> None:
     for shard in case.shards:
         scheduler = SchedulerIdentity(array_job_id=4101, array_task_id=shard.shard_index)
@@ -2075,6 +2114,7 @@ def _publish_all_winners(
                 shortfall=shortfall,
                 struct_fields_reversed=alternating_struct_order and shard.shard_index % 2 == 1,
                 with_struct=alternating_struct_order,
+                json_storage=json_storage,
             )
         case.writer.finalize_winner(
             shard.shard_id,
@@ -2092,6 +2132,7 @@ def _publish_candidate(
     shortfall: int = 0,
     with_struct: bool = False,
     struct_fields_reversed: bool = False,
+    json_storage: str | None = None,
 ) -> None:
     output_path = dataset_path / "part-00000.parquet"
     actual_records = shard.record_range.record_count - shortfall
@@ -2109,6 +2150,15 @@ def _publish_candidate(
             type=lazy.pa.struct(struct_fields),
         )
         table = table.append_column("editorial_assessment", assessment)
+    if json_storage is not None:
+        table = table.append_column(
+            "json_value", lazy.pa.array([json.dumps({"id": index, "nested": [index, None]}) for index in values])
+        )
+        if json_storage == "malformed":
+            table = table.replace_schema_metadata({JSON_STORAGE_METADATA_KEY: b'{"version": 99}'})
+        elif json_storage == "encoded" or shard.shard_index == 0:
+            plan = JsonStoragePlan(columns={"json_value": [[]]})
+            table = table.replace_schema_metadata({JSON_STORAGE_METADATA_KEY: plan.model_dump_json().encode()})
     lazy.pq.write_table(table, output_path)
     output_path.chmod(0o644)
     content = output_path.read_bytes()

@@ -481,11 +481,15 @@ class ClientWorker:
         )
         if hashlib.sha256(payload).hexdigest() != shard.input_partition.sha256:
             raise ClientWorkerError(ClientErrorCode.INVALID_INPUT, "seed partition artifact digest differs")
-        source = seed.source.model_copy(update={"path": path.as_posix()})
+        source = type(seed.source).model_validate(seed.source.model_dump(mode="python") | {"path": path.as_posix()})
         builder.with_seed_dataset(
             source,
             sampling_strategy=seed.sampling_strategy,
-            selection_strategy=PartitionBlock(index=shard.shard_index, num_partitions=len(plan.shards)),
+            selection_strategy=(
+                PartitionBlock(index=shard.shard_index, num_partitions=len(plan.shards))
+                if len(plan.shards) > 1
+                else seed.selection_strategy
+            ),
         )
 
     @staticmethod
