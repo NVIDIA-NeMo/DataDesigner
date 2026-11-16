@@ -669,8 +669,18 @@ SAMPLER_REFERENCE_COLUMNS = [
             "seed_date",
             "seed-dataset",
         ),
+        (
+            SamplerColumnConfig(
+                name="sampler",
+                sampler_type="uniform",
+                params={"low": 0, "high": 1},
+                conditional_params={"(seed_date | jsonpath('$.enabled')) == [true]": {"low": 1, "high": 2}},
+            ),
+            "seed_date",
+            "seed-dataset",
+        ),
     ],
-    ids=["timedelta", "conditional_timedelta", "condition", "subcategory"],
+    ids=["timedelta", "conditional_timedelta", "condition", "subcategory", "jsonpath_condition"],
 )
 def test_validate_sampler_references_non_sampler_column(
     sampler_column: SamplerColumnConfig, reference: str, reference_type: str

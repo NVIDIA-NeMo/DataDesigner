@@ -27,6 +27,7 @@ from data_designer.config.utils.misc import (
 )
 from data_designer.config.validator_params import ValidatorType
 from data_designer.engine.column_generators.utils.generator_classification import column_type_is_model_generated
+from data_designer.engine.sampling_gen.jinja_utils import extract_column_names_from_expression
 from data_designer.engine.storage.schema_preflight import find_storage_schema_risks
 
 
@@ -546,7 +547,6 @@ def validate_sampler_references(columns: list[ColumnConfigT]) -> list[Violation]
     ``reference_column_name`` must name sampler columns.
     """
     column_types = {column.name: column.column_type for column in columns}
-    env = ImmutableSandboxedEnvironment()
     violations: list[Violation] = []
     for column in columns:
         if column.column_type != DataDesignerColumnType.SAMPLER:
@@ -555,7 +555,7 @@ def validate_sampler_references(columns: list[ColumnConfigT]) -> list[Violation]
         references: set[str] = set()
         for condition in column.conditional_params:
             try:
-                references.update(meta.find_undeclared_variables(env.parse("{{ " + condition + " }}")))
+                references.update(extract_column_names_from_expression(condition))
             except TemplateSyntaxError:
                 # Invalid conditions are reported when the sampler columns are generated.
                 continue
