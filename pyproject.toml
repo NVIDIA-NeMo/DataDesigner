@@ -68,7 +68,7 @@ notebooks = [
     "ipywidgets>=8.1.8,<9",
     "nbclient>=0.10.4,<1",
     "setuptools>=84.1.0,<85", # 84.1.0 fixes the namespace_packages.txt path escape
-    "tornado>=6.6,<7", # 6.6 fixes redirect and HTTP parsing advisories
+    "tornado>=6.6.1,<7", # 6.6.1 fixes the triple-slash open redirect
 ]
 recipes = [
     "bm25s>=0.2.0,<1",
