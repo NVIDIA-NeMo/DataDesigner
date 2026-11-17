@@ -24,6 +24,7 @@ from data_designer.config.processors import (
     SchemaTransformProcessorConfig,
 )
 from data_designer.config.utils.code_lang import CodeLang
+from data_designer.config.utils.trace_type import TraceType
 from data_designer.config.validator_params import CodeValidatorParams
 from data_designer.engine.validation import (
     Violation,
@@ -691,6 +692,30 @@ def test_validate_sampler_references_non_sampler_column(
     assert violations[0].level == ViolationLevel.ERROR
     assert violations[0].column == "sampler"
     assert f"'{reference}', which is a '{reference_type}' column" in violations[0].message
+
+
+@pytest.mark.parametrize("reference", ["answer__reasoning_content", "answer__trace"])
+@pytest.mark.parametrize("enabled", [True, False])
+def test_validate_sampler_references_side_effect_columns(reference: str, enabled: bool) -> None:
+    answer = LLMTextColumnConfig(
+        name="answer",
+        model_alias=STUB_MODEL_ALIAS,
+        prompt="Tell a story",
+        extract_reasoning_content=enabled,
+        with_trace=TraceType.LAST_MESSAGE if enabled else TraceType.NONE,
+    )
+    sampler = SamplerColumnConfig(
+        name="sampler",
+        sampler_type="uniform",
+        params={"low": 0, "high": 1},
+        conditional_params={f"{reference} == 'x'": {"low": 1, "high": 2}},
+    )
+    (violation,) = validate_sampler_references([answer, sampler])
+    assert violation.type == ViolationType.SAMPLER_REFERENCE_INVALID
+    if enabled:
+        assert f"'{reference}', which is a 'llm-text' column" in violation.message
+    else:
+        assert f"missing column '{reference}'" in violation.message
 
 
 def test_validate_sampler_references_missing_column() -> None:

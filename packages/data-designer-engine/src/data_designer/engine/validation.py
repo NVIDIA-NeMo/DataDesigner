@@ -546,7 +546,9 @@ def validate_sampler_references(columns: list[ColumnConfigT]) -> list[Violation]
     so conditions in ``conditional_params``, a subcategory's ``category`` and a timedelta's
     ``reference_column_name`` must name sampler columns.
     """
-    column_types = {column.name: column.column_type for column in columns}
+    column_types = {
+        name: column.column_type for column in columns for name in [column.name, *column.side_effect_columns]
+    }
     violations: list[Violation] = []
     for column in columns:
         if column.column_type != DataDesignerColumnType.SAMPLER:
