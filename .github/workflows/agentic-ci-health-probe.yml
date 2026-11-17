@@ -1,8 +1,6 @@
 name: "Agentic CI: Health Probe"
 
 on:
-  schedule:
-    - cron: "0 */6 * * *" # every 6 hours
   workflow_dispatch:
 
 permissions:
@@ -10,28 +8,34 @@ permissions:
 
 jobs:
   probe:
-    runs-on: [self-hosted, agentic-ci]
-    timeout-minutes: 3
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: "1"
+      DISABLE_AUTOUPDATER: "1"
     steps:
       - name: Check required config
+        env:
+          AGENTIC_CI_MODEL: ${{ vars.AGENTIC_CI_MODEL }}
+          ANTHROPIC_BASE_URL: ${{ secrets.AGENTIC_CI_API_BASE_URL }}
+          ANTHROPIC_API_KEY: ${{ secrets.AGENTIC_CI_API_KEY }}
         run: |
-          if [ -z "${{ vars.AGENTIC_CI_MODEL }}" ]; then
+          if [ -z "$AGENTIC_CI_MODEL" ]; then
             echo "::error::AGENTIC_CI_MODEL variable is not set. Configure it in repo settings."
             exit 1
           fi
-
-      - name: Detect auth mode
-        id: auth
-        run: |
-          if [ -n "${{ secrets.AGENTIC_CI_API_BASE_URL }}" ] && [ -n "${{ secrets.AGENTIC_CI_API_KEY }}" ]; then
-            echo "mode=custom" >> "$GITHUB_OUTPUT"
-          else
-            echo "mode=oauth" >> "$GITHUB_OUTPUT"
+          if [ -z "$ANTHROPIC_BASE_URL" ] || [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "::error::Inference API URL and key are required for the hosted probe."
+            exit 1
           fi
+
+      - name: Install Claude Code
+        run: |
+          npm install --global --prefix "$RUNNER_TEMP/claude-code" @anthropic-ai/claude-code@2.1.287
+          echo "$RUNNER_TEMP/claude-code/bin" >> "$GITHUB_PATH"
 
       - name: Ping inference API
         id: ping
-        if: steps.auth.outputs.mode == 'custom'
         env:
           ANTHROPIC_BASE_URL: ${{ secrets.AGENTIC_CI_API_BASE_URL }}
           ANTHROPIC_API_KEY: ${{ secrets.AGENTIC_CI_API_KEY }}
@@ -44,7 +48,7 @@ jobs:
 
           START=$(date +%s%N)
 
-          HTTP_CODE=$(curl -s -o /tmp/api-response.json -w "%{http_code}" \
+          HTTP_CODE=$(curl -sS -o /dev/null -w "%{http_code}" \
             --max-time 30 \
             -X POST "${ANTHROPIC_BASE_URL}/v1/messages" \
             -H "Content-Type: application/json" \
@@ -62,12 +66,11 @@ jobs:
 
           if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
             echo "::error::API returned HTTP ${HTTP_CODE}"
-            cat /tmp/api-response.json
             exit 1
           fi
 
       - name: Check latency threshold
-        if: steps.auth.outputs.mode == 'custom' && fromJSON(steps.ping.outputs.latency_ms) > 10000
+        if: fromJSON(steps.ping.outputs.latency_ms) > 10000
         run: |
           echo "::warning::API latency ${{ steps.ping.outputs.latency_ms }}ms exceeds 10s threshold"
 
@@ -103,8 +106,9 @@ jobs:
 
           echo "Claude response: ${RESULT}"
 
-          if echo "$RESULT" | grep -q "HEALTH_CHECK_OK"; then
+          if [ "$RESULT" = HEALTH_CHECK_OK ]; then
             echo "Claude CLI health check passed"
           else
-            echo "::warning::Claude responded but output was unexpected"
+            echo "::error::Claude responded but output was unexpected"
+            exit 1
           fi
