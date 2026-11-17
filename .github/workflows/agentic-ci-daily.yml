@@ -61,8 +61,11 @@ jobs:
   audit:
     needs: determine-suite
     if: needs.determine-suite.outputs.suites != '[]'
-    runs-on: [self-hosted, agentic-ci]
+    runs-on: ubuntu-latest
     timeout-minutes: 40
+    env:
+      CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: "1"
+      DISABLE_AUTOUPDATER: "1"
     strategy:
       fail-fast: false
       matrix:
@@ -80,11 +83,22 @@ jobs:
       - name: Check required config
         env:
           AGENTIC_CI_MODEL: ${{ vars.AGENTIC_CI_MODEL }}
+          ANTHROPIC_BASE_URL: ${{ secrets.AGENTIC_CI_API_BASE_URL }}
+          ANTHROPIC_API_KEY: ${{ secrets.AGENTIC_CI_API_KEY }}
         run: |
           if [ -z "$AGENTIC_CI_MODEL" ]; then
             echo "::error::AGENTIC_CI_MODEL variable is not set. Configure it in repo settings."
             exit 1
           fi
+          if [ -z "$ANTHROPIC_BASE_URL" ] || [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "::error::Inference API URL and key are required."
+            exit 1
+          fi
+
+      - name: Install Claude Code
+        run: |
+          npm install --global --prefix "$RUNNER_TEMP/claude-code" @anthropic-ai/claude-code@2.1.287
+          echo "$RUNNER_TEMP/claude-code/bin" >> "$GITHUB_PATH"
 
       - name: Checkout main
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -121,6 +135,13 @@ jobs:
           fi
           echo "Runner memory state:"
           cat .agentic-ci-state/runner-state.json
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "latest"
+          python-version: "3.11"
+          enable-cache: true
 
       - name: Install dev environment
         run: |
@@ -166,20 +187,18 @@ jobs:
           fi
           echo "Claude CLI version: $(claude --version 2>&1 || true)"
 
-          if [ -n "$ANTHROPIC_BASE_URL" ] && [ -n "$ANTHROPIC_API_KEY" ]; then
-            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
-              --max-time 30 \
-              -X POST "${ANTHROPIC_BASE_URL}/v1/messages" \
-              -H "Content-Type: application/json" \
-              -H "x-api-key: ${ANTHROPIC_API_KEY}" \
-              -H "anthropic-version: 2023-06-01" \
-              -d "{\"model\":\"${AGENTIC_CI_MODEL}\",\"max_tokens\":5,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}")
-            if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
-              echo "::error::API pre-flight failed with HTTP ${HTTP_CODE}"
-              exit 1
-            fi
-            echo "API pre-flight passed (HTTP ${HTTP_CODE})"
+          HTTP_CODE=$(curl -sS -o /dev/null -w "%{http_code}" \
+            --max-time 30 \
+            -X POST "${ANTHROPIC_BASE_URL}/v1/messages" \
+            -H "Content-Type: application/json" \
+            -H "x-api-key: ${ANTHROPIC_API_KEY}" \
+            -H "anthropic-version: 2023-06-01" \
+            -d "{\"model\":\"${AGENTIC_CI_MODEL}\",\"max_tokens\":5,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}")
+          if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+            echo "::error::API pre-flight failed with HTTP ${HTTP_CODE}"
+            exit 1
           fi
+          echo "API pre-flight passed (HTTP ${HTTP_CODE})"
 
       - name: Invalidate cached docs audit completion
         id: reset_docs_scope
@@ -249,6 +268,8 @@ jobs:
 
           stdbuf -oL -eL claude \
             --model "$AGENTIC_CI_MODEL" \
+            --permission-mode bypassPermissions \
+            --effort high \
             -p "$PROMPT" \
             --max-turns "$MAX_TURNS" \
             --output-format stream-json \
@@ -321,6 +342,8 @@ jobs:
           # suite-tuned scan limit, while fixes are bounded by scope gates.
           stdbuf -oL -eL claude \
             --model "$AGENTIC_CI_MODEL" \
+            --permission-mode bypassPermissions \
+            --effort high \
             -p "$PROMPT" \
             --max-turns 50 \
             --output-format stream-json \

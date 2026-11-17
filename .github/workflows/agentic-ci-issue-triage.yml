@@ -20,13 +20,18 @@ concurrency:
 jobs:
   triage:
     if: github.repository_owner == 'NVIDIA-NeMo'
-    runs-on: [self-hosted, agentic-ci]
+    runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: "1"
+      DISABLE_AUTOUPDATER: "1"
     steps:
       - name: Check required config
         env:
           AGENTIC_CI_MODEL: ${{ vars.AGENTIC_CI_MODEL }}
           TRACKING_ISSUE: ${{ vars.ISSUE_TRIAGE_TRACKING_ISSUE }}
+          ANTHROPIC_BASE_URL: ${{ secrets.AGENTIC_CI_API_BASE_URL }}
+          ANTHROPIC_API_KEY: ${{ secrets.AGENTIC_CI_API_KEY }}
         run: |
           if [ -z "$AGENTIC_CI_MODEL" ]; then
             echo "::error::AGENTIC_CI_MODEL variable is not set. Configure it in repo settings."
@@ -36,6 +41,15 @@ jobs:
             echo "::error::ISSUE_TRIAGE_TRACKING_ISSUE variable is not set. Create a pinned issue and set the variable."
             exit 1
           fi
+          if [ -z "$ANTHROPIC_BASE_URL" ] || [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "::error::Inference API URL and key are required."
+            exit 1
+          fi
+
+      - name: Install Claude Code
+        run: |
+          npm install --global --prefix "$RUNNER_TEMP/claude-code" @anthropic-ai/claude-code@2.1.287
+          echo "$RUNNER_TEMP/claude-code/bin" >> "$GITHUB_PATH"
 
       - name: Checkout main
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -54,29 +68,27 @@ jobs:
           fi
           echo "Claude CLI version: $(claude --version 2>&1 || true)"
 
-          if [ -n "$ANTHROPIC_BASE_URL" ] && [ -n "$ANTHROPIC_API_KEY" ]; then
-            for ATTEMPT in 1 2 3; do
-              if ! HTTP_CODE=$(curl -sS -o /dev/null -w "%{http_code}" \
-                --max-time 30 \
-                -X POST "${ANTHROPIC_BASE_URL}/v1/messages" \
-                -H "Content-Type: application/json" \
-                -H "x-api-key: ${ANTHROPIC_API_KEY}" \
-                -H "anthropic-version: 2023-06-01" \
-                -d "{\"model\":\"${AGENTIC_CI_MODEL}\",\"max_tokens\":5,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}"); then
-                HTTP_CODE="000"
-              fi
-              if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
-                echo "API pre-flight passed (HTTP ${HTTP_CODE})"
-                break
-              fi
-              if [ "$ATTEMPT" = "3" ]; then
-                echo "::error::API pre-flight failed with HTTP ${HTTP_CODE}"
-                exit 1
-              fi
-              echo "API pre-flight failed with HTTP ${HTTP_CODE}; retrying (${ATTEMPT}/3)"
-              sleep $((ATTEMPT * 10))
-            done
-          fi
+          for ATTEMPT in 1 2 3; do
+            if ! HTTP_CODE=$(curl -sS -o /dev/null -w "%{http_code}" \
+              --max-time 30 \
+              -X POST "${ANTHROPIC_BASE_URL}/v1/messages" \
+              -H "Content-Type: application/json" \
+              -H "x-api-key: ${ANTHROPIC_API_KEY}" \
+              -H "anthropic-version: 2023-06-01" \
+              -d "{\"model\":\"${AGENTIC_CI_MODEL}\",\"max_tokens\":5,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}"); then
+              HTTP_CODE="000"
+            fi
+            if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
+              echo "API pre-flight passed (HTTP ${HTTP_CODE})"
+              break
+            fi
+            if [ "$ATTEMPT" = "3" ]; then
+              echo "::error::API pre-flight failed with HTTP ${HTTP_CODE}"
+              exit 1
+            fi
+            echo "API pre-flight failed with HTTP ${HTTP_CODE}; retrying (${ATTEMPT}/3)"
+            sleep $((ATTEMPT * 10))
+          done
 
       - name: Run issue triage recipe
         env:
@@ -99,6 +111,8 @@ jobs:
 
           claude \
             --model "$AGENTIC_CI_MODEL" \
+            --permission-mode bypassPermissions \
+            --effort high \
             -p "$PROMPT" \
             --max-turns 30 \
             --output-format text \
