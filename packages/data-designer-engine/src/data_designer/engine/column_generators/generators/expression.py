@@ -14,7 +14,7 @@ from data_designer.engine.column_generators.utils.errors import ExpressionTempla
 from data_designer.engine.context import format_row_group_tag
 from data_designer.engine.processing.ginja.environment import WithJinja2UserTemplateRendering
 from data_designer.engine.processing.ginja.exceptions import EmptyTemplateRenderError, UserTemplateError
-from data_designer.engine.processing.utils import deserialize_json_values
+from data_designer.engine.processing.utils import dataframe_to_records, deserialize_json_values
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -47,14 +47,14 @@ class ExpressionColumnGenerator(WithJinja2UserTemplateRendering, ColumnGenerator
         retained_indexes: list[object] = []
         drop_counts: Counter[str] = Counter()
 
-        # ``DataFrame.to_dict(orient="records")`` returns ``[]`` for a 0-column
+        # ``dataframe_to_records`` returns ``[]`` for a 0-column
         # DataFrame regardless of its row count, so a root expression dispatched
         # against a fresh row group buffer (no upstream columns) would otherwise
         # skip rendering entirely. Synthesize empty per-row dicts in that case so
         # the loop still fires once per row and the template can render its
         # constant value (or drop the row uniformly).
         row_indexes = data.index.to_list()
-        row_records = data.to_dict(orient="records")
+        row_records = dataframe_to_records(data)
         if not row_records and row_indexes:
             row_records = [{} for _ in row_indexes]
 

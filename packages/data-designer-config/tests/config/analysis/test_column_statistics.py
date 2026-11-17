@@ -300,3 +300,31 @@ def test_numerical_distribution():
     assert numerical_distribution.mean == 3.0
     assert numerical_distribution.stddev == 1.58
     assert numerical_distribution.median == 3.0
+
+
+@pytest.mark.parametrize(
+    "series",
+    [
+        pytest.param(lazy.pd.Series([4.5]), id="numpy-float"),
+        pytest.param(lazy.pd.Series([4.5], dtype="Float64"), id="nullable-float"),
+        pytest.param(lazy.pd.Series([4.5], dtype=lazy.pd.ArrowDtype(lazy.pa.float64())), id="arrow-float"),
+    ],
+)
+def test_numerical_distribution_from_single_value_keeps_the_defined_statistics(series):
+    # The sample standard deviation of one value is undefined: NaN for NumPy-backed series but pd.NA for
+    # nullable and Arrow-backed ones. Only that field is undefined; the others must survive.
+    distribution = NumericalDistribution.from_series(series)
+
+    assert distribution.min == 4.5
+    assert distribution.max == 4.5
+    assert distribution.mean == 4.5
+    assert distribution.median == 4.5
+    assert lazy.np.isnan(distribution.stddev)
+
+
+def test_numerical_distribution_from_arrow_series_with_several_values_has_a_defined_stddev():
+    series = lazy.pd.Series([1, 2, 3, 4, 5], dtype=lazy.pd.ArrowDtype(lazy.pa.int64()))
+
+    distribution = NumericalDistribution.from_series(series)
+
+    assert distribution.stddev == pytest.approx(1.58, abs=0.01)

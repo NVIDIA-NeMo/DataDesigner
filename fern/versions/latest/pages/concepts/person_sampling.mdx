@@ -61,12 +61,14 @@ Supported locales:
 - `en_US`: United States
 - `en_IN`: India (English)
 - `en_SG`: Singapore (English)
+- `es_SV`: El Salvador (Spanish)
 - `fr_FR`: France (French)
 - `hi_Deva_IN`: India (Devanagari script)
 - `hi_Latn_IN`: India (Latin script)
 - `ja_JP`: Japan
 - `ko_KR`: South Korea (Korean)
 - `pt_BR`: Brazil (Portuguese)
+- `vi_VN`: Vietnam (Vietnamese)
 
 ### Features
 - **Demographically accurate personal details**: Names, ages, sex, marital status, education, occupation based on census data
@@ -268,6 +270,17 @@ The managed reader normalizes `Weiblich` / `Männlich` to `Female` / `Male`, so 
 
 - `race` - Census-reported race
 
+**El Salvador-Specific Fields (`es_SV`):**
+
+- `care_access` - Access to healthcare
+- `disability_status` - Disability status
+- `income_band` - Income range
+- `languages_spoken` - Languages spoken
+
+**Vietnam-Specific Fields (`vi_VN`):**
+
+- `household_size` - Number of household members
+
 **Singapore-Specific Fields (`en_SG`):**
 
 - `industry` - Industry of employment
@@ -321,7 +334,7 @@ The managed reader normalizes `Weiblich` / `Männlich` to `Female` / `Male`, so 
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `locale` | str | Language/region code - must be one of: "en_GB", "de_DE", "en_US", "en_IN", "en_SG", "fr_FR", "hi_Deva_IN", "hi_Latn_IN", "ja_JP", "ko_KR", "pt_BR" |
+| `locale` | str | Language/region code - must be one of: "en_GB", "de_DE", "en_US", "en_IN", "en_SG", "es_SV", "fr_FR", "hi_Deva_IN", "hi_Latn_IN", "ja_JP", "ko_KR", "pt_BR", "vi_VN" |
 | `sex` | str (optional) | Filter by "Male" or "Female" |
 | `city` | str or list[str] (optional) | Filter by specific city or cities within locale |
 | `age_range` | list[int] (optional) | Two-element list [min_age, max_age] (default: [18, 114]) |

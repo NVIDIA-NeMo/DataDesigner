@@ -18,6 +18,7 @@ from data_designer.config.utils.constants import (
 from data_designer.config.utils.media_helpers import is_image_diffusion_model
 from data_designer.engine.mcp.errors import MCPConfigurationError
 from data_designer.engine.model_provider import ModelProviderRegistry
+from data_designer.engine.models.clients.errors import ProviderError, ProviderErrorKind
 from data_designer.engine.models.clients.types import (
     ChatCompletionRequest,
     ChatCompletionResponse,
@@ -25,6 +26,7 @@ from data_designer.engine.models.clients.types import (
     EmbeddingResponse,
     ImageGenerationRequest,
     ImageGenerationResponse,
+    ProviderReplayData,
     Usage,
 )
 from data_designer.engine.models.errors import (
@@ -245,7 +247,9 @@ class ModelFacade:
         if not allow_multiple_choices:
             kwargs = self._drop_multi_choice_request_fields(kwargs)
         try:
-            request = self._build_chat_completion_request(message_payloads, kwargs)
+            request = self._build_chat_completion_request(
+                message_payloads, kwargs, message_replay_data=[message.replay_data for message in messages]
+            )
             response = self._client.completion(request)
             logger.debug(
                 f"Received completion from model {self.model_name!r}",
@@ -282,7 +286,9 @@ class ModelFacade:
         if not allow_multiple_choices:
             kwargs = self._drop_multi_choice_request_fields(kwargs)
         try:
-            request = self._build_chat_completion_request(message_payloads, kwargs)
+            request = self._build_chat_completion_request(
+                message_payloads, kwargs, message_replay_data=[message.replay_data for message in messages]
+            )
             response = await self._client.acompletion(request)
             logger.debug(
                 f"Received completion from model {self.model_name!r}",
@@ -403,12 +409,32 @@ class ModelFacade:
                 # response a tool call, so the tool loop could never end.
                 completion_kwargs.pop("tool_choice", None)
 
-            completion_response = self.completion(
-                messages,
-                skip_usage_tracking=skip_usage_tracking,
-                allow_multiple_choices=False,
-                **completion_kwargs,
-            )
+            try:
+                completion_response = self.completion(
+                    messages,
+                    skip_usage_tracking=skip_usage_tracking,
+                    allow_multiple_choices=False,
+                    **completion_kwargs,
+                )
+            except ProviderError as exc:
+                if (
+                    exc.kind != ProviderErrorKind.CONTEXT_WINDOW_EXCEEDED
+                    or len(messages) <= len(restart_checkpoint)
+                    or curr_num_restarts >= max_conversation_restarts
+                ):
+                    raise
+                logger.debug(
+                    "Correction history exceeded context for model %s; restarting conversation %d of %d",
+                    self.model_alias,
+                    curr_num_restarts + 1,
+                    max_conversation_restarts,
+                )
+                parse_attempts = 0
+                curr_num_restarts += 1
+                messages = deepcopy(restart_checkpoint)
+                tool_call_turns = checkpoint_tool_call_turns
+                conversation_truncation_reason = None
+                continue
 
             # Process any tool calls in the response (handles parallel tool calling)
             if mcp_facade is not None and mcp_facade.has_tool_calls(completion_response):
@@ -430,7 +456,13 @@ class ModelFacade:
             # No tool calls remaining to process
             response = (completion_response.message.content or "").strip()
             reasoning_trace = completion_response.message.reasoning_content
-            messages.append(ChatMessage.as_assistant(content=response, reasoning_content=reasoning_trace or None))
+            messages.append(
+                ChatMessage.as_assistant(
+                    content=response,
+                    reasoning_content=reasoning_trace or None,
+                    replay_data=completion_response.message.replay_data,
+                )
+            )
             parse_attempts += 1
 
             try:
@@ -524,12 +556,32 @@ class ModelFacade:
                 # response a tool call, so the tool loop could never end.
                 completion_kwargs.pop("tool_choice", None)
 
-            completion_response = await self.acompletion(
-                messages,
-                skip_usage_tracking=skip_usage_tracking,
-                allow_multiple_choices=False,
-                **completion_kwargs,
-            )
+            try:
+                completion_response = await self.acompletion(
+                    messages,
+                    skip_usage_tracking=skip_usage_tracking,
+                    allow_multiple_choices=False,
+                    **completion_kwargs,
+                )
+            except ProviderError as exc:
+                if (
+                    exc.kind != ProviderErrorKind.CONTEXT_WINDOW_EXCEEDED
+                    or len(messages) <= len(restart_checkpoint)
+                    or curr_num_restarts >= max_conversation_restarts
+                ):
+                    raise
+                logger.debug(
+                    "Correction history exceeded context for model %s; restarting conversation %d of %d",
+                    self.model_alias,
+                    curr_num_restarts + 1,
+                    max_conversation_restarts,
+                )
+                parse_attempts = 0
+                curr_num_restarts += 1
+                messages = deepcopy(restart_checkpoint)
+                tool_call_turns = checkpoint_tool_call_turns
+                conversation_truncation_reason = None
+                continue
 
             if mcp_facade is not None and mcp_facade.has_tool_calls(completion_response):
                 tool_call_turns += 1
@@ -549,7 +601,13 @@ class ModelFacade:
 
             response = (completion_response.message.content or "").strip()
             reasoning_trace = completion_response.message.reasoning_content
-            messages.append(ChatMessage.as_assistant(content=response, reasoning_content=reasoning_trace or None))
+            messages.append(
+                ChatMessage.as_assistant(
+                    content=response,
+                    reasoning_content=reasoning_trace or None,
+                    replay_data=completion_response.message.replay_data,
+                )
+            )
             parse_attempts += 1
 
             try:
@@ -827,10 +885,18 @@ class ModelFacade:
             raise MCPConfigurationError(f"Tool alias {tool_alias!r} is not registered.") from exc
 
     def _build_chat_completion_request(
-        self, messages: list[dict[str, Any]], kwargs: dict[str, Any]
+        self,
+        messages: list[dict[str, Any]],
+        kwargs: dict[str, Any],
+        *,
+        message_replay_data: list[ProviderReplayData | None],
     ) -> ChatCompletionRequest:
         """Build a ChatCompletionRequest from message payloads and consolidated kwargs."""
-        request_fields: dict[str, Any] = {"model": self.model_name, "messages": messages}
+        request_fields: dict[str, Any] = {
+            "model": self.model_name,
+            "messages": messages,
+            "message_replay_data": message_replay_data,
+        }
         metadata: dict[str, Any] = {}
 
         for key, value in kwargs.items():

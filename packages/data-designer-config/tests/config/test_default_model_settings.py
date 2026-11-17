@@ -64,8 +64,13 @@ def test_get_builtin_model_configs():
         extra_body={"chat_template_kwargs": {"enable_thinking": False}},
     )
     assert builtin_model_configs[1].alias == "nvidia-reasoning"
-    assert builtin_model_configs[1].model == "nvidia/nemotron-3-super-120b-a12b"
+    assert builtin_model_configs[1].model == "nvidia/nemotron-3.5-super-vl-120b-a12b"
     assert builtin_model_configs[1].provider == "nvidia"
+    assert builtin_model_configs[1].inference_parameters == ChatCompletionInferenceParams(
+        temperature=1.0,
+        top_p=0.95,
+        extra_body={"reasoning_effort": "high"},
+    )
     assert builtin_model_configs[2].alias == "nvidia-vision"
     assert builtin_model_configs[2].model == "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
     assert builtin_model_configs[2].provider == "nvidia"

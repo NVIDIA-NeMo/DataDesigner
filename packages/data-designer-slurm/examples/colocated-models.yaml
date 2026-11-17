@@ -1,0 +1,42 @@
+schema_version: 1
+name: colocated-models
+builder:
+  inline:
+    data_designer:
+      model_configs:
+        - alias: writer
+          model: Qwen/Qwen2.5-0.5B-Instruct
+          provider: openai
+        - alias: judge
+          model: microsoft/Phi-3-mini-4k-instruct
+          provider: openai
+      columns:
+        - name: answer
+          column_type: llm-text
+          model_alias: writer
+          prompt: Write one short greeting.
+        - name: review
+          column_type: llm-text
+          model_alias: judge
+          prompt: 'Briefly evaluate this greeting: {{ answer }}'
+invocation:
+  num_records: 4
+  dataset_name: judged-output
+  model_concurrency: {writer: 1, judge: 1}
+client:
+  cpus: 4
+deployments:
+  - model_alias: writer
+    model: Qwen/Qwen2.5-0.5B-Instruct
+    resources: {shared_node: models, gpus_per_node: 1}
+    topology: {tensor_parallel: 1}
+    server:
+      type: vllm
+      image: {name: vllm}
+  - model_alias: judge
+    model: microsoft/Phi-3-mini-4k-instruct
+    resources: {shared_node: models, gpus_per_node: 1}
+    topology: {tensor_parallel: 1}
+    server:
+      type: vllm
+      image: {name: vllm}

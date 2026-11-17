@@ -74,6 +74,30 @@ def test_null_empty_batches_have_explicit_nested_leaf_type(values: list[Any]) ->
     assert decode_storage_table(table)["oracle"].tolist() == values
 
 
+@pytest.mark.parametrize("counts", [(1, 3, 2), (3, 3, 3), (0, 0, 0)], ids=["variable", "uniform", "empty"])
+def test_nested_null_side_effect_survives_parquet_read(tmp_path: Path, counts: tuple[int, ...]) -> None:
+    values = [[{"entries": [{"label": "synthetic", "optional": None} for _ in range(count)]}] for count in counts]
+    plan = JsonStoragePlan(columns={"payload": [[]]})
+    frame = pd.DataFrame({"side_effect": values, "payload": [{"x": 1}] * len(values), "ordinary": [1, 2, 3]})
+    table = encode_storage_table(frame, plan)
+    path = tmp_path / "batch.parquet"
+    pq.write_table(table, path)
+    original = pq.read_table(path)
+    original.validate(full=True)
+
+    restored = read_parquet_dataset(path)
+
+    restored["side_effect"].array.__arrow_array__().validate(full=True)
+    assert restored["side_effect"].tolist() == values
+    assert isinstance(restored["side_effect"].dtype, pd.ArrowDtype)
+    assert isinstance(restored["ordinary"].dtype, pd.ArrowDtype)
+    assert restored["ordinary"].tolist() == [1, 2, 3]
+    assert restored["payload"].tolist() == [{"x": 1}] * len(values)
+    assert restored.attrs[JSON_STORAGE_RUN_KEY] == plan.model_dump()
+    assert list(restored.columns) == list(frame.columns)
+    assert original["side_effect"].to_pylist() == values
+
+
 def test_multiple_nested_fields_round_trip_without_mutation() -> None:
     value = {"calls": [{"arguments": {"alpha": 1}, "other": [1, "two"]}, {"arguments": {"beta": None}, "other": []}]}
     original = deepcopy(value)
@@ -81,6 +105,263 @@ def test_multiple_nested_fields_round_trip_without_mutation() -> None:
     table = encode_storage_table(pd.DataFrame({"oracle": [value], "ordinary": ['{"x":1}']}), plan)
     assert decode_storage_table(table).to_dict("records") == [{"oracle": original, "ordinary": '{"x":1}'}]
     assert value == original
+
+
+@pytest.mark.parametrize("size", [0, 3])
+def test_all_nested_columns_preserve_shape_and_values(size: int) -> None:
+    values = [[{"value": None}], [], None][:size]
+    nested_type = pa.list_(pa.struct([("value", pa.null())]))
+    table = pa.table({"first": pa.array(values, type=nested_type), "second": pa.array(values, type=nested_type)})
+
+    restored = decode_storage_table(table)
+
+    assert restored.shape == (size, 2)
+    assert list(restored.columns) == ["first", "second"]
+    for name in table.column_names:
+        assert isinstance(restored[name].dtype, pd.ArrowDtype)
+        assert restored[name].array.__arrow_array__().to_pylist() == values
+        restored[name].array.__arrow_array__().validate(full=True)
+
+
+@pytest.mark.parametrize("index_kind", ["range", "named", "multi"])
+def test_nested_read_preserves_index_and_interleaved_column_order(index_kind: str) -> None:
+    index = pd.RangeIndex(4, 10, 2, name="row")
+    if index_kind == "named":
+        index = pd.Index([7, 2, 7], name="row")
+    elif index_kind == "multi":
+        index = pd.MultiIndex.from_tuples([("a", 2), ("b", 1), ("a", 2)], names=["group", "row"])
+    values = [[{"optional": None}], [], None]
+    frame = pd.DataFrame({"nested_first": values, "ordinary": [1, 2, 3], "nested_last": values}, index=index)
+    table = pa.Table.from_pandas(frame)
+
+    restored = decode_storage_table(table)
+
+    pd.testing.assert_index_equal(restored.index, table.to_pandas(types_mapper=pd.ArrowDtype).index)
+    assert list(restored.columns) == list(frame.columns)
+    assert restored["ordinary"].tolist() == [1, 2, 3]
+    assert restored["nested_first"].array.__arrow_array__().to_pylist() == values
+    assert restored["nested_last"].array.__arrow_array__().to_pylist() == values
+
+
+def test_nested_read_preserves_sliced_chunked_arrays() -> None:
+    values = [[{"optional": None}] * count for count in (1, 3, 2, 4)]
+    array = pa.chunked_array([pa.array(values[:2]), pa.array(values[2:])]).slice(1, 2)
+    table = pa.table({"nested": array, "ordinary": [1, 2]})
+
+    restored = decode_storage_table(table)
+
+    restored["nested"].array.__arrow_array__().validate(full=True)
+    assert restored["nested"].tolist() == values[1:3]
+    assert table["nested"].to_pylist() == values[1:3]
+
+
+@pytest.mark.parametrize("reader", ["decoder", "public"])
+@pytest.mark.parametrize("column_kind", ["integer", "multi"])
+def test_nested_read_preserves_non_string_column_labels(tmp_path: Path, reader: str, column_kind: str) -> None:
+    columns = pd.Index([0, 1], name="fields")
+    if column_kind == "multi":
+        columns = pd.MultiIndex.from_tuples([("nested", 0), ("ordinary", 1)], names=["kind", "number"])
+    frame = pd.DataFrame([[["{}"], 10], [["{}"], 20]], columns=columns)
+    table = pa.Table.from_pandas(frame)
+    plan = JsonStoragePlan(columns={table.column_names[0]: [[None]]})
+    table = table.replace_schema_metadata(
+        {**table.schema.metadata, JSON_STORAGE_METADATA_KEY: plan.model_dump_json().encode()}
+    )
+    path = tmp_path / "batch.parquet"
+    pq.write_table(table, path)
+
+    restored = decode_storage_table(table) if reader == "decoder" else read_parquet_dataset(path)
+
+    pd.testing.assert_index_equal(restored.columns, frame.columns)
+    assert restored.iloc[:, 0].tolist() == [[{}], [{}]]
+    assert restored.iloc[:, 1].tolist() == [10, 20]
+    assert isinstance(restored.iloc[:, 1].dtype, pd.ArrowDtype)
+    assert restored.attrs[JSON_STORAGE_RUN_KEY] == plan.model_dump()
+
+
+@pytest.mark.parametrize("reader", ["decoder", "public"])
+@pytest.mark.parametrize("index_name", [None, "row", "ordinary"])
+def test_nested_read_keeps_tuple_index_out_of_data_columns(tmp_path: Path, reader: str, index_name: str | None) -> None:
+    index = pd.Index([(1, 2), (3, 4)], tupleize_cols=False, name=index_name)
+    frame = pd.DataFrame({"payload": ['{"x":1}', '{"x":2}'], "ordinary": [10, 20]}, index=index)
+    table = pa.Table.from_pandas(frame)
+    plan = JsonStoragePlan(columns={"payload": [[]]})
+    table = table.replace_schema_metadata(
+        {**table.schema.metadata, JSON_STORAGE_METADATA_KEY: plan.model_dump_json().encode()}
+    )
+    path = tmp_path / "batch.parquet"
+    pq.write_table(table, path)
+
+    restored = decode_storage_table(table) if reader == "decoder" else read_parquet_dataset(path)
+
+    pd.testing.assert_index_equal(restored.columns, frame.columns)
+    expected_index = table.to_pandas(types_mapper=pd.ArrowDtype).index if reader == "decoder" else pd.RangeIndex(2)
+    pd.testing.assert_index_equal(restored.index, expected_index)
+    assert restored["payload"].tolist() == [{"x": 1}, {"x": 2}]
+    assert restored["ordinary"].tolist() == [10, 20]
+    assert restored.attrs[JSON_STORAGE_RUN_KEY] == plan.model_dump()
+
+
+@pytest.mark.parametrize("size", [0, 3])
+@pytest.mark.parametrize("directory", [False, True], ids=["file", "directory"])
+@pytest.mark.parametrize(
+    ("dtype", "values"),
+    [
+        (pa.list_(pa.int64()), [[1, 2], [], None]),
+        (pa.large_list(pa.int64()), [[1, 2], [], None]),
+        (pa.list_(pa.int64(), 2), [[1, 2], [3, 4], [5, 6]]),
+        (pa.struct([("value", pa.int64())]), [{"value": 1}, {"value": None}, None]),
+        (pa.map_(pa.string(), pa.int64()), [[("a", 1)], [], None]),
+        (pa.list_(pa.struct([("optional", pa.null())])), [[{"optional": None}], [], None]),
+        (pa.list_(pa.int64()), [None, None, None]),
+    ],
+    ids=["list", "large-list", "fixed-list", "struct", "map", "nested-null", "all-null"],
+)
+def test_annotated_nested_columns_survive_repeated_persisted_reads(
+    tmp_path: Path, size: int, directory: bool, dtype: pa.DataType, values: list[Any]
+) -> None:
+    plan = JsonStoragePlan(columns={"payload": [[]]})
+    table = pa.table(
+        {
+            "nested": pa.array(values[:size], type=dtype),
+            "ordinary": pa.array(range(size), type=pa.int64()),
+            "payload": pa.array(['{"x":1}'] * size, type=pa.string()),
+        }
+    ).replace_schema_metadata({JSON_STORAGE_METADATA_KEY: plan.model_dump_json().encode(), b"external": b"preserve"})
+
+    for cycle in range(3):
+        metadata = table.schema.metadata
+        path = tmp_path / f"cycle_{cycle}"
+        path.mkdir()
+        pq.write_table(table, path / "batch.parquet")
+        restored = read_parquet_dataset(path if directory else path / "batch.parquet")
+
+        assert restored.shape == (size, 3)
+        assert restored["nested"].array.__arrow_array__().to_pylist() == values[:size]
+        restored["nested"].array.__arrow_array__().validate(full=True)
+        assert isinstance(restored["nested"].dtype, pd.ArrowDtype)
+        assert restored["ordinary"].tolist() == list(range(size))
+        assert restored["payload"].tolist() == [{"x": 1}] * size
+        assert restored.attrs[JSON_STORAGE_RUN_KEY] == plan.model_dump()
+        assert table.schema.metadata == metadata
+        assert metadata[b"external"] == b"preserve"
+        table = encode_storage_table(restored, plan)
+        table = table.replace_schema_metadata({**table.schema.metadata, b"external": b"preserve"})
+
+
+@pytest.mark.parametrize("size", [0, 3])
+@pytest.mark.parametrize("column_kind", ["string", "integer", "multi"])
+@pytest.mark.parametrize("index_kind", ["range", "named", "tuple", "datetime", "categorical", "multi"])
+def test_nested_decoder_preserves_metadata_across_repeated_persistence(
+    tmp_path: Path, size: int, column_kind: str, index_kind: str
+) -> None:
+    index = pd.RangeIndex(4, 10, 2, name="row")
+    if index_kind == "named":
+        index = pd.Index([7, 2, 7], name="row")
+    elif index_kind == "tuple":
+        index = pd.Index([(1, 2), (3, 4), (1, 2)], tupleize_cols=False, name="row")
+    elif index_kind == "datetime":
+        index = pd.date_range("2026-01-01", periods=3, tz="Asia/Kolkata", name="row")
+    elif index_kind == "categorical":
+        index = pd.CategoricalIndex(["a", "b", "a"], name="row")
+    elif index_kind == "multi":
+        index = pd.MultiIndex.from_tuples([("a", 1), ("b", 2), ("a", 1)], names=["group", "row"])
+    columns = pd.Index(["nested", "ordinary"], name="fields")
+    if column_kind == "integer":
+        columns = pd.Index([0, 1], name="fields")
+    elif column_kind == "multi":
+        columns = pd.MultiIndex.from_tuples([("nested", 0), ("ordinary", 1)], names=["kind", "number"])
+    frame = pd.DataFrame([[[1, 2], 10], [[], 20], [None, 30]], index=index, columns=columns).iloc[:size]
+    frame.attrs["external"] = {"keep": [1, 2]}
+    table = pa.Table.from_pandas(frame)
+    expected = None
+
+    for cycle in range(3):
+        path = tmp_path / f"cycle_{cycle}.parquet"
+        pq.write_table(table, path)
+        persisted = pq.read_table(path)
+        original_metadata = persisted.schema.metadata
+        if expected is None:
+            expected = persisted.to_pandas(types_mapper=pd.ArrowDtype)
+        restored = decode_storage_table(persisted)
+
+        pd.testing.assert_frame_equal(restored, expected)
+        assert restored.attrs == frame.attrs
+        assert persisted.schema.metadata == original_metadata
+        table = pa.Table.from_pandas(restored)
+
+
+@pytest.mark.parametrize("size", [0, 3])
+@pytest.mark.parametrize("keep_nested", [False, True])
+@pytest.mark.parametrize("directory", [False, True], ids=["file", "directory"])
+def test_projected_nested_metadata_keeps_only_surviving_fields(
+    tmp_path: Path, size: int, keep_nested: bool, directory: bool
+) -> None:
+    values = [[1, 2], [], None][:size]
+    array = pa.array(values, type=pa.list_(pa.int64()))
+    frame = pd.DataFrame(
+        {
+            "keep": pd.arrays.ArrowExtensionArray(array),
+            "drop": pd.arrays.ArrowExtensionArray(array),
+            "ordinary": list(range(size)),
+            "payload": pd.Series([{}] * size, dtype=object),
+        }
+    )
+    plan = JsonStoragePlan(columns={"payload": [[]]})
+    columns = ["keep", "ordinary", "payload"] if keep_nested else ["ordinary", "payload"]
+    table = encode_storage_table(frame, plan).select(columns)
+    original_metadata = table.schema.metadata
+
+    for cycle in range(3):
+        path = tmp_path / f"cycle_{cycle}"
+        path.mkdir()
+        pq.write_table(table, path / "batch.parquet")
+        restored = read_parquet_dataset(path if directory else path / "batch.parquet")
+
+        assert list(restored.columns) == columns
+        assert restored["ordinary"].tolist() == list(range(size))
+        assert restored["payload"].tolist() == [{}] * size
+        assert restored.attrs[JSON_STORAGE_RUN_KEY] == plan.model_dump()
+        if keep_nested:
+            assert restored["keep"].array.__arrow_array__().to_pylist() == values
+        if cycle == 0:
+            assert table.schema.metadata == original_metadata
+        table = encode_storage_table(restored, plan)
+
+
+@pytest.mark.parametrize("size", [0, 3])
+@pytest.mark.parametrize("directory", [False, True], ids=["file", "directory"])
+def test_all_nested_annotated_columns_survive_repeated_persistence(tmp_path: Path, size: int, directory: bool) -> None:
+    plan = JsonStoragePlan(columns={"protected": [["payload"]]})
+    frame = pd.DataFrame(
+        {"protected": [{"payload": {"a": 1}}, {"payload": None}, {"payload": []}], "native": [[1, 2], [], None]}
+    ).iloc[:size]
+    expected = frame.to_dict("records")
+
+    for cycle in range(3):
+        table = encode_storage_table(frame, plan)
+        path = tmp_path / f"cycle_{cycle}"
+        path.mkdir()
+        pq.write_table(table, path / "batch.parquet")
+        frame = read_parquet_dataset(path if directory else path / "batch.parquet")
+
+        assert len(frame) == size
+        assert frame.to_dict("records") == expected
+        assert frame.attrs[JSON_STORAGE_RUN_KEY] == plan.model_dump()
+        frame["native"].array.__arrow_array__().validate(full=True)
+
+
+@pytest.mark.parametrize("payload", [b'{"version":99,"columns":{}}', b'{"version":1,"columns":{"missing":[[]]}}'])
+def test_metadata_filter_does_not_relax_invalid_json_contracts(payload: bytes) -> None:
+    table = pa.table({"native": pa.array([[1, 2]], type=pa.list_(pa.int64()))})
+    table = table.replace_schema_metadata({JSON_STORAGE_METADATA_KEY: payload, b"external": b"preserve"})
+    metadata = table.schema.metadata
+
+    with pytest.raises(InvalidFileFormatError, match="metadata"):
+        decode_storage_table(table)
+
+    assert table.schema.metadata == metadata
+    assert table["native"].to_pylist() == [[1, 2]]
 
 
 @pytest.mark.parametrize(

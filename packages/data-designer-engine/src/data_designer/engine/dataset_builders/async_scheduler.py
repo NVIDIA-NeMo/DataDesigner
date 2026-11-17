@@ -83,6 +83,7 @@ from data_designer.engine.observability import (
     scheduler_event_sink_accepts,
 )
 from data_designer.engine.processing.ginja.exceptions import UserTemplateError
+from data_designer.engine.processing.utils import dataframe_to_records
 from data_designer.engine.progress.reporter import (
     DEFAULT_REPORT_INTERVAL,
     AsyncProgressReporter,
@@ -2263,9 +2264,10 @@ class AsyncTaskScheduler:
         # Write results to buffer (include side-effect columns)
         if self._buffer_manager is not None:
             write_cols = self._gen_instance_to_columns_including_side_effects.get(id(generator), [task.column])
+            result_records = dataframe_to_records(result_df)
             for col in write_cols:
                 if col in result_df.columns:
-                    values = result_df[col].tolist()
+                    values = [record[col] for record in result_records]
                     self._buffer_manager.update_batch(task.row_group, col, values)
 
         return result_df
@@ -2514,7 +2516,7 @@ class AsyncTaskScheduler:
         active_row_indices: list[int],
         supports_row_drops: bool,
     ) -> dict[int, dict[str, Any]]:
-        result_records = result_df.to_dict(orient="records")
+        result_records = dataframe_to_records(result_df)
         if supports_row_drops:
             return dict(zip(result_df.index.to_list(), result_records, strict=True))
         return dict(zip(active_row_indices, result_records, strict=True))

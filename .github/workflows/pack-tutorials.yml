@@ -56,7 +56,7 @@ jobs:
             gh auth status || echo "GitHub CLI is not authenticated, relying on GITHUB_TOKEN."
 
             # We use tr -d '\n' to remove the trailing newline for a clean tag string
-            LATEST_TAG=$(gh release view --json tagName -q .tagName 2>/dev/null)
+            LATEST_TAG=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName -q .tagName 2>/dev/null)
 
             if [ -z "$LATEST_TAG" ]; then
               echo "::error::Could not find the latest published release tag. Ensure a release exists."
@@ -72,7 +72,7 @@ jobs:
       - name: Upload zip file as release asset
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "${{ steps.get_release.outputs.tag }}" "${{ env.ZIP_FILE_NAME }}"
+        run: gh release upload "${{ steps.get_release.outputs.tag }}" "${{ env.ZIP_FILE_NAME }}" --repo "$GITHUB_REPOSITORY"
 
       - name: Cleanup
         if: always()

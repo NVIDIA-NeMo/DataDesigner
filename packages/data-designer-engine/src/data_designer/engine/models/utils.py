@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from pydantic import BaseModel
 
 if TYPE_CHECKING:
-    from data_designer.engine.models.clients.types import ChatCompletionResponse
+    from data_designer.engine.models.clients.types import ChatCompletionResponse, ProviderReplayData
 
 
 class GenerationTruncationReason(str, Enum):
@@ -101,6 +101,7 @@ class ChatMessage:
             Each tool call contains 'id', 'type', and 'function' keys.
         tool_call_id: Optional ID linking a tool response to its corresponding
             tool call. Required for messages with role='tool'.
+        replay_data: Opaque provider-owned data excluded from trace serialization.
     """
 
     role: Literal["user", "assistant", "system", "tool"]
@@ -108,6 +109,7 @@ class ChatMessage:
     reasoning_content: str | None = None
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
     tool_call_id: str | None = None
+    replay_data: ProviderReplayData | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert the message to a dictionary format for API calls.
@@ -139,6 +141,7 @@ class ChatMessage:
         content: str = "",
         reasoning_content: str | None = None,
         tool_calls: list[dict[str, Any]] | None = None,
+        replay_data: ProviderReplayData | None = None,
     ) -> ChatMessage:
         """Create an assistant message."""
         return cls(
@@ -146,6 +149,7 @@ class ChatMessage:
             content=content,
             reasoning_content=reasoning_content,
             tool_calls=tool_calls or [],
+            replay_data=replay_data,
         )
 
     @classmethod
