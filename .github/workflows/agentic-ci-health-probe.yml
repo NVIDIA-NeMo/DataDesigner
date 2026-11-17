@@ -18,12 +18,12 @@ jobs:
     steps:
       - name: Check required config
         env:
-          AGENTIC_CI_MODEL: ${{ vars.AGENTIC_CI_MODEL }}
+          AGENTIC_CI_MODEL: ${{ secrets.AGENTIC_CI_MODEL }}
           ANTHROPIC_BASE_URL: ${{ secrets.AGENTIC_CI_API_BASE_URL }}
           ANTHROPIC_API_KEY: ${{ secrets.AGENTIC_CI_API_KEY }}
         run: |
           if [ -z "$AGENTIC_CI_MODEL" ]; then
-            echo "::error::AGENTIC_CI_MODEL variable is not set. Configure it in repo settings."
+            echo "::error::AGENTIC_CI_MODEL secret is not set."
             exit 1
           fi
           if [ -z "$ANTHROPIC_BASE_URL" ] || [ -z "$ANTHROPIC_API_KEY" ]; then
@@ -41,21 +41,20 @@ jobs:
         env:
           ANTHROPIC_BASE_URL: ${{ secrets.AGENTIC_CI_API_BASE_URL }}
           ANTHROPIC_API_KEY: ${{ secrets.AGENTIC_CI_API_KEY }}
-          AGENTIC_CI_MODEL: ${{ vars.AGENTIC_CI_MODEL }}
+          AGENTIC_CI_MODEL: ${{ secrets.AGENTIC_CI_MODEL }}
         run: |
-          MODEL="${AGENTIC_CI_MODEL}"
-
-          echo "Model: ${MODEL}"
-
           START=$(date +%s%N)
 
-          HTTP_CODE=$(curl -sS -o /dev/null -w "%{http_code}" \
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
             --max-time 30 \
             -X POST "${ANTHROPIC_BASE_URL}/v1/messages" \
             -H "Content-Type: application/json" \
             -H "x-api-key: ${ANTHROPIC_API_KEY}" \
             -H "anthropic-version: 2023-06-01" \
-            -d "{\"model\":\"${MODEL}\",\"max_tokens\":5,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}")
+            -d "{\"model\":\"${AGENTIC_CI_MODEL}\",\"max_tokens\":5,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}") || {
+            echo "::error::Inference request failed (curl exit $?)."
+            exit 1
+          }
 
           END=$(date +%s%N)
           LATENCY_MS=$(( (END - START) / 1000000 ))
@@ -79,10 +78,8 @@ jobs:
         env:
           ANTHROPIC_BASE_URL: ${{ secrets.AGENTIC_CI_API_BASE_URL }}
           ANTHROPIC_API_KEY: ${{ secrets.AGENTIC_CI_API_KEY }}
-          AGENTIC_CI_MODEL: ${{ vars.AGENTIC_CI_MODEL }}
+          AGENTIC_CI_MODEL: ${{ secrets.AGENTIC_CI_MODEL }}
         run: |
-          MODEL="${AGENTIC_CI_MODEL}"
-
           # Verify claude is installed and reachable
           if ! command -v claude &> /dev/null; then
             echo "::error::claude CLI not found in PATH"
@@ -94,18 +91,15 @@ jobs:
           # Run a minimal prompt to verify auth + model work end-to-end
           RESULT=$(claude \
             --bare \
-            --model "$MODEL" \
+            --model "$AGENTIC_CI_MODEL" \
             -p "Reply with exactly: HEALTH_CHECK_OK" \
             --max-turns 1 \
             --tools "" \
             --output-format text \
             2>&1) || {
               echo "::error::Claude CLI failed"
-              echo "$RESULT"
               exit 1
             }
-
-          echo "Claude response: ${RESULT}"
 
           if [ "$RESULT" = HEALTH_CHECK_OK ]; then
             echo "Claude CLI health check passed"

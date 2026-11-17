@@ -82,12 +82,12 @@ jobs:
     steps:
       - name: Check required config
         env:
-          AGENTIC_CI_MODEL: ${{ vars.AGENTIC_CI_MODEL }}
+          AGENTIC_CI_MODEL: ${{ secrets.AGENTIC_CI_MODEL }}
           ANTHROPIC_BASE_URL: ${{ secrets.AGENTIC_CI_API_BASE_URL }}
           ANTHROPIC_API_KEY: ${{ secrets.AGENTIC_CI_API_KEY }}
         run: |
           if [ -z "$AGENTIC_CI_MODEL" ]; then
-            echo "::error::AGENTIC_CI_MODEL variable is not set. Configure it in repo settings."
+            echo "::error::AGENTIC_CI_MODEL secret is not set."
             exit 1
           fi
           if [ -z "$ANTHROPIC_BASE_URL" ] || [ -z "$ANTHROPIC_API_KEY" ]; then
@@ -133,15 +133,13 @@ jobs:
             printf '{"suite":"%s","last_run":null,"known_issues":[],"baselines":{}}\n' \
               "${SUITE}" > .agentic-ci-state/runner-state.json
           fi
-          echo "Runner memory state:"
-          cat .agentic-ci-state/runner-state.json
 
       - name: Install uv
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           version: "latest"
           python-version: "3.11"
-          enable-cache: true
+          enable-cache: false
 
       - name: Install dev environment
         run: |
@@ -179,7 +177,7 @@ jobs:
         env:
           ANTHROPIC_BASE_URL: ${{ secrets.AGENTIC_CI_API_BASE_URL }}
           ANTHROPIC_API_KEY: ${{ secrets.AGENTIC_CI_API_KEY }}
-          AGENTIC_CI_MODEL: ${{ vars.AGENTIC_CI_MODEL }}
+          AGENTIC_CI_MODEL: ${{ secrets.AGENTIC_CI_MODEL }}
         run: |
           if ! command -v claude &> /dev/null; then
             echo "::error::claude CLI not found in PATH"
@@ -187,13 +185,16 @@ jobs:
           fi
           echo "Claude CLI version: $(claude --version 2>&1 || true)"
 
-          HTTP_CODE=$(curl -sS -o /dev/null -w "%{http_code}" \
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
             --max-time 30 \
             -X POST "${ANTHROPIC_BASE_URL}/v1/messages" \
             -H "Content-Type: application/json" \
             -H "x-api-key: ${ANTHROPIC_API_KEY}" \
             -H "anthropic-version: 2023-06-01" \
-            -d "{\"model\":\"${AGENTIC_CI_MODEL}\",\"max_tokens\":5,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}")
+            -d "{\"model\":\"${AGENTIC_CI_MODEL}\",\"max_tokens\":5,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}") || {
+            echo "::error::Inference request failed (curl exit $?)."
+            exit 1
+          }
           if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
             echo "::error::API pre-flight failed with HTTP ${HTTP_CODE}"
             exit 1
@@ -234,7 +235,7 @@ jobs:
         env:
           ANTHROPIC_BASE_URL: ${{ secrets.AGENTIC_CI_API_BASE_URL }}
           ANTHROPIC_API_KEY: ${{ secrets.AGENTIC_CI_API_KEY }}
-          AGENTIC_CI_MODEL: ${{ vars.AGENTIC_CI_MODEL }}
+          AGENTIC_CI_MODEL: ${{ secrets.AGENTIC_CI_MODEL }}
           DISABLE_PROMPT_CACHING: "1"
           GH_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
@@ -266,15 +267,16 @@ jobs:
             | sed "s|{{date}}|$(date -u +%Y-%m-%d)|g" \
             | sed "s|{{memory_path}}|.agentic-ci-state|g")
 
-          stdbuf -oL -eL claude \
+          claude \
             --model "$AGENTIC_CI_MODEL" \
             --permission-mode bypassPermissions \
             --effort high \
             -p "$PROMPT" \
             --max-turns "$MAX_TURNS" \
-            --output-format stream-json \
-            --verbose \
-            2>&1 | tee /tmp/claude-audit-log.txt
+            >/dev/null 2>&1 || {
+              echo "::error::Audit recipe failed (Claude exit $?)."
+              exit 1
+            }
 
       - name: Check fix backlog
         id: backlog
@@ -317,7 +319,7 @@ jobs:
         env:
           ANTHROPIC_BASE_URL: ${{ secrets.AGENTIC_CI_API_BASE_URL }}
           ANTHROPIC_API_KEY: ${{ secrets.AGENTIC_CI_API_KEY }}
-          AGENTIC_CI_MODEL: ${{ vars.AGENTIC_CI_MODEL }}
+          AGENTIC_CI_MODEL: ${{ secrets.AGENTIC_CI_MODEL }}
           DISABLE_PROMPT_CACHING: "1"
           GH_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
@@ -340,15 +342,16 @@ jobs:
 
           # Keep fix-phase turns fixed at 50; the audit budget is the
           # suite-tuned scan limit, while fixes are bounded by scope gates.
-          stdbuf -oL -eL claude \
+          claude \
             --model "$AGENTIC_CI_MODEL" \
             --permission-mode bypassPermissions \
             --effort high \
             -p "$PROMPT" \
             --max-turns 50 \
-            --output-format stream-json \
-            --verbose \
-            2>&1 | tee /tmp/claude-fix-log.txt
+            >/dev/null 2>&1 || {
+              echo "::error::Fix recipe failed (Claude exit $?)."
+              exit 1
+            }
 
       - name: Validate fix scope (allowlist + LOC + file cap)
         # Workflow-level enforcement of the localized-fix bar from
@@ -772,17 +775,29 @@ jobs:
               json.dump(state, f, indent=2)
           PY
 
-      - name: Upload agent log
-        # Always upload: for autonomous PR generation, the most interesting
-        # failure mode is "the workflow succeeded but the PR was wrong".
-        # The full event stream is the only way to look back days later.
+      - name: Redact report and state
+        id: redact
         if: always()
+        env:
+          AGENTIC_CI_MODEL: ${{ secrets.AGENTIC_CI_MODEL }}
+          ANTHROPIC_BASE_URL: ${{ secrets.AGENTIC_CI_API_BASE_URL }}
+          ANTHROPIC_API_KEY: ${{ secrets.AGENTIC_CI_API_KEY }}
+          GH_TOKEN: ${{ github.token }}
+          SUITE: ${{ matrix.suite }}
+          WORKFLOW_SHA: ${{ github.sha }}
+        run: |
+          set -o pipefail
+          git show "$WORKFLOW_SHA:scripts/redact_agentic_ci_output.py" | /usr/bin/python3 - \
+            "/tmp/audit-${SUITE}.md" /tmp/dependency-inventory.json \
+            "/tmp/pr-body-${SUITE}.md" /tmp/install-dev-verify.log \
+            .agentic-ci-state/runner-state.json
+
+      - name: Upload audit outputs
+        if: always() && steps.redact.outcome == 'success'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: claude-audit-log-${{ matrix.suite }}-${{ github.run_id }}-${{ github.run_attempt }}
+          name: audit-outputs-${{ matrix.suite }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
-            /tmp/claude-audit-log.txt
-            /tmp/claude-fix-log.txt
             /tmp/audit-${{ matrix.suite }}.md
             /tmp/dependency-inventory.json
             /tmp/pr-body-${{ matrix.suite }}.md
@@ -792,7 +807,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: Write job summary
-        if: always()
+        if: always() && steps.redact.outcome == 'success'
         env:
           SUITE: ${{ matrix.suite }}
           AUDIT_OUTCOME: ${{ steps.audit.outcome }}
@@ -817,11 +832,11 @@ jobs:
           if [ -s "/tmp/audit-${SUITE}.md" ]; then
             cat "/tmp/audit-${SUITE}.md" >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "No report generated. See the \`claude-audit-log-*\` artifact on failures for the full event stream." >> "$GITHUB_STEP_SUMMARY"
+            echo "No report generated." >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Save rejected gate state
-        if: always() && (steps.scope_gate.outputs.rejected == 'true' || steps.lockfile_gate.outputs.rejected == 'true')
+        if: always() && steps.redact.outcome == 'success' && (steps.scope_gate.outputs.rejected == 'true' || steps.lockfile_gate.outputs.rejected == 'true')
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .agentic-ci-state
