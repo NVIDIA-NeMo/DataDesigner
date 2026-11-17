@@ -787,10 +787,23 @@ jobs:
           WORKFLOW_SHA: ${{ github.sha }}
         run: |
           set -o pipefail
-          git show "$WORKFLOW_SHA:scripts/redact_agentic_ci_output.py" | /usr/bin/python3 - \
+          STATE_DIR=.agentic-ci-state
+          STATE="$STATE_DIR/runner-state.json"
+          if [[ -L "$STATE_DIR" || -L "$STATE" ]]; then
+            echo "::error::Unexpected audit state symlink."
+            exit 1
+          fi
+          if [ -d "$STATE_DIR" ]; then
+            EXTRA_STATE=$(/usr/bin/find "$STATE_DIR" -mindepth 1 -maxdepth 1 ! -path "$STATE" -print -quit)
+            if [[ -n "$EXTRA_STATE" || ( -e "$STATE" && ! -f "$STATE" ) ]]; then
+              echo "::error::Unexpected files in audit state."
+              exit 1
+            fi
+          fi
+          /usr/bin/git show "$WORKFLOW_SHA:scripts/redact_agentic_ci_output.py" | /usr/bin/python3 -I - \
             "/tmp/audit-${SUITE}.md" /tmp/dependency-inventory.json \
             "/tmp/pr-body-${SUITE}.md" /tmp/install-dev-verify.log \
-            .agentic-ci-state/runner-state.json
+            "$STATE"
 
       - name: Upload audit outputs
         if: always() && steps.redact.outcome == 'success'

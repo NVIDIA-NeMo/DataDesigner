@@ -96,7 +96,7 @@ jobs:
             --max-turns 1 \
             --tools "" \
             --output-format text \
-            2>&1) || {
+            2>/dev/null) || {
               echo "::error::Claude CLI failed"
               exit 1
             }

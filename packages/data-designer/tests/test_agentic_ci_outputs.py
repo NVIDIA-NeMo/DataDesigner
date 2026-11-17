@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
@@ -45,7 +46,7 @@ def test_redacts_configured_values_and_hostname(
 
 def test_report_splits_at_headings(load_script: Callable[[str], ModuleType]) -> None:
     triage = load_script("publish_agentic_ci_triage")
-    first = "### First\n" + ("a" * 31_000)
+    first = "### First\n@contributor " + ("a" * 31_000)
     second = "### Second\n" + ("b" * 31_000)
 
     parts = triage.report_parts(f"{first}\n\n{second}", "2026-11-17")
@@ -53,7 +54,7 @@ def test_report_splits_at_headings(load_script: Callable[[str], ModuleType]) -> 
     assert len(parts) == 2
     assert parts[0].startswith("<!-- agentic-ci-issue-triage:1/2 -->\n")
     assert parts[1].startswith("<!-- agentic-ci-issue-triage:2/2 -->\n")
-    assert parts[0].endswith(first + "\n")
+    assert parts[0].endswith(first.replace("@", "@\N{ZERO WIDTH SPACE}") + "\n")
     assert parts[1].endswith(second + "\n")
 
 
@@ -68,7 +69,7 @@ def test_publish_reconciles_only_bot_report_comments(
         {"id": 10, "user": {"login": "contributor"}, "body": marker},
         {"id": 20, "user": bot, "body": "another bot comment"},
         {"id": 30, "user": bot, "body": marker},
-        {"id": 25, "user": bot, "body": marker},
+        {"id": 25, "user": bot, "body": "\n" + marker},
     ]
     monkeypatch.setattr(triage.subprocess, "check_output", Mock(return_value=json.dumps([comments])))
     request = Mock()
@@ -118,3 +119,53 @@ def test_triage_generation_has_no_tools_or_write_token() -> None:
     assert '--tools ""' in generate["run"]
     assert workflow["jobs"]["publish"]["permissions"]["issues"] == "write"
     assert workflow["jobs"]["publish"]["if"] == "github.ref == 'refs/heads/main'"
+
+
+def test_health_probe_accepts_success_with_stderr() -> None:
+    workflow = yaml.safe_load((WORKFLOWS / "agentic-ci-health-probe.yml").read_text())
+    step = next(step for step in workflow["jobs"]["probe"]["steps"] if step["name"] == "Verify Claude CLI")
+    mock_claude = """
+claude() {
+  if [ "$1" = "--version" ]; then
+    echo "test-version"
+  else
+    echo "HEALTH_CHECK_OK"
+    echo "gateway.example.invalid" >&2
+  fi
+}
+"""
+
+    result = subprocess.run(["bash", "-e", "-c", mock_claude + step["run"]], capture_output=True, text=True)
+
+    assert result.returncode == 0, result.stdout
+    assert "gateway.example.invalid" not in result.stdout + result.stderr
+
+
+@pytest.mark.parametrize("extra_state", [False, True])
+def test_daily_redacts_only_expected_state_from_isolated_python(tmp_path: Path, extra_state: bool) -> None:
+    workflow = yaml.safe_load((WORKFLOWS / "agentic-ci-daily.yml").read_text())
+    step = next(step for step in workflow["jobs"]["audit"]["steps"] if step.get("id") == "redact")
+    state = tmp_path / ".agentic-ci-state" / "runner-state.json"
+    state.parent.mkdir()
+    state.write_text('{"route":"fixture-model"}')
+    (tmp_path / "pathlib.py").write_text("raise RuntimeError('unexpected local import')")
+    if extra_state:
+        (state.parent / "unexpected.txt").write_text("fixture")
+
+    mock_git = 'git() { cat "$REDACTOR_PATH"; }\n'
+    script = step["run"].replace("/usr/bin/git show", "git show").replace("/tmp/", f"{tmp_path}/")
+    env = os.environ | {
+        "REDACTOR_PATH": str(ROOT / "scripts/redact_agentic_ci_output.py"),
+        "AGENTIC_CI_MODEL": "fixture-model",
+        "SUITE": "test-fixture",
+    }
+    result = subprocess.run(
+        ["bash", "-e", "-c", mock_git + script], cwd=tmp_path, env=env, capture_output=True, text=True
+    )
+
+    if extra_state:
+        assert result.returncode == 1
+        assert "Unexpected files in audit state" in result.stdout
+    else:
+        assert result.returncode == 0, result.stderr
+        assert json.loads(state.read_text()) == {"route": "[redacted]"}

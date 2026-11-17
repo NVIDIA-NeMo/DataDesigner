@@ -11,12 +11,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 COMMENT_LIMIT = 60_000
-REPORT_MARKER = re.compile(r"^<!-- agentic-ci-issue-triage:\d+/\d+ -->")
+REPORT_MARKER = re.compile(r"\s*<!-- agentic-ci-issue-triage:\d+/\d+ -->")
 
 
 def report_parts(report: str, date: str) -> list[str]:
     """Split a report at section boundaries and add stable comment markers."""
-    report = report.strip()
+    report = re.sub(r"@(?=[A-Za-z0-9])", "@\N{ZERO WIDTH SPACE}", report.strip())
     if not report:
         raise ValueError("Triage report is empty.")
 
