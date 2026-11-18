@@ -5,13 +5,12 @@ from __future__ import annotations
 
 from typing import Annotated
 
-import click
 import typer
 
 from data_designer.cli.controllers.generation_controller import GenerationController
 from data_designer.config.utils.constants import DEFAULT_NUM_RECORDS
 from data_designer.engine.storage.artifact_storage import ResumeMode
-from data_designer.interface.results import SUPPORTED_EXPORT_FORMATS
+from data_designer.interface.results import ExportFormat
 
 
 def create_command(
@@ -62,11 +61,10 @@ def create_command(
         ),
         case_sensitive=False,
     ),
-    output_format: str | None = typer.Option(
+    output_format: ExportFormat | None = typer.Option(
         None,
         "--output-format",
         "-f",
-        click_type=click.Choice(list(SUPPORTED_EXPORT_FORMATS)),
         help=(
             "Export the dataset to a single file after generation. "
             "Supported formats: jsonl, csv, parquet. "
