@@ -12,10 +12,12 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from pydantic import JsonValue
 
 import data_designer.slurm.services.retry_collection as retry_collection_module
 import data_designer.slurm.services.wiring as wiring_module
 from data_designer.config import default_model_settings
+from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.models import ModelProvider
 from data_designer.slurm.benchmark.compiler import BenchmarkCompiler
 from data_designer.slurm.client.dependencies import ResolvedClientDependencies
@@ -25,12 +27,14 @@ from data_designer.slurm.config import (
     BuilderInput,
     DataDesignerSlurmBenchmarkConfig,
     DataDesignerSlurmConfig,
+    DataDesignerSlurmConfigBuilder,
     SecretRef,
     SlurmProfile,
     SlurmProfileCatalog,
+    load_builder_payload,
     select_profile,
 )
-from data_designer.slurm.contracts import ArtifactReference, canonical_json
+from data_designer.slurm.contracts import ArtifactReference, canonical_json, compute_serialized_json_sha256
 from data_designer.slurm.images.records import RegisteredImage
 from data_designer.slurm.images.registry import ImageRegistryStore
 from data_designer.slurm.launcher.errors import SlurmLauncherError, SlurmSubmissionError
@@ -87,6 +91,156 @@ def hosted_settings(
     monkeypatch.setattr(default_model_settings, "MODEL_PROVIDERS_FILE_PATH", path)
     monkeypatch.setenv("MODEL_API_KEY", "fake-provider-secret")
     yield path
+
+
+@pytest.fixture(
+    params=(
+        "llm-text",
+        "llm-code",
+        "llm-judge",
+        "expression",
+        "structured-properties",
+        "structured-items",
+        "structured-required",
+        "structured-enum",
+        "structured-json-storage",
+        "sampler-uuid",
+        "sampler-explicit",
+        "sampler-category",
+        "sampler-conditional",
+        "validation-code",
+        "validation-explicit",
+        "shipped-example",
+    )
+)
+def preflight_builder_payload(request: pytest.FixtureRequest) -> dict[str, JsonValue]:
+    if request.param == "shipped-example":
+        return load_builder_payload(Path(__file__).parents[2] / "examples" / "builder.yaml")
+    text = {"name": "text", "column_type": "llm-text", "model_alias": "generator", "prompt": "Return a value."}
+    code = dict(text, name="code", column_type="llm-code", code_lang="python")
+    cases = {
+        "llm-text": [text],
+        "llm-code": [code],
+        "llm-judge": [
+            dict(
+                text,
+                column_type="llm-judge",
+                scores=[
+                    {
+                        "name": "quality",
+                        "description": "Rate quality.",
+                        "options": {"0": "bad", "1": "good"},
+                    }
+                ],
+            )
+        ],
+        "expression": [text, {"name": "number", "column_type": "expression", "expr": "1 + 1", "dtype": "int"}],
+        "structured-properties": [
+            dict(
+                text,
+                column_type="llm-structured",
+                output_format={
+                    "type": "object",
+                    "properties": {"answer": {"type": "string"}},
+                },
+            )
+        ],
+        "structured-items": [
+            dict(
+                text,
+                column_type="llm-structured",
+                output_format={
+                    "type": "object",
+                    "properties": {"values": {"type": "array", "items": {"type": "integer"}}},
+                },
+            )
+        ],
+        "structured-required": [
+            dict(
+                text,
+                column_type="llm-structured",
+                output_format={
+                    "type": "object",
+                    "required": ["answer"],
+                },
+            )
+        ],
+        "structured-enum": [
+            dict(
+                text,
+                column_type="llm-structured",
+                output_format={
+                    "type": "string",
+                    "enum": ["a", "b"],
+                },
+            )
+        ],
+        "structured-json-storage": [
+            dict(
+                text,
+                column_type="llm-structured",
+                output_format={
+                    "type": "object",
+                    "x-data-designer-storage": "json",
+                },
+            )
+        ],
+        "sampler-uuid": [text, {"name": "id", "column_type": "sampler", "sampler_type": "uuid", "params": {}}],
+        "sampler-explicit": [
+            text,
+            {
+                "name": "id",
+                "column_type": "sampler",
+                "sampler_type": "uuid",
+                "params": {"sampler_type": "uuid"},
+            },
+        ],
+        "sampler-category": [
+            text,
+            {
+                "name": "category",
+                "column_type": "sampler",
+                "sampler_type": "category",
+                "params": {"values": ["a", "b"]},
+            },
+        ],
+        "sampler-conditional": [
+            text,
+            {
+                "name": "category",
+                "column_type": "sampler",
+                "sampler_type": "category",
+                "params": {"sampler_type": "category", "values": ["a", "b"]},
+                "conditional_params": {"true": {"values": ["c"]}},
+            },
+        ],
+        "validation-code": [
+            code,
+            {
+                "name": "checked",
+                "column_type": "validation",
+                "target_columns": ["code"],
+                "validator_type": "code",
+                "validator_params": {"code_lang": "python"},
+            },
+        ],
+        "validation-explicit": [
+            code,
+            {
+                "name": "checked",
+                "column_type": "validation",
+                "target_columns": ["code"],
+                "validator_type": "code",
+                "validator_params": {"validator_type": "code", "code_lang": "python"},
+            },
+        ],
+    }
+    return {
+        "data_designer": {
+            "model_configs": [{"alias": "generator", "model": "example/generator", "provider": "openai"}],
+            "columns": cases[request.param],
+        }
+    }
 
 
 class _Launcher:
@@ -338,13 +492,18 @@ def test_dry_run_reports_missing_native_runtime_dependency(
     assert str(caught.value) == "client Python requires aiohttp>=3.14.3,<4 for the inference proxy"
 
 
+@pytest.mark.parametrize("preflight_builder_payload", ["shipped-example", "structured-properties"], indirect=True)
 def test_production_benchmark_wiring_submits_each_case_as_an_ordinary_run(
     tmp_path: Path,
     profile_catalog: SlurmProfileCatalog,
     benchmark_config: DataDesignerSlurmBenchmarkConfig,
     authored_run_single: DataDesignerSlurmConfig,
     single_node_plan: ResolvedSlurmRunPlan,
+    preflight_builder_payload: dict[str, JsonValue],
 ) -> None:
+    authored_run_single = authored_run_single.model_copy(
+        update={"builder": BuilderInput(inline=preflight_builder_payload)}
+    )
     config = benchmark_config.model_copy(
         update={
             "base_run": BenchmarkBaseRun(inline=authored_run_single),
@@ -500,17 +659,87 @@ def test_execute_reports_missing_builder_source(
     assert not launcher.submissions
 
 
-@pytest.mark.parametrize("invalid_columns", (1, 100))
+@pytest.mark.parametrize("sourced", [False, True], ids=["inline", "file"])
+def test_public_preflight_accepts_valid_builders(
+    tmp_path: Path,
+    profile_catalog: SlurmProfileCatalog,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+    preflight_builder_payload: dict[str, JsonValue],
+    sourced: bool,
+) -> None:
+    DataDesignerConfigBuilder.from_config(preflight_builder_payload)
+    path = tmp_path / "builder.json"
+    if sourced:
+        path.write_bytes(canonical_json(preflight_builder_payload))
+    builder = BuilderInput(source=path.name) if sourced else BuilderInput(inline=preflight_builder_payload)
+    authored = authored_run_single.model_copy(update={"builder": builder})
+    before = authored.serialize_json()
+    digest = compute_serialized_json_sha256(preflight_builder_payload)
+    _register_images(tmp_path, authored, single_node_plan)
+    launcher = _Launcher()
+    service = create_slurm_run_service(
+        profile=_profile(tmp_path, profile_catalog),
+        launcher=launcher,  # type: ignore[arg-type]
+        run_id_factory=lambda: "run-wired",
+        package_version="0.9.2",
+    )
+
+    plan = service.plan(authored, source_root=tmp_path)
+    result = service.execute(authored, source_root=tmp_path, dry_run=True)
+
+    assert plan.builder.content_sha256 == digest
+    assert plan.authored_config.sha256 == authored.compute_sha256()
+    assert result.state == "dry_run"
+    assert result.batch_script == service.render_attempt(plan)
+    assert authored.serialize_json() == before
+    assert launcher.submissions == []
+
+
+def test_public_plan_accepts_structured_python_config_builder(
+    tmp_path: Path,
+    profile_catalog: SlurmProfileCatalog,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    payload = authored_run_single.builder.model_dump(mode="json")["inline"]
+    payload["data_designer"]["columns"] = [
+        {
+            "name": "answer",
+            "column_type": "llm-structured",
+            "model_alias": "generator",
+            "prompt": "Return an answer.",
+            "output_format": {"type": "object", "properties": {"answer": {"type": "string"}}},
+        }
+    ]
+    builder = DataDesignerSlurmConfigBuilder.from_config_builder(DataDesignerConfigBuilder.from_config(payload))
+    config = builder.with_invocation(num_records=1, dataset_name="structured").build()
+    authored = authored_run_single.model_copy(update={"builder": config.builder})
+    _register_images(tmp_path, authored, single_node_plan)
+    service = create_slurm_run_service(
+        profile=_profile(tmp_path, profile_catalog),
+        launcher=_Launcher(),  # type: ignore[arg-type]
+        package_version="0.9.2",
+    )
+
+    service.plan(authored, source_root=tmp_path)
+
+
+@pytest.mark.parametrize(
+    "invalid_columns,sampler_type", [(1, "not-a-sampler"), (100, "not-a-sampler"), (1, "category")]
+)
 def test_execute_rejects_invalid_builtin_builder_before_submission(
     tmp_path: Path,
     profile_catalog: SlurmProfileCatalog,
     authored_run_single: DataDesignerSlurmConfig,
     single_node_plan: ResolvedSlurmRunPlan,
     invalid_columns: int,
+    sampler_type: str,
 ) -> None:
     payload = authored_run_single.model_dump(mode="json")
     payload["builder"]["inline"]["data_designer"]["columns"] = [
-        {"name": f"invalid-{index}", "column_type": "sampler", "sampler_type": "not-a-sampler"}
+        {"name": f"invalid-{index}", "column_type": "sampler", "sampler_type": sampler_type}
+        | ({"params": {}} if sampler_type == "category" else {})
         for index in range(invalid_columns)
     ]
     authored = DataDesignerSlurmConfig.model_validate(payload)

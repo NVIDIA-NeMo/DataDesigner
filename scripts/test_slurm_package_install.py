@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import shutil
 import statistics
@@ -271,7 +272,12 @@ assert "data_designer.slurm" not in sys.modules
 assert "packaging.requirements" not in sys.modules
 """
     if slurm:
+        image_fixture = json.loads(
+            (REPOSITORY_ROOT / "packages/data-designer-slurm/tests/contracts/golden/single_node_plan.json").read_text()
+        )["deployments"][0]["image"]
         statement += f"""
+from unittest.mock import Mock, patch
+
 slurm_help_result = CliRunner().invoke(app, ["slurm", "--help"])
 assert slurm_help_result.exit_code == 0, (slurm_help_result.output, repr(slurm_help_result.exception))
 assert all(
@@ -287,9 +293,11 @@ from data_designer.slurm.contracts import RecordRange as ContractRecordRange
 from data_designer.slurm.contracts import ResumeWorkspace as ContractResumeWorkspace
 from data_designer.slurm.integration import PlanStateValidator
 from data_designer.slurm.images.registry import ImageRegistryStore
+from data_designer.slurm.launcher.client import SlurmCommandClient
 from data_designer.slurm.planning import ArtifactReference as PlanningArtifactReference
 from data_designer.slurm.planning import RecordRange as PlanningRecordRange
 from data_designer.slurm.planning import ResumeWorkspace as PlanningResumeWorkspace
+from data_designer.slurm.planning import ResolvedImage
 from data_designer.slurm.runtime import proxy as runtime_proxy
 from data_designer.slurm.state import ArtifactReference as StateArtifactReference
 from data_designer.slurm.state import RecordRange as StateRecordRange
@@ -304,7 +312,7 @@ from data_designer.slurm.state import (
     SlurmRetryCoordinator,
     SlurmStateReconciler,
 )
-from data_designer.slurm.services import create_slurm_benchmark_service
+from data_designer.slurm.services import create_slurm_benchmark_service, create_slurm_run_service
 assert BenchmarkCompiler.__name__ == "BenchmarkCompiler"
 assert callable(runtime_proxy.main)
 assert callable(create_slurm_benchmark_service)
@@ -336,6 +344,26 @@ profile_help_result = CliRunner().invoke(app, ["slurm", "profile", "--help"])
 assert profile_help_result.exit_code == 0, profile_help_result.output
 with TemporaryDirectory() as temporary_directory:
     root = Path(temporary_directory)
+    (root / "workspace").mkdir(mode=0o700)
+    profile = load_profile_catalog(examples / "profile-catalog.yaml").clusters["primary"].model_copy(
+        update={{"workspace_root": str(root / "workspace")}}
+    )
+    launcher = Mock(spec=SlurmCommandClient)
+    with (
+        patch("data_designer.slurm.services.wiring.resolve_scheduler_bin_path", return_value="/opt/slurm/bin"),
+        patch(
+            "data_designer.slurm.images.service.VerifiedImageRegistry.resolve_for_planning",
+            side_effect=lambda reference, **_: ResolvedImage.model_validate(
+                {image_fixture!r} | {{"authored_ref": reference.model_dump(mode="json")}}
+            ),
+        ),
+    ):
+        service = create_slurm_run_service(profile=profile, launcher=launcher)
+        for name in ("run.yaml", "benchmark-run.yaml"):
+            result = service.execute(load_run_config(examples / name), source_root=examples, dry_run=True)
+            assert result.state == "dry_run"
+            assert result.batch_script is not None
+    assert launcher.method_calls == []
     profile_file = root / "profile.yml"
     profile_init_result = CliRunner().invoke(
         app,
