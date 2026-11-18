@@ -8,10 +8,7 @@ on:
     - cron: "0 10 * * 1"  # every Monday at 10:00 UTC
   workflow_dispatch:
 
-permissions:
-  contents: read
-  issues: write
-  pull-requests: read
+permissions: {}
 
 concurrency:
   group: agentic-ci-issue-triage
@@ -20,177 +17,125 @@ concurrency:
 jobs:
   triage:
     if: github.repository_owner == 'NVIDIA-NeMo'
-    runs-on: [self-hosted, agentic-ci]
+    runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      checks: read
+      contents: read
+      issues: read
+      pull-requests: read
+      statuses: read
+    env:
+      CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: "1"
+      DISABLE_AUTOUPDATER: "1"
     steps:
       - name: Check required config
         env:
-          AGENTIC_CI_MODEL: ${{ vars.AGENTIC_CI_MODEL }}
+          AGENTIC_CI_MODEL: ${{ secrets.AGENTIC_CI_MODEL }}
           TRACKING_ISSUE: ${{ vars.ISSUE_TRIAGE_TRACKING_ISSUE }}
+          ANTHROPIC_BASE_URL: ${{ secrets.AGENTIC_CI_API_BASE_URL }}
+          ANTHROPIC_API_KEY: ${{ secrets.AGENTIC_CI_API_KEY }}
         run: |
-          if [ -z "$AGENTIC_CI_MODEL" ]; then
-            echo "::error::AGENTIC_CI_MODEL variable is not set. Configure it in repo settings."
+          if [ -z "$AGENTIC_CI_MODEL" ] || [ -z "$ANTHROPIC_BASE_URL" ] || [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "::error::Inference configuration is required."
             exit 1
           fi
-          if [ -z "$TRACKING_ISSUE" ]; then
-            echo "::error::ISSUE_TRIAGE_TRACKING_ISSUE variable is not set. Create a pinned issue and set the variable."
+          if [[ ! "$TRACKING_ISSUE" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::A valid tracking issue number is required."
             exit 1
           fi
 
-      - name: Checkout main
+      - name: Install Claude Code
+        run: |
+          npm install --global --prefix "$RUNNER_TEMP/claude-code" @anthropic-ai/claude-code@2.1.287
+          echo "$RUNNER_TEMP/claude-code/bin" >> "$GITHUB_PATH"
+
+      - name: Checkout workflow revision
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: main
+          persist-credentials: false
 
-      - name: Pre-flight checks
+      - name: Collect public repository data
         env:
-          ANTHROPIC_BASE_URL: ${{ secrets.AGENTIC_CI_API_BASE_URL }}
-          ANTHROPIC_API_KEY: ${{ secrets.AGENTIC_CI_API_KEY }}
-          AGENTIC_CI_MODEL: ${{ vars.AGENTIC_CI_MODEL }}
-        run: |
-          if ! command -v claude &> /dev/null; then
-            echo "::error::claude CLI not found in PATH"
-            exit 1
-          fi
-          echo "Claude CLI version: $(claude --version 2>&1 || true)"
-
-          if [ -n "$ANTHROPIC_BASE_URL" ] && [ -n "$ANTHROPIC_API_KEY" ]; then
-            for ATTEMPT in 1 2 3; do
-              if ! HTTP_CODE=$(curl -sS -o /dev/null -w "%{http_code}" \
-                --max-time 30 \
-                -X POST "${ANTHROPIC_BASE_URL}/v1/messages" \
-                -H "Content-Type: application/json" \
-                -H "x-api-key: ${ANTHROPIC_API_KEY}" \
-                -H "anthropic-version: 2023-06-01" \
-                -d "{\"model\":\"${AGENTIC_CI_MODEL}\",\"max_tokens\":5,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}"); then
-                HTTP_CODE="000"
-              fi
-              if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
-                echo "API pre-flight passed (HTTP ${HTTP_CODE})"
-                break
-              fi
-              if [ "$ATTEMPT" = "3" ]; then
-                echo "::error::API pre-flight failed with HTTP ${HTTP_CODE}"
-                exit 1
-              fi
-              echo "API pre-flight failed with HTTP ${HTTP_CODE}; retrying (${ATTEMPT}/3)"
-              sleep $((ATTEMPT * 10))
-            done
-          fi
-
-      - name: Run issue triage recipe
-        env:
-          ANTHROPIC_BASE_URL: ${{ secrets.AGENTIC_CI_API_BASE_URL }}
-          ANTHROPIC_API_KEY: ${{ secrets.AGENTIC_CI_API_KEY }}
-          AGENTIC_CI_MODEL: ${{ vars.AGENTIC_CI_MODEL }}
-          DISABLE_PROMPT_CACHING: "1"
           GH_TOKEN: ${{ github.token }}
-          ISSUE_TRIAGE_TRACKING_ISSUE: ${{ vars.ISSUE_TRIAGE_TRACKING_ISSUE }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
+          GH_REPO: ${{ github.repository }}
         run: |
           set -o pipefail
-          rm -f /tmp/issue-triage-report.md /tmp/issue-triage-report-*.md /tmp/claude-triage-log.txt
+          gh issue list --state open --limit 200 \
+            --json number,title,updatedAt,labels,assignees,author,body |
+            jq -c 'map(.body = ((.body // "")[:1200]))' > "$RUNNER_TEMP/open-issues.json"
+          gh pr list --state open --limit 200 \
+            --json number,title,updatedAt,labels,author,headRefName,body,closingIssuesReferences,statusCheckRollup |
+            jq -c 'map(
+              .body = ((.body // "")[:1200])
+              | .failedChecks = ([.statusCheckRollup[]? | .conclusion // .state | select(. == "FAILURE" or . == "ERROR")] | length)
+              | del(.statusCheckRollup)
+            )' > "$RUNNER_TEMP/open-prs.json"
+          gh pr list --state merged --limit 100 \
+            --json number,title,headRefName,body,mergedAt,closingIssuesReferences |
+            jq -c 'map(.body = ((.body // "")[:800]))' > "$RUNNER_TEMP/merged-prs.json"
 
-          RUNNER_CTX=$(cat .agents/recipes/_runner.md)
-          RECIPE_BODY=$(cat .agents/recipes/issue-triage/recipe.md \
-            | sed '1,/^---$/{ /^---$/,/^---$/d }')
+      - name: Generate triage report
+        env:
+          ANTHROPIC_BASE_URL: ${{ secrets.AGENTIC_CI_API_BASE_URL }}
+          ANTHROPIC_API_KEY: ${{ secrets.AGENTIC_CI_API_KEY }}
+          AGENTIC_CI_MODEL: ${{ secrets.AGENTIC_CI_MODEL }}
+          DISABLE_PROMPT_CACHING: "1"
+        run: |
+          set -o pipefail
+          {
+            printf 'Date (UTC): %s\nOpen issues:\n' "$(date -u +%F)"
+            cat "$RUNNER_TEMP/open-issues.json"
+            printf '\nOpen PRs:\n'
+            cat "$RUNNER_TEMP/open-prs.json"
+            printf '\nRecently merged PRs:\n'
+            cat "$RUNNER_TEMP/merged-prs.json"
+          } | claude --bare --tools "" --disallowedTools "mcp__*" \
+            --model "$AGENTIC_CI_MODEL" --effort high --max-turns 1 \
+            --system-prompt-file .agents/recipes/issue-triage/recipe.md \
+            -p "Produce the repository triage report from the supplied JSON." \
+            > "$RUNNER_TEMP/triage-report.md" 2>/dev/null || {
+              echo "::error::Triage recipe failed (Claude exit $?)."
+              exit 1
+            }
+          /usr/bin/python3 scripts/redact_agentic_ci_output.py "$RUNNER_TEMP/triage-report.md"
+          test -s "$RUNNER_TEMP/triage-report.md"
+          cat "$RUNNER_TEMP/triage-report.md" >> "$GITHUB_STEP_SUMMARY"
 
-          PROMPT=$(printf '%s\n\n%s\n' "${RUNNER_CTX}" "${RECIPE_BODY}")
+      - name: Upload triage report
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: repository-triage-report
+          path: ${{ runner.temp }}/triage-report.md
+          retention-days: 14
+          if-no-files-found: error
+          overwrite: true
 
-          claude \
-            --model "$AGENTIC_CI_MODEL" \
-            -p "$PROMPT" \
-            --max-turns 30 \
-            --output-format text \
-            --verbose \
-            2>&1 | tee /tmp/claude-triage-log.txt || true
-        continue-on-error: true
+  publish:
+    needs: triage
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Checkout workflow revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - name: Fallback post if agent did not post
-        shell: bash
+      - name: Download triage report
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: repository-triage-report
+          path: ${{ runner.temp }}/triage-report
+
+      - name: Publish triage report
         env:
           GH_TOKEN: ${{ github.token }}
           TRACKING_ISSUE: ${{ vars.ISSUE_TRIAGE_TRACKING_ISSUE }}
         run: |
-          # Collect report parts. Numbered files (multi-part) take precedence;
-          # fall back to the unsuffixed file for single-part runs.
-          shopt -s nullglob
-          PARTS=(/tmp/issue-triage-report-*.md)
-          shopt -u nullglob
-          if [ ${#PARTS[@]} -eq 0 ] && [ -s /tmp/issue-triage-report.md ]; then
-            PARTS=(/tmp/issue-triage-report.md)
-          fi
-          if [ ${#PARTS[@]} -eq 0 ]; then
-            echo "::warning::Triage report not created by agent."
-            exit 0
-          fi
-          mapfile -t PARTS < <(printf '%s\n' "${PARTS[@]}" | sort -V)
-          EXPECTED_PARTS=${#PARTS[@]}
-
-          # Skip fallback only if every expected part identity (i/N) appears
-          # in a today-dated bot comment. Identity-based, not count-based:
-          # a duplicate post of one part should not mask a missing other.
-          # The pre-`capture()` `test()` guard is required: jq `capture()`
-          # raises an error on non-matching input, which would truncate the
-          # stream if any unrelated today-dated bot comment lacks the
-          # triage marker (e.g. from another automated workflow).
-          TODAY=$(date -u +%Y-%m-%d)
-          if ! SEEN_PARTS=$(gh api "repos/${{ github.repository }}/issues/${TRACKING_ISSUE}/comments" \
-              --paginate \
-              --jq ".[] | select(.user.login == \"github-actions[bot]\") | select(.body | contains(\"${TODAY}\")) | select(.body | test(\"agentic-ci-issue-triage:[0-9]+/${EXPECTED_PARTS}\")) | .body | capture(\"agentic-ci-issue-triage:(?<i>[0-9]+)/${EXPECTED_PARTS}\") | .i" \
-              2>/dev/null | sort -u); then
-            echo "::warning::Could not inspect existing triage comments; treating all generated parts as missing."
-            SEEN_PARTS=""
-          fi
-
-          MISSING=()
-          for i in $(seq 1 "${EXPECTED_PARTS}"); do
-            if ! echo "${SEEN_PARTS}" | grep -qx "${i}"; then
-              MISSING+=("${i}")
-            fi
-          done
-
-          if [ ${#MISSING[@]} -eq 0 ]; then
-            echo "All ${EXPECTED_PARTS} parts already posted today (identities: $(echo "${SEEN_PARTS}" | tr '\n' ',' | sed 's/,$//')). Skipping fallback."
-            exit 0
-          fi
-
-          if [ -n "${SEEN_PARTS}" ]; then
-            echo "::warning::Posting only missing parts ${MISSING[*]} of ${EXPECTED_PARTS}; the agent already posted parts $(echo "${SEEN_PARTS}" | tr '\n' ',' | sed 's/,$//')."
-          fi
-
-          for i in "${MISSING[@]}"; do
-            PART="${PARTS[$((i-1))]}"
-            gh issue comment "$TRACKING_ISSUE" --body-file "$PART"
-            echo "Posted part ${i}: ${PART}"
-          done
-
-      - name: Write job summary
-        if: always()
-        shell: bash
-        run: |
-          shopt -s nullglob
-          PARTS=(/tmp/issue-triage-report-*.md)
-          shopt -u nullglob
-          if [ ${#PARTS[@]} -eq 0 ] && [ -s /tmp/issue-triage-report.md ]; then
-            PARTS=(/tmp/issue-triage-report.md)
-          fi
-          if [ ${#PARTS[@]} -gt 0 ]; then
-            mapfile -t PARTS < <(printf '%s\n' "${PARTS[@]}" | sort -V)
-            for PART in "${PARTS[@]}"; do
-              cat "${PART}" >> "$GITHUB_STEP_SUMMARY"
-              echo "" >> "$GITHUB_STEP_SUMMARY"
-            done
-          else
-            echo "No triage report was generated." >> "$GITHUB_STEP_SUMMARY"
-          fi
-
-          if [ -s "/tmp/claude-triage-log.txt" ]; then
-            echo "" >> "$GITHUB_STEP_SUMMARY"
-            echo "<details><summary>Agent log</summary>" >> "$GITHUB_STEP_SUMMARY"
-            echo "" >> "$GITHUB_STEP_SUMMARY"
-            echo '```' >> "$GITHUB_STEP_SUMMARY"
-            tail -100 /tmp/claude-triage-log.txt >> "$GITHUB_STEP_SUMMARY"
-            echo '```' >> "$GITHUB_STEP_SUMMARY"
-            echo "</details>" >> "$GITHUB_STEP_SUMMARY"
-          fi
+          /usr/bin/python3 scripts/publish_agentic_ci_triage.py \
+            --repo "$GITHUB_REPOSITORY" --issue "$TRACKING_ISSUE" \
+            "$RUNNER_TEMP/triage-report/triage-report.md"
