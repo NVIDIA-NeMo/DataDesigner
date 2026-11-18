@@ -7,6 +7,7 @@ import importlib.metadata
 from unittest.mock import Mock, call, patch
 
 import click
+import pytest
 from typer.testing import CliRunner
 
 from data_designer.cli.main import app, main
@@ -306,6 +307,30 @@ def test_app_rejects_unknown_options_before_script_separator(mock_controller_cls
     mock_controller_cls.assert_not_called()
 
 
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["plugin", "install", "github", "--manager", "bogus", "--dry-run"],
+        ["plugin", "uninstall", "github", "--manager", "bogus", "--dry-run"],
+        ["create", "workflow.py", "--output-format", "bogus"],
+        ["preview", "workflow.py", "--theme", "bogus"],
+    ],
+)
+def test_app_rejects_invalid_choices(args: list[str]) -> None:
+    result = runner.invoke(app, args)
+
+    assert result.exit_code == 2, result.output
+    assert "bogus" in result.output
+
+
+@patch("data_designer.cli.commands.preview.GenerationController")
+def test_app_accepts_uppercase_preview_theme(mock_controller_cls: Mock) -> None:
+    result = runner.invoke(app, ["preview", "workflow.py", "--theme", "LIGHT"])
+
+    assert result.exit_code == 0, result.output
+    assert mock_controller_cls.return_value.run_preview.call_args.kwargs["theme"] == "light"
+
+
 @patch("data_designer.cli.commands.create.GenerationController")
 def test_app_dispatches_create_run_config_aliases(mock_controller_cls: Mock) -> None:
     """The create command parses both runtime-config option names lazily."""
@@ -334,7 +359,8 @@ def test_create_run_config_does_not_replace_required_dataset_config() -> None:
     result = runner.invoke(app, ["create", "-c", "run-config.yaml"])
 
     assert result.exit_code != 0
-    assert "CONFIG_SOURCE" in result.output
+    # The argument label casing differs across Typer versions.
+    assert "config_source" in result.output.lower()
     assert "Missing argument" in result.output
 
 

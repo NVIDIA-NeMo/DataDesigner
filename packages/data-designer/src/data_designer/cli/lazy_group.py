@@ -6,6 +6,7 @@ from __future__ import annotations
 import importlib
 import importlib.metadata
 from collections import defaultdict
+from collections.abc import Sequence
 from typing import Any
 
 import click
@@ -49,6 +50,33 @@ def create_lazy_typer_group(
                 click.echo(ctx.get_help(), color=ctx.color)
                 ctx.exit(0)
             return super().parse_args(ctx, args)
+
+        def main(
+            self,
+            args: Sequence[str] | None = None,
+            prog_name: str | None = None,
+            complete_var: str | None = None,
+            standalone_mode: bool = True,
+            windows_expand_args: bool = True,
+            **extra: Any,
+        ) -> Any:
+            # Typer 0.26+ handles its vendored Click exceptions itself.
+            try:
+                return super().main(args, prog_name, complete_var, standalone_mode, windows_expand_args, **extra)
+            except click.exceptions.Exit as error:
+                if not standalone_mode:
+                    return error.exit_code
+                raise SystemExit(error.exit_code) from None
+            except click.Abort:
+                if not standalone_mode:
+                    raise
+                click.echo("Aborted!", err=True)
+                raise SystemExit(1) from None
+            except click.ClickException as error:
+                if not standalone_mode:
+                    raise
+                error.show()
+                raise SystemExit(error.exit_code) from None
 
         def list_commands(self, ctx: click.Context) -> list[str]:
             eager = super().list_commands(ctx)

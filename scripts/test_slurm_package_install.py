@@ -270,6 +270,10 @@ assert help_result.exit_code == 0, help_result.output
 assert ("slurm" in help_result.output) is {slurm!r}
 assert "data_designer.slurm" not in sys.modules
 assert "packaging.requirements" not in sys.modules
+
+for args in (["plugin", "installed"], ["create", "--help"], ["preview", "--help"]):
+    result = CliRunner().invoke(app, args)
+    assert result.exit_code == 0, (args, result.output, repr(result.exception))
 """
     if slurm:
         image_fixture = json.loads(

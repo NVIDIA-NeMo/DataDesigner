@@ -49,6 +49,8 @@ def _nested_command() -> click.Command:
     @click.option("--value", required=True)
     @click.pass_context
     def init(ctx: click.Context, value: str) -> None:
+        if value == "abort":
+            ctx.abort()
         click.echo(value)
         ctx.exit(3)
 
@@ -140,16 +142,39 @@ def test_selected_extension_loads_and_dispatches() -> None:
     factory.assert_called_once_with()
 
 
-def test_selected_extension_dispatches_nested_command_and_preserves_exit_code() -> None:
+@pytest.mark.parametrize(
+    ("args", "exit_code", "message"),
+    [
+        (["--value", "created"], 3, "created"),
+        (["--help"], 0, "--value"),
+        ([], 2, "Missing option"),
+        (["--value", "abort"], 1, "Aborted"),
+    ],
+)
+def test_click_extension_preserves_help_and_exit_codes(args: list[str], exit_code: int, message: str) -> None:
     factory = Mock(return_value=_nested_command())
     entry_point = _entry_point(loaded=factory)
     with patch.object(importlib.metadata, "entry_points", return_value=[entry_point]):
-        result = runner.invoke(_app(), ["slurm", "profile", "init", "--value", "created"])
+        result = runner.invoke(_app(), ["slurm", "profile", "init", *args])
 
-    assert result.exit_code == 3
-    assert result.output == "created\n"
+    assert result.exit_code == exit_code, result.output
+    assert message in result.output
     entry_point.load.assert_called_once_with()
     factory.assert_called_once_with()
+
+
+def test_click_extension_preserves_programmatic_errors(capsys: pytest.CaptureFixture[str]) -> None:
+    entry_point = _entry_point(loaded=Mock(return_value=_nested_command()))
+    command = typer.main.get_command(_app())
+
+    with patch.object(importlib.metadata, "entry_points", return_value=[entry_point]):
+        with pytest.raises(click.MissingParameter):
+            command.main(["slurm", "profile", "init"], standalone_mode=False)
+        with pytest.raises(click.Abort):
+            command.main(["slurm", "profile", "init", "--value", "abort"], standalone_mode=False)
+        assert command.main(["slurm", "profile", "init", "--value", "created"], standalone_mode=False) == 3
+
+    assert capsys.readouterr().err == ""
 
 
 def test_selecting_one_extension_does_not_load_another() -> None:

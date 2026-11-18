@@ -3,9 +3,8 @@
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Literal
 
-import click
 import typer
 
 from data_designer.cli.controllers.generation_controller import GenerationController
@@ -42,10 +41,10 @@ def preview_command(
         "-o",
         help="Directory for saved results (used with --save-results). Defaults to ./artifacts.",
     ),
-    theme: str = typer.Option(
+    theme: Literal["dark", "light"] = typer.Option(
         "dark",
         "--theme",
-        click_type=click.Choice(["dark", "light"], case_sensitive=False),
+        case_sensitive=False,
         help="Color theme for HTML output (dark or light). Only applies when --save-results is used.",
     ),
     display_width: int = typer.Option(
