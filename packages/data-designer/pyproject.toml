@@ -42,6 +42,7 @@ path = "dev-tools/hatch_build.py"
 dependencies = [
     "data-designer-config=={{ version }}",
     "data-designer-engine=={{ version }}",
+    "click>=8.2.1,<9",
     "huggingface-hub>=1.0.1,<2",
     "opentelemetry-api>=1.45.2,<1.46",
     "opentelemetry-exporter-prometheus>=0.66b1,<0.67",
@@ -54,7 +55,7 @@ dependencies = [
     "pydantic>=2.9.2,<3",
     "pyyaml>=6.0.1,<7",
     "rich>=13.7.1,<15",
-    "typer>=0.12.0,<1",
+    "typer>=0.19.0,<1",
 ]
 optional-dependencies = { slurm = ["data-designer-slurm=={{ version }}"] }
 

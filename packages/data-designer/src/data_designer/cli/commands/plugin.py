@@ -3,12 +3,15 @@
 
 from __future__ import annotations
 
-import click
+from typing import Literal
+
 import typer
 
 from data_designer.cli.controllers.plugin_catalog_controller import PluginCatalogController
 from data_designer.cli.ui import print_warning
 from data_designer.config.utils.constants import DATA_DESIGNER_HOME
+
+_PackageManager = Literal["auto", "uv", "pip"]
 
 
 def list_command(
@@ -111,10 +114,9 @@ def install_command(
         "--refresh",
         help="Fetch the catalog even when a fresh cache entry exists.",
     ),
-    manager: str = typer.Option(
+    manager: _PackageManager = typer.Option(
         "auto",
         "--manager",
-        click_type=click.Choice(["auto", "uv", "pip"]),
         help=(
             "Package manager to use. auto prefers uv; uv adds to the active project when one is detected; "
             "pip mutates the environment."
@@ -169,10 +171,9 @@ def uninstall_command(
         "--refresh",
         help="Fetch the catalog even when a fresh cache entry exists.",
     ),
-    manager: str = typer.Option(
+    manager: _PackageManager = typer.Option(
         "auto",
         "--manager",
-        click_type=click.Choice(["auto", "uv", "pip"]),
         help=(
             "Package manager to use. auto prefers uv; uv removes from the active project and environment when a "
             "project is detected; pip mutates the environment."
