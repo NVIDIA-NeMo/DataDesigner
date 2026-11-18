@@ -287,7 +287,9 @@ def test_datetime_sampler_sample():
         ("2024-01-01T09:30:00.500", "2024-01-01T09:31:00", "s"),
     ],
 )
-def test_datetime_sampler_sample_respects_start_when_start_is_not_on_unit_boundary(start, end, unit):
+def test_datetime_sampler_sample_respects_start_when_start_is_not_on_unit_boundary(
+    start: str, end: str, unit: str
+) -> None:
     params = DatetimeSamplerParams(start=start, end=end, unit=unit)
     sampler = DatetimeSampler(params=params, random_state=42)
 
@@ -313,13 +315,37 @@ def test_datetime_sampler_sample_respects_start_when_start_is_not_on_unit_bounda
         ),
     ],
 )
-def test_datetime_sampler_sample_keeps_seeded_output_when_start_is_on_unit_boundary(start, end, unit, expected):
+def test_datetime_sampler_sample_keeps_seeded_output_when_start_is_on_unit_boundary(
+    start: str, end: str, unit: str, expected: list[str]
+) -> None:
     params = DatetimeSamplerParams(start=start, end=end, unit=unit)
     sampler = DatetimeSampler(params=params, random_state=42)
 
     result = sampler.sample(3)
 
     assert [str(val) for val in result] == expected
+
+
+@pytest.mark.parametrize(
+    "start,end,unit,expected",
+    [
+        ("2024-06-15", "2025-01-01T00:00:00.500", "Y", "2025"),
+        ("2024-01-15", "2024-02-01T00:00:00.500", "M", "2024-02"),
+        ("2024-01-01T12:00:00", "2024-01-02T00:00:00.500", "D", "2024-01-02"),
+        ("2024-01-01T09:30:00", "2024-01-01T10:00:00.500", "h", "2024-01-01T10"),
+        ("2024-01-01T09:30:30", "2024-01-01T09:31:00.500", "m", "2024-01-01T09:31"),
+        ("2024-01-01T09:30:00.500", "2024-01-01T09:30:01.500", "s", "2024-01-01T09:30:01"),
+    ],
+)
+def test_datetime_sampler_sample_returns_only_boundary_before_fractional_end(
+    start: str, end: str, unit: str, expected: str
+) -> None:
+    params = DatetimeSamplerParams(start=start, end=end, unit=unit)
+    sampler = DatetimeSampler(params=params, random_state=42)
+
+    result = sampler.sample(20)
+
+    assert {str(val) for val in result} == {expected}
 
 
 def test_person_sampler_setup_with_generator(stub_people_gen):

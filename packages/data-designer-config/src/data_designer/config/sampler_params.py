@@ -91,6 +91,8 @@ class DatetimeSamplerParams(ConfigBase):
 
     Samples datetime values uniformly between a start and end date with a specified granularity.
     The sampling unit determines the smallest possible time interval between consecutive samples.
+    Samples are floored to `unit`, so sampling starts at the first `unit` boundary at or after `start`;
+    construction fails if the range contains no such boundary.
 
     Attributes:
         start (required): Earliest possible datetime for the sampling range (inclusive). Must be a valid

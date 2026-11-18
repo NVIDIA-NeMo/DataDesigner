@@ -140,8 +140,8 @@ class DatetimeSampler(DatetimeFormatMixin, Sampler[DatetimeSamplerParams]):
         # Samples are floored to `unit`, so draw from the first `unit` boundary at or after `start`.
         # Otherwise, e.g. start="2024-06-15" with unit="Y" yields 2024-01-01, before `start`.
         start_sec = self.params.first_unit_boundary.astype("datetime64[s]").astype(lazy.np.int64)
-        # Convert nanoseconds to seconds.
-        end_sec = lazy.pd.to_datetime(self.params.end).value // ONE_BILLION
+        # Exclusive bound in whole seconds, rounded up so whole seconds before a fractional `end` remain available.
+        end_sec = -(-lazy.pd.to_datetime(self.params.end).value // ONE_BILLION)
 
         random_ns = (ONE_BILLION * self.rng.randint(start_sec, end_sec, num_samples, dtype=lazy.np.int64)).view(
             "datetime64[ns]"
