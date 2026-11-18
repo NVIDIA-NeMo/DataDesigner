@@ -276,7 +276,7 @@ class ModelFormBuilder(FormBuilder[ModelConfig]):
 
             # Merge results
             full_data = {**basic_result, "inference_parameters": inference_params}
-            if initial_data:
+            if initial_data and generation_type == GenerationType.CHAT_COMPLETION:
                 full_data["api"] = initial_data.get("api", "chat-completions")
 
             try:

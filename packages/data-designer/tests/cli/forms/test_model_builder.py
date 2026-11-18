@@ -530,11 +530,24 @@ def test_validate_encoding_format_accepts_clear_keywords() -> None:
         assert error is None
 
 
-@pytest.mark.parametrize("api", ["chat-completions", "responses"])
-def test_edit_model_preserves_api(api: str) -> None:
+@pytest.mark.parametrize(
+    ("api", "generation_type", "expected_api"),
+    [
+        ("chat-completions", GenerationType.CHAT_COMPLETION, "chat-completions"),
+        ("responses", GenerationType.CHAT_COMPLETION, "responses"),
+        ("responses", GenerationType.EMBEDDING, "chat-completions"),
+    ],
+)
+def test_edit_model_api(api: str, generation_type: GenerationType, expected_api: str) -> None:
     initial = ModelConfig(alias="test", model="gpt-test", provider="openai", api=api)
-    answers = [{"alias": "test", "model": "updated", "generation_type": GenerationType.CHAT_COMPLETION}, {}]
-    with patch("data_designer.cli.forms.form.Form.prompt_all", side_effect=answers):
+    answers = [{"alias": "test", "model": "updated", "generation_type": generation_type}, {}]
+    with (
+        patch("data_designer.cli.forms.form.Form.prompt_all", side_effect=answers),
+        patch("data_designer.cli.forms.model_builder.confirm_action", return_value=False) as confirm,
+    ):
         updated = ModelFormBuilder(available_providers=["openai"]).run(initial.model_dump())
+    confirm.assert_not_called()
+    assert updated is not None
     assert updated.model == "updated"
-    assert updated.api == api
+    assert updated.generation_type == generation_type
+    assert updated.api == expected_api
