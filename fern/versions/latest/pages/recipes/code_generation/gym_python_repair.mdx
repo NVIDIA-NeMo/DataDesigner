@@ -40,19 +40,14 @@ The Docker Desktop patch lets Pi reach the host model proxy and uses a relative 
 
 ## Generate, repair, and verify
 
-Use `--repeats 1` for a three-task smoke test, one starter per bug family. The default is four starters per family. Use a fresh run directory each time.
+The recipe script has two commands. `generate` builds and qualifies starter tasks. `repair` runs them through Gym and executes `verify.py` in separate Docker containers. Use `--repeats 1` for a three-task smoke test, one starter per bug family. The default is four starters per family. Use a fresh run directory each time.
 
 ```bash
 RUN="$RECIPE_DIR/.run-batch"
 docker pull python:3.12-slim
 docker build --tag dd-gym-poc-direct:pi-1.5.2 - < Dockerfile
-.venv-dd/bin/python batch_generate.py "$RUN" --repeats 1
-
-cd "$GYM_RUNTIME"
-PATH="$GYM_RUNTIME/.venv/bin:$PATH" \
-  DD_GYM_POC_SANDBOX_MODEL_HOST=host.docker.internal \
-  .venv/bin/python "$RECIPE_DIR/batch_gym.py" "$RUN" \
-    --dd-python "$RECIPE_DIR/.venv-dd/bin/python" --concurrency 2
+.venv-dd/bin/python gym_python_repair.py generate "$RUN" --repeats 1
+.venv-dd/bin/python gym_python_repair.py repair "$RUN" --gym-runtime "$GYM_RUNTIME" --concurrency 2
 ```
 
 ## Inspect the results
