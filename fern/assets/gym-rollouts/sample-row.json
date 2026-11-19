@@ -1,0 +1,111 @@
+{
+  "seed": {
+    "row_id": "ties_keep_last-01",
+    "family": "ties_keep_last",
+    "defect": "select the newest date, but on tied dates keep the last record",
+    "style": "one-pass loop"
+  },
+  "qualification": {
+    "status": "qualified",
+    "public_result": "PUBLIC_MISMATCH: expected [{'order_id': 'Z01', 'updated_at': '2026-10-03', 'status': 'pending'}, {'order_id': 'A01', 'updated_at': '2026-10-02', 'status': 'packed'}], got [{'order_id': 'Z01', 'updated_at': '2026-10-03', 'status': 'shipped'}, {'order_id': 'A01', 'updated_at': '2026-10-02', 'status': 'packed'}]"
+  },
+  "files": {
+    "orders.csv": "order_id,updated_at,status\nZ01,2026-10-03,pending\nA01,2026-10-02,packed\nZ01,2026-10-03,shipped\n",
+    "clean.py": "def dedupe(rows):\n    latest = {}\n    first_seen = []\n\n    for row in rows:\n        order_id = row[\"order_id\"]\n        if order_id not in latest:\n            first_seen.append(order_id)\n            latest[order_id] = row\n        elif row[\"updated_at\"] >= latest[order_id][\"updated_at\"]:\n            latest[order_id] = row\n\n    return [latest[order_id] for order_id in first_seen]\n",
+    "public_test.py": "import csv\nfrom copy import deepcopy\nfrom pathlib import Path\n\nfrom clean import dedupe\n\nwith Path(__file__).with_name(\"orders.csv\").open() as data:\n    rows = list(csv.DictReader(data))\nexpected = deepcopy([rows[0], rows[1]])\nactual = dedupe(rows)\nif actual != expected:\n    print(f\"PUBLIC_MISMATCH: expected {expected!r}, got {actual!r}\")\n    raise SystemExit(1)\nprint(\"public example passed\")\n"
+  },
+  "repair": {
+    "model": "Nemotron 3.5 Lightning",
+    "tool_calls": [
+      {
+        "tool": "read",
+        "arguments": {
+          "path": "/workspace/clean.py"
+        },
+        "output": "def dedupe(rows):\n    latest = {}\n    first_seen = []\n\n    for row in rows:\n        order_id = row[\"order_id\"]\n        if order_id not in latest:\n            first_seen.append(order_id)\n            latest[order_id] = row\n        elif row[\"updated_at\"] >= latest[order_id][\"updated_at\"]:\n            latest[order_id] = row\n\n    return [latest[order_id] for order_id in first_seen]\n"
+      },
+      {
+        "tool": "read",
+        "arguments": {
+          "path": "/workspace/public_test.py"
+        },
+        "output": "import csv\nfrom copy import deepcopy\nfrom pathlib import Path\n\nfrom clean import dedupe\n\nwith Path(__file__).with_name(\"orders.csv\").open() as data:\n    rows = list(csv.DictReader(data))\nexpected = deepcopy([rows[0], rows[1]])\nactual = dedupe(rows)\nif actual != expected:\n    print(f\"PUBLIC_MISMATCH: expected {expected!r}, got {actual!r}\")\n    raise SystemExit(1)\nprint(\"public example passed\")\n"
+      },
+      {
+        "tool": "bash",
+        "arguments": {
+          "command": "ls /workspace/"
+        },
+        "output": "clean.py\norders.csv\npublic_test.py\n"
+      },
+      {
+        "tool": "read",
+        "arguments": {
+          "path": "/workspace/orders.csv"
+        },
+        "output": "order_id,updated_at,status\nZ01,2026-10-03,pending\nA01,2026-10-02,packed\nZ01,2026-10-03,shipped\n"
+      },
+      {
+        "tool": "bash",
+        "arguments": {
+          "command": "cd /workspace && python public_test.py"
+        },
+        "output": "PUBLIC_MISMATCH: expected [{'order_id': 'Z01', 'updated_at': '2026-10-03', 'status': 'pending'}, {'order_id': 'A01', 'updated_at': '2026-10-02', 'status': 'packed'}], got [{'order_id': 'Z01', 'updated_at': '2026-10-03', 'status': 'shipped'}, {'order_id': 'A01', 'updated_at': '2026-10-02', 'status': 'packed'}]\n\n\nCommand exited with code 1"
+      },
+      {
+        "tool": "edit",
+        "arguments": {
+          "path": "/workspace/clean.py",
+          "edits": "[{\"oldText\": \"elif row[\"updated_at\"] >= latest[order_id][\"updated_at\"]:\", \"newText\": \"elif row[\"updated_at\"] > latest[order_id][\"updated_at\"]:\"}]"
+        },
+        "output": "Validation failed for tool \"edit\":\n  - edits.0: expected object, got string\n\nReceived arguments:\n{\n  \"path\": \"/workspace/clean.py\",\n  \"edits\": \"[{\\\"oldText\\\": \\\"elif row[\\\"updated_at\\\"] >= latest[order_id][\\\"updated_at\\\"]:\\\", \\\"newText\\\": \\\"elif row[\\\"updated_at\\\"] > latest[order_id][\\\"updated_at\\\"]:\\\"}]\"\n}"
+      },
+      {
+        "tool": "bash",
+        "arguments": {
+          "command": "cd /workspace && sed -i 's/elif row\\[.updated_at.\\] >= latest\\[order_id\\]\\[.updated_at.\\]/elif row[\"updated_at\"] > latest[order_id][\"updated_at\"]/' clean.py"
+        },
+        "output": "(no output)"
+      },
+      {
+        "tool": "bash",
+        "arguments": {
+          "command": "cd /workspace && cat clean.py"
+        },
+        "output": "def dedupe(rows):\n    latest = {}\n    first_seen = []\n\n    for row in rows:\n        order_id = row[\"order_id\"]\n        if order_id not in latest:\n            first_seen.append(order_id)\n            latest[order_id] = row\n        elif row[\"updated_at\"] > latest[order_id][\"updated_at\"]:\n            latest[order_id] = row\n\n    return [latest[order_id] for order_id in first_seen]\n"
+      },
+      {
+        "tool": "bash",
+        "arguments": {
+          "command": "cd /workspace && python public_test.py"
+        },
+        "output": "public example passed\n"
+      }
+    ],
+    "diff": "--- starter/clean.py\n+++ repair/clean.py\n@@ -7,7 +7,7 @@\n         if order_id not in latest:\n             first_seen.append(order_id)\n             latest[order_id] = row\n-        elif row[\"updated_at\"] >= latest[order_id][\"updated_at\"]:\n+        elif row[\"updated_at\"] > latest[order_id][\"updated_at\"]:\n             latest[order_id] = row\n \n     return [latest[order_id] for order_id in first_seen]\n",
+    "clean.py": "def dedupe(rows):\n    latest = {}\n    first_seen = []\n\n    for row in rows:\n        order_id = row[\"order_id\"]\n        if order_id not in latest:\n            first_seen.append(order_id)\n            latest[order_id] = row\n        elif row[\"updated_at\"] > latest[order_id][\"updated_at\"]:\n            latest[order_id] = row\n\n    return [latest[order_id] for order_id in first_seen]\n"
+  },
+  "verification": {
+    "public_pass": true,
+    "cases": {
+      "older_then_newer": {
+        "passed": true
+      },
+      "newer_then_older": {
+        "passed": true
+      },
+      "equal_dates_first_wins": {
+        "passed": true
+      },
+      "interleaved_ids_and_ties": {
+        "passed": true
+      },
+      "empty_input": {
+        "passed": true
+      }
+    },
+    "reward": 1.0,
+    "mask_sample": false
+  },
+  "accepted": true
+}

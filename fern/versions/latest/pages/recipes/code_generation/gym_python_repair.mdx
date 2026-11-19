@@ -1,0 +1,62 @@
+---
+title: "Gym Python Repair"
+description: "Generate buggy Python and collect verified repair rollouts with Data Designer and NeMo Gym."
+---
+
+This recipe generates deliberately broken CSV deduplicators with Kimi K3.1 Pro and checks that each starter reproduces its intended bug. A `gym-resource` column runs Pi with Nemotron 3.5 Lightning in a Gym-managed Docker sandbox. A second `gym-resource` column grades the exported repair in separate, network-disabled containers.
+
+See [Collecting Agent Rollouts with NeMo Data Designer and Gym](/dev-notes/gym-rollouts) for a worked example and results from the 12-task experiment.
+
+<Info title="Recipe source">
+  [Open the recipe folder on GitHub](https://github.com/NVIDIA-NeMo/DataDesigner/tree/main/docs/assets/recipes/code_generation/gym_python_repair)
+</Info>
+
+## Set up
+
+Use Docker Desktop on macOS, uv 0.13.4 or newer, and an [OpenRouter API key](https://openrouter.ai/settings/keys) exported as `OPENROUTER_API_KEY`. Leave local ports 18839-18841 free. OpenRouter serves both models and the workflow runs locally.
+
+From the root of your DataDesigner clone, run these commands in one shell.
+
+```bash
+cd docs/assets/recipes/code_generation/gym_python_repair
+RECIPE_DIR="$PWD"
+GYM_RUNTIME="$(mktemp -d)"
+curl -fsSL https://codeload.github.com/NVIDIA-NeMo/Gym/tar.gz/1bc262ada7a419fdcf60f6b31d85cb717c939682 \
+  | tar -xz -C "$GYM_RUNTIME" --strip-components=1
+git -C "$GYM_RUNTIME" apply "$RECIPE_DIR/docker-desktop.patch"
+
+uv venv --python 3.12 .venv-dd
+uv pip install --python .venv-dd/bin/python 'data-designer==1.0.1' \
+  'data-designer-gym @ git+https://github.com/NVIDIA-NeMo/DataDesignerPlugins.git@cd745a56c9ac99f7b8a5068be873474e9d75f82a#subdirectory=plugins/data-designer-gym'
+uv venv --python 3.13 "$GYM_RUNTIME/.venv"
+uv pip install --python "$GYM_RUNTIME/.venv/bin/python" -e "$GYM_RUNTIME" requests tenacity jinja2
+touch "$GYM_RUNTIME/.venv/.nemo-gym-setup-complete"
+for component in responses_api_agents/pi_agent environment_servers/legacy_agent responses_api_models/openai_model; do
+  ln -s "$GYM_RUNTIME/.venv" "$GYM_RUNTIME/$component/.venv"
+done
+```
+
+The Docker Desktop patch lets Pi reach the host model proxy and uses a relative sandbox timeout on macOS. The Dockerfile pins Pi 1.5.2.
+
+## Generate, repair, and verify
+
+Use `--repeats 1` for a three-task smoke test, one starter per bug family. The default is four starters per family. Use a fresh run directory each time.
+
+```bash
+RUN="$RECIPE_DIR/.run-batch"
+docker pull python:3.12-slim
+docker build --tag dd-gym-poc-direct:pi-1.5.2 - < Dockerfile
+.venv-dd/bin/python batch_generate.py "$RUN" --repeats 1
+
+cd "$GYM_RUNTIME"
+PATH="$GYM_RUNTIME/.venv/bin:$PATH" \
+  DD_GYM_POC_SANDBOX_MODEL_HOST=host.docker.internal \
+  .venv/bin/python "$RECIPE_DIR/batch_gym.py" "$RUN" \
+    --dd-python "$RECIPE_DIR/.venv-dd/bin/python" --concurrency 2
+```
+
+## Inspect the results
+
+- `stage1.jsonl` records the generated starter, public-test output, and qualification for each proposed row.
+- `stage2.jsonl` records the rollout, verifier outcome, and `accepted` flag for each qualifying row. Acceptance requires a completed, unmasked verifier result with reward 1.
+- `episodes/<row_id>/` holds the agent response, code diff, exported `clean.py`, and verifier evidence.
