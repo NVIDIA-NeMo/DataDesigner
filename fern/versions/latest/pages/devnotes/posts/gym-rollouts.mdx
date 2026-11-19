@@ -98,7 +98,9 @@ builder.add_column(
 )
 ```
 
-Data Designer sets `accepted` for a completed, unmasked verifier result with reward 1. Here are selected fields from the resulting row. The [worked example](/assets/gym-rollouts/sample-row.json) also includes the task files and tool calls.
+### Worked example
+
+Data Designer sets `accepted` for a completed, unmasked verifier result with reward 1. Here are selected fields from the resulting row.
 
 ```json
 {
@@ -115,6 +117,125 @@ Data Designer sets `accepted` for a completed, unmasked verifier result with rew
 }
 ```
 
+<details markdown>
+<summary>Full worked row with task files and tool calls</summary>
+
+```json
+{
+  "seed": {
+    "row_id": "ties_keep_last-01",
+    "family": "ties_keep_last",
+    "defect": "select the newest date, but on tied dates keep the last record",
+    "style": "one-pass loop"
+  },
+  "qualification": {
+    "status": "qualified",
+    "public_result": "PUBLIC_MISMATCH: expected [{'order_id': 'Z01', 'updated_at': '2026-10-03', 'status': 'pending'}, {'order_id': 'A01', 'updated_at': '2026-10-02', 'status': 'packed'}], got [{'order_id': 'Z01', 'updated_at': '2026-10-03', 'status': 'shipped'}, {'order_id': 'A01', 'updated_at': '2026-10-02', 'status': 'packed'}]"
+  },
+  "files": {
+    "orders.csv": "order_id,updated_at,status\nZ01,2026-10-03,pending\nA01,2026-10-02,packed\nZ01,2026-10-03,shipped\n",
+    "clean.py": "def dedupe(rows):\n    latest = {}\n    first_seen = []\n\n    for row in rows:\n        order_id = row[\"order_id\"]\n        if order_id not in latest:\n            first_seen.append(order_id)\n            latest[order_id] = row\n        elif row[\"updated_at\"] >= latest[order_id][\"updated_at\"]:\n            latest[order_id] = row\n\n    return [latest[order_id] for order_id in first_seen]\n",
+    "public_test.py": "import csv\nfrom copy import deepcopy\nfrom pathlib import Path\n\nfrom clean import dedupe\n\nwith Path(__file__).with_name(\"orders.csv\").open() as data:\n    rows = list(csv.DictReader(data))\nexpected = deepcopy([rows[0], rows[1]])\nactual = dedupe(rows)\nif actual != expected:\n    print(f\"PUBLIC_MISMATCH: expected {expected!r}, got {actual!r}\")\n    raise SystemExit(1)\nprint(\"public example passed\")\n"
+  },
+  "repair": {
+    "model": "Nemotron 3.5 Lightning",
+    "tool_calls": [
+      {
+        "tool": "read",
+        "arguments": {
+          "path": "/workspace/clean.py"
+        },
+        "output": "def dedupe(rows):\n    latest = {}\n    first_seen = []\n\n    for row in rows:\n        order_id = row[\"order_id\"]\n        if order_id not in latest:\n            first_seen.append(order_id)\n            latest[order_id] = row\n        elif row[\"updated_at\"] >= latest[order_id][\"updated_at\"]:\n            latest[order_id] = row\n\n    return [latest[order_id] for order_id in first_seen]\n"
+      },
+      {
+        "tool": "read",
+        "arguments": {
+          "path": "/workspace/public_test.py"
+        },
+        "output": "import csv\nfrom copy import deepcopy\nfrom pathlib import Path\n\nfrom clean import dedupe\n\nwith Path(__file__).with_name(\"orders.csv\").open() as data:\n    rows = list(csv.DictReader(data))\nexpected = deepcopy([rows[0], rows[1]])\nactual = dedupe(rows)\nif actual != expected:\n    print(f\"PUBLIC_MISMATCH: expected {expected!r}, got {actual!r}\")\n    raise SystemExit(1)\nprint(\"public example passed\")\n"
+      },
+      {
+        "tool": "bash",
+        "arguments": {
+          "command": "ls /workspace/"
+        },
+        "output": "clean.py\norders.csv\npublic_test.py\n"
+      },
+      {
+        "tool": "read",
+        "arguments": {
+          "path": "/workspace/orders.csv"
+        },
+        "output": "order_id,updated_at,status\nZ01,2026-10-03,pending\nA01,2026-10-02,packed\nZ01,2026-10-03,shipped\n"
+      },
+      {
+        "tool": "bash",
+        "arguments": {
+          "command": "cd /workspace && python public_test.py"
+        },
+        "output": "PUBLIC_MISMATCH: expected [{'order_id': 'Z01', 'updated_at': '2026-10-03', 'status': 'pending'}, {'order_id': 'A01', 'updated_at': '2026-10-02', 'status': 'packed'}], got [{'order_id': 'Z01', 'updated_at': '2026-10-03', 'status': 'shipped'}, {'order_id': 'A01', 'updated_at': '2026-10-02', 'status': 'packed'}]\n\n\nCommand exited with code 1"
+      },
+      {
+        "tool": "edit",
+        "arguments": {
+          "path": "/workspace/clean.py",
+          "edits": "[{\"oldText\": \"elif row[\"updated_at\"] >= latest[order_id][\"updated_at\"]:\", \"newText\": \"elif row[\"updated_at\"] > latest[order_id][\"updated_at\"]:\"}]"
+        },
+        "output": "Validation failed for tool \"edit\":\n  - edits.0: expected object, got string\n\nReceived arguments:\n{\n  \"path\": \"/workspace/clean.py\",\n  \"edits\": \"[{\\\"oldText\\\": \\\"elif row[\\\"updated_at\\\"] >= latest[order_id][\\\"updated_at\\\"]:\\\", \\\"newText\\\": \\\"elif row[\\\"updated_at\\\"] > latest[order_id][\\\"updated_at\\\"]:\\\"}]\"\n}"
+      },
+      {
+        "tool": "bash",
+        "arguments": {
+          "command": "cd /workspace && sed -i 's/elif row\\[.updated_at.\\] >= latest\\[order_id\\]\\[.updated_at.\\]/elif row[\"updated_at\"] > latest[order_id][\"updated_at\"]/' clean.py"
+        },
+        "output": "(no output)"
+      },
+      {
+        "tool": "bash",
+        "arguments": {
+          "command": "cd /workspace && cat clean.py"
+        },
+        "output": "def dedupe(rows):\n    latest = {}\n    first_seen = []\n\n    for row in rows:\n        order_id = row[\"order_id\"]\n        if order_id not in latest:\n            first_seen.append(order_id)\n            latest[order_id] = row\n        elif row[\"updated_at\"] > latest[order_id][\"updated_at\"]:\n            latest[order_id] = row\n\n    return [latest[order_id] for order_id in first_seen]\n"
+      },
+      {
+        "tool": "bash",
+        "arguments": {
+          "command": "cd /workspace && python public_test.py"
+        },
+        "output": "public example passed\n"
+      }
+    ],
+    "diff": "--- starter/clean.py\n+++ repair/clean.py\n@@ -7,7 +7,7 @@\n         if order_id not in latest:\n             first_seen.append(order_id)\n             latest[order_id] = row\n-        elif row[\"updated_at\"] >= latest[order_id][\"updated_at\"]:\n+        elif row[\"updated_at\"] > latest[order_id][\"updated_at\"]:\n             latest[order_id] = row\n \n     return [latest[order_id] for order_id in first_seen]\n",
+    "clean.py": "def dedupe(rows):\n    latest = {}\n    first_seen = []\n\n    for row in rows:\n        order_id = row[\"order_id\"]\n        if order_id not in latest:\n            first_seen.append(order_id)\n            latest[order_id] = row\n        elif row[\"updated_at\"] > latest[order_id][\"updated_at\"]:\n            latest[order_id] = row\n\n    return [latest[order_id] for order_id in first_seen]\n"
+  },
+  "verification": {
+    "public_pass": true,
+    "cases": {
+      "older_then_newer": {
+        "passed": true
+      },
+      "newer_then_older": {
+        "passed": true
+      },
+      "equal_dates_first_wins": {
+        "passed": true
+      },
+      "interleaved_ids_and_ties": {
+        "passed": true
+      },
+      "empty_input": {
+        "passed": true
+      }
+    },
+    "reward": 1.0,
+    "mask_sample": false
+  },
+  "accepted": true
+}
+```
+
+</details>
+
 ## What happened in the run
 
 All 12 generated starters reproduced their public failure. Pi completed all 12 repairs, and Data Designer accepted every row after verification. We also ran the same five held-out tests against each starter, so we could compare the same inputs before and after repair.
@@ -123,7 +244,29 @@ All 12 generated starters reproduced their public failure. Pi completed all 12 r
 
 The interleaved-ID case is the most revealing. It combines a later update, a newer record followed by an older one, and a tie. Zero of the 12 starters passed it. All 12 repairs did. Empty input already passed across the batch. Showing both cases makes the source of the gain easy to see.
 
-Pi took a [median of 19.4 seconds per row](/assets/gym-rollouts/repair-runtime.png) and made a median of 10 tool calls. The repair and verification run took 89.2 seconds with up to three concurrent repairs and a prebuilt image. The [per-row measurements](/assets/gym-rollouts/rows.csv) come from the original 12-task hosted run on Apple Silicon.
+In the original hosted run on Apple Silicon, Pi took a median of 19.4 seconds per row and made a median of 10 tool calls. Repair and verification took 89.2 seconds with up to three concurrent repairs and a prebuilt image.
+
+![Pi activation time and tool-call count for each of the 12 repairs. A dashed line marks the 19.4-second median.](/assets/gym-rollouts/repair-runtime.png)
+
+<details markdown>
+<summary>Per-row measurements</summary>
+
+| Task | Pi activation (s) | Tool calls | Verification (s) |
+| --- | ---: | ---: | ---: |
+| `keep_first-01` | 16.68 | 9 | 0.47 |
+| `keep_first-02` | 19.92 | 12 | 0.57 |
+| `keep_first-03` | 19.93 | 10 | 0.54 |
+| `keep_first-04` | 28.00 | 17 | 0.41 |
+| `keep_last-01` | 21.16 | 10 | 0.44 |
+| `keep_last-02` | 20.03 | 12 | 0.56 |
+| `keep_last-03` | 28.08 | 17 | 0.47 |
+| `keep_last-04` | 16.97 | 11 | 0.42 |
+| `ties_keep_last-01` | 13.92 | 9 | 0.46 |
+| `ties_keep_last-02` | 11.79 | 9 | 0.57 |
+| `ties_keep_last-03` | 18.84 | 10 | 0.47 |
+| `ties_keep_last-04` | 14.53 | 7 | 0.41 |
+
+</details>
 
 The saved Gym responses also record the reasoning text exposed to Pi in the `summary` field of each reasoning item. We can curate and export that text with the corresponding tool calls and results for post-training.
 
@@ -141,7 +284,7 @@ The repair recipe uses plugin columns, so on today's Slurm extension we'd split 
 
 ## Try it yourself
 
-Inspect the [worked example](/assets/gym-rollouts/sample-row.json) to see the public mismatch, tool calls, and verifier result. To run the prototype, follow the [Python repair rollout recipe](/recipes/code-generation/gym-python-repair). It includes a three-task smoke test and pins Data Designer, the Gym and plugin revisions, and Pi.
+Inspect the [worked example](#worked-example) to see the public mismatch, tool calls, and verifier result. To run the prototype, follow the [Python repair rollout recipe](/recipes/code-generation/gym-python-repair). It includes a three-task smoke test and pins Data Designer, the Gym and plugin revisions, and Pi.
 
 The recipe uses OpenRouter for [Kimi K3.1 Pro](https://openrouter.ai/moonshotai/kimi-k3.1-pro) generation and [Nemotron 3.5 Lightning](https://openrouter.ai/nvidia/nemotron-3.5-lightning) repair. All three repairs passed the verifier in a separate OpenRouter smoke run.
 
