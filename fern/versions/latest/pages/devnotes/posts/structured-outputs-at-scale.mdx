@@ -1,0 +1,364 @@
+---
+title: "Make Every GPU-Hour Count: Synthetic Data at Scale with Slurm"
+description: "Benchmark, tune, shard, and resume synthetic data generation on Slurm."
+---
+
+import { Authors } from "@/components/Authors";
+
+<Authors ids={["nmulepati"]} />
+
+<Note>
+The experiment below measures eight 1,024-record runs. Larger dataset totals are arithmetic projections. Client timing was reconstructed from immutable logs because the Data Designer 1.0.0 analyzer used a rolling health-probe timestamp as its startup boundary; native throughput recommendations were not used.
+</Note>
+
+Your preview looks good. The schemas are varied, the conversations make sense, and the generated JSON passes validation. You are ready to go from a few records to a few hundred million.
+
+Then the practical questions show up. How many requests should be in flight? Is the model actually keeping the GPUs busy? Will the run finish before the partition's time limit? And if it doesn't, how much work do you have to repeat?
+
+These questions are part of building synthetic data at scale. With `data-designer-slurm`, we can bring them into the same workflow: benchmark the pipeline, choose a deployment, split the generation into manageable allocations, and recover unfinished work from durable state.
+
+{/* more */}
+
+![A small Data Designer palette mascot rappels beside three tall, slim GPU racks in a bright data center, with independent structured-data streams.](/assets/structured-outputs-at-scale/hero-mascot-rappelling-slim-racks-v6.jpg)
+
+In this post, we'll revisit the pipeline from [Structured Outputs for Nemotron](/dev-notes/structured-outputs-from-nemotron). The dataset design stays familiar. The interesting part is figuring out how to execute it efficiently when both GPU capacity and allocation time are finite.
+
+## The Same Pipeline, a Different Set of Questions
+
+The original dev note describes a production pipeline with format diversity, multiple candidate rollouts, and programmatic validation. It also includes a smaller JSON demo. We'll use that demo as our starting point so the execution story stays easy to reproduce.
+
+Each record starts with a topic and a few sampler controls. The model generates a JSON schema, writes a conversation containing relevant information, and extracts a JSON object from that conversation. Two judge columns evaluate schema design and apparent output validity. After generation, a JSON Schema validator checks whether the output actually conforms.
+
+![The JSON demo's dependencies: topics and controls feed schema generation; schema feeds conversation and a schema-quality judge; conversation and schema feed extraction; schema and extraction feed a validity judge. Programmatic validation runs after collection.](/assets/structured-outputs-at-scale/pipeline-light.svg)
+
+There is useful parallel work here, but also real dependencies. A row's extraction needs its conversation and schema. Other rows can be at different stages. The [async engine](/dev-notes/async-all-the-way-down) overlaps ready work; Slurm gives us a way to place that workload on cluster resources.
+
+One distinction matters for this example: **we are asking the model to follow a different schema for each record.** We keep the demo's text-generation columns and validate their outputs afterward. Switching to a fixed, server-enforced output schema would change what we are measuring.
+
+## Make the Pipeline Portable
+
+Install the optional extension in a shared Python environment:
+
+```bash
+python -m pip install "data-designer[slurm]"
+```
+
+Follow [Slurm Getting Started](/slurm/getting-started) to configure a cluster profile and register a serving image. The submit host and compute nodes must see the same Python environment and shared workspace. We'll assume those are ready below.
+
+The demo has one detail to change before exporting it: its topic seeds live in a dataframe, and its seed order is shuffled. Dataframe seeds cannot be serialized, and sharded Slurm runs require ordered, file-backed seed input.
+
+After building the demo's `config`, replace its seed setup with the following. Run this preparation step in the shared environment; replace the workspace path with your own.
+
+```python
+from pathlib import Path
+
+# config and seed_df come from the original JSON demo.
+workspace = Path("/workspace/alice/structured-outputs")
+workspace.mkdir(parents=True, exist_ok=True)
+
+# Give every planned record a seed row. Repeating the topic list does not
+# repeat generated records: the samplers and model still supply variation.
+total_records = 8_192
+seed_rows = seed_df.iloc[
+    [i % len(seed_df) for i in range(total_records)]
+].reset_index(drop=True)
+seed_path = workspace / "topics.parquet"
+seed_rows.to_parquet(seed_path, index=False)
+
+config.with_seed_dataset(
+    dd.LocalFileSeedSource(path=str(seed_path)),
+    sampling_strategy=dd.SamplingStrategy.ORDERED,
+)
+config.write_config(workspace / "builder.yaml")
+```
+
+This supplies the measured sweep with 8,192 seed rows. Before a larger run, prepare enough ordered seed rows for its complete requested range. We did not submit the million-record or hundred-million-record generation described later. For performance comparisons, preserve the same seed artifact, prompts, sampler distributions, inference settings, and quality checks. Stochastic generation will still vary between runs; repeat close comparisons before picking a winner.
+
+The snippets here are configuration templates. Replace the model and image aliases with compatible resources from your cluster. For the first experiment, all generation and judging use the demo's single `nvidia-text` alias, served locally.
+
+## Benchmark the Pipeline You Intend to Run
+
+It is tempting to benchmark a model with a short prompt and use the tokens-per-second number to estimate an entire dataset. But this pipeline has several calls per record, different prompt lengths, and dependent stages. What we need is the throughput of the actual pipeline.
+
+That's what the built-in Slurm benchmark gives us: a sweep of ordinary managed runs with different concurrency and deployment settings.
+
+Create `run.yaml` beside the exported `builder.yaml`:
+
+```yaml
+schema_version: 1
+name: structured-outputs-base
+builder:
+  source: builder.yaml
+invocation:
+  num_records: 1024
+  dataset_name: structured-outputs
+  resume: if_possible
+  input_bindings:
+    seed_path: /workspace/alice/structured-outputs/topics.parquet
+  model_concurrency:
+    nvidia-text: 32
+deployments:
+  - model_alias: nvidia-text
+    model: nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-BF16
+    served_model_name: nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-BF16
+    server:
+      type: vllm
+      image:
+        name: vllm
+      startup_timeout: 20m
+      distributed_init_timeout: 10m
+      extra_args: [
+        --max-model-len, "16384", --max-num-seqs, "128",
+        --gpu-memory-utilization, "0.90", --enforce-eager,
+        --trust-remote-code, --reasoning-parser, nemotron_v3,
+        --limit-mm-per-prompt, '{"image":0,"video":0}'
+      ]
+    resources:
+      nodes: 1
+    topology:
+      tensor_parallel: 4
+      nodes_per_replica: 1
+submission:
+  time_limit: 04:00:00
+```
+
+For this example, the profile requests eight GPUs per node, and the selected model must support TP4 and fit within four GPUs. PP defaults to one. Each eight-GPU node runs two independent TP4 replicas; two nodes run four replicas. Choose a different base topology if your model or hardware needs it.
+
+Now create `benchmark.yaml`:
+
+```yaml
+schema_version: 1
+name: structured-outputs-scaling
+base_run: run.yaml
+model_aliases: [nvidia-text]
+concurrency_values: [128, 256, 512, 1024]
+record_policy:
+  type: fixed
+  records: 1024
+deployment_cases:
+  - name: one-node
+    deployments:
+      nvidia-text:
+        nodes: 1
+        nodes_per_replica: 1
+  - name: two-nodes
+    deployments:
+      nvidia-text:
+        nodes: 2
+        nodes_per_replica: 1
+analysis:
+  target_total_records: 1000000
+  target_runtime: 4h
+```
+
+![Benchmark experiment matrix: four concurrency settings crossed with one-node and two-node deployments, producing eight ordinary child runs.](/assets/structured-outputs-at-scale/benchmark-matrix-light.svg)
+
+That is eight cases. Each generates 1,024 requested records in a single array task. The concurrency limit applies to the model alias within that task, shared by its generation and judge columns. Adding a second replica does not automatically double that client limit.
+
+This sweep changes the number of node-local replicas by changing node count. It keeps TP and PP from the base run. Comparing different TP sizes requires separate base runs.
+
+```bash
+data-designer slurm benchmark run benchmark.yaml
+```
+
+The command returns a benchmark ID and child run IDs. Inspect children with normal status commands, then analyze the benchmark:
+
+```bash
+data-designer slurm status CHILD_RUN_ID
+data-designer slurm benchmark analyze BENCHMARK_ID --refresh-state
+```
+
+The analyzer is designed to report outcomes, timing, throughput, and projected allocation counts and GPU-hours, retaining failed and incomplete cases. For this experiment, its released timing calculation used a rolling health-probe timestamp as the startup boundary, which greatly inflated throughput. We preserved the native reports and reconstructed the client interval from immutable start logs and canonical completion timestamps. **All measured rates and projections below use that supplemental analysis, not the native rates or recommendations.** This does not change or fix the installed product.
+
+Two details are easy to miss. **Queue wait is excluded**, so the report compares execution after allocations start. And `target_runtime` is an analysis budget; it does not change the submitted jobs' `time_limit`.
+
+A short initial sweep suggested we needed more concurrency and longer samples. The comparison below uses a fresh cohort of eight 1,024-record trials. We ran the equivalent cases as individual built-in benchmarks, sequentially, with a 90-second cooldown between allocations. If a case barely reaches steady generation before finishing, increase `record_policy.records`. A larger deployment needs enough work to reveal whether its additional capacity helps.
+
+## Tune Each Topology Before Comparing Them
+
+How much concurrency does each deployment need to produce useful data efficiently? We sweep that independently for each topology, then compare its operating points. Holding the same total request limit while adding replicas would test a different question.
+
+We tested client concurrency 128, 256, 512, and 1024 on one-node and two-node deployments, using 1,024 requested records per case. Every case completed all requested records. Data Designer was pinned to 1.0.0, with [Nemotron 3.5 Super VL 120B-A12B BF16](https://huggingface.co/nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-BF16) served by vLLM 0.32.0. Each node had eight H100 80 GB GPUs. TP stayed at four, PP at one, and expert parallelism was off. One node ran two replicas; two nodes ran four.
+
+Serving used eager execution, a 16,384-token context, `max_num_seqs=128` per replica, and memory utilization configured at 0.90. Speculative decoding was off. Images and video were disabled at serving time because this pipeline uses text only. All five model columns shared the same alias, with temperature 0.6, top-p 0.95, a 4,096-token output limit, a 600-second timeout, and thinking disabled. We kept those settings fixed; the model card's recommended text temperature is 1.0, while 0.6 preserves the demo experiment's sampling policy.
+
+| Nodes | Replicas | Concurrency | Valid / 1,024 | Generated/s | Valid/s | GPU-h / 1,000 valid |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 2 | 128 | 1020 | 1.753 | 1.746 | 1.89 |
+| 1 | 2 | 256 | 1018 | 2.857 | 2.840 | 1.38 |
+| 1 | 2 | 512 | 1021 | 2.899 | 2.891 | 1.36 |
+| 1 | 2 | 1024 | 1016 | 3.031 | 3.008 | 1.32 |
+| 2 | 4 | 128 | 1020 | 1.802 | 1.794 | 4.18 |
+| 2 | 4 | 256 | 1019 | 2.811 | 2.797 | 3.31 |
+| 2 | 4 | 512 | 1021 | 2.868 | 2.860 | 3.26 |
+| 2 | 4 | 1024 | 1018 | 3.003 | 2.985 | 3.21 |
+
+Each row is one trial. Rates cover the client interval after serving startup, including pipeline setup and output work. Start logs have one-second resolution. Cost uses actual allocated GPU-hours from Slurm accounting, including startup and shutdown, divided by valid outputs. The per-1,000 figure normalizes these measured runs.
+
+![Measured Nemotron pipeline throughput at concurrency 128, 256, 512, and 1024, with nearly overlapping one-node and two-node curves.](/assets/structured-outputs-at-scale/throughput.png)
+
+Increasing concurrency from 128 to 256 helped substantially on both layouts. Beyond 256, gains were smaller: one node rose from 2.857 to 3.031 generated records/second at 1024, about 6%. Two nodes rose from 2.811 to 3.003, about 7%. That makes 256 a useful starting point for further tuning, rather than establishing one exact optimum.
+
+The extra node did not improve throughput in this short experiment, including when we increased concurrency with replica count. One node at concurrency 256 produced 2.840 valid records/second; two nodes at 512 produced 2.860. The resolved deployment had four replicas, and request diagnostics confirmed that all four received work. We did not isolate the cause of this plateau.
+
+That limit matters when reading the result. The fastest client intervals lasted only about six minutes. A longer sample could reduce pipeline fill/drain effects, and client-side work or serving behavior could also constrain throughput. This sweep does not establish which explanation applies, or whether longer runs would scale better. It gives us a measured reason to investigate before reserving more GPUs.
+
+### The Observed Frontier
+
+A configuration is on the observed Pareto frontier if no other tested configuration delivers at least as much valid throughput at no greater GPU cost, with an improvement in at least one measure.
+
+![Observed Nemotron Pareto comparison: valid throughput versus allocated GPU-hours per 1,000 valid outputs. One node at concurrency 1024 is the sole nondominated point in this sample.](/assets/structured-outputs-at-scale/pareto.png)
+
+In these measurements, **one node at concurrency 1024** was the sole nondominated point: 3.008 valid records/second at **1.32 GPU-hours per 1,000 valid records**. Two nodes at 1024 produced 2.985 valid records/second at 3.21 GPU-hours per 1,000 valid records. Managed-runtime startup took about 226 seconds on the one-node point and 358 seconds on the two-node point, which further increased the cost of the short two-node run.
+
+The one-node 256 and 512 cases were close enough to deserve repeat trials before choosing a production setting. The exact frontier above is based on observed values, without confidence intervals. It is not proof of global saturation, a universal limit on Slurm scaling, or the best possible Nemotron serving configuration.
+
+Across this cohort, 8,192 records were generated and 8,153 passed schema validation, a 99.52% yield. There were 29 invalid generated schemas and 10 schema-conformance violations, with no JSON parse failures. Structural validity does not establish semantic correctness or training value. All eight allocations completed without a managed retry.
+
+The [measurement summary](/assets/structured-outputs-at-scale/nemotron-benchmark-summary.csv) contains the recorded counts, timing, GPU cost, and utilization. The [experiment settings](/assets/structured-outputs-at-scale/nemotron-measurement-settings.json) pin the model revision and serving-image digest. The numbers below use these client-log measurements rather than the native analyzer's throughput.
+
+## Busy GPUs Are Only Part of the Answer
+
+The corrected client timing tells us how quickly the pipeline produces records. GPU telemetry helps explain why.
+
+Collect per-device utilization and memory usage through your cluster's monitoring tools, such as DCGM dashboards or site-supported `nvidia-smi` sampling. These measurements are separate from the built-in benchmark report. Align them with startup, active generation, and the end of the run, and inspect individual GPUs rather than only a node average.
+
+Low utilization during startup may simply be model loading. Low utilization during generation could mean insufficient request concurrency, CPU-side work, or a dependency or serving bottleneck. High GPU memory usage can mostly be weights and reserved KV cache; it does not prove useful work is happening. High utilization with flat throughput is a reason to investigate, not automatically a reason to add more GPUs.
+
+For this workload, we compare three things together:
+
+| Question | Evidence |
+| --- | --- |
+| Are we producing records faster? | Benchmark rows per second and actual output count |
+| Are we spending compute efficiently? | Startup cost, allocated GPU-hours, and per-device telemetry |
+| Are those records useful? | Programmatic schema conformance and the same quality rubric across cases |
+
+The benchmark does not apply our post-generation acceptance policy. Its row count is not a count of schema-valid training examples. We have to measure that separately.
+
+For measured runs, divide total allocated GPU-hours, including failed attempts, by the number of accepted records. Report that alongside raw throughput. A fast configuration that produces more invalid data can be a poor choice for the final dataset.
+
+The report's GPU-hour figures are projections: they assume each projected allocation uses the full target runtime. They are useful for planning, but they are not measured cluster billing or a prediction of queue delay.
+
+We sampled every allocated GPU at five-second intervals. At concurrency 1024, mean GPU busy time during client activity was 66.1% on one node and 59.9% on two. The traces contain idle gaps and changes in activity; they do not identify a single bottleneck.
+
+![Per-GPU busy-time traces for the one-node and two-node Nemotron concurrency-1024 cases. Thin lines show devices; green lines show sample-bin means.](/assets/structured-outputs-at-scale/gpu-utilization.svg)
+
+High memory occupancy can come from weights and reserved cache. NVML busy time is not achieved FLOPS. Read these signals alongside valid throughput, allocation cost, and request diagnostics before changing resource allocation.
+
+## Slurm May Have a Clock
+
+Depending on your organization's cluster policies and the selected partition, jobs may have a wall-time limit. When one applies, a million-record generation may need longer than a single allocation permits, even when plenty of GPUs are available. Check your site's settings before planning the run.
+
+Use the benchmark to estimate how much work fits within that limit, or within an allocation budget you choose yourself:
+
+```text
+generation budget = allocation limit - startup time - safety margin
+records per shard ≈ measured rows/second × generation budget
+shard count = ceil(total requested records / records per shard)
+```
+
+The rate here is the measured rate of one benchmark allocation with the selected deployment. It is not a per-GPU rate. Choose a safety margin from observed variability, longer records, output writes, and shutdown behavior. The built-in analysis subtracts startup; it does not add this extra safety margin for you.
+
+![Schematic showing startup, saved row groups, unfinished work at an allocation boundary, and a retry allocation that reuses compatible saved progress and regenerates unfinished work. Not to scale.](/assets/structured-outputs-at-scale/allocation-recovery-light.svg)
+
+For a planning illustration, one node at concurrency 1024 measured 3.031 generated records/second and a 1,016/1,024 validation yield. Its allocation spent about 262 seconds before client start, including preflight and serving startup; shutdown took about four seconds. Reusing that rate and yield in a four-hour budget, with those overheads, gives an arithmetic estimate of **24 allocations, or 768 GPU-hours, for one million valid outputs**. That scale was not executed. The estimate assumes the short sample stays representative, excludes queue wait and future failures, and leaves no additional variability margin. It is not a validated capacity estimate. Use the same calculation with your own target and measured headroom when planning larger datasets.
+
+The measured 1,024-record run pays startup after a much shorter generation interval than the projected four-hour allocation. A longer confirmation run is needed before relying on that amortization or the sustained-rate assumption.
+
+Once you have selected a case, copy its deployment size and concurrency into the production run. Then increase `num_records` and add an array configuration. For example, **if follow-up measurements justify roughly 8,000 requested records per allocation**, a million-record run becomes:
+
+```yaml
+invocation:
+  num_records: 1000000
+  dataset_name: structured-outputs
+  resume: if_possible
+  input_bindings:
+    seed_path: /workspace/alice/structured-outputs/topics.parquet
+  model_concurrency:
+    nvidia-text: 1024
+array_tasks:
+  count: 125
+  max_concurrent: 4
+```
+
+This replaces `invocation` in the base run and adds `array_tasks`; keep the chosen deployment and submission settings. The 125-way split requests 8,000 records per shard. It is a planning example with headroom relative to the short trial, not an executed production run or a validated shard size. Prepare a seed artifact covering the full million-row range before using it.
+
+Each task starts the complete deployment set. With one eight-GPU node per task, four active tasks reserve 32 GPUs. With two such nodes per task, they reserve 64. `max_concurrent` limits active allocations, subject to Slurm scheduling; it does not control the replicas inside each allocation.
+
+Smaller shards reduce the amount of work exposed to an interruption, but repeat model startup more often. Larger shards amortize startup and give a longer steady-state window, but need more wall-time headroom. The benchmark gives us evidence for choosing between them.
+
+Sharded runs currently reject custom, plugin, and image columns, global processors and profilers, local-callable validators, shuffled seeds, and authored seed-selection strategies. Our adaptation uses supported columns, ordered file-backed seeds, and the required seed-path binding. Programmatic schema validation stays after collection.
+
+### Fair-Share Matters Too
+
+Time limits are only one part of the allocation story. On clusters configured with fair-share scheduling, your account's assigned shares and past resource usage can affect job priority. That is a way to balance access across teams over time, not necessarily a reservation of a fixed number of GPUs. Separate account or quality-of-service (QOS) limits may also constrain concurrent jobs, GPU counts, or resource budgets. The details depend on site policy. See Slurm's [fair-share priority](https://slurm.schedmd.com/priority_multifactor.html) and [resource-limit](https://slurm.schedmd.com/resource_limits.html) documentation.
+
+For our run, `max_concurrent: 4` is an upper bound, not a promise of four simultaneous allocations. Some shards may remain queued while others run. A two-node deployment that wins the throughput benchmark may take longer to obtain than a one-node deployment. Smaller allocations can sometimes fit available capacity more easily, but there is no universal queue-time advantage.
+
+This is another reason to compare GPU-hours alongside throughput. Choose a deployment and array concurrency that fit your team's access and budget, then compare the benchmark projection with observed queue behavior. Where supported, `sshare` exposes share and usage information, and `squeue` shows pending jobs and their reasons. Your cluster administrator can explain the policies behind them.
+
+**Benchmark runtime is not calendar completion time.** The benchmark excludes queue wait and does not predict fair-share priority or future cluster availability. Its target runtime is a per-allocation planning budget, not a deadline guarantee for the whole dataset.
+
+## Recover the Work That Didn't Finish
+
+Sharding and resume solve different parts of the problem. Sharding divides the requested dataset into independent pieces. Resume lets a compatible retry reuse the generation progress already saved for a piece.
+
+Preview the production submission, then launch it:
+
+```bash
+data-designer slurm execute production-run.yaml --dry-run
+data-designer slurm execute production-run.yaml
+```
+
+If an allocation times out, inspect the managed run and preview its retry:
+
+```bash
+data-designer slurm status RUN_ID
+data-designer slurm retry RUN_ID --dry-run
+data-designer slurm retry RUN_ID
+```
+
+By default, retry selects failed or incomplete shards. It resolves `--resume if_possible` using persisted compatibility evidence, and the preview reports the effective mode. Use a specific shard when appropriate:
+
+```bash
+data-designer slurm retry RUN_ID --task-id 2 --resume always --dry-run
+```
+
+`always` requires compatible saved progress; it is not a way to bypass the compatibility checks. Keep the shared environment and workspace available across attempts.
+
+**Resume does not restore a running vLLM server or an in-flight request.** A new allocation starts its servers again. Data Designer can reuse compatible, durable generation progress; work that had not been saved may need to be regenerated. An interrupted job does not automatically get another allocation: submit the managed retry.
+
+A separate setup experiment exercised managed retry after a startup failure, using `--resume never`. That confirms a fresh attempt could complete; it does not demonstrate reuse of saved generation progress. The eight Nemotron benchmark cases above needed no managed retry. The resume diagram describes the supported mechanism. An interrupted-generation experiment is still needed to measure how much work that mechanism reuses for this pipeline.
+
+## Collect First. Count Accepted Records Second.
+
+After generation, collect the winning shard outputs:
+
+```bash
+data-designer slurm merge RUN_ID --num-partitions 20
+```
+
+Collection verifies compatible output schemas and merges each shard's winning result. It does not rerun the model or evaluate the generated JSON against each row's target schema.
+
+Now apply the original demo's programmatic validation to every collected record: parse the generated schema and JSON, check that the schema itself is valid, and validate the object against that schema. Preserve the validation diagnostics so we can separate malformed schemas, parse failures, and conformance failures. LLM judge scores are useful signals, but they do not replace this check.
+
+Also check the final count. Requested records, generated records, and accepted records are different quantities. A nonempty shard can finish successfully with fewer records than requested, and collection does not fill that gap. If the goal is a million accepted examples, use the observed yield to plan additional generation.
+
+## What We Want to Know at the End
+
+The useful outcome is a reproducible answer to a practical question: how much schema-conforming, high-quality data can this allocation produce?
+
+We should be able to point to the exported builder, seed artifact, model and serving-image identity, benchmark report, telemetry, and validation results and explain why we chose the final configuration. Before scaling further, we should repeat the promising cases with longer samples, test interrupted-generation recovery, and check whether sustained throughput matches the estimate.
+
+That is the workflow `data-designer-slurm` makes possible. Keep iterating on the dataset definition. Benchmark the pipeline that actually runs. Use the measurements to choose resources and shard sizes, and carry saved progress into a retry when necessary.
+
+The JSON in the preview was the starting point. The next step is producing useful data efficiently, within the resources and time the cluster gives you.
+
+## Resources
+
+- [Structured Outputs for Nemotron](/dev-notes/structured-outputs-from-nemotron)
+- [Slurm Getting Started](/slurm/getting-started)
+- [Slurm Benchmarks](/slurm/benchmarks)
+- [Run Configuration](/slurm/run-configuration)
+- [Retry and Collection](/slurm/retry-and-collection)
+- [Async All the Way Down](/dev-notes/async-all-the-way-down)
