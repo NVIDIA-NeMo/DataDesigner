@@ -270,6 +270,16 @@ In the original hosted run on Apple Silicon, Pi took a median of 19.4 seconds pe
 
 The saved Gym responses also record the reasoning text exposed to Pi in the `summary` field of each reasoning item. We can curate and export that text with the corresponding tool calls and results for post-training.
 
+## Composing multi-step workflows
+
+A `gym-resource` column can call an individual HTTP route on a Gym service, such as `/verify` or a task-specific tool route. That lets us put Gym calls between generation steps and use the feedback to improve the next candidate.
+
+`candidate` (Data Designer) → `check` (Gym) → `revision` (Data Designer) → `recheck` (Gym)
+
+If the verifier expects a `candidate` field, set `route="/verify"` and `request_columns={"candidate": "candidate"}` on the `check` column. Give the revision prompt both the original candidate and the verifier's reply in `check.response_json`. The `recheck` column calls the same route with `request_columns={"candidate": "revision"}`.
+
+With a fixed number of passes, each step can be a column, so the candidates and check results stay together in the row. If rows need different numbers of passes, an outer loop can carry forward just the rows that need another revision.
+
 ## Taking the workflow to Slurm
 
 For a larger run, [`data-designer-slurm`](/slurm/overview) can launch the starter-generation recipe on a cluster. Use a Slurm array to split the prompts into shards, then qualify the generated starters and write out the task files. Hosted generators can run from CPU allocations, and the same extension can provision vLLM servers for locally served model aliases.
