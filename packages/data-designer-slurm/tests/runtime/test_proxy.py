@@ -9,7 +9,7 @@ import json
 import logging
 import socket
 from collections.abc import AsyncIterator, Awaitable, Callable
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from pathlib import Path
 
 import pytest
@@ -99,6 +99,8 @@ def test_proxy_occupied_port_never_publishes_listener_ownership(tmp_path: Path) 
 async def _serve_production(
     backend: _Backend,
     monkeypatch: pytest.MonkeyPatch,
+    *,
+    max_connections: int | None = None,
 ) -> AsyncIterator[tuple[str, TCPConnector]]:
     runner: web.AppRunner | None = None
     connector: TCPConnector | None = None
@@ -121,7 +123,10 @@ async def _serve_production(
     with socket.socket() as reservation:
         reservation.bind(("127.0.0.1", 0))
         port = reservation.getsockname()[1]
-    assert runtime_proxy.main(["--listen-port", str(port), "--backend", backend.origin]) == 0
+    arguments = ["--listen-port", str(port), "--backend", backend.origin]
+    if max_connections is not None:
+        arguments.extend(("--max-connections", str(max_connections)))
+    assert runtime_proxy.main(arguments) == 0
     assert runner is not None
     await runner.setup()
     try:
@@ -627,7 +632,7 @@ async def test_production_proxy_shutdown_drains_active_stream(monkeypatch: pytes
 
 @pytest.mark.asyncio
 async def test_health_does_not_wait_for_saturated_inference_pool(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(runtime_proxy, "_MAXIMUM_CONNECTIONS", 1)
+    monkeypatch.setattr(runtime_proxy, "_DEFAULT_MAXIMUM_CONNECTIONS", 1)
     entered, release = asyncio.Event(), asyncio.Event()
 
     async def backend_handler(request: web.Request) -> web.Response:
@@ -667,7 +672,7 @@ async def test_proxy_waits_for_a_pooled_connection_without_timing_out(monkeypatc
             await release_first.wait()
         return web.Response(text="complete")
 
-    monkeypatch.setattr(runtime_proxy, "_MAXIMUM_CONNECTIONS", 1)
+    monkeypatch.setattr(runtime_proxy, "_DEFAULT_MAXIMUM_CONNECTIONS", 1)
     monkeypatch.setattr(runtime_proxy, "_CONNECT_TIMEOUT_SECONDS", 0.05)
     async with _serve(_application(available)) as backend:
         proxy = _ProxyApplication((_backend(backend),), 1)
@@ -786,3 +791,65 @@ def test_pool_selects_least_active_backend_deterministically() -> None:
 
     assert (first, second, third) == (0, 1, 2)
     assert pool.active_counts() == (0, 0, 0)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("max_connections", [257, 513])
+async def test_proxy_forwards_configured_concurrency_above_256(max_connections: int) -> None:
+    active = 0
+    peak = 0
+    saturated, release = asyncio.Event(), asyncio.Event()
+
+    async def backend_handler(request: web.Request) -> web.Response:
+        del request
+        nonlocal active, peak
+        active += 1
+        peak = max(peak, active)
+        if active == max_connections:
+            saturated.set()
+        try:
+            await release.wait()
+            return web.Response(text="complete")
+        finally:
+            active -= 1
+
+    async with AsyncExitStack() as stack:
+        servers = [await stack.enter_async_context(_serve(_application(backend_handler))) for _ in range(4)]
+        proxy = _ProxyApplication(tuple(_backend(server) for server in servers), 1, max_connections=max_connections)
+        endpoint = await stack.enter_async_context(_serve(proxy.create()))
+        client = await stack.enter_async_context(ClientSession(connector=TCPConnector(limit=0)))
+        requests = [asyncio.create_task(client.get(endpoint.make_url("/complete"))) for _ in range(max_connections + 1)]
+        try:
+            await asyncio.wait_for(saturated.wait(), 10)
+            assert peak == max_connections
+            async with client.get(endpoint.make_url("/metrics")) as response:
+                assert (await response.json())["connections"]["limit"] == max_connections
+        finally:
+            release.set()
+            responses = await asyncio.gather(*requests)
+            for response in responses:
+                assert response.status == 200
+                await response.read()
+                response.release()
+        assert peak == max_connections
+
+
+@pytest.mark.asyncio
+async def test_proxy_cli_applies_configured_connection_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def available(request: web.Request) -> web.Response:
+        del request
+        return web.Response()
+
+    async with _serve(_application(available)) as backend:
+        async with _serve_production(_backend(backend), monkeypatch, max_connections=1024) as (_, connector):
+            assert connector.limit == 1024
+
+
+@pytest.mark.parametrize("max_connections", [0, -1])
+def test_proxy_cli_rejects_nonpositive_connection_limits(max_connections: int) -> None:
+    with pytest.raises(SystemExit) as error:
+        runtime_proxy.main(
+            ["--listen-port", "17000", "--backend", "http://127.0.0.1:8001", "--max-connections", str(max_connections)]
+        )
+
+    assert error.value.code == 2

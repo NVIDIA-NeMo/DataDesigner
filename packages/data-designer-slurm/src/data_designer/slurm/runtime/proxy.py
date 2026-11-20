@@ -32,7 +32,7 @@ from data_designer.slurm.runtime.network import validate_host_name
 _LOGGER = logging.getLogger("data_designer.slurm.runtime.proxy")
 _MAXIMUM_REQUEST_BYTES = 100 * 1024 * 1024
 _MAXIMUM_UPSTREAM_ATTEMPTS = 3
-_MAXIMUM_CONNECTIONS = 256
+_DEFAULT_MAXIMUM_CONNECTIONS = 256
 _KEEPALIVE_TIMEOUT_SECONDS = 65.0
 _CONNECT_TIMEOUT_SECONDS = 5.0
 _READ_TIMEOUT_SECONDS = 3600.0
@@ -119,7 +119,7 @@ class _ProxyMetrics:
             "requests": self.requests,
             "attempts": self.attempts,
             "connections": {
-                "limit": _MAXIMUM_CONNECTIONS,
+                "limit": connector.limit,
                 "opened": self.connection_opened,
                 "reused": self.connection_reused,
                 "failed": self.connection_failed,
@@ -147,11 +147,11 @@ class _ProxyConnector(TCPConnector):
     Shutdown closes are excluded; stale, expired, and discarded connections count.
     """
 
-    def __init__(self, metrics: _ProxyMetrics, backend_count: int) -> None:
+    def __init__(self, metrics: _ProxyMetrics, max_connections: int) -> None:
         self._metrics: _ProxyMetrics = metrics
         super().__init__(
-            limit=_MAXIMUM_CONNECTIONS,
-            limit_per_host=max(1, _MAXIMUM_CONNECTIONS // backend_count),
+            limit=max_connections,
+            limit_per_host=0,
             keepalive_timeout=_KEEPALIVE_TIMEOUT_SECONDS,
             force_close=False,
             socket_factory=_create_socket,
@@ -216,9 +216,11 @@ class _ProxyApplication:
         retry_after_seconds: int | None,
         *,
         health_path: str = "/health",
+        max_connections: int | None = None,
     ) -> None:
         self.pool = _BackendPool(backends, retry_after_seconds)
         self.health_path = health_path
+        self.max_connections = _DEFAULT_MAXIMUM_CONNECTIONS if max_connections is None else max_connections
         self.metrics = _ProxyMetrics()
         self.connector: TCPConnector | None = None
         self.session: ClientSession | None = None
@@ -236,7 +238,7 @@ class _ProxyApplication:
     async def _start(self, application: web.Application) -> None:
         del application
         trace = self._trace_config()
-        self.connector = _ProxyConnector(self.metrics, len(self.pool.backends))
+        self.connector = _ProxyConnector(self.metrics, self.max_connections)
         self.session = ClientSession(
             connector=self.connector,
             timeout=ClientTimeout(
@@ -518,6 +520,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
     parser.add_argument("--allowed-host", action="append")
     parser.add_argument("--retry-after-seconds", type=int)
     parser.add_argument("--health-path", default="/health")
+    parser.add_argument("--max-connections", type=int)
     parser.add_argument("--listening-file", type=Path)
     parsed = parser.parse_args(arguments)
     try:
@@ -527,13 +530,17 @@ def main(arguments: Sequence[str] | None = None) -> int:
     backends = tuple(_parse_backend(value, allowed_hosts) for value in parsed.backend)
     if not 1 <= parsed.listen_port <= 65535:
         parser.error("listen port must be between 1 and 65535")
+    if parsed.max_connections is not None and parsed.max_connections <= 0:
+        parser.error("max connections must be positive")
     if parsed.retry_after_seconds is not None and parsed.retry_after_seconds <= 0:
         parser.error("retry-after seconds must be positive")
     if not parsed.health_path.startswith("/") or parsed.health_path.startswith("//"):
         parser.error("health path must be absolute")
     if parsed.listening_file is not None and not parsed.listening_file.is_absolute():
         parser.error("listening file must be absolute")
-    proxy = _ProxyApplication(backends, parsed.retry_after_seconds, health_path=parsed.health_path)
+    proxy = _ProxyApplication(
+        backends, parsed.retry_after_seconds, health_path=parsed.health_path, max_connections=parsed.max_connections
+    )
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
         listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         listener.bind(("127.0.0.1", parsed.listen_port))
