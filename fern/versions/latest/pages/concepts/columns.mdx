@@ -210,7 +210,7 @@ Use **Jinja2 templating** in the prompt to reference other columns, driving dive
 
 Image columns require a model configured with `ImageInferenceParams`. Model-specific options (size, quality, aspect ratio) are passed via `extra_body` in the inference parameters.
 
-Providers must return generated images inline as base64 data, either in a `b64_json` field, as a raw base64 string, or in a `data:image/...;base64,...` URI. Data Designer does not download generated-image HTTP(S) URLs. If your provider returns URLs by default, configure inline output through `extra_body` where supported. See the [1.1.0 migration notes](/getting-started/release-notes#1-1-0-unreleased) for examples.
+Providers must return generated images inline as base64 data, either in a `b64_json` field, as a raw base64 string, or in a `data:image/...;base64,...` URI. Data Designer does not download generated-image HTTP(S) URLs. If your provider returns URLs by default, configure inline output through `extra_body` where supported.
 
 This requirement applies to generated outputs. Image URLs supplied through `ImageContext` remain supported and are passed to the model provider.
 

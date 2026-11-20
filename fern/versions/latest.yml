@@ -5,8 +5,6 @@ navigation:
     contents:
       - page: Welcome
         path: ./latest/pages/index.mdx
-      - page: Release Notes
-        path: ./latest/pages/release-notes.mdx
       - page: Contributing
         path: ./latest/pages/CONTRIBUTING.mdx
   - section: Concepts
