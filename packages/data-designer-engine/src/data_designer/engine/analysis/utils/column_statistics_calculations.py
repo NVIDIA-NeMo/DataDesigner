@@ -23,6 +23,7 @@ from data_designer.engine.column_generators.utils.prompt_renderer import (
     RecordBasedPromptRenderer,
     create_response_recipe,
 )
+from data_designer.engine.processing.utils import deserialize_json_values
 from data_designer.engine.utils.token_counting import count_text_tokens
 
 if TYPE_CHECKING:
@@ -111,6 +112,7 @@ def calculate_input_token_stats(
             jinja_rendering_engine=jinja_rendering_engine,
         )
         for record in df.sample(num_samples, random_state=RANDOM_SEED).to_dict(orient="records"):
+            record = deserialize_json_values(record)
             system_prompt = renderer.render(
                 prompt_template=column_config.system_prompt, record=record, prompt_type=PromptType.SYSTEM_PROMPT
             )
