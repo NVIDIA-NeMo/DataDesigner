@@ -32,7 +32,6 @@ from data_designer.slurm.runtime.network import validate_host_name
 _LOGGER = logging.getLogger("data_designer.slurm.runtime.proxy")
 _MAXIMUM_REQUEST_BYTES = 100 * 1024 * 1024
 _MAXIMUM_UPSTREAM_ATTEMPTS = 3
-_MAXIMUM_CONNECTIONS = 256
 _KEEPALIVE_TIMEOUT_SECONDS = 65.0
 _CONNECT_TIMEOUT_SECONDS = 5.0
 _READ_TIMEOUT_SECONDS = 3600.0
@@ -119,7 +118,7 @@ class _ProxyMetrics:
             "requests": self.requests,
             "attempts": self.attempts,
             "connections": {
-                "limit": _MAXIMUM_CONNECTIONS,
+                "limit": connector.limit,
                 "opened": self.connection_opened,
                 "reused": self.connection_reused,
                 "failed": self.connection_failed,
@@ -147,11 +146,12 @@ class _ProxyConnector(TCPConnector):
     Shutdown closes are excluded; stale, expired, and discarded connections count.
     """
 
-    def __init__(self, metrics: _ProxyMetrics, backend_count: int) -> None:
+    def __init__(self, metrics: _ProxyMetrics) -> None:
         self._metrics: _ProxyMetrics = metrics
         super().__init__(
-            limit=_MAXIMUM_CONNECTIONS,
-            limit_per_host=max(1, _MAXIMUM_CONNECTIONS // backend_count),
+            # The client and serving backends own inference concurrency.
+            limit=0,
+            limit_per_host=0,
             keepalive_timeout=_KEEPALIVE_TIMEOUT_SECONDS,
             force_close=False,
             socket_factory=_create_socket,
@@ -236,7 +236,7 @@ class _ProxyApplication:
     async def _start(self, application: web.Application) -> None:
         del application
         trace = self._trace_config()
-        self.connector = _ProxyConnector(self.metrics, len(self.pool.backends))
+        self.connector = _ProxyConnector(self.metrics)
         self.session = ClientSession(
             connector=self.connector,
             timeout=ClientTimeout(
@@ -248,7 +248,7 @@ class _ProxyApplication:
             raise_for_status=False,
             trace_configs=[trace],
         )
-        # Health probes must not wait behind saturated inference connection slots.
+        # Keep health-check traffic independent of inference connection reuse.
         self.health_session = ClientSession(
             connector=TCPConnector(limit=len(self.pool.backends), limit_per_host=1, socket_factory=_create_socket),
             timeout=ClientTimeout(total=_CONNECT_TIMEOUT_SECONDS),

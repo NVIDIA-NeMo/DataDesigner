@@ -9,7 +9,7 @@ import json
 import logging
 import socket
 from collections.abc import AsyncIterator, Awaitable, Callable
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from pathlib import Path
 
 import pytest
@@ -626,8 +626,7 @@ async def test_production_proxy_shutdown_drains_active_stream(monkeypatch: pytes
 
 
 @pytest.mark.asyncio
-async def test_health_does_not_wait_for_saturated_inference_pool(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(runtime_proxy, "_MAXIMUM_CONNECTIONS", 1)
+async def test_health_remains_responsive_during_inference() -> None:
     entered, release = asyncio.Event(), asyncio.Event()
 
     async def backend_handler(request: web.Request) -> web.Response:
@@ -650,41 +649,6 @@ async def test_health_does_not_wait_for_saturated_inference_pool(monkeypatch: py
                 release.set()
                 async with await pending as response:
                     await response.read()
-
-
-@pytest.mark.asyncio
-async def test_proxy_waits_for_a_pooled_connection_without_timing_out(monkeypatch: pytest.MonkeyPatch) -> None:
-    first_started = asyncio.Event()
-    release_first = asyncio.Event()
-    requests = 0
-
-    async def available(request: web.Request) -> web.Response:
-        del request
-        nonlocal requests
-        requests += 1
-        if requests == 1:
-            first_started.set()
-            await release_first.wait()
-        return web.Response(text="complete")
-
-    monkeypatch.setattr(runtime_proxy, "_MAXIMUM_CONNECTIONS", 1)
-    monkeypatch.setattr(runtime_proxy, "_CONNECT_TIMEOUT_SECONDS", 0.05)
-    async with _serve(_application(available)) as backend:
-        proxy = _ProxyApplication((_backend(backend),), 1)
-        async with _serve(proxy.create()) as endpoint, ClientSession() as client:
-            first = asyncio.create_task(client.get(endpoint.make_url("/first")))
-            await first_started.wait()
-            second = asyncio.create_task(client.get(endpoint.make_url("/second")))
-            await asyncio.sleep(0.1)
-            release_first.set()
-            async with await first as response:
-                assert response.status == 200
-                assert await response.text() == "complete"
-            async with await second as response:
-                assert response.status == 200
-                assert await response.text() == "complete"
-
-    assert requests == 2
 
 
 @pytest.mark.asyncio
@@ -786,3 +750,61 @@ def test_pool_selects_least_active_backend_deterministically() -> None:
 
     assert (first, second, third) == (0, 1, 2)
     assert pool.active_counts() == (0, 0, 0)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("backend_count", "concurrent_requests"), [(1, 257), (4, 513)])
+async def test_proxy_forwards_concurrent_requests_without_its_own_limit(
+    backend_count: int, concurrent_requests: int
+) -> None:
+    active = 0
+    peak = 0
+    all_started, release = asyncio.Event(), asyncio.Event()
+
+    async def backend_handler(request: web.Request) -> web.Response:
+        if request.path == "/health":
+            return web.Response()
+        nonlocal active, peak
+        active += 1
+        peak = max(peak, active)
+        if active == concurrent_requests:
+            all_started.set()
+        try:
+            await release.wait()
+            return web.Response(text="complete")
+        finally:
+            active -= 1
+
+    async with AsyncExitStack() as stack:
+        servers = [await stack.enter_async_context(_serve(_application(backend_handler))) for _ in range(backend_count)]
+        proxy = _ProxyApplication(tuple(_backend(server) for server in servers), 1)
+        endpoint = await stack.enter_async_context(_serve(proxy.create()))
+        client = await stack.enter_async_context(ClientSession(connector=TCPConnector(limit=0)))
+        requests = [asyncio.create_task(client.get(endpoint.make_url("/complete"))) for _ in range(concurrent_requests)]
+        try:
+            # Hold every response until every request has reached a backend.
+            await asyncio.wait_for(all_started.wait(), 10)
+            assert peak == concurrent_requests
+            async with client.get(endpoint.make_url("/metrics")) as response:
+                assert (await response.json())["connections"]["limit"] == 0
+            async with client.get(endpoint.make_url("/health")) as response:
+                assert response.status == 200
+        finally:
+            release.set()
+            responses = await asyncio.gather(*requests)
+            for response in responses:
+                assert response.status == 200
+                await response.read()
+                response.release()
+
+
+@pytest.mark.asyncio
+async def test_proxy_cli_does_not_limit_inference_connections(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def available(request: web.Request) -> web.Response:
+        del request
+        return web.Response()
+
+    async with _serve(_application(available)) as backend:
+        async with _serve_production(_backend(backend), monkeypatch) as (_, connector):
+            assert connector.limit == 0
+            assert connector.limit_per_host == 0
