@@ -7,6 +7,7 @@ import json
 import subprocess
 import sys
 from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
@@ -792,3 +793,27 @@ def test_preflight_keeps_mcp_secret_out_of_records(
 
     assert designers[0].initialization["mcp_providers"][0].api_key == "private-value"
     assert "private-value" not in (client_worker_case.attempt_dir / "client-environment.json").read_text()
+
+
+def test_client_records_start_before_setup_and_generation(client_worker_case: ClientWorkerCase) -> None:
+    started_at = datetime(2026, 11, 20, tzinfo=UTC)
+    clock = Mock(return_value=started_at)
+    worker = ClientWorker(data_designer_factory=FakeDataDesigner, clock=clock)
+    worker.preflight(
+        client_worker_case.plan_path,
+        prepared=client_worker_case.prepared,
+        endpoints=client_worker_case.endpoints,
+        plugins=(),
+    )
+    # Later progress/finalization timestamps must not replace the initial start.
+    clock.side_effect = [started_at] + [started_at + timedelta(minutes=5)] * 20
+    result = worker.run(
+        client_worker_case.plan_path,
+        prepared=client_worker_case.prepared,
+        endpoints=client_worker_case.endpoints,
+        plugins=(),
+    )
+    persisted = ClientResult.model_validate_json((client_worker_case.attempt_dir / "client-result.json").read_text())
+
+    assert result.started_at == persisted.started_at == started_at
+    assert result.completed_at == started_at + timedelta(minutes=5)
