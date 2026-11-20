@@ -601,7 +601,8 @@ class ImageColumnConfig(SingleColumnConfig):
     """Configuration for image generation columns.
 
     Image columns generate images using either autoregressive or diffusion models.
-    The API used is automatically determined based on the model name:
+    The API used is automatically determined based on the model name.
+    Providers must return inline base64 image data; generated-image URLs are not downloaded.
 
     Attributes:
         prompt (required): Prompt template for image generation. Supports Jinja2 templating to

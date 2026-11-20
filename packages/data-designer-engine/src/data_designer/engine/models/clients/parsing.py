@@ -12,10 +12,8 @@ from dataclasses import replace
 from typing import Any
 
 from data_designer.config.utils.media_helpers import (
-    aload_image_url_to_base64,
     extract_base64_from_data_uri,
     is_base64_image,
-    load_image_url_to_base64,
 )
 from data_designer.engine.models.clients.types import (
     AssistantMessage,
@@ -180,28 +178,18 @@ async def aparse_image_list(raw_items: list[Any]) -> list[ImagePayload]:
 
 def parse_image_payload(raw_image: Any) -> ImagePayload | None:
     try:
-        result = resolve_image_payload(raw_image)
-        if isinstance(result, str):
-            return ImagePayload(b64_data=load_image_url_to_base64(result), mime_type=None)
-        return result
+        return resolve_image_payload(raw_image)
     except Exception:
         logger.warning("Failed to parse image payload from response object; image dropped.", exc_info=True)
         return None
 
 
 async def aparse_image_payload(raw_image: Any) -> ImagePayload | None:
-    try:
-        result = resolve_image_payload(raw_image)
-        if isinstance(result, str):
-            return ImagePayload(b64_data=await aload_image_url_to_base64(result), mime_type=None)
-        return result
-    except Exception:
-        logger.warning("Failed to parse image payload from response object; image dropped.", exc_info=True)
-        return None
+    return parse_image_payload(raw_image)
 
 
-def resolve_image_payload(raw_image: Any) -> ImagePayload | str | None:
-    """Resolve a raw image to an ImagePayload, a URL needing I/O, or None."""
+def resolve_image_payload(raw_image: Any) -> ImagePayload | None:
+    """Resolve inline image data without fetching model-supplied URLs."""
     if isinstance(raw_image, str):
         return resolve_image_string(raw_image)
 
@@ -224,8 +212,8 @@ def resolve_image_payload(raw_image: Any) -> ImagePayload | str | None:
     return None
 
 
-def resolve_image_string(raw_value: str) -> ImagePayload | str | None:
-    """Return an ImagePayload for inline data, a URL string for HTTP URLs, or None."""
+def resolve_image_string(raw_value: str) -> ImagePayload | None:
+    """Return an ImagePayload for inline data, or None for URLs and other text."""
     if raw_value.startswith("data:image/"):
         return ImagePayload(
             b64_data=extract_base64_from_data_uri(raw_value),
@@ -234,9 +222,6 @@ def resolve_image_string(raw_value: str) -> ImagePayload | str | None:
 
     if is_base64_image(raw_value):
         return ImagePayload(b64_data=raw_value, mime_type=None)
-
-    if raw_value.startswith(("http://", "https://")):
-        return raw_value
 
     return None
 
