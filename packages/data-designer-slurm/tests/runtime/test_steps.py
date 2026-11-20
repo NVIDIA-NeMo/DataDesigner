@@ -24,7 +24,6 @@ from data_designer.slurm.runtime.models import RuntimeEndpoint, RuntimeStepRole
 from data_designer.slurm.runtime.preflight import AllocationLayout
 from data_designer.slurm.runtime.steps import (
     DefaultClientStepBuilder,
-    build_endpoint_command,
     build_endpoint_steps,
     build_vllm_command,
     build_vllm_steps,
@@ -324,20 +323,3 @@ def test_client_receives_client_secrets_without_server_only_secrets(
                 "HF_TOKEN": "server-secret",
             },
         )
-
-
-@pytest.mark.parametrize("concurrency", [None, 128, 512, 1024])
-def test_proxy_pool_tracks_model_concurrency_or_pipeline_window(
-    runtime_case: RuntimeCase, concurrency: int | None
-) -> None:
-    plan = runtime_case.context.plan
-    alias = plan.deployments[0].authored.model_alias
-    payload = json.loads(plan.serialize_json())
-    payload["invocation"]["authored"]["model_concurrency"] = {} if concurrency is None else {alias: concurrency}
-    payload["invocation"]["effective_run_config"]["max_in_flight_tasks"] = 8192
-    plan = ResolvedSlurmRunPlan.model_validate_json(json.dumps(payload))
-
-    deployment = resolve_vllm_server(plan, plan.deployments[0].deployment_id)
-    command = build_endpoint_command(deployment, plan, Path("/runtime/proxy.py"), 17000)
-
-    assert command[command.index("--max-connections") + 1] == str(8192 if concurrency is None else concurrency)

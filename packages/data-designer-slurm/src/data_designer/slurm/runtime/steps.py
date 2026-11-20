@@ -322,12 +322,6 @@ def build_endpoint_command(
         if backend_hosts is not None
         else ()
     )
-    # The client already bounds inference work. Inherited model limits may be
-    # larger than the old fixed pool, so use the pipeline window as a fallback.
-    max_connections = plan.invocation.authored.model_concurrency.get(
-        deployment.model_alias,
-        plan.invocation.effective_run_config["max_in_flight_tasks"],
-    )
     retry_after_seconds = deployment.launch_policy.queue_backpressure.retry_after_seconds
     retry_arguments = ("--retry-after-seconds", str(retry_after_seconds)) if retry_after_seconds is not None else ()
     try:
@@ -339,8 +333,6 @@ def build_endpoint_command(
         host_proxy_path,
         "--listen-port",
         str(port),
-        "--max-connections",
-        str(max_connections),
         "--health-path",
         deployment.launch_policy.readiness_path,
         *retry_arguments,
