@@ -130,11 +130,7 @@ data-designer slurm benchmark analyze BENCHMARK_ID --refresh-state
 
 The analyzer reports outcomes, timing, throughput, and projected allocation counts and GPU-hours, including failed or incomplete cases. **Queue wait is excluded.** Its `target_runtime` is an analysis budget; the job's `time_limit` controls the allocation limit.
 
-<Note>
-Data Designer 1.0.0's analyzer used a rolling health-probe timestamp as its startup boundary, inflating throughput in this experiment. We preserved the native reports and reconstructed client timing from immutable start logs and canonical completion timestamps. All rates and projections in this post use that supplemental analysis; the installed product was not patched.
-</Note>
-
-For the measurements below, we submitted the eight equivalent cases as individual built-in benchmarks, sequentially, with a 90-second cooldown between allocations. Each case generated 1,024 records. Increase `record_policy.records` when a trial is too short to reveal sustained behavior.
+For the measurements below, we submitted the eight equivalent cases as individual built-in benchmarks, sequentially, with a 90-second cooldown between allocations. Each case generated 1,024 records. We calculated the reported rates and projections independently from run logs, using client start and completion timestamps. Increase `record_policy.records` when a trial is too short to reveal sustained behavior.
 
 ## Tune Each Topology Before Comparing Them
 
