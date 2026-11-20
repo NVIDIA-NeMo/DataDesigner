@@ -358,6 +358,42 @@ def test_ensure_hashable():
     assert isinstance(hash(ensure_hashable(lazy.np.array([1, 2, 3]))), int)
 
 
+def test_ensure_hashable_with_mixed_type_elements():
+    assert ensure_hashable(["a", None]) == ensure_hashable([None, "a"])
+    assert ensure_hashable([1, "x"]) == ensure_hashable(["x", 1])
+    assert isinstance(hash(ensure_hashable({"k": [None, 1]})), int)
+
+
+def test_calculate_general_column_info_list_column_with_null_elements():
+    # A null inside a list is a value, not a missing row: only the last row counts as null.
+    df = lazy.pa.Table.from_pydict({"tags": [["a", None], ["b"], [None, "a"], None]}).to_pandas(
+        types_mapper=lazy.pd.ArrowDtype
+    )
+
+    result = calculate_general_column_info("tags", df)
+
+    assert result["num_records"] == 4
+    assert result["num_null"] == 1
+    assert result["num_unique"] == 2
+    assert result["simple_dtype"] == "list[string]"
+
+
+def test_calculate_general_column_info_list_column_with_mixed_type_elements():
+    df = lazy.pd.DataFrame({"tags": [[1, "x"], ["x", 1], [2], None]})
+
+    result = calculate_general_column_info("tags", df)
+
+    assert result["num_records"] == 4
+    assert result["num_null"] == 1
+    assert result["num_unique"] == 2
+
+
+def test_ensure_hashable_keeps_sorted_output_for_comparable_elements():
+    assert ensure_hashable([3, 1, 2]) == "[1, 2, 3]"
+    assert ensure_hashable(["b", "a"]) == "['a', 'b']"
+    assert ensure_hashable({"b": 2, "a": 1}) == "[('a', 1), ('b', 2)]"
+
+
 def test_ensure_boolean():
     assert ensure_boolean(True) is True
     assert ensure_boolean(False) is False
