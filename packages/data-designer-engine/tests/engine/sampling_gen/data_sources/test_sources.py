@@ -276,6 +276,78 @@ def test_datetime_sampler_sample():
     assert all(isinstance(val, lazy.np.datetime64) for val in result)
 
 
+@pytest.mark.parametrize(
+    "start,end,unit",
+    [
+        ("2024-06-15", "2026-06-15", "Y"),
+        ("2024-01-15", "2024-04-15", "M"),
+        ("2024-01-01T12:00:00", "2024-01-05", "D"),
+        ("2024-01-01T09:30:00", "2024-01-01T15:00:00", "h"),
+        ("2024-01-01T09:30:30", "2024-01-01T10:00:00", "m"),
+        ("2024-01-01T09:30:00.500", "2024-01-01T09:31:00", "s"),
+    ],
+)
+def test_datetime_sampler_sample_respects_start_when_start_is_not_on_unit_boundary(
+    start: str, end: str, unit: str
+) -> None:
+    params = DatetimeSamplerParams(start=start, end=end, unit=unit)
+    sampler = DatetimeSampler(params=params, random_state=42)
+
+    result = sampler.sample(200)
+
+    assert (result >= lazy.np.datetime64(start)).all()
+    assert (result < lazy.np.datetime64(end)).all()
+
+
+@pytest.mark.parametrize(
+    "start,end,unit,expected",
+    [
+        ("2020-01-01", "2030-01-01", "Y", ["2026", "2027", "2024"]),
+        ("2024-01-01", "2025-01-01", "M", ["2024-12", "2024-09", "2024-07"]),
+        ("2024-01-01", "2024-02-01", "D", ["2024-01-26", "2024-01-26", "2024-01-28"]),
+        ("2024-01-01", "2024-01-02", "h", ["2024-01-01T04", "2024-01-01T00", "2024-01-01T21"]),
+        ("2024-01-01T00:00", "2024-01-01T01:00", "m", ["2024-01-01T00:52", "2024-01-01T00:58", "2024-01-01T00:14"]),
+        (
+            "2024-01-01T00:00:00",
+            "2024-01-01T00:01:00",
+            "s",
+            ["2024-01-01T00:00:38", "2024-01-01T00:00:51", "2024-01-01T00:00:28"],
+        ),
+    ],
+)
+def test_datetime_sampler_sample_keeps_seeded_output_when_start_is_on_unit_boundary(
+    start: str, end: str, unit: str, expected: list[str]
+) -> None:
+    params = DatetimeSamplerParams(start=start, end=end, unit=unit)
+    sampler = DatetimeSampler(params=params, random_state=42)
+
+    result = sampler.sample(3)
+
+    assert [str(val) for val in result] == expected
+
+
+@pytest.mark.parametrize(
+    "start,end,unit,expected",
+    [
+        ("2024-06-15", "2025-01-01T00:00:00.500", "Y", "2025"),
+        ("2024-01-15", "2024-02-01T00:00:00.500", "M", "2024-02"),
+        ("2024-01-01T12:00:00", "2024-01-02T00:00:00.500", "D", "2024-01-02"),
+        ("2024-01-01T09:30:00", "2024-01-01T10:00:00.500", "h", "2024-01-01T10"),
+        ("2024-01-01T09:30:30", "2024-01-01T09:31:00.500", "m", "2024-01-01T09:31"),
+        ("2024-01-01T09:30:00.500", "2024-01-01T09:30:01.500", "s", "2024-01-01T09:30:01"),
+    ],
+)
+def test_datetime_sampler_sample_returns_only_boundary_before_fractional_end(
+    start: str, end: str, unit: str, expected: str
+) -> None:
+    params = DatetimeSamplerParams(start=start, end=end, unit=unit)
+    sampler = DatetimeSampler(params=params, random_state=42)
+
+    result = sampler.sample(20)
+
+    assert {str(val) for val in result} == {expected}
+
+
 def test_person_sampler_setup_with_generator(stub_people_gen):
     params = PersonSamplerParams()
     people_gen_resource = {"en_US": stub_people_gen}
