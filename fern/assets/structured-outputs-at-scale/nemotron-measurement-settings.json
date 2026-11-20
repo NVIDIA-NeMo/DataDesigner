@@ -20,12 +20,47 @@
   "max_output_tokens": 4096,
   "request_timeout_seconds": 600,
   "enable_thinking": false,
-  "requested_records_per_case": 1024,
+  "requested_records_per_case": 8192,
   "trials_per_case": 1,
-  "client_max_in_flight_tasks": 1024,
-  "timing": "Supplemental reconstruction from immutable entrypoint client-start log (one-second resolution) and canonical client completion. Native rolling-probe throughput not used.",
-  "cost": "Slurm allocated GPU count times parent array-task elapsed seconds / 3600; includes startup and shutdown.",
+  "client_max_in_flight_tasks": 8192,
+  "timing": "Independent reconstruction from immutable client-start logs (one-second resolution) and canonical client completion; independent-client throughput uses earliest start to latest completion, including skew and drain.",
+  "cost": "Actual Slurm GPU count times parent array-task elapsed seconds / 3600, including all attempts, startup and shutdown. Independent comparison sums both allocations. GPU-hours are not full monetary cost.",
   "validation": "Draft 2020-12 schema validity, JSON parsing and conformance; schema wrapper unwrapped when present.",
-  "limitations": "Small single trials, no steady-state window isolation or confidence intervals. No production-scale generation or interrupted-generation resume test. Cause of observed cross-topology plateau not isolated.",
-  "projection_note": "Illustrative one-million-valid-record projection uses selected measured valid/client-second rate, allocation-start-to-client-start overhead (262s), rounded-up 4s shutdown allowance, 4h allocation budget, rounded-up whole allocations; no queue/failure/variability allowance. Not executed at production scale."
+  "limitations": "One trial per point, no confidence intervals. A 256-connection proxy ceiling limits forwarding; no hardware maximum established and no product fix included. Independent case changes client/proxy count and client CPU as well as shard size. No production-scale generation or interrupted-generation recovery test.",
+  "projection_note": "One-million-valid target: each single-allocation rate times (14400 - measured pre-client seconds - ceil(measured post-client seconds)); whole allocations rounded up. Full-budget GPU-hours reserve four hours per allocation. Excludes queues, safety margin and failures. Fixed 32-GPU budget permits four one-node or two two-node allocations at once. Untested production-scale extrapolation.",
+  "one_node_concurrency": [
+    128,
+    256,
+    512,
+    1024
+  ],
+  "two_node_concurrency": [
+    256,
+    512,
+    1024,
+    2048
+  ],
+  "independent_clients": {
+    "allocations": 2,
+    "nodes_per_allocation": 1,
+    "records_per_client": 4096,
+    "concurrency_per_client": 512,
+    "client_cpus_each": 16,
+    "seed_ranges": [
+      [
+        0,
+        4096
+      ],
+      [
+        4096,
+        8192
+      ]
+    ],
+    "client_start_skew_seconds": 5,
+    "client_overlap_seconds": 1094.4270179271698
+  },
+  "single_client_cpus": 16,
+  "max_backend_connections_per_proxy": 256,
+  "historical_cohort": "Earlier 1024-record trials used max_in_flight_tasks=1024 and are excluded from this cohort.",
+  "telemetry": "Five-second per-GPU and per-replica samples. Token rates use counter deltas. Backend request histograms exclude waiting in the proxy connector; they are not end-to-end request latency."
 }
