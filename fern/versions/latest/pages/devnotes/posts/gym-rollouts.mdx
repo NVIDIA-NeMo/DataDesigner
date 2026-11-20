@@ -1,0 +1,303 @@
+---
+title: "Collecting Agent Rollouts with NeMo Data Designer and Gym"
+description: "Use the Data Designer Gym plugin to run agents and resources from a data pipeline and keep the execution evidence with each row."
+---
+
+import { Authors } from "@/components/Authors";
+
+<Authors ids={["amanoel"]} />
+
+![The Data Designer palette mascot and a Gym robot work together at one terminal.](/assets/gym-rollouts/gym-rollout-hero-terminal.jpg)
+
+A rollout records what an agent tried, what its tools returned, and how the task ended. For post-training, rollouts give us examples of how agents use tools and recover from errors. For evaluation, the trace gives us evidence to inspect alongside a score.
+
+[NeMo Gym](https://github.com/NVIDIA-NeMo/Gym) runs agents in environments that give them tools and define how to check their work. An environment might give an agent access to an API or a workspace in a sandbox. Gym can run the interaction and return the trajectory along with an outcome such as a verifier's reward.
+
+[NeMo Data Designer](https://github.com/NVIDIA-NeMo/DataDesigner) already supports tool-use trajectories through MCP. With the [Gym plugin](https://github.com/NVIDIA-NeMo/DataDesignerPlugins/tree/main/plugins/data-designer-gym), we can now call Gym from a Data Designer column and keep the execution evidence with the row that started the call. A `gym-resource` column returns structured results from a resource or a full episode, and a `gym-harness` column returns the agent's final response with linked evidence. Downstream columns can use those results to verify a candidate, assign a score, or decide which rows to keep.
+
+{/* more */}
+
+In this example, we deliberately generate faulty Python so we can collect rollouts of an agent diagnosing and fixing a reproducible bug. We ask Kimi K3.1 Pro to inject a specific defect into each starter and keep the scripts that reproduce the expected public failure. Pi, driven by Nemotron 3.5 Lightning, works on each task in a Gym-managed Docker sandbox. We save its commands, tool outputs, and edits, then check the exported file on held-out inputs. After curation, successful trajectories can serve as supervised fine-tuning examples of debugging with tools. The same verifier can also supply a reward for reinforcement learning on new repair rollouts.
+
+![Two Data Designer runs connected by qualified tasks. The first generates Python and reproduces the bug. The second runs Pi in Gym and grades the exported repair in fresh containers.](/assets/gym-rollouts/pipeline.png)
+
+## Step 1. Build a repair task with a reproducible failure
+
+We start with one function, `dedupe(rows)`. It returns one record per `order_id`, keeping the newest `updated_at`. Distinct IDs stay in the order they first appeared. When dates tie, the first record wins.
+
+The seed rows tell Kimi which defect to inject and which implementation style to try. We used four prompts for each of three defects: always keep the first record, always keep the last record, or keep the last record when dates tie. A Data Designer LLM text column writes the result to `starter_code`. The CSV inputs and expected outputs come from fixtures we wrote.
+
+Here's the public input for `ties_keep_last-01`, a row generated from the one-pass loop prompt. The row order matters.
+
+| `order_id` | `updated_at` | `status` |
+| --- | --- | --- |
+| Z01 | 2026-10-03 | pending |
+| A01 | 2026-10-02 | packed |
+| Z01 | 2026-10-03 | shipped |
+
+Kimi generated this condition:
+
+```python
+elif row["updated_at"] >= latest[order_id]["updated_at"]:
+    latest[order_id] = row
+```
+
+The second `Z01` record replaces the first because `>=` is true on a tie. The public test expects `Z01/pending` followed by `A01/packed`, and gets `Z01/shipped` followed by `A01/packed`.
+
+We compile each starter and run its public test in a network-disabled Docker container. A row qualifies only if the code runs and produces the expected mismatch. A syntax error, an empty completion, or a passing test takes the row out of the repair run. This gives the agent a real failure to reproduce and gives us a denominator when we report how many generated tasks made it to repair.
+
+## Step 2. Collect the rollout with Gym
+
+The qualified tasks seed a second Data Designer run. The `rollout` column calls a local service through the Gym plugin. The service seeds a native Gym agent session, puts `clean.py`, `orders.csv`, and `public_test.py` into Pi's workspace, then activates Pi with the repair instructions. Each row gets its own sandbox, and all the sandboxes use the same prebuilt image.
+
+Pi gets the intended behavior and the public test. It can read files, run commands, and edit the workspace. On the `Z01` row, the `edit` tool rejected Pi's arguments. Pi applied the same change with Bash, inspected the file, and reran the test. That recovery is part of the saved rollout.
+
+![Nine observed Pi tool calls. The public test fails, the edit call is rejected, Bash applies the patch, and the public test passes. The service exports clean.py, closes Pi's sandbox, then the verifier checks the file.](/assets/gym-rollouts/rollout.png)
+
+```diff
+-        elif row["updated_at"] >= latest[order_id]["updated_at"]:
++        elif row["updated_at"] > latest[order_id]["updated_at"]:
+```
+
+The service exports the edited file before closing the session. Gym removes the sandbox on close. The dataset row keeps the rollout status and points to saved evidence. The experiment also saves the tool calls and their outputs, the edited file, and the diff by row ID.
+
+## Step 3. Grade the exported file
+
+A second `gym-resource` column checks the exported file. It reruns the public test and executes five held-out cases in fresh, network-disabled containers. The held-out cases cover newer records in both positions, equal dates, interleaved IDs and ties, and empty input. They also check that the function preserves its input.
+
+The verifier depends on the rollout's status. Here's the dependency in the Data Designer configuration. The first endpoint returns the rollout and exports the file. The second endpoint reads that file by row ID and returns the test outcome.
+
+```python
+from data_designer_gym.config import GymResourceColumnConfig
+
+builder.add_column(
+    GymResourceColumnConfig(
+        name="rollout",
+        endpoint=endpoint,
+        route="/repair",
+        row_id_column="row_id",
+        request_columns={"row_id": "row_id"},
+        max_parallel_requests=3,
+        timeout=245,
+    )
+)
+builder.add_column(
+    GymResourceColumnConfig(
+        name="verifier",
+        endpoint=endpoint,
+        route="/verify",
+        row_id_column="row_id",
+        request_columns={
+            "row_id": "row_id",
+            "repair_status": "rollout.response_json.status",
+        },
+        max_parallel_requests=3,
+        timeout=60,
+        response_protocol="gym-episode",
+    )
+)
+```
+
+### Worked example
+
+Data Designer sets `accepted` for a completed, unmasked verifier result with reward 1. Here are selected fields from the resulting row.
+
+```json
+{
+  "row_id": "ties_keep_last-01",
+  "family": "ties_keep_last",
+  "qualification": "qualified",
+  "rollout": { "status": "completed" },
+  "verifier": {
+    "episode_status": "completed",
+    "reward": 1.0,
+    "mask_sample": false
+  },
+  "accepted": true
+}
+```
+
+<details markdown>
+<summary>Full worked row with task files and tool calls</summary>
+
+```json
+{
+  "seed": {
+    "row_id": "ties_keep_last-01",
+    "family": "ties_keep_last",
+    "defect": "select the newest date, but on tied dates keep the last record",
+    "style": "one-pass loop"
+  },
+  "qualification": {
+    "status": "qualified",
+    "public_result": "PUBLIC_MISMATCH: expected [{'order_id': 'Z01', 'updated_at': '2026-10-03', 'status': 'pending'}, {'order_id': 'A01', 'updated_at': '2026-10-02', 'status': 'packed'}], got [{'order_id': 'Z01', 'updated_at': '2026-10-03', 'status': 'shipped'}, {'order_id': 'A01', 'updated_at': '2026-10-02', 'status': 'packed'}]"
+  },
+  "files": {
+    "orders.csv": "order_id,updated_at,status\nZ01,2026-10-03,pending\nA01,2026-10-02,packed\nZ01,2026-10-03,shipped\n",
+    "clean.py": "def dedupe(rows):\n    latest = {}\n    first_seen = []\n\n    for row in rows:\n        order_id = row[\"order_id\"]\n        if order_id not in latest:\n            first_seen.append(order_id)\n            latest[order_id] = row\n        elif row[\"updated_at\"] >= latest[order_id][\"updated_at\"]:\n            latest[order_id] = row\n\n    return [latest[order_id] for order_id in first_seen]\n",
+    "public_test.py": "import csv\nfrom copy import deepcopy\nfrom pathlib import Path\n\nfrom clean import dedupe\n\nwith Path(__file__).with_name(\"orders.csv\").open() as data:\n    rows = list(csv.DictReader(data))\nexpected = deepcopy([rows[0], rows[1]])\nactual = dedupe(rows)\nif actual != expected:\n    print(f\"PUBLIC_MISMATCH: expected {expected!r}, got {actual!r}\")\n    raise SystemExit(1)\nprint(\"public example passed\")\n"
+  },
+  "repair": {
+    "model": "Nemotron 3.5 Lightning",
+    "tool_calls": [
+      {
+        "tool": "read",
+        "arguments": {
+          "path": "/workspace/clean.py"
+        },
+        "output": "def dedupe(rows):\n    latest = {}\n    first_seen = []\n\n    for row in rows:\n        order_id = row[\"order_id\"]\n        if order_id not in latest:\n            first_seen.append(order_id)\n            latest[order_id] = row\n        elif row[\"updated_at\"] >= latest[order_id][\"updated_at\"]:\n            latest[order_id] = row\n\n    return [latest[order_id] for order_id in first_seen]\n"
+      },
+      {
+        "tool": "read",
+        "arguments": {
+          "path": "/workspace/public_test.py"
+        },
+        "output": "import csv\nfrom copy import deepcopy\nfrom pathlib import Path\n\nfrom clean import dedupe\n\nwith Path(__file__).with_name(\"orders.csv\").open() as data:\n    rows = list(csv.DictReader(data))\nexpected = deepcopy([rows[0], rows[1]])\nactual = dedupe(rows)\nif actual != expected:\n    print(f\"PUBLIC_MISMATCH: expected {expected!r}, got {actual!r}\")\n    raise SystemExit(1)\nprint(\"public example passed\")\n"
+      },
+      {
+        "tool": "bash",
+        "arguments": {
+          "command": "ls /workspace/"
+        },
+        "output": "clean.py\norders.csv\npublic_test.py\n"
+      },
+      {
+        "tool": "read",
+        "arguments": {
+          "path": "/workspace/orders.csv"
+        },
+        "output": "order_id,updated_at,status\nZ01,2026-10-03,pending\nA01,2026-10-02,packed\nZ01,2026-10-03,shipped\n"
+      },
+      {
+        "tool": "bash",
+        "arguments": {
+          "command": "cd /workspace && python public_test.py"
+        },
+        "output": "PUBLIC_MISMATCH: expected [{'order_id': 'Z01', 'updated_at': '2026-10-03', 'status': 'pending'}, {'order_id': 'A01', 'updated_at': '2026-10-02', 'status': 'packed'}], got [{'order_id': 'Z01', 'updated_at': '2026-10-03', 'status': 'shipped'}, {'order_id': 'A01', 'updated_at': '2026-10-02', 'status': 'packed'}]\n\n\nCommand exited with code 1"
+      },
+      {
+        "tool": "edit",
+        "arguments": {
+          "path": "/workspace/clean.py",
+          "edits": "[{\"oldText\": \"elif row[\"updated_at\"] >= latest[order_id][\"updated_at\"]:\", \"newText\": \"elif row[\"updated_at\"] > latest[order_id][\"updated_at\"]:\"}]"
+        },
+        "output": "Validation failed for tool \"edit\":\n  - edits.0: expected object, got string\n\nReceived arguments:\n{\n  \"path\": \"/workspace/clean.py\",\n  \"edits\": \"[{\\\"oldText\\\": \\\"elif row[\\\"updated_at\\\"] >= latest[order_id][\\\"updated_at\\\"]:\\\", \\\"newText\\\": \\\"elif row[\\\"updated_at\\\"] > latest[order_id][\\\"updated_at\\\"]:\\\"}]\"\n}"
+      },
+      {
+        "tool": "bash",
+        "arguments": {
+          "command": "cd /workspace && sed -i 's/elif row\\[.updated_at.\\] >= latest\\[order_id\\]\\[.updated_at.\\]/elif row[\"updated_at\"] > latest[order_id][\"updated_at\"]/' clean.py"
+        },
+        "output": "(no output)"
+      },
+      {
+        "tool": "bash",
+        "arguments": {
+          "command": "cd /workspace && cat clean.py"
+        },
+        "output": "def dedupe(rows):\n    latest = {}\n    first_seen = []\n\n    for row in rows:\n        order_id = row[\"order_id\"]\n        if order_id not in latest:\n            first_seen.append(order_id)\n            latest[order_id] = row\n        elif row[\"updated_at\"] > latest[order_id][\"updated_at\"]:\n            latest[order_id] = row\n\n    return [latest[order_id] for order_id in first_seen]\n"
+      },
+      {
+        "tool": "bash",
+        "arguments": {
+          "command": "cd /workspace && python public_test.py"
+        },
+        "output": "public example passed\n"
+      }
+    ],
+    "diff": "--- starter/clean.py\n+++ repair/clean.py\n@@ -7,7 +7,7 @@\n         if order_id not in latest:\n             first_seen.append(order_id)\n             latest[order_id] = row\n-        elif row[\"updated_at\"] >= latest[order_id][\"updated_at\"]:\n+        elif row[\"updated_at\"] > latest[order_id][\"updated_at\"]:\n             latest[order_id] = row\n \n     return [latest[order_id] for order_id in first_seen]\n",
+    "clean.py": "def dedupe(rows):\n    latest = {}\n    first_seen = []\n\n    for row in rows:\n        order_id = row[\"order_id\"]\n        if order_id not in latest:\n            first_seen.append(order_id)\n            latest[order_id] = row\n        elif row[\"updated_at\"] > latest[order_id][\"updated_at\"]:\n            latest[order_id] = row\n\n    return [latest[order_id] for order_id in first_seen]\n"
+  },
+  "verification": {
+    "public_pass": true,
+    "cases": {
+      "older_then_newer": {
+        "passed": true
+      },
+      "newer_then_older": {
+        "passed": true
+      },
+      "equal_dates_first_wins": {
+        "passed": true
+      },
+      "interleaved_ids_and_ties": {
+        "passed": true
+      },
+      "empty_input": {
+        "passed": true
+      }
+    },
+    "reward": 1.0,
+    "mask_sample": false
+  },
+  "accepted": true
+}
+```
+
+</details>
+
+## What happened in the run
+
+All 12 generated starters reproduced their public failure. Pi completed all 12 repairs, and Data Designer accepted every row after verification. We also ran the same five held-out tests against each starter, so we could compare the same inputs before and after repair.
+
+![Paired held-out results for 12 tasks. Each cell is one check on one task. The starters passed 32 of 60 checks and the repairs passed all 60.](/assets/gym-rollouts/held-out-matrix.png)
+
+The interleaved-ID case is the most revealing. It combines a later update, a newer record followed by an older one, and a tie. Zero of the 12 starters passed it. All 12 repairs did. Empty input already passed across the batch. Showing both cases makes the source of the gain easy to see.
+
+In the original hosted run on Apple Silicon, Pi took a median of 19.4 seconds per row and made a median of 10 tool calls. Repair and verification took 89.2 seconds with up to three concurrent repairs and a prebuilt image.
+
+![Pi activation time and tool-call count for each of the 12 repairs. A dashed line marks the 19.4-second median.](/assets/gym-rollouts/repair-runtime.png)
+
+<details markdown>
+<summary>Per-row measurements</summary>
+
+| Task | Pi activation (s) | Tool calls | Verification (s) |
+| --- | ---: | ---: | ---: |
+| `keep_first-01` | 16.68 | 9 | 0.47 |
+| `keep_first-02` | 19.92 | 12 | 0.57 |
+| `keep_first-03` | 19.93 | 10 | 0.54 |
+| `keep_first-04` | 28.00 | 17 | 0.41 |
+| `keep_last-01` | 21.16 | 10 | 0.44 |
+| `keep_last-02` | 20.03 | 12 | 0.56 |
+| `keep_last-03` | 28.08 | 17 | 0.47 |
+| `keep_last-04` | 16.97 | 11 | 0.42 |
+| `ties_keep_last-01` | 13.92 | 9 | 0.46 |
+| `ties_keep_last-02` | 11.79 | 9 | 0.57 |
+| `ties_keep_last-03` | 18.84 | 10 | 0.47 |
+| `ties_keep_last-04` | 14.53 | 7 | 0.41 |
+
+</details>
+
+The saved Gym responses also record the reasoning text exposed to Pi in the `summary` field of each reasoning item. We can curate and export that text with the corresponding tool calls and results for post-training.
+
+## Composing multi-step workflows
+
+A `gym-resource` column can call an individual HTTP route on a Gym service, such as `/verify` or a task-specific tool route. That lets us put Gym calls between generation steps and use the feedback to improve the next candidate.
+
+`candidate` (Data Designer) → `check` (Gym) → `revision` (Data Designer) → `recheck` (Gym)
+
+If the verifier expects a `candidate` field, set `route="/verify"` and `request_columns={"candidate": "candidate"}` on the `check` column. Give the revision prompt both the original candidate and the verifier's reply in `check.response_json`. The `recheck` column calls the same route with `request_columns={"candidate": "revision"}`.
+
+With a fixed number of passes, each step can be a column, so the candidates and check results stay together in the row. If rows need different numbers of passes, an outer loop can carry forward just the rows that need another revision.
+
+## Taking the workflow to Slurm
+
+For a larger run, [`data-designer-slurm`](/slurm/overview) can launch the starter-generation recipe on a cluster. Use a Slurm array to split the prompts into shards, then qualify the generated starters and write out the task files. Hosted generators can run from CPU allocations, and the same extension can provision vLLM servers for locally served model aliases.
+
+The repair recipe uses plugin columns, so on today's Slurm extension we'd split qualified tasks into disjoint seed shards and submit a [single-task DD run per shard](/slurm/run-configuration#scale-runs). Install the Gym plugin in the worker environment and point the columns to repair and verifier services reachable from the cluster. The services need access to the staged task files and a durable location for the exported repairs and evidence. Cap active rows per worker and size the total across runs against both model request limits and the available repair and verifier sandboxes. The measurements above are from the local run.
+
+## What's next
+
+- **Share model capacity within a worker.** A shared runtime could serve both Data Designer's model calls and Gym's model server through one request budget per endpoint, with common retry handling and usage accounting. A rate limit seen by either system would reduce the same budget. Sandbox slots would still have their own capacity limit.
+- **Manage services around a run.** A worker could start one compatible set of Gym services, wait for them to be ready, and drain and clean them up when the run ends. A reusable task bundle could carry the instructions, initial files, verifier inputs, and provenance. Each row would still get its own workspace, with an explicit session lifetime when a conversation spans multiple turns.
+- **Let Gym call Data Designer during an episode.** We also want to try the reverse direction. A Gym environment could own the rollout and call a bounded DD operation, such as generating a task variant or judging an intermediate artifact, through a resource server.
+
+## Try it yourself
+
+Inspect the [worked example](#worked-example) to see the public mismatch, tool calls, and verifier result. To run the prototype, follow the [Python repair rollout recipe](/recipes/code-generation/gym-python-repair). It includes a three-task smoke test and pins Data Designer, the Gym and plugin revisions, and Pi.
+
+The recipe uses OpenRouter for [Kimi K3.1 Pro](https://openrouter.ai/moonshotai/kimi-k3.1-pro) generation and [Nemotron 3.5 Lightning](https://openrouter.ai/nvidia/nemotron-3.5-lightning) repair. All three repairs passed the verifier in a separate OpenRouter smoke run.
+
+If you already have Harbor-format tasks, Gym's [Harbor environment server](https://github.com/NVIDIA-NeMo/Gym/tree/main/environment_servers/harbor) can read the task files, run the agent and verifier, and return a scored episode in one call. Our CSV example keeps verification as its own column so you can inspect the artifact handoff and see where the reward comes from.
+
+If you're collecting replies from a tool-using support agent, for example, use a [`gym-harness` column](https://github.com/NVIDIA-NeMo/DataDesignerPlugins/tree/main/plugins/data-designer-gym#resource-and-harness-columns). It stores the agent's final reply as text and links to the run's evidence in a companion column.

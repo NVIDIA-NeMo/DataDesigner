@@ -1,0 +1,13 @@
+row_id,family,style,qualification,repair_status,verifier_status,public_pass,held_out_pass,accepted,setup_s,agent_s,repair_s,verify_s,tool_calls,input_tokens,output_tokens,cleanup_ok
+keep_first-01,keep_first,one-pass loop,qualified,completed,passed,True,True,True,1.0579065839992836,16.67730116698658,18.104086374980398,0.4662887079757638,9,29587,2631,True
+keep_last-01,keep_last,one-pass loop,qualified,completed,passed,True,True,True,2.78118012502091,21.16419462498743,24.239852750033606,0.43850041599944234,10,33019,2376,True
+ties_keep_last-01,ties_keep_last,one-pass loop,qualified,completed,passed,True,True,True,1.8818605419946834,13.915728332998697,16.163238167006057,0.46005245798733085,9,25518,1887,True
+keep_first-02,keep_first,mapping-based loop,qualified,completed,passed,True,True,True,0.8944916659966111,19.92330387502443,21.207781207980588,0.5703742080368102,12,37056,2227,True
+keep_last-02,keep_last,mapping-based loop,qualified,completed,passed,True,True,True,0.9879955829819664,20.034919458033983,21.281011374958325,0.5590887080179527,12,47509,2961,True
+ties_keep_last-02,ties_keep_last,mapping-based loop,qualified,completed,passed,True,True,True,0.9742649159743451,11.792728542000987,13.103767958004028,0.5711446670466103,9,23185,2070,True
+keep_first-03,keep_first,two passes,qualified,completed,passed,True,True,True,1.000364457955584,19.93374050001148,21.232840166951064,0.5416064159944654,10,29822,2766,True
+keep_last-03,keep_last,two passes,qualified,completed,passed,True,True,True,2.000553750025574,28.07749983400572,30.353263332974166,0.4676373329712078,17,63880,3232,True
+ties_keep_last-03,ties_keep_last,two passes,qualified,completed,passed,True,True,True,1.2126359589747153,18.84273595799459,20.30136941699311,0.47459662501933053,10,41951,3676,True
+keep_first-04,keep_first,group records first,qualified,completed,passed,True,True,True,1.0358834579819813,28.00492837501224,29.340253375004977,0.4119071669992991,17,63645,2882,True
+keep_last-04,keep_last,group records first,qualified,completed,passed,True,True,True,1.2226645830087364,16.97206979204202,18.47393616597401,0.422466957999859,11,31173,2524,True
+ties_keep_last-04,ties_keep_last,group records first,qualified,completed,passed,True,True,True,0.928196958033368,14.528748458018526,15.748068167013116,0.40578454197384417,7,18872,1747,True

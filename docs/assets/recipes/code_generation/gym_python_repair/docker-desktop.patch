@@ -1,0 +1,32 @@
+diff --git a/responses_api_agents/pi_agent/app.py b/responses_api_agents/pi_agent/app.py
+--- a/responses_api_agents/pi_agent/app.py
++++ b/responses_api_agents/pi_agent/app.py
+@@ -1331,6 +1331,15 @@
+         env.update({k: v for k, v in self.config.env.items() if v})
+         return env
+
++    def resolve_model_base_url(
++        self, model_server_name: str, rollout_id: str | None = None, *, trace_context: bool = True
++    ) -> str:
++        url = super().resolve_model_base_url(model_server_name, rollout_id, trace_context=trace_context)
++        sandbox_host = os.environ.get("DD_GYM_POC_SANDBOX_MODEL_HOST")
++        if sandbox_host:
++            return url.replace("http://127.0.0.1:", f"http://{sandbox_host}:", 1)
++        return url
++
+     def _resolve_model_base_url(self, rollout_id: Optional[str] = None) -> str:
+         if self.config.model_server is None:
+             return ""
+diff --git a/nemo_gym/agents/utils/sandbox_session.py b/nemo_gym/agents/utils/sandbox_session.py
+--- a/nemo_gym/agents/utils/sandbox_session.py
++++ b/nemo_gym/agents/utils/sandbox_session.py
+@@ -228,7 +228,8 @@
+         self._collect = collect
+         self._stage_task = asyncio.create_task(self._stage(stage_activation))
+         try:
+-            async with asyncio.timeout_at(deadline):
++            remaining = None if deadline is None else deadline - monotonic()
++            async with asyncio.timeout(remaining):
+                 command = await asyncio.shield(self._stage_task)
+             if self._expire_requested:
+                 await self._request_expiry(timeout=close_timeout)
