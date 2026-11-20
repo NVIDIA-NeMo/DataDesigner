@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, fields
-from typing import Any, ClassVar, Protocol
+from typing import Any, ClassVar, Literal, Protocol
 
 from data_designer.engine.models.usage import TokenCountSource
 
@@ -69,6 +69,7 @@ class AssistantMessage:
 class ChatCompletionRequest:
     model: str
     messages: list[dict[str, Any]]
+    api: Literal["chat-completions", "responses"] = field(default="chat-completions", kw_only=True)
     tools: list[dict[str, Any]] | None = None
     tool_choice: str | dict[str, Any] | None = None
     n: int | None = None
@@ -87,6 +88,8 @@ class ChatCompletionRequest:
     message_replay_data: list[ProviderReplayData | None] = field(default_factory=list)
 
     def __post_init__(self) -> None:
+        if self.api not in {"chat-completions", "responses"}:
+            raise ValueError(f"Unsupported completion API: {self.api!r}")
         if self.message_replay_data and len(self.message_replay_data) != len(self.messages):
             raise ValueError("message_replay_data must match the number of messages")
 
@@ -167,7 +170,7 @@ class TransportKwargs:
     """
 
     _META_FIELDS: ClassVar[frozenset[str]] = frozenset(
-        {"extra_body", "extra_headers", "timeout", "message_replay_data"}
+        {"extra_body", "extra_headers", "timeout", "message_replay_data", "api"}
     )
 
     body: dict[str, Any]
