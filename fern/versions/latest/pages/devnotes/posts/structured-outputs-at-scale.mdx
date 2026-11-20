@@ -29,8 +29,6 @@ The original dev note describes a production pipeline with format diversity, mul
 
 Each record starts with a topic and a few sampler controls. The model generates a JSON schema, writes a conversation containing relevant information, and extracts a JSON object from that conversation. Two judge columns evaluate schema design and apparent output validity. After generation, a JSON Schema validator checks whether the output actually conforms.
 
-![The JSON demo's dependencies: topics and controls feed schema generation; schema feeds conversation and a schema-quality judge; conversation and schema feed extraction; schema and extraction feed a validity judge. Programmatic validation runs after collection.](/assets/structured-outputs-at-scale/pipeline-light.svg)
-
 There is useful parallel work here, but also real dependencies. A row's extraction needs its conversation and schema. Other rows can be at different stages. The [async engine](/dev-notes/async-all-the-way-down) overlaps ready work; Slurm gives us a way to place that workload on cluster resources.
 
 One distinction matters for this example: **we are asking the model to follow a different schema for each record.** We keep the demo's text-generation columns and validate their outputs afterward. Switching to a fixed, server-enforced output schema would change what we are measuring.
@@ -45,34 +43,9 @@ python -m pip install "data-designer[slurm]"
 
 Follow [Slurm Getting Started](/slurm/getting-started) to configure a cluster profile and register a serving image. The submit host and compute nodes must see the same Python environment and shared workspace. We'll assume those are ready below.
 
-The demo has one detail to change before exporting it: its topic seeds live in a dataframe, and its seed order is shuffled. Dataframe seeds cannot be serialized, and sharded Slurm runs require ordered, file-backed seed input.
+Export the [original JSON demo's](/dev-notes/structured-outputs-from-nemotron) recipe configuration to `builder.yaml`. Before exporting, replace its in-memory, shuffled topic seeds with an ordered, file-backed seed dataset at a shared path, such as `topics.parquet`. Sharded Slurm runs require this setup; prepare enough seed rows for the full requested record range.
 
-After building the demo's `config`, replace its seed setup with the following. Run this preparation step in the shared environment; replace the workspace path with your own.
-
-```python
-from pathlib import Path
-
-# config and seed_df come from the original JSON demo.
-workspace = Path("/workspace/alice/structured-outputs")
-workspace.mkdir(parents=True, exist_ok=True)
-
-# Give every planned record a seed row. Repeating the topic list does not
-# repeat generated records: the samplers and model still supply variation.
-total_records = 8_192
-seed_rows = seed_df.iloc[
-    [i % len(seed_df) for i in range(total_records)]
-].reset_index(drop=True)
-seed_path = workspace / "topics.parquet"
-seed_rows.to_parquet(seed_path, index=False)
-
-config.with_seed_dataset(
-    dd.LocalFileSeedSource(path=str(seed_path)),
-    sampling_strategy=dd.SamplingStrategy.ORDERED,
-)
-config.write_config(workspace / "builder.yaml")
-```
-
-This supplies the measured sweep with 8,192 seed rows. Before a larger run, prepare enough ordered seed rows for its complete requested range. We did not submit the million-record or hundred-million-record generation described later. For performance comparisons, preserve the same seed artifact, prompts, sampler distributions, inference settings, and quality checks. Stochastic generation will still vary between runs; repeat close comparisons before picking a winner.
+Keep the seed artifact, prompts, sampler distributions, inference settings, and quality checks consistent across benchmark cases. The larger-scale examples later in this post are projections based on these benchmark runs.
 
 The snippets here are configuration templates. Replace the model and image aliases with compatible resources from your cluster. For the first experiment, all generation and judging use the demo's single `nvidia-text` alias, served locally.
 
