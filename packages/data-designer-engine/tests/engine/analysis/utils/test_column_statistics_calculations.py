@@ -30,6 +30,7 @@ from data_designer.engine.analysis.utils.column_statistics_calculations import (
     ensure_boolean,
     ensure_hashable,
 )
+from data_designer.engine.utils.token_counting import count_text_tokens
 
 
 @pytest.fixture
@@ -230,6 +231,45 @@ def test_calculate_input_token_stats_respects_native_jinja_engine(
     assert result["input_tokens_mean"] == float(expected_token_count)
     assert result["input_tokens_median"] == float(expected_token_count)
     assert result["input_tokens_stddev"] == 0.0
+
+
+@pytest.mark.parametrize("jinja_rendering_engine", list(JinjaRenderingEngine))
+@pytest.mark.parametrize(
+    ("source", "prompt"),
+    [
+        ('{"text": "Synthetic test transcript."}', "{{ _detector_source.text }}"),
+        ('[{"text": "Synthetic test transcript."}]', "{{ _detector_source[0].text }}"),
+    ],
+    ids=["json-object", "json-list"],
+)
+def test_calculate_input_token_stats_deserializes_json_values(
+    source: str,
+    prompt: str,
+    jinja_rendering_engine: JinjaRenderingEngine,
+) -> None:
+    column_config = LLMTextColumnConfig(
+        name="_raw_detected_entities",
+        prompt=prompt,
+        system_prompt="{{ instructions.text }}",
+        model_alias="test_model_alias",
+    )
+    df = lazy.pd.DataFrame(
+        {
+            "_detector_source": [source],
+            "instructions": ['{"text": "Detect entities."}'],
+        }
+    )
+    original_df = df.copy(deep=True)
+
+    result = calculate_input_token_stats(column_config, df, jinja_rendering_engine=jinja_rendering_engine)
+
+    expected_tokens = count_text_tokens("Detect entities.\n\nSynthetic test transcript.")
+    assert result == {
+        "input_tokens_mean": float(expected_tokens),
+        "input_tokens_median": float(expected_tokens),
+        "input_tokens_stddev": 0.0,
+    }
+    lazy.pd.testing.assert_frame_equal(df, original_df)
 
 
 def test_calculate_output_token_stats(stub_column_config, stub_df_responses):
