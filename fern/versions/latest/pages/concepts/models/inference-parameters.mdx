@@ -151,6 +151,8 @@ The `EmbeddingInferenceParams` class controls how models generate embeddings. Th
 
 The `ImageInferenceParams` class is used for image generation models, including both diffusion models (DALL·E, Stable Diffusion, Imagen) and autoregressive models (Gemini image, GPT image). Unlike text models, image-specific options are passed entirely via `extra_body`, since they vary significantly between providers.
 
+Generated images must be returned inline as base64 data. Data Designer does not download generated-image URLs. Where a provider offers both formats, request inline output through `extra_body`: for example, `extra_body={"response_format": "b64_json"}` for providers using that value, or `extra_body={"response_format": "base64"}` for Together AI. These values are provider-specific; omit the option when the provider already returns inline images. See the [1.1.0 migration notes](/getting-started/release-notes#1-1-0-unreleased).
+
 ### Fields
 
 | Field | Type | Required | Description |

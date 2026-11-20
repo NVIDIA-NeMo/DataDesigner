@@ -771,7 +771,13 @@ class ModelFacade:
             images = [img.b64_data for img in response.images]
 
             if not images:
-                raise ImageGenerationError("No image data found in image generation response")
+                raise ImageGenerationError(
+                    "No inline image data found in image generation response. "
+                    "Data Designer does not download generated-image URLs. "
+                    "Configure the provider to return inline base64 image data (for example, "
+                    "response_format='b64_json' or 'base64', depending on the provider), "
+                    "or choose a provider that supports inline image output."
+                )
 
             got_usable_images = True
             if not skip_usage_tracking:
@@ -830,7 +836,13 @@ class ModelFacade:
             images = [img.b64_data for img in response.images]
 
             if not images:
-                raise ImageGenerationError("No image data found in image generation response")
+                raise ImageGenerationError(
+                    "No inline image data found in image generation response. "
+                    "Data Designer does not download generated-image URLs. "
+                    "Configure the provider to return inline base64 image data (for example, "
+                    "response_format='b64_json' or 'base64', depending on the provider), "
+                    "or choose a provider that supports inline image output."
+                )
 
             got_usable_images = True
             if not skip_usage_tracking:

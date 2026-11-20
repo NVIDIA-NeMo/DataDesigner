@@ -1,0 +1,44 @@
+---
+title: "Release Notes"
+description: "Compatibility changes and migration guidance for Data Designer releases."
+---
+
+# Release Notes
+
+## 1.1.0 (unreleased)
+
+### Generated images require inline data
+
+**Breaking change:** Data Designer no longer downloads HTTP(S) URLs returned by models as generated images. Providers must return inline base64 image data. This applies to both preview and dataset creation, including chained image generation and editing workflows.
+
+Removing these downloads prevents model responses from directing HTTP requests from the Data Designer host to arbitrary destinations. URL-only image responses no longer produce generated images. If no inline image is returned, generation fails with an error directing you to configure inline output or select a provider that supports it.
+
+Supported inline forms are a `b64_json` field, a raw base64 image string, and a `data:image/...;base64,...` URI. If a response contains both inline images and HTTP(S) image URLs, Data Designer uses only the inline images.
+
+#### Migration
+
+If your provider defaults to image URLs, request inline output through the image model's `extra_body`. For providers that accept `b64_json`:
+
+```python
+dd.ImageInferenceParams(
+    extra_body={"response_format": "b64_json"},
+)
+```
+
+Together AI uses a different value:
+
+```python
+dd.ImageInferenceParams(
+    extra_body={"response_format": "base64"},
+)
+```
+
+Preserve any other model-specific settings in `extra_body`. Check your provider's API documentation for the accepted value. No format option is necessary when the provider already returns inline images. Providers offering only URL-based image output require a different provider or an integration that returns inline data.
+
+Live probes using the current image recipe configurations (Gemini through OpenRouter) and image tutorial configurations (FLUX.2 Pro through OpenRouter) returned inline images for generation and editing without URL downloads. These checks used representative prompts with the examples' model settings; they do not establish compatibility for every OpenRouter model or routing configuration.
+
+#### Input image URLs remain supported
+
+URLs supplied by users through `ImageContext` are still passed to the model provider. This change removes downloads of generated-image URLs; it does not remove URL-based image input context.
+
+The unused `load_image_url_to_base64` and `aload_image_url_to_base64` utilities have also been removed from `data_designer.config.utils.media_helpers`.
