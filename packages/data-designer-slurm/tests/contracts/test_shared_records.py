@@ -98,6 +98,9 @@ def test_client_result_allows_partial_and_failure_facts_to_differ(actual_records
             }
         },
         {"completed_at": "2026-08-19T12:00:00+01:00"},
+        {"started_at": "2026-08-19T11:00:00+01:00"},
+        {"started_at": "2026-08-19T11:00:00"},
+        {"started_at": "2026-08-19T12:00:01Z"},
         {"redacted_message": "bad\nmessage"},
     ],
 )
@@ -305,3 +308,12 @@ def test_benchmark_report_rejects_duplicate_child_runs() -> None:
 
     with pytest.raises(ValidationError, match="child run IDs"):
         BenchmarkReport.model_validate_json(json.dumps(payload))
+
+
+def test_legacy_client_result_round_trips_without_adding_timing(
+    client_result_payload: dict[str, object],
+) -> None:
+    result = ClientResult.model_validate_json(json.dumps(client_result_payload))
+
+    assert result.started_at is None
+    assert json.loads(result.serialize_json()) == client_result_payload | {"error_code": None, "redacted_message": None}

@@ -249,6 +249,7 @@ class ClientWorker:
         retry_resume: ResumeMode | None = None,
     ) -> ClientResult:
         """Invoke the public Data Designer generation contract and persist its result."""
+        started_at = self._clock()
         context: _ExecutionContext | None = None
         progress: _ProgressWriter | None = None
         try:
@@ -266,7 +267,7 @@ class ClientWorker:
             try:
                 creation = self._validate_creation_result(context, prepared, results)
                 progress.required(ClientProgressPhase.FINALIZING, completed_records=creation.actual_records)
-                result = self._finalize(context, prepared, results, creation)
+                result = self._finalize(context, prepared, results, creation, started_at=started_at)
             except ClientWorkerError:
                 raise
             except Exception as error:
@@ -609,10 +610,12 @@ class ClientWorker:
         prepared: PreparedClientEnvironment,
         results: CreationResults,
         creation: _ValidatedCreation,
+        *,
+        started_at: datetime,
     ) -> ClientResult:
         dataset_path, output_paths = self._place_dataset(creation, results)
         candidate = self._build_candidate_manifest(context, prepared, creation, dataset_path, output_paths)
-        return self._publish_success(context, prepared, creation, candidate)
+        return self._publish_success(context, prepared, creation, candidate, started_at=started_at)
 
     @staticmethod
     def _validate_creation_result(
@@ -752,6 +755,8 @@ class ClientWorker:
         prepared: PreparedClientEnvironment,
         creation: _ValidatedCreation,
         candidate: CandidateOutputManifest,
+        *,
+        started_at: datetime,
     ) -> ClientResult:
         candidate_path = prepared.attempt_dir / "output-manifest.json"
         publish_private_text(candidate_path, candidate.serialize_json())
@@ -761,6 +766,7 @@ class ClientWorker:
             shard_id=context.shard.shard_id,
             attempt_id=prepared.attempt_id,
             completed_at=self._clock(),
+            started_at=started_at,
             requested_records=creation.requested_records,
             actual_records=creation.actual_records,
             outcome=(

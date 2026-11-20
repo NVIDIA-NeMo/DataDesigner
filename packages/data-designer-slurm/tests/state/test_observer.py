@@ -401,6 +401,66 @@ def test_benchmark_observer_reads_complete_measurements_from_ordinary_state(
     assert observation.measurements.wall_seconds == 300
 
 
+@pytest.mark.parametrize("refresh_state", [False, True], ids=["persisted", "refreshed"])
+@pytest.mark.parametrize("probe_seconds_after_start", [239, 270], ids=["near-completion", "after-completion"])
+def test_benchmark_timings_ignore_rolling_health_probes(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+    fake_slurm_runner: FakeSlurmRunner,
+    refresh_state: bool,
+    probe_seconds_after_start: int,
+) -> None:
+    case = _initialized_case(tmp_path, authored_run_single, single_node_plan)
+    _publish_ready_state(case, case.attempt)
+    _publish_winner_state(case)
+    readiness = case.writer.load_readiness(case.shard.shard_id, case.attempt.attempt_id)
+    observed_at = case.attempt.created_at + timedelta(seconds=probe_seconds_after_start)
+    case.writer.write_readiness(
+        readiness.model_copy(
+            update={
+                "revision": readiness.revision + 1,
+                "updated_at": observed_at,
+                "deployments": tuple(
+                    deployment.model_copy(
+                        update={"last_probe": deployment.last_probe.model_copy(update={"observed_at": observed_at})}
+                    )
+                    for deployment in readiness.deployments
+                ),
+            }
+        )
+    )
+    SlurmCommandClient(fake_slurm_runner).submit("run.sbatch")
+    fake_slurm_runner.set_task_state(
+        cast(SchedulerIdentity, case.attempt.scheduler), queue_state=None, accounting_state="COMPLETED"
+    )
+    observation = PersistedBenchmarkRunObserver(
+        case.workspace, SlurmCommandClient(fake_slurm_runner), lambda: case.created_at + timedelta(minutes=8)
+    ).observe(case.plan.run_id, refresh_state=refresh_state)
+
+    assert observation.outcome is BenchmarkOutcome.SUCCEEDED
+    assert observation.measurements is not None
+    assert observation.measurements.boot_seconds == 60
+    assert observation.measurements.generation_seconds == 60
+    assert observation.measurements.wall_seconds == 180
+
+
+def test_legacy_client_results_do_not_guess_generation_start_from_probes(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    case = _initialized_case(tmp_path, authored_run_single, single_node_plan)
+    _publish_ready_state(case, case.attempt)
+    _publish_winner_state(case, record_client_start=False)
+    observation = PersistedBenchmarkRunObserver(
+        case.workspace, _StaticSchedulerClient((), ()), lambda: case.created_at + timedelta(minutes=8)
+    ).observe(case.plan.run_id, refresh_state=False)
+
+    assert observation.outcome is BenchmarkOutcome.SUCCEEDED
+    assert observation.measurements is None
+
+
 def test_benchmark_observer_excludes_queue_stagger_from_cross_shard_timings(
     tmp_path: Path,
     authored_run: DataDesignerSlurmConfig,
@@ -1107,6 +1167,7 @@ def _publish_winner_state(
     *,
     completed_at: datetime | None = None,
     stopped_at: datetime | None = None,
+    record_client_start: bool = True,
 ) -> tuple[AttemptManifest, ShardWinner]:
     attempt = case.attempt if attempt is None else attempt
     result_completed_at = completed_at or attempt.created_at + timedelta(minutes=4)
@@ -1147,12 +1208,22 @@ def _publish_winner_state(
         provenance_digest=case.plan.compute_sha256(),
     )
     candidate_reference = ArtifactReference(path=candidate_path.as_posix(), sha256=candidate.compute_sha256())
+    readiness_path = candidate_path.parent / "readiness.json"
+    client_started_at = None
+    if record_client_start and readiness_path.exists():
+        readiness = AttemptReadiness.model_validate_json(readiness_path.read_text())
+        client_started_at = max(
+            deployment.last_probe.observed_at
+            for deployment in readiness.deployments
+            if deployment.last_probe is not None
+        )
     result = ClientResult(
         schema_version=1,
         run_id=case.plan.run_id,
         shard_id=running.shard_id,
         attempt_id=running.attempt_id,
         completed_at=result_completed_at,
+        started_at=client_started_at,
         requested_records=requested,
         actual_records=requested,
         outcome=ClientOutcome.COMPLETE,

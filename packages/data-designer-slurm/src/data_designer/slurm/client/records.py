@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from enum import Enum
 from typing import TYPE_CHECKING, Annotated, Literal
 
-from pydantic import NonNegativeInt, PositiveInt, StringConstraints, field_validator, model_validator
+from pydantic import Field, NonNegativeInt, PositiveInt, StringConstraints, field_validator, model_validator
 
 from data_designer.slurm.contracts import (
     ArtifactReference,
@@ -191,6 +191,7 @@ class ClientResult(ContractRecord):
     shard_id: ShardId
     attempt_id: AttemptId
     completed_at: datetime
+    started_at: datetime | None = Field(default=None, exclude_if=lambda value: value is None)
     requested_records: PositiveInt
     actual_records: NonNegativeInt | None
     outcome: ClientOutcome
@@ -201,6 +202,13 @@ class ClientResult(ContractRecord):
     candidate_output_manifest: ArtifactReference | None = None
     error_code: Identifier | None = None
     redacted_message: Annotated[str, StringConstraints(max_length=512)] | None = None
+
+    @field_validator("started_at")
+    @classmethod
+    def validate_started_at(cls, value: datetime | None) -> datetime | None:
+        if value is not None and (value.tzinfo is None or value.utcoffset() != timedelta(0)):
+            raise ValueError("started_at must be timezone-aware UTC")
+        return value
 
     @field_validator("completed_at")
     @classmethod
@@ -223,6 +231,8 @@ class ClientResult(ContractRecord):
 
     @model_validator(mode="after")
     def validate_outcome(self) -> ClientResult:
+        if self.started_at is not None and self.started_at > self.completed_at:
+            raise ValueError("started_at must not be later than completed_at")
         if self.actual_records is not None and self.actual_records > self.requested_records:
             raise ValueError("actual_records must not exceed requested_records")
         if self.requested_resume_mode == "never" and self.effective_resume_mode not in {None, "never"}:
