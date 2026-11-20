@@ -10,6 +10,8 @@ import httpx
 import pytest
 import requests
 
+from data_designer.config.models import ImageInferenceParams, ModelConfig, ModelProvider
+from data_designer.engine.model_provider import ModelProviderRegistry
 from data_designer.engine.models.clients.adapters.http_model_client import ClientConcurrencyMode
 from data_designer.engine.models.clients.adapters.openai_compatible import OpenAICompatibleClient
 from data_designer.engine.models.clients.parsing import (
@@ -19,6 +21,7 @@ from data_designer.engine.models.clients.parsing import (
     parse_image_payload,
 )
 from data_designer.engine.models.clients.types import ImageGenerationRequest
+from data_designer.engine.models.facade import ModelFacade
 from tests.engine.models.clients.conftest import make_mock_async_client, make_mock_sync_client
 
 INLINE_IMAGE = "aW1hZ2VkYXRh" * 10
@@ -135,4 +138,56 @@ async def test_image_generation_responses_use_only_inline_images(
     result = await client.agenerate_image(request) if is_async else client.generate_image(request)
 
     assert [image.b64_data for image in result.images] == ([INLINE_IMAGE] if include_inline else [])
+    assert media_downloads == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("is_async", [False, True], ids=["sync", "async"])
+@pytest.mark.parametrize(
+    ("model", "extra_body", "route"),
+    [
+        ("gpt-image-1.5", {"size": "1024x1024", "quality": "high"}, "/images/generations"),
+        ("black-forest-labs/flux.2-pro", {"height": 512, "width": 512}, "/chat/completions"),
+    ],
+)
+async def test_documented_image_models_request_inline_output_on_their_supported_route(
+    is_async: bool, model: str, extra_body: dict[str, str | int], route: str, media_downloads: list[str]
+) -> None:
+    raw_images = [{"b64_json": INLINE_IMAGE}]
+    response = (
+        {"data": raw_images} if route == "/images/generations" else {"choices": [{"message": {"images": raw_images}}]}
+    )
+    http_client = make_mock_async_client(response) if is_async else make_mock_sync_client(response)
+    provider = ModelProvider(name="example", endpoint="https://provider.example.com/v1")
+    client = OpenAICompatibleClient(
+        provider_name=provider.name,
+        endpoint=provider.endpoint,
+        concurrency_mode=ClientConcurrencyMode.ASYNC if is_async else ClientConcurrencyMode.SYNC,
+        async_client=http_client if is_async else None,
+        sync_client=http_client if not is_async else None,
+    )
+    facade = ModelFacade(
+        model_config=ModelConfig(
+            alias="image",
+            model=model,
+            provider=provider.name,
+            inference_parameters=ImageInferenceParams(extra_body=extra_body),
+        ),
+        model_provider_registry=ModelProviderRegistry(providers=[provider]),
+        client=client,
+    )
+
+    images = (
+        await facade.agenerate_image(prompt="Draw a circle")
+        if is_async
+        else facade.generate_image(prompt="Draw a circle")
+    )
+
+    assert images == [INLINE_IMAGE]
+    assert http_client.post.call_args.args[0] == provider.endpoint + route
+    payload = http_client.post.call_args.kwargs["json"]
+    assert payload["model"] == model
+    for key, value in extra_body.items():
+        assert payload[key] == value
+    assert "response_format" not in payload
     assert media_downloads == []

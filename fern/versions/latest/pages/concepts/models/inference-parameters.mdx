@@ -176,13 +176,13 @@ dd.ModelConfig(
     ),
 )
 
-# Diffusion model (e.g., DALL·E, Stable Diffusion)
+# OpenAI image model (images API, returns inline base64)
 dd.ModelConfig(
-    alias="dalle",
-    model="dall-e-3",
+    alias="openai-image",
+    model="gpt-image-1.5",
     provider="openai",
     inference_parameters=dd.ImageInferenceParams(
-        extra_body={"size": "1024x1024", "quality": "hd"}
+        extra_body={"size": "1024x1024", "quality": "high"}
     ),
 )
 ```
