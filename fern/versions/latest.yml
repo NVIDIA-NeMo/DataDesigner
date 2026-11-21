@@ -203,6 +203,8 @@ navigation:
     contents:
       - page: Overview
         path: ./latest/pages/devnotes/index.mdx
+      - page: Make Every GPU-Hour Count
+        path: ./latest/pages/devnotes/posts/structured-outputs-at-scale.mdx
       - page: Chart Understanding
         path: ./latest/pages/devnotes/posts/chart-understanding.mdx
       - page: Nemotron Indic Translation
