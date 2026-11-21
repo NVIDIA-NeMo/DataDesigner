@@ -2,7 +2,7 @@
   "model": "nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-BF16",
   "model_revision": "fb0ee0bc6b3f70342afd8d84cb80dbadbaa8a1fe",
   "precision": "BF16",
-  "data_designer_version": "1.0.0",
+  "data_designer_version": "1.0.0+perf.fixes.20261120",
   "vllm_version": "0.32.0",
   "serving_image_sha256": "76e4de10b195f99a773e7664665211652179b18b445f948f0158e9ccaedbbc64",
   "hardware": "8 H100 80 GB GPUs per node",
@@ -23,10 +23,10 @@
   "requested_records_per_case": 8192,
   "trials_per_case": 1,
   "client_max_in_flight_tasks": 8192,
-  "timing": "Independent reconstruction from immutable client-start logs (one-second resolution) and canonical client completion; independent-client throughput uses earliest start to latest completion, including skew and drain.",
+  "timing": "Canonical ClientResult.started_at/completed_at timestamps, independently checked against immutable entrypoint logs and native report rates. Independent-client throughput uses earliest start to latest completion, including skew and drain.",
   "cost": "Actual Slurm GPU count times parent array-task elapsed seconds / 3600, including all attempts, startup and shutdown. Independent comparison sums both allocations. GPU-hours are not full monetary cost.",
   "validation": "Draft 2020-12 schema validity, JSON parsing and conformance; schema wrapper unwrapped when present.",
-  "limitations": "One trial per point, no confidence intervals. A 256-connection proxy ceiling limits forwarding; no hardware maximum established and no product fix included. Independent case changes client/proxy count and client CPU as well as shard size. No production-scale generation or interrupted-generation recovery test.",
+  "limitations": "One trial per point, no confidence intervals. Isolated experimental build includes timing PR1173 and proxy PR1174; not a released version. Proxy connector has no imposed active-connection cap. Highest tested concurrency is not an absolute maximum. Independent case changes client/proxy count and client CPU as well as shard size. No production-scale generation or interrupted-generation recovery test.",
   "projection_note": "One-million-valid target: each single-allocation rate times (14400 - measured pre-client seconds - ceil(measured post-client seconds)); whole allocations rounded up. Full-budget GPU-hours reserve four hours per allocation. Excludes queues, safety margin and failures. Fixed 32-GPU budget permits four one-node or two two-node allocations at once. Untested production-scale extrapolation.",
   "one_node_concurrency": [
     128,
@@ -56,11 +56,21 @@
         8192
       ]
     ],
-    "client_start_skew_seconds": 5,
-    "client_overlap_seconds": 1094.4270179271698
+    "client_start_skew_seconds": 11.276446104049683,
+    "client_overlap_seconds": 1116.0902559757233
   },
   "single_client_cpus": 16,
-  "max_backend_connections_per_proxy": 256,
-  "historical_cohort": "Earlier 1024-record trials used max_in_flight_tasks=1024 and are excluded from this cohort.",
-  "telemetry": "Five-second per-GPU and per-replica samples. Token rates use counter deltas. Backend request histograms exclude waiting in the proxy connector; they are not end-to-end request latency."
+  "max_backend_connections_per_proxy": null,
+  "historical_cohort": "Prior 8192-record trials used the released runtime with a 256-connection proxy cap; earlier 1024-record trials also changed the pipeline window. Neither is pooled with this fixed-runtime cohort.",
+  "telemetry": "Five-second per-GPU and per-replica samples. Token rates use counter deltas. Backend request histograms exclude waiting in the proxy connector; they are not end-to-end request latency.",
+  "runtime_source": {
+    "base_release": "1.0.0",
+    "base_commit": "017687a1c21251d94e29688e48cde14b03762206",
+    "timing_fix_pr": "https://github.com/NVIDIA-NeMo/DataDesigner/pull/1173",
+    "timing_fix_commit": "ed3ed17d3ac2cb5d81fc836ce4d397d80c798925",
+    "proxy_fix_pr": "https://github.com/NVIDIA-NeMo/DataDesigner/pull/1174",
+    "proxy_fix_commit": "44a480cf5fa8191de2fcc094daccab2f8567a771",
+    "status": "Unmerged experimental build at measurement time; only four Slurm Python files differ from the baseline and all other dependency versions are pinned."
+  },
+  "proxy_connector_limit": 0
 }
