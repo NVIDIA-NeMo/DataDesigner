@@ -3,7 +3,10 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
+
 import pytest
+from pydantic import BaseModel, Field
 
 from data_designer.engine.processing.gsonschema.validators import JSONSchemaValidationError, validate
 
@@ -449,3 +452,51 @@ def test_normalize_decimal_anyof_fields() -> None:
     result3 = validate({"name": "Gizmo", "price": "249.99"}, schema)
     assert result3["price"] == 249.99
     assert isinstance(result3["price"], float)
+
+
+class _LineItem(BaseModel):
+    name: str
+    price: Decimal = Field(decimal_places=2)
+
+
+class _Order(BaseModel):
+    total: Decimal = Field(decimal_places=2)
+    item: _LineItem
+    backup_item: _LineItem | None = None
+    items: list[_LineItem]
+
+
+def test_normalize_decimal_fields_in_nested_models() -> None:
+    """Decimal fields of nested, optional and list-item models are normalized like top-level ones."""
+    data = {
+        "total": "10.50",
+        "item": {"name": "pen", "price": "3.25"},
+        "backup_item": {"name": "pencil", "price": 1.005},
+        "items": [{"name": "ink", "price": 7.257}, {"name": "pad", "price": 2}],
+    }
+
+    result = validate(data, _Order.model_json_schema(), pruning=True, no_extra_properties=True)
+
+    assert result == {
+        "total": 10.5,
+        "item": {"name": "pen", "price": 3.25},
+        "backup_item": {"name": "pencil", "price": 1.01},
+        "items": [{"name": "ink", "price": 7.26}, {"name": "pad", "price": 2.0}],
+    }
+    assert isinstance(result["item"]["price"], float)
+    assert all(isinstance(item["price"], float) for item in result["items"])
+
+
+def test_normalize_decimal_fields_uses_the_nested_schema() -> None:
+    """A nested field is not normalized because a top-level field with the same name is a Decimal."""
+
+    class Inner(BaseModel):
+        code: str
+
+    class Outer(BaseModel):
+        code: Decimal = Field(decimal_places=1)
+        inner: Inner
+
+    result = validate({"code": 1.25, "inner": {"code": "2.25"}}, Outer.model_json_schema())
+
+    assert result == {"code": 1.3, "inner": {"code": "2.25"}}

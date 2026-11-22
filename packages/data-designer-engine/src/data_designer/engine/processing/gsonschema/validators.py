@@ -210,22 +210,44 @@ def _get_decimal_info_from_anyof(schema: dict) -> tuple[bool, int | None]:
 
 def normalize_decimal_fields(obj: DataObjectT, schema: JSONSchemaT) -> DataObjectT:
     """Normalize Decimal-like anyOf fields to floats with proper precision."""
+    return _normalize_decimal_fields(obj, schema, schema.get("$defs", {}))
+
+
+def _resolve_local_ref(schema_part: Any, defs: dict) -> dict:
+    if not isinstance(schema_part, dict):
+        return {}
+    ref = schema_part.get("$ref")
+    if isinstance(ref, str) and ref.startswith("#/$defs/"):
+        return defs.get(ref[len("#/$defs/") :], {})
+    return schema_part
+
+
+def _object_schema(schema_part: Any, defs: dict) -> dict:
+    """Return the object schema for a nested value, looking through `$ref` and `anyOf` (e.g. `Model | None`)."""
+    resolved = _resolve_local_ref(schema_part, defs)
+    if "properties" in resolved:
+        return resolved
+    for alternative in resolved.get("anyOf", []):
+        candidate = _resolve_local_ref(alternative, defs)
+        if "properties" in candidate:
+            return candidate
+    return resolved
+
+
+def _normalize_decimal_fields(obj: DataObjectT, obj_schema: JSONSchemaT, defs: dict) -> DataObjectT:
     if not isinstance(obj, dict):
         return obj
 
-    defs = schema.get("$defs", {})
-    obj_schema = defs.get(schema.get("$ref", "")[len("#/$defs/") :], schema)
-    props = obj_schema.get("properties", {})
+    props = _object_schema(obj_schema, defs).get("properties", {})
 
     for key, value in obj.items():
-        field_schema = props.get(key, {})
-        if "$ref" in field_schema:
-            field_schema = defs.get(field_schema["$ref"][len("#/$defs/") :], {})
+        field_schema = _resolve_local_ref(props.get(key, {}), defs)
 
         if isinstance(value, dict):
-            obj[key] = normalize_decimal_fields(value, schema)
+            obj[key] = _normalize_decimal_fields(value, field_schema, defs)
         elif isinstance(value, list):
-            obj[key] = [normalize_decimal_fields(v, schema) if isinstance(v, dict) else v for v in value]
+            item_schema = _object_schema(field_schema, defs).get("items", {})
+            obj[key] = [_normalize_decimal_fields(v, item_schema, defs) if isinstance(v, dict) else v for v in value]
         elif isinstance(value, (int, float, str)) and not isinstance(value, bool):
             is_decimal, decimal_places = _get_decimal_info_from_anyof(field_schema)
             if is_decimal:
