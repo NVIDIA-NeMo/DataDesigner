@@ -76,7 +76,7 @@ deployments:
         name: vllm
       startup_timeout: 20m
       extra_args: [
-        --max-model-len, "16384", --max-num-seqs, "128",
+        --max-model-len, "16384", --max-num-seqs, "8192",
         --gpu-memory-utilization, "0.90", --enforce-eager,
         --trust-remote-code, --reasoning-parser, nemotron_v3,
         --limit-mm-per-prompt, '{"image":0,"video":0}'
@@ -91,6 +91,8 @@ submission:
 ```
 
 The cluster profile requests eight GPUs per node. With TP4 and the default PP1, each node runs two independent replicas; two nodes run four. The model must support this topology and fit within four GPUs per replica.
+
+`--max-num-seqs` limits active sequences **per replica**. Keep it fixed across the sweep and large enough to cover the largest client concurrency you plan to test. Here, 8,192 covers the sweep below and possible extensions, even if requests are unevenly distributed across replicas. This removes that setting as a lower concurrency ceiling; available KV cache and token budgets can still limit execution.
 
 Create `benchmark-one-node.yaml`:
 
@@ -135,6 +137,10 @@ The analyzer reports outcomes, timing, throughput, and projected allocation coun
 For measurement, we submitted equivalent individual built-in cases sequentially, interleaving the matched pairs with a 90-second cooldown between allocations. Every case used `max_in_flight_tasks: 8192`. Earlier exploratory 1,024-record samples used a limit of 1,024; they are excluded from the results below because both sample length and this control changed.
 
 ## Tune Each Topology Before Comparing Them
+
+<Note>
+The results and projections below are from the earlier run with `max_num_seqs=128` per replica. A rerun with the revised value of 8,192 is in progress. The earlier plateau reflects that serving configuration and does not establish the GPUs' maximum throughput.
+</Note>
 
 **Tune concurrency for each topology, then compare useful operating points.** The topology includes the generation clients and request proxies as well as model replicas.
 
