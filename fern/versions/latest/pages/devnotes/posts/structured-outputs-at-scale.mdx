@@ -39,7 +39,7 @@ Export the JSON demo's recipe configuration to `builder.yaml`. Before exporting,
 
 Keep the seed artifact, prompts, sampler distributions, inference settings, and quality checks consistent across benchmark cases. The larger-scale examples later in this post are projections based on these benchmark runs.
 
-All generation and judging use the demo's single `nvidia-text` alias, served locally. Replace the example workspace path and serving-image alias with resources available on your cluster.
+Following the demo, the three generation columns and two judge columns share the `nvidia-text` model alias. In this benchmark, all five use the same locally served Nemotron model. Replace the example workspace path and serving-image alias with resources available on your cluster.
 
 ## Benchmark the Pipeline You Intend to Run
 
