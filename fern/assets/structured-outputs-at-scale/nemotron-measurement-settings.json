@@ -13,7 +13,7 @@
   "eager_execution": true,
   "speculative_decoding": false,
   "max_model_len": 16384,
-  "max_num_seqs_per_replica": 128,
+  "max_num_seqs_per_replica": 8192,
   "gpu_memory_utilization": 0.9,
   "temperature": 0.6,
   "top_p": 0.95,
@@ -23,11 +23,11 @@
   "requested_records_per_case": 8192,
   "trials_per_case": 1,
   "client_max_in_flight_tasks": 8192,
-  "timing": "Canonical ClientResult.started_at/completed_at timestamps, independently checked against immutable entrypoint logs and native report rates. Independent-client throughput uses earliest start to latest completion, including skew and drain.",
-  "cost": "Actual Slurm GPU count times parent array-task elapsed seconds / 3600, including all attempts, startup and shutdown. Independent comparison sums both allocations. GPU-hours are not full monetary cost.",
+  "timing": "Canonical ClientResult.started_at/completed_at, cross-checked against immutable entrypoint log ordering and native benchmark rates for all eight built-in cases. Independent-client throughput uses earliest start to latest completion, including start skew and drain.",
+  "cost": "Actual Slurm GPU count times each actual array-task elapsed seconds / 3600, including all attempts, startup and shutdown. Both independent task IDs are charged once; parent summaries are not double counted. GPU-hours are not full monetary cost. The eight-record smoke gate is excluded from comparative trial totals.",
   "validation": "Draft 2020-12 schema validity, JSON parsing and conformance; schema wrapper unwrapped when present.",
-  "limitations": "One trial per point, no confidence intervals. Isolated experimental build includes timing PR1173 and proxy PR1174; not a released version. Proxy connector has no imposed active-connection cap. Highest tested concurrency is not an absolute maximum. Independent case changes client/proxy count and client CPU as well as shard size. No production-scale generation or interrupted-generation recovery test.",
-  "projection_note": "One-million-valid target: each single-allocation rate times (14400 - measured pre-client seconds - ceil(measured post-client seconds)); whole allocations rounded up. Full-budget GPU-hours reserve four hours per allocation. Excludes queues, safety margin and failures. Fixed 32-GPU budget permits four one-node or two two-node allocations at once. Untested production-scale extrapolation.",
+  "limitations": "One trial per point, no confidence intervals. Experimental build includes timing PR1173 and proxy PR1174; not a released version. Connector limit0 removes its active-connection cap; the separate backend waiting-request guard remains128. Physical KV/token budgets and adaptive client backoff also affect execution. Highest tested ceiling is not a hardware maximum. Independent comparison changes client/proxy count, client CPU and shard size. No production-scale generation or interrupted-generation recovery test.",
+  "projection_note": "Untested one-million-valid projections: rate times (14400 - measured pre-client seconds - ceil(measured post-client seconds)); whole allocations rounded up. Full-budget GPU-hours reserve four hours per allocation. Excludes queue wait, safety margin, failures and scaling variability. Four fixed allocation slots compare32 versus64 simultaneous GPUs; a fixed32-GPU budget permits four one-node or two two-node allocations.",
   "one_node_concurrency": [
     128,
     256,
@@ -56,13 +56,14 @@
         8192
       ]
     ],
-    "client_start_skew_seconds": 11.276446104049683,
-    "client_overlap_seconds": 1116.0902559757233
+    "client_start_skew_seconds": 1.6950428485870361,
+    "client_overlap_seconds": 942.8440051078796,
+    "output_seed_values_match_ordered_input_slices": true
   },
   "single_client_cpus": 16,
   "max_backend_connections_per_proxy": null,
-  "historical_cohort": "Prior 8192-record trials used the released runtime with a 256-connection proxy cap; earlier 1024-record trials also changed the pipeline window. Neither is pooled with this fixed-runtime cohort.",
-  "telemetry": "Five-second per-GPU and per-replica samples. Token rates use counter deltas. Backend request histograms exclude waiting in the proxy connector; they are not end-to-end request latency.",
+  "historical_cohort": "Earlier cohorts used max_num_seqs=128 per replica; older released-runtime trials also had a 256-connection proxy cap or a smaller client window. All remain separate and are excluded from this cohort and its frontier.",
+  "telemetry": "Five-second per-GPU and per-replica samples; ten-second client progress. Token rates use counter deltas. Backend request histograms include server queues and describe completing requests, not full pipeline latency. Both full-client and central60% descriptive windows were checked; central windows do not establish steady state. Proxy diagnostic counts are the last observed counters within each client interval.",
   "runtime_source": {
     "base_release": "1.0.0",
     "base_commit": "017687a1c21251d94e29688e48cde14b03762206",
@@ -72,5 +73,24 @@
     "proxy_fix_commit": "44a480cf5fa8191de2fcc094daccab2f8567a771",
     "status": "Unmerged experimental build at measurement time; only four Slurm Python files differ from the baseline and all other dependency versions are pinned."
   },
-  "proxy_connector_limit": 0
+  "proxy_connector_limit": 0,
+  "max_waiting_requests_per_replica": 128,
+  "queue_retry_after_seconds": 1,
+  "client_concurrency_semantics": "Configured per-alias concurrency ceilings, shared across all five model columns. Queue-admission HTTP 429s can trigger client AIMD backoff and deferred retries; the ceiling is not a constant achieved concurrency.",
+  "seed_sha256": "7772c95210b51aa06b8234444bcbf18f2e00ad63139747446f5866e9e30580e6",
+  "verified_trials": {
+    "core_cases": 8,
+    "independent_clients": 2,
+    "gpu_allocations": 10,
+    "generated": 73728,
+    "schema_valid": 73439,
+    "actual_allocated_gpu_hours": 62.87111111111111,
+    "allocation_retries": 0
+  },
+  "extension_rule": {
+    "minimum_latest_healthy_valid_rate_gain": 0.1,
+    "minimum_schema_valid_yield": 0.98,
+    "optional_cases_executed": [],
+    "reason": "Neither topology improved valid throughput by10% at the final primary step; all four further candidates were skipped."
+  }
 }

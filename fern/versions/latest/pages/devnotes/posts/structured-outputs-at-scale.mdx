@@ -75,6 +75,9 @@ deployments:
       image:
         name: vllm
       startup_timeout: 20m
+      queue_backpressure:
+        max_waiting_requests: 128
+        retry_after_seconds: 1
       extra_args: [
         --max-model-len, "16384", --max-num-seqs, "8192",
         --gpu-memory-utilization, "0.90", --enforce-eager,
@@ -118,7 +121,7 @@ analysis:
 
 Copy it to `benchmark-two-nodes.yaml`, change the name and deployment case to `two-nodes`, set `nodes: 2`, and use `concurrency_values: [256, 512, 1024, 2048]`. This gives eight cases with 8,192 requested records each and matched pairs that double both compute and configured concurrency.
 
-The client limit applies to the `nvidia-text` alias within a task, shared by all five model columns. Adding replicas does not automatically increase that limit. The sweep keeps TP and PP from the base run; use separate base runs to compare different TP sizes.
+The client concurrency ceiling applies to the `nvidia-text` alias within a task, shared by all five model columns. Adding replicas does not automatically increase that ceiling. The sweep keeps TP and PP from the base run; use separate base runs to compare different TP sizes.
 
 ```bash
 data-designer slurm benchmark run benchmark-one-node.yaml
@@ -138,44 +141,38 @@ For measurement, we submitted equivalent individual built-in cases sequentially,
 
 ## Tune Each Topology Before Comparing Them
 
-<Note>
-The results and projections below are from the earlier run with `max_num_seqs=128` per replica. A rerun with the revised value of 8,192 is in progress. The earlier plateau reflects that serving configuration and does not establish the GPUs' maximum throughput.
-</Note>
-
 **Tune concurrency for each topology, then compare useful operating points.** The topology includes the generation clients and request proxies as well as model replicas.
 
-We used [Nemotron 3.5 Super VL 120B-A12B BF16](https://huggingface.co/nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-BF16), an isolated Data Designer build based on 1.0.0 with the [timing change](https://github.com/NVIDIA-NeMo/DataDesigner/pull/1173) and [proxy change](https://github.com/NVIDIA-NeMo/DataDesigner/pull/1174), and vLLM 0.32.0. One node ran two TP4 replicas; two nodes ran four. PP was one and expert parallelism was off.
+We used [Nemotron 3.5 Super VL 120B-A12B BF16](https://huggingface.co/nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-BF16), vLLM 0.32.0, and experimental Data Designer wheels version `1.0.0+perf.fixes.20261120`: release 1.0.0 plus the [timing change](https://github.com/NVIDIA-NeMo/DataDesigner/pull/1173) and [proxy change](https://github.com/NVIDIA-NeMo/DataDesigner/pull/1174). Both changes were unmerged when measured; reproducing this cohort requires both. One node ran two TP4 replicas; two nodes ran four. PP was one and expert parallelism was off.
 
-These measurements used experimental wheels, version `1.0.0+perf.fixes.20261120`, before either change was merged. Reproducing these results requires a build containing both changes; they do not describe the released 1.0.0 runtime. All other dependency versions, model settings, and input seeds matched the preceding 8,192-record cohort, which is kept separate.
+Serving used eager execution, a 16,384-token context, and `max_num_seqs=8192` per replica, with images, video, and speculative decoding disabled. The separate backend queue guard stayed at 128 waiting requests per replica. All five model columns kept temperature 0.6, top-p 0.95, a 4,096-token output limit, a 600-second timeout, and thinking disabled. The [experiment settings](/assets/structured-outputs-at-scale/nemotron-measurement-settings.json) include the pinned model revision, serving-image digest, and remaining controls.
 
-Serving used eager execution, a 16,384-token context, and `max_num_seqs=128` per replica, with images, video, and speculative decoding disabled. All five model columns kept temperature 0.6, top-p 0.95, a 4,096-token output limit, a 600-second timeout, and thinking disabled. The [experiment settings](/assets/structured-outputs-at-scale/nemotron-measurement-settings.json) include the pinned model revision, serving-image digest, and remaining controls.
-
-| Nodes | Replicas | Client concurrency | Valid / 8,192 | Generated/s | Valid/s | GPU-h / 1,000 valid |
-| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1 | 2 | 128 | 8156 | 1.968 | 1.959 | 1.212 |
-| 1 | 2 | 256 | 8162 | 3.749 | 3.735 | 0.669 |
-| 1 | 2 | 512 | 8154 | 3.797 | 3.779 | 0.665 |
-| 1 | 2 | 1024 | 8166 | 3.672 | 3.660 | 0.677 |
-| 2 | 4 | 256 | 8149 | 4.004 | 3.983 | 1.346 |
-| 2 | 4 | 512 | 8152 | 7.012 | 6.978 | 0.860 |
-| 2 | 4 | 1024 | 8152 | 7.119 | 7.084 | 0.844 |
-| 2 | 4 | 2048 | 8159 | 5.783 | 5.759 | 0.994 |
+| Nodes / client ceiling | Valid / 8,192 | Valid/s | GPU-h / 1,000 valid |
+| --- | ---: | ---: | ---: |
+| 1 / 128 | 8169 | 2.124 | 1.121 |
+| 1 / 256 | 8168 | 3.737 | 0.666 |
+| 1 / 512 | 8155 | 4.503 | 0.568 |
+| 1 / 1024 | 8162 | 4.279 | 0.595 |
+| 2 / 256 | 8156 | 3.952 | 1.345 |
+| 2 / 512 | 8156 | 6.915 | 0.861 |
+| 2 / 1024 | 8156 | 8.278 | 0.772 |
+| 2 / 2048 | 8158 | 4.985 | 1.115 |
 
 Each row uses one client and is one trial. Rates cover its full client interval, including pipeline fill, drain, and output work, after serving startup. Canonical timestamps retain subsecond resolution; the immutable entrypoint logs provide a separate ordering check. Cost is actual allocated GPU-hours from Slurm accounting, including startup and shutdown, divided by schema-valid outputs.
 
 ![Matched node and concurrency scaling, plus a comparison of one-node, two-node single-client, and two independent one-node client throughput.](/assets/structured-outputs-at-scale/throughput.png)
 
-The matched pairs show why both compute and concurrency matter. **One node at concurrency 256 delivered 3.74 valid records/s; two nodes at 512 delivered 6.98, a 1.87× increase.** At 512 versus 1,024, the corresponding rates were 3.78 and 7.08, again about 1.87×. The lower-load 128/256 pair achieved 2.03×.
+The matched pairs show why both compute and concurrency matter. **One node at a ceiling of 256 delivered 3.74 valid records/s; two nodes at 512 delivered 6.91, a 1.85× increase.** At 512 versus 1,024, the corresponding rates were 4.50 and 8.28, about 1.84×. The lower-load 128/256 pair achieved 1.86×.
 
 ### Find What Limits Concurrency
 
-The proxy imposed no active backend-connection cap in this cohort. At concurrency 512 on two nodes, telemetry showed about 503 running requests across four replicas, with no sustained server queue. Increasing to 1,024 kept about 508 running while roughly 507 waited inside the model servers. The per-replica `max_num_seqs=128` setting stayed fixed.
+The proxy imposed no active backend-connection cap, and `max_num_seqs=8192` stayed fixed throughout this cohort. At the useful higher-load points—512 on one node and 1,024 on two—the central 60% of each client interval showed about **155 running and 99 waiting requests per replica**, with KV cache about 99% occupied. Available memory and token budgets still constrained execution below the configured sequence ceiling.
 
-That additional queue barely increased throughput. One node gained **1.2%** from concurrency 256 to 512; two nodes gained **1.5%** from 512 to 1,024. The next doubling reduced measured valid throughput to 3.66 and 5.76 records/s, respectively. More admitted requests did not create more model execution capacity.
+One node gained **20.5%** from a client ceiling of 256 to 512; two nodes gained **19.7%** from 512 to 1,024. The next doubling triggered the separate backend queue guard, producing HTTP 429 responses and client backoff. A configured client ceiling therefore does not mean that many requests remain in flight throughout the run. All requested rows eventually completed, but valid throughput fell to **4.28 and 4.98 records/s**, respectively—about 5% and 40% below the preceding points.
 
 The highest configured limits tested were **1,024 on one node and 2,048 on two**, and every case generated all requested records. These are successful tested limits, not absolute maxima. We stopped further doubling under the planned rule because the latest step failed to improve valid throughput by 10%. There was no failed allocation or observed timeout boundary.
 
-Near the useful concurrency knee, mean backend request latency was about **13 seconds**, with histogram-estimated p95 around **27–28 seconds**. Doubling concurrency beyond that raised the mean to about **26 seconds** and p95 to about **39–40 seconds**, for little throughput gain. These histograms describe requests completing at the model servers, including their queues; they are not full pipeline latency. Schema-valid yield stayed above 99.4% in every case; semantic quality still needs separate checks.
+At the lower limits of 256 on one node and 512 on two, mean backend request latency was about **13 seconds**, with histogram-estimated p95 around **28 seconds**. At the faster 512/1,024 points, the mean was **21–22 seconds** and p95 **36–38 seconds**. These histograms describe requests completing at the model servers, including their queues; they are not full pipeline latency. Schema-valid yield stayed above 99.5% in every case; semantic quality still needs separate checks.
 
 ### Scale Independent Clients Too
 
@@ -183,17 +180,17 @@ We then split the same 8,192 seed rows into **two disjoint 4,096-row shards**, e
 
 To reproduce this comparison, use `run.yaml` with `num_records: 8192`, `nvidia-text: 512`, and `array_tasks: {count: 2, max_concurrent: 2}`. Keep the same `run_config` and ordered seed artifact.
 
-The clients started 11.3 seconds apart and overlapped for 1,116 seconds. Together they generated all 8,192 records, of which 8,160 passed validation:
+The clients started 1.7 seconds apart and overlapped for 943 seconds. Together they generated all 8,192 records, of which 8,159 passed validation:
 
-| Deployment | Clients / proxies | Valid/s | Allocated GPU-h | GPU-h / 1,000 valid |
-| --- | ---: | ---: | ---: | ---: |
-| One node, concurrency 512 | 1 | 3.779 | 5.422 | 0.665 |
-| Two nodes, concurrency 1024 | 1 | 7.084 | 6.880 | 0.844 |
-| Two independent one-node jobs, 512 each | 2 | 7.094 | 6.251 | 0.766 |
+| Deployment | Valid/s | Allocated GPU-h | GPU-h / 1,000 valid |
+| --- | ---: | ---: | ---: |
+| One node, ceiling 512 | 4.503 | 4.631 | 0.568 |
+| Two nodes, ceiling 1024 | 8.278 | 6.293 | 0.772 |
+| Two independent one-node jobs, 512 each | 8.564 | 5.404 | 0.662 |
 
 Aggregate throughput uses total valid records divided by the interval from the earliest client start to the latest completion, including start skew and drain. GPU cost sums both allocations. Actual output seed columns matched the two ordered input slices.
 
-**Both 16-GPU layouts delivered about 1.88× the valid throughput of one eight-GPU job.** Their aggregate rates differed by less than 0.2%, so these single trials provide no evidence of a meaningful throughput advantage for separate clients. The independent pair used fewer allocated GPU-hours in this run. It also changed client CPU, startup behavior, and shard length, so that cost difference is observational.
+**The 16-GPU layouts delivered 1.84–1.90× the valid throughput of one eight-GPU job.** The independent pair measured 3.5% more throughput than the two-node single client and used fewer allocated GPU-hours. These single trials do not establish a reliable throughput advantage: client CPU, startup behavior, and shard length also changed.
 
 ### The Observed Frontier
 
@@ -201,11 +198,11 @@ A configuration is on the observed Pareto frontier if no other tested configurat
 
 ![Per-topology observed Pareto frontiers, with the independent-client operating point shown alongside the two-node single-client cases.](/assets/structured-outputs-at-scale/pareto.png)
 
-Within the one-node sweep, concurrency **512** was the measured frontier point; within the two-node sweep, it was **1024**. But **256 on one node and 512 on two** delivered within 1.6% of those rates with much shorter request queues. Those lower limits are useful operating knees when latency or headroom matters. Single-trial differences do not establish an exact optimum.
+Within the one-node sweep, a ceiling of **512** was the measured frontier point; within the two-node sweep, it was **1024**. The lower limits of **256 on one node and 512 on two** delivered about 83% of those rates with shorter request queues and lower request latency. Choose within that range according to throughput, latency, and headroom needs. Single-trial differences do not establish an exact optimum.
 
-Across all tested layouts, the nondominated points were **one node at 512** for lower measured GPU cost per valid record, and **two independent one-node clients at 512 each** for higher throughput. The independent pair cost about **15% more per valid record** than the one-node trial while delivering about **88% more throughput**. The two-node single-client point delivered essentially the same rate as the pair at a higher measured cost in this trial. Treat their tiny rate difference as sampling variation, not a capacity ranking.
+Across all tested layouts, the nondominated points were **one node at 512** for lower measured GPU cost per valid record, and **two independent one-node clients at 512 each** for higher throughput. The independent pair cost about **17% more per valid record** than the one-node trial while delivering about **90% more throughput**. The two-node single-client point had a slightly lower observed rate and higher measured cost than the pair. Repeated trials are needed before treating that difference as a capacity ranking.
 
-All ten benchmark allocations completed without a retry: eight core allocations and the two independent shards. Of **73,728 generated records, 73,410 passed schema validation (99.57%)**. Download the [measurement summary](/assets/structured-outputs-at-scale/nemotron-benchmark-summary.csv) for counts, timing, cost, and telemetry. These are observational single trials without confidence intervals. Earlier results measured with the capped proxy are excluded from this frontier.
+All ten benchmark allocations completed without an allocation retry: eight core allocations and the two independent shards. Of **73,728 generated records, 73,439 passed schema validation (99.61%)**. Download the [measurement summary](/assets/structured-outputs-at-scale/nemotron-benchmark-summary.csv) for counts, timing, cost, and telemetry. These are observational single trials without confidence intervals. Earlier cohorts with different serving or proxy limits are excluded from this frontier.
 
 ### How Many Jobs Reach the Target?
 
@@ -219,21 +216,22 @@ allocations needed = ceil(1,000,000 / valid records per allocation)
 
 Using a rounded-up shutdown allowance gives these illustrative single-allocation projections:
 
-| Nodes / allocation | Concurrency | Valid / 4h allocation | Allocations needed | GPUs if all run together | Full-budget GPU-h |
-| ---: | ---: | ---: | ---: | ---: | ---: |
-| 1 | 128 | 27,652 | 37 | 296 | 1,184 |
-| 1 | 256 | 52,769 | 19 | 152 | 608 |
-| 1 | 512 | 53,352 | 19 | 152 | 608 |
-| 2 | 256 | 55,675 | 18 | 288 | 1,152 |
-| 2 | 512 | 97,620 | 11 | 176 | 704 |
-| 2 | 1024 | 99,191 | 11 | 176 | 704 |
-| 2 | 2048 | 80,587 | 13 | 208 | 832 |
+| Nodes / client ceiling | Valid / 4h allocation | Allocations needed | Full-budget GPU-h |
+| --- | ---: | ---: | ---: |
+| 1 / 128 | 29,998 | 34 | 1,088 |
+| 1 / 256 | 52,828 | 19 | 608 |
+| 1 / 512 | 63,613 | 16 | 512 |
+| 1 / 1024 | 60,422 | 17 | 544 |
+| 2 / 256 | 55,305 | 19 | 1,216 |
+| 2 / 512 | 96,803 | 11 | 704 |
+| 2 / 1024 | 115,630 | 9 | 576 |
+| 2 / 2048 | 69,740 | 15 | 960 |
 
-The count depends on the measured rate, validation yield, startup, and rounding. Full-budget GPU-hours reserve four hours for every allocation, separate from the actual trial costs above. For the same target, moving from one-node concurrency 512 to two-node concurrency 1,024 projects to **19 versus 11 allocations**. Each two-node allocation uses twice the GPUs, so fewer jobs does not mean less total compute.
+The count depends on the measured rate, validation yield, startup, and rounding. Full-budget GPU-hours reserve four hours for every allocation, separate from the actual trial costs above. For the same target, moving from one-node ceiling 512 to two-node ceiling 1,024 projects to **16 versus 9 allocations**, reserving **512 versus 576 GPU-hours**. Each two-node allocation uses twice the GPUs.
 
-**With four parallel allocation slots**, the one-node layout needs five four-hour waves, or **20 execution hours**, with at most **32 GPUs**. The two-node layout needs three waves, or **12 execution hours**, with at most **64 GPUs**. This is the case for adding compute when finishing sooner matters.
+**With four parallel allocation slots**, the one-node layout needs four four-hour waves, or **16 execution hours**, with at most **32 GPUs**. The two-node layout needs three waves, or **12 execution hours**, with at most **64 GPUs**. This is the case for adding compute when finishing sooner matters.
 
-**With a fixed 32-GPU budget**, four one-node jobs fit at once, but only two two-node jobs do. The projection becomes **20 versus 24 execution hours**. Here the extra GPUs per job reduce the number of jobs that can run simultaneously, so the larger allocation does not win on completion time. Independent one-node shards offer another way to increase total parallelism when allocation slots are available.
+**With a fixed 32-GPU budget**, four one-node jobs fit at once, but only two two-node jobs do. The projection becomes **16 versus 20 execution hours**. Here the extra GPUs per job reduce the number of jobs that can run simultaneously, so the larger allocation does not win on completion time. Independent one-node shards offer another way to increase total parallelism when allocation slots are available.
 
 For this workload, start near the observed concurrency knee and choose how to add compute: more replicas per allocation, more independent allocations, or both. We measured at most 16 simultaneous GPUs and two independent clients; the projected larger fleets still need validation on the intended cluster.
 
@@ -245,7 +243,7 @@ We sampled every allocated GPU at five-second intervals and collected per-replic
 
 ![Similar mean GPU busy time across cases despite substantial differences in aggregate generated-token throughput.](/assets/structured-outputs-at-scale/gpu-utilization.svg)
 
-On one node, increasing concurrency from 128 to 256 left mean GPU busy time almost unchanged at **80–81%**, while valid throughput increased **91%** and allocated GPU-hours per valid record fell **45%**. Busy time alone would have missed that improvement. On two nodes, increasing concurrency from 256 to 512 changed mean busy time only from about **79% to 77%**, while aggregate generated-token throughput rose from about **2,384 to 4,188 tokens/s**.
+On one node, increasing the client ceiling from 128 to 256 left mean GPU busy time almost unchanged at about **81%**, while valid throughput increased **76%** and allocated GPU-hours per valid record fell **41%**. Busy time alone would have missed that improvement. On two nodes, increasing the ceiling from 256 to 512 changed mean busy time only from about **78% to 77%**, while aggregate generated-token throughput rose from about **2,359 to 4,149 tokens/s**.
 
 Memory occupancy can mostly be weights and reserved cache, and NVML busy time is not achieved FLOPS. Read it alongside **valid records/second, allocated GPU-hours per valid record, and the queues between clients and model servers**. No single utilization percentage tells us whether extra compute is doing useful work.
 
@@ -285,7 +283,7 @@ array_tasks:
   max_concurrent: 4
 ```
 
-Copy the selected base configuration to `production-run.yaml`, then replace `invocation` and add `array_tasks` as shown above. It requests 8,000 records per shard. The 125 shorter shards trade additional startup overhead for headroom compared with the 19 full-budget one-node allocations in the projection. This split targets one million requested records, so validation losses would require additional generation to reach one million accepted records. Prepare seeds covering the full requested range before using it.
+Copy the selected base configuration to `production-run.yaml`, then replace `invocation` and add `array_tasks` as shown above. It requests 8,000 records per shard. The 125 shorter shards trade additional startup overhead for headroom compared with the 16 full-budget one-node allocations in the projection. This split targets one million requested records, so validation losses would require additional generation to reach one million accepted records. Prepare seeds covering the full requested range before using it.
 
 Each task starts the complete deployment set. With one eight-GPU node per task, four active tasks reserve 32 GPUs. With two such nodes per task, they reserve 64. `max_concurrent` limits active allocations, subject to Slurm scheduling; it does not control the replicas inside each allocation.
 
@@ -324,7 +322,7 @@ By default, retry selects failed or incomplete shards and uses `--resume if_poss
 
 **A retry starts new model servers.** It can reuse compatible, durable generation progress; in-flight requests and unsaved work may need to be regenerated. An interrupted job does not automatically receive another allocation: submit the managed retry.
 
-The benchmark cases needed no retry. The diagram above illustrates the supported resume mechanism; this experiment did not measure recovery after interrupted generation. See [Retry and Collection](/slurm/retry-and-collection) for shard selection and stricter resume modes.
+The benchmark allocations needed no managed retry. The diagram above illustrates the supported resume mechanism; this experiment did not measure recovery after interrupted generation. See [Retry and Collection](/slurm/retry-and-collection) for shard selection and stricter resume modes.
 
 ## Collect First. Count Accepted Records Second.
 
