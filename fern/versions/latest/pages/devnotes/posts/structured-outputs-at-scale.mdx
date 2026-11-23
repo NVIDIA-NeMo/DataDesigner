@@ -19,13 +19,13 @@ These questions are part of building synthetic data at scale. With `data-designe
 
 ## The Pipeline We're Scaling
 
-We'll use the smaller JSON demo from [Structured Outputs for Nemotron](/dev-notes/structured-outputs-from-nemotron). Each record has five model-generated columns: a schema, a conversation, extracted JSON, and two judgments covering the schema and output. Programmatic JSON Schema validation runs after generation.
+We'll use the smaller JSON demo from [Structured Outputs for Nemotron](/dev-notes/structured-outputs-from-nemotron). Each record has five model-generated columns: a schema, a conversation, extracted JSON, and two judgments covering the schema and output.
 
 Extraction depends on the conversation and schema, while other rows can be at different stages. The [async engine](/dev-notes/async-all-the-way-down) overlaps ready work across rows. These dependencies make full-pipeline throughput more useful than an isolated model's tokens-per-second number.
 
-Each record has a different generated schema. We keep the demo's text-generation columns and validate afterward; a fixed, server-enforced output schema would change the workload.
+For each record, the model first generates a JSON Schema, then extracts JSON that should conform to that schema. As in the demo, the model returns the JSON as text, and a validator checks it against that record's schema after generation.
 
-## Make the Pipeline Portable
+## Prepare the Pipeline for Slurm
 
 Install the optional extension in a shared Python environment:
 
@@ -42,6 +42,8 @@ Keep the seed artifact, prompts, sampler distributions, inference settings, and 
 All generation and judging use the demo's single `nvidia-text` alias, served locally. Replace the example workspace path and serving-image alias with resources available on your cluster.
 
 ## Benchmark the Pipeline You Intend to Run
+
+Every pipeline places different demands on the model servers and client. Prompts, response lengths, column dependencies, and validation steps all affect how quickly it produces usable records. Benchmark the exact pipeline and model settings you intend to run, with representative seed data, so you can choose concurrency and deployment settings from measurements of your workload.
 
 The built-in Slurm benchmark runs the pipeline across combinations of concurrency and deployment settings. Start with a managed run configuration, then describe the sweep.
 
