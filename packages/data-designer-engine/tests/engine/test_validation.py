@@ -24,6 +24,7 @@ from data_designer.config.processors import (
     SchemaTransformProcessorConfig,
 )
 from data_designer.config.utils.code_lang import CodeLang
+from data_designer.config.utils.trace_type import TraceType
 from data_designer.config.validator_params import CodeValidatorParams
 from data_designer.engine.validation import (
     Violation,
@@ -36,6 +37,7 @@ from data_designer.engine.validation import (
     validate_drop_columns_processor,
     validate_expression_references,
     validate_prompt_templates,
+    validate_sampler_references,
     validate_schema_transform_processor,
     validate_skip_references,
 )
@@ -124,6 +126,7 @@ ALLOWED_REFERENCE = [c.name for c in COLUMNS]
 @patch("data_designer.engine.validation.validate_code_validation")
 @patch("data_designer.engine.validation.validate_expression_references")
 @patch("data_designer.engine.validation.validate_skip_references")
+@patch("data_designer.engine.validation.validate_sampler_references")
 @patch("data_designer.engine.validation.validate_columns_not_all_dropped")
 @patch("data_designer.engine.validation.validate_drop_columns_processor")
 @patch("data_designer.engine.validation.validate_schema_transform_processor")
@@ -131,6 +134,7 @@ def test_validate_data_designer_config(
     mock_validate_schema_transform_processor: Mock,
     mock_validate_drop_columns_processor: Mock,
     mock_validate_columns_not_all_dropped: Mock,
+    mock_validate_sampler_references: Mock,
     mock_validate_skip_references: Mock,
     mock_validate_expression_references: Mock,
     mock_validate_code_validation: Mock,
@@ -193,11 +197,21 @@ def test_validate_data_designer_config(
         )
     ]
 
+    mock_validate_sampler_references.return_value = [
+        Violation(
+            column="test_column",
+            type=ViolationType.SAMPLER_REFERENCE_INVALID,
+            message="test error message",
+            level=ViolationLevel.ERROR,
+        )
+    ]
+
     violations = validate_data_designer_config(COLUMNS, PROCESSOR_CONFIGS, ALLOWED_REFERENCE)
-    assert len(violations) == 7
+    assert len(violations) == 8
     mock_validate_columns_not_all_dropped.assert_called_once()
     mock_validate_expression_references.assert_called_once()
     mock_validate_skip_references.assert_called_once()
+    mock_validate_sampler_references.assert_called_once()
     mock_validate_code_validation.assert_called_once()
     mock_validate_prompt_templates.assert_called_once()
     mock_validate_drop_columns_processor.assert_called_once()
@@ -601,3 +615,144 @@ def test_validate_skip_on_sampler_seed() -> None:
     assert len(violations) == 1
     assert violations[0].type == ViolationType.SKIP_ON_SAMPLER_SEED
     assert violations[0].column == "sampler_with_skip"
+
+
+SAMPLER_REFERENCE_COLUMNS = [
+    SeedDatasetColumnConfig(name="seed_date"),
+    ExpressionColumnConfig(name="expr_value", expr="{{ seed_date }}"),
+    SamplerColumnConfig(name="category", sampler_type="category", params={"values": ["a", "b"]}),
+    SamplerColumnConfig(
+        name="start_date", sampler_type="datetime", params={"start": "2024-01-01", "end": "2025-01-01"}
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    "sampler_column,reference,reference_type",
+    [
+        (
+            SamplerColumnConfig(
+                name="sampler",
+                sampler_type="timedelta",
+                params={"dt_min": 1, "dt_max": 5, "reference_column_name": "seed_date"},
+            ),
+            "seed_date",
+            "seed-dataset",
+        ),
+        (
+            SamplerColumnConfig(
+                name="sampler",
+                sampler_type="timedelta",
+                params={"dt_min": 1, "dt_max": 5, "reference_column_name": "start_date"},
+                conditional_params={
+                    "category == 'a'": {"dt_min": 1, "dt_max": 5, "reference_column_name": "seed_date"},
+                },
+            ),
+            "seed_date",
+            "seed-dataset",
+        ),
+        (
+            SamplerColumnConfig(
+                name="sampler",
+                sampler_type="uniform",
+                params={"low": 0, "high": 1},
+                conditional_params={"expr_value == 'x'": {"low": 1, "high": 2}},
+            ),
+            "expr_value",
+            "expression",
+        ),
+        (
+            SamplerColumnConfig(
+                name="sampler",
+                sampler_type="subcategory",
+                params={"category": "seed_date", "values": {"x": ["y"]}},
+            ),
+            "seed_date",
+            "seed-dataset",
+        ),
+        (
+            SamplerColumnConfig(
+                name="sampler",
+                sampler_type="uniform",
+                params={"low": 0, "high": 1},
+                conditional_params={"(seed_date | jsonpath('$.enabled')) == [true]": {"low": 1, "high": 2}},
+            ),
+            "seed_date",
+            "seed-dataset",
+        ),
+    ],
+    ids=["timedelta", "conditional_timedelta", "condition", "subcategory", "jsonpath_condition"],
+)
+def test_validate_sampler_references_non_sampler_column(
+    sampler_column: SamplerColumnConfig, reference: str, reference_type: str
+) -> None:
+    violations = validate_sampler_references([*SAMPLER_REFERENCE_COLUMNS, sampler_column])
+    assert len(violations) == 1
+    assert violations[0].type == ViolationType.SAMPLER_REFERENCE_INVALID
+    assert violations[0].level == ViolationLevel.ERROR
+    assert violations[0].column == "sampler"
+    assert f"'{reference}', which is a '{reference_type}' column" in violations[0].message
+
+
+@pytest.mark.parametrize("reference", ["answer__reasoning_content", "answer__trace"])
+@pytest.mark.parametrize("enabled", [True, False])
+def test_validate_sampler_references_side_effect_columns(reference: str, enabled: bool) -> None:
+    answer = LLMTextColumnConfig(
+        name="answer",
+        model_alias=STUB_MODEL_ALIAS,
+        prompt="Tell a story",
+        extract_reasoning_content=enabled,
+        with_trace=TraceType.LAST_MESSAGE if enabled else TraceType.NONE,
+    )
+    sampler = SamplerColumnConfig(
+        name="sampler",
+        sampler_type="uniform",
+        params={"low": 0, "high": 1},
+        conditional_params={f"{reference} == 'x'": {"low": 1, "high": 2}},
+    )
+    (violation,) = validate_sampler_references([answer, sampler])
+    assert violation.type == ViolationType.SAMPLER_REFERENCE_INVALID
+    if enabled:
+        assert f"'{reference}', which is a 'llm-text' column" in violation.message
+    else:
+        assert f"missing column '{reference}'" in violation.message
+
+
+def test_validate_sampler_references_missing_column() -> None:
+    sampler_column = SamplerColumnConfig(
+        name="sampler",
+        sampler_type="uniform",
+        params={"low": 0, "high": 1},
+        conditional_params={"ghost > 1": {"low": 1, "high": 2}},
+    )
+    violations = validate_sampler_references([*SAMPLER_REFERENCE_COLUMNS, sampler_column])
+    assert len(violations) == 1
+    assert violations[0].type == ViolationType.SAMPLER_REFERENCE_INVALID
+    assert violations[0].column == "sampler"
+    assert "missing column 'ghost'" in violations[0].message
+
+
+def test_validate_sampler_references_valid() -> None:
+    columns = [
+        *SAMPLER_REFERENCE_COLUMNS,
+        SamplerColumnConfig(
+            name="end_date",
+            sampler_type="timedelta",
+            params={"dt_min": 1, "dt_max": 5, "reference_column_name": "start_date"},
+            conditional_params={
+                "category == 'a'": {"dt_min": 5, "dt_max": 10, "reference_column_name": "start_date"},
+            },
+        ),
+        SamplerColumnConfig(
+            name="subcategory",
+            sampler_type="subcategory",
+            params={"category": "category", "values": {"a": ["x"], "b": ["y"]}},
+        ),
+        SamplerColumnConfig(
+            name="unparsable_condition",
+            sampler_type="uniform",
+            params={"low": 0, "high": 1},
+            conditional_params={"category ==": {"low": 1, "high": 2}},
+        ),
+    ]
+    assert validate_sampler_references(columns) == []

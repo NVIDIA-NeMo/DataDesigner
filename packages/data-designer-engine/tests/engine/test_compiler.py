@@ -224,6 +224,43 @@ def test_validation_errors(resource_provider: ResourceProvider) -> None:
     assert "validation errors" in str(excinfo)
 
 
+@pytest.mark.parametrize(
+    "sampler_column",
+    [
+        SamplerColumnConfig(
+            name="delivery_date",
+            sampler_type=SamplerType.TIMEDELTA,
+            params={"dt_min": 1, "dt_max": 5, "reference_column_name": "order_date"},
+        ),
+        SamplerColumnConfig(
+            name="shipping",
+            sampler_type=SamplerType.CATEGORY,
+            params={"values": ["standard"]},
+            conditional_params={"order_date > '2024-06-01'": {"values": ["express"]}},
+        ),
+    ],
+    ids=["timedelta_reference", "conditional_params"],
+)
+def test_compile_rejects_sampler_referencing_seed_column(
+    stub_resource_provider: ResourceProvider, sampler_column: SamplerColumnConfig
+) -> None:
+    source = DataFrameSeedSource(df=lazy.pd.DataFrame({"order_date": ["2024-01-01", "2024-07-01"]}))
+    reader = DataFrameSeedReader()
+    reader.attach(source, PlaintextResolver())
+    stub_resource_provider.seed_reader = reader
+    builder = DataDesignerConfigBuilder()
+    builder.with_seed_dataset(source)
+    builder.add_column(sampler_column)
+
+    with patch("data_designer.engine.compiler.rich_print_violations") as mock_print:
+        with pytest.raises(InvalidConfigError, match="validation errors"):
+            compile_data_designer_config(builder.build(), stub_resource_provider)
+
+    violations = mock_print.call_args.args[0]
+    assert [(v.column, v.type) for v in violations] == [(sampler_column.name, ViolationType.SAMPLER_REFERENCE_INVALID)]
+    assert "'order_date', which is a 'seed-dataset' column" in violations[0].message
+
+
 def test_adds_id_column_when_no_sampler_and_no_seed_dataset(stub_resource_provider: ResourceProvider) -> None:
     """Test that a UUID '_internal_row_id' column is automatically added when there's no sampler column or seed dataset."""
     builder = DataDesignerConfigBuilder()
