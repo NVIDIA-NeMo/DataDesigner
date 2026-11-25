@@ -645,6 +645,7 @@ class ModelConfig(ConfigBase):
             The generation_type is determined by the type of inference_parameters.
         provider: Name of the model provider. Must match the ``name`` field of a
             ``ModelProvider`` registered with the surrounding ``DataDesigner`` instance.
+        api: API used by generation: "chat-completions" (default) or "responses".
         skip_health_check: Whether to skip the health check for this model. Defaults to False.
     """
 
@@ -653,6 +654,13 @@ class ModelConfig(ConfigBase):
     inference_parameters: InferenceParamsT = Field(default_factory=ChatCompletionInferenceParams)
     provider: str
     skip_health_check: bool = False
+    api: Literal["chat-completions", "responses"] = "chat-completions"
+
+    @model_validator(mode="after")
+    def validate_api_generation_type(self) -> Self:
+        if self.api == "responses" and self.generation_type != GenerationType.CHAT_COMPLETION:
+            raise ValueError("api=responses requires chat-completion inference parameters.")
+        return self
 
     @property
     def generation_type(self) -> GenerationType:

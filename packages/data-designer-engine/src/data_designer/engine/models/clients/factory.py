@@ -8,7 +8,7 @@ from data_designer.engine.errors import DataDesignerError
 from data_designer.engine.model_provider import ModelProviderRegistry
 from data_designer.engine.models.clients.adapters.anthropic import AnthropicClient
 from data_designer.engine.models.clients.adapters.http_model_client import ClientConcurrencyMode
-from data_designer.engine.models.clients.adapters.openai_compatible import OpenAICompatibleClient
+from data_designer.engine.models.clients.adapters.openai_responses import OpenAIResponsesClient
 from data_designer.engine.models.clients.base import ModelClient
 from data_designer.engine.models.clients.model_request_executor import ModelRequestExecutor
 from data_designer.engine.models.clients.retry import RetryConfig
@@ -64,7 +64,7 @@ def create_model_client(
             types (``"openai"``, ``"anthropic"``).
 
     Routing logic:
-    1. If ``provider_type == "openai"`` → ``OpenAICompatibleClient``.
+    1. If ``provider_type == "openai"`` → ``OpenAIResponsesClient`` (both APIs).
     2. If ``provider_type == "anthropic"`` → ``AnthropicClient``.
     3. Otherwise → ``DataDesignerError``.
     """
@@ -76,7 +76,7 @@ def create_model_client(
     adapter_retry_config = _NO_TRANSPORT_RETRY_CONFIG if request_admission is not None else retry_config
 
     if provider.provider_type == "openai":
-        client: ModelClient = OpenAICompatibleClient(
+        client: ModelClient = OpenAIResponsesClient(
             provider_name=provider.name,
             endpoint=provider.endpoint,
             api_key=api_key,

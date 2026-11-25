@@ -837,3 +837,9 @@ def test_get_formatted_params_minimal():
     # Should have generation_type and max_parallel_requests (defaults)
     assert any("generation_type=chat-completion" in part for part in result)
     assert any("max_parallel_requests=4" in part for part in result)
+
+
+@pytest.mark.parametrize("params", [{"generation_type": "embedding"}, {"generation_type": "image"}])
+def test_responses_requires_chat_inference_parameters(params: dict) -> None:
+    with pytest.raises(ValueError, match="requires chat-completion"):
+        ModelConfig(alias="test", model="test", provider="openai", api="responses", inference_parameters=params)

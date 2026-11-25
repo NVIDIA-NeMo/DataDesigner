@@ -151,6 +151,20 @@ def test_changing_model_identity_changes_hash() -> None:
     assert _compute_hash(a) != _compute_hash(b)
 
 
+def test_default_model_api_preserves_historical_hash() -> None:
+    assert _compute_hash(_make_minimal_config()) == (
+        "sha256:b21a98e06ea3c84c8fac9fe5231e68b0bfcffe03283952b03e807baba17139dc"
+    )
+
+
+def test_changing_model_api_changes_hash() -> None:
+    model = _make_model()
+    responses = model.model_copy(update={"api": "responses"})
+    assert _compute_hash(_make_minimal_config(model_configs=[model])) != _compute_hash(
+        _make_minimal_config(model_configs=[responses])
+    )
+
+
 def test_changing_temperature_changes_hash() -> None:
     a = _make_minimal_config()
     b = _make_minimal_config(
