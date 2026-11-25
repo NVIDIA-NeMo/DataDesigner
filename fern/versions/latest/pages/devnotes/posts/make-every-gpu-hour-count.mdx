@@ -322,7 +322,7 @@ Check the collected row count against your target. Some shards may produce fewer
 
 ## So What Did We Learn?
 
-For this model, TP8 reduced the memory used by model weights and left more room for concurrent requests. We used the measured throughput and GPU cost to plan job size and parallelism for our pipeline.
+Before committing to a million-row production run, we compared configurations on this pipeline using smaller, 8,192-record benchmarks. With a 32-GPU budget, we’d choose six one-node TP8 jobs at a client concurrency of 2,048. Running up to four jobs at once, we project **180 GPU-hours** and **7 h 31 min** to generate one million rows, excluding queue wait.
 
 Here are some takeaways:
 
