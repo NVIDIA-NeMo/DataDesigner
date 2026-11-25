@@ -248,7 +248,7 @@ GPU-hours include startup and shutdown. Two trials returned 8,191 records each (
 
 ### How Many Jobs Reach the Target?
 
-To estimate how many four-hour jobs we need for **one million generated records**, subtract measured startup and shutdown time from four hours, then multiply the remaining seconds by the measured records/s. Round the number of jobs up. Each array task counts as one job.
+We first estimate how many jobs we need to reach our record target, since each job must finish within its wall-time limit. With four hours per job, including startup and shutdown, we’d need **six one-node jobs or five two-node jobs** to generate one million records at the measured TP8 rates.
 
 | Setup / concurrency | Records per full job | Jobs for 1M | Estimated GPU-h | GPU-h if all jobs use 4h |
 | --- | ---: | ---: | ---: | ---: |
@@ -256,9 +256,9 @@ To estimate how many four-hour jobs we need for **one million generated records*
 | 1 node · TP8 / 4,096 | 175,549 | 6 | 182 | 192 |
 | 2 nodes · TP8 / 2,048 | 207,111 | 5 | 309 | 320 |
 
-For **one million records**, one-node TP8 at 2,048 projects to the lowest GPU cost. At this size each job generates about 167,000 records, so the higher generation rate at 2,048 matters more than the shorter startup at 4,096. If those rates hold for **100 million records**, TP8 at 2,048 would take **563 one-node jobs or 483 two-node jobs**.
+For **one million records**, one-node TP8 at 2,048 projects to the lowest GPU cost. At this size each job generates about 167,000 records, so the higher generation rate at 2,048 matters more than the shorter startup at 4,096.
 
-We divide the million records evenly among the array tasks and include startup and shutdown for each task. The times below assume the measured rates hold and tasks start as soon as a slot opens. They exclude queue wait, retries, and collection.
+We divide the million records evenly among the array tasks. The times below assume the measured rates hold and tasks start as soon as a slot opens. They exclude queue wait, retries, and collection.
 
 | Setup / concurrency | Total jobs | Jobs at once | Peak GPUs | Estimated time for 1M |
 | --- | ---: | ---: | ---: | ---: |
