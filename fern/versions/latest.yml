@@ -131,6 +131,8 @@ navigation:
         contents:
           - page: Text to Python
             path: ./latest/pages/recipes/code_generation/text_to_python.mdx
+          - page: Gym Python Repair
+            path: ./latest/pages/recipes/code_generation/gym_python_repair.mdx
           - page: Text to SQL
             path: ./latest/pages/recipes/code_generation/text_to_sql.mdx
           - page: Nemotron Super Text to SQL
@@ -203,6 +205,9 @@ navigation:
     contents:
       - page: Overview
         path: ./latest/pages/devnotes/index.mdx
+      - page: Collecting Agent Rollouts with Gym
+        slug: gym-rollouts
+        path: ./latest/pages/devnotes/posts/gym-rollouts.mdx
       - page: Chart Understanding
         path: ./latest/pages/devnotes/posts/chart-understanding.mdx
       - page: Nemotron Indic Translation
