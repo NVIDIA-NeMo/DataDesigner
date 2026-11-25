@@ -196,7 +196,7 @@ On one node, TP4 stayed between 4.45 and 4.52 records/s as concurrency rose from
 
 Doubling TP8 concurrency once more took one-node throughput from 12.57 records/s at 2,048 to 12.40 at 4,096, a 1.3% drop. The 4,096 run used 0.3% fewer GPU-hours, a difference of just three seconds over 8,192 records. With one run per setting, we wouldn’t count on that saving for production.
 
-The same doubling produced a larger drop on two nodes. Throughput fell 5.5%, from the sweep’s highest rate of 14.76 records/s to 13.94. These two trials ran on different partitions with the same H100 configuration.
+The same doubling produced a larger drop on two nodes. Throughput fell 5.5%, from the sweep’s highest rate of 14.76 records/s to 13.94.
 
 **For this pipeline, we recommend TP8 at a client concurrency of 2,048 on either one or two nodes.**
 
