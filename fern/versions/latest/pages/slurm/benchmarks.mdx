@@ -104,6 +104,14 @@ data-designer slurm benchmark analyze <benchmark-id> --refresh-state
 
 Reports retain every manifest case in order. Outcomes include `pending`, `accounting_lag`, `succeeded`, `failed`, `incomplete`, `missing`, `stale`, and `scheduler_inconsistent`. Successful cases can be infeasible when boot time consumes the runtime budget. Boot and wall timing begin when execution starts inside the allocation, so queue wait does not affect topology comparisons. For new one-task cases, `rows_per_second` measures that task's generation rate. Reports for saved multi-task benchmarks retain their aggregate shard rate. `generation_seconds` is the target runtime remaining after startup, and GPU-hour estimates assume each projected task uses the full target runtime. Only successful feasible cases participate in Pareto, minimum-job, and minimum-GPU-hour recommendations.
 
+<Note>
+Benchmark generation timing requires a durable client `started_at` timestamp. Successful older runs without this field remain readable, but their benchmark cases are reported as `incomplete`, with no rates or recommendations. This can cause `--fail-if-incomplete` to return a conflict after upgrading.
+
+To collect fresh measurements, change the benchmark configuration's `name` and run it again. Rerunning the same configuration reuses its existing child runs, even with `--force`.
+
+Resumed results are also excluded from benchmark rates and recommendations because their record counts can include rows retained from earlier attempts. Use a fresh run to measure throughput. Results with unavailable or invalid timing, including a clock rollback, are likewise reported as `incomplete` without changing the child run's generation outcome.
+</Note>
+
 ## Python API
 
 ```python

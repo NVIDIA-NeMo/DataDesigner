@@ -191,6 +191,7 @@ def _measure_records(records: tuple[_MeasurementRecord, ...]) -> BenchmarkMeasur
         client_result, candidate = result
         if (
             client_result.outcome not in {ClientOutcome.COMPLETE, ClientOutcome.PARTIAL}
+            or client_result.effective_resume_mode == "always"
             or not client_result.actual_records
             or candidate.actual_records != client_result.actual_records
         ):

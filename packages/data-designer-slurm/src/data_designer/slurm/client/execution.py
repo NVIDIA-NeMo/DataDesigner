@@ -760,13 +760,14 @@ class ClientWorker:
     ) -> ClientResult:
         candidate_path = prepared.attempt_dir / "output-manifest.json"
         publish_private_text(candidate_path, candidate.serialize_json())
+        completed_at = self._clock()
         result = ClientResult(
             schema_version=1,
             run_id=context.plan.run_id,
             shard_id=context.shard.shard_id,
             attempt_id=prepared.attempt_id,
-            completed_at=self._clock(),
-            started_at=started_at,
+            completed_at=completed_at,
+            started_at=started_at if started_at <= completed_at else None,
             requested_records=creation.requested_records,
             actual_records=creation.actual_records,
             outcome=(
