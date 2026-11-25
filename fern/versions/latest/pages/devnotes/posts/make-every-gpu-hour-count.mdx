@@ -50,11 +50,11 @@ Before choosing job size and parallelism, check your cluster's scheduling polici
 
 These settings vary by cluster. The four-hour job budget used below is illustrative, and requested parallelism is an upper bound on simultaneous jobs. **Benchmark and projected execution times exclude queue wait.**
 
-For this example, replace the demo's seed dataset with a category sampler for `topic_category` and a dependent subcategory sampler for `topic_subtopic`, using the same topic map. Keep its other samplers unchanged, then export the recipe to `builder.yaml`.
+For this example, replace the demo's seed dataset with a category sampler for `topic_category` and a dependent subcategory sampler for `topic_subtopic`, using the same topic map. Keep its other samplers unchanged.
+
+The three generation columns and two judge columns share the `nvidia-text` alias and use the same locally served Nemotron model. To match the benchmark, set its temperature to `0.6`, top-p to `0.95`, and maximum output to 4,096 tokens. Disable thinking and use a 600-second request timeout, then export the recipe to `builder.yaml`.
 
 Keep prompts, sampler distributions, inference settings, and quality checks consistent across benchmark cases. The larger-scale examples later in this post are projections based on these benchmark runs.
-
-Following the demo, the three generation columns and two judge columns share the `nvidia-text` model alias. In this benchmark, all five use the same locally served Nemotron model.
 
 ## Benchmark the Pipeline You Intend to Run
 
