@@ -37,11 +37,13 @@ bump = true
 [tool.hatch.metadata.hooks.uv-dynamic-versioning]
 dependencies = [
     "aiohttp>=3.14.3,<4",
+    "click>=8.2.1,<9",
     "data-designer=={{ version }}",
     "packaging>=25,<27",
     "pip>=25,<27",
     "pydantic>=2.12,<3",
     "pyyaml>=6.0.1,<7",
+    "typer>=0.19.0,<1",
 ]
 
 [tool.hatch.build.targets.wheel]

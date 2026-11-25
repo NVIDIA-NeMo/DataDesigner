@@ -607,9 +607,9 @@ class ImageInferenceParams(BaseInferenceParams):
 
     Example:
         ```python
-        # OpenAI-style (DALL·E): quality and size in extra_body or as top-level kwargs
+        # OpenAI GPT Image (e.g., gpt-image-1.5): returns inline base64 by default
         dd.ImageInferenceParams(
-            extra_body={"size": "1024x1024", "quality": "hd"}
+            extra_body={"size": "1024x1024", "quality": "high"}
         )
 
         # Gemini-style: generationConfig.imageConfig
