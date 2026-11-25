@@ -15,7 +15,7 @@ These questions are part of building synthetic data at scale. With `data-designe
 
 {/* more */}
 
-![A small Data Designer palette mascot rappels beside three tall, slim GPU racks in a bright data center, with independent structured-data streams.](/assets/structured-outputs-at-scale/hero-mascot-rappelling-slim-racks-v6.jpg)
+![A small Data Designer palette mascot rappels beside three tall, slim GPU racks in a bright data center, with independent structured-data streams.](/assets/make-every-gpu-hour-count/hero-mascot-rappelling-slim-racks-v6.jpg)
 
 ## The Pipeline We're Scaling
 
@@ -192,7 +192,7 @@ We used [Nemotron 3.5 Super VL 120B-A12B BF16](https://huggingface.co/nvidia/NVI
 
 **Two nodes with TP8 at concurrency 2,048 gave the fastest turnaround per job**, generating 14.76 records/s. At 4,096 we measured 13.94 records/s, about 5.5% lower. These two trials ran on different partitions with the same H100 configuration. **One node with TP8 at 1,024 had the lowest GPU cost**, generating 10.72 records/s at 0.273 GPU-hours per 1,000 records.
 
-![Throughput and GPU-hours per 1,000 records across the one-node and two-node sweeps. Diamonds mark the fastest job and the lowest GPU cost.](/assets/structured-outputs-at-scale/throughput.png)
+![Throughput and GPU-hours per 1,000 records across the one-node and two-node sweeps. Diamonds mark the fastest job and the lowest GPU cost.](/assets/make-every-gpu-hour-count/throughput.png)
 
 On one node, TP4 gained less than 1% going from concurrency 512 to 1,024. TP8 kept improving through 1,024. On the same eight GPUs, TP4 held two copies of the model and TP8 held one. With TP8, model memory per GPU fell from **57.6 to 29.4 GiB**, leaving **32.3 GiB for the KV cache** compared with **3.8 GiB** for TP4. That gave the server more room to keep requests active.
 
@@ -285,7 +285,7 @@ data-designer slurm execute production-run.yaml
 
 Some array jobs may stop because of a time limit, node failure, or model-server error. Retry the failed or incomplete shards to finish the run; completed shards stay intact.
 
-![Three array jobs: jobs 1 and 3 complete and stay intact; job 2 stops, then a retry reuses its saved rows and finishes the remaining rows.](/assets/structured-outputs-at-scale/allocation-recovery-light.svg)
+![Three array jobs: jobs 1 and 3 complete and stay intact; job 2 stops, then a retry reuses its saved rows and finishes the remaining rows.](/assets/make-every-gpu-hour-count/allocation-recovery-light.svg)
 
 Check the run, preview the retry, then submit it:
 
