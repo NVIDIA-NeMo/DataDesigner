@@ -153,7 +153,7 @@ The `ImageInferenceParams` class is used for image generation models, including 
 
 Generated images must be returned inline as base64 data. Data Designer does not download generated-image URLs. GPT Image models return inline base64 by default, and the OpenRouter FLUX example below returns inline images through `/chat/completions`; neither needs a `response_format` override.
 
-For models using the Images API (`/images/generations`) that support `response_format="b64_json"`, such as DALL·E 3, request inline output with:
+For models using the Images API (`/images/generations`) that support `response_format="b64_json"`, request inline output with:
 
 ```python
 import data_designer.config as dd
