@@ -19,11 +19,18 @@ These questions are part of building synthetic data at scale. With `data-designe
 
 ## The Pipeline We're Scaling
 
-We'll use the smaller JSON demo from [Structured Outputs for Nemotron](/dev-notes/structured-outputs-from-nemotron). Each record has five model-generated columns: a schema, a conversation, extracted JSON, and two judgments covering the schema and output.
+We'll use the smaller JSON demo from [Structured Outputs for Nemotron](/dev-notes/structured-outputs-from-nemotron):
 
-Extraction depends on the conversation and schema, while other rows can be at different stages. The [async engine](/dev-notes/async-all-the-way-down) overlaps ready work across rows. These dependencies make full-pipeline throughput more useful than an isolated model's tokens-per-second number.
+```mermaid
+flowchart LR
+    schema["Generate schema"] --> conversation["Generate conversation"]
+    conversation --> json["Extract JSON as text"]
+    schema --> quality["Judge schema quality"]
+    json --> conformity["Judge JSON conformity"]
+    json --> validation["Validate against schema<br/>(Python, after generation)"]
+```
 
-For each record, the model first generates a JSON Schema, then extracts JSON that should conform to that schema. As in the demo, the model returns the JSON as text, and a validator checks it against that record's schema after generation.
+Each record has its own generated schema, used for extraction, both model judges, and the Python validation check.
 
 ## Prepare the Pipeline for Slurm
 
@@ -35,37 +42,45 @@ python -m pip install "data-designer[slurm]"
 
 Follow [Slurm Getting Started](/slurm/getting-started) to configure a cluster profile and register a serving image. The submit host and compute nodes need access to the same Python environment and shared workspace.
 
-Export the JSON demo's recipe configuration to `builder.yaml`. Before exporting, replace its in-memory, shuffled topic seeds with an ordered, file-backed seed dataset at a shared path, such as `topics.parquet`. Sharded Slurm runs require this setup; prepare enough seed rows for the full requested record range.
+Before choosing job size and parallelism, check your cluster's scheduling policies:
 
-Keep the seed artifact, prompts, sampler distributions, inference settings, and quality checks consistent across benchmark cases. The larger-scale examples later in this post are projections based on these benchmark runs.
+- **Wall-time limits:** a partition may cap how long each allocation can run. Split larger targets into jobs that fit within that budget, with headroom.
+- **Fair-share priority:** where configured, account shares and past usage can affect when jobs start. See Slurm's [fair-share documentation](https://slurm.schedmd.com/priority_multifactor.html).
+- **Job and GPU limits:** separate account or QOS limits may cap concurrent jobs and GPUs. See Slurm's [resource-limit documentation](https://slurm.schedmd.com/resource_limits.html).
 
-Following the demo, the three generation columns and two judge columns share the `nvidia-text` model alias. In this benchmark, all five use the same locally served Nemotron model. Replace the example workspace path and serving-image alias with resources available on your cluster.
+These settings vary by cluster. The four-hour job budget used below is illustrative, and requested parallelism is an upper bound on simultaneous jobs. **Benchmark and projected execution times exclude queue wait.**
+
+For this example, replace the demo's seed dataset with a category sampler for `topic_category` and a dependent subcategory sampler for `topic_subtopic`, using the same topic map. Keep its other samplers unchanged, then export the recipe to `builder.yaml`.
+
+Keep prompts, sampler distributions, inference settings, and quality checks consistent across benchmark cases. The larger-scale examples later in this post are projections based on these benchmark runs.
+
+Following the demo, the three generation columns and two judge columns share the `nvidia-text` model alias. In this benchmark, all five use the same locally served Nemotron model.
 
 ## Benchmark the Pipeline You Intend to Run
 
-Every pipeline places different demands on the model servers and client. Prompts, response lengths, column dependencies, and validation steps all affect how quickly it produces usable records. Benchmark the exact pipeline and model settings you intend to run, with representative seed data, so you can choose concurrency and deployment settings from measurements of your workload.
+Every pipeline places different demands on the model servers and client. Prompts, response lengths, and column dependencies all affect generation throughput. Benchmark the exact pipeline and model settings you intend to run, with representative inputs. Use those measurements to choose concurrency and deployment settings within the GPU limits discussed above, then size each job to fit its wall-time budget.
 
-For the measurements in this post, each node had **eight NVIDIA H100 GPUs with 80 GB of memory per GPU**. The one-node cases used eight GPUs; the two-node cases used 16.
+For the measurements in this post, each node had **eight NVIDIA H100 GPUs with 80 GB of memory per GPU**.
 
 The built-in Slurm benchmark runs the pipeline across combinations of concurrency and deployment settings. Start with a managed run configuration, then describe the sweep.
 
-Create `run.yaml` beside the exported `builder.yaml`:
+Create `run-tp8.yaml` beside the exported `builder.yaml`:
 
 ```yaml
 schema_version: 1
-name: structured-outputs-base
+name: structured-outputs-base-tp8
 builder:
   source: builder.yaml
 invocation:
   num_records: 8192
   dataset_name: structured-outputs
   resume: if_possible
-  input_bindings:
-    seed_path: /workspace/alice/structured-outputs/topics.parquet
   model_concurrency:
     nvidia-text: 128
   run_config:
     max_in_flight_tasks: 8192
+client:
+  cpus: 16
 deployments:
   - model_alias: nvidia-text
     model: nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-BF16
@@ -87,22 +102,24 @@ deployments:
     resources:
       nodes: 1
     topology:
-      tensor_parallel: 4
+      tensor_parallel: 8
       nodes_per_replica: 1
 submission:
   time_limit: 04:00:00
 ```
 
-The cluster profile requests eight GPUs per node. With TP4 and the default PP1, each node runs two independent replicas; two nodes run four. The model must support this topology and fit within four GPUs per replica.
+Here, `image.name: vllm` selects the serving container image registered during cluster setup. If you registered it under a different name, use that name instead.
+
+The cluster profile requests eight GPUs per node. This base run uses TP8 with the default PP1, giving one replica per node. Save a copy as `run-tp4.yaml`, change its name to `structured-outputs-base-tp4`, and set `tensor_parallel: 4` for two replicas per node. Keep all other settings identical.
 
 `--max-num-seqs` limits active sequences **per replica**. Keep it fixed across the sweep and large enough to cover the largest client concurrency you plan to test. Here, 8,192 covers the sweep below and possible extensions, even if requests are unevenly distributed across replicas. This removes that setting as a lower concurrency ceiling; available KV cache and token budgets can still limit execution.
 
-Create `benchmark-one-node.yaml`:
+Create `benchmark-one-node-tp8.yaml` for the TP8 sweep:
 
 ```yaml
 schema_version: 1
-name: structured-outputs-one-node
-base_run: run.yaml
+name: structured-outputs-one-node-tp8
+base_run: run-tp8.yaml
 model_aliases: [nvidia-text]
 concurrency_values: [128, 256, 512, 1024]
 record_policy:
@@ -119,13 +136,17 @@ analysis:
   target_runtime: 4h
 ```
 
-Copy it to `benchmark-two-nodes.yaml`, change the name and deployment case to `two-nodes`, set `nodes: 2`, and use `concurrency_values: [256, 512, 1024, 2048]`. This gives eight cases with 8,192 requested records each and matched pairs that double both compute and configured concurrency.
+Copy it to `benchmark-two-nodes-tp8.yaml`, set `name: structured-outputs-two-nodes-tp8`, change the deployment case name to `two-nodes`, set `nodes: 2`, and use `concurrency_values: [256, 512, 1024, 2048]`.
 
-The client concurrency ceiling applies to the `nvidia-text` alias within a task, shared by all five model columns. Adding replicas does not automatically increase that ceiling. The sweep keeps TP and PP from the base run; use separate base runs to compare different TP sizes.
+For TP4, copy these two sweep files to `benchmark-one-node-tp4.yaml` and `benchmark-two-nodes-tp4.yaml`. In both copies, set `base_run: run-tp4.yaml` and replace `tp8` with `tp4` in the benchmark name. Together, the four sweeps cover **16 primary cases**, with 8,192 requested records each. Within each TP setting, matched pairs double both compute and configured concurrency.
+
+The `nvidia-text` concurrency limit is shared by all five model columns. Adding replicas does not automatically increase it. TP and PP stay fixed within each sweep.
 
 ```bash
-data-designer slurm benchmark run benchmark-one-node.yaml
-data-designer slurm benchmark run benchmark-two-nodes.yaml
+data-designer slurm benchmark run benchmark-one-node-tp8.yaml
+data-designer slurm benchmark run benchmark-two-nodes-tp8.yaml
+data-designer slurm benchmark run benchmark-one-node-tp4.yaml
+data-designer slurm benchmark run benchmark-two-nodes-tp4.yaml
 ```
 
 The commands return benchmark IDs and child run IDs. Inspect children with normal status commands, then analyze each benchmark:
@@ -135,147 +156,111 @@ data-designer slurm status CHILD_RUN_ID
 data-designer slurm benchmark analyze BENCHMARK_ID --refresh-state
 ```
 
-The analyzer reports outcomes, timing, throughput, and projected allocation counts and GPU-hours. **Queue wait is excluded.** Its `target_runtime` is an analysis budget; the job's `time_limit` controls the allocation limit. Rates below use durable client start and completion timestamps, cross-checked against immutable logs and native reports; allocation costs come from Slurm accounting.
+The analyzer reports outcomes, timing, throughput, and projected allocation counts and GPU-hours. **Queue wait is excluded.** Its `target_runtime` is an analysis budget; the job's `time_limit` controls the allocation limit. We measured generation time from the client’s recorded start and finish times and checked it against the logs and benchmark reports. GPU-hours come from Slurm accounting.
 
-For measurement, we submitted equivalent individual built-in cases sequentially, interleaving the matched pairs with a 90-second cooldown between allocations. Every case used `max_in_flight_tasks: 8192`. Earlier exploratory 1,024-record samples used a limit of 1,024; they are excluded from the results below because both sample length and this control changed.
+## Tune Each Setup Before Comparing Them
 
-## Tune Each Topology Before Comparing Them
+**For each setup, increase concurrency until records/s stops improving.** We compared TP4 and TP8 on one and two nodes, using one client and one request proxy per allocation.
 
-**Tune concurrency for each topology, then compare useful operating points.** The topology includes the generation clients and request proxies as well as model replicas.
+We used [Nemotron 3.5 Super VL 120B-A12B BF16](https://huggingface.co/nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-BF16), vLLM 0.32.0, and Data Designer. TP4 ran two replicas per node; TP8 ran one. PP was one and expert parallelism was off.
 
-We used [Nemotron 3.5 Super VL 120B-A12B BF16](https://huggingface.co/nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-BF16), vLLM 0.32.0, and experimental Data Designer wheels version `1.0.0+perf.fixes.20261120`: release 1.0.0 plus the [timing change](https://github.com/NVIDIA-NeMo/DataDesigner/pull/1173) and [proxy change](https://github.com/NVIDIA-NeMo/DataDesigner/pull/1174). Both changes were unmerged when measured; reproducing this cohort requires both. One node ran two TP4 replicas; two nodes ran four. PP was one and expert parallelism was off.
+All **18 sweep trials** are shown below. **Bold rows** show the best measured setting for each setup: the highest records/s and lowest GPU-hours per record. The chart marks these settings with diamonds.
 
-Serving used eager execution, a 16,384-token context, and `max_num_seqs=8192` per replica, with images, video, and speculative decoding disabled. The separate backend queue guard stayed at 128 waiting requests per replica. All five model columns kept temperature 0.6, top-p 0.95, a 4,096-token output limit, a 600-second timeout, and thinking disabled. The [experiment settings](/assets/structured-outputs-at-scale/nemotron-measurement-settings.json) include the pinned model revision, serving-image digest, and remaining controls.
+**1 node · TP4 · 2 replicas**
 
-| Nodes / client ceiling | Valid / 8,192 | Valid/s | GPU-h / 1,000 valid |
-| --- | ---: | ---: | ---: |
-| 1 / 128 | 8169 | 2.124 | 1.121 |
-| 1 / 256 | 8168 | 3.737 | 0.666 |
-| 1 / 512 | 8155 | 4.503 | 0.568 |
-| 1 / 1024 | 8162 | 4.279 | 0.595 |
-| 2 / 256 | 8156 | 3.952 | 1.345 |
-| 2 / 512 | 8156 | 6.915 | 0.861 |
-| 2 / 1024 | 8156 | 8.278 | 0.772 |
-| 2 / 2048 | 8158 | 4.985 | 1.115 |
+| Concurrency limit | Records/s | GPU-h / 1,000 records |
+| --- | ---: | ---: |
+| 128 | 2.130 | 1.118 |
+| 256 | 3.748 | 0.664 |
+| **512** | **4.524** | **0.565** |
+| 1,024 | 4.295 | 0.593 |
 
-Each row uses one client and is one trial. Rates cover its full client interval, including pipeline fill, drain, and output work, after serving startup. Canonical timestamps retain subsecond resolution; the immutable entrypoint logs provide a separate ordering check. Cost is actual allocated GPU-hours from Slurm accounting, including startup and shutdown, divided by schema-valid outputs.
+**1 node · TP8 · 1 replica**
 
-![Matched node and concurrency scaling, plus a comparison of one-node, two-node single-client, and two independent one-node client throughput.](/assets/structured-outputs-at-scale/throughput.png)
+| Concurrency limit | Records/s | GPU-h / 1,000 records |
+| --- | ---: | ---: |
+| 128 | 1.913 | 1.229 |
+| 256 | 3.294 | 0.743 |
+| 512 | 5.739 | 0.455 |
+| **1,024** | **9.551** | **0.302** |
+| 2,048 | 6.650 | 0.406 |
 
-The matched pairs show why both compute and concurrency matter. **One node at a ceiling of 256 delivered 3.74 valid records/s; two nodes at 512 delivered 6.91, a 1.85× increase.** At 512 versus 1,024, the corresponding rates were 4.50 and 8.28, about 1.84×. The lower-load 128/256 pair achieved 1.86×.
+**2 nodes · TP4 · 4 replicas**
 
-### Find What Limits Concurrency
+| Concurrency limit | Records/s | GPU-h / 1,000 records |
+| --- | ---: | ---: |
+| 256 | 3.969 | 1.339 |
+| 512 | 6.945 | 0.857 |
+| **1,024** | **8.314** | **0.768** |
+| 2,048 | 5.006 | 1.110 |
 
-The proxy imposed no active backend-connection cap, and `max_num_seqs=8192` stayed fixed throughout this cohort. At the useful higher-load points—512 on one node and 1,024 on two—the central 60% of each client interval showed about **155 running and 99 waiting requests per replica**, with KV cache about 99% occupied. Available memory and token budgets still constrained execution below the configured sequence ceiling.
+**2 nodes · TP8 · 2 replicas**
 
-One node gained **20.5%** from a client ceiling of 256 to 512; two nodes gained **19.7%** from 512 to 1,024. The next doubling triggered the separate backend queue guard, producing HTTP 429 responses and client backoff. A configured client ceiling therefore does not mean that many requests remain in flight throughout the run. All requested rows eventually completed, but valid throughput fell to **4.28 and 4.98 records/s**, respectively—about 5% and 40% below the preceding points.
+| Concurrency limit | Records/s | GPU-h / 1,000 records |
+| --- | ---: | ---: |
+| 256 | 3.560 | 1.449 |
+| 512 | 6.295 | 0.899 |
+| **1,024** | **10.895** | **0.589** |
+| 2,048 | 10.053 | 0.624 |
+| 4,096 | 9.368 | 0.662 |
 
-The highest configured limits tested were **1,024 on one node and 2,048 on two**, and every case generated all requested records. These are successful tested limits, not absolute maxima. We stopped further doubling under the planned rule because the latest step failed to improve valid throughput by 10%. There was no failed allocation or observed timeout boundary.
+Each trial generated 8,192 records. GPU-hours include server startup and shutdown.
 
-At the lower limits of 256 on one node and 512 on two, mean backend request latency was about **13 seconds**, with histogram-estimated p95 around **28 seconds**. At the faster 512/1,024 points, the mean was **21–22 seconds** and p95 **36–38 seconds**. These histograms describe requests completing at the model servers, including their queues; they are not full pipeline latency. Schema-valid yield stayed above 99.5% in every case; semantic quality still needs separate checks.
+![One-node and two-node single-client TP4 and TP8 concurrency sweeps, with diamonds marking the best measured settings and their records/s.](/assets/structured-outputs-at-scale/throughput.png)
 
-### Scale Independent Clients Too
+**TP8 reached its best sweep rate at concurrency 1,024 on both topologies: 9.55 records/s on one node and 10.89 on two.** The next doubling reduced throughput by about **30% and 8%**, respectively, while increasing GPU cost per record. Two-node concurrency 4,096 fell further to 9.37 records/s.
 
-We then split the same 8,192 seed rows into **two disjoint 4,096-row shards**, each with its own one-node deployment, client, and proxy at concurrency 512. The jobs used the same 16 GPUs and four TP4 replicas as the two-node case, with total configured concurrency 1,024. They also used two 16-CPU clients instead of one; this is a deployment comparison rather than a change in GPU count alone.
-
-To reproduce this comparison, use `run.yaml` with `num_records: 8192`, `nvidia-text: 512`, and `array_tasks: {count: 2, max_concurrent: 2}`. Keep the same `run_config` and ordered seed artifact.
-
-The clients started 1.7 seconds apart and overlapped for 943 seconds. Together they generated all 8,192 records, of which 8,159 passed validation:
-
-| Deployment | Valid/s | Allocated GPU-h | GPU-h / 1,000 valid |
-| --- | ---: | ---: | ---: |
-| One node, ceiling 512 | 4.503 | 4.631 | 0.568 |
-| Two nodes, ceiling 1024 | 8.278 | 6.293 | 0.772 |
-| Two independent one-node jobs, 512 each | 8.564 | 5.404 | 0.662 |
-
-Aggregate throughput uses total valid records divided by the interval from the earliest client start to the latest completion, including start skew and drain. GPU cost sums both allocations. Actual output seed columns matched the two ordered input slices.
-
-**The 16-GPU layouts delivered 1.84–1.90× the valid throughput of one eight-GPU job.** The independent pair measured 3.5% more throughput than the two-node single client and used fewer allocated GPU-hours. These single trials do not establish a reliable throughput advantage: client CPU, startup behavior, and shard length also changed.
-
-### The Observed Frontier
-
-A configuration is on the observed Pareto frontier if no other tested configuration delivers at least as much valid throughput at no greater GPU cost, with an improvement in at least one measure.
-
-![Per-topology observed Pareto frontiers, with the independent-client operating point shown alongside the two-node single-client cases.](/assets/structured-outputs-at-scale/pareto.png)
-
-Within the one-node sweep, a ceiling of **512** was the measured frontier point; within the two-node sweep, it was **1024**. The lower limits of **256 on one node and 512 on two** delivered about 83% of those rates with shorter request queues and lower request latency. Choose within that range according to throughput, latency, and headroom needs. Single-trial differences do not establish an exact optimum.
-
-Across all tested layouts, the nondominated points were **one node at 512** for lower measured GPU cost per valid record, and **two independent one-node clients at 512 each** for higher throughput. The independent pair cost about **17% more per valid record** than the one-node trial while delivering about **90% more throughput**. The two-node single-client point had a slightly lower observed rate and higher measured cost than the pair. Repeated trials are needed before treating that difference as a capacity ranking.
-
-All ten benchmark allocations completed without an allocation retry: eight core allocations and the two independent shards. Of **73,728 generated records, 73,439 passed schema validation (99.61%)**. Download the [measurement summary](/assets/structured-outputs-at-scale/nemotron-benchmark-summary.csv) for counts, timing, cost, and telemetry. These are observational single trials without confidence intervals. Earlier cohorts with different serving or proxy limits are excluded from this frontier.
+Memory measurements help explain TP8’s gain. On the same eight GPUs, TP8 spread one model copy across all eight, while TP4 kept two four-GPU copies. Model memory per GPU fell from **57.6 to 29.4 GiB**, leaving **32.3 GiB for the KV cache versus 3.8 GiB**. This extra space likely helped the server handle more requests at once.
 
 ### How Many Jobs Reach the Target?
 
-For planning, ask: **how many allocations could produce one million schema-valid records with four hours available per allocation?** The built-in target counts generated records; here we use valid throughput to include observed validation losses.
+For planning, ask: **how many allocations could produce one million records with four hours available per allocation?**
 
 ```text
 usable client time = 4 hours - measured pre-client overhead - shutdown allowance
-valid records per allocation ≈ valid records/second × usable client time
-allocations needed = ceil(1,000,000 / valid records per allocation)
+records per allocation ≈ records/second × usable client time
+allocations needed = ceil(1,000,000 / records per allocation)
 ```
 
-Using a rounded-up shutdown allowance gives these illustrative single-allocation projections:
+Using the original sweep rates and a rounded-up shutdown allowance gives these illustrative projections. Each array task counts as one job:
 
-| Nodes / client ceiling | Valid / 4h allocation | Allocations needed | Full-budget GPU-h |
+| Setup / concurrency limit | Records / 4h job | Jobs needed | Full-budget GPU-h |
 | --- | ---: | ---: | ---: |
-| 1 / 128 | 29,998 | 34 | 1,088 |
-| 1 / 256 | 52,828 | 19 | 608 |
-| 1 / 512 | 63,613 | 16 | 512 |
-| 1 / 1024 | 60,422 | 17 | 544 |
-| 2 / 256 | 55,305 | 19 | 1,216 |
-| 2 / 512 | 96,803 | 11 | 704 |
-| 2 / 1024 | 115,630 | 9 | 576 |
-| 2 / 2048 | 69,740 | 15 | 960 |
+| 1 node · TP4 / 512 | 63,901 | 16 | 512 |
+| 2 nodes · TP4 / 1024 | 116,141 | 9 | 576 |
+| 1 node · TP8 / 1024 | 135,079 | 8 | 256 |
+| 2 nodes · TP8 / 1024 | 153,242 | 7 | 448 |
 
-The count depends on the measured rate, validation yield, startup, and rounding. Full-budget GPU-hours reserve four hours for every allocation, separate from the actual trial costs above. For the same target, moving from one-node ceiling 512 to two-node ceiling 1,024 projects to **16 versus 9 allocations**, reserving **512 versus 576 GPU-hours**. Each two-node allocation uses twice the GPUs.
+**For GPU efficiency, start with one node, TP8, and concurrency 1,024.** It projects to eight jobs and 256 GPU-hours for one million records. Two-node TP8 projects to seven jobs and 448 GPU-hours. Full-budget GPU-hours reserve four hours for every job, separate from the actual trial costs above.
 
-**With four parallel allocation slots**, the one-node layout needs four four-hour waves, or **16 execution hours**, with at most **32 GPUs**. The two-node layout needs three waves, or **12 execution hours**, with at most **64 GPUs**. This is the case for adding compute when finishing sooner matters.
-
-**With a fixed 32-GPU budget**, four one-node jobs fit at once, but only two two-node jobs do. The projection becomes **16 versus 20 execution hours**. Here the extra GPUs per job reduce the number of jobs that can run simultaneously, so the larger allocation does not win on completion time. Independent one-node shards offer another way to increase total parallelism when allocation slots are available.
-
-For this workload, start near the observed concurrency knee and choose how to add compute: more replicas per allocation, more independent allocations, or both. We measured at most 16 simultaneous GPUs and two independent clients; the projected larger fleets still need validation on the intended cluster.
-
-These projections assume rates and yields persist over longer runs and simultaneous allocations. They exclude queue wait, extra safety margin, failures, and future fair-share effects. `target_runtime: 4h` is a per-allocation budget, not an overall deadline or a request to launch these jobs. A larger target scales the work; the deadline and available GPUs determine how much must run in parallel.
-
-## Busy GPUs Are Only Part of the Answer
-
-We sampled every allocated GPU at five-second intervals and collected per-replica queues, token counters, backend latency histograms, proxy stats, and client worker CPU usage.
-
-![Similar mean GPU busy time across cases despite substantial differences in aggregate generated-token throughput.](/assets/structured-outputs-at-scale/gpu-utilization.svg)
-
-On one node, increasing the client ceiling from 128 to 256 left mean GPU busy time almost unchanged at about **81%**, while valid throughput increased **76%** and allocated GPU-hours per valid record fell **41%**. Busy time alone would have missed that improvement. On two nodes, increasing the ceiling from 256 to 512 changed mean busy time only from about **78% to 77%**, while aggregate generated-token throughput rose from about **2,359 to 4,149 tokens/s**.
-
-Memory occupancy can mostly be weights and reserved cache, and NVML busy time is not achieved FLOPS. Read it alongside **valid records/second, allocated GPU-hours per valid record, and the queues between clients and model servers**. No single utilization percentage tells us whether extra compute is doing useful work.
-
-## Slurm May Have a Clock
-
-Depending on your organization's cluster policies and the selected partition, jobs may have a wall-time limit. When one applies, a million-record generation may need longer than a single allocation permits, even when plenty of GPUs are available. Check your site's settings before planning the run.
-
-Use the benchmark to estimate how much work fits within that limit, or within an allocation budget you choose yourself:
+Completion time also depends on how many of those jobs can run at once:
 
 ```text
-generation budget = allocation limit - startup time - safety margin
-records per shard ≈ measured rows/second × generation budget
-shard count = ceil(total requested records / records per shard)
+estimated generation time = ceil(jobs needed / parallel jobs) × 4 hours
+peak GPUs = parallel jobs × GPUs per job
 ```
 
-The rate here is the measured rate of one benchmark allocation with the selected deployment. It is not a per-GPU rate. Choose a safety margin from observed variability, longer records, output writes, and shutdown behavior. The built-in analysis subtracts startup; it does not add this extra safety margin for you.
+Both options below use **TP8 and concurrency 1,024**:
 
-![Schematic showing startup, saved row groups, unfinished work at an allocation boundary, and a retry allocation that reuses compatible saved progress and regenerates unfinished work. Not to scale.](/assets/structured-outputs-at-scale/allocation-recovery-light.svg)
+| Nodes per job | Parallel jobs | Peak GPUs | Estimated generation time |
+| --- | ---: | ---: | ---: |
+| 1 | 4 | 32 | 8 hours |
+| 2 | 4 | 64 | 8 hours |
+| 2 | 2 | 32 | 16 hours |
 
-The target-job comparison above uses a four-hour allocation budget. Shorter limits or a larger safety margin reduce records per allocation and increase the required allocation count.
+**With four parallel job slots**, both layouts round to two four-hour waves, while two-node jobs reserve twice the peak GPUs. **With a fixed 32-GPU budget**, the one-node layout finishes the projection sooner: eight hours versus sixteen.
 
-Once you have selected a case, copy its deployment size and concurrency into the production run. Then increase `num_records` and add an array configuration. For example, choosing shorter shards of roughly 8,000 requested records, close to the measured one-node trial size, gives this illustrative million-record configuration:
+These are rounded full-wave projections from the original sweep observations; the final wave may finish sooner. They assume the observed rates persist across longer runs and parallel jobs, and exclude queue wait, extra safety margin, failures, and final collection time. We measured at most 16 GPUs in one allocation; larger fleets remain untested. `target_runtime: 4h` is a per-job budget, not an overall deadline.
+
+To submit a larger run, copy the selected base configuration to `production-run.yaml`. Replace `invocation` and add `array_tasks` as below. This example splits one million requested records into 125 jobs of 8,000 records:
 
 ```yaml
 invocation:
   num_records: 1000000
   dataset_name: structured-outputs
   resume: if_possible
-  input_bindings:
-    seed_path: /workspace/alice/structured-outputs/topics.parquet
   model_concurrency:
-    nvidia-text: 512
+    nvidia-text: 1024
   run_config:
     max_in_flight_tasks: 8192
 array_tasks:
@@ -283,25 +268,7 @@ array_tasks:
   max_concurrent: 4
 ```
 
-Copy the selected base configuration to `production-run.yaml`, then replace `invocation` and add `array_tasks` as shown above. It requests 8,000 records per shard. The 125 shorter shards trade additional startup overhead for headroom compared with the 16 full-budget one-node allocations in the projection. This split targets one million requested records, so validation losses would require additional generation to reach one million accepted records. Prepare seeds covering the full requested range before using it.
-
-Each task starts the complete deployment set. With one eight-GPU node per task, four active tasks reserve 32 GPUs. With two such nodes per task, they reserve 64. `max_concurrent` limits active allocations, subject to Slurm scheduling; it does not control the replicas inside each allocation.
-
-Smaller shards reduce the amount of work exposed to an interruption, but repeat model startup more often. Larger shards amortize startup and give a longer steady-state window, but need more wall-time headroom. The benchmark gives us evidence for choosing between them.
-
-Check the [array restrictions](/slurm/run-configuration#arrays) before sharding a different recipe, including restrictions on plugin, custom, and image columns. This example uses supported columns and ordered file-backed seeds bound through `input_bindings.seed_path`; programmatic validation stays after collection.
-
-### Fair-Share Matters Too
-
-On clusters with fair-share scheduling, account shares and past usage can affect job priority. Separate account or quality-of-service (QOS) limits may constrain concurrent jobs and GPU counts. See Slurm's [fair-share priority](https://slurm.schedmd.com/priority_multifactor.html) and [resource-limit](https://slurm.schedmd.com/resource_limits.html) documentation for the mechanisms; your administrator can explain local policy.
-
-`max_concurrent: 4` is an upper bound, not a promise of four simultaneous allocations. Some shards may stay queued, and a larger deployment may take longer to obtain. Choose deployment size and array concurrency against both your throughput measurements and your team's access and budget.
-
-**Benchmark runtime is not calendar completion time.** The report excludes queue wait and cannot predict future fair-share priority or cluster availability. Where supported, use `sshare` to inspect shares and usage, and `squeue` to inspect pending jobs and their reasons.
-
-## Recover the Work That Didn't Finish
-
-Sharding and resume solve different parts of the problem. Sharding divides the requested dataset into independent pieces. Resume lets a compatible retry reuse the generation progress already saved for a piece.
+`array_tasks.max_concurrent` sets how many jobs may run at once. Choose the highest value your available GPU allocation and cluster limits allow: available GPUs divided by GPUs per job, rounded down. Slurm scheduling determines when those jobs start. Each job starts the complete model setup. These shorter jobs repeat model startup more often, but leave more time to finish than the eight four-hour jobs projected above.
 
 Preview the production submission, then launch it:
 
@@ -310,7 +277,13 @@ data-designer slurm execute production-run.yaml --dry-run
 data-designer slurm execute production-run.yaml
 ```
 
-If an allocation times out, inspect the managed run and preview its retry:
+## Recover the Work That Didn't Finish
+
+Some array jobs may stop because of a time limit, node failure, or model-server error. Retry the failed or incomplete shards to finish the run; completed shards stay intact.
+
+![Three array jobs: jobs 1 and 3 complete and stay intact; job 2 stops, then a retry reuses its saved rows and finishes the remaining rows.](/assets/structured-outputs-at-scale/allocation-recovery-light.svg)
+
+Check the run, preview the retry, then submit it:
 
 ```bash
 data-designer slurm status RUN_ID
@@ -318,27 +291,28 @@ data-designer slurm retry RUN_ID --dry-run
 data-designer slurm retry RUN_ID
 ```
 
-By default, retry selects failed or incomplete shards and uses `--resume if_possible`. The preview reports whether compatible saved progress is available. Keep the shared environment and workspace accessible across attempts.
+Retries start new model servers and reuse saved progress when possible. Unfinished requests may run again. See [Retry and Collection](/slurm/retry-and-collection) for details.
 
-**A retry starts new model servers.** It can reuse compatible, durable generation progress; in-flight requests and unsaved work may need to be regenerated. An interrupted job does not automatically receive another allocation: submit the managed retry.
+## Collect the Generated Records
 
-The benchmark allocations needed no managed retry. The diagram above illustrates the supported resume mechanism; this experiment did not measure recovery after interrupted generation. See [Retry and Collection](/slurm/retry-and-collection) for shard selection and stricter resume modes.
-
-## Collect First. Count Accepted Records Second.
-
-After generation, collect the winning shard outputs:
+Merge the shard outputs:
 
 ```bash
 data-designer slurm merge RUN_ID --num-partitions 20
 ```
 
-Collection checks compatible output schemas and merges each shard's winning result. It does not validate each generated object against its target JSON schema or fill missing records.
+Check the collected row count against your target. Some shards may produce fewer records than requested. With the configuration above, you should now have roughly **one million rows across 20 partitions**.
 
-Apply the demo's programmatic validation to the collected data: parse the schema and JSON, check schema validity, and validate conformance. Keep diagnostics for rejected rows. LLM judge scores complement this check but do not replace it.
+## So What Did We Learn?
 
-Count accepted records separately from requested and generated records. A nonempty shard can succeed with fewer records than requested. If the goal is a million accepted examples, use the observed yield to plan additional generation.
+For this model, TP8 reduced the memory used by model weights and left more room for concurrent requests. We used the measured throughput and GPU cost to plan job size and parallelism for our pipeline.
 
-For this workload, more compute increased throughput when concurrency grew with the replica count. Tune each topology near its useful concurrency range, then add replicas or independent shards to meet the completion target. Confirm the rate and acceptance yield on your own recipe, then choose the number of simultaneous jobs against the deadline, GPU budget, and scheduling policy.
+Here are some takeaways:
+
+- **Tune before scaling.** Compare model setups and concurrency limits using records/s and GPU-hours, and check that the GPUs stay busy.
+- **Choose your trade-off.** Compare completion time and total GPU cost within the same GPU budget.
+- **Use your allocation.** Run as many jobs in parallel as your GPU budget allows, with each job sized to finish within its time limit.
+- **Recover unfinished work.** Retry failed shards and reuse saved progress where possible.
 
 ## Resources
 

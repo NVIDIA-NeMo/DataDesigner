@@ -6,9 +6,15 @@
   "vllm_version": "0.32.0",
   "serving_image_sha256": "76e4de10b195f99a773e7664665211652179b18b445f948f0158e9ccaedbbc64",
   "hardware": "8 H100 80 GB GPUs per node",
-  "tensor_parallel": 4,
+  "tensor_parallel": [
+    4,
+    8
+  ],
   "pipeline_parallel": 1,
-  "replicas_per_node": 2,
+  "replicas_per_node": {
+    "TP4": 2,
+    "TP8": 1
+  },
   "expert_parallel": false,
   "eager_execution": true,
   "speculative_decoding": false,
@@ -21,45 +27,12 @@
   "request_timeout_seconds": 600,
   "enable_thinking": false,
   "requested_records_per_case": 8192,
-  "trials_per_case": 1,
   "client_max_in_flight_tasks": 8192,
-  "timing": "Canonical ClientResult.started_at/completed_at, cross-checked against immutable entrypoint log ordering and native benchmark rates for all eight built-in cases. Independent-client throughput uses earliest start to latest completion, including start skew and drain.",
-  "cost": "Actual Slurm GPU count times each actual array-task elapsed seconds / 3600, including all attempts, startup and shutdown. Both independent task IDs are charged once; parent summaries are not double counted. GPU-hours are not full monetary cost. The eight-record smoke gate is excluded from comparative trial totals.",
-  "validation": "Draft 2020-12 schema validity, JSON parsing and conformance; schema wrapper unwrapped when present.",
-  "limitations": "One trial per point, no confidence intervals. Experimental build includes timing PR1173 and proxy PR1174; not a released version. Connector limit0 removes its active-connection cap; the separate backend waiting-request guard remains128. Physical KV/token budgets and adaptive client backoff also affect execution. Highest tested ceiling is not a hardware maximum. Independent comparison changes client/proxy count, client CPU and shard size. No production-scale generation or interrupted-generation recovery test.",
-  "projection_note": "Untested one-million-valid projections: rate times (14400 - measured pre-client seconds - ceil(measured post-client seconds)); whole allocations rounded up. Full-budget GPU-hours reserve four hours per allocation. Excludes queue wait, safety margin, failures and scaling variability. Four fixed allocation slots compare32 versus64 simultaneous GPUs; a fixed32-GPU budget permits four one-node or two two-node allocations.",
-  "one_node_concurrency": [
-    128,
-    256,
-    512,
-    1024
-  ],
-  "two_node_concurrency": [
-    256,
-    512,
-    1024,
-    2048
-  ],
-  "independent_clients": {
-    "allocations": 2,
-    "nodes_per_allocation": 1,
-    "records_per_client": 4096,
-    "concurrency_per_client": 512,
-    "client_cpus_each": 16,
-    "seed_ranges": [
-      [
-        0,
-        4096
-      ],
-      [
-        4096,
-        8192
-      ]
-    ],
-    "client_start_skew_seconds": 1.6950428485870361,
-    "client_overlap_seconds": 942.8440051078796,
-    "output_seed_values_match_ordered_input_slices": true
-  },
+  "timing": "Durable ClientResult.started_at/completed_at, cross-checked against immutable entrypoint log ordering and fixed native benchmark rates for all 20 reported allocations. Client intervals include pipeline fill, drain and output work after serving startup.",
+  "cost": "Actual Slurm GPU count times actual array-task elapsed seconds / 3600, including all attempts, startup and shutdown. Array-parent summaries are not double counted. Comparison rows exclude smoke allocations; complete new-experiment accounting is also summarized here. GPU-hours are not full monetary cost.",
+  "validation": "Post-generation schema validation is separate from this performance comparison. Historical validation audit evidence remains preserved privately.",
+  "limitations": "Each sweep point is one trial. One separately named one-node C1024 confirmation per TP4/TP8 is reported separately, without confidence intervals. The one-node TP8 repeat was faster than its sweep point and came within 1% of the two-node TP8 sweep point; a reliable two-node throughput advantage is not established. No absolute hardware maximum, fleet-scale throughput, production generation, or interrupted-generation recovery test was measured.",
+  "projection_note": "Untested projections for one million generated records use the original sweep generated-record rate times (14400 - measured pre-client seconds - ceil(post-client seconds)). Jobs and four-hour waves round up. Four allocation slots reserve 32 GPUs for one-node jobs or 64 GPUs for two-node jobs. A fixed 32-GPU budget permits four one-node or two two-node jobs. Queue wait, extra safety margin, failures, final collection and fleet scaling variability are excluded.",
   "single_client_cpus": 16,
   "max_backend_connections_per_proxy": null,
   "historical_cohort": "Earlier cohorts used max_num_seqs=128 per replica; older released-runtime trials also had a 256-connection proxy cap or a smaller client window. All remain separate and are excluded from this cohort and its frontier.",
@@ -71,7 +44,7 @@
     "timing_fix_commit": "ed3ed17d3ac2cb5d81fc836ce4d397d80c798925",
     "proxy_fix_pr": "https://github.com/NVIDIA-NeMo/DataDesigner/pull/1174",
     "proxy_fix_commit": "44a480cf5fa8191de2fcc094daccab2f8567a771",
-    "status": "Unmerged experimental build at measurement time; only four Slurm Python files differ from the baseline and all other dependency versions are pinned."
+    "status": "Isolated experimental build based on release 1.0.0 with only the linked timing and proxy net changes. All other source hashes and dependency versions held fixed; this is historical experimental provenance, not an assertion about a shipped release."
   },
   "proxy_connector_limit": 0,
   "max_waiting_requests_per_replica": 128,
@@ -79,18 +52,211 @@
   "client_concurrency_semantics": "Configured per-alias concurrency ceilings, shared across all five model columns. Queue-admission HTTP 429s can trigger client AIMD backoff and deferred retries; the ceiling is not a constant achieved concurrency.",
   "seed_sha256": "7772c95210b51aa06b8234444bcbf18f2e00ad63139747446f5866e9e30580e6",
   "verified_trials": {
-    "core_cases": 8,
-    "independent_clients": 2,
-    "gpu_allocations": 10,
-    "generated": 73728,
-    "schema_valid": 73439,
-    "actual_allocated_gpu_hours": 62.87111111111111,
-    "allocation_retries": 0
+    "sweep_cases": 18,
+    "confirmation_cases": 2,
+    "gpu_allocations": 20,
+    "generated": 163840,
+    "actual_allocated_gpu_hours_excluding_smokes": 124.86444444444444,
+    "allocation_retries": 0,
+    "sweep_generated": 147456
   },
   "extension_rule": {
     "minimum_latest_healthy_valid_rate_gain": 0.1,
     "minimum_schema_valid_yield": 0.98,
-    "optional_cases_executed": [],
-    "reason": "Neither topology improved valid throughput by10% at the final primary step; all four further candidates were skipped."
-  }
+    "matching_rule": "A two-node doubled concurrency may be measured to match a healthy measured one-node extension.",
+    "TP4_optional_cases_executed": [],
+    "TP8_optional_cases_executed": [
+      "1node-c2048",
+      "2node-c4096"
+    ],
+    "TP8_skipped": [
+      "1node-c4096",
+      "2node-c8192"
+    ],
+    "reason": "One-node TP8 improved from C512 to C1024, qualifying C2048; its decline stopped C4096. Two-node C4096 matched the healthy one-node C2048 observation; its decline stopped C8192. Highest tested limits are not hardware maxima.",
+    "scope_note": "Historical run-extension criteria are preserved as executed; schema validation is not the reported performance metric."
+  },
+  "completion_time_projection": {
+    "hours_per_job": 4,
+    "method": "Estimated generation hours = ceil(total_jobs / max_concurrent_jobs) * hours_per_job. Peak GPUs = max_concurrent_jobs * gpus_per_job. Job counts use generated throughput, measured startup and rounded-up shutdown. Each array task is one job. Full-wave budgets can overestimate a shorter final wave.",
+    "limitations": "Untested fleet projections from single-client trials. Assumes generated throughput persists over four-hour jobs and parallel allocations. Excludes queue wait, extra safety margin, failures and final collection time. Measured cases used at most 16 GPUs in one allocation.",
+    "scenarios": [
+      {
+        "case": "tp8-1node-c1024",
+        "nodes_per_job": 1,
+        "tensor_parallel": 8,
+        "client_concurrency_per_job": 1024,
+        "total_jobs": 8,
+        "max_concurrent_jobs": 4,
+        "gpus_per_job": 8,
+        "peak_gpus": 32,
+        "four_hour_waves": 2,
+        "estimated_generation_hours": 8,
+        "full_budget_gpu_hours": 256
+      },
+      {
+        "case": "tp8-2node-c1024",
+        "nodes_per_job": 2,
+        "tensor_parallel": 8,
+        "client_concurrency_per_job": 1024,
+        "total_jobs": 7,
+        "max_concurrent_jobs": 4,
+        "gpus_per_job": 16,
+        "peak_gpus": 64,
+        "four_hour_waves": 2,
+        "estimated_generation_hours": 8,
+        "full_budget_gpu_hours": 448
+      },
+      {
+        "case": "tp8-2node-c1024",
+        "nodes_per_job": 2,
+        "tensor_parallel": 8,
+        "client_concurrency_per_job": 1024,
+        "total_jobs": 7,
+        "max_concurrent_jobs": 2,
+        "gpus_per_job": 16,
+        "peak_gpus": 32,
+        "four_hour_waves": 4,
+        "estimated_generation_hours": 16,
+        "full_budget_gpu_hours": 448
+      }
+    ],
+    "rate_basis": "Original observed sweep frontiers; planned confirmations are listed separately. Four-hour-wave estimates show a tie at four slots despite using different GPU budgets.",
+    "target_generated_records": 1000000
+  },
+  "comparison_scope": "One 16-CPU client and one proxy per allocation. Compare TP4/TP8 single-client concurrency sweeps on one and two nodes; each projected production job repeats one selected single-client setting.",
+  "trials_per_sweep_point": 1,
+  "planned_confirmation_trials": 2,
+  "topology_sweeps": {
+    "TP4": {
+      "1_node_concurrency": [
+        128,
+        256,
+        512,
+        1024
+      ],
+      "2_node_concurrency": [
+        256,
+        512,
+        1024,
+        2048
+      ]
+    },
+    "TP8": {
+      "1_node_concurrency": [
+        128,
+        256,
+        512,
+        1024,
+        2048
+      ],
+      "2_node_concurrency": [
+        256,
+        512,
+        1024,
+        2048,
+        4096
+      ]
+    }
+  },
+  "observed_sweep_frontiers": [
+    {
+      "case": "tp4-1node-c512",
+      "tensor_parallel": 4,
+      "nodes_total": 1,
+      "replicas": 2,
+      "configured_concurrency_per_client": 512,
+      "generated": 8192,
+      "generated_per_second": 4.523563958593821,
+      "allocated_gpu_hours": 4.631111111111111,
+      "gpu_hours_per_1000_records": 0.5653211805555556,
+      "projected_records_per_4h_allocation": 63901.42173415967,
+      "projected_allocations_1M_records_4h": 16,
+      "projected_full_budget_gpu_hours_1M_records_4h": 512
+    },
+    {
+      "case": "tp4-2node-c1024",
+      "tensor_parallel": 4,
+      "nodes_total": 2,
+      "replicas": 4,
+      "configured_concurrency_per_client": 1024,
+      "generated": 8192,
+      "generated_per_second": 8.31423075707157,
+      "allocated_gpu_hours": 6.293333333333333,
+      "gpu_hours_per_1000_records": 0.7682291666666666,
+      "projected_records_per_4h_allocation": 116140.57332494202,
+      "projected_allocations_1M_records_4h": 9,
+      "projected_full_budget_gpu_hours_1M_records_4h": 576
+    },
+    {
+      "case": "tp8-1node-c1024",
+      "tensor_parallel": 8,
+      "nodes_total": 1,
+      "replicas": 1,
+      "configured_concurrency_per_client": 1024,
+      "generated": 8192,
+      "generated_per_second": 9.551009080813056,
+      "allocated_gpu_hours": 2.4755555555555557,
+      "gpu_hours_per_1000_records": 0.3021918402777778,
+      "projected_records_per_4h_allocation": 135078.58750753896,
+      "projected_allocations_1M_records_4h": 8,
+      "projected_full_budget_gpu_hours_1M_records_4h": 256
+    },
+    {
+      "case": "tp8-2node-c1024",
+      "tensor_parallel": 8,
+      "nodes_total": 2,
+      "replicas": 2,
+      "configured_concurrency_per_client": 1024,
+      "generated": 8192,
+      "generated_per_second": 10.894565804780825,
+      "allocated_gpu_hours": 4.826666666666667,
+      "gpu_hours_per_1000_records": 0.5891927083333334,
+      "projected_records_per_4h_allocation": 153241.7593153238,
+      "projected_allocations_1M_records_4h": 7,
+      "projected_full_budget_gpu_hours_1M_records_4h": 448
+    }
+  ],
+  "confirmation_observations": [
+    {
+      "case": "confirmation-tp4-1node-c1024",
+      "tensor_parallel": 4,
+      "nodes_total": 1,
+      "replicas": 2,
+      "configured_concurrency_per_client": 1024,
+      "generated": 8192,
+      "client_seconds": 1913.470815896988,
+      "generated_per_second": 4.28122547359563,
+      "allocated_gpu_hours": 4.888888888888889,
+      "gpu_hours_per_1000_records": 0.5967881944444445
+    },
+    {
+      "case": "confirmation-tp8-1node-c1024",
+      "tensor_parallel": 8,
+      "nodes_total": 1,
+      "replicas": 1,
+      "configured_concurrency_per_client": 1024,
+      "generated": 8192,
+      "client_seconds": 757.303493976593,
+      "generated_per_second": 10.817327617206532,
+      "allocated_gpu_hours": 2.2288888888888887,
+      "gpu_hours_per_1000_records": 0.2720811631944444
+    }
+  ],
+  "confirmation_interpretation": {
+    "matched_concurrency": 1024,
+    "nodes": 1,
+    "tp8_over_tp4_generated_rate_ratio": 2.526689538759913,
+    "tp8_repeat_generated_rate_change_from_sweep_percent": 13.258479032727255,
+    "tp8_one_node_repeat_below_two_node_sweep_percent": 0.7089606778124091,
+    "selection_basis": "Original sweep observations select concurrency. Confirmations remain separate; projections use original sweep rates."
+  },
+  "new_tp8_experiment_all_attempt_accounting": {
+    "scope": "TP8 smoke, ten TP8 sweep cases and the two planned one-node TP4/TP8 confirmations; earlier TP4 cohort accounting remains separate.",
+    "gpu_allocations_including_smoke": 13,
+    "actual_gpu_hours_including_smoke": 68.20444444444445,
+    "gpu_retries": 0,
+    "historical_failed_controllers_allocated_zero_gpus": true
+  },
+  "throughput_metric": "All generated output records (schema-valid plus schema-invalid) divided by full durable client runtime. Schema validation does not filter performance rates, GPU cost, or target-record projections."
 }
