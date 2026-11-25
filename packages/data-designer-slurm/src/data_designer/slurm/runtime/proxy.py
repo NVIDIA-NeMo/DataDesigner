@@ -7,8 +7,11 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import errno
 import json
 import logging
+import os
+import resource
 import socket
 import time
 from collections import Counter
@@ -19,7 +22,16 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING
 from urllib.parse import SplitResult, urlsplit
 
-from aiohttp import ClientError, ClientResponse, ClientSession, ClientTimeout, TCPConnector, TraceConfig, web
+from aiohttp import (
+    ClientConnectorError,
+    ClientError,
+    ClientResponse,
+    ClientSession,
+    ClientTimeout,
+    TCPConnector,
+    TraceConfig,
+    web,
+)
 
 if TYPE_CHECKING:
     from aiohttp.client_proto import ResponseHandler
@@ -139,6 +151,58 @@ class _ProxyMetrics:
         }
 
 
+class _SocketBudgetExceeded(RuntimeError):
+    pass
+
+
+class _SocketBudget:
+    """Reserve process descriptors for health probes and accepting overload responses."""
+
+    def __init__(self, backend_count: int) -> None:
+        soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+        self.soft_limit: int = soft if soft != resource.RLIM_INFINITY else int(os.sysconf("SC_OPEN_MAX"))
+        if self.soft_limit <= 0:
+            raise RuntimeError("cannot determine a finite proxy file-descriptor limit")
+        self.headroom: int = max(64, min(1024, self.soft_limit // 8), backend_count + 32)
+        self.connection_limit: int = max(1, (self.soft_limit - self.headroom - self.count_open()) // 2)
+        self.in_flight: int = 0
+        _LOGGER.info(
+            "slurm_proxy_socket_budget soft_limit=%s hard_limit=%s headroom=%s connection_limit=%s",
+            self.soft_limit,
+            hard,
+            self.headroom,
+            self.connection_limit,
+        )
+
+    def count_open(self) -> int:
+        # /dev/fd also supports local development on macOS; Slurm uses /proc.
+        directory = "/proc/self/fd" if Path("/proc/self/fd").is_dir() else "/dev/fd"
+        return len(os.listdir(directory))
+
+    def has_headroom(self) -> bool:
+        try:
+            return self.count_open() < self.soft_limit - self.headroom
+        except OSError:
+            return False
+
+    def acquire(self) -> bool:
+        if self.in_flight >= self.connection_limit or not self.has_headroom():
+            return False
+        self.in_flight += 1
+        return True
+
+    def release(self) -> None:
+        self.in_flight -= 1
+
+    def create_socket(
+        self,
+        address_info: tuple[int, int, int, str, tuple[str, int] | tuple[str, int, int, int]],
+    ) -> socket.socket:
+        if not self.has_headroom():
+            raise _SocketBudgetExceeded("proxy socket budget exhausted")
+        return _create_socket(address_info)
+
+
 class _ProxyConnector(TCPConnector):
     """Observe pool evictions, for which aiohttp has no public trace signal.
 
@@ -146,16 +210,23 @@ class _ProxyConnector(TCPConnector):
     Shutdown closes are excluded; stale, expired, and discarded connections count.
     """
 
-    def __init__(self, metrics: _ProxyMetrics) -> None:
+    def __init__(self, metrics: _ProxyMetrics, budget: _SocketBudget) -> None:
         self._metrics: _ProxyMetrics = metrics
+        self._budget: _SocketBudget = budget
         super().__init__(
-            # The client and serving backends own inference concurrency.
-            limit=0,
+            limit=budget.connection_limit,
             limit_per_host=0,
             keepalive_timeout=_KEEPALIVE_TIMEOUT_SECONDS,
             force_close=False,
-            socket_factory=_create_socket,
+            socket_factory=budget.create_socket,
         )
+
+    def discard_idle(self) -> None:
+        for connections in self._conns.values():
+            for protocol, _ in connections:
+                protocol.close()
+                self._metrics.connection_evicted += 1
+        self._conns.clear()
 
     def _cleanup(self) -> None:
         before = sum(len(connections) for connections in self._conns.values())
@@ -169,6 +240,7 @@ class _ProxyConnector(TCPConnector):
         return connection
 
     def _release(self, key: ConnectionKey, protocol: ResponseHandler, *, should_close: bool = False) -> None:
+        should_close = should_close or not self._budget.has_headroom()
         if not self._closed and (should_close or protocol.should_close):
             self._metrics.connection_evicted += 1
         super()._release(key, protocol, should_close=should_close)
@@ -220,7 +292,8 @@ class _ProxyApplication:
         self.pool = _BackendPool(backends, retry_after_seconds)
         self.health_path = health_path
         self.metrics = _ProxyMetrics()
-        self.connector: TCPConnector | None = None
+        self.budget: _SocketBudget | None = None
+        self.connector: _ProxyConnector | None = None
         self.session: ClientSession | None = None
         self.health_session: ClientSession | None = None
 
@@ -236,7 +309,8 @@ class _ProxyApplication:
     async def _start(self, application: web.Application) -> None:
         del application
         trace = self._trace_config()
-        self.connector = _ProxyConnector(self.metrics)
+        self.budget = _SocketBudget(len(self.pool.backends))
+        self.connector = _ProxyConnector(self.metrics, self.budget)
         self.session = ClientSession(
             connector=self.connector,
             timeout=ClientTimeout(
@@ -320,11 +394,40 @@ class _ProxyApplication:
     async def _metrics(self, request: web.Request) -> web.Response:
         del request
         connector = self._require_connector()
-        return web.json_response(self.metrics.snapshot(self.pool, connector))
+        snapshot = self.metrics.snapshot(self.pool, connector)
+        if self.budget is not None:
+            snapshot["socket_budget"] = {
+                "soft_limit": self.budget.soft_limit,
+                "headroom": self.budget.headroom,
+                "connection_limit": self.budget.connection_limit,
+                "in_flight": self.budget.in_flight,
+            }
+        return web.json_response(snapshot)
 
     async def _forward(self, request: web.Request) -> web.StreamResponse:
         started_at = time.monotonic()
         self.metrics.requests += 1
+        if self.budget is None:
+            raise RuntimeError("proxy socket budget is not started")
+        if not self.budget.acquire():
+            self._require_connector().discard_idle()
+            return self._overloaded([], started_at)
+        try:
+            return await self._forward_admitted(request, started_at)
+        finally:
+            self.budget.release()
+
+    def _overloaded(self, outcomes: list[_AttemptTrace], started_at: float) -> web.Response:
+        response = web.json_response(
+            {"error": "proxy socket budget exhausted"},
+            status=429,
+            headers={"Retry-After": str(self.pool.retry_after_seconds or 1)},
+        )
+        response.force_close()
+        self._record_final(429, outcomes, started_at)
+        return response
+
+    async def _forward_admitted(self, request: web.Request, started_at: float) -> web.StreamResponse:
         body = await request.read()
         excluded: set[int] = set()
         outcomes: list[_AttemptTrace] = []
@@ -344,7 +447,14 @@ class _ProxyApplication:
             try:
                 response = await self._request_backend(request, backend, body, attempt_trace)
                 attempt_trace.response_headers_seconds = time.monotonic() - attempt_trace.started_at
-            except (TimeoutError, ClientError) as error:
+            except (TimeoutError, ClientError, _SocketBudgetExceeded) as error:
+                if isinstance(error, _SocketBudgetExceeded) or (
+                    isinstance(error, ClientConnectorError) and error.os_error.errno in {errno.EMFILE, errno.ENFILE}
+                ):
+                    attempt_trace.finish("socket_budget")
+                    self.pool.release(index)
+                    self._require_connector().discard_idle()
+                    return self._overloaded(outcomes, started_at)
                 self.metrics.connection_failed += 1
                 reason = "timeout" if isinstance(error, asyncio.TimeoutError) else "connection_error"
                 attempt_trace.finish(reason)
@@ -475,7 +585,7 @@ class _ProxyApplication:
             raise RuntimeError("proxy session is not started")
         return self.session
 
-    def _require_connector(self) -> TCPConnector:
+    def _require_connector(self) -> _ProxyConnector:
         if self.connector is None:
             raise RuntimeError("proxy connector is not started")
         return self.connector

@@ -7,6 +7,7 @@ import argparse
 import asyncio
 import json
 import logging
+import resource
 import socket
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import AsyncExitStack, asynccontextmanager
@@ -474,7 +475,11 @@ async def test_proxy_logs_attempt_upstreams_and_timings_without_payloads(caplog:
                 headers={"Authorization": "Bearer private-key"},
             ) as response:
                 assert await response.text() == "private-generated-content"
-    records = [record.getMessage() for record in caplog.records if record.name == runtime_proxy.__name__]
+    records = [
+        record.getMessage()
+        for record in caplog.records
+        if record.name == runtime_proxy.__name__ and record.getMessage().startswith("slurm_proxy_request ")
+    ]
     assert len(records) == 1
     assert "private-" not in records[0]
     event = json.loads(records[0].split(" ", 1)[1])
@@ -590,7 +595,11 @@ async def test_proxy_records_stream_timeout_without_replaying(
             async with client.get(endpoint.make_url("/metrics")) as response:
                 assert (await response.json())["timeouts"] == 1
     assert calls == 1
-    record = next(record for record in caplog.records if record.name == runtime_proxy.__name__)
+    record = next(
+        record
+        for record in caplog.records
+        if record.name == runtime_proxy.__name__ and record.getMessage().startswith("slurm_proxy_request ")
+    )
     event = json.loads(record.getMessage().split(" ", 1)[1])
     assert event["response_completed"] is False
     assert event["upstream_outcomes"] == ["stream_timeout"]
@@ -654,6 +663,7 @@ async def test_health_remains_responsive_during_inference() -> None:
 @pytest.mark.asyncio
 async def test_proxy_releases_backend_when_upstream_request_is_cancelled(monkeypatch: pytest.MonkeyPatch) -> None:
     proxy = _ProxyApplication((_Backend("127.0.0.1", 8001),), 1)
+    proxy.budget = runtime_proxy._SocketBudget(1)
 
     class _Request:
         async def read(self) -> bytes:
@@ -754,9 +764,16 @@ def test_pool_selects_least_active_backend_deterministically() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(("backend_count", "concurrent_requests"), [(1, 257), (4, 513)])
-async def test_proxy_forwards_concurrent_requests_without_its_own_limit(
+async def test_proxy_forwards_above_256_when_descriptor_budget_allows(
     backend_count: int, concurrent_requests: int
 ) -> None:
+    budget = runtime_proxy._SocketBudget(backend_count)
+    required_descriptors = budget.count_open() + 4 * concurrent_requests + 2 * backend_count + budget.headroom
+    if budget.soft_limit < required_descriptors:
+        pytest.skip(
+            f"in-process socket fixture requires at least {required_descriptors} descriptors; "
+            f"RLIMIT_NOFILE is {budget.soft_limit}"
+        )
     active = 0
     peak = 0
     all_started, release = asyncio.Event(), asyncio.Event()
@@ -786,7 +803,9 @@ async def test_proxy_forwards_concurrent_requests_without_its_own_limit(
             await asyncio.wait_for(all_started.wait(), 10)
             assert peak == concurrent_requests
             async with client.get(endpoint.make_url("/metrics")) as response:
-                assert (await response.json())["connections"]["limit"] == 0
+                metrics = await response.json()
+                assert metrics["connections"]["limit"] >= concurrent_requests
+                assert metrics["connections"]["limit"] == metrics["socket_budget"]["connection_limit"]
             async with client.get(endpoint.make_url("/health")) as response:
                 assert response.status == 200
         finally:
@@ -799,12 +818,13 @@ async def test_proxy_forwards_concurrent_requests_without_its_own_limit(
 
 
 @pytest.mark.asyncio
-async def test_proxy_cli_does_not_limit_inference_connections(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_proxy_cli_derives_inference_connections_from_descriptor_limit(monkeypatch: pytest.MonkeyPatch) -> None:
     async def available(request: web.Request) -> web.Response:
         del request
         return web.Response()
 
     async with _serve(_application(available)) as backend:
         async with _serve_production(_backend(backend), monkeypatch) as (_, connector):
-            assert connector.limit == 0
+            soft_limit, _ = resource.getrlimit(resource.RLIMIT_NOFILE)
+            assert 0 < connector.limit < soft_limit
             assert connector.limit_per_host == 0

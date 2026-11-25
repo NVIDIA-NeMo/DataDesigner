@@ -73,3 +73,47 @@ async def test_proxy_overload_reaches_real_client_admission(total_overload: bool
         else:
             assert pressure.cooldown_remaining_seconds == 0
         assert pressure.in_flight_count == 0
+
+
+@pytest.mark.asyncio
+async def test_proxy_socket_pressure_reaches_real_client_admission(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = 0
+
+    async def respond(request: web.Request) -> web.Response:
+        nonlocal calls
+        calls += 1
+        return web.json_response({"choices": [{"message": {"role": "assistant", "content": "complete"}}]})
+
+    app = web.Application()
+    app.router.add_post("/v1/chat/completions", respond)
+    async with TestServer(app) as backend:
+        proxy = _ProxyApplication((_Backend(backend.host, backend.port),), 1)
+        async with TestServer(proxy.create()) as endpoint:
+            assert proxy.budget is not None
+            monkeypatch.setattr(proxy.budget, "count_open", lambda: proxy.budget.soft_limit)
+            admission = AdaptiveRequestAdmissionController(
+                RequestAdmissionConfig(multiplicative_decrease_factor=0.5, cooldown_seconds=0)
+            )
+            admission.register(provider_name="slurm", model_id="model", alias="generator", max_parallel_requests=8)
+            client = OpenAICompatibleClient(
+                provider_name="slurm",
+                endpoint=str(endpoint.make_url("/v1")),
+                concurrency_mode=ClientConcurrencyMode.ASYNC,
+                retry_config=RetryConfig(max_retries=0),
+            )
+            try:
+                executor = ModelRequestExecutor(
+                    client, admission, "slurm", "model", retry_config=RetryConfig(max_retries=0)
+                )
+                with pytest.raises(ProviderError) as failure:
+                    await executor.acompletion(ChatCompletionRequest(model="model", messages=[]))
+                assert failure.value.kind is ProviderErrorKind.RATE_LIMIT
+                assert failure.value.retry_after == 1
+                pressure = admission.pressure.snapshot(RequestResourceKey("slurm", "model", RequestDomain.CHAT))
+                assert pressure is not None
+                assert pressure.current_limit == 4
+                assert pressure.last_outcome == "rate_limited"
+                assert pressure.in_flight_count == 0
+                assert calls == 0
+            finally:
+                await client.aclose()

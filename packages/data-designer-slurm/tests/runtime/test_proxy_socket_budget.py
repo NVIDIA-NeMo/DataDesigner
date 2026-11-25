@@ -1,0 +1,278 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+from __future__ import annotations
+
+import asyncio
+import errno
+import os
+import resource
+import socket
+import sys
+from contextlib import AsyncExitStack
+from unittest.mock import AsyncMock, Mock
+
+import pytest
+from aiohttp import ClientConnectorError, ClientError, ClientResponse, ClientSession, TCPConnector, web
+from aiohttp.test_utils import TestServer
+
+from data_designer.slurm.runtime import proxy as runtime_proxy
+from data_designer.slurm.runtime.proxy import _Backend, _ProxyApplication, _SocketBudget, _SocketBudgetExceeded
+
+
+@pytest.mark.parametrize(
+    ("soft_limit", "backend_count"),
+    [(128, 1), (1024, 4), (131072, 4), (1024, 100)],
+)
+def test_budget_uses_effective_soft_limit_and_reserves_descriptors(
+    monkeypatch: pytest.MonkeyPatch, soft_limit: int, backend_count: int
+) -> None:
+    monkeypatch.setattr(resource, "getrlimit", lambda _: (soft_limit, 500000))
+    monkeypatch.setattr(_SocketBudget, "count_open", lambda _: 16)
+    budget = _SocketBudget(backend_count)
+    assert budget.soft_limit == soft_limit
+    assert budget.headroom >= backend_count + 32
+    assert budget.connection_limit > 0
+    assert 2 * budget.connection_limit + budget.headroom + 16 <= soft_limit
+    if soft_limit >= 1024:
+        assert budget.connection_limit > 256
+
+
+def test_unlimited_soft_limit_uses_system_open_max(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(resource, "getrlimit", lambda _: (resource.RLIM_INFINITY, resource.RLIM_INFINITY))
+    monkeypatch.setattr(os, "sysconf", lambda _: 65536)
+    monkeypatch.setattr(_SocketBudget, "count_open", lambda _: 16)
+    assert _SocketBudget(1).soft_limit == 65536
+    monkeypatch.setattr(os, "sysconf", lambda _: -1)
+    with pytest.raises(RuntimeError, match="cannot determine"):
+        _SocketBudget(1)
+
+
+def test_live_descriptor_pressure_blocks_socket_creation_and_recovers(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(resource, "getrlimit", lambda _: (1024, 1024))
+    monkeypatch.setattr(_SocketBudget, "count_open", lambda _: 16)
+    budget = _SocketBudget(4)
+    factory = Mock()
+    monkeypatch.setattr(runtime_proxy, "_create_socket", factory)
+    address = (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("127.0.0.1", 8000))
+    monkeypatch.setattr(budget, "count_open", lambda: 896)
+    assert not budget.acquire()
+    with pytest.raises(_SocketBudgetExceeded):
+        budget.create_socket(address)
+    factory.assert_not_called()
+    assert budget.in_flight == 0
+    monkeypatch.setattr(budget, "count_open", lambda: 895)
+    assert budget.acquire()
+    assert budget.create_socket(address) is factory.return_value
+    budget.release()
+    assert budget.in_flight == 0
+
+
+def test_budget_rejects_without_queueing_at_its_in_flight_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(resource, "getrlimit", lambda _: (128, 128))
+    monkeypatch.setattr(_SocketBudget, "count_open", lambda _: 16)
+    budget = _SocketBudget(1)
+    assert all(budget.acquire() for _ in range(budget.connection_limit))
+    assert not budget.acquire()
+    budget.release()
+    assert budget.acquire()
+
+
+def test_descriptor_inspection_failure_preserves_headroom(monkeypatch: pytest.MonkeyPatch) -> None:
+    budget = _SocketBudget(1)
+    monkeypatch.setattr(budget, "count_open", Mock(side_effect=OSError("descriptor table unavailable")))
+    assert not budget.acquire()
+
+
+@pytest.mark.asyncio
+async def test_pressure_discards_idle_upstream_connections_and_closes_overload_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def respond(request: web.Request) -> web.Response:
+        return web.Response(text="complete")
+
+    app = web.Application()
+    app.router.add_get("/{path:.*}", respond)
+    async with TestServer(app) as backend:
+        proxy = _ProxyApplication((_Backend(backend.host, backend.port),), 3)
+        async with TestServer(proxy.create()) as endpoint, ClientSession() as client:
+            async with client.get(endpoint.make_url("/complete")) as response:
+                assert response.status == 200
+                await response.read()
+            assert proxy.connector is not None
+            assert proxy.budget is not None
+            assert sum(len(items) for items in proxy.connector._conns.values()) == 1
+            original_count = proxy.budget.count_open
+            monkeypatch.setattr(proxy.budget, "count_open", lambda: proxy.budget.soft_limit)
+            async with client.get(endpoint.make_url("/complete")) as response:
+                assert response.status == 429
+                assert response.headers["Retry-After"] == "3"
+                assert response.headers["Connection"] == "close"
+                await response.read()
+            assert not proxy.connector._conns
+            assert proxy.budget.in_flight == 0
+            monkeypatch.setattr(proxy.budget, "count_open", original_count)
+            async with client.get(endpoint.make_url("/complete")) as response:
+                assert response.status == 200
+                await response.read()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "error_code", [None, errno.EMFILE, errno.ENFILE], ids=["budget", "process-limit", "system-limit"]
+)
+async def test_socket_pressure_returns_429_without_retrying_backends(
+    monkeypatch: pytest.MonkeyPatch, error_code: int | None
+) -> None:
+    error = (
+        _SocketBudgetExceeded("socket budget")
+        if error_code is None
+        else ClientConnectorError(Mock(), OSError(error_code, "descriptor exhaustion"))
+    )
+    proxy = _ProxyApplication((_Backend("127.0.0.1", 8001), _Backend("127.0.0.1", 8002)), None)
+    request_backend = AsyncMock(side_effect=error)
+    monkeypatch.setattr(proxy, "_request_backend", request_backend)
+    async with TestServer(proxy.create()) as endpoint, ClientSession() as client:
+        async with client.get(endpoint.make_url("/complete")) as response:
+            assert response.status == 429
+            assert response.headers["Retry-After"] == "1"
+            assert response.headers["Connection"] == "close"
+            await response.read()
+        assert request_backend.await_count == 1
+        assert proxy.pool.active_counts() == (0, 0)
+        assert proxy.budget is not None and proxy.budget.in_flight == 0
+
+
+@pytest.mark.asyncio
+async def test_real_proxy_preserves_health_and_returns_overload_under_1024_descriptor_limit() -> None:
+    parent_budget = _SocketBudget(4)
+    if parent_budget.soft_limit - parent_budget.count_open() < 2200:
+        pytest.skip("parent HTTP fixture needs 2200 free descriptors; proxy itself is tested with a limit of 1024")
+    _, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    if hard != resource.RLIM_INFINITY and hard < 1024:
+        pytest.skip("subprocess cannot set a 1024-descriptor soft limit under the host hard limit")
+    release = asyncio.Event()
+    backend_active = 0
+
+    async def respond(request: web.Request) -> web.Response:
+        nonlocal backend_active
+        if request.path == "/health":
+            return web.Response()
+        backend_active += 1
+        try:
+            await release.wait()
+            return web.Response(text="complete")
+        finally:
+            backend_active -= 1
+
+    async with AsyncExitStack() as stack:
+        # Distinct backend origins also exercise pooled connections across hosts.
+        servers = []
+        for _ in range(4):
+            backend_app = web.Application()
+            backend_app.router.add_get("/{path:.*}", respond)
+            servers.append(await stack.enter_async_context(TestServer(backend_app)))
+        with socket.socket() as reservation:
+            reservation.bind(("127.0.0.1", 0))
+            port = reservation.getsockname()[1]
+        command = (
+            "import resource, sys; "
+            "resource.setrlimit(resource.RLIMIT_NOFILE, (1024, resource.getrlimit(resource.RLIMIT_NOFILE)[1])); "
+            "from data_designer.slurm.runtime.proxy import main; sys.exit(main())"
+        )
+        args = [sys.executable, "-c", command, "--listen-port", str(port)]
+        for backend in servers:
+            args.extend(["--backend", f"http://{backend.host}:{backend.port}"])
+        process = await asyncio.create_subprocess_exec(
+            *args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+        )
+        output = asyncio.create_task(process.communicate())
+        client = await stack.enter_async_context(ClientSession(connector=TCPConnector(limit=0, force_close=True)))
+        origin = f"http://127.0.0.1:{port}"
+        requests: list[asyncio.Task[ClientResponse]] = []
+        try:
+            async with asyncio.timeout(10):
+                while True:
+                    try:
+                        async with client.get(origin + "/health") as response:
+                            assert response.status == 200
+                            break
+                    except ClientError:
+                        assert process.returncode is None
+                        await asyncio.sleep(0.02)
+            requests = [asyncio.create_task(client.get(origin + "/complete")) for _ in range(520)]
+            async with asyncio.timeout(15):
+                while backend_active + sum(task.done() for task in requests) < 520:
+                    await asyncio.sleep(0.02)
+            rejected = [task.result() for task in requests if task.done()]
+            assert rejected
+            assert all(response.status == 429 and response.headers["Retry-After"] == "1" for response in rejected)
+            async with client.get(origin + "/health") as response:
+                assert response.status == 200
+                assert (await response.json())["backends_ready"] == 4
+            async with client.get(origin + "/metrics") as response:
+                metrics = await response.json()
+            assert metrics["socket_budget"]["soft_limit"] == 1024
+            assert 256 < metrics["connections"]["limit"] < 512
+            assert 0 < backend_active <= metrics["connections"]["limit"]
+            release.set()
+            responses = await asyncio.wait_for(asyncio.gather(*requests), 10)
+            for response in responses:
+                assert response.status in {200, 429}
+                await response.read()
+                response.release()
+            for _ in rejected:
+                async with client.get(origin + "/complete") as response:
+                    assert response.status == 200
+                    await response.read()
+        finally:
+            release.set()
+            for task in requests:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*requests, return_exceptions=True)
+            if process.returncode is None:
+                process.terminate()
+            _, stderr = await asyncio.wait_for(output, 10)
+        assert b"Too many open files" not in stderr
+        assert b"EMFILE" not in stderr
+
+
+@pytest.mark.asyncio
+async def test_admission_budget_returns_immediate_overload_and_releases_capacity() -> None:
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def respond(request: web.Request) -> web.Response:
+        if request.path == "/health":
+            return web.Response()
+        entered.set()
+        await release.wait()
+        return web.Response(text="complete")
+
+    app = web.Application()
+    app.router.add_get("/{path:.*}", respond)
+    async with TestServer(app) as backend:
+        proxy = _ProxyApplication((_Backend(backend.host, backend.port),), 1)
+        async with TestServer(proxy.create()) as endpoint, ClientSession() as client:
+            assert proxy.budget is not None
+            proxy.budget.connection_limit = 1
+            first = asyncio.create_task(client.get(endpoint.make_url("/complete")))
+            try:
+                await asyncio.wait_for(entered.wait(), 2)
+                async with asyncio.timeout(2):
+                    async with client.get(endpoint.make_url("/complete")) as response:
+                        assert response.status == 429
+                        await response.read()
+                    async with client.get(endpoint.make_url("/health")) as response:
+                        assert response.status == 200
+                        await response.read()
+                assert proxy.budget.in_flight == 1
+            finally:
+                release.set()
+                async with await first as response:
+                    assert response.status == 200
+                    await response.read()
+            async with client.get(endpoint.make_url("/complete")) as response:
+                assert response.status == 200
+                await response.read()
+            assert proxy.budget.in_flight == 0
