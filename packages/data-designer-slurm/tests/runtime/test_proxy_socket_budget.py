@@ -7,6 +7,7 @@ import asyncio
 import errno
 import os
 import resource
+import signal
 import socket
 import sys
 import threading
@@ -390,3 +391,88 @@ async def test_production_server_tracks_connections_before_http_request() -> Non
                 await asyncio.sleep(0.001)
     finally:
         await runner.cleanup()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stop_signal", [signal.SIGTERM, signal.SIGINT], ids=["sigterm", "sigint"])
+@pytest.mark.parametrize("streaming", [False, True], ids=["before-headers", "streaming"])
+async def test_real_signal_drains_active_response_before_process_exit(
+    stop_signal: signal.Signals, streaming: bool
+) -> None:
+    entered, first_received, release = asyncio.Event(), asyncio.Event(), asyncio.Event()
+
+    async def respond(request: web.Request) -> web.StreamResponse:
+        if request.path == "/health":
+            return web.Response()
+        if streaming:
+            response = web.StreamResponse()
+            await response.prepare(request)
+            await response.write(b"first")
+            entered.set()
+            await release.wait()
+            await response.write(b"second")
+            return response
+        entered.set()
+        await release.wait()
+        return web.Response(body=b"complete")
+
+    app = web.Application()
+    app.router.add_route("*", "/{path:.*}", respond)
+    async with TestServer(app) as backend, ClientSession() as client:
+        with socket.socket() as reservation:
+            reservation.bind(("127.0.0.1", 0))
+            port = reservation.getsockname()[1]
+        process = await asyncio.create_subprocess_exec(
+            sys.executable,
+            "-m",
+            "data_designer.slurm.runtime.proxy",
+            "--listen-port",
+            str(port),
+            "--backend",
+            f"http://{backend.host}:{backend.port}",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        output = asyncio.create_task(process.communicate())
+        origin = f"http://127.0.0.1:{port}"
+        request_task: asyncio.Task[bytes] | None = None
+
+        async def read_response() -> bytes:
+            async with client.post(origin + "/complete") as response:
+                assert response.status == 200
+                first = await response.content.readexactly(5) if streaming else b""
+                first_received.set()
+                return first + await response.read()
+
+        try:
+            async with asyncio.timeout(10):
+                while True:
+                    try:
+                        async with client.get(origin + "/health") as response:
+                            assert response.status == 200
+                            await response.read()
+                            break
+                    except ClientError:
+                        assert process.returncode is None
+                        await asyncio.sleep(0.02)
+            request_task = asyncio.create_task(read_response())
+            await asyncio.wait_for(entered.wait(), 2)
+            if streaming:
+                await asyncio.wait_for(first_received.wait(), 2)
+            process.send_signal(stop_signal)
+            await asyncio.sleep(0.1)
+            assert not request_task.done(), "signal cut off the active response before the shutdown window"
+            assert process.returncode is None
+            release.set()
+            assert await asyncio.wait_for(request_task, 3) == (b"firstsecond" if streaming else b"complete")
+            await asyncio.wait_for(output, 5)
+            assert process.returncode == 0
+        finally:
+            release.set()
+            if request_task is not None:
+                if not request_task.done():
+                    request_task.cancel()
+                await asyncio.gather(request_task, return_exceptions=True)
+            if process.returncode is None:
+                process.terminate()
+            await asyncio.wait_for(output, 12)

@@ -12,6 +12,7 @@ import json
 import logging
 import os
 import resource
+import signal
 import socket
 import time
 from collections import Counter
@@ -703,18 +704,29 @@ def _run_application(proxy: _ProxyApplication, *, sock: socket.socket, **kwargs:
     kwargs.pop("print", None)
     try:
         asyncio.run(_serve_application(proxy, sock, **kwargs))
-    except (web.GracefulExit, KeyboardInterrupt):
+    except KeyboardInterrupt:
         pass
 
 
 async def _serve_application(proxy: _ProxyApplication, listener: socket.socket, **kwargs: Any) -> None:
-    runner = _ProxyRunner(proxy, handle_signals=True, **kwargs)
+    runner = _ProxyRunner(proxy, handle_signals=False, **kwargs)
+    stopping = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    previous_handlers = {signum: signal.getsignal(signum) for signum in (signal.SIGTERM, signal.SIGINT)}
     try:
+        for signum in previous_handlers:
+            loop.add_signal_handler(signum, stopping.set)
         await runner.setup()
         await web.SockSite(runner, listener).start()
-        await asyncio.Future()
+        await stopping.wait()
     finally:
-        await runner.cleanup()
+        # Finish aiohttp's drain window before asyncio.run cancels remaining tasks.
+        try:
+            await runner.cleanup()
+        finally:
+            for signum, handler in previous_handlers.items():
+                loop.remove_signal_handler(signum)
+                signal.signal(signum, handler)
 
 
 async def _discard_response(response: ClientResponse) -> None:
