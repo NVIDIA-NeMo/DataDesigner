@@ -190,13 +190,13 @@ The plots below use measured records/s and GPU-hours per 1,000 generated records
 
 We used [Nemotron 3.5 Super VL 120B-A12B BF16](https://huggingface.co/nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-BF16), vLLM 0.32.0, and Data Designer. TP4 ran two replicas per node; TP8 ran one. PP was one and expert parallelism was off.
 
-**Two-node TP8 generated records fastest at concurrency 2,048** (14.76 records/s). Doubling concurrency to 4,096 brought throughput down to 13.94 records/s, a 5.5% drop. These two trials ran on different partitions with the same H100 configuration.
+**For this pipeline, we recommend a TP8 client concurrency of 2,048 on either one or two nodes.** On one node, doubling concurrency to 4,096 lowered throughput by 1.3%, from 12.57 to 12.40 records/s. The 4,096 run used 0.3% fewer GPU-hours, a difference of just three seconds over 8,192 records. With one run per setting, we wouldn’t count on that saving for production.
 
-**One-node TP8 had its lowest measured cost at 4,096**, using 0.246 GPU-hours per 1,000 records. At 2,048 it used 0.247 and generated records slightly faster (12.57 vs. 12.40 records/s). Including startup and shutdown, the two 8,192-record allocations took 15 min 8 s at 4,096 and 15 min 11 s at 2,048.
+On two nodes, 2,048 gave the highest throughput in the sweep at 14.76 records/s. At 4,096, throughput fell 5.5% to 13.94 records/s. These two trials ran on different partitions with the same H100 configuration.
 
 ![Throughput and GPU-hours per 1,000 records across the one-node and two-node sweeps. Diamonds mark the highest generation rate and the lowest measured GPU cost.](/assets/make-every-gpu-hour-count/throughput.png)
 
-On one node, TP4 stayed between 4.45 and 4.52 records/s from concurrency 512 through 4,096. TP8 reached 12.57 at 2,048 before dipping at 4,096. On the same eight GPUs, TP4 held two copies of the model and TP8 held one. With TP8, model memory per GPU fell from **57.6 to 29.4 GiB**, leaving **32.3 GiB for the KV cache** compared with **3.8 GiB** for TP4. That gave the server more room to keep requests active.
+On one node, TP4 stayed between 4.45 and 4.52 records/s from concurrency 512 through 4,096. On the same eight GPUs, TP4 held two copies of the model and TP8 held one. With TP8, model memory per GPU fell from **57.6 to 29.4 GiB**, leaving **32.3 GiB for the KV cache** compared with **3.8 GiB** for TP4. That gave the server more room to keep requests active.
 
 **1 node · TP4 · 2 replicas**
 
@@ -325,7 +325,7 @@ For this model, TP8 reduced the memory used by model weights and left more room 
 Here are some takeaways:
 
 - **Tune before scaling.** Compare model setups and concurrency limits using records/s and GPU-hours, and check that the GPUs stay busy.
-- **Choose for your objective.** Two-node TP8 at 2,048 generated records fastest. For one million rows, one-node TP8 at 2,048 projected the fewest GPU-hours.
+- **Choose the node count for your objective.** With TP8 at 2,048, two nodes gave the highest throughput per job. One node projected the fewest GPU-hours for one million rows.
 - **Use your allocation.** Run as many jobs in parallel as your GPU budget allows, with each job sized to finish within its time limit.
 - **Recover unfinished work.** Retry failed shards and reuse saved progress where possible.
 
