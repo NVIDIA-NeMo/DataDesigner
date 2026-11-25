@@ -1,6 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from __future__ import annotations
+
 import contextvars
 import threading
 import time
@@ -425,11 +427,12 @@ def test_edge_cases_multiple_early_shutdown_attempts():
 )
 def test_no_early_shutdown_when_below_threshold(
     shutdown_error_rate: float, num_errors: int, num_successes: int, expected_early_shutdown: bool
-):
-    """Test that early shutdown does NOT occur when error rate is below or at threshold."""
+) -> None:
+    """Keep every observed completion prefix below the shutdown threshold."""
     total_tasks = num_errors + num_successes
     executor = ConcurrentThreadExecutor(
-        max_workers=20,
+        # A single worker preserves the submitted error distribution in completion order.
+        max_workers=1,
         column_name="test_column",
         shutdown_error_rate=shutdown_error_rate,
         shutdown_error_window=20,
@@ -460,8 +463,6 @@ def test_no_early_shutdown_when_below_threshold(
             elif success_index < num_successes:
                 executor.submit(success_task, success_index)
                 success_index += 1
-
-        time.sleep(0.5)  # Wait for all tasks to complete
 
     # Verify no early shutdown occurred
     assert executor.results.early_shutdown == expected_early_shutdown
