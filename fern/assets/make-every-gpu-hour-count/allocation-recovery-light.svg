@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="552" viewBox="0 0 1200 552" role="img" aria-labelledby="title desc">
+  <title id="title">Retry only the job that stopped</title>
+  <desc id="desc">Jobs 1 and 3 complete and stay intact. Job 2 stops after saving some rows. The retry command starts a new job that keeps those saved rows and finishes the remaining rows.</desc>
+  <defs>
+    <marker id="retry-arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0 0 10 5 0 10Z" fill="#568b00"/></marker>
+    <style>
+      text { font-family: Arial, Helvetica, sans-serif; fill: #243b4b; }
+      .job { font-size: 23px; font-weight: 700; }
+      .status { font-size: 17px; font-weight: 700; }
+      .label { font-size: 19px; }
+      .muted { fill: #667580; }
+    </style>
+  </defs>
+  <rect width="1200" height="552" rx="16" fill="#ffffff"/>
+  <text x="40" y="43" font-size="29" font-weight="700">Retry only the job that stopped</text>
+  <text x="40" y="77" class="label muted">First run</text>
+
+  <rect x="40" y="98" width="340" height="150" rx="12" fill="#f8fbf4" stroke="#c4d9aa" stroke-width="2"/>
+  <text x="64" y="134" class="job">Job 1</text>
+  <rect x="251" y="111" width="106" height="31" rx="7" fill="#e4f1d4"/>
+  <text x="304" y="133" text-anchor="middle" class="status" style="fill:#426e14">Complete</text>
+  <rect x="64" y="169" width="292" height="21" rx="7" fill="#76b900"/>
+  <text x="64" y="222" class="label">All rows saved</text>
+  <text x="210" y="286" text-anchor="middle" class="label muted">Completed work kept</text>
+
+  <rect x="430" y="98" width="340" height="150" rx="12" fill="#fffaf1" stroke="#dfbc7c" stroke-width="2"/>
+  <text x="454" y="134" class="job">Job 2</text>
+  <rect x="641" y="111" width="106" height="31" rx="7" fill="#fce9c3"/>
+  <text x="694" y="133" text-anchor="middle" class="status" style="fill:#8b5800">Stopped</text>
+  <rect x="454" y="169" width="292" height="21" rx="7" fill="#e7ebee"/>
+  <path d="M461 169H630V190H461Q454 190 454 183V176Q454 169 461 169Z" fill="#76b900"/>
+  <text x="454" y="222" class="label">Saved rows</text>
+  <text x="638" y="222" class="label muted">Unfinished</text>
+
+  <rect x="820" y="98" width="340" height="150" rx="12" fill="#f8fbf4" stroke="#c4d9aa" stroke-width="2"/>
+  <text x="844" y="134" class="job">Job 3</text>
+  <rect x="1031" y="111" width="106" height="31" rx="7" fill="#e4f1d4"/>
+  <text x="1084" y="133" text-anchor="middle" class="status" style="fill:#426e14">Complete</text>
+  <rect x="844" y="169" width="292" height="21" rx="7" fill="#76b900"/>
+  <text x="844" y="222" class="label">All rows saved</text>
+  <text x="990" y="286" text-anchor="middle" class="label muted">Completed work kept</text>
+
+  <path d="M600 249V369" fill="none" stroke="#568b00" stroke-width="3" marker-end="url(#retry-arrow)"/>
+  <rect x="386" y="287" width="428" height="48" rx="8" fill="#f4f7fa" stroke="#d4dee6"/>
+  <text x="600" y="317" text-anchor="middle" font-size="18" style="font-family:monospace">data-designer slurm retry RUN_ID</text>
+
+  <rect x="300" y="385" width="600" height="143" rx="12" fill="#f8fbf4" stroke="#9fbe77" stroke-width="2"/>
+  <text x="326" y="420" class="job">Retry Job 2</text>
+  <text x="874" y="419" text-anchor="end" class="label muted">Continue from saved work</text>
+  <rect x="326" y="441" width="548" height="24" rx="7" fill="#76b900"/>
+  <path d="M333 441H627V465H333Q326 465 326 458V448Q326 441 333 441Z" fill="#dceec4"/>
+  <text x="326" y="503" class="label">Saved rows kept</text>
+  <text x="646" y="503" class="label">Finish remaining rows</text>
+</svg>

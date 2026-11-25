@@ -203,6 +203,9 @@ navigation:
     contents:
       - page: Overview
         path: ./latest/pages/devnotes/index.mdx
+      - page: "Make Every GPU-Hour Count: Synthetic Data at Scale with Slurm"
+        slug: make-every-gpu-hour-count
+        path: ./latest/pages/devnotes/posts/make-every-gpu-hour-count.mdx
       - page: Chart Understanding
         path: ./latest/pages/devnotes/posts/chart-understanding.mdx
       - page: Nemotron Indic Translation
