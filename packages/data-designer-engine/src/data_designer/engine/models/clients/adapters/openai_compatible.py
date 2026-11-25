@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import urlparse
 
 from data_designer.config.utils.media_helpers import audio_format_from_mime_type
 from data_designer.engine.models.clients.adapters.http_model_client import (
@@ -29,6 +30,8 @@ from data_designer.engine.models.clients.types import (
     ImageGenerationResponse,
     TransportKwargs,
 )
+
+_OPENAI_HOSTNAME = "api.openai.com"
 
 
 class OpenAICompatibleClient(HttpModelClient):
@@ -57,6 +60,21 @@ class OpenAICompatibleClient(HttpModelClient):
     def supports_image_generation(self) -> bool:
         return True
 
+    def _adapt_chat_body(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Rename ``max_tokens`` to ``max_completion_tokens`` for the hosted OpenAI API.
+
+        Newer OpenAI models (for example ``gpt-5.6-luna``) reject ``max_tokens`` on Chat
+        Completions. Other OpenAI-compatible servers (vLLM, NVIDIA, ...) still expect it,
+        so the rename only applies to ``api.openai.com``. An explicit ``max_completion_tokens``
+        (for example from ``extra_body``) wins.
+        """
+        if "max_tokens" not in body or urlparse(self._endpoint).hostname != _OPENAI_HOSTNAME:
+            return body
+        adapted = dict(body)
+        max_tokens = adapted.pop("max_tokens")
+        adapted.setdefault("max_completion_tokens", max_tokens)
+        return adapted
+
     # -------------------------------------------------------------------
     # Chat completion
     # -------------------------------------------------------------------
@@ -68,7 +86,7 @@ class OpenAICompatibleClient(HttpModelClient):
             provider_name=self.provider_name,
             model_name=request.model,
         )
-        payload = {"model": request.model, "messages": messages, **transport.body}
+        payload = {"model": request.model, "messages": messages, **self._adapt_chat_body(transport.body)}
         response_json = self._post_sync(self._ROUTE_CHAT, payload, transport.headers, request.model, transport.timeout)
         return parse_chat_completion_response(response_json)
 
@@ -79,7 +97,7 @@ class OpenAICompatibleClient(HttpModelClient):
             provider_name=self.provider_name,
             model_name=request.model,
         )
-        payload = {"model": request.model, "messages": messages, **transport.body}
+        payload = {"model": request.model, "messages": messages, **self._adapt_chat_body(transport.body)}
         response_json = await self._apost(
             self._ROUTE_CHAT, payload, transport.headers, request.model, transport.timeout
         )

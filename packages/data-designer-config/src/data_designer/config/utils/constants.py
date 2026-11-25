@@ -349,6 +349,7 @@ NEMOTRON_3_5_SUPER_VL_120B_A12B_INFERENCE_PARAMS = {
 }
 NEMOTRON_3_NANO_OMNI_30B_A3B_REASONING_INFERENCE_PARAMS = {"temperature": 0.60, "top_p": 0.95}
 GPT5_INFERENCE_PARAMS = {"extra_body": {"reasoning_effort": "medium"}}
+GPT5_TEXT_INFERENCE_PARAMS = DEFAULT_TEXT_INFERENCE_PARAMS | {"extra_body": {"reasoning_effort": "none"}}
 
 PREDEFINED_PROVIDERS_MODEL_MAP = {
     NVIDIA_PROVIDER_NAME: {
@@ -370,9 +371,9 @@ PREDEFINED_PROVIDERS_MODEL_MAP = {
         },
     },
     OPENAI_PROVIDER_NAME: {
-        "text": {"model": "gpt-4.1", "inference_parameters": DEFAULT_TEXT_INFERENCE_PARAMS},
-        "reasoning": {"model": "gpt-5", "inference_parameters": GPT5_INFERENCE_PARAMS},
-        "vision": {"model": "gpt-5", "inference_parameters": GPT5_INFERENCE_PARAMS},
+        "text": {"model": "gpt-5.6-luna", "inference_parameters": GPT5_TEXT_INFERENCE_PARAMS},
+        "reasoning": {"model": "gpt-5.6-luna", "inference_parameters": GPT5_INFERENCE_PARAMS},
+        "vision": {"model": "gpt-5.6-luna", "inference_parameters": GPT5_INFERENCE_PARAMS},
         "embedding": {"model": "text-embedding-3-large", "inference_parameters": DEFAULT_EMBEDDING_INFERENCE_PARAMS},
     },
     OPENROUTER_PROVIDER_NAME: {

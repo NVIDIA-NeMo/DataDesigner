@@ -78,13 +78,18 @@ def test_get_builtin_model_configs():
     assert builtin_model_configs[3].model == "nvidia/nemotron-3-embed-1b"
     assert builtin_model_configs[3].provider == "nvidia"
     assert builtin_model_configs[4].alias == "openai-text"
-    assert builtin_model_configs[4].model == "gpt-4.1"
+    assert builtin_model_configs[4].model == "gpt-5.6-luna"
     assert builtin_model_configs[4].provider == "openai"
+    assert builtin_model_configs[4].inference_parameters == ChatCompletionInferenceParams(
+        temperature=0.85,
+        top_p=0.95,
+        extra_body={"reasoning_effort": "none"},
+    )
     assert builtin_model_configs[5].alias == "openai-reasoning"
-    assert builtin_model_configs[5].model == "gpt-5"
+    assert builtin_model_configs[5].model == "gpt-5.6-luna"
     assert builtin_model_configs[5].provider == "openai"
     assert builtin_model_configs[6].alias == "openai-vision"
-    assert builtin_model_configs[6].model == "gpt-5"
+    assert builtin_model_configs[6].model == "gpt-5.6-luna"
     assert builtin_model_configs[6].provider == "openai"
     assert builtin_model_configs[7].alias == "openai-embedding"
     assert builtin_model_configs[7].model == "text-embedding-3-large"
