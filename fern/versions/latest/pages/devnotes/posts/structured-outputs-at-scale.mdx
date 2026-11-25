@@ -91,7 +91,7 @@ deployments:
         name: vllm
       startup_timeout: 20m
       queue_backpressure:
-        max_waiting_requests: 128
+        max_waiting_requests: 8192
         retry_after_seconds: 1
       extra_args: [
         --max-model-len, "16384", --max-num-seqs, "8192",
@@ -113,6 +113,8 @@ Here, `image.name: vllm` selects the serving container image registered during c
 The cluster profile requests eight GPUs per node. This base run uses TP8 with the default PP1, giving one replica per node. Save a copy as `run-tp4.yaml`, change its name to `structured-outputs-base-tp4`, and set `tensor_parallel: 4` for two replicas per node. Keep all other settings identical.
 
 `--max-num-seqs` limits active sequences **per replica**. Keep it fixed across the sweep and large enough to cover the largest client concurrency you plan to test. Here, 8,192 covers the sweep below and possible extensions, even if requests are unevenly distributed across replicas. This removes that setting as a lower concurrency ceiling; available KV cache and token budgets can still limit execution.
+
+A low `max_waiting_requests` can make a busy replica reject requests and the client slow down. At two nodes with TP8 and concurrency 2,048, we measured 10.05 records/s with a queue limit of 128 and 14.76 with a limit of 8,192. Every case below uses 8,192.
 
 Create `benchmark-one-node-tp8.yaml` for the TP8 sweep:
 
@@ -136,9 +138,9 @@ analysis:
   target_runtime: 4h
 ```
 
-Copy it to `benchmark-two-nodes-tp8.yaml`, set `name: structured-outputs-two-nodes-tp8`, change the deployment case name to `two-nodes`, set `nodes: 2`, and use `concurrency_values: [256, 512, 1024, 2048]`.
+Copy it to `benchmark-two-nodes-tp8.yaml`, set `name: structured-outputs-two-nodes-tp8`, change the deployment case name to `two-nodes`, set `nodes: 2`, and use `concurrency_values: [256, 512, 1024, 2048, 4096]`.
 
-For TP4, copy these two sweep files to `benchmark-one-node-tp4.yaml` and `benchmark-two-nodes-tp4.yaml`. In both copies, set `base_run: run-tp4.yaml` and replace `tp8` with `tp4` in the benchmark name. Together, the four sweeps cover **16 primary cases**, with 8,192 requested records each. Within each TP setting, matched pairs double both compute and configured concurrency.
+For TP4, copy these two sweep files to `benchmark-one-node-tp4.yaml` and `benchmark-two-nodes-tp4.yaml`. In both copies, set `base_run: run-tp4.yaml` and replace `tp8` with `tp4` in the benchmark name. For two-node TP4, use `concurrency_values: [256, 512, 1024, 2048]`. The sweeps cover 16 primary cases and one follow-up at 4,096 on two-node TP8. Each requests 8,192 records.
 
 The `nvidia-text` concurrency limit is shared by all five model columns. Adding replicas does not automatically increase it. TP and PP stay fixed within each sweep.
 
@@ -156,7 +158,31 @@ data-designer slurm status CHILD_RUN_ID
 data-designer slurm benchmark analyze BENCHMARK_ID --refresh-state
 ```
 
-The analyzer reports outcomes, timing, throughput, and projected allocation counts and GPU-hours. **Queue wait is excluded.** Its `target_runtime` is an analysis budget; the job's `time_limit` controls the allocation limit. We measured generation time from the client’s recorded start and finish times and checked it against the logs and benchmark reports. GPU-hours come from Slurm accounting.
+The `Recommendations` section compares cases within one benchmark ID. A case is `pareto` if no other eligible case reduces the projected job count or GPU-hours without increasing the other. Each report below had one eligible case, so each lists that case as `pareto`.
+
+```text
+# Two-node TP8 at concurrency 2,048
+Recommendations:
+  1.
+    Kind: pareto
+    Case id: 2node-c2048-c2048
+  2.
+    Kind: minimum_jobs
+    Case id: 2node-c2048-c2048
+
+# One-node TP8 at concurrency 1,024
+Recommendations:
+  1.
+    Kind: pareto
+    Case id: 1node-c1024-c1024
+  3.
+    Kind: minimum_gpu_hours
+    Case id: 1node-c1024-c1024
+```
+
+Across all 17 cases, two-node TP8 projected the fewest jobs for one million records (five). One-node TP8 projected seven jobs and the lowest GPU budget (224 GPU-hours at four hours per job). The analyzer uses `target_runtime` for these projections. Slurm enforces the job’s `time_limit`.
+
+The plots below use measured records/s and GPU-hours per 1,000 generated records. We checked the client start and finish times against logs and benchmark reports, and used Slurm accounting for GPU-hours. Both measures exclude queue wait.
 
 ## Tune Each Setup Before Comparing Them
 
@@ -164,95 +190,73 @@ The analyzer reports outcomes, timing, throughput, and projected allocation coun
 
 We used [Nemotron 3.5 Super VL 120B-A12B BF16](https://huggingface.co/nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-BF16), vLLM 0.32.0, and Data Designer. TP4 ran two replicas per node; TP8 ran one. PP was one and expert parallelism was off.
 
-All **18 sweep trials** are shown below. **Bold rows** show the best measured setting for each setup: the highest records/s and lowest GPU-hours per record. The chart marks these settings with diamonds.
+**Two nodes with TP8 at concurrency 2,048 gave the fastest turnaround per job**, generating 14.76 records/s. At 4,096 we measured 13.94 records/s, about 5.5% lower. These two trials ran on different partitions with the same H100 configuration. **One node with TP8 at 1,024 had the lowest GPU cost**, generating 10.72 records/s at 0.273 GPU-hours per 1,000 records.
+
+![Throughput and GPU-hours per 1,000 records across the one-node and two-node sweeps. Diamonds mark the fastest job and the lowest GPU cost.](/assets/structured-outputs-at-scale/throughput.png)
+
+On one node, TP4 gained less than 1% going from concurrency 512 to 1,024. TP8 kept improving through 1,024. On the same eight GPUs, TP4 held two copies of the model and TP8 held one. With TP8, model memory per GPU fell from **57.6 to 29.4 GiB**, leaving **32.3 GiB for the KV cache** compared with **3.8 GiB** for TP4. That gave the server more room to keep requests active.
 
 **1 node · TP4 · 2 replicas**
 
 | Concurrency limit | Records/s | GPU-h / 1,000 records |
 | --- | ---: | ---: |
-| 128 | 2.130 | 1.118 |
-| 256 | 3.748 | 0.664 |
-| **512** | **4.524** | **0.565** |
-| 1,024 | 4.295 | 0.593 |
+| 128 | 2.093 | 1.138 |
+| 256 | 3.787 | 0.660 |
+| 512 | 4.452 | 0.574 |
+| 1,024 | 4.467 | 0.599 |
 
 **1 node · TP8 · 1 replica**
 
 | Concurrency limit | Records/s | GPU-h / 1,000 records |
 | --- | ---: | ---: |
-| 128 | 1.913 | 1.229 |
-| 256 | 3.294 | 0.743 |
-| 512 | 5.739 | 0.455 |
-| **1,024** | **9.551** | **0.302** |
-| 2,048 | 6.650 | 0.406 |
+| 128 | 1.789 | 1.311 |
+| 256 | 3.285 | 0.744 |
+| 512 | 6.230 | 0.448 |
+| **1,024** | **10.717** | **0.273** |
 
 **2 nodes · TP4 · 4 replicas**
 
 | Concurrency limit | Records/s | GPU-h / 1,000 records |
 | --- | ---: | ---: |
-| 256 | 3.969 | 1.339 |
-| 512 | 6.945 | 0.857 |
-| **1,024** | **8.314** | **0.768** |
-| 2,048 | 5.006 | 1.110 |
+| 256 | 4.001 | 1.335 |
+| 512 | 7.005 | 0.851 |
+| 1,024 | 8.188 | 0.885 |
+| 2,048 | 8.395 | 0.915 |
 
 **2 nodes · TP8 · 2 replicas**
 
 | Concurrency limit | Records/s | GPU-h / 1,000 records |
 | --- | ---: | ---: |
-| 256 | 3.560 | 1.449 |
-| 512 | 6.295 | 0.899 |
-| **1,024** | **10.895** | **0.589** |
-| 2,048 | 10.053 | 0.624 |
-| 4,096 | 9.368 | 0.662 |
+| 256 | 3.554 | 1.452 |
+| 512 | 5.101 | 1.075 |
+| 1,024 | 11.013 | 0.673 |
+| **2,048** | **14.762** | **0.501** |
+| 4,096 | 13.945 | 0.506 |
 
-Each trial generated 8,192 records. GPU-hours include server startup and shutdown.
-
-![One-node and two-node single-client TP4 and TP8 concurrency sweeps, with diamonds marking the best measured settings and their records/s.](/assets/structured-outputs-at-scale/throughput.png)
-
-**TP8 reached its best sweep rate at concurrency 1,024 on both topologies: 9.55 records/s on one node and 10.89 on two.** The next doubling reduced throughput by about **30% and 8%**, respectively, while increasing GPU cost per record. Two-node concurrency 4,096 fell further to 9.37 records/s.
-
-Memory measurements help explain TP8’s gain. On the same eight GPUs, TP8 spread one model copy across all eight, while TP4 kept two four-GPU copies. Model memory per GPU fell from **57.6 to 29.4 GiB**, leaving **32.3 GiB for the KV cache versus 3.8 GiB**. This extra space likely helped the server handle more requests at once.
+GPU-hours include startup and shutdown. Two trials returned 8,191 records each (one-node TP4 at 256 and two-node TP8 at 1,024). The other trials returned all 8,192. Rates and costs use the number generated.
 
 ### How Many Jobs Reach the Target?
 
-For planning, ask: **how many allocations could produce one million records with four hours available per allocation?**
+To estimate how many four-hour jobs we need for **one million generated records**, subtract measured startup and shutdown time from four hours, then multiply the remaining seconds by the measured records/s. Round the number of jobs up. Each array task counts as one job.
 
-```text
-usable client time = 4 hours - measured pre-client overhead - shutdown allowance
-records per allocation ≈ records/second × usable client time
-allocations needed = ceil(1,000,000 / records per allocation)
-```
+| Setup / concurrency | Records per full job | Jobs for 1M | Estimated GPU-h | GPU-h if all jobs use 4h |
+| --- | ---: | ---: | ---: | ---: |
+| 1 node · TP8 / 1,024 | 151,713 | 7 | 211 | 224 |
+| 2 nodes · TP8 / 2,048 | 207,111 | 5 | 309 | 320 |
 
-Using the original sweep rates and a rounded-up shutdown allowance gives these illustrative projections. Each array task counts as one job:
+If those rates hold for **100 million records**, the same four-hour limit gives about **660 one-node jobs or 483 two-node jobs** in total.
 
-| Setup / concurrency limit | Records / 4h job | Jobs needed | Full-budget GPU-h |
-| --- | ---: | ---: | ---: |
-| 1 node · TP4 / 512 | 63,901 | 16 | 512 |
-| 2 nodes · TP4 / 1024 | 116,141 | 9 | 576 |
-| 1 node · TP8 / 1024 | 135,079 | 8 | 256 |
-| 2 nodes · TP8 / 1024 | 153,242 | 7 | 448 |
+We divide the million records evenly among the array tasks and include startup and shutdown for each task. The times below assume the measured rates hold and tasks start as soon as a slot opens. They exclude queue wait, retries, and collection.
 
-**For GPU efficiency, start with one node, TP8, and concurrency 1,024.** It projects to eight jobs and 256 GPU-hours for one million records. Two-node TP8 projects to seven jobs and 448 GPU-hours. Full-budget GPU-hours reserve four hours for every job, separate from the actual trial costs above.
+| Setup / concurrency | Total jobs | Jobs at once | Peak GPUs | Estimated time for 1M |
+| --- | ---: | ---: | ---: | ---: |
+| 1 node · TP8 / 1,024 | 7 | 4 | 32 | 7 h 32 min |
+| 2 nodes · TP8 / 2,048 | 5 | 4 | 64 | 7 h 44 min |
+| 2 nodes · TP8 / 2,048 | 5 | 2 | 32 | 11 h 36 min |
 
-Completion time also depends on how many of those jobs can run at once:
+**With four job slots**, both layouts finish in two waves. The one-node layout projects to 7 h 32 min using 32 GPUs, about 12 minutes sooner than the two-node layout using 64. **With 32 GPUs available**, only two two-node jobs fit at once, so that layout needs a third wave.
 
-```text
-estimated generation time = ceil(jobs needed / parallel jobs) × 4 hours
-peak GPUs = parallel jobs × GPUs per job
-```
-
-Both options below use **TP8 and concurrency 1,024**:
-
-| Nodes per job | Parallel jobs | Peak GPUs | Estimated generation time |
-| --- | ---: | ---: | ---: |
-| 1 | 4 | 32 | 8 hours |
-| 2 | 4 | 64 | 8 hours |
-| 2 | 2 | 32 | 16 hours |
-
-**With four parallel job slots**, both layouts round to two four-hour waves, while two-node jobs reserve twice the peak GPUs. **With a fixed 32-GPU budget**, the one-node layout finishes the projection sooner: eight hours versus sixteen.
-
-These are rounded full-wave projections from the original sweep observations; the final wave may finish sooner. They assume the observed rates persist across longer runs and parallel jobs, and exclude queue wait, extra safety margin, failures, and final collection time. We measured at most 16 GPUs in one allocation; larger fleets remain untested. `target_runtime: 4h` is a per-job budget, not an overall deadline.
-
-To submit a larger run, copy the selected base configuration to `production-run.yaml`. Replace `invocation` and add `array_tasks` as below. This example splits one million requested records into 125 jobs of 8,000 records:
+To run the seven-job, one-node TP8 example, copy `run-tp8.yaml` to `production-run.yaml`. Replace `invocation` and add `array_tasks`. The first six tasks each request 142,857 records and the last requests 142,858. At the measured rate, each takes about 3 h 46 min including startup and shutdown, leaving about 14 minutes before the four-hour limit.
 
 ```yaml
 invocation:
@@ -264,11 +268,11 @@ invocation:
   run_config:
     max_in_flight_tasks: 8192
 array_tasks:
-  count: 125
+  count: 7
   max_concurrent: 4
 ```
 
-`array_tasks.max_concurrent` sets how many jobs may run at once. Choose the highest value your available GPU allocation and cluster limits allow: available GPUs divided by GPUs per job, rounded down. Slurm scheduling determines when those jobs start. Each job starts the complete model setup. These shorter jobs repeat model startup more often, but leave more time to finish than the eight four-hour jobs projected above.
+Here, `max_concurrent: 4` lets four tasks use eight GPUs each, for a peak of 32. For your own run, choose the highest parallelism your GPU budget and cluster limits allow. Slurm determines when each task starts.
 
 Preview the production submission, then launch it:
 
@@ -310,7 +314,7 @@ For this model, TP8 reduced the memory used by model weights and left more room 
 Here are some takeaways:
 
 - **Tune before scaling.** Compare model setups and concurrency limits using records/s and GPU-hours, and check that the GPUs stay busy.
-- **Choose your trade-off.** Compare completion time and total GPU cost within the same GPU budget.
+- **Choose for your objective.** Two-node TP8 at 2,048 was fastest per job. One-node TP8 at 1,024 used the fewest GPU-hours per record.
 - **Use your allocation.** Run as many jobs in parallel as your GPU budget allows, with each job sized to finish within its time limit.
 - **Recover unfinished work.** Retry failed shards and reuse saved progress where possible.
 
