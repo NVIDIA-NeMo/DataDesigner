@@ -2196,7 +2196,7 @@ def test_generate_image_no_image_data(
     stub_model_client.generate_image.return_value = ImageGenerationResponse(images=[])
 
     with patch("data_designer.engine.models.facade.is_image_diffusion_model", return_value=False):
-        with pytest.raises(ImageGenerationError, match="No image data found"):
+        with pytest.raises(ImageGenerationError, match="does not download generated-image URLs.*inline base64"):
             stub_model_facade.generate_image(prompt="test prompt")
 
     assert stub_model_facade.usage_stats.request_usage.failed_requests == 1
@@ -2392,5 +2392,5 @@ async def test_agenerate_image_no_data(
     stub_model_client.agenerate_image = AsyncMock(return_value=ImageGenerationResponse(images=[]))
 
     with patch("data_designer.engine.models.facade.is_image_diffusion_model", return_value=True):
-        with pytest.raises(ImageGenerationError, match="No image data found"):
+        with pytest.raises(ImageGenerationError, match="does not download generated-image URLs.*inline base64"):
             await stub_model_facade.agenerate_image(prompt="test prompt")

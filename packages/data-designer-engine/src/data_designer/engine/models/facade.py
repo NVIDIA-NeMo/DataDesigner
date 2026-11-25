@@ -771,7 +771,16 @@ class ModelFacade:
             images = [img.b64_data for img in response.images]
 
             if not images:
-                raise ImageGenerationError("No image data found in image generation response")
+                raise ImageGenerationError(
+                    "No inline image data found in image generation response. "
+                    "Data Designer does not download generated-image URLs. "
+                    "Configure the provider to return inline base64 image data. For Images API providers "
+                    'that support it, use ImageInferenceParams(extra_body={"response_format": "b64_json"}). '
+                    "String response_format values apply to the Images API; OpenRouter's chat route "
+                    "expects an object and should not receive this string option. "
+                    "Omit the option when the model already returns inline images, "
+                    "or choose a provider that supports inline image output."
+                )
 
             got_usable_images = True
             if not skip_usage_tracking:
@@ -830,7 +839,16 @@ class ModelFacade:
             images = [img.b64_data for img in response.images]
 
             if not images:
-                raise ImageGenerationError("No image data found in image generation response")
+                raise ImageGenerationError(
+                    "No inline image data found in image generation response. "
+                    "Data Designer does not download generated-image URLs. "
+                    "Configure the provider to return inline base64 image data. For Images API providers "
+                    'that support it, use ImageInferenceParams(extra_body={"response_format": "b64_json"}). '
+                    "String response_format values apply to the Images API; OpenRouter's chat route "
+                    "expects an object and should not receive this string option. "
+                    "Omit the option when the model already returns inline images, "
+                    "or choose a provider that supports inline image output."
+                )
 
             got_usable_images = True
             if not skip_usage_tracking:
@@ -977,10 +995,6 @@ class ModelFacade:
 
     def _track_usage(self, usage: Usage | None, *, is_request_successful: bool) -> None:
         """Unified usage tracking from canonical Usage type."""
-        if not is_request_successful:
-            self._usage_stats.extend(request_usage=RequestUsageStats(successful_requests=0, failed_requests=1))
-            return
-
         token_usage = None
         if usage is not None and (usage.input_tokens is not None or usage.output_tokens is not None):
             token_usage = TokenUsageStats(
@@ -992,8 +1006,13 @@ class ModelFacade:
 
         self._usage_stats.extend(
             token_usage=token_usage,
-            request_usage=RequestUsageStats(successful_requests=1, failed_requests=0),
+            request_usage=RequestUsageStats(
+                successful_requests=int(is_request_successful), failed_requests=int(not is_request_successful)
+            ),
         )
+        if not is_request_successful and token_usage is None:
+            return
+
         emit_token_usage_event(
             TokenUsageEvent(
                 model_alias=self.model_alias,
