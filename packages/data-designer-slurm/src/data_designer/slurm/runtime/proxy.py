@@ -170,7 +170,13 @@ class _SocketBudget:
             raise RuntimeError("cannot determine a finite proxy file-descriptor limit")
         self.headroom: int = max(64, min(1024, self.soft_limit // 8), backend_count + 32)
         self._estimated_open: int = self.count_open()
-        self.connection_limit: int = max(1, (self.soft_limit - self.headroom - self._estimated_open) // 2)
+        self.connection_limit: int = (self.soft_limit - self.headroom - self._estimated_open) // 2
+        if self.connection_limit < 1:
+            raise RuntimeError(
+                "proxy cannot forward inference with RLIMIT_NOFILE "
+                f"soft={self.soft_limit}, hard={hard}, open={self._estimated_open}, reserved={self.headroom}; "
+                "increase the process file-descriptor limit or reduce other open descriptors before starting the proxy"
+            )
         self.in_flight: int = 0
         self._opened_total: int = 0
         self._sampled_at: float = time.monotonic()

@@ -12,6 +12,7 @@ import socket
 import sys
 import threading
 from contextlib import AsyncExitStack
+from pathlib import Path
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -38,6 +39,16 @@ def test_budget_uses_effective_soft_limit_and_reserves_descriptors(
     assert 2 * budget.connection_limit + budget.headroom + 16 <= soft_limit
     if soft_limit >= 1024:
         assert budget.connection_limit > 256
+
+
+@pytest.mark.parametrize("soft_limit", [32, 64, 80, 81])
+def test_startup_rejects_descriptor_limits_without_inference_capacity(
+    monkeypatch: pytest.MonkeyPatch, soft_limit: int
+) -> None:
+    monkeypatch.setattr(resource, "getrlimit", lambda _: (soft_limit, soft_limit))
+    monkeypatch.setattr(_SocketBudget, "count_open", lambda _: 16)
+    with pytest.raises(RuntimeError, match=rf"RLIMIT_NOFILE.*soft={soft_limit}.*open=16.*reserved=64.*increase"):
+        _SocketBudget(1)
 
 
 def test_unlimited_soft_limit_uses_system_open_max(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -476,3 +487,42 @@ async def test_real_signal_drains_active_response_before_process_exit(
             if process.returncode is None:
                 process.terminate()
             await asyncio.wait_for(output, 12)
+
+
+@pytest.mark.asyncio
+async def test_real_proxy_exits_with_diagnostic_when_descriptor_limit_is_64(tmp_path: Path) -> None:
+    marker = tmp_path / "proxy.listening"
+    with socket.socket() as reservation:
+        reservation.bind(("127.0.0.1", 0))
+        port = reservation.getsockname()[1]
+    command = (
+        "import resource, sys; "
+        "resource.setrlimit(resource.RLIMIT_NOFILE, (64, resource.getrlimit(resource.RLIMIT_NOFILE)[1])); "
+        "from data_designer.slurm.runtime.proxy import main; sys.exit(main())"
+    )
+    process = await asyncio.create_subprocess_exec(
+        sys.executable,
+        "-c",
+        command,
+        "--listen-port",
+        str(port),
+        "--backend",
+        "http://127.0.0.1:8001",
+        "--listening-file",
+        str(marker),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    output = asyncio.create_task(process.communicate())
+    try:
+        _, stderr = await asyncio.wait_for(asyncio.shield(output), 5)
+        assert process.returncode != 0
+        message = stderr.decode()
+        assert "proxy cannot forward inference with RLIMIT_NOFILE soft=64" in message
+        assert "open=" in message and "reserved=64" in message
+        assert "increase the process file-descriptor limit" in message
+        assert not marker.exists()
+    finally:
+        if process.returncode is None:
+            process.terminate()
+        await asyncio.wait_for(output, 12)
