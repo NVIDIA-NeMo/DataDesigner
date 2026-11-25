@@ -21,7 +21,9 @@ from data_designer.engine.models.clients.parsing import (
     parse_image_payload,
 )
 from data_designer.engine.models.clients.types import ImageGenerationRequest
+from data_designer.engine.models.errors import ImageGenerationError
 from data_designer.engine.models.facade import ModelFacade
+from data_designer.engine.models.usage_events import TokenUsageEvent, subscribe_token_usage
 from tests.engine.models.clients.conftest import make_mock_async_client, make_mock_sync_client
 
 INLINE_IMAGE = "aW1hZ2VkYXRh" * 10
@@ -147,6 +149,7 @@ async def test_image_generation_responses_use_only_inline_images(
     ("model", "extra_body", "route"),
     [
         ("gpt-image-1.5", {"size": "1024x1024", "quality": "high"}, "/images/generations"),
+        ("dall-e-3", {"response_format": "b64_json"}, "/images/generations"),
         ("black-forest-labs/flux.2-pro", {"height": 512, "width": 512}, "/chat/completions"),
     ],
 )
@@ -189,5 +192,62 @@ async def test_documented_image_models_request_inline_output_on_their_supported_
     assert payload["model"] == model
     for key, value in extra_body.items():
         assert payload[key] == value
-    assert "response_format" not in payload
+    if "response_format" not in extra_body:
+        assert "response_format" not in payload
+    assert media_downloads == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("is_async", [False, True], ids=["sync", "async"])
+@pytest.mark.parametrize("is_chat_route", [False, True], ids=["images-api", "chat-api"])
+@pytest.mark.parametrize("skip_usage_tracking", [False, True], ids=["track-usage", "skip-usage"])
+async def test_url_only_image_failure_preserves_provider_token_usage(
+    is_async: bool, is_chat_route: bool, skip_usage_tracking: bool, media_downloads: list[str]
+) -> None:
+    raw_images = [{"url": "http://127.0.0.1:8080/private.json"}]
+    response = {"choices": [{"message": {"images": raw_images}}]} if is_chat_route else {"data": raw_images}
+    response["usage"] = {"prompt_tokens": 12, "completion_tokens": 34, "total_tokens": 46}
+    provider = ModelProvider(name="example", endpoint="https://provider.example.com/v1")
+    client = OpenAICompatibleClient(
+        provider_name=provider.name,
+        endpoint=provider.endpoint,
+        concurrency_mode=ClientConcurrencyMode.ASYNC if is_async else ClientConcurrencyMode.SYNC,
+        async_client=make_mock_async_client(response) if is_async else None,
+        sync_client=make_mock_sync_client(response) if not is_async else None,
+    )
+    facade = ModelFacade(
+        model_config=ModelConfig(
+            alias="image",
+            model="black-forest-labs/flux.2-pro" if is_chat_route else "gpt-image-1.5",
+            provider=provider.name,
+            inference_parameters=ImageInferenceParams(),
+        ),
+        model_provider_registry=ModelProviderRegistry(providers=[provider]),
+        client=client,
+    )
+    events: list[TokenUsageEvent] = []
+    unsubscribe = subscribe_token_usage(events.append)
+    try:
+        with pytest.raises(ImageGenerationError) as exc_info:
+            if is_async:
+                await facade.agenerate_image(prompt="Draw a circle", skip_usage_tracking=skip_usage_tracking)
+            else:
+                facade.generate_image(prompt="Draw a circle", skip_usage_tracking=skip_usage_tracking)
+    finally:
+        unsubscribe()
+
+    message = str(exc_info.value)
+    assert 'ImageInferenceParams(extra_body={"response_format": "b64_json"})' in message
+    assert "Images API" in message
+    assert "OpenRouter" in message
+    assert "object" in message
+    assert facade.usage_stats.request_usage.failed_requests == (0 if skip_usage_tracking else 1)
+    assert facade.usage_stats.request_usage.successful_requests == 0
+    assert facade.usage_stats.image_usage.total_images == 0
+    assert facade.usage_stats.token_usage.input_tokens == (0 if skip_usage_tracking else 12)
+    assert facade.usage_stats.token_usage.output_tokens == (0 if skip_usage_tracking else 34)
+    assert len(events) == (0 if skip_usage_tracking else 1)
+    if events:
+        assert events[0].input_tokens == 12
+        assert events[0].output_tokens == 34
     assert media_downloads == []
