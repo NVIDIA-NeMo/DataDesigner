@@ -24,7 +24,6 @@ from data_designer.slurm.state import (
     AttemptReadiness,
     CandidateOutputManifest,
     EffectiveRunState,
-    ProbeOutcome,
     ReadinessState,
     RunManifest,
     RunStatus,
@@ -192,6 +191,7 @@ def _measure_records(records: tuple[_MeasurementRecord, ...]) -> BenchmarkMeasur
         client_result, candidate = result
         if (
             client_result.outcome not in {ClientOutcome.COMPLETE, ClientOutcome.PARTIAL}
+            or client_result.effective_resume_mode == "always"
             or not client_result.actual_records
             or candidate.actual_records != client_result.actual_records
         ):
@@ -200,20 +200,24 @@ def _measure_records(records: tuple[_MeasurementRecord, ...]) -> BenchmarkMeasur
             return None
         if readiness.started_at is None:
             return None
-        probes = tuple(deployment.last_probe for deployment in readiness.deployments)
-        if any(probe is None or probe.outcome is not ProbeOutcome.SUCCESS for probe in probes):
+        if client_result.started_at is None:
             return None
         started_at = readiness.started_at
-        ready_at = max(probe.observed_at for probe in probes if probe is not None)
+        client_started_at = client_result.started_at
         completed_at = client_result.completed_at
         stopped_at = attempt.updated_at
-        if ready_at < started_at or completed_at <= ready_at or stopped_at < completed_at or stopped_at <= started_at:
+        if (
+            client_started_at < started_at
+            or completed_at <= client_started_at
+            or stopped_at < completed_at
+            or stopped_at <= started_at
+        ):
             return None
         measurements.append(
             BenchmarkShardMeasurements(
                 actual_records=client_result.actual_records or 0,
-                boot_seconds=(ready_at - started_at).total_seconds(),
-                generation_seconds=(completed_at - ready_at).total_seconds(),
+                boot_seconds=(client_started_at - started_at).total_seconds(),
+                generation_seconds=(completed_at - client_started_at).total_seconds(),
                 wall_seconds=(stopped_at - started_at).total_seconds(),
             )
         )

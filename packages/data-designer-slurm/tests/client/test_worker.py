@@ -7,6 +7,7 @@ import json
 import subprocess
 import sys
 from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
@@ -792,3 +793,45 @@ def test_preflight_keeps_mcp_secret_out_of_records(
 
     assert designers[0].initialization["mcp_providers"][0].api_key == "private-value"
     assert "private-value" not in (client_worker_case.attempt_dir / "client-environment.json").read_text()
+
+
+@pytest.mark.parametrize("elapsed_seconds", [-5, 0, 300], ids=["clock-rollback", "same-time", "forward"])
+@pytest.mark.parametrize("record_delta", [0, -1], ids=["complete", "partial"])
+def test_client_records_start_before_setup_and_generation(
+    client_worker_case: ClientWorkerCase, elapsed_seconds: int, record_delta: int
+) -> None:
+    started_at = datetime(2026, 11, 20, tzinfo=UTC)
+    clock = Mock(return_value=started_at)
+    actual_records = client_worker_case.plan.shards[0].requested_records + record_delta
+    worker = ClientWorker(data_designer_factory=partial(FakeDataDesigner, actual_records=actual_records), clock=clock)
+    worker.preflight(
+        client_worker_case.plan_path,
+        prepared=client_worker_case.prepared,
+        endpoints=client_worker_case.endpoints,
+        plugins=(),
+    )
+    # Later progress/finalization timestamps must not replace the initial start.
+    clock.side_effect = [started_at] + [started_at + timedelta(seconds=elapsed_seconds)] * 20
+    result = worker.run(
+        client_worker_case.plan_path,
+        prepared=client_worker_case.prepared,
+        endpoints=client_worker_case.endpoints,
+        plugins=(),
+    )
+    persisted = ClientResult.model_validate_json((client_worker_case.attempt_dir / "client-result.json").read_text())
+
+    expected_start = started_at if elapsed_seconds >= 0 else None
+    assert result.started_at == persisted.started_at == expected_start
+    assert result.completed_at == started_at + timedelta(seconds=elapsed_seconds)
+    assert result.outcome is (ClientOutcome.COMPLETE if record_delta == 0 else ClientOutcome.PARTIAL)
+    assert result.actual_records == actual_records
+    candidate = CandidateOutputManifest.model_validate_json(
+        (client_worker_case.attempt_dir / "output-manifest.json").read_text()
+    )
+    assert candidate.actual_records == actual_records
+    assert (
+        sum(pq.read_metadata(Path(candidate.dataset_path) / file.relative_path).num_rows for file in candidate.files)
+        == actual_records
+    )
+    if expected_start is None:
+        assert "started_at" not in json.loads((client_worker_case.attempt_dir / "client-result.json").read_text())

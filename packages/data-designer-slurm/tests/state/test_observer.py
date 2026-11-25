@@ -9,7 +9,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import cast
+from typing import Literal, cast
 
 import pytest
 from slurm_test_fakes import FakeCommandResponse, FakeSlurmArray, FakeSlurmRunner, FakeSlurmTask
@@ -401,6 +401,66 @@ def test_benchmark_observer_reads_complete_measurements_from_ordinary_state(
     assert observation.measurements.wall_seconds == 300
 
 
+@pytest.mark.parametrize("refresh_state", [False, True], ids=["persisted", "refreshed"])
+@pytest.mark.parametrize("probe_seconds_after_start", [239, 270], ids=["near-completion", "after-completion"])
+def test_benchmark_timings_ignore_rolling_health_probes(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+    fake_slurm_runner: FakeSlurmRunner,
+    refresh_state: bool,
+    probe_seconds_after_start: int,
+) -> None:
+    case = _initialized_case(tmp_path, authored_run_single, single_node_plan)
+    _publish_ready_state(case, case.attempt)
+    _publish_winner_state(case)
+    readiness = case.writer.load_readiness(case.shard.shard_id, case.attempt.attempt_id)
+    observed_at = case.attempt.created_at + timedelta(seconds=probe_seconds_after_start)
+    case.writer.write_readiness(
+        readiness.model_copy(
+            update={
+                "revision": readiness.revision + 1,
+                "updated_at": observed_at,
+                "deployments": tuple(
+                    deployment.model_copy(
+                        update={"last_probe": deployment.last_probe.model_copy(update={"observed_at": observed_at})}
+                    )
+                    for deployment in readiness.deployments
+                ),
+            }
+        )
+    )
+    SlurmCommandClient(fake_slurm_runner).submit("run.sbatch")
+    fake_slurm_runner.set_task_state(
+        cast(SchedulerIdentity, case.attempt.scheduler), queue_state=None, accounting_state="COMPLETED"
+    )
+    observation = PersistedBenchmarkRunObserver(
+        case.workspace, SlurmCommandClient(fake_slurm_runner), lambda: case.created_at + timedelta(minutes=8)
+    ).observe(case.plan.run_id, refresh_state=refresh_state)
+
+    assert observation.outcome is BenchmarkOutcome.SUCCEEDED
+    assert observation.measurements is not None
+    assert observation.measurements.boot_seconds == 60
+    assert observation.measurements.generation_seconds == 60
+    assert observation.measurements.wall_seconds == 180
+
+
+def test_legacy_client_results_do_not_guess_generation_start_from_probes(
+    tmp_path: Path,
+    authored_run_single: DataDesignerSlurmConfig,
+    single_node_plan: ResolvedSlurmRunPlan,
+) -> None:
+    case = _initialized_case(tmp_path, authored_run_single, single_node_plan)
+    _publish_ready_state(case, case.attempt)
+    _publish_winner_state(case, record_client_start=False)
+    observation = PersistedBenchmarkRunObserver(
+        case.workspace, _StaticSchedulerClient((), ()), lambda: case.created_at + timedelta(minutes=8)
+    ).observe(case.plan.run_id, refresh_state=False)
+
+    assert observation.outcome is BenchmarkOutcome.SUCCEEDED
+    assert observation.measurements is None
+
+
 def test_benchmark_observer_excludes_queue_stagger_from_cross_shard_timings(
     tmp_path: Path,
     authored_run: DataDesignerSlurmConfig,
@@ -429,12 +489,16 @@ def test_benchmark_observer_excludes_queue_stagger_from_cross_shard_timings(
     assert observation.measurements.wall_seconds == 360
 
 
+@pytest.mark.parametrize("effective_resume_mode", ["never", "always"], ids=["fresh", "resumed"])
 def test_benchmark_observer_ignores_superseded_attempt_evidence_after_retry_wins(
     tmp_path: Path,
     authored_run_single: DataDesignerSlurmConfig,
     single_node_plan: ResolvedSlurmRunPlan,
+    effective_resume_mode: Literal["never", "always"],
 ) -> None:
-    case = _initialized_case(tmp_path, authored_run_single, single_node_plan)
+    plan_payload = single_node_plan.model_dump(mode="python")
+    plan_payload["invocation"]["authored"]["resume"] = "if_possible"
+    case = _initialized_case(tmp_path, authored_run_single, ResolvedSlurmRunPlan.model_validate(plan_payload))
     case.writer.update_attempt(
         _copy_attempt(
             case.attempt,
@@ -457,7 +521,7 @@ def test_benchmark_observer_ignores_superseded_attempt_evidence_after_retry_wins
     )
     case.writer.create_attempt(retry)
     _publish_ready_state(case, retry)
-    _, winner = _publish_winner_state(case, retry)
+    _, winner = _publish_winner_state(case, retry, effective_resume_mode=effective_resume_mode)
     runner = FakeSlurmRunner(
         arrays=(
             FakeSlurmArray(tasks=(FakeSlurmTask(SchedulerIdentity(array_job_id=4101, array_task_id=0)),)),
@@ -480,8 +544,11 @@ def test_benchmark_observer_ignores_superseded_attempt_evidence_after_retry_wins
     refreshed = observer.observe(case.plan.run_id, refresh_state=True)
 
     assert persisted.outcome is BenchmarkOutcome.SUCCEEDED
-    assert persisted.measurements is not None
-    assert persisted.measurements.boot_seconds == 60
+    if effective_resume_mode == "always":
+        assert persisted.measurements is None
+    else:
+        assert persisted.measurements is not None
+        assert persisted.measurements.boot_seconds == 60
     assert refreshed.outcome is BenchmarkOutcome.SUCCEEDED
     assert refreshed.measurements == persisted.measurements
 
@@ -1107,6 +1174,8 @@ def _publish_winner_state(
     *,
     completed_at: datetime | None = None,
     stopped_at: datetime | None = None,
+    record_client_start: bool = True,
+    effective_resume_mode: Literal["never", "always"] = "never",
 ) -> tuple[AttemptManifest, ShardWinner]:
     attempt = case.attempt if attempt is None else attempt
     result_completed_at = completed_at or attempt.created_at + timedelta(minutes=4)
@@ -1120,7 +1189,11 @@ def _publish_winner_state(
     candidate_path = (
         case.writer.run_root / f"shards/{attempt.shard_id}/attempts/{attempt.attempt_id}/output-manifest.json"
     )
-    dataset_path = candidate_path.parent / "dataset"
+    dataset_path = (
+        candidate_path.parent / "dataset"
+        if effective_resume_mode == "never"
+        else Path(case.shard.resume_workspace.path)
+    )
     requested = next(shard.requested_records for shard in case.plan.shards if shard.shard_id == case.shard.shard_id)
     candidate = CandidateOutputManifest(
         schema_version=1,
@@ -1147,19 +1220,29 @@ def _publish_winner_state(
         provenance_digest=case.plan.compute_sha256(),
     )
     candidate_reference = ArtifactReference(path=candidate_path.as_posix(), sha256=candidate.compute_sha256())
+    readiness_path = candidate_path.parent / "readiness.json"
+    client_started_at = None
+    if record_client_start and readiness_path.exists():
+        readiness = AttemptReadiness.model_validate_json(readiness_path.read_text())
+        client_started_at = max(
+            deployment.last_probe.observed_at
+            for deployment in readiness.deployments
+            if deployment.last_probe is not None
+        )
     result = ClientResult(
         schema_version=1,
         run_id=case.plan.run_id,
         shard_id=running.shard_id,
         attempt_id=running.attempt_id,
         completed_at=result_completed_at,
+        started_at=client_started_at,
         requested_records=requested,
         actual_records=requested,
         outcome=ClientOutcome.COMPLETE,
         dataset_path=dataset_path.as_posix(),
         early_shutdown=False,
         requested_resume_mode=case.plan.invocation.authored.resume,
-        effective_resume_mode="never",
+        effective_resume_mode=effective_resume_mode,
         candidate_output_manifest=candidate_reference,
     )
     case.writer.publish_attempt_result(result, candidate)
