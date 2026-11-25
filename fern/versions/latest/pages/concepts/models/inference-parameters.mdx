@@ -151,6 +151,20 @@ The `EmbeddingInferenceParams` class controls how models generate embeddings. Th
 
 The `ImageInferenceParams` class is used for image generation models, including both diffusion models (DALL·E, Stable Diffusion, Imagen) and autoregressive models (Gemini image, GPT image). Unlike text models, image-specific options are passed entirely via `extra_body`, since they vary significantly between providers.
 
+Generated images must be returned inline as base64 data. Data Designer does not download generated-image URLs. GPT Image models return inline base64 by default, and the OpenRouter FLUX example below returns inline images through `/chat/completions`; neither needs a `response_format` override.
+
+For models using the Images API (`/images/generations`) that support `response_format="b64_json"`, request inline output with:
+
+```python
+import data_designer.config as dd
+
+inference_parameters = dd.ImageInferenceParams(
+    extra_body={"response_format": "b64_json"}
+)
+```
+
+This string option is specific to compatible Images API providers. OpenRouter's chat API expects an object for `response_format`, so do not pass the string option to that route. Omit the option when the model already returns inline images.
+
 ### Fields
 
 | Field | Type | Required | Description |
@@ -174,13 +188,13 @@ dd.ModelConfig(
     ),
 )
 
-# Diffusion model (e.g., DALL·E, Stable Diffusion)
+# OpenAI image model (images API, returns inline base64)
 dd.ModelConfig(
-    alias="dalle",
-    model="dall-e-3",
+    alias="openai-image",
+    model="gpt-image-1.5",
     provider="openai",
     inference_parameters=dd.ImageInferenceParams(
-        extra_body={"size": "1024x1024", "quality": "hd"}
+        extra_body={"size": "1024x1024", "quality": "high"}
     ),
 )
 ```
