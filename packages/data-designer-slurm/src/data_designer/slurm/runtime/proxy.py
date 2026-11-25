@@ -16,10 +16,11 @@ import socket
 import time
 from collections import Counter
 from collections.abc import Mapping, Sequence
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from urllib.parse import SplitResult, urlsplit
 
 from aiohttp import (
@@ -38,6 +39,7 @@ if TYPE_CHECKING:
     from aiohttp.client_reqrep import ConnectionKey
     from aiohttp.connector import Connection
     from aiohttp.tracing import Trace
+    from aiohttp.web_protocol import RequestHandler
 
 from data_designer.slurm.runtime.network import validate_host_name
 
@@ -48,6 +50,8 @@ _KEEPALIVE_TIMEOUT_SECONDS = 65.0
 _CONNECT_TIMEOUT_SECONDS = 5.0
 _READ_TIMEOUT_SECONDS = 3600.0
 _STREAM_CHUNK_BYTES = 64 * 1024
+_DESCRIPTOR_SAMPLE_INTERVAL_SECONDS = 0.1
+_DESCRIPTOR_SAMPLE_MAXIMUM_AGE_SECONDS = 1.0
 _RETRYABLE_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
 _HOP_HEADERS = frozenset(
     {
@@ -164,8 +168,13 @@ class _SocketBudget:
         if self.soft_limit <= 0:
             raise RuntimeError("cannot determine a finite proxy file-descriptor limit")
         self.headroom: int = max(64, min(1024, self.soft_limit // 8), backend_count + 32)
-        self.connection_limit: int = max(1, (self.soft_limit - self.headroom - self.count_open()) // 2)
+        self._estimated_open: int = self.count_open()
+        self.connection_limit: int = max(1, (self.soft_limit - self.headroom - self._estimated_open) // 2)
         self.in_flight: int = 0
+        self._opened_total: int = 0
+        self._sampled_at: float = time.monotonic()
+        self._sample_healthy: bool = True
+        self._monitor_task: asyncio.Task[None] | None = None
         _LOGGER.info(
             "slurm_proxy_socket_budget soft_limit=%s hard_limit=%s headroom=%s connection_limit=%s",
             self.soft_limit,
@@ -179,11 +188,42 @@ class _SocketBudget:
         directory = "/proc/self/fd" if Path("/proc/self/fd").is_dir() else "/dev/fd"
         return len(os.listdir(directory))
 
+    def start(self) -> None:
+        self._monitor_task = asyncio.create_task(self._monitor())
+
+    async def close(self) -> None:
+        if self._monitor_task is not None:
+            self._monitor_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await self._monitor_task
+
+    def connection_opened(self) -> None:
+        self._opened_total += 1
+        self._estimated_open += 1
+
+    def connection_closed(self) -> None:
+        self._estimated_open = max(0, self._estimated_open - 1)
+
     def has_headroom(self) -> bool:
+        return (
+            self._sample_healthy
+            and time.monotonic() - self._sampled_at < _DESCRIPTOR_SAMPLE_MAXIMUM_AGE_SECONDS
+            and self._estimated_open < self.soft_limit - self.headroom
+        )
+
+    async def refresh(self) -> None:
+        opened_before = self._opened_total
+        sampled_at = time.monotonic()
         try:
-            return self.count_open() < self.soft_limit - self.headroom
+            count = await asyncio.to_thread(self.count_open)
         except OSError:
-            return False
+            self._sample_healthy = False
+            return
+        # The scan races with socket changes. Count every opening since it began,
+        # but do not credit concurrent closures: either may already be in the scan.
+        self._estimated_open = count + self._opened_total - opened_before
+        self._sampled_at = sampled_at
+        self._sample_healthy = True
 
     def acquire(self) -> bool:
         if self.in_flight >= self.connection_limit or not self.has_headroom():
@@ -200,7 +240,34 @@ class _SocketBudget:
     ) -> socket.socket:
         if not self.has_headroom():
             raise _SocketBudgetExceeded("proxy socket budget exhausted")
-        return _create_socket(address_info)
+        return self.create_health_socket(address_info)
+
+    def create_health_socket(
+        self,
+        address_info: tuple[int, int, int, str, tuple[str, int] | tuple[str, int, int, int]],
+    ) -> socket.socket:
+        return _TrackedSocket(_create_socket(address_info), self)
+
+    async def _monitor(self) -> None:
+        while True:
+            await asyncio.sleep(_DESCRIPTOR_SAMPLE_INTERVAL_SECONDS)
+            await self.refresh()
+
+
+class _TrackedSocket(socket.socket):
+    """Track upstream descriptors until the transport actually closes the socket."""
+
+    def __init__(self, connection: socket.socket, budget: _SocketBudget) -> None:
+        super().__init__(connection.family, connection.type, connection.proto, fileno=connection.detach())
+        self._budget: _SocketBudget = budget
+        self._accounted: bool = True
+        budget.connection_opened()
+
+    def close(self) -> None:
+        super().close()
+        if self._accounted:
+            self._accounted = False
+            self._budget.connection_closed()
 
 
 class _ProxyConnector(TCPConnector):
@@ -310,6 +377,7 @@ class _ProxyApplication:
         del application
         trace = self._trace_config()
         self.budget = _SocketBudget(len(self.pool.backends))
+        self.budget.start()
         self.connector = _ProxyConnector(self.metrics, self.budget)
         self.session = ClientSession(
             connector=self.connector,
@@ -324,7 +392,9 @@ class _ProxyApplication:
         )
         # Keep health-check traffic independent of inference connection reuse.
         self.health_session = ClientSession(
-            connector=TCPConnector(limit=len(self.pool.backends), limit_per_host=1, socket_factory=_create_socket),
+            connector=TCPConnector(
+                limit=len(self.pool.backends), limit_per_host=1, socket_factory=self.budget.create_health_socket
+            ),
             timeout=ClientTimeout(total=_CONNECT_TIMEOUT_SECONDS),
             auto_decompress=False,
         )
@@ -335,6 +405,8 @@ class _ProxyApplication:
             await self.session.close()
         if self.health_session is not None:
             await self.health_session.close()
+        if self.budget is not None:
+            await self.budget.close()
 
     def _trace_config(self) -> TraceConfig:
         trace = TraceConfig()
@@ -401,6 +473,8 @@ class _ProxyApplication:
                 "headroom": self.budget.headroom,
                 "connection_limit": self.budget.connection_limit,
                 "in_flight": self.budget.in_flight,
+                "estimated_open": self.budget._estimated_open,
+                "sample_healthy": self.budget._sample_healthy,
             }
         return web.json_response(snapshot)
 
@@ -591,6 +665,58 @@ class _ProxyApplication:
         return self.connector
 
 
+class _BudgetServer(web.Server):
+    """Observe accepted sockets through aiohttp's supported 3.x server lifecycle."""
+
+    def __init__(self, server: web.Server, budget: _SocketBudget) -> None:
+        self._budget: _SocketBudget = budget
+        super().__init__(
+            server.request_handler,
+            request_factory=server.request_factory,
+            handler_cancellation=server.handler_cancellation,
+            loop=server._loop,
+            **server._kwargs,
+        )
+
+    def connection_made(self, handler: RequestHandler, transport: asyncio.Transport) -> None:
+        self._budget.connection_opened()
+        super().connection_made(handler, transport)
+
+    def connection_lost(self, handler: RequestHandler, exc: BaseException | None = None) -> None:
+        super().connection_lost(handler, exc)
+        self._budget.connection_closed()
+
+
+class _ProxyRunner(web.AppRunner):
+    def __init__(self, proxy: _ProxyApplication, **kwargs: Any) -> None:
+        self._proxy: _ProxyApplication = proxy
+        super().__init__(proxy.create(), **kwargs)
+
+    async def _make_server(self) -> web.Server:
+        server = await super()._make_server()
+        if self._proxy.budget is None:
+            raise RuntimeError("proxy socket budget is not started")
+        return _BudgetServer(server, self._proxy.budget)
+
+
+def _run_application(proxy: _ProxyApplication, *, sock: socket.socket, **kwargs: Any) -> None:
+    kwargs.pop("print", None)
+    try:
+        asyncio.run(_serve_application(proxy, sock, **kwargs))
+    except (web.GracefulExit, KeyboardInterrupt):
+        pass
+
+
+async def _serve_application(proxy: _ProxyApplication, listener: socket.socket, **kwargs: Any) -> None:
+    runner = _ProxyRunner(proxy, handle_signals=True, **kwargs)
+    try:
+        await runner.setup()
+        await web.SockSite(runner, listener).start()
+        await asyncio.Future()
+    finally:
+        await runner.cleanup()
+
+
 async def _discard_response(response: ClientResponse) -> None:
     response.close()
 
@@ -651,8 +777,8 @@ def main(arguments: Sequence[str] | None = None) -> int:
         try:
             if parsed.listening_file is not None:
                 parsed.listening_file.touch()
-            web.run_app(
-                proxy.create(),
+            _run_application(
+                proxy,
                 sock=listener,
                 print=None,
                 access_log=None,

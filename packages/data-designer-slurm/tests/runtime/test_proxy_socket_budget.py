@@ -9,6 +9,7 @@ import os
 import resource
 import socket
 import sys
+import threading
 from contextlib import AsyncExitStack
 from unittest.mock import AsyncMock, Mock
 
@@ -48,22 +49,27 @@ def test_unlimited_soft_limit_uses_system_open_max(monkeypatch: pytest.MonkeyPat
         _SocketBudget(1)
 
 
-def test_live_descriptor_pressure_blocks_socket_creation_and_recovers(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.asyncio
+async def test_live_descriptor_pressure_blocks_socket_creation_and_recovers(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(resource, "getrlimit", lambda _: (1024, 1024))
     monkeypatch.setattr(_SocketBudget, "count_open", lambda _: 16)
     budget = _SocketBudget(4)
-    factory = Mock()
+    factory = Mock(wraps=runtime_proxy._create_socket)
     monkeypatch.setattr(runtime_proxy, "_create_socket", factory)
     address = (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("127.0.0.1", 8000))
     monkeypatch.setattr(budget, "count_open", lambda: 896)
+    await budget.refresh()
     assert not budget.acquire()
     with pytest.raises(_SocketBudgetExceeded):
         budget.create_socket(address)
     factory.assert_not_called()
     assert budget.in_flight == 0
     monkeypatch.setattr(budget, "count_open", lambda: 895)
+    await budget.refresh()
     assert budget.acquire()
-    assert budget.create_socket(address) is factory.return_value
+    with budget.create_socket(address):
+        assert not budget.has_headroom()
+    assert budget.has_headroom()
     budget.release()
     assert budget.in_flight == 0
 
@@ -78,9 +84,11 @@ def test_budget_rejects_without_queueing_at_its_in_flight_limit(monkeypatch: pyt
     assert budget.acquire()
 
 
-def test_descriptor_inspection_failure_preserves_headroom(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.asyncio
+async def test_descriptor_inspection_failure_preserves_headroom(monkeypatch: pytest.MonkeyPatch) -> None:
     budget = _SocketBudget(1)
     monkeypatch.setattr(budget, "count_open", Mock(side_effect=OSError("descriptor table unavailable")))
+    await budget.refresh()
     assert not budget.acquire()
 
 
@@ -104,6 +112,7 @@ async def test_pressure_discards_idle_upstream_connections_and_closes_overload_r
             assert sum(len(items) for items in proxy.connector._conns.values()) == 1
             original_count = proxy.budget.count_open
             monkeypatch.setattr(proxy.budget, "count_open", lambda: proxy.budget.soft_limit)
+            await proxy.budget.refresh()
             async with client.get(endpoint.make_url("/complete")) as response:
                 assert response.status == 429
                 assert response.headers["Retry-After"] == "3"
@@ -112,6 +121,7 @@ async def test_pressure_discards_idle_upstream_connections_and_closes_overload_r
             assert not proxy.connector._conns
             assert proxy.budget.in_flight == 0
             monkeypatch.setattr(proxy.budget, "count_open", original_count)
+            await proxy.budget.refresh()
             async with client.get(endpoint.make_url("/complete")) as response:
                 assert response.status == 200
                 await response.read()
@@ -276,3 +286,107 @@ async def test_admission_budget_returns_immediate_overload_and_releases_capacity
                 assert response.status == 200
                 await response.read()
             assert proxy.budget.in_flight == 0
+
+
+def test_admission_and_socket_lifecycle_do_not_scan_descriptors(monkeypatch: pytest.MonkeyPatch) -> None:
+    budget = _SocketBudget(1)
+    scan = Mock(side_effect=AssertionError("request paths must not scan descriptors"))
+    monkeypatch.setattr(budget, "count_open", scan)
+    before = budget._estimated_open
+    address = (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("127.0.0.1", 8000))
+    assert budget.acquire()
+    connection = budget.create_socket(address)
+    assert budget._estimated_open == before + 1
+    connection.close()
+    connection.close()
+    budget.release()
+    assert budget._estimated_open == before
+    scan.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_reconciliation_preserves_opens_during_scan_without_crediting_racing_closes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    budget = _SocketBudget(1)
+    started, release = threading.Event(), threading.Event()
+
+    def scan() -> int:
+        started.set()
+        assert release.wait(2)
+        return 100
+
+    monkeypatch.setattr(budget, "count_open", scan)
+    refresh = asyncio.create_task(budget.refresh())
+    try:
+        assert await asyncio.to_thread(started.wait, 2)
+        for _ in range(3):
+            budget.connection_opened()
+        for _ in range(2):
+            budget.connection_closed()
+    finally:
+        release.set()
+        await refresh
+    assert budget._estimated_open == 103
+    budget.connection_closed()
+    assert budget._estimated_open == 102
+
+
+@pytest.mark.asyncio
+async def test_stale_sample_blocks_admission_until_reconciliation(monkeypatch: pytest.MonkeyPatch) -> None:
+    budget = _SocketBudget(1)
+    budget._sampled_at -= runtime_proxy._DESCRIPTOR_SAMPLE_MAXIMUM_AGE_SECONDS + 1
+    assert not budget.acquire()
+    monkeypatch.setattr(budget, "count_open", lambda: 16)
+    await budget.refresh()
+    assert budget.acquire()
+    budget.release()
+
+
+@pytest.mark.asyncio
+async def test_sampler_runs_off_event_loop_and_stops_with_budget(monkeypatch: pytest.MonkeyPatch) -> None:
+    budget = _SocketBudget(1)
+    loop_thread = threading.get_ident()
+    threads: list[int] = []
+
+    def scan() -> int:
+        threads.append(threading.get_ident())
+        return 16
+
+    monkeypatch.setattr(budget, "count_open", scan)
+    monkeypatch.setattr(runtime_proxy, "_DESCRIPTOR_SAMPLE_INTERVAL_SECONDS", 0.001)
+    budget.start()
+    try:
+        async with asyncio.timeout(2):
+            while not threads:
+                await asyncio.sleep(0.001)
+    finally:
+        await budget.close()
+    assert threads and all(thread != loop_thread for thread in threads)
+    assert budget._monitor_task is not None and budget._monitor_task.done()
+
+
+@pytest.mark.asyncio
+async def test_production_server_tracks_connections_before_http_request() -> None:
+    proxy = _ProxyApplication((_Backend("127.0.0.1", 8001),), 1)
+    runner = runtime_proxy._ProxyRunner(proxy)
+    await runner.setup()
+    try:
+        await web.TCPSite(runner, "127.0.0.1", 0).start()
+        assert proxy.budget is not None
+        await proxy.budget.close()
+        before = proxy.budget._estimated_open
+        _, writer = await asyncio.open_connection("127.0.0.1", runner.addresses[0][1])
+        try:
+            async with asyncio.timeout(2):
+                while proxy.budget._estimated_open == before:
+                    await asyncio.sleep(0.001)
+            assert proxy.budget._estimated_open == before + 1
+        finally:
+            writer.close()
+            await writer.wait_closed()
+        async with asyncio.timeout(2):
+            while proxy.budget._estimated_open != before:
+                await asyncio.sleep(0.001)
+    finally:
+        await runner.cleanup()

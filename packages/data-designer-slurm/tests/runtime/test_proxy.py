@@ -53,8 +53,8 @@ def test_proxy_publishes_listener_ownership_and_releases_socket(
         reservation.bind(("127.0.0.1", 0))
         port = reservation.getsockname()[1]
 
-    def run_app(application: web.Application, **options: object) -> None:
-        del application
+    def run_app(proxy: _ProxyApplication, **options: object) -> None:
+        del proxy
         listener = options["sock"]
         assert isinstance(listener, socket.socket)
         assert listener.getsockname() == ("127.0.0.1", port)
@@ -66,7 +66,7 @@ def test_proxy_publishes_listener_ownership_and_releases_socket(
                 contender.bind(("127.0.0.1", port))
         raise RuntimeError("injected startup failure")
 
-    monkeypatch.setattr(runtime_proxy.web, "run_app", run_app)
+    monkeypatch.setattr(runtime_proxy, "_run_application", run_app)
     with pytest.raises(RuntimeError, match="injected startup"):
         runtime_proxy.main(
             ["--listen-port", str(port), "--backend", "http://127.0.0.1:8001", "--listening-file", str(marker)]
@@ -104,11 +104,11 @@ async def _serve_production(
     runner: web.AppRunner | None = None
     connector: TCPConnector | None = None
 
-    def run_app(application: web.Application, **options: object) -> None:
+    def run_app(proxy: _ProxyApplication, **options: object) -> None:
         nonlocal runner
         for name in ("sock", "print"):
             options.pop(name)
-        runner = web.AppRunner(application, **options)
+        runner = runtime_proxy._ProxyRunner(proxy, **options)
 
     connector_type = runtime_proxy._ProxyConnector
 
@@ -117,7 +117,7 @@ async def _serve_production(
         connector = connector_type(*args)
         return connector
 
-    monkeypatch.setattr(runtime_proxy.web, "run_app", run_app)
+    monkeypatch.setattr(runtime_proxy, "_run_application", run_app)
     monkeypatch.setattr(runtime_proxy, "_ProxyConnector", create_connector)
     with socket.socket() as reservation:
         reservation.bind(("127.0.0.1", 0))

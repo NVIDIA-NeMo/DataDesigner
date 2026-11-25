@@ -91,6 +91,7 @@ async def test_proxy_socket_pressure_reaches_real_client_admission(monkeypatch: 
         async with TestServer(proxy.create()) as endpoint:
             assert proxy.budget is not None
             monkeypatch.setattr(proxy.budget, "count_open", lambda: proxy.budget.soft_limit)
+            await proxy.budget.refresh()
             admission = AdaptiveRequestAdmissionController(
                 RequestAdmissionConfig(multiplicative_decrease_factor=0.5, cooldown_seconds=0)
             )
