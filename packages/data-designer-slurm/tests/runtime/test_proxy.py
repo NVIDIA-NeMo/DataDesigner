@@ -7,9 +7,10 @@ import argparse
 import asyncio
 import json
 import logging
+import resource
 import socket
 from collections.abc import AsyncIterator, Awaitable, Callable
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from pathlib import Path
 
 import pytest
@@ -52,8 +53,8 @@ def test_proxy_publishes_listener_ownership_and_releases_socket(
         reservation.bind(("127.0.0.1", 0))
         port = reservation.getsockname()[1]
 
-    def run_app(application: web.Application, **options: object) -> None:
-        del application
+    def run_app(proxy: _ProxyApplication, **options: object) -> None:
+        del proxy
         listener = options["sock"]
         assert isinstance(listener, socket.socket)
         assert listener.getsockname() == ("127.0.0.1", port)
@@ -65,7 +66,7 @@ def test_proxy_publishes_listener_ownership_and_releases_socket(
                 contender.bind(("127.0.0.1", port))
         raise RuntimeError("injected startup failure")
 
-    monkeypatch.setattr(runtime_proxy.web, "run_app", run_app)
+    monkeypatch.setattr(runtime_proxy, "_run_application", run_app)
     with pytest.raises(RuntimeError, match="injected startup"):
         runtime_proxy.main(
             ["--listen-port", str(port), "--backend", "http://127.0.0.1:8001", "--listening-file", str(marker)]
@@ -103,11 +104,11 @@ async def _serve_production(
     runner: web.AppRunner | None = None
     connector: TCPConnector | None = None
 
-    def run_app(application: web.Application, **options: object) -> None:
+    def run_app(proxy: _ProxyApplication, **options: object) -> None:
         nonlocal runner
         for name in ("sock", "print"):
             options.pop(name)
-        runner = web.AppRunner(application, **options)
+        runner = runtime_proxy._ProxyRunner(proxy, **options)
 
     connector_type = runtime_proxy._ProxyConnector
 
@@ -116,7 +117,7 @@ async def _serve_production(
         connector = connector_type(*args)
         return connector
 
-    monkeypatch.setattr(runtime_proxy.web, "run_app", run_app)
+    monkeypatch.setattr(runtime_proxy, "_run_application", run_app)
     monkeypatch.setattr(runtime_proxy, "_ProxyConnector", create_connector)
     with socket.socket() as reservation:
         reservation.bind(("127.0.0.1", 0))
@@ -474,7 +475,11 @@ async def test_proxy_logs_attempt_upstreams_and_timings_without_payloads(caplog:
                 headers={"Authorization": "Bearer private-key"},
             ) as response:
                 assert await response.text() == "private-generated-content"
-    records = [record.getMessage() for record in caplog.records if record.name == runtime_proxy.__name__]
+    records = [
+        record.getMessage()
+        for record in caplog.records
+        if record.name == runtime_proxy.__name__ and record.getMessage().startswith("slurm_proxy_request ")
+    ]
     assert len(records) == 1
     assert "private-" not in records[0]
     event = json.loads(records[0].split(" ", 1)[1])
@@ -590,7 +595,11 @@ async def test_proxy_records_stream_timeout_without_replaying(
             async with client.get(endpoint.make_url("/metrics")) as response:
                 assert (await response.json())["timeouts"] == 1
     assert calls == 1
-    record = next(record for record in caplog.records if record.name == runtime_proxy.__name__)
+    record = next(
+        record
+        for record in caplog.records
+        if record.name == runtime_proxy.__name__ and record.getMessage().startswith("slurm_proxy_request ")
+    )
     event = json.loads(record.getMessage().split(" ", 1)[1])
     assert event["response_completed"] is False
     assert event["upstream_outcomes"] == ["stream_timeout"]
@@ -626,8 +635,7 @@ async def test_production_proxy_shutdown_drains_active_stream(monkeypatch: pytes
 
 
 @pytest.mark.asyncio
-async def test_health_does_not_wait_for_saturated_inference_pool(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(runtime_proxy, "_MAXIMUM_CONNECTIONS", 1)
+async def test_health_remains_responsive_during_inference() -> None:
     entered, release = asyncio.Event(), asyncio.Event()
 
     async def backend_handler(request: web.Request) -> web.Response:
@@ -653,43 +661,9 @@ async def test_health_does_not_wait_for_saturated_inference_pool(monkeypatch: py
 
 
 @pytest.mark.asyncio
-async def test_proxy_waits_for_a_pooled_connection_without_timing_out(monkeypatch: pytest.MonkeyPatch) -> None:
-    first_started = asyncio.Event()
-    release_first = asyncio.Event()
-    requests = 0
-
-    async def available(request: web.Request) -> web.Response:
-        del request
-        nonlocal requests
-        requests += 1
-        if requests == 1:
-            first_started.set()
-            await release_first.wait()
-        return web.Response(text="complete")
-
-    monkeypatch.setattr(runtime_proxy, "_MAXIMUM_CONNECTIONS", 1)
-    monkeypatch.setattr(runtime_proxy, "_CONNECT_TIMEOUT_SECONDS", 0.05)
-    async with _serve(_application(available)) as backend:
-        proxy = _ProxyApplication((_backend(backend),), 1)
-        async with _serve(proxy.create()) as endpoint, ClientSession() as client:
-            first = asyncio.create_task(client.get(endpoint.make_url("/first")))
-            await first_started.wait()
-            second = asyncio.create_task(client.get(endpoint.make_url("/second")))
-            await asyncio.sleep(0.1)
-            release_first.set()
-            async with await first as response:
-                assert response.status == 200
-                assert await response.text() == "complete"
-            async with await second as response:
-                assert response.status == 200
-                assert await response.text() == "complete"
-
-    assert requests == 2
-
-
-@pytest.mark.asyncio
 async def test_proxy_releases_backend_when_upstream_request_is_cancelled(monkeypatch: pytest.MonkeyPatch) -> None:
     proxy = _ProxyApplication((_Backend("127.0.0.1", 8001),), 1)
+    proxy.budget = runtime_proxy._SocketBudget(1)
 
     class _Request:
         async def read(self) -> bytes:
@@ -786,3 +760,71 @@ def test_pool_selects_least_active_backend_deterministically() -> None:
 
     assert (first, second, third) == (0, 1, 2)
     assert pool.active_counts() == (0, 0, 0)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("backend_count", "concurrent_requests"), [(1, 257), (4, 513)])
+async def test_proxy_forwards_above_256_when_descriptor_budget_allows(
+    backend_count: int, concurrent_requests: int
+) -> None:
+    budget = runtime_proxy._SocketBudget(backend_count)
+    required_descriptors = budget.count_open() + 4 * concurrent_requests + 2 * backend_count + budget.headroom
+    if budget.soft_limit < required_descriptors:
+        pytest.skip(
+            f"in-process socket fixture requires at least {required_descriptors} descriptors; "
+            f"RLIMIT_NOFILE is {budget.soft_limit}"
+        )
+    active = 0
+    peak = 0
+    all_started, release = asyncio.Event(), asyncio.Event()
+
+    async def backend_handler(request: web.Request) -> web.Response:
+        if request.path == "/health":
+            return web.Response()
+        nonlocal active, peak
+        active += 1
+        peak = max(peak, active)
+        if active == concurrent_requests:
+            all_started.set()
+        try:
+            await release.wait()
+            return web.Response(text="complete")
+        finally:
+            active -= 1
+
+    async with AsyncExitStack() as stack:
+        servers = [await stack.enter_async_context(_serve(_application(backend_handler))) for _ in range(backend_count)]
+        proxy = _ProxyApplication(tuple(_backend(server) for server in servers), 1)
+        endpoint = await stack.enter_async_context(_serve(proxy.create()))
+        client = await stack.enter_async_context(ClientSession(connector=TCPConnector(limit=0)))
+        requests = [asyncio.create_task(client.get(endpoint.make_url("/complete"))) for _ in range(concurrent_requests)]
+        try:
+            # Hold every response until every request has reached a backend.
+            await asyncio.wait_for(all_started.wait(), 10)
+            assert peak == concurrent_requests
+            async with client.get(endpoint.make_url("/metrics")) as response:
+                metrics = await response.json()
+                assert metrics["connections"]["limit"] >= concurrent_requests
+                assert metrics["connections"]["limit"] == metrics["socket_budget"]["connection_limit"]
+            async with client.get(endpoint.make_url("/health")) as response:
+                assert response.status == 200
+        finally:
+            release.set()
+            responses = await asyncio.gather(*requests)
+            for response in responses:
+                assert response.status == 200
+                await response.read()
+                response.release()
+
+
+@pytest.mark.asyncio
+async def test_proxy_cli_derives_inference_connections_from_descriptor_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def available(request: web.Request) -> web.Response:
+        del request
+        return web.Response()
+
+    async with _serve(_application(available)) as backend:
+        async with _serve_production(_backend(backend), monkeypatch) as (_, connector):
+            soft_limit, _ = resource.getrlimit(resource.RLIMIT_NOFILE)
+            assert 0 < connector.limit < soft_limit
+            assert connector.limit_per_host == 0
