@@ -822,21 +822,25 @@ name = "data-designer-slurm"
 source = { editable = "packages/data-designer-slurm" }
 dependencies = [
     { name = "aiohttp" },
+    { name = "click" },
     { name = "data-designer" },
     { name = "packaging" },
     { name = "pip" },
     { name = "pydantic" },
     { name = "pyyaml" },
+    { name = "typer" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "aiohttp", specifier = ">=3.14.3,<4" },
+    { name = "click", specifier = ">=8.2.1,<9" },
     { name = "data-designer", editable = "packages/data-designer" },
     { name = "packaging", specifier = ">=25,<27" },
     { name = "pip", specifier = ">=25,<27" },
     { name = "pydantic", specifier = ">=2.12,<3" },
     { name = "pyyaml", specifier = ">=6.0.1,<7" },
+    { name = "typer", specifier = ">=0.19.0,<1" },
 ]
 
 [[package]]
