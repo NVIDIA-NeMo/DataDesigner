@@ -322,7 +322,7 @@ Check the collected row count against your target. Some shards may produce fewer
 
 ## So What Did We Learn?
 
-We used 8,192-record benchmarks to tune this pipeline before committing to a million-row production run.
+To make every GPU-hour count, we used 8,192-record benchmarks to choose a setup for a million-row production run. Our choice was on the **observed Pareto frontier** for this pipeline. Every faster setup we tested used more GPU-hours per 1,000 records, and the only cheaper setup generated records more slowly.
 
 Here are some takeaways:
 
