@@ -188,7 +188,7 @@ The plots below use measured records/s and GPU-hours per 1,000 generated records
 
 We tested two ways to serve [Nemotron 3.5 Super VL 120B-A12B BF16](https://huggingface.co/nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-BF16) on eight H100s per node. TP4 ran two model replicas per node, each using four GPUs. TP8 ran one replica across all eight. Both layouts used vLLM 0.32.0 with pipeline parallelism set to one and expert parallelism off.
 
-To find where throughput leveled off, we tested each layout on one and two nodes, doubling client concurrency from 128 through 4,096. Each allocation used one Data Designer client and one request proxy.
+To find where throughput leveled off, we tested each layout on one and two nodes, doubling client concurrency from 128 through 4,096. Each allocation used one Data Designer client.
 
 ![Throughput and GPU-hours per 1,000 records across the one-node and two-node sweeps. Diamonds mark the highest generation rate and the lowest measured GPU cost.](/assets/make-every-gpu-hour-count/throughput.png)
 
